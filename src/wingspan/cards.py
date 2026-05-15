@@ -307,7 +307,7 @@ def parse_power(color: PowerColor, text: str) -> Power:
     )
     if m:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.DISCARD_EGG_FOR_WILD, amount=n, raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.DISCARD_EGG_FOR_WILD, amount=n, raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(kind=EffectKind.UNIMPLEMENTED, raw_text=text))
