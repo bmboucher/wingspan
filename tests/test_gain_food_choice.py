@@ -51,7 +51,7 @@ def test_parser_recognises_food_choice():
     eff = p.effects[0]
     assert eff.kind == EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE
     assert eff.amount == 1
-    assert eff.extra == (Food.INVERTEBRATE, Food.FRUIT)
+    assert eff.food_a == Food.INVERTEBRATE and eff.food_b == Food.FRUIT
 
 
 def test_parser_recognises_die_any():

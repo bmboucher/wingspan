@@ -535,7 +535,7 @@ class Engine:
                 p.food[eff.food] += take
                 self._log(f"  {bird.name}: +{take} {eff.food.value} from birdfeeder")
         elif eff.kind == EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE:
-            food_a, food_b = eff.extra
+            food_a, food_b = eff.food_a, eff.food_b
             avail = [f for f in (food_a, food_b) if st.birdfeeder.counts.get(f, 0) > 0]
             if not avail:
                 self._log(

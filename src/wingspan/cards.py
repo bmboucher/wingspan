@@ -226,9 +226,10 @@ def parse_power(color: PowerColor, text: str) -> Power:
         food_a = FOOD_TAGS[m.group(1)]
         food_b = FOOD_TAGS[m.group(2)]
         effects.append(Effect(
-            EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE,
+            kind=EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE,
             amount=1,
-            extra=(food_a, food_b),
+            food_a=food_a,
+            food_b=food_b,
             raw_text=m.group(0),
         ))
 
@@ -236,7 +237,7 @@ def parse_power(color: PowerColor, text: str) -> Power:
     # Anchored so it only matches the unqualified [die] wording.
     m = re.match(r"^Gain 1 \[die\] from the birdfeeder\.?$", t, re.I)
     if m:
-        effects.append(Effect(EffectKind.GAIN_DIE_ANY, amount=1, raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.GAIN_DIE_ANY, amount=1, raw_text=m.group(0)))
 
     # Pattern 2: "Gain N [food] from the birdfeeder"
     m = re.search(r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the birdfeeder", t, re.I)
