@@ -77,6 +77,11 @@ class EffectKind(str, Enum):
     DISCARD_EGG_FOR_WILD = "discard_egg_for_wild"
     EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER = "each_player_gains_die_choose_order"
     ALL_PLAYERS_LAY_EGG_ON_NEST = "all_players_lay_egg_on_nest"
+    DRAW_FROM_TRAY_ALL = "draw_from_tray_all"
+    TRADE_WILD_FOOD = "trade_wild_food"
+    FEWEST_FOREST_GAINS_DIE = "fewest_forest_gains_die"
+    PLAY_ADDITIONAL_BIRD_HERE = "play_additional_bird_here"
+    DRAW_N_PLUS_ONE_DRAFT = "draw_n_plus_one_draft"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -347,6 +352,35 @@ def parse_power(color: PowerColor, text: str) -> Power:
             amount=extra_for_self,
             raw_text=m.group(0),
         ))
+
+    # Pattern 13: "Draw the N face-up [card] in the bird tray" -- Brant
+    m = re.search(r"Draw the (\d+) face-up \[card\] in the bird tray", t, re.I)
+    if m:
+        n = int(m.group(1))
+        effects.append(Effect(kind=EffectKind.DRAW_FROM_TRAY_ALL, amount=n, raw_text=m.group(0)))
+
+    # Pattern 14: "Trade 1 [wild] for any other type from the supply" -- Green Heron
+    m = re.search(r"Trade 1 \[wild\] for any other type from the supply", t, re.I)
+    if m:
+        effects.append(Effect(kind=EffectKind.TRADE_WILD_FOOD, raw_text=m.group(0)))
+
+    # Pattern 15: "Player(s) with the fewest birds in their [forest] gain 1 [die] from birdfeeder" -- Hermit Thrush
+    m = re.search(
+        r"Player\(s\) with the fewest birds in their \[forest\] gain 1 \[die\] from birdfeeder",
+        t, re.I,
+    )
+    if m:
+        effects.append(Effect(kind=EffectKind.FEWEST_FOREST_GAINS_DIE, raw_text=m.group(0)))
+
+    # Pattern 16: "Play an additional bird in this bird's habitat" -- House Wren
+    m = re.search(r"Play an additional bird in this bird.{1,4}s habitat", t, re.I)
+    if m:
+        effects.append(Effect(kind=EffectKind.PLAY_ADDITIONAL_BIRD_HERE, raw_text=m.group(0)))
+
+    # Pattern 17: "Draw [card] equal to the number of players +1" -- American Oystercatcher
+    m = re.search(r"Draw \[card\] equal to the number of players \+1", t, re.I)
+    if m:
+        effects.append(Effect(kind=EffectKind.DRAW_N_PLUS_ONE_DRAFT, raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(kind=EffectKind.UNIMPLEMENTED, raw_text=text))
