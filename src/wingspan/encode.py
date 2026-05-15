@@ -44,6 +44,7 @@ _TYPE_SLOTS: list[tuple[DecisionType, int]] = [
     (DecisionType.BIRD_POWER_PICK_FOOD, MAX_FOOD_TYPES),
     (DecisionType.BIRD_POWER_PICK_BIRD, MAX_BOARD_TARGETS),
     (DecisionType.BIRD_POWER_TUCK_FROM_HAND, MAX_HAND_PICKS + 1),
+    (DecisionType.BIRD_POWER_MOVE_HABITAT, MAX_HABITATS),  # up to 2 dests + stay
     (DecisionType.SKIP_OPTIONAL, 2),
 ]
 TYPE_OFFSET: dict[DecisionType, int] = {}
