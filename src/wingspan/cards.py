@@ -76,6 +76,7 @@ class EffectKind(str, Enum):
     DRAW_BONUS = "draw_bonus"
     DISCARD_EGG_FOR_WILD = "discard_egg_for_wild"
     EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER = "each_player_gains_die_choose_order"
+    ALL_PLAYERS_LAY_EGG_ON_NEST = "all_players_lay_egg_on_nest"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -182,6 +183,12 @@ HABITAT_TAGS = {
     "[forest]": Habitat.FOREST,
     "[grassland]": Habitat.GRASSLAND,
     "[wetland]": Habitat.WETLAND,
+}
+NEST_TAGS = {
+    "bowl": NestType.BOWL,
+    "cavity": NestType.CAVITY,
+    "ground": NestType.GROUND,
+    "platform": NestType.PLATFORM,
 }
 
 NUM_WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
@@ -319,6 +326,27 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(kind=EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=n, raw_text=m.group(0)))
+
+    # Pattern 12: "All players lay 1 [egg] on any 1 [<nest>] bird.
+    #              (You may lay 1 [egg] on 1 additional [<nest>] bird.)"
+    # The second sentence is optional in printed text; when present the active
+    # player gets one additional (optional) laying. We encode the extra-for-self
+    # count in ``Effect.amount`` (0 when the second sentence is absent, 1 when
+    # present).
+    m = re.search(
+        r"All players lay\s+\d+\s+\[egg\]\s+on any\s+\d+\s+\[(bowl|cavity|ground|platform)\] bird\."
+        r"(?:\s+You may lay\s+\d+\s+\[egg\]\s+on\s+\d+\s+additional)?",
+        t, re.I,
+    )
+    if m:
+        nest = NEST_TAGS[m.group(1).lower()]
+        extra_for_self = 1 if "additional" in m.group(0).lower() else 0
+        effects.append(Effect(
+            kind=EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST,
+            nest=nest,
+            amount=extra_for_self,
+            raw_text=m.group(0),
+        ))
 
     if not effects:
         effects.append(Effect(kind=EffectKind.UNIMPLEMENTED, raw_text=text))
