@@ -555,6 +555,70 @@ class Engine:
                     drawn.append(st.bonus_deck.pop())
             p.bonus_cards.extend(drawn)
             self._log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+        elif eff.kind == EffectKind.REPEAT_BROWN_OWN_HABITAT:
+            self._repeat_power(
+                agent, p, pb, habitat,
+                predicate=lambda other: other.bird.color == PowerColor.BROWN,
+                description="brown",
+            )
+        elif eff.kind == EffectKind.REPEAT_PREDATOR_OWN_HABITAT:
+            for _ in range(max(1, eff.amount)):
+                self._repeat_power(
+                    agent, p, pb, habitat,
+                    predicate=lambda other: (
+                        other.bird.color == PowerColor.BROWN and other.bird.predator
+                    ),
+                    description="[predator]",
+                )
+
+    def _repeat_power(
+        self,
+        agent: Agent,
+        p: Player,
+        pb: PlayedBird,
+        habitat: Habitat,
+        predicate,
+        description: str,
+    ) -> None:
+        """Ask the player to pick another bird in ``habitat`` whose brown power
+        should be re-triggered. Recursion guard: skip any REPEAT_* effects on
+        the copied bird so chains can't loop indefinitely."""
+        bird = pb.bird
+        candidates = [other for other in p.board[habitat]
+                      if other is not pb and predicate(other)]
+        if not candidates:
+            self._log(f"  {bird.name}: no eligible {description} bird to repeat; skipped")
+            return
+        choices = [Choice(label=c.bird.name, payload=c) for c in candidates]
+        choices.append(Choice(label="skip", payload=None))
+        ch = self._ask(agent, Decision(
+            type=DecisionType.BIRD_POWER_PICK_BIRD,
+            player_id=p.id,
+            prompt=f"[{p.name}] {bird.name}: pick a {description} bird to repeat (or skip)",
+            choices=choices,
+            context={"reason": "repeat_power"},
+        ))
+        chosen: Optional[PlayedBird] = ch.payload
+        if chosen is None:
+            self._log(f"  {bird.name}: chose to skip repeat")
+            return
+        # Recursion guard: filter out REPEAT_* effects on the copied bird so we
+        # never trigger another repeat from within a repeat.
+        safe_effects = [
+            e for e in chosen.bird.power.effects
+            if e.kind not in (
+                EffectKind.REPEAT_BROWN_OWN_HABITAT,
+                EffectKind.REPEAT_PREDATOR_OWN_HABITAT,
+            )
+        ]
+        if not safe_effects:
+            self._log(
+                f"  {bird.name}: would copy {chosen.bird.name} but its only power is another repeat; skipped"
+            )
+            return
+        self._log(f"  {bird.name}: repeats {chosen.bird.name}'s power")
+        for sub_eff in safe_effects:
+            self._apply_effect(agent, p, chosen, habitat, sub_eff, "activate")
 
     # ------------------------------------------------------------------
     # Decision plumbing

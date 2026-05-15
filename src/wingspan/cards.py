@@ -70,6 +70,8 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_GAIN_FOOD = "all_players_gain_food"
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
+    REPEAT_BROWN_OWN_HABITAT = "repeat_brown_own_habitat"
+    REPEAT_PREDATOR_OWN_HABITAT = "repeat_predator_own_habitat"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -256,6 +258,21 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+
+    # Pattern 11: "Repeat a brown power on another bird in this habitat"
+    # (Gray Catbird, Northern Mockingbird)
+    m = re.search(r"Repeat a brown power on another bird in this habitat", t, re.I)
+    if m:
+        effects.append(Effect(EffectKind.REPEAT_BROWN_OWN_HABITAT, raw_text=m.group(0)))
+
+    # Pattern 12: "Repeat N [predator] power in this habitat" (Hooded Merganser)
+    m = re.search(
+        r"Repeat\s+(\d+|a|an|one|two|three)\s+\[predator\] power in this habitat",
+        t, re.I,
+    )
+    if m:
+        n = _to_int(m.group(1)) or 1
+        effects.append(Effect(EffectKind.REPEAT_PREDATOR_OWN_HABITAT, amount=n, raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(EffectKind.UNIMPLEMENTED, raw_text=text))
