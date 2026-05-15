@@ -14,10 +14,13 @@ A simulator and RL training pipeline for the board game [Wingspan](https://stone
 pip install -e .
 ```
 
+PyTorch with CUDA must be available for the GPU training cycle (any 2.x build works).
+
 ## Run a game manually (criterion 1)
 
 ```
-wingspan-play
+python -m wingspan.cli manual          # you control player 0, opponent random
+python -m wingspan.cli manual --both-human
 ```
 
 The CLI presents numbered menus for every choice the rules require.
@@ -25,18 +28,25 @@ The CLI presents numbered menus for every choice the rules require.
 ## Watch a random self-play game (criterion 2)
 
 ```
-wingspan-random --log game.log
+python -m wingspan.cli random --log game.log
+python -m wingspan.cli random --games 5 --log games.log     # writes games.log.0 ..
 ```
 
-This runs two random agents and writes a detailed action-by-action log.
+Two random agents play; the action-by-action log is written to disk.
 
 ## Run one training cycle (criterion 3)
 
 ```
-wingspan-train --device cuda --episodes 32 --epochs 1
+python -m wingspan.train --device cuda --episodes 32 --epochs 1
 ```
 
-This collects self-play data with random+exploration policy, then performs one DQN-style update on the GPU.
+Collects self-play data (policy net + epsilon exploration vs. random opponent) and runs a REINFORCE-with-value-baseline update.
+
+## Tests
+
+```
+python -m pytest tests/
+```
 
 ## Layout
 
