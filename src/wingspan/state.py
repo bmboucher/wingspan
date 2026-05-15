@@ -33,6 +33,10 @@ class PlayedBird:
     tucked_cards: int = 0
     # number of times the bird has been activated this round (used by some rules)
     activations: int = 0
+    # Set True when a predator power on this bird tucked a card this turn.
+    # Consumed by opponent's pink "when opponent's predator succeeds" powers.
+    # Reset by the engine at the start of every turn (both players' boards).
+    predator_succeeded_this_turn: bool = False
 
 
 @dataclass

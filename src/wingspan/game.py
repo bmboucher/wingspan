@@ -174,6 +174,10 @@ class Engine:
         self.state.current_player = self.state.current_player  # unchanged
         p = self.state.me()
         self.turn_state = TurnState()
+        for q in self.state.players:
+            for row in q.board.values():
+                for pb in row:
+                    pb.predator_succeeded_this_turn = False
         self._log(f"[{p.name}] starts turn ({p.action_cubes_left} cubes left)")
         choice = self._ask(agent, self._main_action_decision(p))
         action: MainAction = choice.payload
@@ -555,6 +559,25 @@ class Engine:
                     drawn.append(st.bonus_deck.pop())
             p.bonus_cards.extend(drawn)
             self._log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+        elif eff.kind == EffectKind.PREDATOR_HUNT:
+            target = st.draw_bird()
+            if target is None:
+                self._log(f"  {bird.name}: deck empty; predator hunt skipped")
+                return
+            wingspan = target.wingspan_cm
+            if wingspan and wingspan < eff.amount:
+                pb.tucked_cards += 1
+                pb.predator_succeeded_this_turn = True
+                self._log(
+                    f"  {bird.name}: hunt SUCCESS ({target.name} {wingspan}cm "
+                    f"< {eff.amount}cm); tucked behind this bird"
+                )
+            else:
+                st.bird_discard.append(target)
+                self._log(
+                    f"  {bird.name}: hunt FAIL ({target.name} {wingspan}cm "
+                    f">= {eff.amount}cm); discarded"
+                )
 
     # ------------------------------------------------------------------
     # Decision plumbing
