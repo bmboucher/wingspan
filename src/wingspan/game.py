@@ -724,6 +724,65 @@ class Engine:
                     st.birdfeeder.counts[f] -= 1
                     q.food[f] += 1
                     self._log(f"  [{q.name}] +1 {f.value} from birdfeeder")
+        elif eff.kind == EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST:
+            # "All players lay 1 [egg] on any 1 [<nest>] bird." Wingspan's
+            # "All players" effects resolve starting with the active player
+            # and proceeding clockwise. The optional second sentence ("You may
+            # lay 1 [egg] on 1 additional [<nest>] bird.") is encoded as
+            # ``eff.amount`` extra optional layings the active player gets
+            # after every other player has resolved.
+            assert eff.nest is not None, "ALL_PLAYERS_LAY_EGG_ON_NEST requires nest"
+            nest: NestType = eff.nest
+            extra_for_self = eff.amount
+            self._log(
+                f"  {bird.name}: all players lay 1 egg on a [{nest.value}] bird"
+                + (f" (active player may lay {extra_for_self} additional)" if extra_for_self else "")
+            )
+            n_players = len(st.players)
+            active_idx = p.id
+            for offset in range(n_players):
+                q = st.players[(active_idx + offset) % n_players]
+                self._lay_one_egg_on_nest(q, nest, label=bird.name)
+            for _ in range(extra_for_self):
+                self._lay_one_egg_on_nest(p, nest, label=bird.name, optional=True)
+
+    def _lay_one_egg_on_nest(self, q: Player, nest: NestType, label: str,
+                             optional: bool = False) -> None:
+        """Ask ``q`` to pick one of their birds whose nest matches ``nest`` and
+        whose ``eggs < egg_limit`` and add 1 egg there. No-op if none match.
+        If ``optional`` is True, the player may also choose to skip."""
+        eligible: list[Choice] = [
+            Choice(
+                label=f"{pb.bird.name}@{h.value}[{i}]({pb.eggs}/{pb.bird.egg_limit})",
+                payload=(h, i),
+            )
+            for h, row in q.board.items()
+            for i, pb in enumerate(row)
+            if pb.bird.nest == nest and pb.eggs < pb.bird.egg_limit
+        ]
+        if not eligible:
+            self._log(f"  {label}: [{q.name}] has no [{nest.value}] bird with room; skipped")
+            return
+        if optional:
+            eligible.append(Choice(label="skip", payload=None))
+        prompt = (
+            f"[{q.name}] lay 1 egg on a [{nest.value}] bird ({label})"
+            + (" (or skip)" if optional else "")
+        )
+        ch = self._ask(self.agent_for(q), Decision(
+            type=DecisionType.LAY_EGG_PICK_BIRD,
+            player_id=q.id,
+            prompt=prompt,
+            choices=eligible,
+            context={"reason": "all_players_lay_egg_on_nest", "nest": nest.value},
+        ))
+        ch_payload = ch.payload
+        if ch_payload is None:
+            self._log(f"  {label}: [{q.name}] skipped optional extra egg")
+            return
+        h, i = ch_payload
+        q.board[h][i].eggs += 1
+        self._log(f"  {label}: [{q.name}] laid 1 egg on {q.board[h][i].bird.name}@{h.value}[{i}]")
 
     # ------------------------------------------------------------------
     # Decision plumbing
