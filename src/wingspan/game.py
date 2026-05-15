@@ -503,6 +503,15 @@ class Engine:
                 st.birdfeeder.counts[eff.food] -= take
                 p.food[eff.food] += take
                 self._log(f"  {bird.name}: +{take} {eff.food.value} from birdfeeder")
+        elif eff.kind == EffectKind.GAIN_ALL_FOOD_FROM_FEEDER:
+            if eff.food:
+                n = st.birdfeeder.counts.get(eff.food, 0)
+                if n > 0:
+                    st.birdfeeder.counts[eff.food] = 0
+                    p.food[eff.food] += n
+                    self._log(f"  {bird.name}: +{n} {eff.food.value} (all from birdfeeder)")
+                else:
+                    self._log(f"  {bird.name}: no {eff.food.value} in birdfeeder; power skipped")
         elif eff.kind == EffectKind.LAY_EGG_ON_THIS:
             cap = bird.egg_limit - pb.eggs
             n = min(eff.amount, cap)

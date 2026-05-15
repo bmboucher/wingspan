@@ -60,6 +60,7 @@ class EffectKind(str, Enum):
     as a no-op (with a logged warning the first time it triggers)."""
     GAIN_FOOD_SUPPLY = "gain_food_supply"
     GAIN_FOOD_BIRDFEEDER = "gain_food_birdfeeder"
+    GAIN_ALL_FOOD_FROM_FEEDER = "gain_all_food_from_feeder"
     LAY_EGG_ON_THIS = "lay_egg_on_this"
     LAY_EGG_ANY = "lay_egg_any"
     DRAW_CARDS = "draw_cards"
@@ -202,6 +203,15 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m and m.group(2) in FOOD_TAGS:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.GAIN_FOOD_BIRDFEEDER, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
+
+    # Pattern 2b: "Gain all [food] that are in the birdfeeder"
+    m = re.search(r"Gain all\s+(\[\w+\])\s+that are in the birdfeeder", t, re.I)
+    if m and m.group(1) in FOOD_TAGS:
+        effects.append(Effect(
+            EffectKind.GAIN_ALL_FOOD_FROM_FEEDER,
+            food=FOOD_TAGS[m.group(1)],
+            raw_text=m.group(0),
+        ))
 
     # Pattern 3a: "Lay N [egg] on this bird"
     m = re.search(r"Lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on this bird", t, re.I)
