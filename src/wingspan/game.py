@@ -511,6 +511,27 @@ class Engine:
         elif eff.kind == EffectKind.LAY_EGG_ANY:
             for _ in range(eff.amount):
                 self._lay_one_egg(agent, p)
+        elif eff.kind == EffectKind.LAY_EGG_ON_EACH_NEST:
+            target_nest: NestType = eff.extra[0] if eff.extra else NestType.NONE
+            for row in p.board.values():
+                for pb_other in row:
+                    other_nest = pb_other.bird.nest
+                    # Star nests count as a wildcard match for any specific target.
+                    matches = (
+                        other_nest == target_nest
+                        or other_nest == NestType.STAR
+                        or target_nest == NestType.STAR
+                    )
+                    if not matches:
+                        continue
+                    if pb_other.eggs >= pb_other.bird.egg_limit:
+                        continue
+                    add = min(eff.amount, pb_other.bird.egg_limit - pb_other.eggs)
+                    pb_other.eggs += add
+                    self._log(
+                        f"  {bird.name}: +{add} egg on {pb_other.bird.name}"
+                        f" ({target_nest.value} nest)"
+                    )
         elif eff.kind == EffectKind.DRAW_CARDS:
             for _ in range(eff.amount):
                 self._draw_one_card(agent, p)
