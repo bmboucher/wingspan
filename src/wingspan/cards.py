@@ -75,6 +75,7 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
     DISCARD_EGG_FOR_WILD = "discard_egg_for_wild"
+    EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER = "each_player_gains_die_choose_order"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -308,6 +309,16 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(kind=EffectKind.DISCARD_EGG_FOR_WILD, amount=n, raw_text=m.group(0)))
+
+    # Pattern 11: "Each player gains N [die] from the birdfeeder, starting with
+    # the player of your choice." -- Anna's / Ruby-Throated Hummingbird.
+    m = re.search(
+        r"Each player gains\s+(\d+|a|an|one|two|three)\s+\[die\]\s+from the birdfeeder, starting with the player of your choice",
+        t, re.I,
+    )
+    if m:
+        n = _to_int(m.group(1)) or 1
+        effects.append(Effect(kind=EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=n, raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(kind=EffectKind.UNIMPLEMENTED, raw_text=text))

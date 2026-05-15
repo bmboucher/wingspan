@@ -675,6 +675,55 @@ class Engine:
                 st.food_supply[f] -= 1
                 p.food[f] += 1
                 self._log(f"  {bird.name}: +1 {f.value} from supply")
+        elif eff.kind == EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER:
+            n_players = len(st.players)
+            start_ch = self._ask(agent, Decision(
+                type=DecisionType.BIRD_POWER_PICK_STARTING_PLAYER,
+                player_id=p.id,
+                prompt=f"[{p.name}] pick the starting player for {bird.name}",
+                choices=[
+                    Choice(label=f"{q.name} (P{q.id})", payload=q.id)
+                    for q in st.players
+                ],
+                context={"bird": bird.name},
+            ))
+            start_idx: int = start_ch.payload
+            self._log(
+                f"  {bird.name}: each player gains {eff.amount} [die] from feeder, "
+                f"starting with P{start_idx}"
+            )
+            stop_outer = False
+            for offset in range(n_players):
+                if stop_outer:
+                    break
+                q_idx = (start_idx + offset) % n_players
+                q = st.players[q_idx]
+                responder = self.agent_for(q)
+                for _ in range(eff.amount):
+                    avail = [(f, c) for f, c in st.birdfeeder.counts.items() if c > 0]
+                    if not avail:
+                        if st.birdfeeder.total() > 0:
+                            st.birdfeeder.reroll(st.rng)
+                            self._log(
+                                f"  {bird.name}: birdfeeder rerolled to "
+                                f"{dict(st.birdfeeder.counts)}"
+                            )
+                            avail = [(f, c) for f, c in st.birdfeeder.counts.items() if c > 0]
+                        if not avail:
+                            self._log(f"  {bird.name}: birdfeeder empty; stopping power early")
+                            stop_outer = True
+                            break
+                    food_ch = self._ask(responder, Decision(
+                        type=DecisionType.GAIN_FOOD_PICK_DIE,
+                        player_id=q.id,
+                        prompt=f"[{q.name}] take 1 die from birdfeeder ({bird.name})",
+                        choices=[Choice(label=f"{f.value}({c})", payload=f) for f, c in avail],
+                        context={"bird": bird.name, "reason": "each_player_gains_die"},
+                    ))
+                    f: Food = food_ch.payload
+                    st.birdfeeder.counts[f] -= 1
+                    q.food[f] += 1
+                    self._log(f"  [{q.name}] +1 {f.value} from birdfeeder")
 
     # ------------------------------------------------------------------
     # Decision plumbing
