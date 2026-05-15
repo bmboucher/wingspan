@@ -70,6 +70,7 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_GAIN_FOOD = "all_players_gain_food"
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
+    PREDATOR_HUNT = "predator_hunt"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -256,6 +257,16 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+
+    # Pattern 11: predator hunt by wingspan -
+    # "Look at a [card] from the deck. If less than Ncm, tuck it behind this
+    # bird. If not, discard it."
+    m = re.search(
+        r"Look at a \[card\] from the deck\. If less than\s+(\d+)cm,\s*tuck it behind this bird",
+        t, re.I,
+    )
+    if m:
+        effects.append(Effect(EffectKind.PREDATOR_HUNT, amount=int(m.group(1)), raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(EffectKind.UNIMPLEMENTED, raw_text=text))
