@@ -82,6 +82,16 @@ class EffectKind(str, Enum):
     FEWEST_FOREST_GAINS_DIE = "fewest_forest_gains_die"
     PLAY_ADDITIONAL_BIRD_HERE = "play_additional_bird_here"
     DRAW_N_PLUS_ONE_DRAFT = "draw_n_plus_one_draft"
+    DRAW_BONUS_KEEP = "draw_bonus_keep"
+    LAY_EGG_ALL_NEST = "lay_egg_all_nest"
+    GAIN_ALL_FOOD_FEEDER = "gain_all_food_feeder"
+    TUCK_FROM_DECK_PAID = "tuck_from_deck_paid"
+    PREDATOR_HUNT = "predator_hunt"
+    MOVE_BIRD_IF_RIGHTMOST = "move_bird_if_rightmost"
+    REPEAT_BROWN_POWER = "repeat_brown_power"
+    REPEAT_PREDATOR_POWER = "repeat_predator_power"
+    PINK_LAY_EGG_ON_NEST = "pink_lay_egg_on_nest"
+    PINK_PREDATOR_FEEDER = "pink_predator_feeder"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -382,6 +392,108 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         effects.append(Effect(kind=EffectKind.DRAW_N_PLUS_ONE_DRAFT, raw_text=m.group(0)))
 
+    # Pattern 18: "Draw N new bonus cards and keep K." -- many white birds.
+    m = re.search(
+        r"Draw\s+(\d+|a|an|one|two|three)\s+new bonus cards and keep\s+(\d+|a|an|one|two|three)",
+        t, re.I,
+    )
+    if m:
+        n = _to_int(m.group(1)) or 1
+        k = _to_int(m.group(2)) or 1
+        effects.append(Effect(
+            kind=EffectKind.DRAW_BONUS_KEEP, amount=n, keep_count=k, raw_text=m.group(0),
+        ))
+
+    # Pattern 19: "Lay 1 [egg] on each of your birds with a [<nest>] nest." -- Bobolink etc.
+    m = re.search(
+        r"Lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on each of your birds with a \[(bowl|cavity|ground|platform)\] nest",
+        t, re.I,
+    )
+    if m:
+        n = _to_int(m.group(1)) or 1
+        effects.append(Effect(
+            kind=EffectKind.LAY_EGG_ALL_NEST,
+            amount=n,
+            nest=NEST_TAGS[m.group(2).lower()],
+            raw_text=m.group(0),
+        ))
+
+    # Pattern 20: "Gain all [<food>] that are in the birdfeeder." -- Bald Eagle, Northern Flicker.
+    m = re.search(r"Gain all (\[\w+\]) that are in the birdfeeder", t, re.I)
+    if m and m.group(1) in FOOD_TAGS:
+        effects.append(Effect(
+            kind=EffectKind.GAIN_ALL_FOOD_FEEDER,
+            food=FOOD_TAGS[m.group(1)],
+            raw_text=m.group(0),
+        ))
+
+    # Pattern 21: "Discard 1 [<food>] to tuck N [card] from the deck behind this bird."
+    m = re.search(
+        r"Discard 1 (\[\w+\]) to tuck\s+(\d+|a|an|one|two|three)\s+\[card\] from the deck behind this bird",
+        t, re.I,
+    )
+    if m and m.group(1) in FOOD_TAGS:
+        n = _to_int(m.group(2)) or 1
+        effects.append(Effect(
+            kind=EffectKind.TUCK_FROM_DECK_PAID,
+            amount=n,
+            food=FOOD_TAGS[m.group(1)],
+            raw_text=m.group(0),
+        ))
+
+    # Pattern 22: Predator hunt -- "Look at a [card] from the deck. If less than Xcm,
+    # tuck it behind this bird. If not, discard it."
+    m = re.search(
+        r"Look at a \[card\] from the deck\. If less than\s+(\d+)\s*cm, tuck it behind this bird\. If not, discard it",
+        t, re.I,
+    )
+    if m:
+        effects.append(Effect(
+            kind=EffectKind.PREDATOR_HUNT,
+            max_wingspan_cm=int(m.group(1)),
+            raw_text=m.group(0),
+        ))
+
+    # Pattern 23: "If this bird is to the right of all other birds in its habitat, move it to another habitat."
+    m = re.search(
+        r"If this bird is to the right of all other birds in its habitat, move it to another habitat",
+        t, re.I,
+    )
+    if m:
+        effects.append(Effect(kind=EffectKind.MOVE_BIRD_IF_RIGHTMOST, raw_text=m.group(0)))
+
+    # Pattern 24: "Repeat a brown power on another bird in this habitat." -- Gray Catbird, Northern Mockingbird.
+    m = re.search(r"Repeat a brown power on another bird in this habitat", t, re.I)
+    if m:
+        effects.append(Effect(kind=EffectKind.REPEAT_BROWN_POWER, raw_text=m.group(0)))
+
+    # Pattern 25: "Repeat 1 [predator] power in this habitat." -- Hooded Merganser.
+    m = re.search(r"Repeat 1 \[predator\] power in this habitat", t, re.I)
+    if m:
+        effects.append(Effect(kind=EffectKind.REPEAT_PREDATOR_POWER, raw_text=m.group(0)))
+
+    # Pattern 26 (PINK reactor): "When another player takes the 'lay eggs' action,
+    # lay 1 [egg] on (a|another) bird with a [<nest>] nest."
+    m = re.search(
+        r"When another player takes the .lay eggs. action,\s*lay 1 \[egg\] on \w+ bird with a \[(bowl|cavity|ground|platform)\] nest",
+        t, re.I,
+    )
+    if m:
+        effects.append(Effect(
+            kind=EffectKind.PINK_LAY_EGG_ON_NEST,
+            nest=NEST_TAGS[m.group(1).lower()],
+            raw_text=m.group(0),
+        ))
+
+    # Pattern 27 (PINK reactor): "When another player's [predator] succeeds,
+    # gain 1 [die] from the birdfeeder."
+    m = re.search(
+        r"When another player's \[predator\] succeeds, gain 1 \[die\] from the birdfeeder",
+        t, re.I,
+    )
+    if m:
+        effects.append(Effect(kind=EffectKind.PINK_PREDATOR_FEEDER, raw_text=m.group(0)))
+
     if not effects:
         effects.append(Effect(kind=EffectKind.UNIMPLEMENTED, raw_text=text))
 
@@ -553,10 +665,11 @@ def _goal_category(desc: str) -> str:
 
 
 def power_coverage(birds: list[Bird]) -> tuple[int, int]:
-    """Return ``(implemented, total)``."""
+    """Return ``(implemented, total)``. Birds with no power text are counted
+    as implemented (there is nothing to model)."""
     impl = sum(
         1
         for b in birds
-        if b.power.effects and not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects)
+        if not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects)
     )
     return impl, len(birds)

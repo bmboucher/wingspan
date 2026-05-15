@@ -461,6 +461,8 @@ class Engine:
         for _ in range(n_eggs):
             self._lay_one_egg(agent, p)
         self._activate_row_powers(agent, p, habitat)
+        # Pink reactors that trigger on opponent's lay-eggs action.
+        self._trigger_pink_lay_eggs_reactors(p)
 
     def _take_one_from_feeder(
         self,
@@ -892,6 +894,267 @@ class Engine:
                 self._log(
                     f"  {bird.name}: [{p.name}] keeps leftover {leftover.name}"
                 )
+        elif eff.kind == EffectKind.DRAW_BONUS_KEEP:
+            n_draw = max(eff.amount, 1)
+            keep = max(eff.keep_count or 1, 1)
+            drawn: list[BonusCard] = []
+            for _ in range(n_draw):
+                if not st.bonus_deck:
+                    break
+                drawn.append(st.bonus_deck.pop())
+            if not drawn:
+                self._log(f"  {bird.name}: bonus deck empty; power skipped")
+                return
+            keep = min(keep, len(drawn))
+            for _ in range(keep):
+                ch = self._ask(agent, Decision(
+                    type=DecisionType.BIRD_POWER_PICK_BIRD,
+                    player_id=p.id,
+                    prompt=f"[{p.name}] keep a bonus card (from {bird.name})",
+                    choices=[Choice(label=b.name, payload=b) for b in drawn],
+                    context={"reason": "draw_bonus_keep"},
+                ))
+                kept: BonusCard = ch.payload
+                drawn.remove(kept)
+                p.bonus_cards.append(kept)
+                self._log(f"  {bird.name}: kept bonus '{kept.name}'")
+            for leftover in drawn:
+                st.bonus_discard.append(leftover)
+        elif eff.kind == EffectKind.LAY_EGG_ALL_NEST:
+            assert eff.nest is not None
+            nest = eff.nest
+            count = 0
+            for h, row in p.board.items():
+                for pb_t in row:
+                    if pb_t.bird.nest != nest:
+                        continue
+                    cap = pb_t.bird.egg_limit - pb_t.eggs
+                    add = min(eff.amount, cap)
+                    if add > 0:
+                        pb_t.eggs += add
+                        count += add
+            self._log(f"  {bird.name}: laid {count} egg(s) on all [{nest.value}] birds")
+        elif eff.kind == EffectKind.GAIN_ALL_FOOD_FEEDER:
+            assert eff.food is not None
+            f = eff.food
+            n = st.birdfeeder.counts.get(f, 0)
+            if n > 0:
+                st.birdfeeder.counts[f] = 0
+                p.food[f] += n
+                self._log(f"  {bird.name}: gained all {n} {f.value} from birdfeeder")
+            else:
+                self._log(f"  {bird.name}: no {f.value} in birdfeeder; skipped")
+        elif eff.kind == EffectKind.TUCK_FROM_DECK_PAID:
+            assert eff.food is not None
+            if p.food.get(eff.food, 0) <= 0:
+                self._log(f"  {bird.name}: no {eff.food.value} to spend; power skipped")
+                return
+            ch = self._ask(agent, Decision(
+                type=DecisionType.BIRD_POWER_PICK_FOOD,
+                player_id=p.id,
+                prompt=f"[{p.name}] discard 1 {eff.food.value} to tuck {eff.amount} cards behind {bird.name}? (or skip)",
+                choices=[
+                    Choice(label=f"pay 1 {eff.food.value}", payload="pay"),
+                    Choice(label="skip", payload=None),
+                ],
+                context={"reason": "tuck_from_deck_paid"},
+            ))
+            if ch.payload is None:
+                self._log(f"  {bird.name}: declined to spend {eff.food.value}")
+                return
+            p.food[eff.food] -= 1
+            tucked = 0
+            for _ in range(eff.amount):
+                b = st.draw_bird()
+                if b is None:
+                    break
+                tucked += 1  # tucked card leaves the deck for good
+            pb.tucked_cards += tucked
+            self._log(
+                f"  {bird.name}: paid 1 {eff.food.value}, tucked {tucked} card(s) from deck"
+            )
+        elif eff.kind == EffectKind.PREDATOR_HUNT:
+            cap = eff.max_wingspan_cm
+            assert cap is not None
+            b = st.draw_bird()
+            if b is None:
+                self._log(f"  {bird.name}: deck empty; predator hunt skipped")
+                return
+            if b.wingspan_cm and b.wingspan_cm < cap:
+                pb.tucked_cards += 1
+                self._log(
+                    f"  {bird.name}: hunted {b.name} ({b.wingspan_cm}cm < {cap}cm) — tucked"
+                )
+                self._trigger_pink_predator_success(p)
+            else:
+                st.bird_discard.append(b)
+                self._log(
+                    f"  {bird.name}: hunt missed ({b.name}, {b.wingspan_cm}cm) — discarded"
+                )
+        elif eff.kind == EffectKind.MOVE_BIRD_IF_RIGHTMOST:
+            row = p.board[habitat]
+            if not row or row[-1] is not pb:
+                self._log(f"  {bird.name}: not rightmost in [{habitat.value}]; power skipped")
+                return
+            targets = [h for h in ALL_HABITATS if h != habitat and p.can_play_in(h)]
+            if not targets:
+                self._log(f"  {bird.name}: no other habitat with space; power skipped")
+                return
+            if len(targets) == 1:
+                target = targets[0]
+            else:
+                ch = self._ask(agent, Decision(
+                    type=DecisionType.BIRD_POWER_PICK_HABITAT,
+                    player_id=p.id,
+                    prompt=f"[{p.name}] move {bird.name} to which habitat?",
+                    choices=[Choice(label=h.value, payload=h) for h in targets],
+                    context={"reason": "move_rightmost"},
+                ))
+                target = ch.payload
+            row.pop()
+            p.board[target].append(pb)
+            self._log(f"  {bird.name}: moved from [{habitat.value}] to [{target.value}]")
+        elif eff.kind == EffectKind.REPEAT_BROWN_POWER:
+            others: list[PlayedBird] = [
+                other for other in p.board[habitat]
+                if other is not pb and other.bird.color == PowerColor.BROWN
+                and any(
+                    e.kind not in (EffectKind.UNIMPLEMENTED, EffectKind.REPEAT_BROWN_POWER,
+                                   EffectKind.REPEAT_PREDATOR_POWER)
+                    for e in other.bird.power.effects
+                )
+            ]
+            if not others:
+                self._log(f"  {bird.name}: no other brown bird here to repeat; skipped")
+                return
+            if len(others) == 1:
+                target_pb = others[0]
+            else:
+                ch = self._ask(agent, Decision(
+                    type=DecisionType.BIRD_POWER_PICK_BIRD,
+                    player_id=p.id,
+                    prompt=f"[{p.name}] repeat which bird's brown power?",
+                    choices=[Choice(label=o.bird.name, payload=o) for o in others],
+                    context={"reason": "repeat_brown"},
+                ))
+                target_pb = ch.payload
+            self._log(f"  {bird.name}: repeats {target_pb.bird.name}'s power")
+            for sub in target_pb.bird.power.effects:
+                if sub.kind in (EffectKind.REPEAT_BROWN_POWER, EffectKind.REPEAT_PREDATOR_POWER):
+                    continue
+                self._apply_effect(agent, p, target_pb, habitat, sub, trigger="repeat")
+        elif eff.kind == EffectKind.REPEAT_PREDATOR_POWER:
+            others = [
+                other for other in p.board[habitat]
+                if other is not pb and other.bird.predator
+                and any(e.kind == EffectKind.PREDATOR_HUNT for e in other.bird.power.effects)
+            ]
+            if not others:
+                self._log(f"  {bird.name}: no other predator here to repeat; skipped")
+                return
+            if len(others) == 1:
+                target_pb = others[0]
+            else:
+                ch = self._ask(agent, Decision(
+                    type=DecisionType.BIRD_POWER_PICK_BIRD,
+                    player_id=p.id,
+                    prompt=f"[{p.name}] repeat which predator's power?",
+                    choices=[Choice(label=o.bird.name, payload=o) for o in others],
+                    context={"reason": "repeat_predator"},
+                ))
+                target_pb = ch.payload
+            self._log(f"  {bird.name}: repeats {target_pb.bird.name}'s predator power")
+            for sub in target_pb.bird.power.effects:
+                if sub.kind == EffectKind.PREDATOR_HUNT:
+                    self._apply_effect(agent, p, target_pb, habitat, sub, trigger="repeat")
+        elif eff.kind in (EffectKind.PINK_LAY_EGG_ON_NEST, EffectKind.PINK_PREDATOR_FEEDER):
+            # Pink reactor effects are not dispatched directly when the bird is
+            # played/activated — they fire from the engine's reactor hooks.
+            pass
+
+    def _trigger_pink_lay_eggs_reactors(self, active_player: Player) -> None:
+        """Called after the active player completes a Lay Eggs action. Each
+        OTHER player's pink ``PINK_LAY_EGG_ON_NEST`` birds fire in clockwise
+        order from active+1."""
+        st = self.state
+        n = len(st.players)
+        for offset in range(1, n):
+            q = st.players[(active_player.id + offset) % n]
+            for h, row in q.board.items():
+                for pb in row:
+                    if pb.bird.color != PowerColor.PINK:
+                        continue
+                    for eff in pb.bird.power.effects:
+                        if eff.kind != EffectKind.PINK_LAY_EGG_ON_NEST:
+                            continue
+                        self._fire_pink_lay_egg(q, pb, h, eff)
+
+    def _fire_pink_lay_egg(
+        self, q: Player, pb: PlayedBird, habitat: Habitat, eff: Effect,
+    ) -> None:
+        assert eff.nest is not None
+        nest = eff.nest
+        eligible: list[Choice] = []
+        for h, row in q.board.items():
+            for i, target in enumerate(row):
+                if target is pb:
+                    continue  # "another bird"
+                if target.bird.nest != nest:
+                    continue
+                if target.eggs >= target.bird.egg_limit:
+                    continue
+                eligible.append(Choice(
+                    label=f"{target.bird.name}@{h.value}[{i}]({target.eggs}/{target.bird.egg_limit})",
+                    payload=(h, i),
+                ))
+        if not eligible:
+            self._log(
+                f"  {pb.bird.name} (pink): no other [{nest.value}] bird with room; skipped"
+            )
+            return
+        eligible.append(Choice(label="skip", payload=None))
+        ch = self._ask(self.agent_for(q), Decision(
+            type=DecisionType.LAY_EGG_PICK_BIRD,
+            player_id=q.id,
+            prompt=f"[{q.name}] lay 1 egg on a [{nest.value}] bird ({pb.bird.name}) (or skip)",
+            choices=eligible,
+            context={"reason": "pink_lay_egg_on_nest", "nest": nest.value},
+        ))
+        if ch.payload is None:
+            self._log(f"  {pb.bird.name} (pink): [{q.name}] declined")
+            return
+        h, i = ch.payload
+        q.board[h][i].eggs += 1
+        self._log(
+            f"  {pb.bird.name} (pink): [{q.name}] laid 1 egg on "
+            f"{q.board[h][i].bird.name}@{h.value}[{i}]"
+        )
+
+    def _trigger_pink_predator_success(self, hunter_player: Player) -> None:
+        """Called after a PREDATOR_HUNT succeeds (a card was tucked). Each
+        OTHER player's ``PINK_PREDATOR_FEEDER`` birds gain 1 die from the
+        birdfeeder."""
+        st = self.state
+        n = len(st.players)
+        for offset in range(1, n):
+            q = st.players[(hunter_player.id + offset) % n]
+            for h, row in q.board.items():
+                for pb in row:
+                    if pb.bird.color != PowerColor.PINK:
+                        continue
+                    for eff in pb.bird.power.effects:
+                        if eff.kind != EffectKind.PINK_PREDATOR_FEEDER:
+                            continue
+                        avail = [f for f, c in st.birdfeeder.counts.items() if c > 0]
+                        if not avail:
+                            self._log(
+                                f"  {pb.bird.name} (pink): birdfeeder empty; skipped"
+                            )
+                            continue
+                        self._take_one_from_feeder(
+                            self.agent_for(q), q, pb, avail,
+                            reason="pink_predator_feeder",
+                        )
 
     def _lay_one_egg_on_nest(self, q: Player, nest: NestType, label: str,
                              optional: bool = False) -> None:
