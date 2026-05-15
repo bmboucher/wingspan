@@ -136,14 +136,31 @@ class TurnState:
 
 
 class Engine:
-    def __init__(self, state: GameState):
+    def __init__(self, state: GameState, agents: Optional[Iterable[Agent]] = None):
         self.state = state
         self.turn_state = TurnState()
+        # ``agents`` is indexed by ``Player.id`` so opponent-prompting power
+        # effects (pink reactors, "each player chooses" effects) can route to
+        # the correct controller without threading agents through every method
+        # signature. Tests that exercise dispatch directly should pass agents
+        # at construction; ``play_one_game`` re-supplies them unconditionally.
+        self.agents: list[Agent] = list(agents) if agents is not None else []
+
+    def _agent_for(self, player: Player) -> Agent:
+        """Return the agent controlling ``player``. Raises if unset — there is
+        no silent fallback to the active player's agent."""
+        if not self.agents or player.id >= len(self.agents) or self.agents[player.id] is None:
+            raise RuntimeError(
+                f"No agent registered for player {player.id} ({player.name}). "
+                f"Construct Engine(state, agents=[...]) or call play_one_game(agents)."
+            )
+        return self.agents[player.id]
 
     # ------------------------------------------------------------------
     # Top-level driver
     # ------------------------------------------------------------------
     def play_one_game(self, agents: tuple[Agent, Agent]) -> None:
+        self.agents = list(agents)
         self._log("=== Wingspan game start ===")
         self._setup_phase(agents)
         for r in range(4):
