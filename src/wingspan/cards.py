@@ -74,6 +74,7 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_GAIN_FOOD = "all_players_gain_food"
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
+    DISCARD_EGG_FOR_WILD = "discard_egg_for_wild"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -298,6 +299,15 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(kind=EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+
+    # Pattern 11: "Discard 1 [egg] from any of your other birds to gain N [wild] from the supply"
+    m = re.search(
+        r"Discard 1 \[egg\] from any of your other birds to gain\s+(\d+|a|an|one|two|three)\s+\[wild\] from the supply",
+        t, re.I,
+    )
+    if m:
+        n = _to_int(m.group(1)) or 1
+        effects.append(Effect(kind=EffectKind.DISCARD_EGG_FOR_WILD, amount=n, raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(kind=EffectKind.UNIMPLEMENTED, raw_text=text))

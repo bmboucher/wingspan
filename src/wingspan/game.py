@@ -606,6 +606,52 @@ class Engine:
                     drawn.append(st.bonus_deck.pop())
             p.bonus_cards.extend(drawn)
             self._log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+        elif eff.kind == EffectKind.DISCARD_EGG_FOR_WILD:
+            # "Discard 1 [egg] from any of your other birds to gain N [wild] from
+            # the supply." Optional: skip if there are no eligible eggs or the
+            # player would rather not spend one.
+            egg_choices: list[Choice] = []
+            for h, row in p.board.items():
+                for i, pb_other in enumerate(row):
+                    if pb_other is pb:
+                        continue  # this bird itself can't be the source
+                    if pb_other.eggs <= 0:
+                        continue
+                    egg_choices.append(Choice(
+                        label=f"{pb_other.bird.name}@{h.value}[{i}]",
+                        payload=(h, i),
+                    ))
+            if not egg_choices:
+                self._log(f"  {bird.name}: no other bird has an egg; power skipped")
+                return
+            ch = self._ask(agent, Decision(
+                type=DecisionType.PLAY_BIRD_PICK_EGG_TO_PAY,
+                player_id=p.id,
+                prompt=f"[{p.name}] discard an egg from another bird to gain {eff.amount} [wild] (or skip)",
+                choices=egg_choices + [Choice(label="skip", payload=None)],
+            ))
+            if ch.payload is None:
+                self._log(f"  {bird.name}: declined to discard an egg")
+                return
+            h, i = ch.payload
+            source = p.board[h][i]
+            source.eggs -= 1
+            self._log(f"  {bird.name}: discarded 1 egg from {source.bird.name}")
+            for _ in range(eff.amount):
+                available = [f for f in ALL_FOODS if st.food_supply.get(f, 0) > 0]
+                if not available:
+                    break
+                ch = self._ask(agent, Decision(
+                    type=DecisionType.BIRD_POWER_PICK_FOOD,
+                    player_id=p.id,
+                    prompt=f"[{p.name}] pick 1 [wild] from supply (from {bird.name})",
+                    choices=[Choice(label=f.value, payload=f) for f in available],
+                    context={"reason": "discard_egg_for_wild"},
+                ))
+                f = ch.payload
+                st.food_supply[f] -= 1
+                p.food[f] += 1
+                self._log(f"  {bird.name}: +1 {f.value} from supply")
 
     # ------------------------------------------------------------------
     # Decision plumbing
