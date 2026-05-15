@@ -124,6 +124,17 @@ def _bird_matches_habitat(bird: Bird, habitat: Habitat) -> bool:
 Agent = Callable[["Engine", Decision], Choice]
 
 
+def _first_choice_agent(_engine: "Engine", decision: Decision) -> Choice:
+    """Deterministic fallback agent: always returns ``decision.choices[0]``.
+
+    Used when the engine needs to resolve a decision on behalf of a
+    non-active player (e.g. a reactive PINK power) and no real agent tuple
+    has been registered -- for instance in unit tests that drive engine
+    methods directly without calling ``play_one_game``.
+    """
+    return decision.choices[0]
+
+
 @dataclass
 class TurnState:
     """Per-turn scratch space."""
@@ -139,11 +150,16 @@ class Engine:
     def __init__(self, state: GameState):
         self.state = state
         self.turn_state = TurnState()
+        # Set by play_one_game so reactive between-turn powers (PINK) can ask
+        # the *opposing* player's agent to resolve their own decisions even
+        # when control is on someone else's turn.
+        self._agents: Optional[tuple[Agent, Agent]] = None
 
     # ------------------------------------------------------------------
     # Top-level driver
     # ------------------------------------------------------------------
     def play_one_game(self, agents: tuple[Agent, Agent]) -> None:
+        self._agents = agents
         self._log("=== Wingspan game start ===")
         self._setup_phase(agents)
         for r in range(4):
@@ -481,12 +497,82 @@ class Engine:
             pb.activations += 1
             self._dispatch_power(agent, p, pb, habitat, "activate")
 
+    # EffectKinds that respond to each "between turns" trigger event.
+    # Mapping is intentionally additive -- sibling units register additional
+    # rows as they land. Triggers without registered kinds are silent no-ops.
+    _PINK_TRIGGER_KINDS: dict[str, tuple[EffectKind, ...]] = {
+        "predator_success": (EffectKind.ON_OTHER_PREDATOR_SUCCESS_GAIN_DIE,),
+    }
+
+    def _fire_pink_triggers(
+        self,
+        actor: Player,
+        trigger: str,
+        ctx: Optional[dict] = None,
+    ) -> None:
+        """Fire PINK reactive powers on other players' boards in response to
+        an action taken by ``actor``.
+
+        ``trigger`` is a short tag (e.g. ``"predator_success"``);
+        ``ctx`` carries trigger-specific metadata (e.g. ``target_wingspan``).
+        Each ``PlayedBird`` may fire at most once per round, tracked by
+        setting ``pb.pink_fired_round`` to the current ``state.round_idx``.
+
+        Reacting choices are resolved with the responding player's agent
+        from ``self._agents``; in unit tests that drive this method directly
+        without ``play_one_game``, a deterministic first-choice agent is used.
+
+        Intended call sites (some land in sibling units):
+        - When a PREDATOR_HUNT effect (unit B) succeeds, dispatcher should
+          call ``self._fire_pink_triggers(p, "predator_success",
+          {"target_wingspan": tucked_bird.wingspan_cm})`` after resolving the
+          hunt.
+        """
+        kinds = self._PINK_TRIGGER_KINDS.get(trigger, ())
+        if not kinds:
+            return
+        ctx = ctx or {}
+        st = self.state
+        for q in st.players:
+            if q.id == actor.id:
+                continue
+            agent: Agent = (
+                self._agents[q.id] if self._agents is not None else _first_choice_agent
+            )
+            for habitat, row in q.board.items():
+                for pb in row:
+                    if pb.bird.color != PowerColor.PINK:
+                        continue
+                    if pb.pink_fired_round == st.round_idx:
+                        continue
+                    matching = [e for e in pb.bird.power.effects if e.kind in kinds]
+                    if not matching:
+                        continue
+                    pb.pink_fired_round = st.round_idx
+                    self._log(
+                        f"  [{q.name}] PINK reaction: {pb.bird.name} triggers on "
+                        f"{actor.name}'s {trigger}"
+                    )
+                    prev_current = st.current_player
+                    st.current_player = q.id
+                    try:
+                        for eff in matching:
+                            self._apply_effect(agent, q, pb, habitat, eff, f"on_other_{trigger}")
+                    finally:
+                        st.current_player = prev_current
+
     def _dispatch_power(self, agent: Agent, p: Player, pb: PlayedBird, habitat: Habitat, trigger: str):
         bird = pb.bird
         for eff in bird.power.effects:
             self._apply_effect(agent, p, pb, habitat, eff, trigger)
 
     def _apply_effect(self, agent: Agent, p: Player, pb: PlayedBird, habitat: Habitat, eff: Effect, trigger: str):
+        # TODO(unit-B merge): when ``EffectKind.PREDATOR_HUNT`` lands, hook
+        # into this dispatcher so a successful predator hunt fires
+        # ``self._fire_pink_triggers(p, "predator_success",
+        # {"target_wingspan": <tucked_bird.wingspan_cm>})`` after the hunt
+        # resolves. Unit F's PINK reactor is already wired through
+        # ``_fire_pink_triggers`` and ``_PINK_TRIGGER_KINDS``.
         st = self.state
         bird = pb.bird
         if eff.kind == EffectKind.UNIMPLEMENTED:
@@ -555,6 +641,27 @@ class Engine:
                     drawn.append(st.bonus_deck.pop())
             p.bonus_cards.extend(drawn)
             self._log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+        elif eff.kind == EffectKind.ON_OTHER_PREDATOR_SUCCESS_GAIN_DIE:
+            # Reached only via ``_fire_pink_triggers``, which enforces the
+            # once-per-round guard, flips ``current_player`` to ``p.id``, and
+            # supplies ``p`` and ``agent`` as the responding player and their
+            # agent.
+            for _ in range(eff.amount):
+                avail = [(f, c) for f, c in st.birdfeeder.counts.items() if c > 0]
+                if not avail:
+                    self._log(f"  {bird.name} (pink): birdfeeder empty; no die to take")
+                    break
+                ch = self._ask(agent, Decision(
+                    type=DecisionType.GAIN_FOOD_PICK_DIE,
+                    player_id=p.id,
+                    prompt=f"[{p.name}] {bird.name} reacts: take 1 die from birdfeeder",
+                    choices=[Choice(label=f"{f.value}({c})", payload=f) for f, c in avail],
+                    context={"reason": "pink_predator_success"},
+                ))
+                f: Food = ch.payload
+                st.birdfeeder.counts[f] -= 1
+                p.food[f] += 1
+                self._log(f"  {bird.name} (pink): {p.name} +1 {f.value} from birdfeeder")
 
     # ------------------------------------------------------------------
     # Decision plumbing

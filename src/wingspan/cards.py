@@ -70,6 +70,7 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_GAIN_FOOD = "all_players_gain_food"
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
+    ON_OTHER_PREDATOR_SUCCESS_GAIN_DIE = "on_other_predator_success_gain_die"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -189,7 +190,7 @@ def parse_power(color: PowerColor, text: str) -> Power:
         return Power(color=color, effects=[], raw_text="")
 
     effects: list[Effect] = []
-    t = text.replace("—", "-").replace("“", '"').replace("”", '"')
+    t = text.replace("—", "-").replace("“", '"').replace("”", '"').replace("’", "'").replace("‘", "'")
 
     # Pattern 1: "Gain N [food] from the supply"
     m = re.search(r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply", t, re.I)
@@ -256,6 +257,17 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+
+    # Pattern 11: "When another player's [predator] succeeds, gain N [die]
+    # from the birdfeeder" -- pink reactive power (Black Vulture, Black-Billed
+    # Magpie, Turkey Vulture in core).
+    m = re.search(
+        r"When another player's \[predator\] succeeds, gain\s+(\d+|a|an|one|two|three)\s+\[die\] from the birdfeeder",
+        t, re.I,
+    )
+    if m:
+        n = _to_int(m.group(1)) or 1
+        effects.append(Effect(EffectKind.ON_OTHER_PREDATOR_SUCCESS_GAIN_DIE, amount=n, raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(EffectKind.UNIMPLEMENTED, raw_text=text))
