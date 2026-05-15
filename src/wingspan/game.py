@@ -132,6 +132,10 @@ class TurnState:
     play_card: Optional[Bird] = None
     play_paid_eggs: int = 0
     extra_plays: int = 0
+    # When set, restricts the next ``extra_plays`` slot to a single habitat
+    # (e.g. House Wren grants +1 play in this bird's habitat). Cleared by the
+    # extra-plays loop after consuming one play.
+    extra_play_habitat: Optional[Habitat] = None
     skip_remaining_activations: bool = False
 
 
@@ -214,9 +218,16 @@ class Engine:
         while self.turn_state.extra_plays > 0:
             self.turn_state.extra_plays -= 1
             if not self._can_play_bird(p):
+                self.turn_state.extra_play_habitat = None
                 break
-            self._log(f"[{p.name}] takes an EXTRA play")
+            hf = self.turn_state.extra_play_habitat
+            if hf is not None:
+                self._log(f"[{p.name}] takes an EXTRA play in [{hf.value}]")
+            else:
+                self._log(f"[{p.name}] takes an EXTRA play")
             self._do_play_bird(agent)
+            # Habitat lock applies to a single extra play only.
+            self.turn_state.extra_play_habitat = None
 
     # ------------------------------------------------------------------
     # Setup
@@ -318,18 +329,26 @@ class Engine:
 
     def _do_play_bird(self, agent: Agent):
         p = self.state.me()
+        habitat_filter = self.turn_state.extra_play_habitat
         # pick card
         playable: list[Bird] = []
         for b in p.hand:
             if any(
-                p.can_play_in(h)
+                (habitat_filter is None or h == habitat_filter)
+                and p.can_play_in(h)
                 and _enumerate_payments(p.food, b.food_cost, b.wild_food_cost)
                 and p.total_eggs >= self._egg_cost(p, h)
                 for h in b.habitats
             ):
                 playable.append(b)
         if not playable:
-            self._log(f"[{p.name}] tried to play a bird but had no playable bird; action wasted")
+            if habitat_filter is not None:
+                self._log(
+                    f"[{p.name}] no playable bird in [{habitat_filter.value}]; "
+                    f"extra play wasted"
+                )
+            else:
+                self._log(f"[{p.name}] tried to play a bird but had no playable bird; action wasted")
             return
         ch = self._ask(agent, Decision(
             type=DecisionType.PLAY_BIRD_PICK_CARD,
@@ -338,7 +357,10 @@ class Engine:
             choices=[Choice(label=b.name, payload=b) for b in playable],
         ))
         card: Bird = ch.payload
-        habs = [h for h in card.habitats if p.can_play_in(h)]
+        habs = [
+            h for h in card.habitats
+            if p.can_play_in(h) and (habitat_filter is None or h == habitat_filter)
+        ]
         if len(habs) == 1:
             habitat = habs[0]
         else:
@@ -745,6 +767,131 @@ class Engine:
                 self._lay_one_egg_on_nest(q, nest, label=bird.name)
             for _ in range(extra_for_self):
                 self._lay_one_egg_on_nest(p, nest, label=bird.name, optional=True)
+        elif eff.kind == EffectKind.DRAW_FROM_TRAY_ALL:
+            # Brant (generic for N): take every face-up card in the tray, then refill.
+            taken = list(st.tray)
+            st.tray.clear()
+            p.hand.extend(taken)
+            st.refill_tray()
+            self._log(
+                f"  {bird.name}: drew {len(taken)} card(s) from tray: "
+                f"{[b.name for b in taken]}"
+            )
+        elif eff.kind == EffectKind.TRADE_WILD_FOOD:
+            # Green Heron: trade 1 food back to supply for any other food type.
+            if p.total_food() <= 0:
+                self._log(f"  {bird.name}: no food to trade; power skipped")
+                return
+            food_choices = [
+                Choice(label=f.value, payload=f)
+                for f in ALL_FOODS if p.food.get(f, 0) > 0
+            ]
+            ch = self._ask(agent, Decision(
+                type=DecisionType.BIRD_POWER_PICK_FOOD,
+                player_id=p.id,
+                prompt=f"[{p.name}] discard 1 food to trade (or skip) from {bird.name}",
+                choices=food_choices + [Choice(label="skip", payload=None)],
+                context={"reason": "trade_wild_discard"},
+            ))
+            discard_food = ch.payload
+            if discard_food is None:
+                self._log(f"  {bird.name}: declined to trade")
+                return
+            gain_choices = [
+                Choice(label=f.value, payload=f)
+                for f in ALL_FOODS
+                if f != discard_food and st.food_supply.get(f, 0) > 0
+            ]
+            if not gain_choices:
+                self._log(
+                    f"  {bird.name}: no other food type available in supply; skipped"
+                )
+                return
+            p.food[discard_food] -= 1
+            st.food_supply[discard_food] = st.food_supply.get(discard_food, 0) + 1
+            ch = self._ask(agent, Decision(
+                type=DecisionType.BIRD_POWER_PICK_FOOD,
+                player_id=p.id,
+                prompt=f"[{p.name}] pick a different food from supply (from {bird.name})",
+                choices=gain_choices,
+                context={"reason": "trade_wild_gain"},
+            ))
+            gain_food = ch.payload
+            st.food_supply[gain_food] -= 1
+            p.food[gain_food] += 1
+            self._log(
+                f"  {bird.name}: traded 1 {discard_food.value} -> 1 {gain_food.value}"
+            )
+        elif eff.kind == EffectKind.FEWEST_FOREST_GAINS_DIE:
+            if st.birdfeeder.total() <= 0:
+                self._log(f"  {bird.name}: birdfeeder empty; power skipped")
+                return
+            counts = [len(q.board[Habitat.FOREST]) for q in st.players]
+            fewest = min(counts)
+            for q, c in zip(st.players, counts):
+                if c != fewest:
+                    continue
+                avail = [
+                    (f, n) for f, n in st.birdfeeder.counts.items() if n > 0
+                ]
+                if not avail:
+                    break
+                ch = self._ask(self.agent_for(q), Decision(
+                    type=DecisionType.BIRD_POWER_PICK_FOOD,
+                    player_id=q.id,
+                    prompt=f"[{q.name}] take 1 die from birdfeeder (from {bird.name})",
+                    choices=[Choice(label=f"{f.value}({n})", payload=f) for f, n in avail],
+                    context={"reason": "fewest_forest_gains_die"},
+                ))
+                f = ch.payload
+                st.birdfeeder.counts[f] -= 1
+                q.food[f] += 1
+                self._log(f"  {bird.name}: [{q.name}] +1 {f.value} from birdfeeder")
+        elif eff.kind == EffectKind.PLAY_ADDITIONAL_BIRD_HERE:
+            # House Wren: grants +1 extra play in this bird's habitat. The
+            # habitat restriction is tracked on ``turn_state.extra_play_habitat``
+            # and enforced when offering legal cards in the extra-plays loop.
+            self.turn_state.extra_plays += 1
+            self.turn_state.extra_play_habitat = habitat
+            self._log(
+                f"  {bird.name}: granted +1 extra play (restricted to "
+                f"[{habitat.value}])"
+            )
+        elif eff.kind == EffectKind.DRAW_N_PLUS_ONE_DRAFT:
+            # American Oystercatcher: draw (#players+1) cards. Each non-active
+            # player (clockwise from active+1) picks one card; the active
+            # player keeps what remains. Works for any N >= 2.
+            n_players = len(st.players)
+            n_draw = n_players + 1
+            drawn: list[Bird] = []
+            for _ in range(n_draw):
+                b = st.draw_bird()
+                if b is None:
+                    break
+                drawn.append(b)
+            if not drawn:
+                self._log(f"  {bird.name}: deck empty; power skipped")
+                return
+            for offset in range(1, n_players):
+                if not drawn:
+                    break
+                picker = st.players[(p.id + offset) % n_players]
+                ch = self._ask(self.agent_for(picker), Decision(
+                    type=DecisionType.BIRD_POWER_PICK_BIRD,
+                    player_id=picker.id,
+                    prompt=f"[{picker.name}] pick a card to keep (from {bird.name})",
+                    choices=[Choice(label=b.name, payload=b) for b in drawn],
+                    context={"reason": "draw_n_plus_one_draft"},
+                ))
+                kept_card: Bird = ch.payload
+                drawn.remove(kept_card)
+                picker.hand.append(kept_card)
+                self._log(f"  {bird.name}: [{picker.name}] kept {kept_card.name}")
+            for leftover in drawn:
+                p.hand.append(leftover)
+                self._log(
+                    f"  {bird.name}: [{p.name}] keeps leftover {leftover.name}"
+                )
 
     def _lay_one_egg_on_nest(self, q: Player, nest: NestType, label: str,
                              optional: bool = False) -> None:
