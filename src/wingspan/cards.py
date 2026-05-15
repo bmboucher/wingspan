@@ -62,6 +62,8 @@ class EffectKind(str, Enum):
     as a no-op (with a logged warning the first time it triggers)."""
     GAIN_FOOD_SUPPLY = "gain_food_supply"
     GAIN_FOOD_BIRDFEEDER = "gain_food_birdfeeder"
+    GAIN_FOOD_FROM_FEEDER_CHOICE = "gain_food_from_feeder_choice"
+    GAIN_DIE_ANY = "gain_die_any"
     LAY_EGG_ON_THIS = "lay_egg_on_this"
     LAY_EGG_ANY = "lay_egg_any"
     DRAW_CARDS = "draw_cards"
@@ -212,6 +214,29 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m and m.group(2) in FOOD_TAGS:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(kind=EffectKind.GAIN_FOOD_SUPPLY, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
+
+    # Pattern 1b: "Gain 1 [foodA] or [foodB] from the birdfeeder" -- e.g.
+    # Indigo Bunting, Rose-Breasted Grosbeak, Western Tanager. Matched before
+    # the more permissive Pattern 2 so the disjunction wording wins.
+    m = re.search(
+        r"Gain 1\s+(\[\w+\])\s+or\s+(\[\w+\])\s+from the birdfeeder",
+        t, re.I,
+    )
+    if m and m.group(1) in FOOD_TAGS and m.group(2) in FOOD_TAGS:
+        food_a = FOOD_TAGS[m.group(1)]
+        food_b = FOOD_TAGS[m.group(2)]
+        effects.append(Effect(
+            EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE,
+            amount=1,
+            extra=(food_a, food_b),
+            raw_text=m.group(0),
+        ))
+
+    # Pattern 1c: "Gain 1 [die] from the birdfeeder" -- American Redstart.
+    # Anchored so it only matches the unqualified [die] wording.
+    m = re.match(r"^Gain 1 \[die\] from the birdfeeder\.?$", t, re.I)
+    if m:
+        effects.append(Effect(EffectKind.GAIN_DIE_ANY, amount=1, raw_text=m.group(0)))
 
     # Pattern 2: "Gain N [food] from the birdfeeder"
     m = re.search(r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the birdfeeder", t, re.I)

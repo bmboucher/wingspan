@@ -417,6 +417,37 @@ class Engine:
             self._lay_one_egg(agent, p)
         self._activate_row_powers(agent, p, habitat)
 
+    def _take_one_from_feeder(
+        self,
+        agent: Agent,
+        p: Player,
+        pb: PlayedBird,
+        avail: list[Food],
+        reason: str,
+    ) -> None:
+        """Pull one die from the birdfeeder into ``p``'s food. If only one
+        food type is offered the choice is auto-resolved; otherwise the agent
+        picks. ``avail`` must be non-empty and every entry must have a
+        non-zero count in the birdfeeder."""
+        st = self.state
+        if len(avail) == 1:
+            f = avail[0]
+        else:
+            ch = self._ask(agent, Decision(
+                type=DecisionType.BIRD_POWER_PICK_FOOD,
+                player_id=p.id,
+                prompt=f"[{p.name}] pick 1 from birdfeeder for {pb.bird.name}",
+                choices=[
+                    Choice(label=f"{f.value}({st.birdfeeder.counts[f]})", payload=f)
+                    for f in avail
+                ],
+                context={"reason": reason},
+            ))
+            f = ch.payload
+        st.birdfeeder.counts[f] -= 1
+        p.food[f] += 1
+        self._log(f"  {pb.bird.name}: +1 {f.value} from birdfeeder")
+
     def _lay_one_egg(self, agent: Agent, p: Player):
         choices = []
         for h, row in p.board.items():
@@ -503,6 +534,26 @@ class Engine:
                 st.birdfeeder.counts[eff.food] -= take
                 p.food[eff.food] += take
                 self._log(f"  {bird.name}: +{take} {eff.food.value} from birdfeeder")
+        elif eff.kind == EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE:
+            food_a, food_b = eff.extra
+            avail = [f for f in (food_a, food_b) if st.birdfeeder.counts.get(f, 0) > 0]
+            if not avail:
+                self._log(
+                    f"  {bird.name}: neither {food_a.value} nor {food_b.value}"
+                    f" in birdfeeder; skipped"
+                )
+            else:
+                self._take_one_from_feeder(
+                    agent, p, pb, avail, reason="gain_food_from_feeder_choice"
+                )
+        elif eff.kind == EffectKind.GAIN_DIE_ANY:
+            avail = [f for f, c in st.birdfeeder.counts.items() if c > 0]
+            if not avail:
+                self._log(f"  {bird.name}: birdfeeder empty; skipped")
+            else:
+                self._take_one_from_feeder(
+                    agent, p, pb, avail, reason="gain_die_any"
+                )
         elif eff.kind == EffectKind.LAY_EGG_ON_THIS:
             cap = bird.egg_limit - pb.eggs
             n = min(eff.amount, cap)
