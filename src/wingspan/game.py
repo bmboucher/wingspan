@@ -124,6 +124,16 @@ def _bird_matches_habitat(bird: Bird, habitat: Habitat) -> bool:
 Agent = Callable[["Engine", Decision], Choice]
 
 
+def _first_choice_agent(_engine: "Engine", decision: Decision) -> Choice:
+    """Deterministic fallback agent that always picks the first choice.
+
+    Used when ``Engine._fire_pink_triggers`` needs to resolve a decision on
+    behalf of a non-active player and no real agent tuple has been registered
+    (e.g. unit tests that drive engine methods directly without calling
+    ``play_one_game``)."""
+    return decision.choices[0]
+
+
 @dataclass
 class TurnState:
     """Per-turn scratch space."""
@@ -139,11 +149,16 @@ class Engine:
     def __init__(self, state: GameState):
         self.state = state
         self.turn_state = TurnState()
+        # Set by play_one_game so reactive between-turn powers (PINK) can ask
+        # the *opposing* player's agent to resolve their own decisions even
+        # when control is on someone else's turn.
+        self._agents: Optional[tuple[Agent, Agent]] = None
 
     # ------------------------------------------------------------------
     # Top-level driver
     # ------------------------------------------------------------------
     def play_one_game(self, agents: tuple[Agent, Agent]) -> None:
+        self._agents = agents
         self._log("=== Wingspan game start ===")
         self._setup_phase(agents)
         for r in range(4):
@@ -410,6 +425,10 @@ class Engine:
     # ------------------------------------------------------------------
     def _do_lay_eggs(self, agent: Agent, habitat: Habitat):
         p = self.state.me()
+        # Fire reactive PINK powers on *other* players' boards BEFORE the actor
+        # lays. Per the rules, pink between-turn powers trigger when an
+        # opponent takes the action, and resolve before that action proceeds.
+        self._fire_pink_triggers(p, "lay_eggs", {})
         n_birds = _row_activation_count(p, habitat)
         n_eggs = _lay_eggs_count(n_birds)
         self._log(f"[{p.name}] lay eggs: row has {n_birds} birds, lay {n_eggs} eggs")
@@ -480,6 +499,65 @@ class Engine:
                 continue
             pb.activations += 1
             self._dispatch_power(agent, p, pb, habitat, "activate")
+
+    # EffectKinds that respond to each "between turns" trigger event. The
+    # mapping is intentionally additive — sibling units add more rows here
+    # as new reactive PINK powers land. Triggers with no registered kinds
+    # are silently no-ops.
+    _PINK_TRIGGER_KINDS: dict[str, tuple[EffectKind, ...]] = {
+        "lay_eggs": (EffectKind.ON_OTHER_LAY_EGGS_LAY_EGG,),
+    }
+
+    def _fire_pink_triggers(self, actor: Player, trigger: str, ctx: dict,
+                             agent_factory=None) -> None:
+        """Fire every *other* player's PINK reactive powers that respond to
+        ``trigger``. Each PlayedBird may only fire once per round, tracked by
+        setting ``pb.pink_fired_round`` to the current ``state.round_idx``.
+
+        The responding player's agent comes from ``self._agents`` (set by
+        ``play_one_game``); callers that drive the engine directly may pass an
+        ``agent_factory(player_id) -> Agent``. With neither, a deterministic
+        first-choice fallback is used so unit tests still execute the effect.
+
+        Briefly flips ``state.current_player`` to the reacting player while
+        their effect resolves so any observer state read by the agent (or by
+        helper code that consults ``state.me()``) reflects them."""
+        kinds = self._PINK_TRIGGER_KINDS.get(trigger, ())
+        if not kinds:
+            return
+        st = self.state
+        for q in st.players:
+            if q.id == actor.id:
+                continue
+            # snapshot before iterating: dispatch may mutate the board indirectly.
+            for habitat, row in list(q.board.items()):
+                for pb in list(row):
+                    if pb.bird.color != PowerColor.PINK:
+                        continue
+                    if pb.pink_fired_round == st.round_idx:
+                        continue
+                    matching = [e for e in pb.bird.power.effects if e.kind in kinds]
+                    if not matching:
+                        continue
+                    pb.pink_fired_round = st.round_idx
+                    if agent_factory is not None:
+                        agent = agent_factory(q.id)
+                    elif self._agents is not None:
+                        agent = self._agents[q.id]
+                    else:
+                        agent = _first_choice_agent
+                    self._log(
+                        f"  [{q.name}] PINK reaction: {pb.bird.name} triggers on "
+                        f"{actor.name}'s {trigger}"
+                    )
+                    prev_current = st.current_player
+                    st.current_player = q.id
+                    try:
+                        for eff in matching:
+                            self._apply_effect(agent, q, pb, habitat, eff,
+                                               f"on_other_{trigger}")
+                    finally:
+                        st.current_player = prev_current
 
     def _dispatch_power(self, agent: Agent, p: Player, pb: PlayedBird, habitat: Habitat, trigger: str):
         bird = pb.bird
@@ -555,6 +633,46 @@ class Engine:
                     drawn.append(st.bonus_deck.pop())
             p.bonus_cards.extend(drawn)
             self._log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+        elif eff.kind == EffectKind.ON_OTHER_LAY_EGGS_LAY_EGG:
+            # Reached via ``_fire_pink_triggers`` once per round per bird; ``p``
+            # is the reactor's owner. Lay ``eff.amount`` egg(s) on one of the
+            # owner's birds whose nest matches ``eff.extra[0]``. The choice set
+            # is rebuilt each iteration so a bird that hits its egg cap mid-
+            # power drops out automatically.
+            nest_target: Optional[NestType] = eff.extra[0] if eff.extra else None
+            nest_label = nest_target.value if nest_target else "?"
+
+            def _eligible_targets() -> list[Choice]:
+                return [
+                    Choice(
+                        label=f"{other.bird.name}@{h.value}[{i}]"
+                              f"({other.eggs}/{other.bird.egg_limit})",
+                        payload=(h, i),
+                    )
+                    for h, row in p.board.items()
+                    for i, other in enumerate(row)
+                    if (nest_target is None or other.bird.nest == nest_target)
+                    and other.eggs < other.bird.egg_limit
+                ]
+
+            laid = 0
+            for _ in range(eff.amount):
+                choices = _eligible_targets()
+                if not choices:
+                    break
+                ch = self._ask(agent, Decision(
+                    type=DecisionType.LAY_EGG_PICK_BIRD,
+                    player_id=p.id,
+                    prompt=f"[{p.name}] {bird.name} reacts: lay 1 egg on a {nest_label}-nest bird",
+                    choices=choices,
+                    context={"reason": "pink_lay_eggs_reaction"},
+                ))
+                h, i = ch.payload
+                p.board[h][i].eggs += 1
+                laid += 1
+                self._log(f"  {bird.name} (pink): {p.name} +1 egg on {p.board[h][i].bird.name}")
+            if laid == 0:
+                self._log(f"  {bird.name} (pink): no eligible {nest_label}-nest bird to lay on")
 
     # ------------------------------------------------------------------
     # Decision plumbing

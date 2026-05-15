@@ -70,6 +70,7 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_GAIN_FOOD = "all_players_gain_food"
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
+    ON_OTHER_LAY_EGGS_LAY_EGG = "on_other_lay_eggs_lay_egg"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -256,6 +257,31 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+
+    # Pattern 11: "When another player takes the 'lay eggs' action, lay N [egg]
+    # on (a|another) bird with a [nest] nest." The source text wraps "lay eggs"
+    # in curly double-quotes (U+201C/U+201D); we already normalise those to
+    # straight " in ``t`` above. Be permissive: accept straight, curly, or
+    # apostrophe-style quotes (any single optional quote char on each side).
+    m = re.search(
+        "When another player takes the\\s+"
+        "[\"“”‘’'`]?"
+        "\\s*lay eggs\\s*"
+        "[\"“”‘’'`]?"
+        "\\s+action,\\s+lay\\s+(\\d+|a|an|one|two|three)\\s+\\[egg\\]"
+        "\\s+on (?:a|another) bird with a "
+        "\\[(bowl|cavity|ground|platform)\\] nest",
+        t, re.I,
+    )
+    if m:
+        n = _to_int(m.group(1)) or 1
+        nest = NestType(m.group(2).lower())
+        effects.append(Effect(
+            EffectKind.ON_OTHER_LAY_EGGS_LAY_EGG,
+            amount=n,
+            extra=(nest,),
+            raw_text=m.group(0),
+        ))
 
     if not effects:
         effects.append(Effect(EffectKind.UNIMPLEMENTED, raw_text=text))
