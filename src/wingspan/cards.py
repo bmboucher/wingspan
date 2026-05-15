@@ -62,6 +62,7 @@ class EffectKind(str, Enum):
     GAIN_FOOD_BIRDFEEDER = "gain_food_birdfeeder"
     LAY_EGG_ON_THIS = "lay_egg_on_this"
     LAY_EGG_ANY = "lay_egg_any"
+    LAY_EGG_ON_EACH_NEST = "lay_egg_on_each_nest"
     DRAW_CARDS = "draw_cards"
     CACHE_FOOD = "cache_food"
     TUCK_FROM_HAND = "tuck_from_hand"
@@ -214,6 +215,22 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.LAY_EGG_ANY, amount=n, raw_text=m.group(0)))
+
+    # Pattern 3c: "Lay 1 [egg] on each of your birds with a [<nest>] nest"
+    m = re.search(
+        r"Lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on each of your birds with a \[(bowl|cavity|ground|platform|star)\] nest",
+        t, re.I,
+    )
+    if m:
+        n = _to_int(m.group(1)) or 1
+        nest_str = m.group(2).lower()
+        target_nest = NestType(nest_str)
+        effects.append(Effect(
+            EffectKind.LAY_EGG_ON_EACH_NEST,
+            amount=n,
+            extra=(target_nest,),
+            raw_text=m.group(0),
+        ))
 
     # Pattern 4: "Draw N [card]" (but not "All players draw")
     if not re.search(r"All players draw", t, re.I):
