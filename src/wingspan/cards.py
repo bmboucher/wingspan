@@ -13,6 +13,8 @@ from enum import Enum
 from importlib import resources
 from typing import Optional
 
+from pydantic import BaseModel, ConfigDict
+
 # ---------------------------------------------------------------------------
 # Enums
 
@@ -73,14 +75,28 @@ class EffectKind(str, Enum):
     UNIMPLEMENTED = "unimplemented"
 
 
-@dataclass(frozen=True)
-class Effect:
+class Effect(BaseModel):
+    """Structured representation of a single power effect.
+
+    Carriers are named, typed fields rather than a positional ``extra`` tuple.
+    Each ``EffectKind`` documents which fields it consumes; unused fields stay
+    ``None``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
     kind: EffectKind
     amount: int = 0
     food: Optional[Food] = None
     habitat: Optional[Habitat] = None
-    extra: tuple = ()  # carrier for kind-specific extras
     raw_text: str = ""
+
+    # --- typed carriers (replace the old untyped ``extra: tuple``) ----------
+    keep_count: Optional[int] = None        # DRAW_BONUS_KEEP: # to keep
+    max_wingspan_cm: Optional[int] = None   # PREDATOR_TUCK: hunt threshold
+    nest: Optional[NestType] = None         # LAY_EGG_ALL_NEST, ALL_PLAYERS_LAY_ON_NEST
+    food_a: Optional[Food] = None           # GAIN_FOOD_BIRDFEEDER_CHOICE: first option
+    food_b: Optional[Food] = None           # GAIN_FOOD_BIRDFEEDER_CHOICE: second option
 
 
 @dataclass
@@ -195,70 +211,70 @@ def parse_power(color: PowerColor, text: str) -> Power:
     m = re.search(r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply", t, re.I)
     if m and m.group(2) in FOOD_TAGS:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.GAIN_FOOD_SUPPLY, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.GAIN_FOOD_SUPPLY, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
 
     # Pattern 2: "Gain N [food] from the birdfeeder"
     m = re.search(r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the birdfeeder", t, re.I)
     if m and m.group(2) in FOOD_TAGS:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.GAIN_FOOD_BIRDFEEDER, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.GAIN_FOOD_BIRDFEEDER, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
 
     # Pattern 3a: "Lay N [egg] on this bird"
     m = re.search(r"Lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on this bird", t, re.I)
     if m:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.LAY_EGG_ON_THIS, amount=n, raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.LAY_EGG_ON_THIS, amount=n, raw_text=m.group(0)))
 
     # Pattern 3b: "Lay N [egg] on any bird"
     m = re.search(r"Lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on any bird", t, re.I)
     if m:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.LAY_EGG_ANY, amount=n, raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.LAY_EGG_ANY, amount=n, raw_text=m.group(0)))
 
     # Pattern 4: "Draw N [card]" (but not "All players draw")
     if not re.search(r"All players draw", t, re.I):
         m = re.search(r"Draw\s+(\d+|a|an|one|two|three)\s+\[card\]", t, re.I)
         if m:
             n = _to_int(m.group(1)) or 1
-            effects.append(Effect(EffectKind.DRAW_CARDS, amount=n, raw_text=m.group(0)))
+            effects.append(Effect(kind=EffectKind.DRAW_CARDS, amount=n, raw_text=m.group(0)))
 
     # Pattern 5: "Cache N [food] from the supply on this bird"
     m = re.search(r"Cache\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply on this bird", t, re.I)
     if m and m.group(2) in FOOD_TAGS:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.CACHE_FOOD, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.CACHE_FOOD, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
 
     # Pattern 6: "Tuck 1 [card] from your hand behind this bird"
     m = re.search(r"Tuck\s+(\d+|a|an|one|two|three)\s+\[card\] from your hand behind this", t, re.I)
     if m:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.TUCK_FROM_HAND, amount=n, raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.TUCK_FROM_HAND, amount=n, raw_text=m.group(0)))
 
     # Pattern 7: "Play an additional bird in your [habitat]"
     m = re.search(r"Play an additional bird in your (\[\w+\])", t, re.I)
     if m and m.group(1) in HABITAT_TAGS:
-        effects.append(Effect(EffectKind.PLAY_ADDITIONAL_BIRD, habitat=HABITAT_TAGS[m.group(1)], raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.PLAY_ADDITIONAL_BIRD, habitat=HABITAT_TAGS[m.group(1)], raw_text=m.group(0)))
 
     # Pattern 8: "All players gain 1 [food] from the supply"
     m = re.search(r"All players gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply", t, re.I)
     if m and m.group(2) in FOOD_TAGS:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.ALL_PLAYERS_GAIN_FOOD, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.ALL_PLAYERS_GAIN_FOOD, amount=n, food=FOOD_TAGS[m.group(2)], raw_text=m.group(0)))
 
     # Pattern 9: "All players draw 1 [card]"
     m = re.search(r"All players draw\s+(\d+|a|an|one|two|three)\s+\[card\]", t, re.I)
     if m:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.ALL_PLAYERS_DRAW, amount=n, raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.ALL_PLAYERS_DRAW, amount=n, raw_text=m.group(0)))
 
     # Pattern 10: "Draw N bonus cards" -- e.g. Abbott's Booby
     m = re.search(r"Draw\s+(\d+|a|an|one|two|three)\s+bonus cards", t, re.I)
     if m:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+        effects.append(Effect(kind=EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
 
     if not effects:
-        effects.append(Effect(EffectKind.UNIMPLEMENTED, raw_text=text))
+        effects.append(Effect(kind=EffectKind.UNIMPLEMENTED, raw_text=text))
 
     return Power(color=color, effects=effects, raw_text=text)
 
