@@ -555,6 +555,43 @@ class Engine:
                     drawn.append(st.bonus_deck.pop())
             p.bonus_cards.extend(drawn)
             self._log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+        elif eff.kind == EffectKind.MOVE_RIGHTMOST_TO_OTHER_HABITAT:
+            # Guard against re-triggering after the move re-activates the bird.
+            if getattr(pb, "_moved_this_activation", False):
+                return
+            # Must currently be rightmost in this habitat.
+            row = p.board[habitat]
+            if not row or row[-1] is not pb:
+                return
+            # Candidate destinations: other habitats with room AND legal for this bird.
+            dests = [
+                h for h in ALL_HABITATS
+                if h != habitat
+                and p.can_play_in(h)
+                and h in bird.habitats
+            ]
+            if not dests:
+                return
+            choices = [Choice(label=f"move to {h.value}", payload=h) for h in dests]
+            choices.append(Choice(label="stay", payload=None))
+            ch = self._ask(agent, Decision(
+                type=DecisionType.BIRD_POWER_MOVE_HABITAT,
+                player_id=p.id,
+                prompt=f"[{p.name}] {bird.name}: move to another habitat?",
+                choices=choices,
+            ))
+            dest = ch.payload
+            if dest is None:
+                return
+            p.board[habitat].remove(pb)
+            p.board[dest].append(pb)
+            self._log(f"  {bird.name}: moved from {habitat.value} to {dest.value}")
+            # Re-activate in new row, with guard against re-firing MOVE.
+            pb._moved_this_activation = True
+            try:
+                self._dispatch_power(agent, p, pb, dest, "activate")
+            finally:
+                pb._moved_this_activation = False
 
     # ------------------------------------------------------------------
     # Decision plumbing

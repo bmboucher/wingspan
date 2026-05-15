@@ -70,6 +70,7 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_GAIN_FOOD = "all_players_gain_food"
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
+    MOVE_RIGHTMOST_TO_OTHER_HABITAT = "move_rightmost_to_other_habitat"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -256,6 +257,15 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+
+    # Pattern 11: "If this bird is to the right of all other birds in its
+    # habitat, move it to another habitat" (Bewick's Wren, Song Sparrow, etc.)
+    m = re.search(
+        r"If this bird is to the right of all other birds in its habitat,\s*move it to another habitat",
+        t, re.I,
+    )
+    if m:
+        effects.append(Effect(EffectKind.MOVE_RIGHTMOST_TO_OTHER_HABITAT, raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(EffectKind.UNIMPLEMENTED, raw_text=text))
