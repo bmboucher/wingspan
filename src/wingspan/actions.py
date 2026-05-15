@@ -28,6 +28,7 @@ class DecisionType(str, Enum):
     BIRD_POWER_PICK_FOOD = "bird_power_pick_food"
     BIRD_POWER_PICK_BIRD = "bird_power_pick_bird"
     BIRD_POWER_TUCK_FROM_HAND = "bird_power_tuck_from_hand"
+    BIRD_POWER_PICK_BONUS_TO_KEEP = "bird_power_pick_bonus_to_keep"
     SKIP_OPTIONAL = "skip_optional"
 
 

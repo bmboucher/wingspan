@@ -555,6 +555,37 @@ class Engine:
                     drawn.append(st.bonus_deck.pop())
             p.bonus_cards.extend(drawn)
             self._log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+        elif eff.kind == EffectKind.DRAW_BONUS_KEEP_ONE:
+            keep = eff.extra[0] if eff.extra else 1
+            drawn: list[BonusCard] = []
+            for _ in range(eff.amount):
+                if not st.bonus_deck:
+                    if st.bonus_discard:
+                        st.bonus_deck = st.bonus_discard
+                        st.bonus_discard = []
+                        st.rng.shuffle(st.bonus_deck)
+                    else:
+                        break
+                drawn.append(st.bonus_deck.pop())
+            if not drawn:
+                self._log(f"  {bird.name}: bonus deck empty; no cards drawn")
+                return
+            keep_n = min(keep, len(drawn))
+            for _ in range(keep_n):
+                ch = self._ask(agent, Decision(
+                    type=DecisionType.BIRD_POWER_PICK_BONUS_TO_KEEP,
+                    player_id=p.id,
+                    prompt=f"[{p.name}] keep 1 bonus card (from {bird.name})",
+                    choices=[Choice(label=b.name, payload=b) for b in drawn],
+                ))
+                kept: BonusCard = ch.payload
+                p.bonus_cards.append(kept)
+                drawn.remove(kept)
+            for b in drawn:
+                st.bonus_discard.append(b)
+            self._log(
+                f"  {bird.name}: drew {keep_n + len(drawn)} bonus, kept {keep_n}, discarded {len(drawn)}"
+            )
 
     # ------------------------------------------------------------------
     # Decision plumbing

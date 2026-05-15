@@ -70,6 +70,7 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_GAIN_FOOD = "all_players_gain_food"
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
+    DRAW_BONUS_KEEP_ONE = "draw_bonus_keep_one"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -251,11 +252,23 @@ def parse_power(color: PowerColor, text: str) -> Power:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.ALL_PLAYERS_DRAW, amount=n, raw_text=m.group(0)))
 
-    # Pattern 10: "Draw N bonus cards" -- e.g. Abbott's Booby
-    m = re.search(r"Draw\s+(\d+|a|an|one|two|three)\s+bonus cards", t, re.I)
+    # Pattern 10a: "Draw N new bonus cards and keep K" -- e.g. Atlantic Puffin
+    m = re.search(
+        r"Draw\s+(\d+|a|an|one|two|three)\s+new bonus cards and keep\s+(\d+|a|an|one|two|three)",
+        t, re.I,
+    )
     if m:
         n = _to_int(m.group(1)) or 1
-        effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+        k = _to_int(m.group(2)) or 1
+        effects.append(Effect(
+            EffectKind.DRAW_BONUS_KEEP_ONE, amount=n, extra=(k,), raw_text=m.group(0),
+        ))
+    else:
+        # Pattern 10b: "Draw N bonus cards" -- e.g. Abbott's Booby
+        m = re.search(r"Draw\s+(\d+|a|an|one|two|three)\s+bonus cards", t, re.I)
+        if m:
+            n = _to_int(m.group(1)) or 1
+            effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
 
     if not effects:
         effects.append(Effect(EffectKind.UNIMPLEMENTED, raw_text=text))
