@@ -33,6 +33,10 @@ class PlayedBird:
     tucked_cards: int = 0
     # number of times the bird has been activated this round (used by some rules)
     activations: int = 0
+    # Round index in which this PINK between-turn power last fired. The
+    # sentinel ``-1`` means "not yet this game"; the engine enforces the
+    # once-per-round guard by comparing against ``state.round_idx``.
+    pink_fired_round: int = -1
 
 
 @dataclass
