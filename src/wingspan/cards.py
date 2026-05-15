@@ -70,6 +70,7 @@ class EffectKind(str, Enum):
     ALL_PLAYERS_GAIN_FOOD = "all_players_gain_food"
     ALL_PLAYERS_DRAW = "all_players_draw"
     DRAW_BONUS = "draw_bonus"
+    DISCARD_FOOD_TUCK_FROM_DECK = "discard_food_tuck_from_deck"
     UNIMPLEMENTED = "unimplemented"
 
 
@@ -256,6 +257,20 @@ def parse_power(color: PowerColor, text: str) -> Power:
     if m:
         n = _to_int(m.group(1)) or 1
         effects.append(Effect(EffectKind.DRAW_BONUS, amount=n, raw_text=m.group(0)))
+
+    # Pattern 11: "Discard N [food] to tuck K [card] from the deck behind this"
+    m = re.search(
+        r"Discard\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+to tuck\s+(\d+|a|an|one|two|three)\s+\[card\]\s+from the deck behind this",
+        t, re.I,
+    )
+    if m and m.group(2) in FOOD_TAGS:
+        k = _to_int(m.group(3)) or 1
+        effects.append(Effect(
+            EffectKind.DISCARD_FOOD_TUCK_FROM_DECK,
+            amount=k,
+            food=FOOD_TAGS[m.group(2)],
+            raw_text=m.group(0),
+        ))
 
     if not effects:
         effects.append(Effect(EffectKind.UNIMPLEMENTED, raw_text=text))

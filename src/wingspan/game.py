@@ -555,6 +555,35 @@ class Engine:
                     drawn.append(st.bonus_deck.pop())
             p.bonus_cards.extend(drawn)
             self._log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+        elif eff.kind == EffectKind.DISCARD_FOOD_TUCK_FROM_DECK:
+            # Optional power; printed cost is always 1 food, so we don't read it from eff.
+            if not eff.food or p.food.get(eff.food, 0) <= 0:
+                self._log(f"  {bird.name}: no {eff.food.value if eff.food else '?'} to discard; skipped")
+                return
+            ch = self._ask(agent, Decision(
+                type=DecisionType.SKIP_OPTIONAL,
+                player_id=p.id,
+                prompt=f"[{p.name}] discard 1 {eff.food.value} to tuck {eff.amount} cards behind {bird.name}?",
+                choices=[
+                    Choice(label="use power", payload="use"),
+                    Choice(label="skip", payload="skip"),
+                ],
+            ))
+            if ch.payload == "skip":
+                self._log(f"  {bird.name}: skipped discard-food-tuck power")
+                return
+            p.food[eff.food] -= 1
+            tucked = 0
+            for _ in range(eff.amount):
+                b = st.draw_bird()
+                if b is None:
+                    break
+                st.bird_discard.append(b)
+                tucked += 1
+            pb.tucked_cards += tucked
+            self._log(
+                f"  {bird.name}: discarded 1 {eff.food.value}, tucked {tucked} card(s) from deck"
+            )
 
     # ------------------------------------------------------------------
     # Decision plumbing
