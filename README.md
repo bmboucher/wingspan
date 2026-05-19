@@ -50,13 +50,25 @@ python -m pytest tests/
 
 ## Layout
 
+Domain models are Pydantic v2 `BaseModel`s; the engine drives state mutation through them.
+
 - `src/wingspan/data/` — card data (downloaded from the [wingsearch](https://github.com/navarog/wingsearch) project).
-- `src/wingspan/cards.py` — bird/bonus card schemas + loader.
-- `src/wingspan/state.py` — core game state types.
-- `src/wingspan/actions.py` — action interface + decision points.
-- `src/wingspan/game.py` — turn / round / scoring engine.
-- `src/wingspan/powers.py` — bird power dispatch.
-- `src/wingspan/agents.py` — random + human agents.
+- `src/wingspan/cards/` — bird/bonus card schema + power-text parser + JSON loader.
+    - `schema.py` — enums, `Effect`/`Power` IR, `Bird`/`BonusCard`/`EndRoundGoal` models.
+    - `parse.py` — power-text → structured `Effect` parser.
+    - `load.py` — JSON loaders + power-coverage report.
+- `src/wingspan/state.py` — `GameState`, `Player`, `PlayedBird`, `Birdfeeder`.
+- `src/wingspan/actions.py` — `Decision`/`Choice` interface for agent prompts.
+- `src/wingspan/engine/` — game engine.
+    - `core.py` — `Engine` class, turn loop, setup, decision plumbing.
+    - `main_actions.py` — play_bird / gain_food / lay_eggs / draw_cards.
+    - `powers.py` — bird-power dispatch (`apply_effect` switch).
+    - `reactors.py` — pink between-turn reactor hooks.
+    - `scoring.py` — round-goal + final scoring.
+    - `helpers.py` — pure helpers (food enumeration, egg ladders, etc.).
+- `src/wingspan/agents/` — agent implementations.
+    - `base.py` — random-policy agent.
+    - `cli.py` — interactive human (stdin/stdout) agent plus the hotseat `mixed_agents` helper.
 - `src/wingspan/encode.py` — state/action tensor encoders for RL.
 - `src/wingspan/model.py` — PyTorch policy/value net.
 - `src/wingspan/train.py` — self-play data collection + training loop.
