@@ -156,9 +156,16 @@ class Engine:
         then resolve any extra plays accrued during it."""
         p = self.state.me()
         self.state.reset_turn_state()
-        self.log(f"[{p.name}] starts turn ({p.action_cubes_left} cubes left)")
+        # Blank separator + combined turn/decision header so each turn is one
+        # visually scannable block: `[Pn] turn (X cubes) --> ACTION` followed
+        # by the indented action result and any sub-events.
+        self.log("")
         choice = self.ask(agent, self._main_action_decision(p))
         action = choice.action
+        self.log(
+            f"[{p.name}] turn ({p.action_cubes_left} cubes left) "
+            f"--> {action.value.upper()}"
+        )
         p.action_cubes_left -= 1
         if action == decisions.MainAction.PLAY_BIRD:
             actions.do_play_bird(self, agent)
@@ -218,8 +225,8 @@ class Engine:
             self._deal_starting_hand(p)
             self._resolve_setup_choice(p, agents)
             self.log(
-                f"[{p.name}] starts with hand={[b.name for b in p.hand]} "
-                f"food={p.food.as_dict()}"
+                f"[{p.name}] starts with hand=[{', '.join(b.name for b in p.hand)}] "
+                f"food={p.food.format()}"
             )
 
     # ------------------------------------------------------------------

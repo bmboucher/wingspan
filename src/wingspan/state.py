@@ -113,6 +113,14 @@ class FoodPool(pydantic.BaseModel):
         snapshotting). Includes every food, even zero entries."""
         return dict(zip(cards.ALL_FOODS, self.counts))
 
+    def format(self) -> str:
+        """Compact human-readable rendering for logs.
+
+        Lists only non-zero foods, e.g. ``1fish+1rodent``. Returns
+        ``(empty)`` when every count is zero."""
+        parts = [f"{n}{f.value}" for f, n in zip(cards.ALL_FOODS, self.counts) if n > 0]
+        return "+".join(parts) if parts else "(empty)"
+
     # ---- ops -------------------------------------------------------------
 
     def total(self) -> int:

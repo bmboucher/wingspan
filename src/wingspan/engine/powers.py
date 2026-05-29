@@ -493,7 +493,7 @@ def _h_each_player_gains_die_choose_order(
                     st.birdfeeder.reroll(st.rng)
                     engine.log(
                         f"  {bird.name}: birdfeeder rerolled to "
-                        f"{st.birdfeeder.counts.as_dict()}"
+                        f"{st.birdfeeder.counts.format()}"
                     )
                     avail = [(f, c) for f, c in st.birdfeeder.counts.items() if c > 0]
                 if not avail:

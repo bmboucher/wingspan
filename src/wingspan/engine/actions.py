@@ -70,7 +70,7 @@ def do_play_bird(engine: "core.Engine", agent: "core.Agent") -> None:
     p.board[habitat].append(pb)
     engine.log(
         f"[{p.name}] plays {card.name} into {habitat.value} "
-        f"(paid {payment.as_dict()}, {egg_cost} eggs)"
+        f"(paid {payment.format()}, {egg_cost} eggs)"
     )
     # WHITE power triggers when played.
     if card.color == cards.PowerColor.WHITE:
@@ -389,7 +389,7 @@ def _take_one_die_active(engine: "core.Engine", agent: "core.Agent", p: state.Pl
     if not avail:
         engine.state.birdfeeder.reroll(engine.state.rng)
         engine.log(
-            f"  birdfeeder empty; rerolled to {engine.state.birdfeeder.counts.as_dict()}"
+            f"  birdfeeder empty; rerolled to {engine.state.birdfeeder.counts.format()}"
         )
         avail = [(f, c) for f, c in engine.state.birdfeeder.counts.items() if c > 0]
         if not avail:

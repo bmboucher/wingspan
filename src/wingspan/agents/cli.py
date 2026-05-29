@@ -14,7 +14,7 @@ import random
 import typing
 
 from wingspan import cards, decisions
-from wingspan.agents import base
+from wingspan.agents import base, display
 from wingspan.engine import core as engine_core
 
 
@@ -22,17 +22,24 @@ def cli_agent() -> engine_core.Agent:
     """Interactive human agent. Prints prompt and choices, reads index."""
 
     def agent[C: decisions.Choice](
-        _engine: engine_core.Engine, decision: decisions.Decision[C],
+        engine: engine_core.Engine, decision: decisions.Decision[C],
     ) -> C:
         if isinstance(decision, decisions.SetupDecision):
             # SetupDecision is Decision[SetupChoice], but the type checker
             # can't propagate that narrowing back onto the bound C — so the
             # SetupChoice return is cast through.
             return typing.cast(C, _cli_resolve_setup_choice(decision))
+        # The main-action prompt is the natural moment to show the full
+        # board: it is the only decision that always opens a fresh turn,
+        # and the human needs the resource picture to choose between the
+        # four action types.
+        if isinstance(decision, decisions.MainActionDecision):
+            print()
+            print(display.format_board(engine.state, engine.state.players[decision.player_id]))
         print()
         print(decision.prompt)
         for i, c in enumerate(decision.choices):
-            print(f"  [{i}] {c.label}")
+            print(_format_choice_line(i, c))
         while True:
             raw = input("choice> ").strip()
             if raw == "" and len(decision.choices) == 1:
@@ -61,6 +68,23 @@ def mixed_agents(
 ###### PRIVATE #######
 
 
+def _format_choice_line(idx: int, c: decisions.Choice) -> str:
+    """Render one offered choice line with type-aware extra context.
+
+    Bird- and bonus-card-carrying choices are expanded to show food cost,
+    power text, and scoring conditions respectively — the engine's stored
+    ``label`` is too terse for a human at decision time. Other Choice
+    subclasses fall through to ``label`` as-is.
+    """
+    if isinstance(c, decisions.BirdChoice):
+        return f"  [{idx}] {display.format_bird_full(c.bird)}"
+    if isinstance(c, decisions.BonusCardChoice):
+        return f"  [{idx}] {display.format_bonus(c.bonus_card)}"
+    if isinstance(c, decisions.PlayedBirdChoice):
+        return f"  [{idx}] {display.format_played_bird(c.played_bird)}"
+    return f"  [{idx}] {c.label}"
+
+
 def _cli_resolve_setup_choice(decision: decisions.SetupDecision) -> decisions.SetupChoice:
     """Three-step sub-dialog for the combined setup pick.
 
@@ -74,11 +98,11 @@ def _cli_resolve_setup_choice(decision: decisions.SetupDecision) -> decisions.Se
     print(decision.prompt)
     print("Cards dealt (each kept card costs 1 food):")
     for i, c in enumerate(dealt_cards):
-        print(f"  [{i}] {c.name} ({c.points}vp, cost {c.food_cost.total})")
+        print(f"  [{i}] {display.format_bird_full(c)}")
     if dealt_bonus:
         print("Bonus cards dealt:")
         for i, bc in enumerate(dealt_bonus):
-            print(f"  [{i}] {bc.name}: {bc.vp_text}")
+            print(f"  [{i}] {display.format_bonus(bc)}")
 
     kept_indices = _cli_pick_kept_cards(dealt_cards)
     kept_cards = tuple(dealt_cards[i] for i in kept_indices)
@@ -110,7 +134,7 @@ def _cli_pick_kept_cards(dealt_cards: list[cards.Bird]) -> tuple[int, ...]:
     for idx, combo in enumerate(options):
         names = [dealt_cards[i].name for i in combo] if combo else ["(none)"]
         print(f"  [{idx}] keep {len(combo)}: {', '.join(names)}")
-    return _read_index_choice(options, "keep> ")
+    return _read_index_choice(options, "keep cards> ")
 
 
 def _cli_pick_kept_foods(
@@ -141,7 +165,7 @@ def _cli_pick_bonus(
     print()
     print("Step 3 — choose which bonus card to keep:")
     for idx, bc in enumerate(dealt_bonus):
-        print(f"  [{idx}] {bc.name}: {bc.vp_text}")
+        print(f"  [{idx}] {display.format_bonus(bc)}")
     return _read_index_choice(dealt_bonus, "bonus> ")
 
 
