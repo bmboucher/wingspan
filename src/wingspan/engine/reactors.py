@@ -23,17 +23,17 @@ def trigger_pink_lay_eggs_reactors(
     OTHER player's ``PINK_LAY_EGG_ON_NEST`` birds fire in clockwise order
     from ``active_player.id + 1``."""
     st = engine.state
-    n = len(st.players)
-    for offset in range(1, n):
-        q = st.players[(active_player.id + offset) % n]
-        for habitat, row in q.board.items():
+    num_players = len(st.players)
+    for offset in range(1, num_players):
+        other_player = st.players[(active_player.id + offset) % num_players]
+        for habitat, row in other_player.board.items():
             for pb in row:
                 if pb.bird.color != cards.PowerColor.PINK:
                     continue
                 for eff in pb.bird.power.effects:
                     if eff.kind != cards.EffectKind.PINK_LAY_EGG_ON_NEST:
                         continue
-                    fire_pink_lay_egg(engine, q, pb, habitat, eff)
+                    fire_pink_lay_egg(engine, other_player, pb, habitat, eff)
 
 
 def trigger_pink_predator_success(
@@ -47,17 +47,21 @@ def trigger_pink_predator_success(
     from wingspan.engine import actions
 
     st = engine.state
-    n = len(st.players)
-    for offset in range(1, n):
-        q = st.players[(hunter_player.id + offset) % n]
-        for _, row in q.board.items():
+    num_players = len(st.players)
+    for offset in range(1, num_players):
+        other_player = st.players[(hunter_player.id + offset) % num_players]
+        for _, row in other_player.board.items():
             for pb in row:
                 if pb.bird.color != cards.PowerColor.PINK:
                     continue
                 for eff in pb.bird.power.effects:
                     if eff.kind != cards.EffectKind.PINK_PREDATOR_FEEDER:
                         continue
-                    avail = [f for f, c in st.birdfeeder.counts.items() if c > 0]
+                    avail = [
+                        food
+                        for food, count in st.birdfeeder.counts.items()
+                        if count > 0
+                    ]
                     if not avail:
                         engine.log(
                             f"  {pb.bird.name} (pink): birdfeeder empty; skipped"
@@ -65,8 +69,8 @@ def trigger_pink_predator_success(
                         continue
                     actions.take_one_from_feeder(
                         engine,
-                        engine.agent_for(q),
-                        q,
+                        engine.agent_for(other_player),
+                        other_player,
                         pb,
                         avail,
                         reason="pink_predator_feeder",
@@ -75,7 +79,7 @@ def trigger_pink_predator_success(
 
 def fire_pink_lay_egg(
     engine: "core.Engine",
-    q: state.Player,
+    other_player: state.Player,
     pb: state.PlayedBird,
     habitat: cards.Habitat,
     eff: cards.Effect,
@@ -83,8 +87,8 @@ def fire_pink_lay_egg(
     assert eff.nest is not None
     nest = eff.nest
     eligible: list[decisions.BoardTargetChoice | decisions.SkipChoice] = []
-    for habitat, row in q.board.items():
-        for i, target in enumerate(row):
+    for habitat, row in other_player.board.items():
+        for slot, target in enumerate(row):
             if target is pb:
                 continue  # "another bird"
             if target.bird.nest != nest:
@@ -94,11 +98,11 @@ def fire_pink_lay_egg(
             eligible.append(
                 decisions.BoardTargetChoice(
                     label=(
-                        f"{target.bird.name}@{habitat.value}[{i}]"
+                        f"{target.bird.name}@{habitat.value}[{slot}]"
                         f"({target.eggs}/{target.bird.egg_limit})"
                     ),
                     habitat=habitat,
-                    slot=i,
+                    slot=slot,
                 )
             )
     if not eligible:
@@ -108,18 +112,18 @@ def fire_pink_lay_egg(
         return
     eligible.append(decisions.SkipChoice(label="skip"))
     ch = engine.ask(
-        engine.agent_for(q),
+        engine.agent_for(other_player),
         decisions.LayEggPickBirdDecision(
-            player_id=q.id,
-            prompt=f"[{q.name}] lay 1 egg on a [{nest.value}] bird ({pb.bird.name}) (or skip)",
+            player_id=other_player.id,
+            prompt=f"[{other_player.name}] lay 1 egg on a [{nest.value}] bird ({pb.bird.name}) (or skip)",
             choices=eligible,
         ),
     )
     if isinstance(ch, decisions.SkipChoice):
-        engine.log(f"  {pb.bird.name} (pink): [{q.name}] declined")
+        engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
         return
-    q.board[ch.habitat][ch.slot].eggs += 1
+    other_player.board[ch.habitat][ch.slot].eggs += 1
     engine.log(
-        f"  {pb.bird.name} (pink): [{q.name}] laid 1 egg on "
-        f"{q.board[ch.habitat][ch.slot].bird.name}@{ch.habitat.value}[{ch.slot}]"
+        f"  {pb.bird.name} (pink): [{other_player.name}] laid 1 egg on "
+        f"{other_player.board[ch.habitat][ch.slot].bird.name}@{ch.habitat.value}[{ch.slot}]"
     )

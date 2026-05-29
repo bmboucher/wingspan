@@ -106,8 +106,8 @@ def make_policy_agent(
         eng: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        n = len(decision.choices)
-        if n == 1:
+        n_choices = len(decision.choices)
+        if n_choices == 1:
             # No degrees of freedom — don't record (loss contribution is 0
             # anyway and skipping keeps the buffer smaller).
             return decision.choices[0]
@@ -143,9 +143,9 @@ def collect_episode(
     their decisions into a shared step buffer."""
     eng, _, _, _ = engine.Engine.create(seed=seed)
     recorded: list[Step] = []
-    a = make_policy_agent(net, device, rng, recorded, epsilon=epsilon)
-    b = make_policy_agent(net, device, rng, recorded, epsilon=epsilon)
-    engine.Engine.play_one_game(eng.state, (a, b))
+    agent_a = make_policy_agent(net, device, rng, recorded, epsilon=epsilon)
+    agent_b = make_policy_agent(net, device, rng, recorded, epsilon=epsilon)
+    engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
     s0 = eng.state.players[0].final_score or 0
     s1 = eng.state.players[1].final_score or 0
     winner = 0 if s0 > s1 else (1 if s1 > s0 else -1)
@@ -207,14 +207,16 @@ def train_step(
 
     # Pad choice tensors across the batch so a single forward pass handles
     # all of them. Mask carries the variable cardinality.
-    B = len(flat_states)
+    batch_size = len(flat_states)
     max_k = max(flat_n_choices)
     state_batch = np.stack(flat_states)
-    choice_batch = np.zeros((B, max_k, encode.CHOICE_FEATURE_DIM), dtype=np.float32)
-    mask_batch = np.zeros((B, max_k), dtype=np.float32)
-    for i, (cf, k) in enumerate(zip(flat_choices, flat_n_choices)):
-        choice_batch[i, :k] = cf
-        mask_batch[i, :k] = 1.0
+    choice_batch = np.zeros(
+        (batch_size, max_k, encode.CHOICE_FEATURE_DIM), dtype=np.float32
+    )
+    mask_batch = np.zeros((batch_size, max_k), dtype=np.float32)
+    for i, (choice_feats, count) in enumerate(zip(flat_choices, flat_n_choices)):
+        choice_batch[i, :count] = choice_feats
+        mask_batch[i, :count] = 1.0
 
     state_t = torch.tensor(state_batch, dtype=torch.float32, device=device)
     choice_t = torch.tensor(choice_batch, dtype=torch.float32, device=device)
@@ -252,7 +254,7 @@ def train_step(
         policy_loss=float(policy_loss.detach()),
         value_loss=float(value_loss.detach()),
         entropy=float(entropy.detach()),
-        n_steps=B,
+        n_steps=batch_size,
     )
 
 
@@ -284,7 +286,9 @@ def main(argv: list[str] | None = None) -> int:
 
     net = model.PolicyValueNet().to(device)
     optimizer: optim.Optimizer = optim.Adam(net.parameters(), lr=args.lr)
-    logger.info("Model: %s parameters", sum(p.numel() for p in net.parameters()))
+    logger.info(
+        "Model: %s parameters", sum(param.numel() for param in net.parameters())
+    )
 
     for epoch in range(args.epochs):
         trajs: list[Trajectory] = []
@@ -336,9 +340,9 @@ def _sample_choice(
     epsilon: float,
 ) -> int:
     """Pick a choice via epsilon-greedy on the policy."""
-    n = choice_feats.shape[0]
+    n_choices = choice_feats.shape[0]
     if rng.random() < epsilon:
-        return rng.randrange(n)
+        return rng.randrange(n_choices)
 
     with torch.no_grad():
         state_t = torch.tensor(state_vec, dtype=torch.float32, device=device).unsqueeze(
@@ -347,13 +351,13 @@ def _sample_choice(
         choice_t = torch.tensor(
             choice_feats, dtype=torch.float32, device=device
         ).unsqueeze(0)
-        mask_t = torch.ones((1, n), dtype=torch.float32, device=device)
+        mask_t = torch.ones((1, n_choices), dtype=torch.float32, device=device)
         logits, _ = net(state_t, choice_t, mask_t)
         probs = F.softmax(logits, dim=-1).squeeze(0).cpu().numpy()
 
     total = probs.sum()
     if not np.isfinite(total) or total <= 0:
-        return rng.randrange(n)
+        return rng.randrange(n_choices)
     probs = (probs / total).tolist()
     # Use the seeded ``rng`` (not numpy's global state) so episodes stay
     # reproducible from the user-supplied seed.
@@ -362,11 +366,11 @@ def _sample_choice(
 
 def _weighted_choice(rng: random.Random, weights: list[float]) -> int:
     """``random.Random.choices``-equivalent that returns the picked index."""
-    r = rng.random()
+    roll = rng.random()
     acc = 0.0
-    for i, w in enumerate(weights):
-        acc += w
-        if r < acc:
+    for i, weight in enumerate(weights):
+        acc += weight
+        if roll < acc:
             return i
     return len(weights) - 1
 

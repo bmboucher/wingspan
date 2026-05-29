@@ -105,13 +105,13 @@ def test_choice_features_distinguish_candidate_birds():
     eng, birds, *_ = engine.Engine.create(seed=3)
     # Pick two birds with different point values + costs so feature rows
     # plausibly differ.
-    a, b = _two_distinct_birds(birds)
+    first_bird, second_bird = _two_distinct_birds(birds)
     decision = decisions.PlayBirdPickCardDecision(
         player_id=0,
         prompt="x",
         choices=[
-            decisions.BirdChoice(label=a.name, bird=a),
-            decisions.BirdChoice(label=b.name, bird=b),
+            decisions.BirdChoice(label=first_bird.name, bird=first_bird),
+            decisions.BirdChoice(label=second_bird.name, bird=second_bird),
         ],
     )
     feats = encode.encode_choices(decision, eng.state)
@@ -210,14 +210,16 @@ def test_encode_choices_does_not_truncate_under_soft_threshold():
     """The old encoder silently capped at e.g. MAX_HAND_PICKS=10. The new
     one returns every choice as long as it's under the hard cap."""
     eng, birds, *_ = engine.Engine.create(seed=9)
-    n = 25  # comfortably above the old hand-pick cap of 10
+    n_birds = 25  # comfortably above the old hand-pick cap of 10
     decision = decisions.PlayBirdPickCardDecision(
         player_id=0,
         prompt="x",
-        choices=[decisions.BirdChoice(label=b.name, bird=b) for b in birds[:n]],
+        choices=[
+            decisions.BirdChoice(label=bird.name, bird=bird) for bird in birds[:n_birds]
+        ],
     )
     feats = encode.encode_choices(decision, eng.state)
-    assert feats.shape == (n, encode.CHOICE_FEATURE_DIM)
+    assert feats.shape == (n_birds, encode.CHOICE_FEATURE_DIM)
 
 
 ###### PRIVATE #######
@@ -226,12 +228,12 @@ def test_encode_choices_does_not_truncate_under_soft_threshold():
 def _two_distinct_birds(birds: list[cards.Bird]) -> tuple[cards.Bird, cards.Bird]:
     """Return two birds with at least one differing attribute among
     (points, total_food_cost, color)."""
-    a = birds[0]
-    for b in birds[1:]:
-        if (b.points, b.food_cost.total, b.color) != (
-            a.points,
-            a.food_cost.total,
-            a.color,
+    first_bird = birds[0]
+    for bird in birds[1:]:
+        if (bird.points, bird.food_cost.total, bird.color) != (
+            first_bird.points,
+            first_bird.food_cost.total,
+            first_bird.color,
         ):
-            return a, b
+            return first_bird, bird
     raise AssertionError("could not find two distinct birds in the catalog")

@@ -37,11 +37,15 @@ import pydantic
 from wingspan import cards, state
 
 # ---------------------------------------------------------------------------
-# Main-action enum (the four cube-spend options)
+# Main-action enum (the three habitat-row cube-spend options)
+#
+# Playing a bird is *not* one of these. Each legal way to play a bird is
+# surfaced as its own ``PlayBirdChoice`` at the main-action stage (see
+# ``MainActionDecision``), so the main-action pick is "3 habitat actions + one
+# option per (bird, habitat, food payment) the player can play right now".
 
 
 class MainAction(enum.StrEnum):
-    PLAY_BIRD = "play_bird"
     GAIN_FOOD = "gain_food"
     LAY_EGGS = "lay_eggs"
     DRAW_CARDS = "draw_cards"
@@ -93,6 +97,24 @@ class BirdChoice(Choice):
     bird: cards.Bird
 
 
+class PlayBirdChoice(Choice):
+    """Play a specific bird in a specific habitat for a specific food payment.
+
+    Surfaced at the main-action stage (see ``MainActionDecision``): a single
+    ``PlayBirdChoice`` bundles the bird, the target habitat, and one fully
+    specified food payment, so the habitat- and food-payment sub-decisions
+    that ``BirdChoice`` used to defer are folded into the main-action pick. A
+    bird playable in two habitats, or payable two ways, yields one
+    ``PlayBirdChoice`` per legal ``(habitat, payment)`` combination.
+
+    The egg cost is deliberately *not* folded in — it stays a separate
+    follow-up decision (``PlayBirdPickEggToPayDecision``)."""
+
+    bird: cards.Bird
+    habitat: cards.Habitat
+    payment: state.FoodPool
+
+
 class PlayedBirdChoice(Choice):
     """Pick a bird currently in play, by direct reference. Distinct from
     ``BoardTargetChoice`` (which identifies a board cell) because some
@@ -129,11 +151,13 @@ class BonusCardChoice(Choice):
 
 class DrawSourceChoice(Choice):
     """A draw source for the DRAW_CARDS action: either a tray slot or the
-    top of the deck. ``tray_index`` is set when ``source == 'tray'`` and is
-    ``None`` for the deck."""
+    top of the deck. ``tray_index`` and ``bird`` are set when
+    ``source == 'tray'`` (the specific face-up card on offer) and are both
+    ``None`` for the deck (a blind draw)."""
 
     source: typing.Literal["tray", "deck"]
     tray_index: int | None = None
+    bird: cards.Bird | None = None
 
 
 class PlayerIdChoice(Choice):
@@ -184,8 +208,15 @@ class Decision[C: Choice](pydantic.BaseModel):
     choices: typing.Annotated[list[C], pydantic.Field(min_length=1)]
 
 
-class MainActionDecision(Decision[MainActionChoice]):
-    """Top-of-turn cube-spend pick."""
+class MainActionDecision(Decision[MainActionChoice | PlayBirdChoice]):
+    """Top-of-turn cube-spend pick.
+
+    The choices are the three habitat-row actions (``MainActionChoice``) plus
+    one ``PlayBirdChoice`` per legal ``(bird, habitat, food payment)`` the
+    player can play right now. Picking a ``PlayBirdChoice`` commits to that
+    bird, habitat, and payment in one step (only the egg cost remains a
+    follow-up decision); picking a ``MainActionChoice`` runs the corresponding
+    habitat action."""
 
 
 class SetupDecision(Decision[SetupChoice]):
@@ -228,6 +259,27 @@ class LayEggPickBirdDecision(Decision[BoardTargetChoice | SkipChoice]):
 
 class DrawCardsPickSourceDecision(Decision[DrawSourceChoice]):
     """Pick whether to draw from the deck or from a specific tray slot."""
+
+
+class GainFoodConvertDecision(Decision[BirdChoice | SkipChoice]):
+    """Optional Forest conversion: discard one card from hand to take one
+    extra food die. Each ``BirdChoice`` is a candidate card to discard;
+    ``SkipChoice`` declines. Offered once, only when the cube lands on a trade
+    space (an odd number of birds in the row)."""
+
+
+class LayEggsConvertDecision(Decision[FoodChoice | SkipChoice]):
+    """Optional Grassland conversion: spend one food to lay one extra egg.
+    Each ``FoodChoice`` is a food type the player can spend; ``SkipChoice``
+    declines. Offered once, only when the cube lands on a trade space (an odd
+    number of birds in the row)."""
+
+
+class DrawCardsConvertDecision(Decision[PayCostChoice | SkipChoice]):
+    """Optional Wetland conversion: discard one egg to draw one extra card.
+    ``PayCostChoice`` accepts the fixed egg cost (the bird the egg comes off
+    is a follow-up pick); ``SkipChoice`` declines. Offered once, only when the
+    cube lands on a trade space (an odd number of birds in the row)."""
 
 
 class BirdPowerPickFoodDecision(Decision[FoodChoice | SkipChoice | PayCostChoice]):
@@ -283,4 +335,7 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     BirdPowerTuckFromHandDecision,
     BirdPowerPickStartingPlayerDecision,
     BirdPowerPickHabitatDecision,
+    GainFoodConvertDecision,
+    LayEggsConvertDecision,
+    DrawCardsConvertDecision,
 )

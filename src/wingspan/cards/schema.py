@@ -43,14 +43,14 @@ class Food(enum.StrEnum):
 ALL_FOODS = [Food.INVERTEBRATE, Food.SEED, Food.FISH, Food.FRUIT, Food.RODENT]
 N_FOODS = len(ALL_FOODS)
 
-_FOOD_INDEX = {f: i for i, f in enumerate(ALL_FOODS)}
+_FOOD_INDEX = {food: i for i, food in enumerate(ALL_FOODS)}
 
 
-def food_index(f: Food) -> int:
-    """Canonical position of ``f`` in :data:`ALL_FOODS` — the index used
+def food_index(food: Food) -> int:
+    """Canonical position of ``food`` in :data:`ALL_FOODS` — the index used
     throughout the codebase for the vector / tuple representation of
     per-food amounts."""
-    return _FOOD_INDEX[f]
+    return _FOOD_INDEX[food]
 
 
 class NestType(enum.StrEnum):
@@ -141,9 +141,9 @@ class BirdCost(pydantic.BaseModel):
         """Total printed food cost (specific + wild)."""
         return sum(self.counts)
 
-    def specific_of(self, f: Food) -> int:
-        """Specific-food count for ``f``."""
-        return self.counts[food_index(f)]
+    def specific_of(self, food: Food) -> int:
+        """Specific-food count for ``food``."""
+        return self.counts[food_index(food)]
 
     def is_free(self) -> bool:
         return self.total == 0
@@ -152,8 +152,8 @@ class BirdCost(pydantic.BaseModel):
     def from_specific(cls, specific: dict[Food, int], wild: int = 0) -> "BirdCost":
         """Build a cost from a sparse ``{food: count}`` dict + wild count."""
         vec = [0] * N_FOODS
-        for f, n in specific.items():
-            vec[food_index(f)] = n
+        for food, count in specific.items():
+            vec[food_index(food)] = count
         return cls(counts=(vec[0], vec[1], vec[2], vec[3], vec[4], wild))
 
 

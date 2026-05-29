@@ -31,11 +31,11 @@ def test_parse_each_player_gains_die():
 def test_both_hummingbirds_are_implemented():
     birds, _, _ = cards.load_all()
     target_names = {"Anna's Hummingbird", "Ruby-Throated Hummingbird"}
-    found = {b.name: b for b in birds if b.name in target_names}
+    found = {bird.name: bird for bird in birds if bird.name in target_names}
     missing = target_names - set(found)
     assert not missing, f"birds not present in data: {missing}"
     for name, bird in found.items():
-        kinds = [e.kind for e in bird.power.effects]
+        kinds = [effect.kind for effect in bird.power.effects]
         assert (
             cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER in kinds
         ), f"{name} parsed as {kinds}; raw_power_text={bird.raw_power_text!r}"
@@ -53,8 +53,8 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
     gs = _setup_state(seed=0)
 
     # Make the feeder deterministic: 1 seed, 1 fruit, everything else 0.
-    for f in gs.birdfeeder.counts:
-        gs.birdfeeder.counts[f] = 0
+    for food in gs.birdfeeder.counts:
+        gs.birdfeeder.counts[food] = 0
     gs.birdfeeder.counts[cards.Food.SEED] = 1
     gs.birdfeeder.counts[cards.Food.FRUIT] = 1
 
@@ -63,7 +63,9 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
     food_before_p0 = p0.food.as_dict()
     food_before_p1 = p1.food.as_dict()
 
-    carrier = next(b for b in cards.load_all()[0] if b.name == "Anna's Hummingbird")
+    carrier = next(
+        bird for bird in cards.load_all()[0] if bird.name == "Anna's Hummingbird"
+    )
     pb = state.PlayedBird(bird=carrier)
     eff = cards.Effect(
         kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
@@ -78,9 +80,9 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
     ) -> C:
         if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
             assert decision.player_id == p0.id
-            for c in decision.choices:
-                if c.player_id == p1.id:
-                    return typing.cast(C, c)
+            for choice in decision.choices:
+                if choice.player_id == p1.id:
+                    return typing.cast(C, choice)
             raise AssertionError("p1 not in choices")
         if isinstance(decision, decisions.GainFoodPickDieDecision):
             assert decision.player_id == p0.id
@@ -108,8 +110,8 @@ def test_each_player_gains_die_stops_when_feeder_empty():
     """Only 1 die is in the feeder, so only the starting player gets one."""
     gs = _setup_state(seed=1)
 
-    for f in gs.birdfeeder.counts:
-        gs.birdfeeder.counts[f] = 0
+    for food in gs.birdfeeder.counts:
+        gs.birdfeeder.counts[food] = 0
     gs.birdfeeder.counts[cards.Food.SEED] = 1
 
     p0, p1 = gs.players
@@ -118,7 +120,7 @@ def test_each_player_gains_die_stops_when_feeder_empty():
     food_before_p1 = p1.food.as_dict()
 
     carrier = next(
-        b for b in cards.load_all()[0] if b.name == "Ruby-Throated Hummingbird"
+        bird for bird in cards.load_all()[0] if bird.name == "Ruby-Throated Hummingbird"
     )
     pb = state.PlayedBird(bird=carrier)
     eff = cards.Effect(
@@ -130,9 +132,9 @@ def test_each_player_gains_die_stops_when_feeder_empty():
         decision: decisions.Decision[C],
     ) -> C:
         if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
-            for c in decision.choices:
-                if c.player_id == p0.id:
-                    return typing.cast(C, c)
+            for choice in decision.choices:
+                if choice.player_id == p0.id:
+                    return typing.cast(C, choice)
             raise AssertionError("p0 not in choices")
         if isinstance(decision, decisions.GainFoodPickDieDecision):
             assert decision.player_id == p0.id
@@ -160,15 +162,17 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
     queried for its own die pick (and only for its own)."""
     gs = _setup_state(seed=2)
 
-    for f in gs.birdfeeder.counts:
-        gs.birdfeeder.counts[f] = 0
+    for food in gs.birdfeeder.counts:
+        gs.birdfeeder.counts[food] = 0
     gs.birdfeeder.counts[cards.Food.SEED] = 1
     gs.birdfeeder.counts[cards.Food.RODENT] = 1
 
     p0, p1 = gs.players
     gs.current_player = p0.id
 
-    carrier = next(b for b in cards.load_all()[0] if b.name == "Anna's Hummingbird")
+    carrier = next(
+        bird for bird in cards.load_all()[0] if bird.name == "Anna's Hummingbird"
+    )
     pb = state.PlayedBird(bird=carrier)
     eff = cards.Effect(
         kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
@@ -182,9 +186,9 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
     ) -> C:
         queried.append(("p0", type(decision), decision.player_id))
         if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
-            for c in decision.choices:
-                if c.player_id == p0.id:
-                    return typing.cast(C, c)
+            for choice in decision.choices:
+                if choice.player_id == p0.id:
+                    return typing.cast(C, choice)
         assert decision.player_id == p0.id
         return typing.cast(C, decision.choices[0])
 

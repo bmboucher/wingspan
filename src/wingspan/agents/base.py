@@ -23,12 +23,12 @@ def random_agent(rng: random.Random | None = None) -> engine_core.Agent:
     A fresh ``random.Random`` is allocated when ``rng`` is omitted so callers
     that want reproducibility can supply a seeded one.
     """
-    r = rng or random.Random()
+    chooser = rng or random.Random()
 
     def agent[C: decisions.Choice](
         _engine: engine_core.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        return r.choice(decision.choices)
+        return chooser.choice(decision.choices)
 
     return agent

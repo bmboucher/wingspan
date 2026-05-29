@@ -29,8 +29,8 @@ INV = cards.Food.INVERTEBRATE
 RODENT = cards.Food.RODENT
 
 
-def _pool(d: dict[cards.Food, int] | None = None) -> state.FoodPool:
-    return state.FoodPool.from_dict(d or {})
+def _pool(counts: dict[cards.Food, int] | None = None) -> state.FoodPool:
+    return state.FoodPool.from_dict(counts or {})
 
 
 def _cost(
@@ -42,7 +42,10 @@ def _cost(
 def _payment_multisets(
     payments: list[state.FoodPool],
 ) -> set[frozenset[tuple[cards.Food, int]]]:
-    return {frozenset((f, n) for f, n in p.items() if n > 0) for p in payments}
+    return {
+        frozenset((food, count) for food, count in payment.items() if count > 0)
+        for payment in payments
+    }
 
 
 # --- cost_meets -----------------------------------------------------------
@@ -136,10 +139,10 @@ def test_case_5_three_substitution_combinations():
 
 def test_case_6_wild_picks_any_one_food():
     """cost = 1 wild, available = 1 of each food → 5 single-food payments."""
-    available = _pool({f: 1 for f in cards.ALL_FOODS})
+    available = _pool({food: 1 for food in cards.ALL_FOODS})
     payments = helpers.enumerate_payments(available, _cost(wild=1))
     assert _payment_multisets(payments) == {
-        frozenset({(f, 1)}) for f in cards.ALL_FOODS
+        frozenset({(food, 1)}) for food in cards.ALL_FOODS
     }
 
 
@@ -155,12 +158,12 @@ def test_case_7_partial_match_plus_substitution():
 
 def test_case_8_two_wild_picks_two_distinct_foods():
     """cost = 2 wild, available = 1 of each food → C(5,2) = 10 distinct pairs."""
-    available = _pool({f: 1 for f in cards.ALL_FOODS})
+    available = _pool({food: 1 for food in cards.ALL_FOODS})
     payments = helpers.enumerate_payments(available, _cost(wild=2))
     expected = {
-        frozenset({(a, 1), (b, 1)})
-        for i, a in enumerate(cards.ALL_FOODS)
-        for b in cards.ALL_FOODS[i + 1 :]
+        frozenset({(food_a, 1), (food_b, 1)})
+        for i, food_a in enumerate(cards.ALL_FOODS)
+        for food_b in cards.ALL_FOODS[i + 1 :]
     }
     assert _payment_multisets(payments) == expected
     assert len(payments) == 10
@@ -189,7 +192,7 @@ def test_enumerate_payments_keep_or_substitute_with_surplus():
 
 def test_enumerate_payments_no_overpay():
     payments = helpers.enumerate_payments(
-        _pool({f: 5 for f in cards.ALL_FOODS}),
+        _pool({food: 5 for food in cards.ALL_FOODS}),
         _cost(),
     )
     assert _payment_multisets(payments) == {frozenset()}

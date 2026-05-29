@@ -42,7 +42,7 @@ def _make_engine_with_bird(
     rng = random.Random(0)
     gs = state.new_game(rng, birds, bonuses, goals)
     eng = engine.Engine(gs, agents=agents) if agents is not None else engine.Engine(gs)
-    template = next(b for b in birds if b.color == color)
+    template = next(candidate for candidate in birds if candidate.color == color)
     bird = template.model_copy(
         update={
             "color": color,
@@ -59,43 +59,53 @@ def _make_engine_with_bird(
 
 
 def test_parser_draw_from_tray_all():
-    p = cards.parse_power(
+    power = cards.parse_power(
         cards.PowerColor.WHITE, "Draw the 3 face-up [card] in the bird tray."
     )
-    assert [e.kind for e in p.effects] == [cards.EffectKind.DRAW_FROM_TRAY_ALL]
+    assert [effect.kind for effect in power.effects] == [
+        cards.EffectKind.DRAW_FROM_TRAY_ALL
+    ]
 
 
 def test_parser_trade_wild_food():
-    p = cards.parse_power(
+    power = cards.parse_power(
         cards.PowerColor.BROWN, "Trade 1 [wild] for any other type from the supply."
     )
-    assert [e.kind for e in p.effects] == [cards.EffectKind.TRADE_WILD_FOOD]
+    assert [effect.kind for effect in power.effects] == [
+        cards.EffectKind.TRADE_WILD_FOOD
+    ]
 
 
 def test_parser_fewest_forest_gains_die():
-    p = cards.parse_power(
+    power = cards.parse_power(
         cards.PowerColor.BROWN,
         "Player(s) with the fewest birds in their [forest] gain 1 [die] from birdfeeder.",
     )
-    assert [e.kind for e in p.effects] == [cards.EffectKind.FEWEST_FOREST_GAINS_DIE]
+    assert [effect.kind for effect in power.effects] == [
+        cards.EffectKind.FEWEST_FOREST_GAINS_DIE
+    ]
 
 
 def test_parser_play_additional_bird_here():
-    p = cards.parse_power(
+    power = cards.parse_power(
         cards.PowerColor.WHITE,
         "Play an additional bird in this bird's habitat. Pay its normal cost.",
     )
-    assert [e.kind for e in p.effects] == [cards.EffectKind.PLAY_ADDITIONAL_BIRD_HERE]
+    assert [effect.kind for effect in power.effects] == [
+        cards.EffectKind.PLAY_ADDITIONAL_BIRD_HERE
+    ]
 
 
 def test_parser_draw_n_plus_one_draft():
-    p = cards.parse_power(
+    power = cards.parse_power(
         cards.PowerColor.WHITE,
         "Draw [card] equal to the number of players +1. Starting with you and "
         "proceeding clockwise, each player selects 1 of those cards and places "
         "it in their hand. You keep the extra card.",
     )
-    assert [e.kind for e in p.effects] == [cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT]
+    assert [effect.kind for effect in power.effects] == [
+        cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -106,13 +116,13 @@ def test_draw_from_tray_all_takes_all_three_and_refills():
     eng, pb = _make_engine_with_bird("Draw the 3 face-up [card] in the bird tray.")
     gs = eng.state
     gs.current_player = 0
-    p = gs.me()
-    p.hand = []
+    player = gs.me()
+    player.hand = []
     # Force a deterministic tray of 3 known birds.
-    original_tray_names = [b.name for b in gs.tray]
+    original_tray_names = [bird.name for bird in gs.tray]
     deck_before = len(gs.bird_deck)
-    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.WETLAND, "play")
-    assert [b.name for b in p.hand] == original_tray_names
+    powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.WETLAND, "play")
+    assert [bird.name for bird in player.hand] == original_tray_names
     assert len(gs.tray) == 3  # refilled
     # 3 cards moved from deck to tray to refill.
     assert len(gs.bird_deck) == deck_before - 3
@@ -129,41 +139,43 @@ def test_trade_wild_food_swaps_one_food():
     )
     gs = eng.state
     gs.current_player = 0
-    p = gs.me()
-    for f in cards.ALL_FOODS:
-        p.food[f] = 0
-    p.food[cards.Food.SEED] = 2
+    player = gs.me()
+    for food in cards.ALL_FOODS:
+        player.food[food] = 0
+    player.food[cards.Food.SEED] = 2
     gs.food_supply[cards.Food.FRUIT] = 5
 
     asked: list[object] = []
 
     def agent[C: decisions.Choice](
-        _e: engine.Engine,
-        d: decisions.Decision[C],
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
     ) -> C:
-        asked.append(d)
+        asked.append(decision)
         if not asked or len(asked) == 1:
             # first prompt: pick which food to discard
             return typing.cast(
                 C,
                 next(
-                    c
-                    for c in d.choices
-                    if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.FoodChoice)
+                    and choice.food == cards.Food.SEED
                 ),
             )
         return typing.cast(
             C,
             next(
-                c
-                for c in d.choices
-                if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.FRUIT
+                choice
+                for choice in decision.choices
+                if isinstance(choice, decisions.FoodChoice)
+                and choice.food == cards.Food.FRUIT
             ),
         )
 
-    powers.dispatch_power(eng, agent, p, pb, cards.Habitat.WETLAND, "activate")
-    assert p.food[cards.Food.SEED] == 1
-    assert p.food[cards.Food.FRUIT] == 1
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
+    assert player.food[cards.Food.SEED] == 1
+    assert player.food[cards.Food.FRUIT] == 1
 
 
 def test_trade_wild_food_skip_does_nothing():
@@ -173,22 +185,27 @@ def test_trade_wild_food_skip_does_nothing():
     )
     gs = eng.state
     gs.current_player = 0
-    p = gs.me()
-    for f in cards.ALL_FOODS:
-        p.food[f] = 0
-    p.food[cards.Food.SEED] = 1
-    food_before = p.food.as_dict()
+    player = gs.me()
+    for food in cards.ALL_FOODS:
+        player.food[food] = 0
+    player.food[cards.Food.SEED] = 1
+    food_before = player.food.as_dict()
 
     def agent[C: decisions.Choice](
-        _e: engine.Engine,
-        d: decisions.Decision[C],
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
     ) -> C:
         return typing.cast(
-            C, next(c for c in d.choices if isinstance(c, decisions.SkipChoice))
+            C,
+            next(
+                choice
+                for choice in decision.choices
+                if isinstance(choice, decisions.SkipChoice)
+            ),
         )
 
-    powers.dispatch_power(eng, agent, p, pb, cards.Habitat.WETLAND, "activate")
-    assert p.food.as_dict() == food_before
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
+    assert player.food.as_dict() == food_before
 
 
 def test_trade_wild_food_no_food_no_op():
@@ -198,17 +215,17 @@ def test_trade_wild_food_no_food_no_op():
     )
     gs = eng.state
     gs.current_player = 0
-    p = gs.me()
-    for f in cards.ALL_FOODS:
-        p.food[f] = 0
+    player = gs.me()
+    for food in cards.ALL_FOODS:
+        player.food[food] = 0
 
     def agent[C: decisions.Choice](  # pragma: no cover
-        _e: engine.Engine,
-        d: decisions.Decision[C],
+        _engine: engine.Engine,
+        _decision: decisions.Decision[C],
     ) -> C:
         pytest.fail("should not be consulted when player has no food")
 
-    powers.dispatch_power(eng, agent, p, pb, cards.Habitat.WETLAND, "activate")
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
 
 
 # ---------------------------------------------------------------------------
@@ -227,21 +244,24 @@ def test_fewest_forest_gains_die_only_min_player_gets_food():
     # Give P0 zero forest birds, P1 one forest bird (so P0 is "fewest").
     p1.board[cards.Habitat.FOREST].append(state.PlayedBird(bird=pb.bird))
     # Ensure birdfeeder has a known food.
-    for f in cards.ALL_FOODS:
-        gs.birdfeeder.counts[f] = 0
+    for food in cards.ALL_FOODS:
+        gs.birdfeeder.counts[food] = 0
     gs.birdfeeder.counts[cards.Food.SEED] = 3
-    food_before = {q.id: q.food.as_dict() for q in gs.players}
+    food_before = {
+        other_player.id: other_player.food.as_dict() for other_player in gs.players
+    }
 
     def agent[C: decisions.Choice](
-        _e: engine.Engine,
-        d: decisions.Decision[C],
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
     ) -> C:
         return typing.cast(
             C,
             next(
-                c
-                for c in d.choices
-                if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
+                choice
+                for choice in decision.choices
+                if isinstance(choice, decisions.FoodChoice)
+                and choice.food == cards.Food.SEED
             ),
         )
 
@@ -261,21 +281,24 @@ def test_fewest_forest_gains_die_ties_each_gets_one():
     gs.current_player = 0
     p0, p1 = gs.players
     # Both have zero forest birds -> tie -> both gain a die.
-    for f in cards.ALL_FOODS:
-        gs.birdfeeder.counts[f] = 0
+    for food in cards.ALL_FOODS:
+        gs.birdfeeder.counts[food] = 0
     gs.birdfeeder.counts[cards.Food.SEED] = 5
-    food_before = {q.id: q.food.as_dict() for q in gs.players}
+    food_before = {
+        other_player.id: other_player.food.as_dict() for other_player in gs.players
+    }
 
     def agent[C: decisions.Choice](
-        _e: engine.Engine,
-        d: decisions.Decision[C],
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
     ) -> C:
         return typing.cast(
             C,
             next(
-                c
-                for c in d.choices
-                if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
+                choice
+                for choice in decision.choices
+                if isinstance(choice, decisions.FoodChoice)
+                and choice.food == cards.Food.SEED
             ),
         )
 
@@ -292,12 +315,12 @@ def test_fewest_forest_gains_die_empty_feeder_no_op():
     )
     gs = eng.state
     gs.current_player = 0
-    for f in cards.ALL_FOODS:
-        gs.birdfeeder.counts[f] = 0
+    for food in cards.ALL_FOODS:
+        gs.birdfeeder.counts[food] = 0
 
     def agent[C: decisions.Choice](  # pragma: no cover
-        _e: engine.Engine,
-        d: decisions.Decision[C],
+        _engine: engine.Engine,
+        _decision: decisions.Decision[C],
     ) -> C:
         pytest.fail("should not be consulted when feeder is empty")
 
@@ -315,9 +338,9 @@ def test_play_additional_bird_here_grants_extra_play():
     )
     gs = eng.state
     gs.current_player = 0
-    p = gs.me()
+    player = gs.me()
     before = gs.turn_extra_plays
-    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.FOREST, "play")
+    powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.FOREST, "play")
     assert gs.turn_extra_plays == before + 1
 
 
@@ -339,11 +362,11 @@ def test_draw_n_plus_one_draft_each_player_picks_one_active_keeps_rest():
     deck_before = len(gs.bird_deck)
 
     def agent[C: decisions.Choice](
-        _e: engine.Engine,
-        d: decisions.Decision[C],
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
     ) -> C:
         # Always pick the first offered card.
-        return d.choices[0]
+        return decision.choices[0]
 
     eng.agents = [agent, agent]
     powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
@@ -369,8 +392,8 @@ def test_draw_n_plus_one_draft_empty_deck_no_op():
     gs.bird_discard = []
 
     def agent[C: decisions.Choice](  # pragma: no cover
-        _e: engine.Engine,
-        d: decisions.Decision[C],
+        _engine: engine.Engine,
+        _decision: decisions.Decision[C],
     ) -> C:
         pytest.fail("should not be consulted when deck is empty")
 
@@ -388,7 +411,7 @@ def test_target_birds_parse_to_expected_kinds():
     from wingspan import cards
 
     birds, _, _ = cards.load_all()
-    by_name = {b.name: b for b in birds}
+    by_name = {bird.name: bird for bird in birds}
     expected = {
         "Brant": cards.EffectKind.DRAW_FROM_TRAY_ALL,
         "Green Heron": cards.EffectKind.TRADE_WILD_FOOD,
@@ -397,5 +420,5 @@ def test_target_birds_parse_to_expected_kinds():
         "American Oystercatcher": cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT,
     }
     for name, kind in expected.items():
-        kinds = [e.kind for e in by_name[name].power.effects]
+        kinds = [effect.kind for effect in by_name[name].power.effects]
         assert kind in kinds, f"{name}: {kinds}"

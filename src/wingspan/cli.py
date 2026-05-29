@@ -34,20 +34,20 @@ def main_manual(argv: list[str] | None = None) -> int:
 
     rng = random.Random(seed)
     if args.both_human:
-        a = agents.cli_agent()
-        b = agents.cli_agent()
+        agent_a = agents.cli_agent()
+        agent_b = agents.cli_agent()
     else:
-        a = agents.cli_agent() if args.you == 0 else agents.random_agent(rng)
-        b = agents.cli_agent() if args.you == 1 else agents.random_agent(rng)
+        agent_a = agents.cli_agent() if args.you == 0 else agents.random_agent(rng)
+        agent_b = agents.cli_agent() if args.you == 1 else agents.random_agent(rng)
 
-    engine.Engine.play_one_game(eng.state, (a, b))
+    engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
     print("\n=== GAME LOG (tail) ===")
     for line in eng.state.log[-20:]:
         print(line)
     print()
-    for p in eng.state.players:
-        score = p.final_score if p.final_score is not None else "?"
-        print(f"{p.name}: final_score={score}")
+    for player in eng.state.players:
+        score = player.final_score if player.final_score is not None else "?"
+        print(f"{player.name}: final_score={score}")
     return 0
 
 
@@ -65,19 +65,21 @@ def main_random(argv: list[str] | None = None) -> int:
 
     seed = args.seed if args.seed is not None else random.randint(0, 1 << 30)
     rng = random.Random(seed)
-    for g in range(args.games):
-        eng, _, _, _ = engine.Engine.create(seed=seed + g)
-        a = agents.random_agent(rng)
-        b = agents.random_agent(rng)
-        engine.Engine.play_one_game(eng.state, (a, b))
-        scores = [p.final_score for p in eng.state.players]
+    for game_idx in range(args.games):
+        eng, _, _, _ = engine.Engine.create(seed=seed + game_idx)
+        agent_a = agents.random_agent(rng)
+        agent_b = agents.random_agent(rng)
+        engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
+        scores = [player.final_score for player in eng.state.players]
         if not args.quiet:
-            print(f"Game {g+1}: scores={scores}, log lines={len(eng.state.log)}")
+            print(
+                f"Game {game_idx + 1}: scores={scores}, log lines={len(eng.state.log)}"
+            )
         if args.log:
-            path = args.log if args.games == 1 else f"{args.log}.{g}"
-            with open(path, "w", encoding="utf-8") as f:
+            path = args.log if args.games == 1 else f"{args.log}.{game_idx}"
+            with open(path, "w", encoding="utf-8") as log_file:
                 for line in eng.state.log:
-                    f.write(line + "\n")
+                    log_file.write(line + "\n")
             if not args.quiet:
                 print(f"  log -> {path}")
     return 0

@@ -110,8 +110,8 @@ class Engine:
         eng = Engine(gs, agents=agents)
         eng.log("=== Wingspan game start ===")
         eng._setup_phase(agents)
-        for r in range(4):
-            eng._play_round(r, agents)
+        for round_idx in range(4):
+            eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
         eng.log("=== Wingspan game end ===")
@@ -131,21 +131,21 @@ class Engine:
     def ask[C: decisions.Choice](
         self,
         agent: Agent,
-        d: decisions.Decision[C],
+        decision: decisions.Decision[C],
     ) -> C:
-        """Run ``agent`` against ``d``, validate the answer, and return the
-        matching Choice instance from ``d.choices``.
+        """Run ``agent`` against ``decision``, validate the answer, and return
+        the matching Choice instance from ``decision.choices``.
 
         Agents may return either a ``Choice`` instance (preferred) or a raw
         integer index (CLI fallback). The returned Choice is compared by
         Pydantic field equality, so an agent that constructs its own Choice
         with identical fields still resolves to the corresponding slot in
-        ``d.choices``."""
-        choice: C = agent(self, d)
-        if choice not in d.choices:
+        ``decision.choices``."""
+        choice: C = agent(self, decision)
+        if choice not in decision.choices:
             raise ValueError(
                 f"agent returned illegal choice {choice.label!r} for "
-                f"{type(d).__name__}"
+                f"{type(decision).__name__}"
             )
         return choice
 
@@ -159,64 +159,101 @@ class Engine:
     def _take_turn(self, agent: Agent) -> None:
         """Run one full turn for the active player: reset turn scratch, prompt
         for a main action, spend an action cube, dispatch the chosen action,
-        then resolve any extra plays accrued during it."""
-        p = self.state.me()
+        resolve any extra plays accrued during it, then refill the bird tray.
+
+        The tray refill happens once, at the very end of the turn — cards taken
+        from the tray during the turn (by the draw action, conversions, or any
+        non-Brant draw) leave their slots empty until now. Refilling here, after
+        every effect has resolved, is what makes mid-turn draws see a shrinking
+        tray instead of an ever-full one."""
+        player = self.state.me()
         self.state.reset_turn_state()
         # Blank separator + combined turn/decision header so each turn is one
         # visually scannable block: `[Pn] turn (X cubes) --> ACTION` followed
         # by the indented action result and any sub-events.
         self.log("")
-        choice = self.ask(agent, self._main_action_decision(p))
-        action = choice.action
+        choice = self.ask(agent, self._main_action_decision(player))
         self.log(
-            f"[{p.name}] turn ({p.action_cubes_left} cubes left) "
-            f"--> {action.value.upper()}"
+            f"[{player.name}] turn ({player.action_cubes_left} cubes left) "
+            f"--> {self._main_action_label(choice)}"
         )
-        p.action_cubes_left -= 1
-        if action == decisions.MainAction.PLAY_BIRD:
-            actions.do_play_bird(self, agent)
-        elif action == decisions.MainAction.GAIN_FOOD:
-            actions.do_gain_food(self, agent)
-        elif action == decisions.MainAction.LAY_EGGS:
-            actions.do_lay_eggs(self, agent)
-        elif action == decisions.MainAction.DRAW_CARDS:
-            actions.do_draw_cards(self, agent)
-        self._consume_extra_plays(p, agent)
+        player.action_cubes_left -= 1
+        self._dispatch_main_action(agent, choice)
+        self._consume_extra_plays(player, agent)
+        self.state.refill_tray()
 
-    def _main_action_decision(self, p: state.Player) -> decisions.MainActionDecision:
-        """Build the four-way main-action Decision for ``p``. ``PLAY_BIRD``
-        is omitted when no bird in hand is playable right now; the other
-        three actions are always offered (even if the row is empty)."""
-        choices: list[decisions.MainActionChoice] = []
-        if actions.can_play_bird(self, p):
-            choices.append(
-                decisions.MainActionChoice(
-                    label="play bird",
-                    action=decisions.MainAction.PLAY_BIRD,
-                )
+    @staticmethod
+    def _main_action_label(
+        choice: decisions.MainActionChoice | decisions.PlayBirdChoice,
+    ) -> str:
+        """Log-header text for the chosen main action."""
+        if isinstance(choice, decisions.PlayBirdChoice):
+            return (
+                f"PLAY_BIRD ({choice.bird.name} -> {choice.habitat.value}, "
+                f"pay {choice.payment.format()})"
             )
-        # the other three are always legal (just inefficient if board is empty)
-        choices.append(
+        return choice.action.value.upper()
+
+    def _dispatch_main_action(
+        self,
+        agent: Agent,
+        choice: decisions.MainActionChoice | decisions.PlayBirdChoice,
+    ) -> None:
+        """Run the chosen main action. A ``PlayBirdChoice`` plays that specific
+        bird in the chosen habitat for the chosen payment; a ``MainActionChoice``
+        runs its habitat-row action."""
+        if isinstance(choice, decisions.PlayBirdChoice):
+            actions.do_play_bird(
+                self, agent, choice.bird, choice.habitat, choice.payment
+            )
+        elif choice.action == decisions.MainAction.GAIN_FOOD:
+            actions.do_gain_food(self, agent)
+        elif choice.action == decisions.MainAction.LAY_EGGS:
+            actions.do_lay_eggs(self, agent)
+        elif choice.action == decisions.MainAction.DRAW_CARDS:
+            actions.do_draw_cards(self, agent)
+
+    def _main_action_decision(
+        self, player: state.Player
+    ) -> decisions.MainActionDecision:
+        """Build the main-action Decision for ``player``.
+
+        The three habitat-row actions are always offered (just inefficient if
+        the row is empty); each legal way ``player`` can play a bird right now is
+        also offered as its own ``PlayBirdChoice``, so the menu is "3 habitat
+        actions + one option per (bird, habitat, food payment)". The egg cost
+        is still resolved as a follow-up decision when the play runs."""
+        choices: list[decisions.MainActionChoice | decisions.PlayBirdChoice] = [
             decisions.MainActionChoice(
                 label="gain food (forest)",
                 action=decisions.MainAction.GAIN_FOOD,
-            )
-        )
-        choices.append(
+            ),
             decisions.MainActionChoice(
                 label="lay eggs (grassland)",
                 action=decisions.MainAction.LAY_EGGS,
-            )
-        )
-        choices.append(
+            ),
             decisions.MainActionChoice(
                 label="draw cards (wetland)",
                 action=decisions.MainAction.DRAW_CARDS,
+            ),
+        ]
+        for bird, habitat, payment in actions.playable_bird_plays(
+            player, habitat_filter=None
+        ):
+            choices.append(
+                decisions.PlayBirdChoice(
+                    label=(
+                        f"play {bird.name} in {habitat.value} "
+                        f"for {payment.format()}"
+                    ),
+                    bird=bird,
+                    habitat=habitat,
+                    payment=payment,
+                )
             )
-        )
         return decisions.MainActionDecision(
-            player_id=p.id,
-            prompt=f"[{p.name}] choose a main action",
+            player_id=player.id,
+            prompt=f"[{player.name}] choose a main action",
             choices=choices,
         )
 
@@ -227,56 +264,63 @@ class Engine:
     def _setup_phase(self, agents: typing.Sequence[Agent]) -> None:
         """Pre-round-1 setup: deal each player a starting hand, prompt the
         combined keep-cards / discard-food / bonus-card pick, log the result."""
-        for p in self.state.players:
-            self._deal_starting_hand(p)
-            self._resolve_setup_choice(p, agents)
+        for player in self.state.players:
+            self._deal_starting_hand(player)
+            self._resolve_setup_choice(player, agents)
             self.log(
-                f"[{p.name}] starts with hand=[{', '.join(b.name for b in p.hand)}] "
-                f"food={p.food.format()}"
+                f"[{player.name}] starts with "
+                f"hand=[{', '.join(bird.name for bird in player.hand)}] "
+                f"food={player.food.format()}"
             )
 
     # ------------------------------------------------------------------
     # Round / extra-plays helpers
     # ------------------------------------------------------------------
 
-    def _play_round(self, r: int, agents: typing.Sequence[Agent]) -> None:
+    def _play_round(self, round_idx: int, agents: typing.Sequence[Agent]) -> None:
         """Reset per-round state, log the goal, then alternate turns until
         both players have spent every action cube."""
-        self.state.round_idx = r
-        for p in self.state.players:
-            p.action_cubes_left = state.ROUND_CUBES[r]
-            for row in p.board.values():
+        self.state.round_idx = round_idx
+        for player in self.state.players:
+            player.action_cubes_left = state.ROUND_CUBES[round_idx]
+            for row in player.board.values():
                 for pb in row:
                     pb.activations = 0
         self.log(
-            f"--- Round {r+1} (each player gets {state.ROUND_CUBES[r]} actions) ---"
+            f"--- Round {round_idx + 1} "
+            f"(each player gets {state.ROUND_CUBES[round_idx]} actions) ---"
         )
         self.log(
-            f"Round goal: {self.state.round_goals[r].description} "
-            f"({self.state.round_goals[r].category})"
+            f"Round goal: {self.state.round_goals[round_idx].description} "
+            f"({self.state.round_goals[round_idx].category})"
         )
-        first = r % 2
-        while any(p.action_cubes_left > 0 for p in self.state.players):
-            self.state.current_player = first
-            if self.state.players[first].action_cubes_left > 0:
-                self._take_turn(agents[first])
-            first = 1 - first
-            if self.state.players[first].action_cubes_left > 0:
-                self._take_turn(agents[first])
-        scoring.score_round_goal(self, r)
+        # Turn order rotates each round off the randomly-chosen first player;
+        # both players hold equal cubes, so a strict alternation drains them
+        # evenly. ``current_player`` is set immediately before each turn so the
+        # acting player and ``agents[idx]`` never desync.
+        first = (self.state.start_player + round_idx) % len(self.state.players)
+        order = (first, 1 - first)
+        while any(player.action_cubes_left > 0 for player in self.state.players):
+            for idx in order:
+                if self.state.players[idx].action_cubes_left > 0:
+                    self.state.current_player = idx
+                    self._take_turn(agents[idx])
+        scoring.score_round_goal(self, round_idx)
 
-    def _consume_extra_plays(self, p: state.Player, agent: Agent) -> None:
+    def _consume_extra_plays(self, player: state.Player, agent: Agent) -> None:
         """Resolve any +extra-play credits accrued during the turn."""
         while self.state.turn_extra_plays > 0:
             self.state.turn_extra_plays -= 1
-            if not actions.can_play_bird(self, p):
+            if not actions.can_play_bird(self, player):
                 self.state.turn_extra_play_habitat = None
                 break
-            hf = self.state.turn_extra_play_habitat
-            if hf is not None:
-                self.log(f"[{p.name}] takes an EXTRA play in [{hf.value}]")
+            habitat_filter = self.state.turn_extra_play_habitat
+            if habitat_filter is not None:
+                self.log(
+                    f"[{player.name}] takes an EXTRA play in [{habitat_filter.value}]"
+                )
             else:
-                self.log(f"[{p.name}] takes an EXTRA play")
+                self.log(f"[{player.name}] takes an EXTRA play")
             actions.do_play_bird(self, agent)
             # Habitat lock applies to a single extra play only.
             self.state.turn_extra_play_habitat = None
@@ -285,17 +329,17 @@ class Engine:
     # Setup sub-helpers
     # ------------------------------------------------------------------
 
-    def _deal_starting_hand(self, p: state.Player) -> None:
+    def _deal_starting_hand(self, player: state.Player) -> None:
         """Draw ``STARTING_HAND_SIZE`` birds from the top of the deck into
-        ``p``'s hand. Silently deals fewer if the deck is short."""
+        ``player``'s hand. Silently deals fewer if the deck is short."""
         for _ in range(state.STARTING_HAND_SIZE):
-            b = self.state.draw_bird()
-            if b:
-                p.hand.append(b)
+            drawn = self.state.draw_bird()
+            if drawn:
+                player.hand.append(drawn)
 
     def _resolve_setup_choice(
         self,
-        p: state.Player,
+        player: state.Player,
         agents: typing.Sequence[Agent],
     ) -> None:
         """Present the combined hand / food / bonus pick as a single Decision.
@@ -306,27 +350,27 @@ class Engine:
         that produces 2 * sum_k C(5,k)^2 = 504 choices, which matches the RL
         action space."""
         dealt_bonus = self._deal_starting_bonus()
-        for f in cards.ALL_FOODS:
-            p.food[f] = 1
-        dealt_cards = list(p.hand)
+        for food in cards.ALL_FOODS:
+            player.food[food] = 1
+        dealt_cards = list(player.hand)
         choices = self._build_setup_choices(dealt_cards, dealt_bonus)
-        self.state.current_player = p.id
+        self.state.current_player = player.id
         decision = decisions.SetupDecision(
-            player_id=p.id,
+            player_id=player.id,
             prompt=(
-                f"[{p.name}] choose starting hand (kept cards cost 1 food each) "
+                f"[{player.name}] choose starting hand (kept cards cost 1 food each) "
                 f"and bonus card"
             ),
             choices=choices,
             dealt_cards=dealt_cards,
             dealt_bonus=dealt_bonus,
         )
-        chosen = self.ask(agents[p.id], decision)
-        self._apply_setup_choice(p, dealt_cards, dealt_bonus, chosen)
+        chosen = self.ask(agents[player.id], decision)
+        self._apply_setup_choice(player, dealt_cards, dealt_bonus, chosen)
         bonus_name = chosen.bonus_card.name if chosen.bonus_card else "(none)"
         self.log(
-            f"[{p.name}] keeps {len(chosen.kept_cards)} card(s), "
-            f"foods [{','.join(f.value for f in chosen.kept_foods) or 'none'}], "
+            f"[{player.name}] keeps {len(chosen.kept_cards)} card(s), "
+            f"foods [{','.join(food.value for food in chosen.kept_foods) or 'none'}], "
             f"bonus '{bonus_name}'"
         )
 
@@ -349,14 +393,14 @@ class Engine:
         Iteration order is ``(kept_mask, kept_food_combo, bonus)`` so the list
         is deterministic for a given deal — useful when matching a CLI-assembled
         answer back to a Choice instance."""
-        n = len(dealt_cards)
+        num_cards = len(dealt_cards)
         all_foods = list(cards.ALL_FOODS)
         bonuses: list[cards.BonusCard | None] = (
             list(dealt_bonus) if dealt_bonus else [None]
         )
         out: list[decisions.SetupChoice] = []
-        for mask in range(1 << n):
-            kept = tuple(dealt_cards[i] for i in range(n) if mask & (1 << i))
+        for mask in range(1 << num_cards):
+            kept = tuple(dealt_cards[i] for i in range(num_cards) if mask & (1 << i))
             kept_food_size = len(all_foods) - len(kept)
             for food_combo in itertools.combinations(all_foods, kept_food_size):
                 for bc in bonuses:
@@ -376,8 +420,8 @@ class Engine:
         kept_foods: tuple[cards.Food, ...],
         bonus_card: cards.BonusCard | None,
     ) -> str:
-        kept_names = [b.name for b in kept_cards] or ["none"]
-        food_names = [f.value for f in kept_foods] or ["none"]
+        kept_names = [bird.name for bird in kept_cards] or ["none"]
+        food_names = [food.value for food in kept_foods] or ["none"]
         bonus = bonus_card.name if bonus_card is not None else "(none)"
         return (
             f"keep:[{','.join(kept_names)}] foods:[{','.join(food_names)}] "
@@ -386,25 +430,25 @@ class Engine:
 
     def _apply_setup_choice(
         self,
-        p: state.Player,
+        player: state.Player,
         dealt_cards: list[cards.Bird],
         dealt_bonus: list[cards.BonusCard],
         sc: decisions.SetupChoice,
     ) -> None:
-        """Mutate ``p`` / ``self.state`` to reflect the chosen setup combination."""
+        """Mutate ``player`` / ``self.state`` to reflect the chosen setup combination."""
         kept = list(sc.kept_cards)
-        p.hand = kept
-        for c in dealt_cards:
-            if c not in kept:
-                self.state.bird_discard.append(c)
-        for f in cards.ALL_FOODS:
-            if f not in sc.kept_foods:
-                p.food[f] -= 1
+        player.hand = kept
+        for card in dealt_cards:
+            if card not in kept:
+                self.state.bird_discard.append(card)
+        for food in cards.ALL_FOODS:
+            if food not in sc.kept_foods:
+                player.food[food] -= 1
         if sc.bonus_card is not None:
-            p.bonus_cards.append(sc.bonus_card)
-            for b in dealt_bonus:
-                if b is not sc.bonus_card:
-                    self.state.bonus_discard.append(b)
+            player.bonus_cards.append(sc.bonus_card)
+            for bonus in dealt_bonus:
+                if bonus is not sc.bonus_card:
+                    self.state.bonus_discard.append(bonus)
 
 
 # ---------------------------------------------------------------------------

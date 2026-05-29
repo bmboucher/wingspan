@@ -204,22 +204,22 @@ def encode_choices(decision: _AnyDecision, state: state.GameState) -> np.ndarray
     truncation, and the action space is implicitly variable across decisions.
     The caller (training loop) handles batched padding + masking.
     """
-    n = len(decision.choices)
+    n_choices = len(decision.choices)
     decision_name = type(decision).__name__
-    assert n > 0, f"empty Decision: {decision_name}"
-    assert n <= MAX_CHOICES_HARD, (
-        f"decision {decision_name} produced {n} choices, "
+    assert n_choices > 0, f"empty Decision: {decision_name}"
+    assert n_choices <= MAX_CHOICES_HARD, (
+        f"decision {decision_name} produced {n_choices} choices, "
         f"exceeds MAX_CHOICES_HARD={MAX_CHOICES_HARD}"
     )
-    if n > SOFT_CHOICE_WARN_THRESHOLD:
+    if n_choices > SOFT_CHOICE_WARN_THRESHOLD:
         logger.warning(
             "Decision %s exposes %d choices (> %d soft threshold) for player %d",
             decision_name,
-            n,
+            n_choices,
             SOFT_CHOICE_WARN_THRESHOLD,
             decision.player_id,
         )
-    feats = np.zeros((n, CHOICE_FEATURE_DIM), dtype=np.float32)
+    feats = np.zeros((n_choices, CHOICE_FEATURE_DIM), dtype=np.float32)
     for i, choice in enumerate(decision.choices):
         feats[i] = _featurize_choice(decision, choice, state)
     return feats
@@ -241,15 +241,15 @@ def encode_decision(decision: _AnyDecision, state: state.GameState) -> np.ndarra
 
 def _summary_food(player: state.Player) -> np.ndarray:
     return np.array(
-        [player.food[f] / _FOOD_INVENTORY_SCALE for f in cards.ALL_FOODS],
+        [player.food[food] / _FOOD_INVENTORY_SCALE for food in cards.ALL_FOODS],
         dtype=np.float32,
     )
 
 
 def _summary_board(player: state.Player) -> np.ndarray:
     parts: list[np.ndarray] = []
-    for h in cards.ALL_HABITATS:
-        row = player.board[h]
+    for habitat in cards.ALL_HABITATS:
+        row = player.board[habitat]
         parts.append(
             np.array(
                 [
@@ -271,9 +271,9 @@ def _summary_board(player: state.Player) -> np.ndarray:
 def _summary_hand(player: state.Player) -> np.ndarray:
     if not player.hand:
         return np.zeros(8, dtype=np.float32)
-    pts = [b.points for b in player.hand]
-    costs = [b.food_cost.total for b in player.hand]
-    eggs = [b.egg_limit for b in player.hand]
+    pts = [bird.points for bird in player.hand]
+    costs = [bird.food_cost.total for bird in player.hand]
+    eggs = [bird.egg_limit for bird in player.hand]
     return np.array(
         [
             len(player.hand) / _HAND_SIZE_SCALE,
@@ -282,9 +282,9 @@ def _summary_hand(player: state.Player) -> np.ndarray:
             float(np.mean(costs)) / _FOOD_COST_SCALE,
             float(np.min(costs)) / _FOOD_COST_SCALE,
             float(np.mean(eggs)) / _EGG_LIMIT_SCALE,
-            sum(1 for b in player.hand if cards.Habitat.FOREST in b.habitats)
+            sum(1 for bird in player.hand if cards.Habitat.FOREST in bird.habitats)
             / _HAND_SIZE_SCALE,
-            sum(1 for b in player.hand if cards.Habitat.WETLAND in b.habitats)
+            sum(1 for bird in player.hand if cards.Habitat.WETLAND in bird.habitats)
             / _HAND_SIZE_SCALE,
         ],
         dtype=np.float32,
@@ -293,7 +293,10 @@ def _summary_hand(player: state.Player) -> np.ndarray:
 
 def _summary_birdfeeder(state: state.GameState) -> np.ndarray:
     return np.array(
-        [state.birdfeeder.counts[f] / _BIRDFEEDER_COUNT_SCALE for f in cards.ALL_FOODS],
+        [
+            state.birdfeeder.counts[food] / _BIRDFEEDER_COUNT_SCALE
+            for food in cards.ALL_FOODS
+        ],
         dtype=np.float32,
     )
 
@@ -402,6 +405,23 @@ def _featurize_bird(
 ) -> None:
     feat[_OFF_KIND + _KIND_BIRD] = 1.0
     _fill_bird(feat, choice.bird)
+
+
+def _featurize_play_bird(
+    feat: np.ndarray,
+    decision: _AnyDecision,
+    choice: decisions.PlayBirdChoice,
+    state: state.GameState,
+) -> None:
+    # A combined main-action play: the bird stripe carries the card, and the
+    # habitat + payment stripes carry the inline habitat / food-payment picks
+    # that used to be separate decisions. KIND stays BIRD — it is fundamentally
+    # a bird play — while the extra stripes distinguish the (habitat, payment)
+    # variants of the same bird.
+    feat[_OFF_KIND + _KIND_BIRD] = 1.0
+    _fill_bird(feat, choice.bird)
+    _fill_habitat(feat, choice.habitat)
+    _fill_payment(feat, choice.payment)
 
 
 def _featurize_played_bird(
@@ -527,13 +547,13 @@ def _featurize_setup(
             feat[_OFF_PAY + i] = 1.0 / _PAYMENT_COUNT_SCALE
     kept = choice.kept_cards
     if kept:
-        feat[_OFF_BIRD + 0] = sum(b.points for b in kept) / (
+        feat[_OFF_BIRD + 0] = sum(bird.points for bird in kept) / (
             _POINTS_SCALE * _ROW_SLOTS_SCALE
         )
-        feat[_OFF_BIRD + 1] = sum(b.food_cost.total for b in kept) / (
+        feat[_OFF_BIRD + 1] = sum(bird.food_cost.total for bird in kept) / (
             _FOOD_COST_SCALE * _ROW_SLOTS_SCALE
         )
-        feat[_OFF_BIRD + 3] = sum(b.egg_limit for b in kept) / (
+        feat[_OFF_BIRD + 3] = sum(bird.egg_limit for bird in kept) / (
             _EGG_LIMIT_SCALE * _ROW_SLOTS_SCALE
         )
     feat[_OFF_BIRD + 4] = len(kept) / _ROW_SLOTS_SCALE
@@ -541,11 +561,15 @@ def _featurize_setup(
         feat[_OFF_SPECIAL + _SPECIAL_IS_KEEP] = (choice.bonus_card.id % 16) / 16.0
 
 
+# Index per habitat-row main action, used to spread the action across the
+# SPECIAL stripe so the three options are distinguishable. Playing a bird is a
+# ``PlayBirdChoice`` in the main-action menu, not a ``MainAction``, so it is
+# featurized through the bird / habitat / payment stripes instead and has no
+# entry here.
 _MAIN_ACTION_INDEX: dict[decisions.MainAction, int] = {
-    decisions.MainAction.PLAY_BIRD: 0,
-    decisions.MainAction.GAIN_FOOD: 1,
-    decisions.MainAction.LAY_EGGS: 2,
-    decisions.MainAction.DRAW_CARDS: 3,
+    decisions.MainAction.GAIN_FOOD: 0,
+    decisions.MainAction.LAY_EGGS: 1,
+    decisions.MainAction.DRAW_CARDS: 2,
 }
 
 
@@ -554,6 +578,7 @@ _CHOICE_FEATURIZERS: dict[type[decisions.Choice], _ChoiceFeaturizer] = {
     decisions.PayCostChoice: _featurize_pay_cost,
     decisions.MainActionChoice: _featurize_main_action,
     decisions.BirdChoice: _featurize_bird,
+    decisions.PlayBirdChoice: _featurize_play_bird,
     decisions.PlayedBirdChoice: _featurize_played_bird,
     decisions.HabitatChoice: _featurize_habitat,
     decisions.FoodChoice: _featurize_food,
@@ -584,36 +609,36 @@ _NESTS = [
 
 
 def _fill_bird(feat: np.ndarray, bird: cards.Bird) -> None:
-    o = _OFF_BIRD
-    feat[o + 0] = bird.points / _POINTS_SCALE
-    feat[o + 1] = bird.food_cost.total / _FOOD_COST_SCALE
-    feat[o + 2] = bird.food_cost.wild / _FOOD_COST_SCALE
-    feat[o + 3] = bird.egg_limit / _EGG_LIMIT_SCALE
-    feat[o + 4] = bird.wingspan_cm / _WINGSPAN_SCALE
-    feat[o + 5] = 1.0 if bird.predator else 0.0
-    feat[o + 6] = 1.0 if bird.flocking else 0.0
+    off = _OFF_BIRD
+    feat[off + 0] = bird.points / _POINTS_SCALE
+    feat[off + 1] = bird.food_cost.total / _FOOD_COST_SCALE
+    feat[off + 2] = bird.food_cost.wild / _FOOD_COST_SCALE
+    feat[off + 3] = bird.egg_limit / _EGG_LIMIT_SCALE
+    feat[off + 4] = bird.wingspan_cm / _WINGSPAN_SCALE
+    feat[off + 5] = 1.0 if bird.predator else 0.0
+    feat[off + 6] = 1.0 if bird.flocking else 0.0
     for i, col in enumerate(_COLORS):
         if bird.color == col:
-            feat[o + 7 + i] = 1.0
+            feat[off + 7 + i] = 1.0
             break
     for i, nst in enumerate(_NESTS):
         if bird.nest == nst:
-            feat[o + 11 + i] = 1.0
+            feat[off + 11 + i] = 1.0
             break
     for i in range(cards.N_FOODS):
-        feat[o + 16 + i] = bird.food_cost.counts[i] / _PER_FOOD_COST_SCALE
+        feat[off + 16 + i] = bird.food_cost.counts[i] / _PER_FOOD_COST_SCALE
 
 
 def _fill_food(feat: np.ndarray, food: cards.Food) -> None:
-    for i, f in enumerate(cards.ALL_FOODS):
-        if f == food:
+    for i, candidate in enumerate(cards.ALL_FOODS):
+        if candidate == food:
             feat[_OFF_FOOD + i] = 1.0
             break
 
 
 def _fill_habitat(feat: np.ndarray, habitat: cards.Habitat) -> None:
-    for i, h in enumerate(cards.ALL_HABITATS):
-        if h == habitat:
+    for i, candidate in enumerate(cards.ALL_HABITATS):
+        if candidate == habitat:
             feat[_OFF_HAB + i] = 1.0
             break
 
@@ -630,8 +655,8 @@ def _fill_board_target(
     state: state.GameState,
     player_id: int,
 ) -> None:
-    for i, h in enumerate(cards.ALL_HABITATS):
-        if h == habitat:
+    for i, candidate in enumerate(cards.ALL_HABITATS):
+        if candidate == habitat:
             feat[_OFF_BOARD + i] = 1.0
             break
     feat[_OFF_BOARD + 3] = slot / _ROW_SLOTS_SCALE

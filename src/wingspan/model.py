@@ -84,14 +84,14 @@ class PolicyValueNet(nn.Module):
             value:  ``(B,)``
         """
         # State trunk produces both the per-decision context and the value.
-        h = self.state_trunk(state)  # (B, H)
-        value = self.value_head(h).squeeze(-1)  # (B,)
+        state_ctx = self.state_trunk(state)  # (B, H)
+        value = self.value_head(state_ctx).squeeze(-1)  # (B,)
 
         # Per-choice MLP. choices is (B, K, F); the Linear layers broadcast
         # across the K dimension naturally.
         ce = self.choice_encoder(choices)  # (B, K, H)
-        K = ce.shape[1]
-        s_exp = h.unsqueeze(1).expand(-1, K, -1)  # (B, K, H)
+        num_choices = ce.shape[1]
+        s_exp = state_ctx.unsqueeze(1).expand(-1, num_choices, -1)  # (B, K, H)
         combined = torch.cat([s_exp, ce], dim=-1)  # (B, K, 2H)
         scores = self.scorer(combined).squeeze(-1)  # (B, K)
 

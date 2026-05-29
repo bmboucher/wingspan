@@ -18,16 +18,16 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 torch = pytest.importorskip("torch")
-F = pytest.importorskip("torch.nn.functional")
+functional = pytest.importorskip("torch.nn.functional")
 
 from wingspan import encode, model, train
 
 
 def test_model_forward_shapes_and_mask():
     net = model.PolicyValueNet()
-    B, K = 3, 5
-    state = torch.zeros(B, encode.state_size())
-    choices = torch.randn(B, K, encode.CHOICE_FEATURE_DIM)
+    batch_size, n_choices = 3, 5
+    state = torch.zeros(batch_size, encode.state_size())
+    choices = torch.randn(batch_size, n_choices, encode.CHOICE_FEATURE_DIM)
     mask = torch.tensor(
         [
             [1, 1, 1, 0, 0],
@@ -37,14 +37,14 @@ def test_model_forward_shapes_and_mask():
         dtype=torch.float32,
     )
     logits, value = net(state, choices, mask)
-    assert logits.shape == (B, K)
-    assert value.shape == (B,)
+    assert logits.shape == (batch_size, n_choices)
+    assert value.shape == (batch_size,)
     # Padding positions are masked to -inf so their softmax contribution
     # vanishes.
-    probs = F.softmax(logits, dim=-1)
+    probs = functional.softmax(logits, dim=-1)
     assert torch.allclose(probs[0, 3:], torch.zeros(2))
     assert torch.allclose(probs[1, 2:], torch.zeros(3))
-    assert torch.allclose(probs.sum(dim=-1), torch.ones(B), atol=1e-5)
+    assert torch.allclose(probs.sum(dim=-1), torch.ones(batch_size), atol=1e-5)
 
 
 def test_model_handles_single_choice_decision():
@@ -54,7 +54,7 @@ def test_model_handles_single_choice_decision():
     mask = torch.ones(1, 1)
     logits, value = net(state, choices, mask)
     # With only one legal choice, softmax must be exactly 1.0.
-    probs = F.softmax(logits, dim=-1)
+    probs = functional.softmax(logits, dim=-1)
     assert torch.allclose(probs, torch.ones(1, 1))
     assert torch.isfinite(value).all()
 
@@ -68,7 +68,7 @@ def test_self_play_records_steps_for_both_players():
     rng = random.Random(0)
     traj = train.collect_episode(net, device, rng, epsilon=0.0, seed=42)
     assert traj.steps, "expected at least one recorded step"
-    seen_ids = {s.player_id for s in traj.steps}
+    seen_ids = {step.player_id for step in traj.steps}
     assert seen_ids == {0, 1}, f"expected both player_ids, got {seen_ids}"
 
 
@@ -80,8 +80,8 @@ def test_train_step_runs_on_self_play_trajectories():
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     trajs = [
-        train.collect_episode(net, device, rng, epsilon=0.0, seed=s)
-        for s in (1001, 1002)
+        train.collect_episode(net, device, rng, epsilon=0.0, seed=seed)
+        for seed in (1001, 1002)
     ]
     stats = train.train_step(net, optimizer, trajs, device)
     assert stats.n_steps > 0

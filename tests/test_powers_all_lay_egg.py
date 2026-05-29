@@ -30,9 +30,9 @@ TARGET_BIRDS = {
 
 
 def _by_name(birds: list[cards.Bird], name: str) -> cards.Bird:
-    for b in birds:
-        if b.name == name:
-            return b
+    for bird in birds:
+        if bird.name == name:
+            return bird
     raise KeyError(name)
 
 
@@ -48,14 +48,14 @@ def test_parse_all_players_lay_egg_on_nest():
             f"You may lay 1 [egg] on 1 additional [{nest_word}] bird."
         )
         power = cards.parse_power(cards.PowerColor.WHITE, text)
-        kinds = [e.kind for e in power.effects]
+        kinds = [effect.kind for effect in power.effects]
         assert (
             cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST in kinds
         ), f"failed to parse for nest={nest_word}: {kinds}"
         eff = next(
-            e
-            for e in power.effects
-            if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+            effect
+            for effect in power.effects
+            if effect.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
         )
         assert eff.nest == expected
         assert eff.amount == 1  # optional second sentence present -> 1 extra for self
@@ -65,9 +65,9 @@ def test_parse_all_players_lay_egg_on_nest():
     text = "All players lay 1 [egg] on any 1 [bowl] bird."
     power = cards.parse_power(cards.PowerColor.WHITE, text)
     eff = next(
-        e
-        for e in power.effects
-        if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+        effect
+        for effect in power.effects
+        if effect.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
     )
     assert eff.nest == cards.NestType.BOWL
     assert eff.amount == 0
@@ -76,18 +76,18 @@ def test_parse_all_players_lay_egg_on_nest():
 def test_all_three_target_birds_implemented():
     birds, _, _ = cards.load_all()
     for name, expected_nest in TARGET_BIRDS.items():
-        b = _by_name(birds, name)
-        kinds = [e.kind for e in b.power.effects]
+        bird = _by_name(birds, name)
+        kinds = [effect.kind for effect in bird.power.effects]
         assert (
             cards.EffectKind.UNIMPLEMENTED not in kinds
-        ), f"{name} still UNIMPLEMENTED; raw={b.raw_power_text!r}"
+        ), f"{name} still UNIMPLEMENTED; raw={bird.raw_power_text!r}"
         assert (
             cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST in kinds
-        ), f"{name} parsed as {kinds}; raw={b.raw_power_text!r}"
+        ), f"{name} parsed as {kinds}; raw={bird.raw_power_text!r}"
         eff = next(
-            e
-            for e in b.power.effects
-            if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+            effect
+            for effect in bird.power.effects
+            if effect.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
         )
         assert eff.nest == expected_nest
         assert eff.amount == 1
@@ -105,32 +105,34 @@ def test_power_every_player_lays_one_egg_on_matching_nest(
     power_bird = _by_name(birds, bird_name)
     # Pick any bird with the right nest type and an egg_limit >= 2 so it has room.
     target = next(
-        b for b in birds if b.nest == nest and b.egg_limit >= 2 and b.name != bird_name
+        bird
+        for bird in birds
+        if bird.nest == nest and bird.egg_limit >= 2 and bird.name != bird_name
     )
 
     # Each player gets one target-nest bird (empty) plus a non-matching bird so
     # we can confirm the egg lands on the matching bird, not the other.
     decoy = next(
-        b
-        for b in birds
-        if b.nest != nest
-        and b.nest != cards.NestType.STAR
-        and b.nest != cards.NestType.NONE
-        and b.egg_limit >= 1
-        and b.name != bird_name
+        bird
+        for bird in birds
+        if bird.nest != nest
+        and bird.nest != cards.NestType.STAR
+        and bird.nest != cards.NestType.NONE
+        and bird.egg_limit >= 1
+        and bird.name != bird_name
     )
     pbs: list[tuple[state.PlayedBird, state.PlayedBird]] = []
-    for q in gs.players:
+    for player in gs.players:
         habitat = target.habitats[0]
         decoy_habitat = decoy.habitats[0]
         pb_target = state.PlayedBird(bird=target)
         pb_decoy = state.PlayedBird(bird=decoy)
         # Place decoy in a different column slot if same habitat to avoid clobber.
-        q.board[habitat].append(pb_target)
+        player.board[habitat].append(pb_target)
         if decoy_habitat == habitat:
-            q.board[habitat].append(pb_decoy)
+            player.board[habitat].append(pb_decoy)
         else:
-            q.board[decoy_habitat].append(pb_decoy)
+            player.board[decoy_habitat].append(pb_decoy)
         pbs.append((pb_target, pb_decoy))
 
     # The power bird is held off-board so its own (matching) nest doesn't
@@ -145,24 +147,24 @@ def test_power_every_player_lays_one_egg_on_matching_nest(
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        for c in decision.choices:
+        for choice in decision.choices:
             if (
-                not isinstance(c, decisions.SkipChoice)
-                and target_label_substr in c.label
+                not isinstance(choice, decisions.SkipChoice)
+                and target_label_substr in choice.label
             ):
-                return c
-        for c in decision.choices:
-            if not isinstance(c, decisions.SkipChoice):
-                return c
+                return choice
+        for choice in decision.choices:
+            if not isinstance(choice, decisions.SkipChoice):
+                return choice
         return decision.choices[0]
 
     eng = engine.Engine(gs, agents=[script_agent, script_agent])
     gs.current_player = 0
 
     eff = next(
-        e
-        for e in power_bird.power.effects
-        if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+        effect
+        for effect in power_bird.power.effects
+        if effect.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
     )
     powers.apply_effect(
         eng,
@@ -205,13 +207,14 @@ def test_power_skipped_when_no_matching_nest_bird():
     # Put only non-bowl birds on each player's board. Do NOT place the power
     # bird itself (which has a bowl nest) — that would make it eligible.
     non_bowl = next(
-        b
-        for b in birds
-        if b.nest not in (cards.NestType.BOWL, cards.NestType.STAR, cards.NestType.NONE)
-        and b.name != power_bird.name
+        bird
+        for bird in birds
+        if bird.nest
+        not in (cards.NestType.BOWL, cards.NestType.STAR, cards.NestType.NONE)
+        and bird.name != power_bird.name
     )
-    for q in gs.players:
-        q.board[non_bowl.habitats[0]].append(state.PlayedBird(bird=non_bowl))
+    for player in gs.players:
+        player.board[non_bowl.habitats[0]].append(state.PlayedBird(bird=non_bowl))
 
     pb_power = state.PlayedBird(bird=power_bird)  # off-board; we invoke directly
 
@@ -225,12 +228,15 @@ def test_power_skipped_when_no_matching_nest_bird():
     gs.current_player = 0
 
     eff = next(
-        e
-        for e in power_bird.power.effects
-        if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+        effect
+        for effect in power_bird.power.effects
+        if effect.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
     )
     total_before = sum(
-        pb.eggs for q in gs.players for r in q.board.values() for pb in r
+        pb.eggs
+        for other_player in gs.players
+        for row in other_player.board.values()
+        for pb in row
     )
     powers.apply_effect(
         eng,
@@ -241,7 +247,12 @@ def test_power_skipped_when_no_matching_nest_bird():
         eff,
         trigger="play",
     )
-    total_after = sum(pb.eggs for q in gs.players for r in q.board.values() for pb in r)
+    total_after = sum(
+        pb.eggs
+        for other_player in gs.players
+        for row in other_player.board.values()
+        for pb in row
+    )
     assert (
         total_after == total_before
     ), "no eggs should be laid when no eligible nests exist"
@@ -255,11 +266,11 @@ def test_egg_limit_respected():
 
     power_bird = _by_name(birds, "Pileated Woodpecker")  # cavity
     cavity = next(
-        b
-        for b in birds
-        if b.nest == cards.NestType.CAVITY
-        and b.egg_limit >= 1
-        and b.name != power_bird.name
+        bird
+        for bird in birds
+        if bird.nest == cards.NestType.CAVITY
+        and bird.egg_limit >= 1
+        and bird.name != power_bird.name
     )
 
     # P0 has the cavity bird full; P1 has a fresh cavity bird with room.
@@ -276,17 +287,17 @@ def test_egg_limit_respected():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        for c in decision.choices:
-            if not isinstance(c, decisions.SkipChoice):
-                return c
+        for choice in decision.choices:
+            if not isinstance(choice, decisions.SkipChoice):
+                return choice
         return decision.choices[0]
 
     eng = engine.Engine(gs, agents=[script_agent, script_agent])
     gs.current_player = 0
     eff = next(
-        e
-        for e in power_bird.power.effects
-        if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+        effect
+        for effect in power_bird.power.effects
+        if effect.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
     )
     powers.apply_effect(
         eng,

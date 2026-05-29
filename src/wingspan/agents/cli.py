@@ -3,23 +3,25 @@
 The CLI agent walks a human through the offered choices index-by-index.
 The combined ``SetupDecision`` is special-cased: enumerating all 504 legal
 setup combinations on one screen is unusable, so the setup pick is broken
-into three sub-dialogs (cards / foods / bonus) and the human's answer is
-reassembled back into one of the offered ``SetupChoice`` instances.
+into three sub-dialogs (cards / foods / bonus) — each driven by an
+arrow-key checkbox/radio widget from ``agents.interactive`` — and the
+human's answer is reassembled back into one of the offered ``SetupChoice``
+instances.
 """
 
 from __future__ import annotations
 
-import itertools
 import random
 import typing
 
-from wingspan import cards, decisions
-from wingspan.agents import base, display
+from wingspan import cards, decisions, state
+from wingspan.agents import base, display, interactive
 from wingspan.engine import core as engine_core
 
 
 def cli_agent() -> engine_core.Agent:
     """Interactive human agent. Prints prompt and choices, reads index."""
+    interactive.enable_ansi()
 
     def agent[C: decisions.Choice](
         engine: engine_core.Engine,
@@ -29,7 +31,9 @@ def cli_agent() -> engine_core.Agent:
             # SetupDecision is Decision[SetupChoice], but the type checker
             # can't propagate that narrowing back onto the bound C — so the
             # SetupChoice return is cast through.
-            return typing.cast(C, _cli_resolve_setup_choice(decision))
+            return typing.cast(
+                C, _cli_resolve_setup_choice(decision, engine.state.tray)
+            )
         # The main-action prompt is the natural moment to show the full
         # board: it is the only decision that always opens a fresh turn,
         # and the human needs the resource picture to choose between the
@@ -43,8 +47,9 @@ def cli_agent() -> engine_core.Agent:
             )
         print()
         print(decision.prompt)
-        for i, c in enumerate(decision.choices):
-            print(_format_choice_line(i, c))
+        player = engine.state.players[decision.player_id]
+        for i, choice in enumerate(decision.choices):
+            print(_format_choice_line(i, choice, player))
         while True:
             raw = input("choice> ").strip()
             if raw == "" and len(decision.choices) == 1:
@@ -66,128 +71,170 @@ def mixed_agents(
     human_index: int,
 ) -> tuple[engine_core.Agent, engine_core.Agent]:
     """Two-player roster with one human at ``human_index`` and a random opponent."""
-    a = cli_agent() if human_index == 0 else base.random_agent(rng)
-    b = cli_agent() if human_index == 1 else base.random_agent(rng)
-    return (a, b)
+    agent_a = cli_agent() if human_index == 0 else base.random_agent(rng)
+    agent_b = cli_agent() if human_index == 1 else base.random_agent(rng)
+    return (agent_a, agent_b)
 
 
 ###### PRIVATE #######
 
 
-def _format_choice_line(idx: int, c: decisions.Choice) -> str:
+def _format_choice_line(
+    idx: int, choice: decisions.Choice, player: state.Player
+) -> str:
     """Render one offered choice line with type-aware extra context.
 
     Bird- and bonus-card-carrying choices are expanded to show food cost,
     power text, and scoring conditions respectively — the engine's stored
-    ``label`` is too terse for a human at decision time. Other Choice
-    subclasses fall through to ``label`` as-is.
+    ``label`` is too terse for a human at decision time. A bonus card also
+    gets a second line with how useful it is to ``player`` right now. Other
+    Choice subclasses fall through to ``label`` as-is.
     """
-    if isinstance(c, decisions.BirdChoice):
-        return f"  [{idx}] {display.format_bird_full(c.bird)}"
-    if isinstance(c, decisions.BonusCardChoice):
-        return f"  [{idx}] {display.format_bonus(c.bonus_card)}"
-    if isinstance(c, decisions.PlayedBirdChoice):
-        return f"  [{idx}] {display.format_played_bird(c.played_bird)}"
-    return f"  [{idx}] {c.label}"
+    if isinstance(choice, decisions.PlayBirdChoice):
+        # The board (printed in full above the main-action prompt) already
+        # shows every hand card's stats and power, so a play option only needs
+        # the bird name, target habitat, and the specific payment.
+        return (
+            f"  [{idx}] play {choice.bird.name} in {choice.habitat.value} "
+            f"for {display.format_food_pool(choice.payment)}"
+        )
+    if isinstance(choice, decisions.BirdChoice):
+        return f"  [{idx}] {display.format_bird_full(choice.bird)}"
+    if isinstance(choice, decisions.BonusCardChoice):
+        head = f"  [{idx}] {display.format_bonus(choice.bonus_card)}"
+        return (
+            f"{head}\n      "
+            f"{display.format_bonus_score_now(choice.bonus_card, player)}"
+        )
+    if isinstance(choice, decisions.PlayedBirdChoice):
+        return f"  [{idx}] {display.format_played_bird(choice.played_bird)}"
+    if isinstance(choice, decisions.DrawSourceChoice):
+        if choice.bird is not None:
+            return f"  [{idx}] {display.format_bird_full(choice.bird)}"
+        return f"  [{idx}] Draw from the Deck"
+    return f"  [{idx}] {choice.label}"
 
 
 def _cli_resolve_setup_choice(
     decision: decisions.SetupDecision,
+    tray: list[cards.Bird],
 ) -> decisions.SetupChoice:
-    """Three-step sub-dialog for the combined setup pick.
+    """Two-step sub-dialog for the combined setup pick.
 
-    Walks the human through cards → foods → bonus, then locates the matching
-    fully-resolved ``SetupChoice`` in ``decision.choices`` and returns it.
+    Step 1 is one screen: keep any subset of the dealt birds and pick exactly
+    one bonus card. Step 2 then keeps the matching number of foods. The
+    assembled answer is located among ``decision.choices`` and returned.
+    ``tray`` is the face-up bird display, used to gauge bonus-card value.
     """
     dealt_cards = decision.dealt_cards
     dealt_bonus = decision.dealt_bonus
 
     print()
     print(decision.prompt)
-    print("Cards dealt (each kept card costs 1 food):")
-    for i, c in enumerate(dealt_cards):
-        print(f"  [{i}] {display.format_bird_full(c)}")
-    if dealt_bonus:
-        print("Bonus cards dealt:")
-        for i, bc in enumerate(dealt_bonus):
-            print(f"  [{i}] {display.format_bonus(bc)}")
 
-    kept_indices = _cli_pick_kept_cards(dealt_cards)
-    kept_cards = tuple(dealt_cards[i] for i in kept_indices)
-    kept_foods = _cli_pick_kept_foods(len(cards.ALL_FOODS) - len(kept_indices))
-    bonus_card = _cli_pick_bonus(dealt_bonus)
+    kept_cards, bonus_card = _cli_pick_hand_and_bonus(dealt_cards, dealt_bonus, tray)
+    kept_foods = _cli_pick_kept_foods(kept_cards)
 
-    for c in decision.choices:
+    for choice in decision.choices:
         if (
-            c.kept_cards == kept_cards
-            and c.kept_foods == tuple(kept_foods)
-            and c.bonus_card == bonus_card
+            choice.kept_cards == kept_cards
+            and choice.kept_foods == kept_foods
+            and choice.bonus_card == bonus_card
         ):
-            return c
+            return choice
     raise AssertionError(
         "assembled setup answer did not match any offered SetupChoice: "
-        f"keep={[b.name for b in kept_cards]} foods={kept_foods} bonus={bonus_card}"
+        f"keep={[bird.name for bird in kept_cards]} foods={kept_foods} bonus={bonus_card}"
     )
 
 
-def _cli_pick_kept_cards(dealt_cards: list[cards.Bird]) -> tuple[int, ...]:
-    """Step 1: pick a subset of the dealt cards to keep (2^n options)."""
-    n = len(dealt_cards)
-    options: list[tuple[int, ...]] = []
-    for k in range(n + 1):
-        for combo in itertools.combinations(range(n), k):
-            options.append(combo)
-    print()
-    print("Step 1 — choose which cards to keep:")
-    for idx, combo in enumerate(options):
-        names = [dealt_cards[i].name for i in combo] if combo else ["(none)"]
-        print(f"  [{idx}] keep {len(combo)}: {', '.join(names)}")
-    return _read_index_choice(options, "keep cards> ")
+def _cli_pick_hand_and_bonus(
+    dealt_cards: list[cards.Bird],
+    dealt_bonus: list[cards.BonusCard],
+    tray: list[cards.Bird],
+) -> tuple[tuple[cards.Bird, ...], cards.BonusCard | None]:
+    """Step 1: keep any subset of birds (each costs 1 food) plus one bonus card.
+
+    Birds and bonus cards share one screen as a two-section form; the bird
+    section is unconstrained (0+) while the bonus section is a radio requiring
+    exactly one pick. Each bonus card shows how many qualifying birds sit in
+    hand vs. the ``tray`` display. When no bonus cards were dealt the bonus
+    section is omitted and ``None`` is returned for it.
+    """
+    name_width = max((len(bird.name) for bird in dealt_cards), default=0)
+    bird_options = [
+        display.format_bird_full(bird, indent="", name_width=name_width)
+        for bird in dealt_cards
+    ]
+    sections = [
+        interactive.Section(
+            title="Keep which birds? (each kept bird costs 1 food)",
+            options=bird_options,
+        )
+    ]
+    live: typing.Callable[[list[set[int]]], list[list[str]]] | None = None
+    if dealt_bonus:
+        bonus_width = max(len(bc.name) for bc in dealt_bonus)
+
+        def render_bonus(selected: list[cards.Bird]) -> list[str]:
+            return [
+                display.format_bonus_with_setup_help(
+                    bc, dealt_cards, tray, selected, bonus_width
+                )
+                for bc in dealt_bonus
+            ]
+
+        sections.append(
+            interactive.Section(
+                title="Keep which bonus card? (choose exactly one)",
+                options=render_bonus([]),
+                mode=interactive.Mode.SINGLE,
+            )
+        )
+
+        # The bonus help line counts selected matching birds, so re-render it
+        # each frame against the live bird-section (index 0) selection.
+        def _live(selections: list[set[int]]) -> list[list[str]]:
+            selected = [dealt_cards[i] for i in selections[0]]
+            return [bird_options, render_bonus(selected)]
+
+        live = _live
+
+    picks = interactive.select_form(
+        sections, header="Step 1 — choose your opening hand:", live_options=live
+    )
+    kept_cards = tuple(dealt_cards[i] for i in picks[0])
+    bonus_card = dealt_bonus[picks[1][0]] if dealt_bonus else None
+    return kept_cards, bonus_card
 
 
 def _cli_pick_kept_foods(
-    k: int,
+    kept_cards: tuple[cards.Bird, ...],
 ) -> tuple[cards.Food, ...]:
-    """Step 2: pick which ``k`` distinct foods to keep (C(5,k) options).
+    """Step 2: check which ``keep_count`` distinct foods to keep.
 
-    ``k`` is ``len(ALL_FOODS) - len(kept_cards)``, since each kept card costs
-    one food off the player's one-of-each starting stash.
+    ``keep_count`` is ``len(ALL_FOODS) - len(kept_cards)``, since each kept card
+    costs one food off the player's one-of-each starting stash. A live footer
+    shows which of the ``kept_cards`` the current food selection could play
+    immediately. The food order in the returned tuple follows
+    :data:`cards.ALL_FOODS` to match the enumeration the engine offers.
     """
-    options: list[tuple[cards.Food, ...]] = list(
-        itertools.combinations(cards.ALL_FOODS, k)
+    keep_count = len(cards.ALL_FOODS) - len(kept_cards)
+    section = interactive.Section(
+        options=[food.value for food in cards.ALL_FOODS],
+        required_count=keep_count,
     )
-    print()
-    print(f"Step 2 — choose which {k} food(s) to keep:")
-    for idx, combo in enumerate(options):
-        labels = [f.value for f in combo] if combo else ["(none)"]
-        print(f"  [{idx}] {', '.join(labels)}")
-    return _read_index_choice(options, "keep foods> ")
 
+    def _can_play_footer(selections: list[set[int]]) -> list[str]:
+        chosen_foods = [cards.ALL_FOODS[i] for i in selections[0]]
+        return [display.format_can_play(kept_cards, chosen_foods)]
 
-def _cli_pick_bonus(
-    dealt_bonus: list[cards.BonusCard],
-) -> cards.BonusCard | None:
-    """Step 3: pick which dealt bonus card to keep (1-2 options)."""
-    if not dealt_bonus:
-        return None
-    print()
-    print("Step 3 — choose which bonus card to keep:")
-    for idx, bc in enumerate(dealt_bonus):
-        print(f"  [{idx}] {display.format_bonus(bc)}")
-    return _read_index_choice(dealt_bonus, "bonus> ")
-
-
-def _read_index_choice[T](options: typing.Sequence[T], prompt: str) -> T:
-    """Read a 0-based index from stdin, looping on invalid input."""
-    while True:
-        raw = input(prompt).strip()
-        if raw == "" and len(options) == 1:
-            return options[0]
-        try:
-            i = int(raw)
-        except ValueError:
-            print("  enter a number")
-            continue
-        if 0 <= i < len(options):
-            return options[i]
-        print("  out of range")
+    picks = interactive.select_form(
+        [section],
+        header=(
+            f"Step 2 — keep which {keep_count} food(s)? "
+            f"(you start with one of each)"
+        ),
+        live_footer=_can_play_footer,
+    )
+    return tuple(cards.ALL_FOODS[i] for i in picks[0])

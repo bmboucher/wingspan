@@ -27,9 +27,9 @@ def test_random_game_completes():
         eng.state, (agents.random_agent(rng), agents.random_agent(rng))
     )
     assert eng.state.game_over
-    for p in eng.state.players:
-        assert hasattr(p, "final_score")
-        assert isinstance(p.final_score, int)
+    for player in eng.state.players:
+        assert hasattr(player, "final_score")
+        assert isinstance(player.final_score, int)
     assert len(eng.state.log) > 50, "expected a substantive log"
 
 

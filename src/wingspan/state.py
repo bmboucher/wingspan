@@ -84,14 +84,14 @@ class FoodPool(pydantic.BaseModel):
 
     # ---- access ----------------------------------------------------------
 
-    def __getitem__(self, f: cards.Food) -> int:
-        return self.counts[cards.food_index(f)]
+    def __getitem__(self, food: cards.Food) -> int:
+        return self.counts[cards.food_index(food)]
 
-    def __setitem__(self, f: cards.Food, n: int) -> None:
-        self.counts[cards.food_index(f)] = n
+    def __setitem__(self, food: cards.Food, amount: int) -> None:
+        self.counts[cards.food_index(food)] = amount
 
-    def __contains__(self, f: object) -> bool:
-        return isinstance(f, cards.Food)
+    def __contains__(self, food: object) -> bool:
+        return isinstance(food, cards.Food)
 
     def __iter__(self) -> typing.Iterator[cards.Food]:  # type: ignore[override]
         return iter(cards.ALL_FOODS)
@@ -105,8 +105,8 @@ class FoodPool(pydantic.BaseModel):
     def items(self) -> list[tuple[cards.Food, int]]:
         return list(zip(cards.ALL_FOODS, self.counts))
 
-    def get(self, f: cards.Food, default: int = 0) -> int:
-        return self.counts[cards.food_index(f)]
+    def get(self, food: cards.Food, default: int = 0) -> int:
+        return self.counts[cards.food_index(food)]
 
     def as_dict(self) -> dict[cards.Food, int]:
         """Materialize as a plain ``dict[Food, int]`` (e.g. for logging /
@@ -118,7 +118,11 @@ class FoodPool(pydantic.BaseModel):
 
         Lists only non-zero foods, e.g. ``1fish+1rodent``. Returns
         ``(empty)`` when every count is zero."""
-        parts = [f"{n}{f.value}" for f, n in zip(cards.ALL_FOODS, self.counts) if n > 0]
+        parts = [
+            f"{amount}{food.value}"
+            for food, amount in zip(cards.ALL_FOODS, self.counts)
+            if amount > 0
+        ]
         return "+".join(parts) if parts else "(empty)"
 
     # ---- ops -------------------------------------------------------------
@@ -127,11 +131,11 @@ class FoodPool(pydantic.BaseModel):
         return sum(self.counts)
 
     def is_empty(self) -> bool:
-        return all(c == 0 for c in self.counts)
+        return all(count == 0 for count in self.counts)
 
     def types_with_positive(self) -> list[cards.Food]:
         """Foods whose count is currently positive (in canonical order)."""
-        return [f for f, c in zip(cards.ALL_FOODS, self.counts) if c > 0]
+        return [food for food, count in zip(cards.ALL_FOODS, self.counts) if count > 0]
 
     def zero(self) -> None:
         """Reset every count to zero (in place)."""
@@ -139,18 +143,18 @@ class FoodPool(pydantic.BaseModel):
             self.counts[i] = 0
 
     @classmethod
-    def from_dict(cls, d: dict[cards.Food, int]) -> "FoodPool":
+    def from_dict(cls, mapping: dict[cards.Food, int]) -> "FoodPool":
         """Build a pool from a sparse ``{food: count}`` dict."""
         pool = cls()
-        for f, n in d.items():
-            pool[f] = n
+        for food, amount in mapping.items():
+            pool[food] = amount
         return pool
 
     @classmethod
-    def uniform(cls, n: int) -> "FoodPool":
+    def uniform(cls, count: int) -> "FoodPool":
         """Pool with the same count for every food (e.g. ``uniform(99)`` for
         the effectively-infinite supply)."""
-        return cls(counts=[n] * cards.N_FOODS)
+        return cls(counts=[count] * cards.N_FOODS)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +186,7 @@ class Board(pydantic.BaseModel):
     """
 
     rows: dict[cards.Habitat, list[PlayedBird]] = pydantic.Field(
-        default_factory=lambda: {h: [] for h in cards.ALL_HABITATS},
+        default_factory=lambda: {habitat: [] for habitat in cards.ALL_HABITATS},
     )
 
     # ---- access ----------------------------------------------------------
@@ -227,6 +231,17 @@ class Board(pydantic.BaseModel):
         """Number of cards the Wetland action draws this turn."""
         return _track_count(len(self.rows[cards.Habitat.WETLAND]), DRAW_CARDS_TRACK)
 
+    def action_offers_convert(self, habitat: cards.Habitat) -> bool:
+        """Whether ``habitat``'s action space offers its one-step resource
+        trade this turn.
+
+        The printed mat puts a trade arrow (Forest: discard a card for a food;
+        Grassland: spend a food for an egg; Wetland: discard an egg for a card)
+        on every other action space, so the cube lands on a trade space exactly
+        when the row holds an odd number of birds (1, 3, or 5). The trade is a
+        single exchange, not repeatable."""
+        return _track_offers_convert(len(self.rows[habitat]))
+
     def next_egg_cost(self, habitat: cards.Habitat) -> int:
         """Egg cost to play the next bird into ``habitat``. Returns
         :data:`FULL_ROW_EGG_COST` when the row is already full."""
@@ -257,15 +272,15 @@ class Player(pydantic.BaseModel):
 
     @property
     def total_eggs(self) -> int:
-        return sum(pb.eggs for r in self.board.values() for pb in r)
+        return sum(pb.eggs for row in self.board.values() for pb in row)
 
     @property
     def total_tucked(self) -> int:
-        return sum(pb.tucked_cards for r in self.board.values() for pb in r)
+        return sum(pb.tucked_cards for row in self.board.values() for pb in row)
 
     @property
     def total_cached(self) -> int:
-        return sum(pb.cached_food for r in self.board.values() for pb in r)
+        return sum(pb.cached_food for row in self.board.values() for pb in row)
 
     def total_food(self) -> int:
         return self.food.total()
@@ -309,6 +324,10 @@ class GameState(pydantic.BaseModel):
     rng: random.Random
     players: list[Player]
     current_player: int
+    # Player who takes the first turn of round 1, chosen randomly at game
+    # start. Turn order rotates each round: round ``r`` is started by
+    # ``(start_player + r) % len(players)``.
+    start_player: int = 0
     round_idx: int  # 0..3
     bird_deck: list[cards.Bird]  # remaining
     bird_discard: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
@@ -318,6 +337,11 @@ class GameState(pydantic.BaseModel):
     bonus_discard: list[cards.BonusCard] = pydantic.Field(
         default_factory=_new_bonus_card_list
     )
+    # The face-up bird tray. Holds up to ``TRAY_SIZE`` cards but may carry
+    # fewer mid-turn: a card taken from the tray leaves its slot empty until
+    # ``refill_tray`` runs (at the end of the turn, or when a bird power
+    # explicitly refills). The list is kept compact — an empty slot is simply
+    # an absent entry — so ``len(tray)`` is the number of cards still face-up.
     tray: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
     birdfeeder: Birdfeeder = pydantic.Field(default_factory=Birdfeeder)
     food_supply: FoodPool = pydantic.Field(default_factory=lambda: FoodPool.uniform(99))
@@ -353,11 +377,16 @@ class GameState(pydantic.BaseModel):
         return self.bird_deck.pop()
 
     def refill_tray(self) -> None:
+        """Top the tray back up to ``TRAY_SIZE`` from the deck.
+
+        Called at the end of each turn and by powers that explicitly refill
+        (e.g. Brant) — never automatically when a card is drawn mid-turn.
+        Stops early if the deck (and discard) run dry, leaving the tray short."""
         while len(self.tray) < TRAY_SIZE:
-            b = self.draw_bird()
-            if b is None:
+            drawn = self.draw_bird()
+            if drawn is None:
                 break
-            self.tray.append(b)
+            self.tray.append(drawn)
 
     def reset_turn_state(self) -> None:
         """Clear per-turn scratch fields. Called at the start of every turn."""
@@ -387,10 +416,12 @@ def new_game(
     round_goals = goal_pool[:4]
 
     players = [Player(id=i, name=player_names[i]) for i in range(2)]
+    start_player = rng.randint(0, len(players) - 1)
     state = GameState(
         rng=rng,
         players=players,
-        current_player=0,
+        current_player=start_player,
+        start_player=start_player,
         round_idx=0,
         bird_deck=deck,
         bonus_deck=bonus_deck,
@@ -411,3 +442,10 @@ def _track_count(num_birds: int, track: tuple[int, ...]) -> int:
     a row exceeds 5 birds (unreachable under printed rules but allowed by
     expansions / power moves), each extra bird adds one more reward."""
     return track[min(num_birds, len(track) - 1)] + max(0, num_birds - len(track))
+
+
+def _track_offers_convert(num_birds: int) -> bool:
+    """Whether a row with ``num_birds`` birds lands the action cube on a trade
+    space. Trade arrows sit on every other action space, so they are reached
+    when the cube lands on an odd-indexed slot (1, 3, 5 birds played)."""
+    return num_birds % 2 == 1

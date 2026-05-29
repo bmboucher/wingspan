@@ -63,6 +63,11 @@ NEST_TAGS = {
 
 _NUM_WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
 
+# A handful of fan-made bonus cards in the wingsearch data are mistakenly
+# tagged ``"Set": "core"`` and prefixed with this marker in their name. They
+# are not part of the published base game, so they are excluded at load time.
+_FAN_MADE_PREFIX = "[Fan Made]"
+
 
 def parse_power(color: schema.PowerColor, text: str) -> schema.Power:
     """Best-effort parser. Recognises a small set of common patterns and
@@ -98,7 +103,7 @@ def _to_int(tok: str) -> int | None:
 #### Pattern dispatch ####
 
 
-def _extract_effects(t: str) -> list[schema.Effect]:
+def _extract_effects(text: str) -> list[schema.Effect]:
     """Apply each recognized pattern in turn, accumulating matched effects.
 
     Order matters: more specific patterns must run before less specific
@@ -106,7 +111,7 @@ def _extract_effects(t: str) -> list[schema.Effect]:
     before the generic ``Gain N [food] from the birdfeeder``)."""
     effects: list[schema.Effect] = []
     for matcher in _PATTERN_MATCHERS:
-        eff = matcher(t)
+        eff = matcher(text)
         if eff is not None:
             effects.append(eff)
     return effects
@@ -120,475 +125,481 @@ def _extract_effects(t: str) -> list[schema.Effect]:
 # overlap (see _extract_effects).
 
 
-def _m_gain_food_supply(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_gain_food_supply(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply",
-        t,
+        text,
         re.I,
     )
-    if m and m.group(2) in FOOD_TAGS:
-        n = _to_int(m.group(1)) or 1
+    if match and match.group(2) in FOOD_TAGS:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.GAIN_FOOD_SUPPLY,
-            amount=n,
-            food=FOOD_TAGS[m.group(2)],
-            raw_text=m.group(0),
+            amount=amount,
+            food=FOOD_TAGS[match.group(2)],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_gain_food_from_feeder_choice(t: str) -> schema.Effect | None:
+def _m_gain_food_from_feeder_choice(text: str) -> schema.Effect | None:
     # "Gain 1 [foodA] or [foodB] from the birdfeeder" -- Indigo Bunting etc.
     # Matched before the more permissive birdfeeder pattern.
-    m = re.search(
+    match = re.search(
         r"Gain 1\s+(\[\w+\])\s+or\s+(\[\w+\])\s+from the birdfeeder",
-        t,
+        text,
         re.I,
     )
-    if m and m.group(1) in FOOD_TAGS and m.group(2) in FOOD_TAGS:
+    if match and match.group(1) in FOOD_TAGS and match.group(2) in FOOD_TAGS:
         return schema.Effect(
             kind=schema.EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE,
             amount=1,
-            food_a=FOOD_TAGS[m.group(1)],
-            food_b=FOOD_TAGS[m.group(2)],
-            raw_text=m.group(0),
+            food_a=FOOD_TAGS[match.group(1)],
+            food_b=FOOD_TAGS[match.group(2)],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_gain_die_any(t: str) -> schema.Effect | None:
+def _m_gain_die_any(text: str) -> schema.Effect | None:
     # American Redstart. Anchored so it only matches the unqualified wording.
-    m = re.match(r"^Gain 1 \[die\] from the birdfeeder\.?$", t, re.I)
-    if m:
+    match = re.match(r"^Gain 1 \[die\] from the birdfeeder\.?$", text, re.I)
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.GAIN_DIE_ANY,
             amount=1,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_gain_food_birdfeeder(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_gain_food_birdfeeder(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the birdfeeder",
-        t,
+        text,
         re.I,
     )
-    if m and m.group(2) in FOOD_TAGS:
-        n = _to_int(m.group(1)) or 1
+    if match and match.group(2) in FOOD_TAGS:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.GAIN_FOOD_BIRDFEEDER,
-            amount=n,
-            food=FOOD_TAGS[m.group(2)],
-            raw_text=m.group(0),
+            amount=amount,
+            food=FOOD_TAGS[match.group(2)],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_lay_egg_on_this(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_lay_egg_on_this(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on this bird",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.LAY_EGG_ON_THIS,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_lay_egg_any(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_lay_egg_any(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on any bird",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.LAY_EGG_ANY,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_draw_cards(t: str) -> schema.Effect | None:
+def _m_draw_cards(text: str) -> schema.Effect | None:
     # Excludes "All players draw" (handled separately).
-    if re.search(r"All players draw", t, re.I):
+    if re.search(r"All players draw", text, re.I):
         return None
-    m = re.search(r"Draw\s+(\d+|a|an|one|two|three)\s+\[card\]", t, re.I)
-    if m:
-        n = _to_int(m.group(1)) or 1
+    match = re.search(r"Draw\s+(\d+|a|an|one|two|three)\s+\[card\]", text, re.I)
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.DRAW_CARDS,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_cache_food(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_cache_food(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Cache\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply on this bird",
-        t,
+        text,
         re.I,
     )
-    if m and m.group(2) in FOOD_TAGS:
-        n = _to_int(m.group(1)) or 1
+    if match and match.group(2) in FOOD_TAGS:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.CACHE_FOOD,
-            amount=n,
-            food=FOOD_TAGS[m.group(2)],
-            raw_text=m.group(0),
+            amount=amount,
+            food=FOOD_TAGS[match.group(2)],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_tuck_from_hand(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_tuck_from_hand(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Tuck\s+(\d+|a|an|one|two|three)\s+\[card\] from your hand behind this",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.TUCK_FROM_HAND,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_play_additional_bird(t: str) -> schema.Effect | None:
-    m = re.search(r"Play an additional bird in your (\[\w+\])", t, re.I)
-    if m and m.group(1) in HABITAT_TAGS:
+def _m_play_additional_bird(text: str) -> schema.Effect | None:
+    match = re.search(r"Play an additional bird in your (\[\w+\])", text, re.I)
+    if match and match.group(1) in HABITAT_TAGS:
         return schema.Effect(
             kind=schema.EffectKind.PLAY_ADDITIONAL_BIRD,
-            habitat=HABITAT_TAGS[m.group(1)],
-            raw_text=m.group(0),
+            habitat=HABITAT_TAGS[match.group(1)],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_all_players_gain_food(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_all_players_gain_food(text: str) -> schema.Effect | None:
+    match = re.search(
         r"All players gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply",
-        t,
+        text,
         re.I,
     )
-    if m and m.group(2) in FOOD_TAGS:
-        n = _to_int(m.group(1)) or 1
+    if match and match.group(2) in FOOD_TAGS:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.ALL_PLAYERS_GAIN_FOOD,
-            amount=n,
-            food=FOOD_TAGS[m.group(2)],
-            raw_text=m.group(0),
+            amount=amount,
+            food=FOOD_TAGS[match.group(2)],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_all_players_draw(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_all_players_draw(text: str) -> schema.Effect | None:
+    match = re.search(
         r"All players draw\s+(\d+|a|an|one|two|three)\s+\[card\]",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.ALL_PLAYERS_DRAW,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_draw_bonus(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_draw_bonus(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Draw\s+(\d+|a|an|one|two|three)\s+bonus cards",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.DRAW_BONUS,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_discard_egg_for_wild(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_discard_egg_for_wild(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Discard 1 \[egg\] from any of your other birds to gain"
         r"\s+(\d+|a|an|one|two|three)\s+\[wild\] from the supply",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.DISCARD_EGG_FOR_WILD,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_each_player_gains_die(t: str) -> schema.Effect | None:
+def _m_each_player_gains_die(text: str) -> schema.Effect | None:
     # Anna's / Ruby-Throated Hummingbird.
-    m = re.search(
+    match = re.search(
         r"Each player gains\s+(\d+|a|an|one|two|three)\s+\[die\]"
         r"\s+from the birdfeeder, starting with the player of your choice",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_all_players_lay_egg_on_nest(t: str) -> schema.Effect | None:
+def _m_all_players_lay_egg_on_nest(text: str) -> schema.Effect | None:
     # "All players lay 1 [egg] on any 1 [<nest>] bird.
     #  (You may lay 1 [egg] on 1 additional [<nest>] bird.)"
     # ``amount`` encodes the optional second-sentence extra for the active
     # player (0 when absent, 1 when present).
-    m = re.search(
+    match = re.search(
         r"All players lay\s+\d+\s+\[egg\]\s+on any\s+\d+\s+\[(bowl|cavity|ground|platform)\] bird\."
         r"(?:\s+You may lay\s+\d+\s+\[egg\]\s+on\s+\d+\s+additional)?",
-        t,
+        text,
         re.I,
     )
-    if m:
-        nest = NEST_TAGS[m.group(1).lower()]
-        extra_for_self = 1 if "additional" in m.group(0).lower() else 0
+    if match:
+        nest = NEST_TAGS[match.group(1).lower()]
+        extra_for_self = 1 if "additional" in match.group(0).lower() else 0
         return schema.Effect(
             kind=schema.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST,
             nest=nest,
             amount=extra_for_self,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_draw_from_tray_all(t: str) -> schema.Effect | None:
+def _m_draw_from_tray_all(text: str) -> schema.Effect | None:
     # Brant.
-    m = re.search(r"Draw the (\d+) face-up \[card\] in the bird tray", t, re.I)
-    if m:
-        n = int(m.group(1))
+    match = re.search(r"Draw the (\d+) face-up \[card\] in the bird tray", text, re.I)
+    if match:
+        amount = int(match.group(1))
         return schema.Effect(
             kind=schema.EffectKind.DRAW_FROM_TRAY_ALL,
-            amount=n,
-            raw_text=m.group(0),
+            amount=amount,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_trade_wild(t: str) -> schema.Effect | None:
+def _m_trade_wild(text: str) -> schema.Effect | None:
     # Green Heron.
-    m = re.search(r"Trade 1 \[wild\] for any other type from the supply", t, re.I)
-    if m:
+    match = re.search(
+        r"Trade 1 \[wild\] for any other type from the supply", text, re.I
+    )
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.TRADE_WILD_FOOD,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_fewest_forest_gains_die(t: str) -> schema.Effect | None:
+def _m_fewest_forest_gains_die(text: str) -> schema.Effect | None:
     # Hermit Thrush.
-    m = re.search(
+    match = re.search(
         r"Player\(s\) with the fewest birds in their \[forest\] gain 1 \[die\] from birdfeeder",
-        t,
+        text,
         re.I,
     )
-    if m:
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.FEWEST_FOREST_GAINS_DIE,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_play_additional_bird_here(t: str) -> schema.Effect | None:
+def _m_play_additional_bird_here(text: str) -> schema.Effect | None:
     # House Wren.
-    m = re.search(r"Play an additional bird in this bird.{1,4}s habitat", t, re.I)
-    if m:
+    match = re.search(
+        r"Play an additional bird in this bird.{1,4}s habitat", text, re.I
+    )
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.PLAY_ADDITIONAL_BIRD_HERE,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_draw_n_plus_one_draft(t: str) -> schema.Effect | None:
+def _m_draw_n_plus_one_draft(text: str) -> schema.Effect | None:
     # American Oystercatcher.
-    m = re.search(r"Draw \[card\] equal to the number of players \+1", t, re.I)
-    if m:
+    match = re.search(r"Draw \[card\] equal to the number of players \+1", text, re.I)
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.DRAW_N_PLUS_ONE_DRAFT,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_draw_bonus_keep(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_draw_bonus_keep(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Draw\s+(\d+|a|an|one|two|three)\s+new bonus cards and keep\s+(\d+|a|an|one|two|three)",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
-        k = _to_int(m.group(2)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
+        keep = _to_int(match.group(2)) or 1
         return schema.Effect(
             kind=schema.EffectKind.DRAW_BONUS_KEEP,
-            amount=n,
-            keep_count=k,
-            raw_text=m.group(0),
+            amount=amount,
+            keep_count=keep,
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_lay_egg_all_nest(t: str) -> schema.Effect | None:
+def _m_lay_egg_all_nest(text: str) -> schema.Effect | None:
     # Bobolink etc.
-    m = re.search(
+    match = re.search(
         r"Lay\s+(\d+|a|an|one|two|three)\s+\[egg\]"
         r" on each of your birds with a \[(bowl|cavity|ground|platform)\] nest",
-        t,
+        text,
         re.I,
     )
-    if m:
-        n = _to_int(m.group(1)) or 1
+    if match:
+        amount = _to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.LAY_EGG_ALL_NEST,
-            amount=n,
-            nest=NEST_TAGS[m.group(2).lower()],
-            raw_text=m.group(0),
+            amount=amount,
+            nest=NEST_TAGS[match.group(2).lower()],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_gain_all_food_feeder(t: str) -> schema.Effect | None:
+def _m_gain_all_food_feeder(text: str) -> schema.Effect | None:
     # Bald Eagle, Northern Flicker.
-    m = re.search(r"Gain all (\[\w+\]) that are in the birdfeeder", t, re.I)
-    if m and m.group(1) in FOOD_TAGS:
+    match = re.search(r"Gain all (\[\w+\]) that are in the birdfeeder", text, re.I)
+    if match and match.group(1) in FOOD_TAGS:
         return schema.Effect(
             kind=schema.EffectKind.GAIN_ALL_FOOD_FEEDER,
-            food=FOOD_TAGS[m.group(1)],
-            raw_text=m.group(0),
+            food=FOOD_TAGS[match.group(1)],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_tuck_from_deck_paid(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_tuck_from_deck_paid(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Discard 1 (\[\w+\]) to tuck\s+(\d+|a|an|one|two|three)\s+\[card\] from the deck behind this bird",
-        t,
+        text,
         re.I,
     )
-    if m and m.group(1) in FOOD_TAGS:
-        n = _to_int(m.group(2)) or 1
+    if match and match.group(1) in FOOD_TAGS:
+        amount = _to_int(match.group(2)) or 1
         return schema.Effect(
             kind=schema.EffectKind.TUCK_FROM_DECK_PAID,
-            amount=n,
-            food=FOOD_TAGS[m.group(1)],
-            raw_text=m.group(0),
+            amount=amount,
+            food=FOOD_TAGS[match.group(1)],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_predator_hunt(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_predator_hunt(text: str) -> schema.Effect | None:
+    match = re.search(
         r"Look at a \[card\] from the deck\. If less than\s+(\d+)\s*cm,"
         r" tuck it behind this bird\. If not, discard it",
-        t,
+        text,
         re.I,
     )
-    if m:
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.PREDATOR_HUNT,
-            max_wingspan_cm=int(m.group(1)),
-            raw_text=m.group(0),
+            max_wingspan_cm=int(match.group(1)),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_move_rightmost(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_move_rightmost(text: str) -> schema.Effect | None:
+    match = re.search(
         r"If this bird is to the right of all other birds in its habitat,"
         r" move it to another habitat",
-        t,
+        text,
         re.I,
     )
-    if m:
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.MOVE_BIRD_IF_RIGHTMOST,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_repeat_brown(t: str) -> schema.Effect | None:
+def _m_repeat_brown(text: str) -> schema.Effect | None:
     # Gray Catbird, Northern Mockingbird.
-    m = re.search(r"Repeat a brown power on another bird in this habitat", t, re.I)
-    if m:
+    match = re.search(
+        r"Repeat a brown power on another bird in this habitat", text, re.I
+    )
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.REPEAT_BROWN_POWER,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_repeat_predator(t: str) -> schema.Effect | None:
+def _m_repeat_predator(text: str) -> schema.Effect | None:
     # Hooded Merganser.
-    m = re.search(r"Repeat 1 \[predator\] power in this habitat", t, re.I)
-    if m:
+    match = re.search(r"Repeat 1 \[predator\] power in this habitat", text, re.I)
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.REPEAT_PREDATOR_POWER,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_pink_lay_egg_on_nest(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_pink_lay_egg_on_nest(text: str) -> schema.Effect | None:
+    match = re.search(
         r"When another player takes the .lay eggs. action,"
         r"\s*lay 1 \[egg\] on \w+ bird with a \[(bowl|cavity|ground|platform)\] nest",
-        t,
+        text,
         re.I,
     )
-    if m:
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.PINK_LAY_EGG_ON_NEST,
-            nest=NEST_TAGS[m.group(1).lower()],
-            raw_text=m.group(0),
+            nest=NEST_TAGS[match.group(1).lower()],
+            raw_text=match.group(0),
         )
     return None
 
 
-def _m_pink_predator_feeder(t: str) -> schema.Effect | None:
-    m = re.search(
+def _m_pink_predator_feeder(text: str) -> schema.Effect | None:
+    match = re.search(
         r"When another player's \[predator\] succeeds, gain 1 \[die\] from the birdfeeder",
-        t,
+        text,
         re.I,
     )
-    if m:
+    if match:
         return schema.Effect(
             kind=schema.EffectKind.PINK_PREDATOR_FEEDER,
-            raw_text=m.group(0),
+            raw_text=match.group(0),
         )
     return None
 
@@ -639,11 +650,19 @@ def load_all() -> (
     bundled JSON data. Returns three parallel lists in source order."""
     base = resources.files("wingspan.data")
     bird_records = _load_core_records(base / "master.json", schema.BirdRecord)
-    bonus_records = _load_core_records(base / "bonus.json", schema.BonusRecord)
+    bonus_records = [
+        bonus_record
+        for bonus_record in _load_core_records(base / "bonus.json", schema.BonusRecord)
+        if not bonus_record.bonus_card.startswith(_FAN_MADE_PREFIX)
+    ]
     goal_records = _load_core_records(base / "goals.json", schema.GoalRecord)
-    birds = [b for b in (r.load(bonus_records) for r in bird_records) if b is not None]
-    bonuses = [b.load() for b in bonus_records]
-    goals = [g.load() for g in goal_records]
+    birds = [
+        bird
+        for bird in (record.load(bonus_records) for record in bird_records)
+        if bird is not None
+    ]
+    bonuses = [bonus_record.load() for bonus_record in bonus_records]
+    goals = [goal_record.load() for goal_record in goal_records]
     return birds, bonuses, goals
 
 
@@ -652,8 +671,11 @@ def power_coverage(birds: list[schema.Bird]) -> tuple[int, int]:
     as implemented (there is nothing to model)."""
     impl = sum(
         1
-        for b in birds
-        if not any(e.kind == schema.EffectKind.UNIMPLEMENTED for e in b.power.effects)
+        for bird in birds
+        if not any(
+            effect.kind == schema.EffectKind.UNIMPLEMENTED
+            for effect in bird.power.effects
+        )
     )
     return impl, len(birds)
 
@@ -666,9 +688,9 @@ def power_coverage(birds: list[schema.Bird]) -> tuple[int, int]:
 def parse_power_color(raw: str | None) -> schema.PowerColor:
     """Map a raw color string (e.g. ``"brown"``) to a ``PowerColor`` enum,
     defaulting to ``NONE`` for unknown or missing values."""
-    s = (raw or "none").lower()
+    lowered = (raw or "none").lower()
     try:
-        return schema.PowerColor(s)
+        return schema.PowerColor(lowered)
     except ValueError:
         return schema.PowerColor.NONE
 
@@ -676,42 +698,42 @@ def parse_power_color(raw: str | None) -> schema.PowerColor:
 def parse_habitats(record: schema.BirdRecord) -> list[schema.Habitat]:
     """Return the habitats the bird may live in, in canonical order."""
     out: list[schema.Habitat] = []
-    for h, v in [
+    for habitat, marker in [
         (schema.Habitat.FOREST, record.forest),
         (schema.Habitat.GRASSLAND, record.grassland),
         (schema.Habitat.WETLAND, record.wetland),
     ]:
-        if v == "X":
-            out.append(h)
+        if marker == "X":
+            out.append(habitat)
     return out
 
 
 def parse_food_cost(record: schema.BirdRecord) -> schema.BirdCost:
     """Return the :class:`schema.BirdCost` printed on a bird record."""
     vec: list[int] = [0] * schema.N_FOODS
-    for v, food in [
+    for amount, food in [
         (record.invertebrate, schema.Food.INVERTEBRATE),
         (record.seed, schema.Food.SEED),
         (record.fish, schema.Food.FISH),
         (record.fruit, schema.Food.FRUIT),
         (record.rodent, schema.Food.RODENT),
     ]:
-        if v is not None and v > 0:
-            vec[schema.food_index(food)] = int(v)
+        if amount is not None and amount > 0:
+            vec[schema.food_index(food)] = int(amount)
     wild = record.wild_food
     wild_n = int(wild) if wild is not None and wild > 0 else 0
     return schema.BirdCost(counts=(vec[0], vec[1], vec[2], vec[3], vec[4], wild_n))
 
 
-def parse_nest(s: str | None) -> schema.NestType:
+def parse_nest(raw: str | None) -> schema.NestType:
     """Map a raw nest-type string to a :class:`NestType` enum."""
-    if not s:
+    if not raw:
         return schema.NestType.NONE
-    s = s.lower().strip()
-    for n in schema.NestType:
-        if n.value == s:
-            return n
-    if s == "wild":
+    normalized = raw.lower().strip()
+    for nest_type in schema.NestType:
+        if nest_type.value == normalized:
+            return nest_type
+    if normalized == "wild":
         return schema.NestType.STAR
     return schema.NestType.NONE
 
@@ -724,11 +746,11 @@ def bonus_categories_for_bird(
     dynamic (one per bonus card) so they live in :attr:`model_extra`."""
     out: list[str] = []
     extras = record.model_extra or {}
-    for b in bonuses:
-        if b.card_set != "core":
+    for bonus in bonuses:
+        if bonus.card_set != "core":
             continue
-        if extras.get(b.bonus_card) == "X":
-            out.append(b.bonus_card)
+        if extras.get(bonus.bonus_card) == "X":
+            out.append(bonus.bonus_card)
     return tuple(out)
 
 
@@ -740,18 +762,18 @@ def parse_bonus_thresholds(vp_text: str) -> tuple[tuple[int, int], ...]:
         chunk = chunk.strip()
         if not chunk:
             continue
-        m = re.match(r"(\d+)\s*\+\s*birds?\s*:\s*(\d+)", chunk, re.I)
-        if m:
-            out.append((int(m.group(1)), int(m.group(2))))
+        match = re.match(r"(\d+)\s*\+\s*birds?\s*:\s*(\d+)", chunk, re.I)
+        if match:
+            out.append((int(match.group(1)), int(match.group(2))))
             continue
-        m = re.match(r"(\d+)\s*to\s*(\d+)\s*birds?\s*:\s*(\d+)", chunk, re.I)
-        if m:
-            out.append((int(m.group(1)), int(m.group(3))))
+        match = re.match(r"(\d+)\s*to\s*(\d+)\s*birds?\s*:\s*(\d+)", chunk, re.I)
+        if match:
+            out.append((int(match.group(1)), int(match.group(3))))
             continue
-        m = re.match(r"(\d+)\s*birds?\s*:\s*(\d+)", chunk, re.I)
-        if m:
-            out.append((int(m.group(1)), int(m.group(2))))
-    out.sort(key=lambda x: x[0])
+        match = re.match(r"(\d+)\s*birds?\s*:\s*(\d+)", chunk, re.I)
+        if match:
+            out.append((int(match.group(1)), int(match.group(2))))
+    out.sort(key=lambda pair: pair[0])
     return tuple(out)
 
 
@@ -795,7 +817,7 @@ def _load_core_records[R: pydantic.BaseModel](
     (e.g. ``"Wingspan": "*"`` for variable-wingspan birds) that fall outside
     the core-set schema and would otherwise fail validation here."""
     return [
-        model.model_validate(r)
-        for r in json.loads(path.read_text(encoding="utf-8"))
-        if r.get("Set") == "core"
+        model.model_validate(row)
+        for row in json.loads(path.read_text(encoding="utf-8"))
+        if row.get("Set") == "core"
     ]
