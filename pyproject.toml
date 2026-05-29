@@ -19,6 +19,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pyright>=1.1.400",
+    "black>=24.0",
+    "isort>=5.13",
 ]
 
 [project.scripts]
@@ -31,3 +34,28 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 wingspan = ["data/*.json"]
+
+# --- Tooling -------------------------------------------------------------
+# Quality gate (see CLAUDE.md "Quality gate"): `pyright` must be clean in
+# strict mode before any change is finalized, then `isort` + `black` are run
+# for consistent formatting. Both editors (Pylance) and the CLI read the
+# config below, so humans and AI agents see identical results.
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src"]  # tests import `wingspan` via sys.path insert, no install needed
+typeCheckingMode = "strict"
+# torch's type stubs under-export runtime names (torch.cat, torch.ones,
+# torch.float32, ...); the resulting reportPrivateImportUsage noise is a stub
+# artifact, not a real error, so silence just that rule.
+reportPrivateImportUsage = false
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["src", "tests"]
+known_first_party = ["wingspan"]

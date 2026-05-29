@@ -80,7 +80,9 @@ def _count_birds_in(habitat: cards.Habitat) -> typing.Callable[[state.Player], i
     return lambda p: len(p.board[habitat])
 
 
-def _count_eggs_in_habitat(habitat: cards.Habitat) -> typing.Callable[[state.Player], int]:
+def _count_eggs_in_habitat(
+    habitat: cards.Habitat,
+) -> typing.Callable[[state.Player], int]:
     return lambda p: sum(pb.eggs for pb in p.board[habitat])
 
 
@@ -90,7 +92,9 @@ def _count_eggs_on_nest(nest: cards.NestType) -> typing.Callable[[state.Player],
     )
 
 
-def _count_birds_with_eggs_on_nest(nest: cards.NestType) -> typing.Callable[[state.Player], int]:
+def _count_birds_with_eggs_on_nest(
+    nest: cards.NestType,
+) -> typing.Callable[[state.Player], int]:
     return lambda p: sum(
         1 for r in p.board.values() for pb in r if pb.bird.nest == nest and pb.eggs > 0
     )
@@ -113,8 +117,10 @@ def _count_wingspan_over_65(p: state.Player) -> int:
         if pb.bird.wingspan_cm and pb.bird.wingspan_cm > 65
     )
 
+
 def _count_tucked_birds(p: state.Player) -> int:
     return p.total_tucked
+
 
 _CATEGORY_COUNTERS: dict[str, typing.Callable[[state.Player], int]] = {
     "birds_forest": _count_birds_in(cards.Habitat.FOREST),

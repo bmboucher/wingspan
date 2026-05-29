@@ -17,17 +17,10 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-try:
-    import torch
-    from torch.nn import functional as F
-except ImportError:
-    torch = None
-    F = None
+torch = pytest.importorskip("torch")
+F = pytest.importorskip("torch.nn.functional")
 
-if torch is None:
-    pytestmark = pytest.mark.skip(reason="torch not installed")
-
-from wingspan import cards, decisions, encode, model, train
+from wingspan import encode, model, train
 
 
 def test_model_forward_shapes_and_mask():
@@ -87,12 +80,18 @@ def test_train_step_runs_on_self_play_trajectories():
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     trajs = [
-        train.collect_episode(net, device, rng, epsilon=0.0, seed=s) for s in (1001, 1002)
+        train.collect_episode(net, device, rng, epsilon=0.0, seed=s)
+        for s in (1001, 1002)
     ]
     stats = train.train_step(net, optimizer, trajs, device)
-    assert stats["n_steps"] > 0
-    for k in ("loss", "policy_loss", "value_loss", "entropy"):
-        assert np.isfinite(stats[k]), f"{k} should be finite, got {stats[k]}"
+    assert stats.n_steps > 0
+    for name, val in (
+        ("loss", stats.loss),
+        ("policy_loss", stats.policy_loss),
+        ("value_loss", stats.value_loss),
+        ("entropy", stats.entropy),
+    ):
+        assert np.isfinite(val), f"{name} should be finite, got {val}"
 
 
 def test_policy_responds_to_per_choice_features():

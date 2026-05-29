@@ -22,7 +22,8 @@ def cli_agent() -> engine_core.Agent:
     """Interactive human agent. Prints prompt and choices, reads index."""
 
     def agent[C: decisions.Choice](
-        engine: engine_core.Engine, decision: decisions.Decision[C],
+        engine: engine_core.Engine,
+        decision: decisions.Decision[C],
     ) -> C:
         if isinstance(decision, decisions.SetupDecision):
             # SetupDecision is Decision[SetupChoice], but the type checker
@@ -35,7 +36,11 @@ def cli_agent() -> engine_core.Agent:
         # four action types.
         if isinstance(decision, decisions.MainActionDecision):
             print()
-            print(display.format_board(engine.state, engine.state.players[decision.player_id]))
+            print(
+                display.format_board(
+                    engine.state, engine.state.players[decision.player_id]
+                )
+            )
         print()
         print(decision.prompt)
         for i, c in enumerate(decision.choices):
@@ -43,21 +48,22 @@ def cli_agent() -> engine_core.Agent:
         while True:
             raw = input("choice> ").strip()
             if raw == "" and len(decision.choices) == 1:
-                return decision.choices[0]
+                return typing.cast(C, decision.choices[0])
             try:
                 idx = int(raw)
             except ValueError:
                 print("  enter a number")
                 continue
             if 0 <= idx < len(decision.choices):
-                return decision.choices[idx]
+                return typing.cast(C, decision.choices[idx])
             print("  out of range")
 
     return agent
 
 
 def mixed_agents(
-    rng: random.Random, human_index: int,
+    rng: random.Random,
+    human_index: int,
 ) -> tuple[engine_core.Agent, engine_core.Agent]:
     """Two-player roster with one human at ``human_index`` and a random opponent."""
     a = cli_agent() if human_index == 0 else base.random_agent(rng)
@@ -85,7 +91,9 @@ def _format_choice_line(idx: int, c: decisions.Choice) -> str:
     return f"  [{idx}] {c.label}"
 
 
-def _cli_resolve_setup_choice(decision: decisions.SetupDecision) -> decisions.SetupChoice:
+def _cli_resolve_setup_choice(
+    decision: decisions.SetupDecision,
+) -> decisions.SetupChoice:
     """Three-step sub-dialog for the combined setup pick.
 
     Walks the human through cards → foods → bonus, then locates the matching

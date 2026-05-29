@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import random
 import sys
+import typing
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -12,16 +13,27 @@ from wingspan import cards, decisions, engine, state
 from wingspan.engine import actions, powers
 
 
-def _find(birds, name):
+def _no_agent[C: decisions.Choice](
+    _engine: engine.Engine,
+    _decision: decisions.Decision[C],
+) -> C:
+    """An ``Agent``-typed stub for powers that resolve without a decision; it
+    raises if a power unexpectedly consults it."""
+    raise AssertionError(
+        f"agent should not be consulted (got {type(_decision).__name__})"
+    )
+
+
+def _find(birds: list[cards.Bird], name: str) -> cards.Bird:
     return next(b for b in birds if b.name == name)
 
 
-def _engine(seed: int = 0) -> tuple[engine.Engine, list]:
+def _engine(seed: int = 0) -> tuple[engine.Engine, list[cards.Bird]]:
     birds, bonuses, goals = cards.load_all()
     rng = random.Random(seed)
     gs = state.new_game(rng, birds, bonuses, goals)
     return (
-        engine.Engine(gs, agents=[lambda *_: None, lambda *_: None]),
+        engine.Engine(gs, agents=[_no_agent, _no_agent]),
         birds,
     )
 
@@ -45,14 +57,17 @@ def test_full_coverage_no_unimplemented():
 def test_parser_draw_bonus_keep():
     p = cards.parse_power(cards.PowerColor.WHITE, "Draw 2 new bonus cards and keep 1.")
     assert any(
-        e.kind == cards.EffectKind.DRAW_BONUS_KEEP and e.amount == 2 and e.keep_count == 1
+        e.kind == cards.EffectKind.DRAW_BONUS_KEEP
+        and e.amount == 2
+        and e.keep_count == 1
         for e in p.effects
     )
 
 
 def test_parser_lay_egg_all_nest():
     p = cards.parse_power(
-        cards.PowerColor.WHITE, "Lay 1 [egg] on each of your birds with a [cavity] nest."
+        cards.PowerColor.WHITE,
+        "Lay 1 [egg] on each of your birds with a [cavity] nest.",
     )
     eff = next(e for e in p.effects if e.kind == cards.EffectKind.LAY_EGG_ALL_NEST)
     assert eff.nest == cards.NestType.CAVITY
@@ -60,7 +75,9 @@ def test_parser_lay_egg_all_nest():
 
 
 def test_parser_gain_all_food_feeder():
-    p = cards.parse_power(cards.PowerColor.WHITE, "Gain all [fish] that are in the birdfeeder.")
+    p = cards.parse_power(
+        cards.PowerColor.WHITE, "Gain all [fish] that are in the birdfeeder."
+    )
     eff = next(e for e in p.effects if e.kind == cards.EffectKind.GAIN_ALL_FOOD_FEEDER)
     assert eff.food == cards.Food.FISH
 
@@ -99,7 +116,9 @@ def test_parser_repeat_brown():
 
 
 def test_parser_repeat_predator():
-    p = cards.parse_power(cards.PowerColor.BROWN, "Repeat 1 [predator] power in this habitat.")
+    p = cards.parse_power(
+        cards.PowerColor.BROWN, "Repeat 1 [predator] power in this habitat."
+    )
     assert any(e.kind == cards.EffectKind.REPEAT_PREDATOR_POWER for e in p.effects)
 
 
@@ -135,9 +154,9 @@ def test_draw_bonus_keep_keeps_one_discards_one():
     before_have = len(p.bonus_cards)
     before_deck = len(eng.state.bonus_deck)
 
-    def agent(_e, d):
+    def agent[C: decisions.Choice](_e: engine.Engine, d: decisions.Decision[C]) -> C:
         assert isinstance(d, decisions.BirdPowerPickBonusCardDecision)
-        return d.choices[0]
+        return typing.cast(C, d.choices[0])
 
     powers.dispatch_power(eng, agent, p, pb, cards.Habitat.WETLAND, "play")
     assert len(p.bonus_cards) == before_have + 1
@@ -150,14 +169,18 @@ def test_lay_egg_all_nest_adds_one_to_each_matching():
     bobolink = _find(birds, "Bobolink")  # ground
     p = eng.state.me()
     # 3 birds with ground nests + 1 non-ground
-    ground = [b for b in birds if b.nest == cards.NestType.GROUND and b is not bobolink][:3]
-    non_ground = next(b for b in birds if b.nest != cards.NestType.GROUND and b.egg_limit > 0)
+    ground = [
+        b for b in birds if b.nest == cards.NestType.GROUND and b is not bobolink
+    ][:3]
+    non_ground = next(
+        b for b in birds if b.nest != cards.NestType.GROUND and b.egg_limit > 0
+    )
     targets = [state.PlayedBird(bird=b) for b in ground]
     other = state.PlayedBird(bird=non_ground)
     pb = state.PlayedBird(bird=bobolink)
     p.board[cards.Habitat.GRASSLAND].extend(targets + [other, pb])
 
-    powers.dispatch_power(eng, lambda *_: None, p, pb, cards.Habitat.GRASSLAND, "play")
+    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.GRASSLAND, "play")
 
     for t in targets:
         assert t.eggs == 1
@@ -176,7 +199,7 @@ def test_gain_all_food_feeder_drains_one_face():
     for f in p.food:
         p.food[f] = 0
 
-    powers.dispatch_power(eng, lambda *_: None, p, pb, cards.Habitat.WETLAND, "play")
+    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.WETLAND, "play")
     assert eng.state.birdfeeder.counts[cards.Food.FISH] == 0
     assert p.food[cards.Food.FISH] == 3
     assert eng.state.birdfeeder.counts[cards.Food.SEED] == 2  # untouched
@@ -193,8 +216,10 @@ def test_tuck_from_deck_paid_spends_food_and_tucks():
     p.board[cards.Habitat.GRASSLAND].append(pb)
     deck_before = len(eng.state.bird_deck)
 
-    def agent(_e, d):
-        return next(c for c in d.choices if isinstance(c, decisions.PayCostChoice))
+    def agent[C: decisions.Choice](_e: engine.Engine, d: decisions.Decision[C]) -> C:
+        return typing.cast(
+            C, next(c for c in d.choices if isinstance(c, decisions.PayCostChoice))
+        )
 
     powers.dispatch_power(eng, agent, p, pb, cards.Habitat.GRASSLAND, "activate")
     assert p.food[cards.Food.SEED] == 0
@@ -212,7 +237,7 @@ def test_tuck_from_deck_paid_skip_when_no_food():
     p.board[cards.Habitat.GRASSLAND].append(pb)
     deck_before = len(eng.state.bird_deck)
 
-    powers.dispatch_power(eng, lambda *_: None, p, pb, cards.Habitat.GRASSLAND, "activate")
+    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.GRASSLAND, "activate")
     assert pb.tucked_cards == 0
     assert len(eng.state.bird_deck) == deck_before
 
@@ -229,7 +254,7 @@ def test_predator_hunt_tucks_small_bird():
     )
     eng.state.bird_deck.append(small)
 
-    powers.dispatch_power(eng, lambda *_: None, p, pb, cards.Habitat.FOREST, "activate")
+    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.FOREST, "activate")
     assert pb.tucked_cards == 1
 
 
@@ -243,7 +268,7 @@ def test_predator_hunt_discards_large_bird():
     eng.state.bird_deck.append(big)
     discard_before = len(eng.state.bird_discard)
 
-    powers.dispatch_power(eng, lambda *_: None, p, pb, cards.Habitat.FOREST, "activate")
+    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.FOREST, "activate")
     assert pb.tucked_cards == 0
     assert len(eng.state.bird_discard) == discard_before + 1
 
@@ -259,19 +284,17 @@ def test_move_rightmost_moves_when_rightmost():
     pb = state.PlayedBird(bird=mover)
     p.board[cards.Habitat.FOREST].extend([pb_other, pb])
 
-    def agent(_e, d):
+    def agent[C: decisions.Choice](_e: engine.Engine, d: decisions.Decision[C]) -> C:
         assert isinstance(d, decisions.BirdPowerPickHabitatDecision)
-        grass = [
-            c
-            for c in d.choices
-            if isinstance(c, decisions.HabitatChoice) and c.habitat == cards.Habitat.GRASSLAND
-        ]
-        return grass[0] if grass else d.choices[0]
+        grass = [c for c in d.choices if c.habitat == cards.Habitat.GRASSLAND]
+        return typing.cast(C, grass[0] if grass else d.choices[0])
 
     # Choose grassland if available among mover's legal habitats; else any.
     powers.dispatch_power(eng, agent, p, pb, cards.Habitat.FOREST, "activate")
     assert pb not in p.board[cards.Habitat.FOREST]
-    assert any(pb in p.board[h] for h in (cards.Habitat.GRASSLAND, cards.Habitat.WETLAND))
+    assert any(
+        pb in p.board[h] for h in (cards.Habitat.GRASSLAND, cards.Habitat.WETLAND)
+    )
 
 
 def test_move_rightmost_skipped_when_not_rightmost():
@@ -285,7 +308,7 @@ def test_move_rightmost_skipped_when_not_rightmost():
     pb_other = state.PlayedBird(bird=other)
     p.board[cards.Habitat.FOREST].extend([pb, pb_other])  # mover NOT rightmost
 
-    powers.dispatch_power(eng, lambda *_: None, p, pb, cards.Habitat.FOREST, "activate")
+    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.FOREST, "activate")
     assert pb in p.board[cards.Habitat.FOREST]
     assert p.board[cards.Habitat.FOREST][0] is pb
 
@@ -299,7 +322,9 @@ def test_repeat_brown_replays_neighbor_power():
         b
         for b in birds
         if b.color == cards.PowerColor.BROWN
-        and any(e.kind == cards.EffectKind.GAIN_FOOD_BIRDFEEDER for e in b.power.effects)
+        and any(
+            e.kind == cards.EffectKind.GAIN_FOOD_BIRDFEEDER for e in b.power.effects
+        )
         and cards.Habitat.FOREST in b.habitats
     )
     pb_target = state.PlayedBird(bird=target)
@@ -311,12 +336,13 @@ def test_repeat_brown_replays_neighbor_power():
         for e in target.power.effects
         if e.kind == cards.EffectKind.GAIN_FOOD_BIRDFEEDER
     )
+    assert eff_food is not None
     eng.state.birdfeeder.counts.zero()
     eng.state.birdfeeder.counts[eff_food] = 5
     for f in p.food:
         p.food[f] = 0
 
-    powers.dispatch_power(eng, lambda *_: None, p, pb_cat, cards.Habitat.FOREST, "activate")
+    powers.dispatch_power(eng, _no_agent, p, pb_cat, cards.Habitat.FOREST, "activate")
     assert p.food[eff_food] >= 1
 
 
@@ -335,12 +361,13 @@ def test_pink_lay_eggs_reactor_fires_on_opponent_lay_eggs():
     p1.board[cards.Habitat.GRASSLAND].append(bowl_pb)
     # P0 takes lay-eggs.
     eng.state.current_player = 0
-    p0 = eng.state.me()
 
     # Replace P1's agent with one that picks the bowl bird.
-    def p1_agent(_e, d):
+    def p1_agent[C: decisions.Choice](_e: engine.Engine, d: decisions.Decision[C]) -> C:
         if isinstance(d, decisions.LayEggPickBirdDecision):
-            return next(c for c in d.choices if not isinstance(c, decisions.SkipChoice))
+            return typing.cast(
+                C, next(c for c in d.choices if not isinstance(c, decisions.SkipChoice))
+            )
         return d.choices[0]
 
     eng.agents[1] = p1_agent
@@ -369,6 +396,6 @@ def test_pink_predator_feeder_fires_when_predator_succeeds():
         p1.food[f] = 0
 
     eng.state.current_player = 0
-    powers.dispatch_power(eng, lambda *_: None, p0, pb_hawk, cards.Habitat.FOREST, "activate")
+    powers.dispatch_power(eng, _no_agent, p0, pb_hawk, cards.Habitat.FOREST, "activate")
     assert pb_hawk.tucked_cards == 1
     assert p1.food[cards.Food.SEED] == 1

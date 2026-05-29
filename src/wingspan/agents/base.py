@@ -26,7 +26,8 @@ def random_agent(rng: random.Random | None = None) -> engine_core.Agent:
     r = rng or random.Random()
 
     def agent[C: decisions.Choice](
-        _engine: engine_core.Engine, decision: decisions.Decision[C],
+        _engine: engine_core.Engine,
+        decision: decisions.Decision[C],
     ) -> C:
         return r.choice(decision.choices)
 

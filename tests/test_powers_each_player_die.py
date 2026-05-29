@@ -11,6 +11,7 @@ the player of your choice."
 from __future__ import annotations
 
 import random
+import typing
 
 from wingspan import cards, decisions, engine, state
 from wingspan.engine import powers
@@ -64,27 +65,35 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
 
     carrier = next(b for b in cards.load_all()[0] if b.name == "Anna's Hummingbird")
     pb = state.PlayedBird(bird=carrier)
-    eff = cards.Effect(kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1)
+    eff = cards.Effect(
+        kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
+    )
 
     # Scripted agents:
     #   - active player (p0) picks the starting player as P1
     #   - each player picks the first die available
-    def agent_p0(_engine: engine.Engine, decision: decisions.Decision) -> decisions.Choice:
+    def agent_p0[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
         if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
             assert decision.player_id == p0.id
             for c in decision.choices:
-                if isinstance(c, decisions.PlayerIdChoice) and c.player_id == p1.id:
-                    return c
+                if c.player_id == p1.id:
+                    return typing.cast(C, c)
             raise AssertionError("p1 not in choices")
         if isinstance(decision, decisions.GainFoodPickDieDecision):
             assert decision.player_id == p0.id
-            return decision.choices[0]
+            return typing.cast(C, decision.choices[0])
         raise AssertionError(f"unexpected decision for p0: {type(decision).__name__}")
 
-    def agent_p1(_engine: engine.Engine, decision: decisions.Decision) -> decisions.Choice:
+    def agent_p1[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
         assert isinstance(decision, decisions.GainFoodPickDieDecision)
         assert decision.player_id == p1.id
-        return decision.choices[0]
+        return typing.cast(C, decision.choices[0])
 
     eng = engine.Engine(gs, agents=[agent_p0, agent_p1])
     powers.apply_effect(eng, agent_p0, p0, pb, carrier.habitats[0], eff, "play")
@@ -108,22 +117,32 @@ def test_each_player_gains_die_stops_when_feeder_empty():
     food_before_p0 = p0.food.as_dict()
     food_before_p1 = p1.food.as_dict()
 
-    carrier = next(b for b in cards.load_all()[0] if b.name == "Ruby-Throated Hummingbird")
+    carrier = next(
+        b for b in cards.load_all()[0] if b.name == "Ruby-Throated Hummingbird"
+    )
     pb = state.PlayedBird(bird=carrier)
-    eff = cards.Effect(kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1)
+    eff = cards.Effect(
+        kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
+    )
 
-    def agent_p0(_engine: engine.Engine, decision: decisions.Decision) -> decisions.Choice:
+    def agent_p0[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
         if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
             for c in decision.choices:
-                if isinstance(c, decisions.PlayerIdChoice) and c.player_id == p0.id:
-                    return c
+                if c.player_id == p0.id:
+                    return typing.cast(C, c)
             raise AssertionError("p0 not in choices")
         if isinstance(decision, decisions.GainFoodPickDieDecision):
             assert decision.player_id == p0.id
-            return decision.choices[0]
+            return typing.cast(C, decision.choices[0])
         raise AssertionError(f"unexpected decision for p0: {type(decision).__name__}")
 
-    def agent_p1(_engine: engine.Engine, decision: decisions.Decision) -> decisions.Choice:
+    def agent_p1[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
         raise AssertionError(
             f"p1 should not be asked when feeder empties: {type(decision).__name__}"
         )
@@ -151,20 +170,28 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
 
     carrier = next(b for b in cards.load_all()[0] if b.name == "Anna's Hummingbird")
     pb = state.PlayedBird(bird=carrier)
-    eff = cards.Effect(kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1)
+    eff = cards.Effect(
+        kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
+    )
 
     queried: list[tuple[str, type, int]] = []
 
-    def agent_p0(_engine: engine.Engine, decision: decisions.Decision) -> decisions.Choice:
+    def agent_p0[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
         queried.append(("p0", type(decision), decision.player_id))
         if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
             for c in decision.choices:
-                if isinstance(c, decisions.PlayerIdChoice) and c.player_id == p0.id:
-                    return c
+                if c.player_id == p0.id:
+                    return typing.cast(C, c)
         assert decision.player_id == p0.id
-        return decision.choices[0]
+        return typing.cast(C, decision.choices[0])
 
-    def agent_p1(_engine: engine.Engine, decision: decisions.Decision) -> decisions.Choice:
+    def agent_p1[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
         queried.append(("p1", type(decision), decision.player_id))
         assert decision.player_id == p1.id
         return decision.choices[0]

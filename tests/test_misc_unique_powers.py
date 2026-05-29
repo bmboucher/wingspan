@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import random
 import sys
+import typing
 
 import pytest
 
@@ -20,18 +21,27 @@ from wingspan import cards, decisions, engine, state
 from wingspan.engine import powers
 
 
+def _no_agent[C: decisions.Choice](
+    _engine: engine.Engine,
+    _decision: decisions.Decision[C],
+) -> C:
+    """An ``Agent``-typed stub for powers that resolve without a decision; it
+    raises if a power unexpectedly consults it."""
+    raise AssertionError(
+        f"agent should not be consulted (got {type(_decision).__name__})"
+    )
+
+
 def _make_engine_with_bird(
     power_text: str,
     color: cards.PowerColor = cards.PowerColor.WHITE,
-    agents=None,
+    agents: list[engine.Agent] | None = None,
 ) -> tuple[engine.Engine, state.PlayedBird]:
     """Build a near-empty engine and stage a played bird carrying ``power_text``."""
     birds, bonuses, goals = cards.load_all()
     rng = random.Random(0)
     gs = state.new_game(rng, birds, bonuses, goals)
-    eng = (
-        engine.Engine(gs, agents=agents) if agents is not None else engine.Engine(gs)
-    )
+    eng = engine.Engine(gs, agents=agents) if agents is not None else engine.Engine(gs)
     template = next(b for b in birds if b.color == color)
     bird = template.model_copy(
         update={
@@ -49,7 +59,9 @@ def _make_engine_with_bird(
 
 
 def test_parser_draw_from_tray_all():
-    p = cards.parse_power(cards.PowerColor.WHITE, "Draw the 3 face-up [card] in the bird tray.")
+    p = cards.parse_power(
+        cards.PowerColor.WHITE, "Draw the 3 face-up [card] in the bird tray."
+    )
     assert [e.kind for e in p.effects] == [cards.EffectKind.DRAW_FROM_TRAY_ALL]
 
 
@@ -99,7 +111,7 @@ def test_draw_from_tray_all_takes_all_three_and_refills():
     # Force a deterministic tray of 3 known birds.
     original_tray_names = [b.name for b in gs.tray]
     deck_before = len(gs.bird_deck)
-    powers.dispatch_power(eng, lambda _e, _d: None, p, pb, cards.Habitat.WETLAND, "play")
+    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.WETLAND, "play")
     assert [b.name for b in p.hand] == original_tray_names
     assert len(gs.tray) == 3  # refilled
     # 3 cards moved from deck to tray to refill.
@@ -123,19 +135,30 @@ def test_trade_wild_food_swaps_one_food():
     p.food[cards.Food.SEED] = 2
     gs.food_supply[cards.Food.FRUIT] = 5
 
-    asked = []
+    asked: list[object] = []
 
-    def agent(_e: engine.Engine, d: decisions.Decision) -> decisions.Choice:
+    def agent[C: decisions.Choice](
+        _e: engine.Engine,
+        d: decisions.Decision[C],
+    ) -> C:
         asked.append(d)
         if not asked or len(asked) == 1:
             # first prompt: pick which food to discard
-            return next(
+            return typing.cast(
+                C,
+                next(
+                    c
+                    for c in d.choices
+                    if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
+                ),
+            )
+        return typing.cast(
+            C,
+            next(
                 c
                 for c in d.choices
-                if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
-            )
-        return next(
-            c for c in d.choices if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.FRUIT
+                if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.FRUIT
+            ),
         )
 
     powers.dispatch_power(eng, agent, p, pb, cards.Habitat.WETLAND, "activate")
@@ -156,8 +179,13 @@ def test_trade_wild_food_skip_does_nothing():
     p.food[cards.Food.SEED] = 1
     food_before = p.food.as_dict()
 
-    def agent(_e: engine.Engine, d: decisions.Decision) -> decisions.Choice:
-        return next(c for c in d.choices if isinstance(c, decisions.SkipChoice))
+    def agent[C: decisions.Choice](
+        _e: engine.Engine,
+        d: decisions.Decision[C],
+    ) -> C:
+        return typing.cast(
+            C, next(c for c in d.choices if isinstance(c, decisions.SkipChoice))
+        )
 
     powers.dispatch_power(eng, agent, p, pb, cards.Habitat.WETLAND, "activate")
     assert p.food.as_dict() == food_before
@@ -174,7 +202,10 @@ def test_trade_wild_food_no_food_no_op():
     for f in cards.ALL_FOODS:
         p.food[f] = 0
 
-    def agent(_e: engine.Engine, d: decisions.Decision) -> decisions.Choice:  # pragma: no cover
+    def agent[C: decisions.Choice](  # pragma: no cover
+        _e: engine.Engine,
+        d: decisions.Decision[C],
+    ) -> C:
         pytest.fail("should not be consulted when player has no food")
 
     powers.dispatch_power(eng, agent, p, pb, cards.Habitat.WETLAND, "activate")
@@ -201,9 +232,17 @@ def test_fewest_forest_gains_die_only_min_player_gets_food():
     gs.birdfeeder.counts[cards.Food.SEED] = 3
     food_before = {q.id: q.food.as_dict() for q in gs.players}
 
-    def agent(_e: engine.Engine, d: decisions.Decision) -> decisions.Choice:
-        return next(
-            c for c in d.choices if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
+    def agent[C: decisions.Choice](
+        _e: engine.Engine,
+        d: decisions.Decision[C],
+    ) -> C:
+        return typing.cast(
+            C,
+            next(
+                c
+                for c in d.choices
+                if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
+            ),
         )
 
     eng.agents = [agent, agent]
@@ -227,9 +266,17 @@ def test_fewest_forest_gains_die_ties_each_gets_one():
     gs.birdfeeder.counts[cards.Food.SEED] = 5
     food_before = {q.id: q.food.as_dict() for q in gs.players}
 
-    def agent(_e: engine.Engine, d: decisions.Decision) -> decisions.Choice:
-        return next(
-            c for c in d.choices if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
+    def agent[C: decisions.Choice](
+        _e: engine.Engine,
+        d: decisions.Decision[C],
+    ) -> C:
+        return typing.cast(
+            C,
+            next(
+                c
+                for c in d.choices
+                if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.SEED
+            ),
         )
 
     eng.agents = [agent, agent]
@@ -248,7 +295,10 @@ def test_fewest_forest_gains_die_empty_feeder_no_op():
     for f in cards.ALL_FOODS:
         gs.birdfeeder.counts[f] = 0
 
-    def agent(_e: engine.Engine, d: decisions.Decision) -> decisions.Choice:  # pragma: no cover
+    def agent[C: decisions.Choice](  # pragma: no cover
+        _e: engine.Engine,
+        d: decisions.Decision[C],
+    ) -> C:
         pytest.fail("should not be consulted when feeder is empty")
 
     eng.agents = [agent, agent]
@@ -267,7 +317,7 @@ def test_play_additional_bird_here_grants_extra_play():
     gs.current_player = 0
     p = gs.me()
     before = gs.turn_extra_plays
-    powers.dispatch_power(eng, lambda _e, _d: None, p, pb, cards.Habitat.FOREST, "play")
+    powers.dispatch_power(eng, _no_agent, p, pb, cards.Habitat.FOREST, "play")
     assert gs.turn_extra_plays == before + 1
 
 
@@ -288,7 +338,10 @@ def test_draw_n_plus_one_draft_each_player_picks_one_active_keeps_rest():
     p1.hand = []
     deck_before = len(gs.bird_deck)
 
-    def agent(_e: engine.Engine, d: decisions.Decision) -> decisions.Choice:
+    def agent[C: decisions.Choice](
+        _e: engine.Engine,
+        d: decisions.Decision[C],
+    ) -> C:
         # Always pick the first offered card.
         return d.choices[0]
 
@@ -313,9 +366,12 @@ def test_draw_n_plus_one_draft_empty_deck_no_op():
     p0.hand = []
     gs.players[1].hand = []
     gs.bird_deck = []
-    state.bird_discard = []
+    gs.bird_discard = []
 
-    def agent(_e: engine.Engine, d: decisions.Decision) -> decisions.Choice:  # pragma: no cover
+    def agent[C: decisions.Choice](  # pragma: no cover
+        _e: engine.Engine,
+        d: decisions.Decision[C],
+    ) -> C:
         pytest.fail("should not be consulted when deck is empty")
 
     eng.agents = [agent, agent]

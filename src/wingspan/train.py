@@ -341,8 +341,12 @@ def _sample_choice(
         return rng.randrange(n)
 
     with torch.no_grad():
-        state_t = torch.tensor(state_vec, dtype=torch.float32, device=device).unsqueeze(0)
-        choice_t = torch.tensor(choice_feats, dtype=torch.float32, device=device).unsqueeze(0)
+        state_t = torch.tensor(state_vec, dtype=torch.float32, device=device).unsqueeze(
+            0
+        )
+        choice_t = torch.tensor(
+            choice_feats, dtype=torch.float32, device=device
+        ).unsqueeze(0)
         mask_t = torch.ones((1, n), dtype=torch.float32, device=device)
         logits, _ = net(state_t, choice_t, mask_t)
         probs = F.softmax(logits, dim=-1).squeeze(0).cpu().numpy()

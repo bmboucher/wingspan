@@ -22,7 +22,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from wingspan import cards, state
 from wingspan.engine import helpers
 
-
 SEED = cards.Food.SEED
 FRUIT = cards.Food.FRUIT
 FISH = cards.Food.FISH
@@ -34,15 +33,16 @@ def _pool(d: dict[cards.Food, int] | None = None) -> state.FoodPool:
     return state.FoodPool.from_dict(d or {})
 
 
-def _cost(specific: dict[cards.Food, int] | None = None, wild: int = 0) -> cards.BirdCost:
+def _cost(
+    specific: dict[cards.Food, int] | None = None, wild: int = 0
+) -> cards.BirdCost:
     return cards.BirdCost.from_specific(specific or {}, wild)
 
 
-def _payment_multisets(payments: list[state.FoodPool]) -> set[frozenset]:
-    return {
-        frozenset((f, n) for f, n in p.items() if n > 0)
-        for p in payments
-    }
+def _payment_multisets(
+    payments: list[state.FoodPool],
+) -> set[frozenset[tuple[cards.Food, int]]]:
+    return {frozenset((f, n) for f, n in p.items() if n > 0) for p in payments}
 
 
 # --- cost_meets -----------------------------------------------------------
@@ -124,7 +124,8 @@ def test_case_5_three_substitution_combinations():
     """cost = 1 INV, available = 2 SEED + 2 FRUIT → 3 ways to pay 2 foods:
     seed+seed, seed+fruit, fruit+fruit."""
     payments = helpers.enumerate_payments(
-        _pool({SEED: 2, FRUIT: 2}), _cost({INV: 1}),
+        _pool({SEED: 2, FRUIT: 2}),
+        _cost({INV: 1}),
     )
     assert _payment_multisets(payments) == {
         frozenset({(SEED, 2)}),
@@ -146,7 +147,8 @@ def test_case_7_partial_match_plus_substitution():
     """cost = 1 INV + 1 SEED, available = 1 INV + 3 FISH → pay the INV
     directly and substitute 2 FISH for the SEED."""
     payments = helpers.enumerate_payments(
-        _pool({INV: 1, FISH: 3}), _cost({INV: 1, SEED: 1}),
+        _pool({INV: 1, FISH: 3}),
+        _cost({INV: 1, SEED: 1}),
     )
     assert _payment_multisets(payments) == {frozenset({(INV, 1), (FISH, 2)})}
 
@@ -176,7 +178,8 @@ def test_enumerate_payments_keep_or_substitute_with_surplus():
     """When the player owns the matching food but also has 2 of another,
     both ``pay it directly`` and ``substitute 2-for-1`` are legal options."""
     payments = helpers.enumerate_payments(
-        _pool({SEED: 1, FRUIT: 2}), _cost({SEED: 1}),
+        _pool({SEED: 1, FRUIT: 2}),
+        _cost({SEED: 1}),
     )
     assert _payment_multisets(payments) == {
         frozenset({(SEED, 1)}),
@@ -186,7 +189,8 @@ def test_enumerate_payments_keep_or_substitute_with_surplus():
 
 def test_enumerate_payments_no_overpay():
     payments = helpers.enumerate_payments(
-        _pool({f: 5 for f in cards.ALL_FOODS}), _cost(),
+        _pool({f: 5 for f in cards.ALL_FOODS}),
+        _cost(),
     )
     assert _payment_multisets(payments) == {frozenset()}
 

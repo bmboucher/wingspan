@@ -77,7 +77,9 @@ def do_play_bird(engine: "core.Engine", agent: "core.Agent") -> None:
         powers.dispatch_power(engine, agent, p, pb, habitat, "play")
 
 
-def discard_an_egg(engine: "core.Engine", agent: "core.Agent", p: state.Player, reason: str) -> None:
+def discard_an_egg(
+    engine: "core.Engine", agent: "core.Agent", p: state.Player, reason: str
+) -> None:
     """Force ``p`` to remove one egg from any of their birds (no-op if none).
     Used both as part of the play-bird cost and by any effect that demands
     an egg discard."""
@@ -148,7 +150,9 @@ def take_one_from_feeder(
                 player_id=p.id,
                 prompt=f"[{p.name}] pick 1 from birdfeeder for {pb.bird.name}",
                 choices=[
-                    decisions.FoodChoice(label=f"{f.value}({st.birdfeeder.counts[f]})", food=f)
+                    decisions.FoodChoice(
+                        label=f"{f.value}({st.birdfeeder.counts[f]})", food=f
+                    )
                     for f in avail
                 ],
             ),
@@ -382,7 +386,9 @@ def _pick_food_payment(
 #### Gain-food sub-helpers ####
 
 
-def _take_one_die_active(engine: "core.Engine", agent: "core.Agent", p: state.Player) -> None:
+def _take_one_die_active(
+    engine: "core.Engine", agent: "core.Agent", p: state.Player
+) -> None:
     """One iteration of the main Gain Food action loop: pull a die, rerolling
     once on an empty feeder, then stop if still empty."""
     avail = [(f, c) for f, c in engine.state.birdfeeder.counts.items() if c > 0]
@@ -399,7 +405,9 @@ def _take_one_die_active(engine: "core.Engine", agent: "core.Agent", p: state.Pl
         decisions.GainFoodPickDieDecision(
             player_id=p.id,
             prompt=f"[{p.name}] take 1 die from birdfeeder",
-            choices=[decisions.FoodChoice(label=f"{f.value}({c})", food=f) for f, c in avail],
+            choices=[
+                decisions.FoodChoice(label=f"{f.value}({c})", food=f) for f, c in avail
+            ],
         ),
     )
     f = ch.food

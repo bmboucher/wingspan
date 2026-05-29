@@ -163,7 +163,9 @@ _GOAL_CATEGORIES = [
 # Public API
 
 
-def encode_state(state: state.GameState, decision: _AnyDecision | None = None) -> np.ndarray:
+def encode_state(
+    state: state.GameState, decision: _AnyDecision | None = None
+) -> np.ndarray:
     """Encode the game from the perspective of ``decision.player_id``.
 
     If ``decision`` is ``None`` we fall back to ``state.current_player`` and
@@ -296,7 +298,9 @@ def _summary_birdfeeder(state: state.GameState) -> np.ndarray:
     )
 
 
-def _summary_misc_scalars(state: state.GameState, me: state.Player, opp: state.Player) -> np.ndarray:
+def _summary_misc_scalars(
+    state: state.GameState, me: state.Player, opp: state.Player
+) -> np.ndarray:
     return np.array(
         [
             state.round_idx / 3.0,
@@ -564,7 +568,12 @@ _CHOICE_FEATURIZERS: dict[type[decisions.Choice], _ChoiceFeaturizer] = {
 
 #### Stripe fillers ####
 
-_COLORS = [cards.PowerColor.BROWN, cards.PowerColor.WHITE, cards.PowerColor.PINK, cards.PowerColor.YELLOW]
+_COLORS = [
+    cards.PowerColor.BROWN,
+    cards.PowerColor.WHITE,
+    cards.PowerColor.PINK,
+    cards.PowerColor.YELLOW,
+]
 _NESTS = [
     cards.NestType.BOWL,
     cards.NestType.CAVITY,

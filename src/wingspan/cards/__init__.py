@@ -22,6 +22,7 @@ from wingspan.cards.parse import (
 from wingspan.cards.schema import (
     ALL_FOODS,
     ALL_HABITATS,
+    N_FOODS,
     Bird,
     BirdCost,
     BirdRecord,
@@ -33,7 +34,6 @@ from wingspan.cards.schema import (
     Food,
     GoalRecord,
     Habitat,
-    N_FOODS,
     NestType,
     Power,
     PowerColor,

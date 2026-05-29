@@ -244,7 +244,9 @@ class Player(pydantic.BaseModel):
     id: int
     name: str
     hand: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
-    bonus_cards: list[cards.BonusCard] = pydantic.Field(default_factory=_new_bonus_card_list)
+    bonus_cards: list[cards.BonusCard] = pydantic.Field(
+        default_factory=_new_bonus_card_list
+    )
     food: FoodPool = pydantic.Field(default_factory=FoodPool)
     board: Board = pydantic.Field(default_factory=Board)
     action_cubes_left: int = 0
@@ -310,13 +312,19 @@ class GameState(pydantic.BaseModel):
     round_idx: int  # 0..3
     bird_deck: list[cards.Bird]  # remaining
     bird_discard: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
-    bonus_deck: list[cards.BonusCard] = pydantic.Field(default_factory=_new_bonus_card_list)
-    bonus_discard: list[cards.BonusCard] = pydantic.Field(default_factory=_new_bonus_card_list)
+    bonus_deck: list[cards.BonusCard] = pydantic.Field(
+        default_factory=_new_bonus_card_list
+    )
+    bonus_discard: list[cards.BonusCard] = pydantic.Field(
+        default_factory=_new_bonus_card_list
+    )
     tray: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
     birdfeeder: Birdfeeder = pydantic.Field(default_factory=Birdfeeder)
     food_supply: FoodPool = pydantic.Field(default_factory=lambda: FoodPool.uniform(99))
     # All 16 goals shuffled — first 4 are the per-round goals for rounds 1..4
-    round_goals: list[cards.EndRoundGoal] = pydantic.Field(default_factory=_new_round_goal_list)
+    round_goals: list[cards.EndRoundGoal] = pydantic.Field(
+        default_factory=_new_round_goal_list
+    )
     game_over: bool = False
     log: list[str] = pydantic.Field(default_factory=list)
 

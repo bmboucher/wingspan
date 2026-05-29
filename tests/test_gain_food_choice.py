@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import random
 import sys
+import typing
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -25,9 +26,7 @@ def _make_engine() -> engine.Engine:
 
 def _stage_played_bird(eng: engine.Engine, power_text: str) -> state.PlayedBird:
     """Attach a fresh PlayedBird carrying ``power_text`` to a template bird."""
-    template = next(
-        b for b in eng.state.bird_deck if b.color == cards.PowerColor.BROWN
-    )
+    template = next(b for b in eng.state.bird_deck if b.color == cards.PowerColor.BROWN)
     bird = template.model_copy(
         update={
             "raw_power_text": power_text,
@@ -98,7 +97,10 @@ def test_food_choice_takes_only_available_food():
     eng.state.birdfeeder.counts[cards.Food.FRUIT] = 2
     food_before = p.food[cards.Food.FRUIT]
 
-    def agent(_eng, _d):  # pragma: no cover - not reached, only one option
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        _d: decisions.Decision[C],
+    ) -> C:  # pragma: no cover - not reached, only one option
         raise AssertionError("should auto-take the only available food")
 
     powers.dispatch_power(eng, agent, p, pb, pb.bird.habitats[0], "activate")
@@ -123,15 +125,23 @@ def test_food_choice_asks_when_both_present():
 
     asked = {"n": 0}
 
-    def agent(_eng, decision: decisions.Decision) -> decisions.Choice:
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
         asked["n"] += 1
         assert isinstance(decision, decisions.BirdPowerPickFoodDecision)
-        foods = {c.food for c in decision.choices if isinstance(c, decisions.FoodChoice)}
+        foods = {
+            c.food for c in decision.choices if isinstance(c, decisions.FoodChoice)
+        }
         assert foods == {cards.Food.INVERTEBRATE, cards.Food.FRUIT}
         # Choose invertebrate.
         for c in decision.choices:
-            if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.INVERTEBRATE:
-                return c
+            if (
+                isinstance(c, decisions.FoodChoice)
+                and c.food == cards.Food.INVERTEBRATE
+            ):
+                return typing.cast(C, c)
         raise AssertionError("invertebrate not offered")
 
     powers.dispatch_power(eng, agent, p, pb, pb.bird.habitats[0], "activate")
@@ -155,7 +165,10 @@ def test_food_choice_skips_when_neither_present():
     eng.state.birdfeeder.counts[cards.Food.INVERTEBRATE] = 3  # neither seed nor fruit
     snapshot = p.food.as_dict()
 
-    def agent(_eng, _d):  # pragma: no cover - must not be consulted
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        _d: decisions.Decision[C],
+    ) -> C:  # pragma: no cover - must not be consulted
         raise AssertionError("agent should not be asked when nothing available")
 
     powers.dispatch_power(eng, agent, p, pb, pb.bird.habitats[0], "activate")
@@ -175,13 +188,18 @@ def test_die_any_picks_from_all_available_foods():
     seed_before = p.food[cards.Food.SEED]
     rodent_before = p.food[cards.Food.RODENT]
 
-    def agent(_eng, decision: decisions.Decision) -> decisions.Choice:
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
         assert isinstance(decision, decisions.BirdPowerPickFoodDecision)
-        foods = {c.food for c in decision.choices if isinstance(c, decisions.FoodChoice)}
+        foods = {
+            c.food for c in decision.choices if isinstance(c, decisions.FoodChoice)
+        }
         assert foods == {cards.Food.SEED, cards.Food.RODENT}
         for c in decision.choices:
             if isinstance(c, decisions.FoodChoice) and c.food == cards.Food.RODENT:
-                return c
+                return typing.cast(C, c)
         raise AssertionError("rodent not offered")
 
     powers.dispatch_power(eng, agent, p, pb, pb.bird.habitats[0], "activate")
@@ -200,7 +218,10 @@ def test_die_any_skips_when_feeder_empty():
         eng.state.birdfeeder.counts[f] = 0
     snapshot = p.food.as_dict()
 
-    def agent(_eng, _d):  # pragma: no cover - must not be consulted
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        _d: decisions.Decision[C],
+    ) -> C:  # pragma: no cover - must not be consulted
         raise AssertionError("agent should not be asked when feeder is empty")
 
     powers.dispatch_power(eng, agent, p, pb, pb.bird.habitats[0], "activate")

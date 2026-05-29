@@ -16,7 +16,8 @@ if typing.TYPE_CHECKING:
 
 
 def trigger_pink_lay_eggs_reactors(
-    engine: "core.Engine", active_player: state.Player,
+    engine: "core.Engine",
+    active_player: state.Player,
 ) -> None:
     """Called after ``active_player`` completes a Lay Eggs action. Each
     OTHER player's ``PINK_LAY_EGG_ON_NEST`` birds fire in clockwise order
@@ -36,7 +37,8 @@ def trigger_pink_lay_eggs_reactors(
 
 
 def trigger_pink_predator_success(
-    engine: "core.Engine", hunter_player: state.Player,
+    engine: "core.Engine",
+    hunter_player: state.Player,
 ) -> None:
     """Called after a ``PREDATOR_HUNT`` succeeds (a card was tucked). Each
     OTHER player's ``PINK_PREDATOR_FEEDER`` birds gain 1 die from the
@@ -106,13 +108,13 @@ def fire_pink_lay_egg(
         return
     eligible.append(decisions.SkipChoice(label="skip"))
     ch = engine.ask(
-            engine.agent_for(q),
-            decisions.LayEggPickBirdDecision(
-                player_id=q.id,
-                prompt=f"[{q.name}] lay 1 egg on a [{nest.value}] bird ({pb.bird.name}) (or skip)",
-                choices=eligible,
-            ),
-        )
+        engine.agent_for(q),
+        decisions.LayEggPickBirdDecision(
+            player_id=q.id,
+            prompt=f"[{q.name}] lay 1 egg on a [{nest.value}] bird ({pb.bird.name}) (or skip)",
+            choices=eligible,
+        ),
+    )
     if isinstance(ch, decisions.SkipChoice):
         engine.log(f"  {pb.bird.name} (pink): [{q.name}] declined")
         return

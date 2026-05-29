@@ -26,7 +26,7 @@ changes stay consistent.
 ## Run / test
 
 ```
-pip install -e .
+pip install -e ".[dev]"                               # runtime + pyright/black/isort/pytest
 python -m wingspan.cli manual                         # human vs random
 python -m wingspan.cli random --log game.log          # watch a random game
 python -m wingspan.train --device cuda --episodes 32  # one training cycle
@@ -34,6 +34,40 @@ python -m pytest tests/
 ```
 
 PyTorch with CUDA is needed for training runs; everything else runs on CPU.
+
+## Quality gate (run after every change, in this order)
+
+Every change must clear this gate before it is considered finished. The
+config lives in `pyproject.toml` (`[tool.pyright]`, `[tool.black]`,
+`[tool.isort]`), so the editor (Pylance) and the CLI report identically and
+no flags are needed.
+
+1. **Type-check first — strict pyright must be clean.** Run `pyright` from
+   the repo root; it reads `typeCheckingMode = "strict"` from `pyproject.toml`
+   and checks `src/` and `tests/`. Do **not** finalize while it reports any
+   error. (Strict surfaces rules the old default mode hid:
+   `reportUnknownParameterType` / "Return type is unknown",
+   `reportMissingParameterType`, `reportUnknownVariableType`,
+   `reportUnnecessaryIsInstance`, `reportMissingTypeArgument`. `torch`'s
+   under-exporting stubs are silenced via `reportPrivateImportUsage = false`
+   — don't re-enable it.)
+2. **Then format — isort, then black.** Only once types are clean:
+   ```
+   python -m isort src tests
+   python -m black src tests
+   ```
+   `isort` runs first (its `profile = "black"` keeps the two compatible).
+3. **Re-run pyright and the tests** to confirm formatting changed nothing:
+   `pyright` then `python -m pytest tests/`.
+
+Invocation note (Windows): call the formatters as `python -m black` /
+`python -m isort`, not the bare `black` / `isort` shims — the console-script
+`.exe` sometimes fails to install on this machine, but the module entry
+points always work. `pyright` is invoked directly.
+
+For type-checking patterns specific to this repo's scripted test agents (the
+generic `Agent` protocol, when a `typing.cast` is required), see the
+"Agent protocol" and "Test conventions" sections below.
 
 ## Package layout
 

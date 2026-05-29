@@ -24,9 +24,7 @@ def format_cost(cost: cards.BirdCost) -> str:
     The trailing ``*`` denotes wild slots (any food).
     """
     parts: list[str] = [
-        f"{n}{f.value}"
-        for f, n in zip(cards.ALL_FOODS, cost.specific)
-        if n > 0
+        f"{n}{f.value}" for f, n in zip(cards.ALL_FOODS, cost.specific) if n > 0
     ]
     if cost.wild:
         parts.append(f"{cost.wild}*")

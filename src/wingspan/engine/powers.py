@@ -211,9 +211,7 @@ def _h_gain_die_any(
     if not avail:
         engine.log(f"  {bird.name}: birdfeeder empty; skipped")
         return
-    actions.take_one_from_feeder(
-        engine, agent, p, pb, avail, reason="gain_die_any"
-    )
+    actions.take_one_from_feeder(engine, agent, p, pb, avail, reason="gain_die_any")
 
 
 def _h_lay_egg_on_this(
@@ -438,7 +436,9 @@ def _h_discard_egg_for_wild(
             decisions.BirdPowerPickFoodDecision(
                 player_id=p.id,
                 prompt=f"[{p.name}] pick 1 [wild] from supply (from {bird.name})",
-                choices=[decisions.FoodChoice(label=f.value, food=f) for f in available],
+                choices=[
+                    decisions.FoodChoice(label=f.value, food=f) for f in available
+                ],
             ),
         )
         assert isinstance(food_ch, decisions.FoodChoice)
@@ -497,9 +497,7 @@ def _h_each_player_gains_die_choose_order(
                     )
                     avail = [(f, c) for f, c in st.birdfeeder.counts.items() if c > 0]
                 if not avail:
-                    engine.log(
-                        f"  {bird.name}: birdfeeder empty; stopping power early"
-                    )
+                    engine.log(f"  {bird.name}: birdfeeder empty; stopping power early")
                     stop_outer = True
                     break
             food_ch = engine.ask(
@@ -508,7 +506,8 @@ def _h_each_player_gains_die_choose_order(
                     player_id=q.id,
                     prompt=f"[{q.name}] take 1 die from birdfeeder ({bird.name})",
                     choices=[
-                        decisions.FoodChoice(label=f"{f.value}({c})", food=f) for f, c in avail
+                        decisions.FoodChoice(label=f"{f.value}({c})", food=f)
+                        for f, c in avail
                     ],
                 ),
             )
@@ -670,7 +669,10 @@ def _h_fewest_forest_gains_die(
             decisions.BirdPowerPickFoodDecision(
                 player_id=q.id,
                 prompt=f"[{q.name}] take 1 die from birdfeeder (from {bird.name})",
-                choices=[decisions.FoodChoice(label=f"{f.value}({n})", food=f) for f, n in avail],
+                choices=[
+                    decisions.FoodChoice(label=f"{f.value}({n})", food=f)
+                    for f, n in avail
+                ],
             ),
         )
         assert isinstance(ch, decisions.FoodChoice)
@@ -777,7 +779,9 @@ def _h_draw_bonus_keep(
             decisions.BirdPowerPickBonusCardDecision(
                 player_id=p.id,
                 prompt=f"[{p.name}] keep a bonus card (from {bird.name})",
-                choices=[decisions.BonusCardChoice(label=b.name, bonus_card=b) for b in drawn],
+                choices=[
+                    decisions.BonusCardChoice(label=b.name, bonus_card=b) for b in drawn
+                ],
             ),
         )
         kept = ch.bonus_card
@@ -942,7 +946,9 @@ def _h_move_bird_if_rightmost(
             decisions.BirdPowerPickHabitatDecision(
                 player_id=p.id,
                 prompt=f"[{p.name}] move {bird.name} to which habitat?",
-                choices=[decisions.HabitatChoice(label=h.value, habitat=h) for h in targets],
+                choices=[
+                    decisions.HabitatChoice(label=h.value, habitat=h) for h in targets
+                ],
             ),
         )
         target = ch.habitat
@@ -988,7 +994,8 @@ def _h_repeat_brown_power(
                 player_id=p.id,
                 prompt=f"[{p.name}] repeat which bird's brown power?",
                 choices=[
-                    decisions.PlayedBirdChoice(label=o.bird.name, played_bird=o) for o in others
+                    decisions.PlayedBirdChoice(label=o.bird.name, played_bird=o)
+                    for o in others
                 ],
             ),
         )
@@ -1034,7 +1041,8 @@ def _h_repeat_predator_power(
                 player_id=p.id,
                 prompt=f"[{p.name}] repeat which predator's power?",
                 choices=[
-                    decisions.PlayedBirdChoice(label=o.bird.name, played_bird=o) for o in others
+                    decisions.PlayedBirdChoice(label=o.bird.name, played_bird=o)
+                    for o in others
                 ],
             ),
         )

@@ -16,7 +16,6 @@ review:
 from __future__ import annotations
 
 import os
-import random
 import sys
 
 import numpy as np
@@ -51,12 +50,16 @@ def test_state_encoder_pov_rotates_with_decision_player():
     d0 = decisions.MainActionDecision(
         player_id=0,
         prompt="p0",
-        choices=[decisions.MainActionChoice(label="x", action=decisions.MainAction.GAIN_FOOD)],
+        choices=[
+            decisions.MainActionChoice(label="x", action=decisions.MainAction.GAIN_FOOD)
+        ],
     )
     d1 = decisions.MainActionDecision(
         player_id=1,
         prompt="p1",
-        choices=[decisions.MainActionChoice(label="x", action=decisions.MainAction.GAIN_FOOD)],
+        choices=[
+            decisions.MainActionChoice(label="x", action=decisions.MainAction.GAIN_FOOD)
+        ],
     )
     v0 = encode.encode_state(eng.state, d0)
     v1 = encode.encode_state(eng.state, d1)
@@ -68,12 +71,18 @@ def test_state_encoder_decision_type_one_hot_flips():
     d_main = decisions.MainActionDecision(
         player_id=0,
         prompt="x",
-        choices=[decisions.MainActionChoice(label="a", action=decisions.MainAction.GAIN_FOOD)],
+        choices=[
+            decisions.MainActionChoice(label="a", action=decisions.MainAction.GAIN_FOOD)
+        ],
     )
     d_lay = decisions.LayEggPickBirdDecision(
         player_id=0,
         prompt="x",
-        choices=[decisions.BoardTargetChoice(label="a", habitat=cards.Habitat.GRASSLAND, slot=0)],
+        choices=[
+            decisions.BoardTargetChoice(
+                label="a", habitat=cards.Habitat.GRASSLAND, slot=0
+            )
+        ],
     )
     v_main = encode.encode_state(eng.state, d_main)
     v_lay = encode.encode_state(eng.state, d_lay)
@@ -100,7 +109,10 @@ def test_choice_features_distinguish_candidate_birds():
     decision = decisions.PlayBirdPickCardDecision(
         player_id=0,
         prompt="x",
-        choices=[decisions.BirdChoice(label=a.name, bird=a), decisions.BirdChoice(label=b.name, bird=b)],
+        choices=[
+            decisions.BirdChoice(label=a.name, bird=a),
+            decisions.BirdChoice(label=b.name, bird=b),
+        ],
     )
     feats = encode.encode_choices(decision, eng.state)
     assert feats.shape == (2, encode.CHOICE_FEATURE_DIM)
@@ -140,7 +152,11 @@ def test_choice_features_board_target_reflects_dynamic_state():
     decision = decisions.LayEggPickBirdDecision(
         player_id=0,
         prompt="x",
-        choices=[decisions.BoardTargetChoice(label="x", habitat=cards.Habitat.GRASSLAND, slot=0)],
+        choices=[
+            decisions.BoardTargetChoice(
+                label="x", habitat=cards.Habitat.GRASSLAND, slot=0
+            )
+        ],
     )
     f0 = encode.encode_choices(decision, eng.state)[0].copy()
     pb.eggs = min(1, pb.bird.egg_limit)
@@ -176,7 +192,7 @@ def test_choice_features_skip_flag_for_skip_choice():
 def test_encode_choices_asserts_on_absurd_cardinality():
     """The hard cap protects against runaway choice generation (a sign of
     a bug, not normal play)."""
-    eng, birds, *_ = engine.Engine.create(seed=8)
+    eng, _birds, *_ = engine.Engine.create(seed=8)
     too_many = [
         decisions.FoodChoice(label=f"c{i}", food=cards.Food.SEED)
         for i in range(encode.MAX_CHOICES_HARD + 1)

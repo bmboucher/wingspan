@@ -31,6 +31,7 @@ from wingspan.engine import actions, scoring
 
 logger = logging.getLogger(__name__)
 
+
 # An agent is any callable that, given the engine and a Decision, returns
 # the agent's chosen Choice. The return type tracks the Decision's Choice
 # parameterization: calling an Agent with a ``Decision[C]`` returns a ``C``.
@@ -44,9 +45,14 @@ logger = logging.getLogger(__name__)
 class Agent(typing.Protocol):
     """A callable that resolves a Decision into one of its offered Choices.
     The return type is inferred from the Decision's Choice parameterization."""
+
     def __call__[C: decisions.Choice](
-        self, engine: "Engine", decision: decisions.Decision[C], /,
+        self,
+        engine: "Engine",
+        decision: decisions.Decision[C],
+        /,
     ) -> C: ...
+
 
 class Engine:
     """The game-driver. Holds the live ``GameState`` and the agents indexed
@@ -94,7 +100,8 @@ class Engine:
 
     @staticmethod
     def play_one_game(
-        gs: state.GameState, agents: tuple[Agent, Agent],
+        gs: state.GameState,
+        agents: tuple[Agent, Agent],
     ) -> Engine:
         """Construct an Engine on ``gs`` with ``agents``, run a full game,
         and return the engine. The caller's ``gs`` is mutated in place, so
@@ -114,10 +121,7 @@ class Engine:
         """Return the agent controlling ``player``. Raises if unset — there is
         no silent fallback to the active player's agent. Public so power
         effects in other modules can dispatch opponent prompts."""
-        if (
-            not self.agents
-            or player.id >= len(self.agents)
-        ):
+        if not self.agents or player.id >= len(self.agents):
             raise RuntimeError(
                 f"No agent registered for player {player.id} ({player.name}). "
                 f"Construct Engine(state, agents=[...])."
@@ -125,7 +129,9 @@ class Engine:
         return self.agents[player.id]
 
     def ask[C: decisions.Choice](
-        self, agent: Agent, d: decisions.Decision[C],
+        self,
+        agent: Agent,
+        d: decisions.Decision[C],
     ) -> C:
         """Run ``agent`` against ``d``, validate the answer, and return the
         matching Choice instance from ``d.choices``.
@@ -288,7 +294,9 @@ class Engine:
                 p.hand.append(b)
 
     def _resolve_setup_choice(
-        self, p: state.Player, agents: typing.Sequence[Agent],
+        self,
+        p: state.Player,
+        agents: typing.Sequence[Agent],
     ) -> None:
         """Present the combined hand / food / bonus pick as a single Decision.
 

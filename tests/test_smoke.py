@@ -38,10 +38,7 @@ def test_train_one_epoch_cpu():
     import sys
 
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-    try:
-        import torch  # noqa: F401
-    except ImportError:
-        pytest.skip("torch not installed")
+    pytest.importorskip("torch")
     from wingspan import train
 
     rc = train.main(
