@@ -146,7 +146,7 @@ def _convert_decisions_for_gain_food(
     return [
         decision
         for decision in sink
-        if isinstance(decision, decisions.GainFoodConvertDecision)
+        if isinstance(decision, decisions.GainExtraFoodDecision)
     ]
 
 
@@ -177,7 +177,7 @@ def test_lay_eggs_offers_trade_exactly_once_on_odd_slot():
     convs = [
         decision
         for decision in sink
-        if isinstance(decision, decisions.LayEggsConvertDecision)
+        if isinstance(decision, decisions.LayExtraEggsDecision)
     ]
     assert len(convs) == 1
 
@@ -194,7 +194,7 @@ def test_lay_eggs_offers_no_trade_on_even_slot():
     assert [
         decision
         for decision in sink
-        if isinstance(decision, decisions.LayEggsConvertDecision)
+        if isinstance(decision, decisions.LayExtraEggsDecision)
     ] == []
 
 
@@ -210,7 +210,7 @@ def test_draw_cards_offers_trade_exactly_once_on_odd_slot():
     convs = [
         decision
         for decision in sink
-        if isinstance(decision, decisions.DrawCardsConvertDecision)
+        if isinstance(decision, decisions.AcceptExchangeDecision)
     ]
     assert len(convs) == 1
 
@@ -226,7 +226,7 @@ def test_draw_cards_offers_no_trade_on_even_slot():
     assert [
         decision
         for decision in sink
-        if isinstance(decision, decisions.DrawCardsConvertDecision)
+        if isinstance(decision, decisions.AcceptExchangeDecision)
     ] == []
 
 

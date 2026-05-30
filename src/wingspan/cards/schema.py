@@ -232,8 +232,17 @@ class Bird(pydantic.BaseModel):
 class BonusCard(pydantic.BaseModel):
     """A bonus card whose point payout depends on counts of qualifying birds.
 
-    ``thresholds`` is expanded from the printed VP text into ``(count, vp)``
-    pairs ascending by count; the engine awards the highest matched pair."""
+    A card pays one of two mutually exclusive ways, expanded from the printed
+    VP text by the loader:
+
+    - **Tiered** — ``thresholds`` holds ``(count, vp)`` pairs ascending by
+      count; the engine awards the highest matched pair (e.g. ``5 to 7 birds:
+      3[point]; 8+ birds: 7[point]``).
+    - **Per-bird** — ``per_bird_vp`` is the VP each qualifying bird earns
+      (e.g. ``2[point] per bird``); the engine awards ``per_bird_vp * count``.
+
+    Exactly one applies: a per-bird card has ``per_bird_vp`` set and empty
+    ``thresholds``; a tiered card has ``per_bird_vp is None``."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -242,8 +251,11 @@ class BonusCard(pydantic.BaseModel):
     condition: str
     explanatory: str
     vp_text: str
-    # mapping: number_of_qualifying_birds -> vp; expanded from the printed text
+    # tiered payout: number_of_qualifying_birds -> vp; expanded from the printed
+    # text. Empty for per-bird cards (see ``per_bird_vp``).
     thresholds: tuple[tuple[int, int], ...] = ()
+    # per-bird payout: VP awarded per qualifying bird; None for tiered cards.
+    per_bird_vp: int | None = None
 
 
 class EndRoundGoal(pydantic.BaseModel):
@@ -374,6 +386,7 @@ class BonusRecord(pydantic.BaseModel):
             explanatory=self.explanatory_text or "",
             vp_text=vp_text,
             thresholds=parse.parse_bonus_thresholds(vp_text),
+            per_bird_vp=parse.parse_bonus_per_bird(vp_text),
         )
 
 

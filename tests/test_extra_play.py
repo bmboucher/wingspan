@@ -1,0 +1,114 @@
+"""Tests for the power-granted extra play (``PlayBirdDecision``).
+
+A bird power that grants "play an additional bird" offers the same
+``PlayBirdDecision`` menu the main action's ``PLAY_BIRD`` branch uses — one
+``(bird, habitat, payment)`` ``PlayBirdChoice`` per legal play, scored by the
+``PLAY_BIRD`` head. No habitat actions are offered (an extra play can only play
+a bird), and there is no separate action-type pick (that happens only for the
+turn's main action).
+"""
+
+from __future__ import annotations
+
+import os
+import random
+import sys
+import typing
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from wingspan import cards, decisions, engine, state
+from wingspan.engine import actions
+
+
+def _single_food_bird(birds: list[cards.Bird]) -> cards.Bird:
+    """A non-WHITE, single-habitat bird whose cost is exactly one specific food
+    — so a one-of-that-food stash yields exactly one payment (no 2-for-1
+    substitutions) and the extra-play menu is a single ``PlayBirdChoice``.
+    Non-WHITE so playing it fires no when-played power mid-test."""
+    for bird in birds:
+        cost = bird.food_cost
+        if (
+            len(bird.habitats) == 1
+            and bird.color != cards.PowerColor.WHITE
+            and cost.wild == 0
+            and cost.total == 1
+        ):
+            return bird
+    raise AssertionError("no single-food single-habitat non-white bird in catalog")
+
+
+def test_extra_play_offered_as_play_menu_and_plays_the_bird():
+    birds, bonuses, goals = cards.load_all()
+    gs = state.new_game(random.Random(0), birds, bonuses, goals)
+    eng = engine.Engine(gs)
+    gs.current_player = 0
+    player = gs.me()
+
+    bird = _single_food_bird(birds)
+    food = next(f for f in cards.ALL_FOODS if bird.food_cost.specific_of(f) == 1)
+    player.hand = [bird]
+    for any_food in cards.ALL_FOODS:
+        player.food[any_food] = 0
+    player.food[food] = 1
+    # Empty board -> the first bird in a row costs 0 eggs, so the play is
+    # affordable with just the one food token.
+    for habitat in cards.ALL_HABITATS:
+        player.board[habitat] = []
+
+    gs.turn_extra_plays = 1
+    gs.turn_extra_play_habitat = None
+
+    sink: list[decisions.Decision[typing.Any]] = []
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        sink.append(decision)
+        return typing.cast(
+            C,
+            next(
+                c for c in decision.choices if isinstance(c, decisions.PlayBirdChoice)
+            ),
+        )
+
+    eng.agents = [agent, agent]
+    actions.consume_extra_plays(eng, player, agent)
+
+    extra = [d for d in sink if isinstance(d, decisions.PlayBirdDecision)]
+    assert len(extra) == 1, "expected exactly one extra-play decision"
+    # The menu is Decision[PlayBirdChoice] — every option is a bird play, and no
+    # habitat actions are offered for an extra play.
+    assert extra[0].choices
+    # It routes to the play-bird head.
+    assert (
+        decisions.family_for(decisions.PlayBirdDecision)
+        == decisions.DecisionFamily.PLAY_BIRD
+    )
+    # The bird actually moved from hand to board, paying its food.
+    assert bird not in player.hand
+    assert any(pb.bird is bird for row in player.board.values() for pb in row)
+    assert player.food[food] == 0
+
+
+def test_extra_play_wasted_when_no_legal_play():
+    """With no playable bird the credit is wasted and the agent is never asked
+    for a play."""
+    birds, bonuses, goals = cards.load_all()
+    gs = state.new_game(random.Random(1), birds, bonuses, goals)
+    eng = engine.Engine(gs)
+    gs.current_player = 0
+    player = gs.me()
+    player.hand = []  # nothing to play
+    gs.turn_extra_plays = 1
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:  # pragma: no cover - must not be consulted
+        raise AssertionError("no extra-play decision should be offered with empty hand")
+
+    eng.agents = [agent, agent]
+    actions.consume_extra_plays(eng, player, agent)
+    assert gs.turn_extra_plays == 0

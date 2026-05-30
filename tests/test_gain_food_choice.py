@@ -136,7 +136,7 @@ def test_food_choice_asks_when_both_present():
         decision: decisions.Decision[C],
     ) -> C:
         asked["n"] += 1
-        assert isinstance(decision, decisions.BirdPowerPickFoodDecision)
+        assert isinstance(decision, decisions.GainFoodDecision)
         foods = {
             choice.food
             for choice in decision.choices
@@ -200,7 +200,7 @@ def test_die_any_picks_from_all_available_foods():
         _eng: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        assert isinstance(decision, decisions.BirdPowerPickFoodDecision)
+        assert isinstance(decision, decisions.GainFoodDecision)
         foods = {
             choice.food
             for choice in decision.choices

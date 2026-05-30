@@ -113,7 +113,7 @@ def fire_pink_lay_egg(
     eligible.append(decisions.SkipChoice(label="skip"))
     ch = engine.ask(
         engine.agent_for(other_player),
-        decisions.LayEggPickBirdDecision(
+        decisions.LayEggDecision(
             player_id=other_player.id,
             prompt=f"[{other_player.name}] lay 1 egg on a [{nest.value}] bird ({pb.bird.name}) (or skip)",
             choices=eligible,

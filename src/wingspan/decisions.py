@@ -37,18 +37,20 @@ import pydantic
 from wingspan import cards, state
 
 # ---------------------------------------------------------------------------
-# Main-action enum (the three habitat-row cube-spend options)
+# Main-action enum (the four top-level cube-spend options)
 #
-# Playing a bird is *not* one of these. Each legal way to play a bird is
-# surfaced as its own ``PlayBirdChoice`` at the main-action stage (see
-# ``MainActionDecision``), so the main-action pick is "3 habitat actions + one
-# option per (bird, habitat, food payment) the player can play right now".
+# Playing a bird *is* one of these now (``PLAY_BIRD``). ``MainActionDecision``
+# picks only the action *type*; choosing which bird to play, in which habitat,
+# for which payment is a separate follow-up ``PlayBirdDecision``, so "which
+# action?" and "which bird to play?" are scored by different heads. ``PLAY_BIRD``
+# is offered only when the player has at least one legal play.
 
 
 class MainAction(enum.StrEnum):
     GAIN_FOOD = "gain_food"
     LAY_EGGS = "lay_eggs"
     DRAW_CARDS = "draw_cards"
+    PLAY_BIRD = "play_bird"
 
 
 # ---------------------------------------------------------------------------
@@ -56,8 +58,8 @@ class MainAction(enum.StrEnum):
 #
 # One class per data shape. Multiple decision types may reuse the same Choice
 # subclass when their options carry the same kind of data — e.g. both
-# ``GainFoodPickDieDecision`` and ``BirdPowerPickFoodDecision`` use
-# ``FoodChoice`` (modulo the skip / pay-cost variants).
+# ``GainFoodDecision`` and ``SpendFoodDecision`` use
+# ``FoodChoice`` (modulo the skip variant).
 
 
 class Choice(pydantic.BaseModel):
@@ -75,16 +77,25 @@ class SkipChoice(Choice):
 
 
 class PayCostChoice(Choice):
-    """Accept the fixed, power-defined cost of an optional power.
+    """Accept a fixed, power-defined exchange — pay X to get Y.
 
-    Used for powers like 'discard 1 [seed] to tuck 2 cards from the deck':
-    both the food to be paid and the resulting effect are fully determined
-    by the bird's power, so the agent's only decision is yes-pay vs. skip.
-    This choice carries no fields — its *type* (alongside ``SkipChoice``) is
-    the entire signal. The human-readable ``label`` names the specific cost.
+    Used for the yes/no "accept exchange?" decisions (``AcceptExchangeDecision``):
+    discard 1 egg to draw a card (Wetland trade), or discard 1 food to tuck N
+    cards from the deck (Sandhill Crane etc.). Both sides of the trade are
+    fully determined by the power/action, so the agent's only decision is
+    accept vs. skip — but the trade's *terms* are surfaced as typed fields so
+    the commit-to-cost head can weigh what is gained against what is paid
+    instead of scoring a featureless token. A field left at its default means
+    "this resource is not part of this exchange".
 
-    Distinct from ``FoodChoice`` because the agent isn't picking *which*
-    food; they're confirming the offered exchange."""
+    Distinct from ``FoodChoice`` because the agent isn't picking *which* food;
+    they're confirming the offered exchange. The human-readable ``label`` names
+    the specific cost."""
+
+    paid_food: cards.Food | None = None  # a specific food token paid, if any
+    paid_egg_count: int = 0  # eggs removed as payment
+    gained_card_count: int = 0  # cards drawn into hand
+    gained_tuck_count: int = 0  # cards tucked behind the bird (VP + tuck count)
 
 
 class MainActionChoice(Choice):
@@ -100,15 +111,16 @@ class BirdChoice(Choice):
 class PlayBirdChoice(Choice):
     """Play a specific bird in a specific habitat for a specific food payment.
 
-    Surfaced at the main-action stage (see ``MainActionDecision``): a single
+    Offered by ``PlayBirdDecision`` — the menu reached both when the main
+    action is ``PLAY_BIRD`` and for each power-granted extra play. A single
     ``PlayBirdChoice`` bundles the bird, the target habitat, and one fully
-    specified food payment, so the habitat- and food-payment sub-decisions
-    that ``BirdChoice`` used to defer are folded into the main-action pick. A
-    bird playable in two habitats, or payable two ways, yields one
-    ``PlayBirdChoice`` per legal ``(habitat, payment)`` combination.
+    specified food payment, so the habitat and food-payment picks are made in
+    one step rather than as separate follow-up decisions. A bird playable in
+    two habitats, or payable two ways, yields one ``PlayBirdChoice`` per legal
+    ``(habitat, payment)`` combination.
 
     The egg cost is deliberately *not* folded in — it stays a separate
-    follow-up decision (``PlayBirdPickEggToPayDecision``)."""
+    follow-up decision (``RemoveEggDecision``)."""
 
     bird: cards.Bird
     habitat: cards.Habitat
@@ -129,12 +141,6 @@ class HabitatChoice(Choice):
 
 class FoodChoice(Choice):
     food: cards.Food
-
-
-class FoodPaymentChoice(Choice):
-    """A fully-specified payment for paying a bird's cost."""
-
-    payment: state.FoodPool
 
 
 class BoardTargetChoice(Choice):
@@ -199,7 +205,7 @@ class Decision[C: Choice](pydantic.BaseModel):
 
     ``choices`` carries the legal options. The Choice subtype is fixed by
     the subclass parameterization (e.g. ``Decision[BirdChoice]``), so a
-    consumer that constructs a ``PlayBirdPickCardDecision`` can rely on
+    consumer that constructs a ``BirdPowerPickBirdFromHandDecision`` can rely on
     every option being a ``BirdChoice``.
     """
 
@@ -208,15 +214,15 @@ class Decision[C: Choice](pydantic.BaseModel):
     choices: typing.Annotated[list[C], pydantic.Field(min_length=1)]
 
 
-class MainActionDecision(Decision[MainActionChoice | PlayBirdChoice]):
-    """Top-of-turn cube-spend pick.
+class MainActionDecision(Decision[MainActionChoice]):
+    """Top-of-turn cube-spend pick — the action *type* only.
 
-    The choices are the three habitat-row actions (``MainActionChoice``) plus
-    one ``PlayBirdChoice`` per legal ``(bird, habitat, food payment)`` the
-    player can play right now. Picking a ``PlayBirdChoice`` commits to that
-    bird, habitat, and payment in one step (only the egg cost remains a
-    follow-up decision); picking a ``MainActionChoice`` runs the corresponding
-    habitat action."""
+    The choices are the three habitat-row actions (Gain Food / Lay Eggs / Draw
+    Cards) plus ``PLAY_BIRD`` when the player has at least one legal play. This
+    decision picks only *which* action; if ``PLAY_BIRD`` is chosen, *which* bird
+    to play (where, paid how) is a separate follow-up ``PlayBirdDecision``. The
+    split keeps "which action?" and "which bird to play?" as distinct judgments
+    on distinct scoring heads (``MACRO_ACTION`` vs ``PLAY_BIRD``)."""
 
 
 class SetupDecision(Decision[SetupChoice]):
@@ -231,28 +237,47 @@ class SetupDecision(Decision[SetupChoice]):
     dealt_bonus: list[cards.BonusCard]
 
 
-class PlayBirdPickCardDecision(Decision[BirdChoice]):
-    """Choose which bird (from hand) to play."""
+class PlayBirdDecision(Decision[PlayBirdChoice]):
+    """Pick which bird to play, where, and paid how — one ``PlayBirdChoice`` per
+    legal ``(bird, habitat, food payment)`` the player can make right now.
+
+    Reached in two contexts: when the turn's main action is ``PLAY_BIRD`` (the
+    follow-up to ``MainActionDecision``), and for each power-granted extra play
+    (filtered to the granting power's habitat, if any). Both are the same
+    judgment — "which bird is worth playing, where, paid how?" — so both route
+    to the ``PLAY_BIRD`` head; the egg cost stays a follow-up
+    (``RemoveEggDecision``)."""
 
 
-class PlayBirdPickHabitatDecision(Decision[HabitatChoice]):
-    """Choose which habitat to place a multi-habitat bird in."""
+class RemoveEggDecision(Decision[BoardTargetChoice | SkipChoice]):
+    """Pick which played bird to remove an egg from. Used wherever an egg is
+    *spent*: the play-bird egg cost, the Wetland egg→card trade, and the
+    discard-egg-for-wild power. ``SkipChoice`` is offered when the removal is
+    optional. (Formerly ``PlayBirdPickEggToPayDecision`` — renamed because the
+    judgment "which egg can I best afford to lose?" is the same across every
+    caller, not specific to playing a bird.)"""
 
 
-class PlayBirdPickFoodPaymentDecision(Decision[FoodPaymentChoice]):
-    """Choose a specific food-payment combination for a played bird."""
+class GainFoodDecision(Decision[FoodChoice | SkipChoice]):
+    """Pick which food to gain — a birdfeeder die or a token from the supply.
+
+    The single "which food advances my plans?" decision, unified across every
+    trigger: the main Gain Food action, the each-player feeder gain, and every
+    power that grants a food (a named feeder die, any die, fewest-forest, the
+    wild half of discard-egg-for-wild, the gain half of Green Heron's trade).
+    ``SkipChoice`` is offered only where the gain is optional (e.g. Green Heron
+    may decline the trade); mandatory gains offer food choices only. (Formerly
+    ``GainFoodPickDieDecision`` — widened past the feeder die and renamed.)"""
 
 
-class PlayBirdPickEggToPayDecision(Decision[BoardTargetChoice | SkipChoice]):
-    """Pick which played bird to remove an egg from when paying the egg
-    cost. ``SkipChoice`` is offered when the cost is optional."""
+class SpendFoodDecision(Decision[FoodChoice | SkipChoice]):
+    """Pick which food to give up — the inverse of ``GainFoodDecision``:
+    "which food can I most afford to part with?" Used by the lose half of Green
+    Heron's trade (discard 1 food back to the supply). ``SkipChoice`` is offered
+    where declining the spend is legal."""
 
 
-class GainFoodPickDieDecision(Decision[FoodChoice]):
-    """Pick which face of the birdfeeder die to take."""
-
-
-class LayEggPickBirdDecision(Decision[BoardTargetChoice | SkipChoice]):
+class LayEggDecision(Decision[BoardTargetChoice | SkipChoice]):
     """Pick which played bird to lay an egg on. ``SkipChoice`` is offered
     when the lay is optional (most pink reactors)."""
 
@@ -261,35 +286,38 @@ class DrawCardsPickSourceDecision(Decision[DrawSourceChoice]):
     """Pick whether to draw from the deck or from a specific tray slot."""
 
 
-class GainFoodConvertDecision(Decision[BirdChoice | SkipChoice]):
+class GainExtraFoodDecision(Decision[BirdChoice | SkipChoice]):
     """Optional Forest conversion: discard one card from hand to take one
     extra food die. Each ``BirdChoice`` is a candidate card to discard;
     ``SkipChoice`` declines. Offered once, only when the cube lands on a trade
-    space (an odd number of birds in the row)."""
+    space (an odd number of birds in the row). The judgment is *which card to
+    give up* — a bird-discard valuation — so it shares the discard head; the
+    resulting extra food die is then a separate ``GainFoodDecision``."""
 
 
-class LayEggsConvertDecision(Decision[FoodChoice | SkipChoice]):
+class LayExtraEggsDecision(Decision[FoodChoice | SkipChoice]):
     """Optional Grassland conversion: spend one food to lay one extra egg.
     Each ``FoodChoice`` is a food type the player can spend; ``SkipChoice``
     declines. Offered once, only when the cube lands on a trade space (an odd
     number of birds in the row)."""
 
 
-class DrawCardsConvertDecision(Decision[PayCostChoice | SkipChoice]):
-    """Optional Wetland conversion: discard one egg to draw one extra card.
-    ``PayCostChoice`` accepts the fixed egg cost (the bird the egg comes off
-    is a follow-up pick); ``SkipChoice`` declines. Offered once, only when the
-    cube lands on a trade space (an odd number of birds in the row)."""
-
-
-class BirdPowerPickFoodDecision(Decision[FoodChoice | SkipChoice | PayCostChoice]):
-    """A power-driven food pick. ``PayCostChoice`` covers the 'accept the
-    offered cost' branch of tuck-from-deck-paid powers, where the food and
-    reward are both fixed by the bird's power text."""
+class AcceptExchangeDecision(Decision[PayCostChoice | SkipChoice]):
+    """Accept a fixed, power-defined exchange — yes/no. Used wherever the terms
+    are fully determined and the only judgment is "is this trade worth it given
+    my position and the round goal?": the Wetland egg→card conversion (the bird
+    the egg comes off is a follow-up ``RemoveEggDecision``) and the
+    discard-food-to-tuck powers (Sandhill Crane etc.). The ``PayCostChoice``
+    carries the trade terms as typed fields so the commit-to-cost head can weigh
+    them; ``SkipChoice`` declines. Offered once for the trade-space conversion,
+    only when the cube lands on a trade space (an odd number of birds in the
+    row). (Subsumes the former ``DrawCardsConvertDecision`` and the pay-cost
+    branch of ``BirdPowerPickFoodDecision``.)"""
 
 
 class BirdPowerPickBirdFromHandDecision(Decision[BirdChoice]):
-    """Power asks for a specific Bird from a drafted or drawn pile."""
+    """Power asks for a specific Bird from a drafted or drawn pile (e.g. the
+    American Oystercatcher draft) — a bird-*acquisition* judgment."""
 
 
 class BirdPowerPickPlayedBirdDecision(Decision[PlayedBirdChoice]):
@@ -302,7 +330,8 @@ class BirdPowerPickBonusCardDecision(Decision[BonusCardChoice]):
 
 
 class BirdPowerTuckFromHandDecision(Decision[BirdChoice | SkipChoice]):
-    """Power asks the player to tuck a card from hand (or skip)."""
+    """Power asks the player to tuck a card from hand (or skip) — a
+    bird-*discard* judgment (the card leaves hand to become a tuck)."""
 
 
 class BirdPowerPickStartingPlayerDecision(Decision[PlayerIdChoice]):
@@ -320,22 +349,129 @@ class BirdPowerPickHabitatDecision(Decision[HabitatChoice]):
 
 ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     MainActionDecision,
+    PlayBirdDecision,
     SetupDecision,
-    PlayBirdPickCardDecision,
-    PlayBirdPickHabitatDecision,
-    PlayBirdPickFoodPaymentDecision,
-    PlayBirdPickEggToPayDecision,
-    GainFoodPickDieDecision,
-    LayEggPickBirdDecision,
+    RemoveEggDecision,
+    GainFoodDecision,
+    SpendFoodDecision,
+    LayEggDecision,
     DrawCardsPickSourceDecision,
-    BirdPowerPickFoodDecision,
     BirdPowerPickBirdFromHandDecision,
     BirdPowerPickPlayedBirdDecision,
     BirdPowerPickBonusCardDecision,
     BirdPowerTuckFromHandDecision,
     BirdPowerPickStartingPlayerDecision,
     BirdPowerPickHabitatDecision,
-    GainFoodConvertDecision,
-    LayEggsConvertDecision,
-    DrawCardsConvertDecision,
+    GainExtraFoodDecision,
+    LayExtraEggsDecision,
+    AcceptExchangeDecision,
 )
+
+
+# ---------------------------------------------------------------------------
+# Judgment-family taxonomy
+#
+# The RL model groups the decision classes above into *judgment families* —
+# one per distinct skill a player exercises (see ``DECISIONS.md`` §5). Each
+# family becomes one scoring head on the shared trunk: several as-built
+# ``Decision`` classes collapse onto one family when they ask the same
+# underlying judgment (e.g. every "is this bird worth keeping/playing?"
+# decision), so the policy specializes per skill rather than per trigger.
+#
+# The family of a decision is a pure function of its class
+# (``family_for`` / ``family_index_for``). ``ALL_DECISION_FAMILIES`` pins the
+# stable head order — append, never reorder, when adding a family, so existing
+# trained checkpoints keep their head→family alignment (mirrors the
+# ``ALL_DECISION_CLASSES`` contract for the decision-type one-hot).
+
+
+class DecisionFamily(enum.StrEnum):
+    """The judgment a decision exercises — the unit of policy specialization.
+
+    Several as-built ``Decision`` classes map to one family when they share an
+    underlying judgment, and the RL model trains one scoring head per family
+    rather than one per decision class. See ``DECISIONS.md`` §5 for the
+    rationale and the full per-class mapping.
+    """
+
+    SETUP = "setup"
+    MACRO_ACTION = "macro_action"
+    BIRD_ACQUISITION = "bird_acquisition"
+    BIRD_DISCARD = "bird_discard"
+    GAIN_FOOD = "gain_food"
+    SPEND_FOOD = "spend_food"
+    EGG_PLACEMENT = "egg_placement"
+    EGG_REMOVAL = "egg_removal"
+    COMMIT_TO_COST = "commit_to_cost"
+    BONUS_VALUATION = "bonus_valuation"
+    HABITAT_PLACEMENT = "habitat_placement"
+    MISC_RARE = "misc_rare"
+    PLAY_BIRD = "play_bird"
+
+
+ALL_DECISION_FAMILIES: tuple[DecisionFamily, ...] = (
+    DecisionFamily.SETUP,
+    DecisionFamily.MACRO_ACTION,
+    DecisionFamily.BIRD_ACQUISITION,
+    DecisionFamily.BIRD_DISCARD,
+    DecisionFamily.GAIN_FOOD,
+    DecisionFamily.SPEND_FOOD,
+    DecisionFamily.EGG_PLACEMENT,
+    DecisionFamily.EGG_REMOVAL,
+    DecisionFamily.COMMIT_TO_COST,
+    DecisionFamily.BONUS_VALUATION,
+    DecisionFamily.HABITAT_PLACEMENT,
+    DecisionFamily.MISC_RARE,
+    DecisionFamily.PLAY_BIRD,
+)
+
+# Per-class assignment. Keyed on the concrete decision class so routing is a
+# pure function of the class. Bird valuation is split by direction (DECISIONS.md
+# §3.3): *acquiring* a bird ("which do I take?") and *giving one up* ("which do
+# I lose?") are opposite judgments and route to separate heads. Choosing the
+# turn's action *type* (``MainActionDecision`` -> ``MACRO_ACTION``) is split from
+# choosing *which bird to play* (``PlayBirdDecision`` -> ``PLAY_BIRD``); the
+# latter serves both the main-action PLAY_BIRD branch and power-granted extra
+# plays, since "which bird, where, paid how?" is one judgment in both.
+_DECISION_FAMILY: dict[type[Decision[typing.Any]], DecisionFamily] = {
+    SetupDecision: DecisionFamily.SETUP,
+    MainActionDecision: DecisionFamily.MACRO_ACTION,
+    PlayBirdDecision: DecisionFamily.PLAY_BIRD,
+    DrawCardsPickSourceDecision: DecisionFamily.BIRD_ACQUISITION,
+    BirdPowerPickBirdFromHandDecision: DecisionFamily.BIRD_ACQUISITION,
+    BirdPowerTuckFromHandDecision: DecisionFamily.BIRD_DISCARD,
+    GainExtraFoodDecision: DecisionFamily.BIRD_DISCARD,
+    GainFoodDecision: DecisionFamily.GAIN_FOOD,
+    SpendFoodDecision: DecisionFamily.SPEND_FOOD,
+    LayExtraEggsDecision: DecisionFamily.SPEND_FOOD,
+    LayEggDecision: DecisionFamily.EGG_PLACEMENT,
+    RemoveEggDecision: DecisionFamily.EGG_REMOVAL,
+    AcceptExchangeDecision: DecisionFamily.COMMIT_TO_COST,
+    BirdPowerPickBonusCardDecision: DecisionFamily.BONUS_VALUATION,
+    BirdPowerPickHabitatDecision: DecisionFamily.HABITAT_PLACEMENT,
+    BirdPowerPickPlayedBirdDecision: DecisionFamily.MISC_RARE,
+    BirdPowerPickStartingPlayerDecision: DecisionFamily.MISC_RARE,
+}
+
+_DECISION_FAMILY_INDEX: dict[type[Decision[typing.Any]], int] = {
+    cls: ALL_DECISION_FAMILIES.index(family) for cls, family in _DECISION_FAMILY.items()
+}
+
+
+def family_for(decision_class: type[Decision[typing.Any]]) -> DecisionFamily:
+    """Return the judgment family a decision class belongs to.
+
+    Pure function of the class — a decision always routes to the same policy
+    head. Raises ``KeyError`` for an unregistered class, which is the intended
+    failure mode: a new ``Decision`` subclass must be assigned a family here
+    before it can be trained.
+    """
+    return _DECISION_FAMILY[decision_class]
+
+
+def family_index_for(decision_class: type[Decision[typing.Any]]) -> int:
+    """Return the index of a decision class's family in ``ALL_DECISION_FAMILIES``.
+
+    This is the scoring-head index the RL model routes the decision through.
+    """
+    return _DECISION_FAMILY_INDEX[decision_class]

@@ -75,7 +75,7 @@ def test_discard_egg_for_wild_decrements_egg_and_grants_food():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        if isinstance(decision, decisions.PlayBirdPickEggToPayDecision):
+        if isinstance(decision, decisions.RemoveEggDecision):
             return typing.cast(
                 C,
                 next(
@@ -86,7 +86,7 @@ def test_discard_egg_for_wild_decrements_egg_and_grants_food():
                     and choice.slot == 0
                 ),
             )
-        if isinstance(decision, decisions.BirdPowerPickFoodDecision):
+        if isinstance(decision, decisions.GainFoodDecision):
             want = next(food_order)
             return typing.cast(
                 C,

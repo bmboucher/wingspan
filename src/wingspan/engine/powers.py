@@ -106,7 +106,7 @@ def lay_one_egg_on_nest(
     )
     ch = engine.ask(
         engine.agent_for(target_player),
-        decisions.LayEggPickBirdDecision(
+        decisions.LayEggDecision(
             player_id=target_player.id,
             prompt=prompt,
             choices=eligible,
@@ -414,7 +414,7 @@ def _h_discard_egg_for_wild(
     egg_choices.append(decisions.SkipChoice(label="skip"))
     ch = engine.ask(
         agent,
-        decisions.PlayBirdPickEggToPayDecision(
+        decisions.RemoveEggDecision(
             player_id=player.id,
             prompt=(
                 f"[{player.name}] discard an egg from another bird to gain "
@@ -437,7 +437,7 @@ def _h_discard_egg_for_wild(
             break
         food_ch = engine.ask(
             agent,
-            decisions.BirdPowerPickFoodDecision(
+            decisions.GainFoodDecision(
                 player_id=player.id,
                 prompt=f"[{player.name}] pick 1 [wild] from supply (from {bird.name})",
                 choices=[
@@ -517,7 +517,7 @@ def _h_each_player_gains_die_choose_order(
                     break
             food_ch = engine.ask(
                 responder,
-                decisions.GainFoodPickDieDecision(
+                decisions.GainFoodDecision(
                     player_id=current_player.id,
                     prompt=f"[{current_player.name}] take 1 die from birdfeeder ({bird.name})",
                     choices=[
@@ -526,6 +526,7 @@ def _h_each_player_gains_die_choose_order(
                     ],
                 ),
             )
+            assert isinstance(food_ch, decisions.FoodChoice)
             chosen_food = food_ch.food
             st.birdfeeder.counts[chosen_food] -= 1
             current_player.food[chosen_food] += 1
@@ -605,58 +606,63 @@ def _h_trade_wild_food(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    # Green Heron: trade 1 food back to supply for any other food type.
+    # Green Heron: swap one food for another, modelled as two atomic decisions —
+    # "gain 1 food from the supply" (GAIN_FOOD head; declining cancels the whole
+    # trade) then "lose 1 food back to the supply" (SPEND_FOOD head). The player
+    # must hold a food to give up for the trade to be live; the lose step is
+    # unconstrained (a rational agent gives up a *different* food, achieving the
+    # swap, but giving up the just-gained food is legal and a harmless no-op).
     st = engine.state
     bird = pb.bird
     if player.total_food() <= 0:
         engine.log(f"  {bird.name}: no food to trade; power skipped")
         return
-    food_choices: list[
-        decisions.FoodChoice | decisions.SkipChoice | decisions.PayCostChoice
-    ] = [
+    gain_choices: list[decisions.FoodChoice | decisions.SkipChoice] = [
         decisions.FoodChoice(label=food.value, food=food)
         for food in cards.ALL_FOODS
-        if player.food.get(food, 0) > 0
-    ]
-    food_choices.append(decisions.SkipChoice(label="skip"))
-    ch = engine.ask(
-        agent,
-        decisions.BirdPowerPickFoodDecision(
-            player_id=player.id,
-            prompt=f"[{player.name}] discard 1 food to trade (or skip) from {bird.name}",
-            choices=food_choices,
-        ),
-    )
-    if isinstance(ch, decisions.SkipChoice):
-        engine.log(f"  {bird.name}: declined to trade")
-        return
-    assert isinstance(ch, decisions.FoodChoice)
-    discard_food = ch.food
-    gain_choices: list[
-        decisions.FoodChoice | decisions.SkipChoice | decisions.PayCostChoice
-    ] = [
-        decisions.FoodChoice(label=food.value, food=food)
-        for food in cards.ALL_FOODS
-        if food != discard_food and st.food_supply.get(food, 0) > 0
+        if st.food_supply.get(food, 0) > 0
     ]
     if not gain_choices:
-        engine.log(f"  {bird.name}: no other food type available in supply; skipped")
+        engine.log(f"  {bird.name}: supply empty; power skipped")
         return
-    player.food[discard_food] -= 1
-    st.food_supply[discard_food] = st.food_supply.get(discard_food, 0) + 1
-    ch = engine.ask(
+    gain_choices.append(decisions.SkipChoice(label="skip"))
+    gain_ch = engine.ask(
         agent,
-        decisions.BirdPowerPickFoodDecision(
+        decisions.GainFoodDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] pick a different food from supply (from {bird.name})",
+            prompt=(
+                f"[{player.name}] gain 1 food from the supply to trade "
+                f"(or skip) from {bird.name}"
+            ),
             choices=gain_choices,
         ),
     )
-    assert isinstance(ch, decisions.FoodChoice)
-    gain_food = ch.food
+    if isinstance(gain_ch, decisions.SkipChoice):
+        engine.log(f"  {bird.name}: declined to trade")
+        return
+    gain_food = gain_ch.food
     st.food_supply[gain_food] -= 1
     player.food[gain_food] += 1
-    engine.log(f"  {bird.name}: traded 1 {discard_food.value} -> 1 {gain_food.value}")
+
+    lose_ch = engine.ask(
+        agent,
+        decisions.SpendFoodDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] discard 1 food back to the supply (from {bird.name})",
+            choices=[
+                decisions.FoodChoice(label=food.value, food=food)
+                for food in cards.ALL_FOODS
+                if player.food.get(food, 0) > 0
+            ],
+        ),
+    )
+    assert isinstance(lose_ch, decisions.FoodChoice)
+    lose_food = lose_ch.food
+    player.food[lose_food] -= 1
+    st.food_supply[lose_food] = st.food_supply.get(lose_food, 0) + 1
+    engine.log(
+        f"  {bird.name}: gained 1 {gain_food.value}, discarded 1 {lose_food.value}"
+    )
 
 
 def _h_fewest_forest_gains_die(
@@ -685,7 +691,7 @@ def _h_fewest_forest_gains_die(
             break
         ch = engine.ask(
             engine.agent_for(other_player),
-            decisions.BirdPowerPickFoodDecision(
+            decisions.GainFoodDecision(
                 player_id=other_player.id,
                 prompt=f"[{other_player.name}] take 1 die from birdfeeder (from {bird.name})",
                 choices=[
@@ -884,14 +890,18 @@ def _h_tuck_from_deck_paid(
         return
     ch = engine.ask(
         agent,
-        decisions.BirdPowerPickFoodDecision(
+        decisions.AcceptExchangeDecision(
             player_id=player.id,
             prompt=(
                 f"[{player.name}] discard 1 {eff.food.value} to tuck {eff.amount} "
                 f"cards behind {bird.name}? (or skip)"
             ),
             choices=[
-                decisions.PayCostChoice(label=f"pay 1 {eff.food.value}"),
+                decisions.PayCostChoice(
+                    label=f"pay 1 {eff.food.value}",
+                    paid_food=eff.food,
+                    gained_tuck_count=eff.amount,
+                ),
                 decisions.SkipChoice(label="skip"),
             ],
         ),

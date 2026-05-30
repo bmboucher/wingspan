@@ -136,11 +136,20 @@ class Engine:
         """Run ``agent`` against ``decision``, validate the answer, and return
         the matching Choice instance from ``decision.choices``.
 
-        Agents may return either a ``Choice`` instance (preferred) or a raw
-        integer index (CLI fallback). The returned Choice is compared by
-        Pydantic field equality, so an agent that constructs its own Choice
-        with identical fields still resolves to the corresponding slot in
-        ``decision.choices``."""
+        A decision offering a single legal choice is *forced* — there is
+        nothing to decide — so it is resolved here without consulting the
+        agent at all. This keeps every front-end consistent: the interactive
+        CLI never prompts a human to "pick" the only option, and the RL
+        collector only ever sees genuine forks, so no zero-signal steps are
+        recorded (DECISIONS.md §1.4) and a forced move costs no forward pass
+        during self-play. Because ``ask`` is the single choke point every
+        agent call routes through, this one guard covers every decision type.
+
+        Otherwise the answer is compared to ``decision.choices`` by Pydantic
+        field equality, so an agent that constructs its own Choice with
+        identical fields still resolves to the corresponding offered slot."""
+        if len(decision.choices) == 1:
+            return decision.choices[0]
         choice: C = agent(self, decision)
         if choice not in decision.choices:
             raise ValueError(
@@ -179,33 +188,26 @@ class Engine:
         )
         player.action_cubes_left -= 1
         self._dispatch_main_action(agent, choice)
-        self._consume_extra_plays(player, agent)
+        actions.consume_extra_plays(self, player, agent)
         self.state.refill_tray()
 
     @staticmethod
-    def _main_action_label(
-        choice: decisions.MainActionChoice | decisions.PlayBirdChoice,
-    ) -> str:
-        """Log-header text for the chosen main action."""
-        if isinstance(choice, decisions.PlayBirdChoice):
-            return (
-                f"PLAY_BIRD ({choice.bird.name} -> {choice.habitat.value}, "
-                f"pay {choice.payment.format()})"
-            )
+    def _main_action_label(choice: decisions.MainActionChoice) -> str:
+        """Log-header text for the chosen main-action type. For ``PLAY_BIRD`` the
+        specific bird / habitat / payment is logged later by ``do_play_bird``
+        once the follow-up ``PlayBirdDecision`` resolves."""
         return choice.action.value.upper()
 
     def _dispatch_main_action(
         self,
         agent: Agent,
-        choice: decisions.MainActionChoice | decisions.PlayBirdChoice,
+        choice: decisions.MainActionChoice,
     ) -> None:
-        """Run the chosen main action. A ``PlayBirdChoice`` plays that specific
-        bird in the chosen habitat for the chosen payment; a ``MainActionChoice``
-        runs its habitat-row action."""
-        if isinstance(choice, decisions.PlayBirdChoice):
-            actions.do_play_bird(
-                self, agent, choice.bird, choice.habitat, choice.payment
-            )
+        """Run the chosen main action. ``PLAY_BIRD`` opens the follow-up
+        ``PlayBirdDecision`` (which bird, where, paid how) and plays it; the
+        other three run their habitat-row action."""
+        if choice.action == decisions.MainAction.PLAY_BIRD:
+            actions.do_play_bird_action(self, agent)
         elif choice.action == decisions.MainAction.GAIN_FOOD:
             actions.do_gain_food(self, agent)
         elif choice.action == decisions.MainAction.LAY_EGGS:
@@ -216,14 +218,13 @@ class Engine:
     def _main_action_decision(
         self, player: state.Player
     ) -> decisions.MainActionDecision:
-        """Build the main-action Decision for ``player``.
+        """Build the main-action Decision for ``player`` — the action *type*.
 
         The three habitat-row actions are always offered (just inefficient if
-        the row is empty); each legal way ``player`` can play a bird right now is
-        also offered as its own ``PlayBirdChoice``, so the menu is "3 habitat
-        actions + one option per (bird, habitat, food payment)". The egg cost
-        is still resolved as a follow-up decision when the play runs."""
-        choices: list[decisions.MainActionChoice | decisions.PlayBirdChoice] = [
+        the row is empty); ``PLAY_BIRD`` is offered only when ``player`` has at
+        least one legal play right now. Choosing ``PLAY_BIRD`` opens a follow-up
+        ``PlayBirdDecision`` for the specific bird / habitat / payment."""
+        choices: list[decisions.MainActionChoice] = [
             decisions.MainActionChoice(
                 label="gain food (forest)",
                 action=decisions.MainAction.GAIN_FOOD,
@@ -237,18 +238,11 @@ class Engine:
                 action=decisions.MainAction.DRAW_CARDS,
             ),
         ]
-        for bird, habitat, payment in actions.playable_bird_plays(
-            player, habitat_filter=None
-        ):
+        if actions.playable_bird_plays(player, habitat_filter=None):
             choices.append(
-                decisions.PlayBirdChoice(
-                    label=(
-                        f"play {bird.name} in {habitat.value} "
-                        f"for {payment.format()}"
-                    ),
-                    bird=bird,
-                    habitat=habitat,
-                    payment=payment,
+                decisions.MainActionChoice(
+                    label="play a bird",
+                    action=decisions.MainAction.PLAY_BIRD,
                 )
             )
         return decisions.MainActionDecision(
@@ -307,23 +301,8 @@ class Engine:
                     self._take_turn(agents[idx])
         scoring.score_round_goal(self, round_idx)
 
-    def _consume_extra_plays(self, player: state.Player, agent: Agent) -> None:
-        """Resolve any +extra-play credits accrued during the turn."""
-        while self.state.turn_extra_plays > 0:
-            self.state.turn_extra_plays -= 1
-            if not actions.can_play_bird(self, player):
-                self.state.turn_extra_play_habitat = None
-                break
-            habitat_filter = self.state.turn_extra_play_habitat
-            if habitat_filter is not None:
-                self.log(
-                    f"[{player.name}] takes an EXTRA play in [{habitat_filter.value}]"
-                )
-            else:
-                self.log(f"[{player.name}] takes an EXTRA play")
-            actions.do_play_bird(self, agent)
-            # Habitat lock applies to a single extra play only.
-            self.state.turn_extra_play_habitat = None
+    # Power-granted extra plays are resolved by ``actions.consume_extra_plays``
+    # (a free function, like the other action logic), called from ``_take_turn``.
 
     # ------------------------------------------------------------------
     # Setup sub-helpers

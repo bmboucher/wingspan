@@ -84,7 +84,7 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
                 if choice.player_id == p1.id:
                     return typing.cast(C, choice)
             raise AssertionError("p1 not in choices")
-        if isinstance(decision, decisions.GainFoodPickDieDecision):
+        if isinstance(decision, decisions.GainFoodDecision):
             assert decision.player_id == p0.id
             return typing.cast(C, decision.choices[0])
         raise AssertionError(f"unexpected decision for p0: {type(decision).__name__}")
@@ -93,7 +93,7 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        assert isinstance(decision, decisions.GainFoodPickDieDecision)
+        assert isinstance(decision, decisions.GainFoodDecision)
         assert decision.player_id == p1.id
         return typing.cast(C, decision.choices[0])
 
@@ -136,7 +136,7 @@ def test_each_player_gains_die_stops_when_feeder_empty():
                 if choice.player_id == p0.id:
                     return typing.cast(C, choice)
             raise AssertionError("p0 not in choices")
-        if isinstance(decision, decisions.GainFoodPickDieDecision):
+        if isinstance(decision, decisions.GainFoodDecision):
             assert decision.player_id == p0.id
             return typing.cast(C, decision.choices[0])
         raise AssertionError(f"unexpected decision for p0: {type(decision).__name__}")
@@ -208,6 +208,6 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
     kinds = [(who, dtype) for (who, dtype, _pid) in queried]
     assert kinds == [
         ("p0", decisions.BirdPowerPickStartingPlayerDecision),
-        ("p0", decisions.GainFoodPickDieDecision),
-        ("p1", decisions.GainFoodPickDieDecision),
+        ("p0", decisions.GainFoodDecision),
+        ("p1", decisions.GainFoodDecision),
     ]

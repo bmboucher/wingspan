@@ -16,6 +16,8 @@ import re
 import sys
 import typing
 
+import pydantic
+
 from wingspan import cards, state
 from wingspan.engine import helpers, scoring
 
@@ -26,10 +28,17 @@ from wingspan.engine import helpers, scoring
 _EGG = "🥚"
 _CARD = "🃏"
 
-# 24-bit yellow applied to the egg-capacity glyphs that represent eggs already
-# laid on a bird in play (empty slots stay plain). Same hue as the yellow power
-# color so the board reads consistently; only emitted on a real terminal.
-_EGG_LAID = "\x1b[38;2;245;221;60m"
+# Egg-capacity glyphs for a bird in play: a filled circle marks each egg laid,
+# a hollow circle each empty slot. These are text-presentation (width 1), so --
+# unlike the ``🥚`` emoji, which terminals render in their own colour and ignore
+# ANSI foreground codes for -- they honour the yellow tint below; the
+# filled/hollow shape also tells laid from empty in plain logs with no colour.
+_EGG_FILLED = "●"
+_EGG_EMPTY = "○"
+
+# 24-bit yellow tinting the filled (laid) egg glyphs; same hue as the yellow
+# power color so the board reads consistently. Only emitted on a real terminal.
+_LAID_YELLOW = "\x1b[38;2;245;221;60m"
 
 # Truecolor styling for the bird power-text line: each power color renders the
 # text on its printed card color rather than a literal "[color]" tag. Values
@@ -161,8 +170,8 @@ def format_played_bird_full(
     """Board rendering of a bird in play: the full card display from
     :func:`format_bird_full` plus its per-game mutable state.
 
-    Laid eggs colour the leading glyphs of the egg-capacity display yellow
-    (empty slots stay plain); tucked cards and cached food, when present,
+    Laid eggs show as filled yellow circles in the egg-capacity display and
+    empty slots as hollow circles; tucked cards and cached food, when present,
     trail in brackets (e.g. ``[tucked 2, food 1]``).
     """
     head = _bird_head(pb.bird, name_width, eggs_laid=pb.eggs)
@@ -179,8 +188,9 @@ def format_played_bird_full(
 def _bird_head(bird: cards.Bird, name_width: int, eggs_laid: int = 0) -> str:
     """The fixed-width name + compact stat line shared by every bird display.
 
-    ``eggs_laid`` colours that many leading egg-capacity glyphs yellow (used
-    for birds in play); 0 leaves the whole capacity plain (cards not in play).
+    ``eggs_laid`` shows that many egg-capacity slots as filled yellow circles
+    (used for birds in play); 0 leaves the whole capacity hollow (cards not in
+    play).
     """
     habs = "/".join(habitat.value for habitat in bird.habitats)
     flags = [
@@ -214,16 +224,17 @@ def _with_power_text(head: str, bird: cards.Bird, indent: str) -> str:
 
 
 def _egg_capacity(egg_limit: int, eggs_laid: int = 0) -> str:
-    """Egg-capacity glyphs, the first ``eggs_laid`` shown yellow (laid eggs).
-
-    Degrades to plain glyphs off a real terminal, where the colour can't be
-    seen; an empty capacity yields ``""`` so the stat line drops the field."""
+    """Egg-capacity glyphs: a filled circle per egg laid, a hollow circle per
+    empty slot. Laid eggs are tinted yellow on a real terminal; off one the
+    filled/hollow shape still tells them apart. An empty capacity yields ``""``
+    so the stat line drops the field."""
     if egg_limit <= 0:
         return ""
-    if eggs_laid <= 0 or not sys.stdout.isatty():
-        return _EGG * egg_limit
-    laid = min(eggs_laid, egg_limit)
-    return f"{_EGG_LAID}{_EGG * laid}{_ANSI_RESET}{_EGG * (egg_limit - laid)}"
+    laid = min(max(eggs_laid, 0), egg_limit)
+    filled, empty = _EGG_FILLED * laid, _EGG_EMPTY * (egg_limit - laid)
+    if laid <= 0 or not sys.stdout.isatty():
+        return f"{filled}{empty}"
+    return f"{_LAID_YELLOW}{filled}{_ANSI_RESET}{empty}"
 
 
 def _style_power_text(color: cards.PowerColor, text: str) -> str:
@@ -251,8 +262,8 @@ def format_bonus(bc: cards.BonusCard, name_width: int = 0) -> str:
     Examples (``name_width`` left-justifies the name so a column lines up at
     the ``|`` separator)::
 
-        Diet Specialist | Birds that eat [wild] - 2VP each
-        Forester        | Birds that can only live in [forest] | (3-4) 4VP (5) 8VP
+        Omnivore Specialist | Birds that eat [wild] - 2VP each
+        Forester            | Birds that can only live in [forest] | (3-4) 4VP (5) 8VP
 
     A per-bird payout reads ``... - NVP each``; a tiered payout lists each
     ``(count) NVP`` band. Use :func:`format_bonus_score_now` (in play) or
@@ -277,12 +288,14 @@ def format_bonus_with_setup_help(
 ) -> str:
     """:func:`format_bonus` plus, for a type-counting card, a second line with
     how many of the qualifying birds in hand you've *selected* so far, out of
-    the total qualifying in hand — plus how many sit in the display (tray).
+    the total qualifying in hand — plus how many sit in the display (tray) and
+    the share of the whole core-set deck that qualifies.
 
-    Reads ``0/1 in hand, 2 in the display`` before the matching bird is kept,
-    ``1/1 in hand, 2 in the display`` once it is. Dynamic cards — whose payout
-    depends on eggs, hand size, or board layout rather than a fixed bird
-    property — can't be assessed before the game and get no second line.
+    Reads ``0/1 in hand, 2 in the display, 17% of all birds`` before the
+    matching bird is kept, ``1/1 in hand, 2 in the display, 17% of all birds``
+    once it is. Dynamic cards — whose payout depends on eggs, hand size, or
+    board layout rather than a fixed bird property — can't be assessed before
+    the game and get no second line.
     """
     head = format_bonus(bc, name_width)
     help_line = _bonus_setup_help(bc, hand_birds, tray_birds, selected_hand_birds)
@@ -501,6 +514,17 @@ def _natural_vp_band(chunk: str) -> str:
 #### Bonus-card usefulness ####
 
 
+class _BonusCatalogSummary(pydantic.BaseModel):
+    """Catalog-wide facts about the type-counting bonus cards, tallied once
+    from the bundled card data: the total number of core-set birds, and how
+    many of them qualify for each bonus card (keyed by ``bonus.json`` card
+    name). Used to annotate the pre-game help line with the share of the whole
+    deck a card can draw on."""
+
+    total_birds: int
+    qualifying_by_bonus: dict[str, int]
+
+
 def _bonus_setup_help(
     bc: cards.BonusCard,
     hand_birds: typing.Sequence[cards.Bird],
@@ -510,15 +534,22 @@ def _bonus_setup_help(
     """Pre-game usefulness line for a type-counting card; ``None`` otherwise.
 
     The hand figure is ``selected-qualifying / total-qualifying`` — how many
-    matching birds you've kept so far out of how many you could.
+    matching birds you've kept so far out of how many you could — followed by
+    the count sitting in the display and the share of the whole core-set deck
+    that qualifies (e.g. ``17% of all birds``), a hint at how readily you can
+    find more during the game.
     """
-    if bc.name not in _type_counting_bonus_names():
-        return None
+    summary = _bonus_catalog_summary()
+    qualifying_total = summary.qualifying_by_bonus.get(bc.name)
+    if qualifying_total is None:
+        return None  # dynamic card (eggs / hand size / board) — can't assess
     matching_in_hand = _qualifying(bc, hand_birds)
     selected_matching = _qualifying(bc, selected_hand_birds)
     in_display = _qualifying(bc, tray_birds)
+    pct = round(100 * qualifying_total / summary.total_birds)
     return (
-        f"{selected_matching}/{matching_in_hand} in hand, {in_display} in the display"
+        f"{selected_matching}/{matching_in_hand} in hand, "
+        f"{in_display} in the display, {pct}% of all birds"
     )
 
 
@@ -528,16 +559,16 @@ def _qualifying(bc: cards.BonusCard, birds: typing.Iterable[cards.Bird]) -> int:
 
 
 @functools.cache
-def _type_counting_bonus_names() -> frozenset[str]:
-    """Names of bonus cards whose qualification is a fixed bird property (a
-    bird's ``bonus_categories`` membership).
+def _bonus_catalog_summary() -> _BonusCatalogSummary:
+    """Tally, once from the bundled catalog, the total core-set bird count and
+    how many birds qualify for each type-counting bonus card.
 
     Dynamic cards — counting eggs laid, end-game hand size, or board layout —
-    name no birds and are excluded, so pre-game help is only offered for cards
-    we can actually assess. Built once from the bundled catalog.
+    name no birds, so they never become a key and get no pre-game help line.
     """
     birds, _, _ = cards.load_all()
-    names: set[str] = set()
+    qualifying: dict[str, int] = {}
     for bird in birds:
-        names.update(bird.bonus_categories)
-    return frozenset(names)
+        for bonus_name in bird.bonus_categories:
+            qualifying[bonus_name] = qualifying.get(bonus_name, 0) + 1
+    return _BonusCatalogSummary(total_birds=len(birds), qualifying_by_bonus=qualifying)

@@ -34,11 +34,13 @@ def cli_agent() -> engine_core.Agent:
             return typing.cast(
                 C, _cli_resolve_setup_choice(decision, engine.state.tray)
             )
-        # The main-action prompt is the natural moment to show the full
-        # board: it is the only decision that always opens a fresh turn,
-        # and the human needs the resource picture to choose between the
-        # four action types.
-        if isinstance(decision, decisions.MainActionDecision):
+        # The main-action prompt — and the play-bird menu it can open — are the
+        # natural moments to show the full board: the human needs the resource
+        # picture both to pick an action type and to pick which bird to play.
+        if isinstance(
+            decision,
+            (decisions.MainActionDecision, decisions.PlayBirdDecision),
+        ):
             print()
             print(
                 display.format_board(
@@ -52,8 +54,6 @@ def cli_agent() -> engine_core.Agent:
             print(_format_choice_line(i, choice, player))
         while True:
             raw = input("choice> ").strip()
-            if raw == "" and len(decision.choices) == 1:
-                return typing.cast(C, decision.choices[0])
             try:
                 idx = int(raw)
             except ValueError:

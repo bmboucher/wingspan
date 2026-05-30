@@ -109,14 +109,19 @@ def running_score(player: state.Player) -> int:
 
 
 def bonus_score(player: state.Player, bc: cards.BonusCard) -> int:
-    """Highest VP threshold met by the count of qualifying birds in play
-    that belong to ``bc``'s category."""
+    """VP ``player`` scores from bonus card ``bc``.
+
+    Counts the qualifying birds in play (those whose ``bonus_categories``
+    include ``bc.name``), then applies ``bc``'s payout: a per-bird card pays
+    ``per_bird_vp`` for each, a tiered card pays the highest threshold met."""
     count = sum(
         1
         for row in player.board.values()
         for pb in row
         if bc.name in pb.bird.bonus_categories
     )
+    if bc.per_bird_vp is not None:
+        return bc.per_bird_vp * count
     best = 0
     for thr, vp in bc.thresholds:
         if count >= thr and vp > best:

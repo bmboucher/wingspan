@@ -275,6 +275,51 @@ def test_tuck_from_deck_paid_spends_food_and_tucks():
     assert len(eng.state.bird_deck) == deck_before - 2
 
 
+def test_tuck_from_deck_paid_uses_accept_exchange_with_trade_terms():
+    """The discard-food-to-tuck commit is a unified ``AcceptExchangeDecision``
+    (commit-to-cost head) whose ``PayCostChoice`` carries the trade terms."""
+    eng, birds = _engine(seed=14)
+    bird = _find(birds, "Sandhill Crane")  # discard 1 seed -> tuck 2
+    player = eng.state.me()
+    for food in player.food:
+        player.food[food] = 0
+    player.food[cards.Food.SEED] = 1
+    pb = state.PlayedBird(bird=bird)
+    player.board[cards.Habitat.GRASSLAND].append(pb)
+
+    captured: list[decisions.Decision[typing.Any]] = []
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        captured.append(decision)
+        return typing.cast(
+            C,
+            next(
+                choice
+                for choice in decision.choices
+                if isinstance(choice, decisions.PayCostChoice)
+            ),
+        )
+
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.GRASSLAND, "activate")
+    assert len(captured) == 1
+    decision = captured[0]
+    assert isinstance(decision, decisions.AcceptExchangeDecision)
+    pay = next(
+        choice
+        for choice in decision.choices
+        if isinstance(choice, decisions.PayCostChoice)
+    )
+    assert pay.paid_food == cards.Food.SEED
+    assert pay.gained_tuck_count == 2
+    assert pay.paid_egg_count == 0
+    assert (
+        decisions.family_for(decisions.AcceptExchangeDecision)
+        == decisions.DecisionFamily.COMMIT_TO_COST
+    )
+
+
 def test_tuck_from_deck_paid_skip_when_no_food():
     eng, birds = _engine(seed=5)
     bird = _find(birds, "Canada Goose")
@@ -434,7 +479,7 @@ def test_pink_lay_eggs_reactor_fires_on_opponent_lay_eggs():
     def p1_agent[C: decisions.Choice](
         _engine: engine.Engine, decision: decisions.Decision[C]
     ) -> C:
-        if isinstance(decision, decisions.LayEggPickBirdDecision):
+        if isinstance(decision, decisions.LayEggDecision):
             return typing.cast(
                 C,
                 next(

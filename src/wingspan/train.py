@@ -64,6 +64,7 @@ class Step(pydantic.BaseModel):
     choices: np.ndarray  # (n_choices, choice_dim)
     chosen_idx: int  # 0..n_choices-1
     player_id: int
+    family_idx: int  # judgment-family scoring-head index (see decisions)
 
 
 class Trajectory(pydantic.BaseModel):
@@ -112,15 +113,19 @@ def make_policy_agent(
             # anyway and skipping keeps the buffer smaller).
             return decision.choices[0]
 
+        family_idx = decisions.family_index_for(type(decision))
         state_vec = encode.encode_state(eng.state, decision)
         choice_feats = encode.encode_choices(decision, eng.state)
-        chosen_idx = _sample_choice(net, device, state_vec, choice_feats, rng, epsilon)
+        chosen_idx = _sample_choice(
+            net, device, state_vec, choice_feats, family_idx, rng, epsilon
+        )
         record_into.append(
             Step(
                 state=state_vec,
                 choices=choice_feats,
                 chosen_idx=chosen_idx,
                 player_id=decision.player_id,
+                family_idx=family_idx,
             )
         )
         return decision.choices[chosen_idx]
@@ -184,6 +189,7 @@ def train_step(
     flat_idx: list[int] = []
     flat_returns: list[float] = []
     flat_n_choices: list[int] = []
+    flat_family: list[int] = []
     for tr in trajectories:
         score_self_minus_other = [
             (tr.scores[0] - tr.scores[1]) / SCORE_ADVANTAGE_NORM,
@@ -195,6 +201,7 @@ def train_step(
             flat_idx.append(st.chosen_idx)
             flat_returns.append(score_self_minus_other[st.player_id])
             flat_n_choices.append(st.choices.shape[0])
+            flat_family.append(st.family_idx)
 
     if not flat_states:
         return TrainStepStats(
@@ -223,8 +230,9 @@ def train_step(
     mask_t = torch.tensor(mask_batch, dtype=torch.float32, device=device)
     idx_t = torch.tensor(flat_idx, dtype=torch.long, device=device)
     ret_t = torch.tensor(flat_returns, dtype=torch.float32, device=device)
+    family_t = torch.tensor(flat_family, dtype=torch.long, device=device)
 
-    logits, value = net(state_t, choice_t, mask_t)
+    logits, value = net(state_t, choice_t, mask_t, family_t)
     logp = F.log_softmax(logits, dim=-1)
 
     # Policy loss: REINFORCE w/ value baseline, gather log-prob at chosen
@@ -336,6 +344,7 @@ def _sample_choice(
     device: torch.device,
     state_vec: np.ndarray,
     choice_feats: np.ndarray,
+    family_idx: int,
     rng: random.Random,
     epsilon: float,
 ) -> int:
@@ -352,7 +361,8 @@ def _sample_choice(
             choice_feats, dtype=torch.float32, device=device
         ).unsqueeze(0)
         mask_t = torch.ones((1, n_choices), dtype=torch.float32, device=device)
-        logits, _ = net(state_t, choice_t, mask_t)
+        family_t = torch.tensor([family_idx], dtype=torch.long, device=device)
+        logits, _ = net(state_t, choice_t, mask_t, family_t)
         probs = F.softmax(logits, dim=-1).squeeze(0).cpu().numpy()
 
     total = probs.sum()

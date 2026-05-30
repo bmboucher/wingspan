@@ -75,7 +75,7 @@ def test_state_encoder_decision_type_one_hot_flips():
             decisions.MainActionChoice(label="a", action=decisions.MainAction.GAIN_FOOD)
         ],
     )
-    d_lay = decisions.LayEggPickBirdDecision(
+    d_lay = decisions.LayEggDecision(
         player_id=0,
         prompt="x",
         choices=[
@@ -98,15 +98,14 @@ def test_state_encoder_decision_type_one_hot_flips():
 
 
 def test_choice_features_distinguish_candidate_birds():
-    """Two PLAY_BIRD_PICK_CARD choices on the same state but with different
-    candidate birds must produce different feature rows. This is the
-    headline trainability fix — positional slots used to make these
-    indistinguishable to the network."""
+    """Two bird choices on the same state but with different candidate birds
+    must produce different feature rows. This is the headline trainability fix
+    — positional slots used to make these indistinguishable to the network."""
     eng, birds, *_ = engine.Engine.create(seed=3)
     # Pick two birds with different point values + costs so feature rows
     # plausibly differ.
     first_bird, second_bird = _two_distinct_birds(birds)
-    decision = decisions.PlayBirdPickCardDecision(
+    decision = decisions.BirdPowerPickBirdFromHandDecision(
         player_id=0,
         prompt="x",
         choices=[
@@ -121,7 +120,7 @@ def test_choice_features_distinguish_candidate_birds():
 
 def test_choice_features_food_one_hot_is_set():
     eng, *_ = engine.Engine.create(seed=4)
-    decision = decisions.GainFoodPickDieDecision(
+    decision = decisions.GainFoodDecision(
         player_id=0,
         prompt="x",
         choices=[
@@ -149,7 +148,7 @@ def test_choice_features_board_target_reflects_dynamic_state():
     pb = state.PlayedBird(bird=birds[0])
     eng.state.players[0].board[cards.Habitat.GRASSLAND].append(pb)
 
-    decision = decisions.LayEggPickBirdDecision(
+    decision = decisions.LayEggDecision(
         player_id=0,
         prompt="x",
         choices=[
@@ -165,6 +164,32 @@ def test_choice_features_board_target_reflects_dynamic_state():
         assert not np.array_equal(
             f0, f1
         ), "board-target features should reflect dynamic egg count"
+
+
+def test_pay_cost_features_distinguish_exchanges():
+    """An AcceptExchange ``PayCostChoice`` surfaces its trade terms, so two
+    different exchanges (egg→card vs food→tucks) produce different feature rows,
+    and both differ from a skip — closing the old "PayCostChoice is featureless"
+    gap (DECISIONS.md §4.3)."""
+    eng, *_ = engine.Engine.create(seed=11)
+    decision = decisions.AcceptExchangeDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.PayCostChoice(
+                label="egg->card", paid_egg_count=1, gained_card_count=1
+            ),
+            decisions.PayCostChoice(
+                label="food->tucks", paid_food=cards.Food.SEED, gained_tuck_count=2
+            ),
+            decisions.SkipChoice(label="skip"),
+        ],
+    )
+    feats = encode.encode_choices(decision, eng.state)
+    assert feats.shape == (3, encode.CHOICE_FEATURE_DIM)
+    assert not np.array_equal(feats[0], feats[1]), "distinct exchanges must differ"
+    assert not np.array_equal(feats[0], feats[2]), "an exchange must differ from skip"
+    assert feats[0].sum() != 0.0, "the egg->card trade terms should be featurized"
 
 
 def test_choice_features_skip_flag_for_skip_choice():
@@ -186,6 +211,82 @@ def test_choice_features_skip_flag_for_skip_choice():
 
 
 # ---------------------------------------------------------------------------
+# Card-identity stripes (concatenated identity + attributes)
+
+
+def test_every_bird_has_a_distinct_feature_row():
+    """With the bird-identity one-hot, no two distinct birds collapse to the
+    same per-choice features — even two birds with identical attributes are told
+    apart (the per-card embedding signal #2 adds)."""
+    eng, birds, *_ = engine.Engine.create(seed=12)
+    decision = decisions.BirdPowerPickBirdFromHandDecision(
+        player_id=0,
+        prompt="x",
+        choices=[decisions.BirdChoice(label=bird.name, bird=bird) for bird in birds],
+    )
+    feats = encode.encode_choices(decision, eng.state)
+    distinct_rows = {row.tobytes() for row in feats}
+    assert len(distinct_rows) == len(birds)
+
+
+def test_every_bonus_card_has_a_distinct_feature_row():
+    """The bonus-card identity one-hot distinguishes every bonus card, fixing
+    the old ``id % 16`` hash that collapsed cards 16 apart (#2)."""
+    eng, _birds, bonuses, _ = engine.Engine.create(seed=14)
+    decision = decisions.BirdPowerPickBonusCardDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.BonusCardChoice(label=bonus.name, bonus_card=bonus)
+            for bonus in bonuses
+        ],
+    )
+    feats = encode.encode_choices(decision, eng.state)
+    distinct_rows = {row.tobytes() for row in feats}
+    assert len(distinct_rows) == len(bonuses)
+
+
+def test_setup_kept_set_changes_the_feature_row():
+    """The setup pick's kept-card multi-hot makes different kept sets featurize
+    differently, so the setup head can see *which* cards were kept (§3.1)."""
+    eng, birds, *_ = engine.Engine.create(seed=13)
+    kept_foods = tuple(cards.ALL_FOODS[: len(cards.ALL_FOODS) - 1])  # keep 1 card
+    decision = decisions.SetupDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.SetupChoice(
+                label="a",
+                kept_cards=(birds[0],),
+                kept_foods=kept_foods,
+                bonus_card=None,
+            ),
+            decisions.SetupChoice(
+                label="b",
+                kept_cards=(birds[1],),
+                kept_foods=kept_foods,
+                bonus_card=None,
+            ),
+        ],
+        dealt_cards=[birds[0], birds[1]],
+        dealt_bonus=[],
+    )
+    feats = encode.encode_choices(decision, eng.state)
+    assert not np.array_equal(feats[0], feats[1])
+
+
+def test_hand_identity_distinguishes_equal_size_hands():
+    """My hand is encoded as an identity multi-hot in the state, so two hands of
+    the same size but different cards yield different state vectors (#2)."""
+    eng, birds, *_ = engine.Engine.create(seed=15)
+    eng.state.players[0].hand = [birds[0], birds[1]]
+    vec_a = encode.encode_state(eng.state)
+    eng.state.players[0].hand = [birds[2], birds[3]]
+    vec_b = encode.encode_state(eng.state)
+    assert not np.array_equal(vec_a, vec_b)
+
+
+# ---------------------------------------------------------------------------
 # Truncation behavior
 
 
@@ -193,11 +294,11 @@ def test_encode_choices_asserts_on_absurd_cardinality():
     """The hard cap protects against runaway choice generation (a sign of
     a bug, not normal play)."""
     eng, _birds, *_ = engine.Engine.create(seed=8)
-    too_many = [
+    too_many: list[decisions.FoodChoice | decisions.SkipChoice] = [
         decisions.FoodChoice(label=f"c{i}", food=cards.Food.SEED)
         for i in range(encode.MAX_CHOICES_HARD + 1)
     ]
-    decision = decisions.GainFoodPickDieDecision(
+    decision = decisions.GainFoodDecision(
         player_id=0,
         prompt="x",
         choices=too_many,
@@ -211,7 +312,7 @@ def test_encode_choices_does_not_truncate_under_soft_threshold():
     one returns every choice as long as it's under the hard cap."""
     eng, birds, *_ = engine.Engine.create(seed=9)
     n_birds = 25  # comfortably above the old hand-pick cap of 10
-    decision = decisions.PlayBirdPickCardDecision(
+    decision = decisions.BirdPowerPickBirdFromHandDecision(
         player_id=0,
         prompt="x",
         choices=[

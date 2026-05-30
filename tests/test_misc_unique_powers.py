@@ -145,31 +145,25 @@ def test_trade_wild_food_swaps_one_food():
     player.food[cards.Food.SEED] = 2
     gs.food_supply[cards.Food.FRUIT] = 5
 
-    asked: list[object] = []
-
     def agent[C: decisions.Choice](
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        asked.append(decision)
-        if not asked or len(asked) == 1:
-            # first prompt: pick which food to discard
-            return typing.cast(
-                C,
-                next(
-                    choice
-                    for choice in decision.choices
-                    if isinstance(choice, decisions.FoodChoice)
-                    and choice.food == cards.Food.SEED
-                ),
-            )
+        # Green Heron is a gain-then-lose chain: gain FRUIT from the supply
+        # (GainFoodDecision), then give up the SEED (SpendFoodDecision) — a net
+        # swap. Dispatch on decision type so the test is order-independent.
+        if isinstance(decision, decisions.GainFoodDecision):
+            want = cards.Food.FRUIT
+        elif isinstance(decision, decisions.SpendFoodDecision):
+            want = cards.Food.SEED
+        else:
+            raise AssertionError(f"unexpected decision: {type(decision).__name__}")
         return typing.cast(
             C,
             next(
                 choice
                 for choice in decision.choices
-                if isinstance(choice, decisions.FoodChoice)
-                and choice.food == cards.Food.FRUIT
+                if isinstance(choice, decisions.FoodChoice) and choice.food == want
             ),
         )
 
@@ -226,6 +220,48 @@ def test_trade_wild_food_no_food_no_op():
         pytest.fail("should not be consulted when player has no food")
 
     powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
+
+
+def test_trade_wild_food_is_a_gain_then_lose_chain():
+    """Green Heron decomposes into two atomic decisions, in order: gain a food
+    from the supply (GAIN_FOOD head) then lose one back (SPEND_FOOD head)."""
+    eng, pb = _make_engine_with_bird(
+        "Trade 1 [wild] for any other type from the supply.",
+        color=cards.PowerColor.BROWN,
+    )
+    gs = eng.state
+    gs.current_player = 0
+    player = gs.me()
+    for food in cards.ALL_FOODS:
+        player.food[food] = 0
+    player.food[cards.Food.SEED] = 1  # a food to give up keeps the trade live
+
+    seen: list[type[decisions.Decision[typing.Any]]] = []
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        seen.append(type(decision))
+        return typing.cast(
+            C,
+            next(
+                choice
+                for choice in decision.choices
+                if isinstance(choice, decisions.FoodChoice)
+            ),
+        )
+
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
+    assert seen == [decisions.GainFoodDecision, decisions.SpendFoodDecision]
+    assert (
+        decisions.family_for(decisions.GainFoodDecision)
+        == decisions.DecisionFamily.GAIN_FOOD
+    )
+    assert (
+        decisions.family_for(decisions.SpendFoodDecision)
+        == decisions.DecisionFamily.SPEND_FOOD
+    )
 
 
 # ---------------------------------------------------------------------------

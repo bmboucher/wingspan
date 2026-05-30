@@ -1,14 +1,14 @@
 """Tests for the main-action decision composition.
 
-Playing a bird is no longer a single ``play bird`` main action followed by
-separate card / habitat / payment picks: each legal ``(bird, habitat, food
-payment)`` is surfaced as its own ``PlayBirdChoice`` at the main-action stage,
-alongside the three always-present habitat actions. Only the egg cost stays a
-follow-up decision.
+Playing a bird is a ``PLAY_BIRD`` main-action *type*, offered (alongside the
+three always-present habitat actions) only when the player has a legal play.
+Choosing *which* bird to play — in which habitat, for which payment — is a
+separate follow-up ``PlayBirdDecision``; only the egg cost remains a further
+follow-up.
 
-These drive a real game and capture every ``MainActionDecision`` the engine
-offers, so the assertions cover the live turn loop rather than a private
-helper.
+These drive a real game and capture every ``MainActionDecision`` and
+``PlayBirdDecision`` the engine offers, so the assertions cover the live turn
+loop rather than a private helper.
 """
 
 from __future__ import annotations
@@ -48,54 +48,101 @@ def _recording_agent(
     return agent
 
 
-def _play_and_capture_main_decisions() -> list[decisions.MainActionDecision]:
+def _play_and_capture(
+    agent_factory: typing.Callable[
+        [random.Random, list[decisions.Decision[typing.Any]]], engine_core.Agent
+    ],
+) -> list[decisions.Decision[typing.Any]]:
+    """Play one seeded game with ``agent_factory`` in seat 0 (which records every
+    decision it is asked) and a random opponent, returning the recorded sink."""
     eng, *_ = engine.Engine.create(seed=123)
     rng = random.Random(123)
     sink: list[decisions.Decision[typing.Any]] = []
     engine.Engine.play_one_game(
-        eng.state, (_recording_agent(rng, sink), agents.random_agent(rng))
+        eng.state, (agent_factory(rng, sink), agents.random_agent(rng))
     )
-    return [
+    return sink
+
+
+def _forced_play_bird_choice(
+    decision: decisions.Decision[typing.Any],
+) -> decisions.MainActionChoice | None:
+    """The ``PLAY_BIRD`` option if ``decision`` is a main-action pick offering it,
+    else ``None``. Kept separate so the agent never narrows its own generic
+    ``decision`` (which would break the random-fallthrough call)."""
+    if isinstance(decision, decisions.MainActionDecision):
+        for choice in decision.choices:
+            if choice.action == decisions.MainAction.PLAY_BIRD:
+                return choice
+    return None
+
+
+def _play_bird_preferring_agent(
+    rng: random.Random,
+    sink: list[decisions.Decision[typing.Any]],
+) -> engine_core.Agent:
+    """Records every decision and always takes the ``PLAY_BIRD`` main action when
+    it is offered, so the follow-up ``PlayBirdDecision`` is guaranteed to fire
+    over a full game; otherwise plays randomly."""
+    inner = agents.random_agent(rng)
+
+    def agent[C: decisions.Choice](
+        eng: engine_core.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        sink.append(decision)
+        forced = _forced_play_bird_choice(decision)
+        if forced is not None:
+            return typing.cast(C, forced)
+        return inner(eng, decision)
+
+    return agent
+
+
+def test_main_action_always_offers_the_three_habitat_actions():
+    sink = _play_and_capture(_recording_agent)
+    main_decisions = [
         decision
         for decision in sink
         if isinstance(decision, decisions.MainActionDecision)
     ]
-
-
-def test_every_main_action_offers_exactly_three_habitat_actions():
-    main_decisions = _play_and_capture_main_decisions()
     assert main_decisions, "expected the recorded player to take some turns"
     for decision in main_decisions:
-        habitat = {
-            choice.action
-            for choice in decision.choices
-            if isinstance(choice, decisions.MainActionChoice)
-        }
-        assert habitat == _HABITAT_ACTIONS
+        actions_offered = {choice.action for choice in decision.choices}
+        # The three habitat actions are always present; PLAY_BIRD is the only
+        # extra, optional type.
+        assert _HABITAT_ACTIONS <= actions_offered
+        assert actions_offered <= _HABITAT_ACTIONS | {decisions.MainAction.PLAY_BIRD}
 
 
-def test_playable_birds_appear_as_choices_at_main_action_stage():
-    main_decisions = _play_and_capture_main_decisions()
-    # Over a full game the player has playable birds on at least one turn, and
-    # those must surface as PlayBirdChoices directly in the main-action menu.
-    assert any(
-        any(isinstance(choice, decisions.PlayBirdChoice) for choice in decision.choices)
-        for decision in main_decisions
-    ), "expected at least one main-action menu to list a playable bird"
-
-
-def test_play_choices_carry_habitat_and_payment():
-    main_decisions = _play_and_capture_main_decisions()
-    play_choices = [
-        choice
-        for decision in main_decisions
-        for choice in decision.choices
-        if isinstance(choice, decisions.PlayBirdChoice)
+def test_play_bird_offered_as_a_main_action_type():
+    sink = _play_and_capture(_recording_agent)
+    main_decisions = [
+        decision
+        for decision in sink
+        if isinstance(decision, decisions.MainActionDecision)
     ]
-    assert play_choices, "expected at least one PlayBirdChoice over the game"
-    for choice in play_choices:
-        # The habitat must be one the bird can live in, and the bundled payment
-        # must be a legal (exact, allowing 2-for-1 substitution) cover of the
-        # printed cost.
-        assert choice.habitat in choice.bird.habitats
-        assert helpers.cost_meets(choice.bird.food_cost, choice.payment)
+    # Over a full game the player can play a bird on at least one turn, so
+    # PLAY_BIRD must be offered as a main-action *type* (no longer a pile of
+    # PlayBirdChoices folded into the menu).
+    assert any(
+        decisions.MainAction.PLAY_BIRD in {choice.action for choice in decision.choices}
+        for decision in main_decisions
+    ), "expected PLAY_BIRD to be offered on at least one turn"
+
+
+def test_choosing_play_bird_opens_a_play_menu_with_valid_plays():
+    sink = _play_and_capture(_play_bird_preferring_agent)
+    play_decisions = [
+        decision
+        for decision in sink
+        if isinstance(decision, decisions.PlayBirdDecision)
+    ]
+    assert play_decisions, "expected choosing PLAY_BIRD to open a play menu"
+    for decision in play_decisions:
+        for choice in decision.choices:
+            # The habitat must be one the bird can live in, and the bundled
+            # payment must be a legal (exact, allowing 2-for-1 substitution)
+            # cover of the printed cost.
+            assert choice.habitat in choice.bird.habitats
+            assert helpers.cost_meets(choice.bird.food_cost, choice.payment)

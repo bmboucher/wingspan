@@ -29,11 +29,18 @@ changes stay consistent.
 pip install -e ".[dev]"                               # runtime + pyright/black/isort/pytest
 python -m wingspan.cli manual                         # human vs random
 python -m wingspan.cli random --log game.log          # watch a random game
-python -m wingspan.train --device cuda --episodes 32  # one training cycle
+python -m wingspan.train --device cuda --episodes 32  # one (legacy) training cycle
+python -m wingspan.training --device cpu              # live training dashboard ("FLYWAY CONTROL")
 python -m pytest tests/
 ```
 
 PyTorch with CUDA is needed for training runs; everything else runs on CPU.
+`python -m wingspan.train` is the original minimal REINFORCE cycle;
+`python -m wingspan.training` (the `wingspan.training` package, console script
+`wingspan-dashboard`) is the `top`-style live training + monitoring app that
+implements the TRAINING.md Phase-0/1 program (length-bucketed update, advantage
+normalization, paired eval vs random, resumable checkpoints) behind a `rich`
+dashboard. Collection is fastest on `--device cpu` (TRAINING.md §1.4).
 
 ## Quality gate (run after every change, in this order)
 
@@ -101,6 +108,20 @@ src/wingspan/
     __init__.py          # re-exports random_agent, cli_agent, mixed_agents
     base.py              # random_agent
     cli.py               # cli_agent + mixed_agents (hotseat helper)
+
+  training/              # live training + monitoring dashboard ("FLYWAY CONTROL")
+    __main__.py / app.py # entry point: argparse -> worker thread + rich.Live loop
+    config.py            # TrainConfig (self-describing hyperparameters, §5.1)
+    metrics.py           # ScoreBreakdown / FamilyCounts / EvalResult / IterationMetrics
+    runstate.py          # RunState: the shared live snapshot the dashboard reads
+    policy.py            # single-decision sample (collect) + greedy (eval)
+    collect.py           # self-play game -> recorded steps + score breakdown
+    learner.py           # length-bucketed REINFORCE + advantage norm (§3.3, §4.2a)
+    evaluate.py          # paired-game strength vs random + 95% CI (§7)
+    loop.py              # TrainingLoop orchestrator (collect/update/eval/checkpoint)
+    theme.py             # palette + glyph constants ("wetland dawn")
+    charts.py            # braille convergence chart, family histogram, sparklines
+    dashboard.py         # the five-band Layout + per-region renderers
 
 tests/                   # pytest; tests prepend src/ to sys.path themselves
 ```

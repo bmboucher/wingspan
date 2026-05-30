@@ -23,6 +23,7 @@ simulator can still run.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 from importlib import resources
@@ -67,6 +68,17 @@ _NUM_WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five"
 # tagged ``"Set": "core"`` and prefixed with this marker in their name. They
 # are not part of the published base game, so they are excluded at load time.
 _FAN_MADE_PREFIX = "[Fan Made]"
+
+# A few bonus cards are named differently in ``bonus.json`` than in the
+# per-bird qualification columns of ``master.json`` — wingsearch sourced the
+# two files from different printings, and Wingspan renamed several bonus cards
+# between them. Map the bonus-card name to the ``master.json`` column that
+# marks its qualifying birds so the lookup in ``bonus_categories_for_bird``
+# resolves. Without this, "Omnivore Specialist" (column "Omnivore Expert")
+# would tag zero birds and silently score 0 VP for the rest of the game.
+_BONUS_COLUMN_ALIASES = {
+    "Omnivore Specialist": "Omnivore Expert",
+}
 
 
 def parse_power(color: schema.PowerColor, text: str) -> schema.Power:
@@ -681,6 +693,60 @@ def power_coverage(birds: list[schema.Bird]) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
+# Canonical catalog index (stable card -> dense-index maps for RL encoding)
+#
+# The RL encoder represents a card as a one-hot over all core-set cards, and a
+# *set* of cards (a hand, a kept-set) as a multi-hot. That needs a stable dense
+# index per card, independent of any single game's shuffle. These helpers
+# derive one from the full loaded catalog and cache it, so the first call parses
+# the bundled JSON once and every later lookup is a dict hit. Keyed on the card
+# id so a trained per-card embedding stays aligned across runs.
+
+
+@functools.lru_cache(maxsize=1)
+def _canonical_cards() -> tuple[tuple[schema.Bird, ...], tuple[schema.BonusCard, ...]]:
+    birds, bonuses, _ = load_all()
+    return tuple(birds), tuple(bonuses)
+
+
+@functools.lru_cache(maxsize=1)
+def _bird_index_by_id() -> dict[int, int]:
+    birds, _ = _canonical_cards()
+    return {bird.id: i for i, bird in enumerate(birds)}
+
+
+@functools.lru_cache(maxsize=1)
+def _bonus_index_by_id() -> dict[int, int]:
+    _, bonuses = _canonical_cards()
+    return {bonus_card.id: i for i, bonus_card in enumerate(bonuses)}
+
+
+def n_birds() -> int:
+    """Number of distinct core-set birds — the length of the bird-identity
+    one-hot (and the kept-set / hand multi-hot) stripe in the RL encoder."""
+    return len(_canonical_cards()[0])
+
+
+def n_bonus_cards() -> int:
+    """Number of distinct core-set bonus cards — the length of the bonus-card
+    identity one-hot stripe in the RL encoder."""
+    return len(_canonical_cards()[1])
+
+
+def bird_index(bird: schema.Bird) -> int:
+    """Stable dense index of ``bird`` in the core-set catalog, used for the
+    bird-identity one-hot. Keyed on the card id, so it is identical across
+    games and a trained per-card embedding stays aligned."""
+    return _bird_index_by_id()[bird.id]
+
+
+def bonus_index(bonus_card: schema.BonusCard) -> int:
+    """Stable dense index of ``bonus_card`` in the core-set catalog, used for
+    the bonus-card identity one-hot."""
+    return _bonus_index_by_id()[bonus_card.id]
+
+
+# ---------------------------------------------------------------------------
 # Record-field parsers (called from the ``.load()`` methods on
 # ``schema.BirdRecord`` / ``schema.BonusRecord`` / ``schema.GoalRecord``)
 
@@ -743,20 +809,35 @@ def bonus_categories_for_bird(
 ) -> tuple[str, ...]:
     """Return the names of all core-set bonus cards whose category column
     is marked ``"X"`` on this bird record. Bonus-card column names are
-    dynamic (one per bonus card) so they live in :attr:`model_extra`."""
+    dynamic (one per bonus card) so they live in :attr:`model_extra`; a
+    card renamed between the two source files is resolved through
+    :data:`_BONUS_COLUMN_ALIASES`. The returned name is always the
+    ``bonus.json`` card name, so it matches ``BonusCard.name`` downstream."""
     out: list[str] = []
     extras = record.model_extra or {}
     for bonus in bonuses:
         if bonus.card_set != "core":
             continue
-        if extras.get(bonus.bonus_card) == "X":
+        column = _BONUS_COLUMN_ALIASES.get(bonus.bonus_card, bonus.bonus_card)
+        if extras.get(column) == "X":
             out.append(bonus.bonus_card)
     return tuple(out)
 
 
+def parse_bonus_per_bird(vp_text: str) -> int | None:
+    """Parse a per-bird payout like ``'2[point] per bird'`` into the VP each
+    qualifying bird earns, or ``None`` for a tiered card.
+
+    Per-bird and tiered payouts are mutually exclusive in the core set; a
+    tiered string (``'... birds: N[point]'``) never matches this pattern."""
+    match = re.search(r"(\d+)\s*\[point\]\s*per bird", vp_text, re.I)
+    return int(match.group(1)) if match else None
+
+
 def parse_bonus_thresholds(vp_text: str) -> tuple[tuple[int, int], ...]:
     """Parse strings like ``'2 to 3 birds: 3[point]; 4+ birds: 7[point]'``
-    into ascending ``(min_count, vp)`` pairs."""
+    into ascending ``(min_count, vp)`` pairs. Per-bird cards (handled by
+    :func:`parse_bonus_per_bird`) yield no thresholds."""
     out: list[tuple[int, int]] = []
     for chunk in vp_text.split(";"):
         chunk = chunk.strip()
