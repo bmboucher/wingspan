@@ -30,6 +30,7 @@ from torch import optim
 from wingspan import model
 from wingspan.training import (
     artifacts,
+    batched_collect,
     collect,
     config,
     evaluate,
@@ -54,6 +55,7 @@ _SYSMON_INTERVAL_SECONDS = 1.0
 # inference) benefits identically to collection.
 _CPU_INTRAOP_THREADS = 2
 
+
 class TrainingLoop:
     """A resumable, stoppable self-play training run feeding a live RunState."""
 
@@ -65,7 +67,6 @@ class TrainingLoop:
         _seed_everything(cfg.seed)
         self.net = model.PolicyValueNet(hidden=cfg.hidden).to(self.device)
         self.optimizer: optim.Optimizer = optim.Adam(self.net.parameters(), lr=cfg.lr)
-        self.rng = random.Random(cfg.seed)
         self.lock = threading.RLock()
         self.state = runstate.new_run_state(cfg)
         self._stop = threading.Event()
@@ -272,27 +273,36 @@ class TrainingLoop:
         self._commit_iteration(iter_metrics, stats, eval_result)
 
     def _collect(self, iteration: int) -> list[collect.GameRecord]:
-        """Play ``games_per_iter`` self-play games, updating the live state per
-        game so the dashboard advances mid-iteration."""
-        records: list[collect.GameRecord] = []
-        for game_idx in range(self.config.games_per_iter):
-            if self._stop.is_set():
-                break
-            seed = self.config.seed * 1_000_000 + iteration * 10_000 + game_idx
-            record = collect.play_game(self.net, self.device, self.rng, seed)
-            records.append(record)
+        """Play ``games_per_iter`` self-play games with batched inference,
+        updating the live state as each game finishes so the dashboard advances
+        mid-iteration. Games run concurrently and complete out of order; the
+        per-game callback runs under ``self.lock`` so the shared state stays
+        consistent."""
+        seeds = [
+            self.config.seed * 1_000_000 + iteration * 10_000 + game_idx
+            for game_idx in range(self.config.games_per_iter)
+        ]
+        return batched_collect.collect_games(
+            self.net,
+            self.device,
+            seeds,
+            on_game_done=self._record_collected_game,
+            should_stop=self._stop.is_set,
+        )
 
-            decisions_seen = len(record.steps)
-            family = _family_counts(record)
-            with self.lock:
-                self.state.record_game(
-                    record.breakdowns, decisions_seen, family, record.winner
-                )
-                self.state.game_in_iter = game_idx + 1
-                self.state.games_per_sec = (game_idx + 1) / max(
-                    self.state.iter_elapsed(), 1e-6
-                )
-        return records
+    def _record_collected_game(self, record: collect.GameRecord) -> None:
+        """Fold one finished self-play game into the live dashboard state."""
+        with self.lock:
+            self.state.record_game(
+                record.breakdowns,
+                len(record.steps),
+                _family_counts(record),
+                record.winner,
+            )
+            self.state.game_in_iter += 1
+            self.state.games_per_sec = self.state.game_in_iter / max(
+                self.state.iter_elapsed(), 1e-6
+            )
 
     def _maybe_evaluate(
         self, iteration: int

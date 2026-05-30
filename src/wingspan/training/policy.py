@@ -32,10 +32,7 @@ def sample_action(
 ) -> int:
     """Sample a choice index from the current policy (on-policy)."""
     probs = _policy_probs(net, device, state_vec, choice_feats, family_idx)
-    total = float(probs.sum())
-    if not np.isfinite(total) or total <= 0.0:
-        return rng.randrange(choice_feats.shape[0])
-    return _weighted_index(rng, (probs / total).tolist())
+    return sample_index_from_probs(probs, choice_feats.shape[0], rng)
 
 
 def greedy_action(
@@ -48,6 +45,19 @@ def greedy_action(
     """Pick the argmax choice index — deterministic strength play."""
     probs = _policy_probs(net, device, state_vec, choice_feats, family_idx)
     return int(np.argmax(probs))
+
+
+def sample_index_from_probs(
+    probs: np.ndarray, n_choices: int, rng: random.Random
+) -> int:
+    """Sample a choice index from a 1-D probability vector with the seeded
+    ``rng``. Falls back to a uniform pick when the policy row is degenerate
+    (non-finite or all-zero). Factored out so batched collection can sample
+    from server-computed probabilities with exactly the single-decision rule."""
+    total = float(probs.sum())
+    if not np.isfinite(total) or total <= 0.0:
+        return rng.randrange(n_choices)
+    return _weighted_index(rng, (probs / total).tolist())
 
 
 ###### PRIVATE #######
