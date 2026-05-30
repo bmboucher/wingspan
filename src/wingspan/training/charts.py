@@ -44,14 +44,14 @@ _GUTTER_W = 5  # "100%" (4) + "┤" tick
 _BOTTOM_ROWS = 3  # axis ruler + iteration labels + caption/legend
 _INSET_W = 28  # docked eval inset width
 _INSET_MIN_WIDTH = 96  # below this the inset moves below the axis
-_Y_LABELS = (100, 80, 60, 40, 20, 0)
-
-# Series ids / priority (lower id wins a shared cell).
-_WIN = 0
-_MARGIN = 1
-_LOSS = 2
-_OWNER_GRID = -2
-_OWNER_BEACON = -3
+_Y_LABELS = (100, 80, 60, 40, 20, 0)  # win-rate axis percent gridlines
+_POINTS_AXIS_TICKS = 5  # gridline count on the auto-scaled points axis
+# Once a run exceeds this many iterations the convergence charts show only the
+# most recent ``CHART_WINDOW`` iterations (a sliding x-axis window) so the
+# early, noisy climb stops compressing the live trend. The in-memory history cap
+# (``config.history_len``) is comfortably larger, so a resumed run repaints the
+# full window from the restored history.
+CHART_WINDOW = 500
 
 
 # ---------------------------------------------------------------------------
@@ -145,13 +145,15 @@ class BrailleCanvas:
 
 
 # ---------------------------------------------------------------------------
-# Convergence chart
+# Convergence charts (win-rate hero + self-play points / margin)
 
 
-class ConvergenceChart:
-    """The HERO panel body: win-rate-vs-random (dominant) with eval-margin and
-    loss as dim secondary overlays, axes, a 100% target line, a pulsing
-    leading-edge beacon, and a docked eval inset."""
+class WinRateChart:
+    """The left HERO panel body: win-rate-vs-opponent on a fixed 0..100 axis,
+    a 100% target gridline, a pulsing leading-edge beacon, and a docked eval
+    inset (the cinematic hero win-rate number) that falls back to a one-line
+    strip when the panel is too narrow. The win-rate sawtooths back down each
+    time the reference opponent is advanced (it climbs vs a stronger self)."""
 
     def __init__(self, state: runstate.RunState, frame: int):
         self.state = state
@@ -174,12 +176,21 @@ class ConvergenceChart:
             yield text.Text("  collecting data…", style=theme.TEXT_MUTED)
             return
 
-        win = _series(self.state.history, "win")
-        margin = _series(self.state.history, "margin")
-        loss = _series(self.state.history, "loss")
+        it_lo, it_hi = _chart_window(self.state.history)
+        win = _windowed_series(self.state.history, "win", it_lo)
+        canvas = BrailleCanvas(plot_cols, plot_rows, 1)
+        _draw_series(canvas, 0, win, it_lo, it_hi, 0.0, 100.0, dotted=False)
+        beacon = _beacon_cell(canvas, win, it_lo, it_hi, 0.0, 100.0)
 
-        lines = self._plot_lines(plot_cols, plot_rows, win, margin, loss)
-        lines.extend(self._axis_lines(plot_cols))
+        lines = _render_plot_grid(
+            canvas,
+            {0: theme.WIN_COLOR},
+            _percent_label_rows(plot_rows),
+            beacon,
+            self._beacon_color(),
+            target_row=0,
+        )
+        lines.extend(_axis_lines(it_lo, it_hi, plot_cols, _winrate_caption()))
 
         if inset:
             inset_lines = _eval_inset(self.state, len(lines))
@@ -192,97 +203,162 @@ class ConvergenceChart:
                 yield segment.Segment.line()
             yield line
 
-    # -- plot body ---------------------------------------------------------
+    def _beacon_color(self) -> str:
+        return theme.BEACON_B if self.frame % 2 else theme.BEACON_A
 
-    def _plot_lines(
-        self,
-        cols: int,
-        rows: int,
-        win: list[tuple[int, float]],
-        margin: list[tuple[int, float]],
-        loss: list[tuple[int, float]],
-    ) -> list[text.Text]:
-        canvas = BrailleCanvas(cols, rows, 3)
-        it_lo, it_hi = _iteration_span(win, margin, loss)
 
-        # win-rate: fixed 0..100 axis, solid, dominant.
-        _draw_series(canvas, _WIN, win, it_lo, it_hi, 0.0, 100.0, dotted=False)
-        # eval margin: auto-scaled full height, dotted dim teal.
-        m_lo, m_hi = _value_span([value for _, value in margin], symmetric=True)
-        _draw_series(canvas, _MARGIN, margin, it_lo, it_hi, m_lo, m_hi, dotted=True)
-        # loss: min-max normalized into the lower third only, dotted clay.
-        loss_lower = _into_lower_third(loss, canvas.dot_h)
-        _draw_series(canvas, _LOSS, loss_lower, it_lo, it_hi, 0.0, 1.0, dotted=True)
+class PointsChart:
+    """The right HERO panel body: average self-play points per game (solid,
+    dominant) and the eval score-margin (dotted) on a shared, auto-scaled point
+    axis — the two point-valued series the win-rate panel can't show on its
+    0..100% axis. Average points is the headline "how good is the play" signal
+    (competitive Wingspan ends north of 100); a one-line readout sits beneath
+    the axis."""
 
-        beacon_cell = _beacon_cell(canvas, win, it_lo, it_hi)
-        return self._render_grid(canvas, beacon_cell)
+    def __init__(self, state: runstate.RunState, frame: int):
+        self.state = state
+        self.frame = frame
 
-    def _render_grid(
-        self, canvas: BrailleCanvas, beacon_cell: tuple[int, int] | None
-    ) -> list[text.Text]:
-        series_color = {
-            _WIN: theme.WIN_COLOR,
-            _MARGIN: theme.MARGIN_COLOR,
-            _LOSS: theme.LOSS_COLOR,
-        }
-        label_rows = _y_label_rows(canvas.rows)
-        beacon_color = theme.BEACON_B if self.frame % 2 else theme.BEACON_A
-
-        lines: list[text.Text] = []
-        for row in range(canvas.rows):
-            line = text.Text(no_wrap=True, end="")
-            line.append(_gutter(row, label_rows), style=theme.AXIS)
-            run = ""
-            run_color = ""
-            for col in range(canvas.cols):
-                char, owner = canvas.cell(row, col)
-                if beacon_cell == (row, col):
-                    char, color = "●", beacon_color
-                elif owner >= 0:
-                    color = series_color[owner]
-                elif row == 0 and char == " ":
-                    char, color = "┄", theme.TARGET_GRID  # 100% target gridline
-                else:
-                    color = theme.AXIS
-                if color != run_color:
-                    if run:
-                        line.append(run, style=run_color)
-                    run, run_color = char, color
-                else:
-                    run += char
-            if run:
-                line.append(run, style=run_color)
-            lines.append(line)
-        return lines
-
-    # -- axis + caption ----------------------------------------------------
-
-    def _axis_lines(self, cols: int) -> list[text.Text]:
-        n_ticks = max(2, min(12, cols // 8))
-        tick_cols = [round(i * (cols - 1) / (n_ticks - 1)) for i in range(n_ticks)]
-
-        ruler = text.Text(no_wrap=True, end="")
-        ruler.append(" " * (_GUTTER_W - 1) + "└", style=theme.AXIS)
-        ruler.append(
-            "".join("┬" if col in tick_cols else "─" for col in range(cols)),
-            style=theme.AXIS,
+    def __rich_console__(
+        self, console: rich_console.Console, options: rich_console.ConsoleOptions
+    ) -> rich_console.RenderResult:
+        width = options.max_width
+        height = (
+            options.height if options.height is not None else (options.max_height or 16)
         )
+        plot_cols = width - _GUTTER_W
+        plot_rows = height - _BOTTOM_ROWS - 1  # one readout strip line
 
-        max_it = self.state.history[-1].iteration if self.state.history else 0
-        labels = text.Text(no_wrap=True, end="")
-        labels.append(" " * _GUTTER_W, style=theme.AXIS)
-        labels.append(_tick_labels(tick_cols, cols, max_it), style=theme.TEXT_MUTED)
+        it_lo, it_hi = _chart_window(self.state.history)
+        points = _windowed_series(self.state.history, "points", it_lo)
+        margin = _windowed_series(self.state.history, "margin", it_lo)
+        if plot_cols < 20 or plot_rows < 5 or (not points and not margin):
+            yield text.Text("  collecting data…", style=theme.TEXT_MUTED)
+            return
 
-        caption = text.Text(no_wrap=True, end="")
-        caption.append(" " * _GUTTER_W)
-        caption.append("win% ", style=theme.WIN_COLOR)
-        caption.append("· ", style=theme.AXIS)
-        caption.append("margin ", style=theme.MARGIN_COLOR)
-        caption.append("· ", style=theme.AXIS)
-        caption.append("loss ", style=theme.LOSS_COLOR)
-        caption.append("· climbs toward the ", style=theme.AXIS)
-        caption.append("100% target", style=theme.TARGET_GRID)
-        return [ruler, labels, caption]
+        v_lo, v_hi = _value_span_padded(
+            [value for _, value in points] + [value for _, value in margin]
+        )
+        canvas = BrailleCanvas(plot_cols, plot_rows, 2)
+        _draw_series(canvas, 0, points, it_lo, it_hi, v_lo, v_hi, dotted=False)
+        _draw_series(canvas, 1, margin, it_lo, it_hi, v_lo, v_hi, dotted=True)
+        beacon = _beacon_cell(canvas, points, it_lo, it_hi, v_lo, v_hi)
+
+        lines = _render_plot_grid(
+            canvas,
+            {0: theme.POINTS_COLOR, 1: theme.MARGIN_COLOR},
+            _auto_label_rows(plot_rows, v_lo, v_hi),
+            beacon,
+            theme.BEACON_B if self.frame % 2 else theme.BEACON_A,
+            target_row=None,
+        )
+        lines.extend(_axis_lines(it_lo, it_hi, plot_cols, _points_caption()))
+        lines.extend(_points_strip(self.state))
+
+        for i, line in enumerate(lines):
+            if i:
+                yield segment.Segment.line()
+            yield line
+
+
+# -- shared plot grid + axis -------------------------------------------------
+
+
+def _render_plot_grid(
+    canvas: BrailleCanvas,
+    series_color: dict[int, str],
+    label_rows: dict[int, str],
+    beacon_cell: tuple[int, int] | None,
+    beacon_color: str,
+    target_row: int | None,
+) -> list[text.Text]:
+    """Paint the braille canvas into colored text rows with a left value gutter,
+    an optional dotted target gridline on ``target_row``, and the leading-edge
+    beacon. Adjacent same-color cells are batched into one styled run."""
+    lines: list[text.Text] = []
+    for row in range(canvas.rows):
+        line = text.Text(no_wrap=True, end="")
+        line.append(_gutter(row, label_rows), style=theme.AXIS)
+        run = ""
+        run_color = ""
+        for col in range(canvas.cols):
+            char, owner = canvas.cell(row, col)
+            if beacon_cell == (row, col):
+                char, color = "●", beacon_color
+            elif owner >= 0:
+                color = series_color[owner]
+            elif target_row is not None and row == target_row and char == " ":
+                char, color = "┄", theme.TARGET_GRID
+            else:
+                color = theme.AXIS
+            if color != run_color:
+                if run:
+                    line.append(run, style=run_color)
+                run, run_color = char, color
+            else:
+                run += char
+        if run:
+            line.append(run, style=run_color)
+        lines.append(line)
+    return lines
+
+
+def _axis_lines(
+    it_lo: int, it_hi: int, cols: int, caption: text.Text
+) -> list[text.Text]:
+    """The shared bottom three rows: the tick ruler, the iteration labels, and
+    a chart-specific ``caption`` legend row. The labels span the displayed
+    ``[it_lo, it_hi]`` iteration window so they track the sliding x-axis."""
+    n_ticks = max(2, min(12, cols // 8))
+    tick_cols = [round(i * (cols - 1) / (n_ticks - 1)) for i in range(n_ticks)]
+
+    ruler = text.Text(no_wrap=True, end="")
+    ruler.append(" " * (_GUTTER_W - 1) + "└", style=theme.AXIS)
+    ruler.append(
+        "".join("┬" if col in tick_cols else "─" for col in range(cols)),
+        style=theme.AXIS,
+    )
+
+    labels = text.Text(no_wrap=True, end="")
+    labels.append(" " * _GUTTER_W, style=theme.AXIS)
+    labels.append(_tick_labels(tick_cols, cols, it_lo, it_hi), style=theme.TEXT_MUTED)
+
+    return [ruler, labels, caption]
+
+
+def _winrate_caption() -> text.Text:
+    caption = text.Text(no_wrap=True, end="")
+    caption.append(" " * _GUTTER_W)
+    caption.append("win% ", style=theme.WIN_COLOR)
+    caption.append("· climbs toward the ", style=theme.AXIS)
+    caption.append("100% target", style=theme.TARGET_GRID)
+    return caption
+
+
+def _points_caption() -> text.Text:
+    caption = text.Text(no_wrap=True, end="")
+    caption.append(" " * _GUTTER_W)
+    caption.append("self-play pts ", style=theme.POINTS_COLOR)
+    caption.append("· ", style=theme.AXIS)
+    caption.append("eval margin", style=theme.MARGIN_COLOR)
+    return caption
+
+
+def _points_strip(state: runstate.RunState) -> list[text.Text]:
+    """A one-line readout of the latest average self-play points and eval margin."""
+    line = text.Text(no_wrap=True, end="")
+    line.append(" " * _GUTTER_W)
+    if state.last_iter is None:
+        line.append("points: awaiting first iteration…", style=theme.TEXT_MUTED)
+        return [line]
+    line.append("avg ", style=theme.TEXT_MUTED)
+    line.append(f"{state.last_iter.avg_self_score:.1f} pts", style=theme.POINTS_COLOR)
+    last_eval = _latest_eval(state)
+    if last_eval is not None:
+        _, result = last_eval
+        line.append("   eval margin ", style=theme.TEXT_MUTED)
+        line.append(f"{result.mean_margin:+.1f}", style=theme.MARGIN_COLOR)
+    return [line]
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +426,9 @@ class FamilyHistogram:
 def _series(
     history: list[metrics.IterationMetrics], kind: str
 ) -> list[tuple[int, float]]:
-    """``(iteration, value)`` points for one chart series."""
+    """``(iteration, value)`` points for one chart series. ``win`` and ``margin``
+    only have a point on iterations that ran an eval; ``points`` (average
+    self-play score) has one on every iteration."""
     points: list[tuple[int, float]] = []
     for item in history:
         if kind == "win":
@@ -359,42 +437,42 @@ def _series(
         elif kind == "margin":
             if item.eval is not None:
                 points.append((item.iteration, item.eval.mean_margin))
-        else:  # loss
-            points.append((item.iteration, item.loss))
+        else:  # points — average self-play score per game
+            points.append((item.iteration, item.avg_self_score))
     return points
 
 
-def _iteration_span(
-    *series: list[tuple[int, float]],
-) -> tuple[int, int]:
-    iters = [it for points in series for it, _ in points]
-    if not iters:
+def _windowed_series(
+    history: list[metrics.IterationMetrics], kind: str, it_lo: int
+) -> list[tuple[int, float]]:
+    """``_series`` filtered to the sliding window: only points at or after
+    ``it_lo`` (the start of the displayed iteration range)."""
+    return [(it, value) for it, value in _series(history, kind) if it >= it_lo]
+
+
+def _chart_window(history: list[metrics.IterationMetrics]) -> tuple[int, int]:
+    """The ``(it_lo, it_hi)`` iteration range the convergence charts display: the
+    most recent ``CHART_WINDOW`` iterations, so the x-axis slides once the run
+    grows past the window instead of compressing the whole history into the
+    panel. Both hero charts share this range so they stay aligned."""
+    if not history:
         return (0, 1)
-    lo, hi = min(iters), max(iters)
-    return (lo, hi if hi > lo else lo + 1)
+    it_hi = history[-1].iteration
+    it_lo = max(history[0].iteration, it_hi - CHART_WINDOW + 1)
+    return (it_lo, it_hi if it_hi > it_lo else it_lo + 1)
 
 
-def _value_span(values: list[float], symmetric: bool = False) -> tuple[float, float]:
+def _value_span_padded(values: list[float]) -> tuple[float, float]:
+    """An auto-scaled ``(lo, hi)`` axis range for the points chart, with a small
+    margin above and below so the topmost / bottommost line is not flush against
+    the panel edge."""
     if not values:
         return (0.0, 1.0)
     lo, hi = min(values), max(values)
-    if symmetric:
-        bound = max(abs(lo), abs(hi), 1.0)
-        return (-bound, bound)
-    return (lo, hi) if hi > lo else (lo - 1.0, hi + 1.0)
-
-
-def _into_lower_third(
-    loss: list[tuple[int, float]], dot_h: int
-) -> list[tuple[int, float]]:
-    """Map loss into the lower third of the canvas as a 0..1 fraction (1 = top
-    of the lower third), so it never competes with the win-rate curve."""
-    if not loss:
-        return []
-    values = [value for _, value in loss]
-    lo, hi = min(values), max(values)
-    span = hi - lo if hi > lo else 1.0
-    return [(it, (value - lo) / span / 3.0) for it, value in loss]
+    if hi <= lo:
+        return (lo - 1.0, hi + 1.0)
+    pad = (hi - lo) * 0.08
+    return (lo - pad, hi + pad)
 
 
 def _draw_series(
@@ -437,32 +515,47 @@ def _to_dot(
 
 def _beacon_cell(
     canvas: BrailleCanvas,
-    win: list[tuple[int, float]],
+    points: list[tuple[int, float]],
     it_lo: int,
     it_hi: int,
+    v_lo: float,
+    v_hi: float,
 ) -> tuple[int, int] | None:
-    if not win:
+    """The ``(row, col)`` of the leading edge of ``points`` on ``canvas``'s value
+    axis, for the pulsing beacon (None if the series is empty)."""
+    if not points:
         return None
-    px, py = _to_dot(canvas, win[-1][0], win[-1][1], it_lo, it_hi, 0.0, 100.0)
+    px, py = _to_dot(canvas, points[-1][0], points[-1][1], it_lo, it_hi, v_lo, v_hi)
     return (py // 4, px // 2)
 
 
-def _y_label_rows(rows: int) -> dict[int, int]:
-    """Map plot-row index -> percent label for the left gutter."""
-    return {round((1 - pct / 100) * (rows - 1)): pct for pct in _Y_LABELS}
+def _percent_label_rows(rows: int) -> dict[int, str]:
+    """Map plot-row index -> percent gutter label for the fixed 0..100% axis."""
+    return {round((1 - pct / 100) * (rows - 1)): f"{pct}%" for pct in _Y_LABELS}
 
 
-def _gutter(row: int, label_rows: dict[int, int]) -> str:
-    if row in label_rows:
-        return f"{label_rows[row]:>3d}%┤"
-    return "    ┤"
+def _auto_label_rows(rows: int, lo: float, hi: float) -> dict[int, str]:
+    """Map plot-row index -> integer gutter label for an auto-scaled value axis."""
+    labels: dict[int, str] = {}
+    for tick in range(_POINTS_AXIS_TICKS):
+        frac = tick / (_POINTS_AXIS_TICKS - 1)
+        value = lo + frac * (hi - lo)
+        labels[round((1 - frac) * (rows - 1))] = f"{value:.0f}"
+    return labels
 
 
-def _tick_labels(tick_cols: list[int], cols: int, max_it: int) -> str:
-    """A row of right-spaced iteration numbers beneath the axis ticks."""
+def _gutter(row: int, label_rows: dict[int, str]) -> str:
+    """The 5-cell left gutter for ``row``: a right-justified value label + tick."""
+    return f"{label_rows.get(row, ''):>4}┤"
+
+
+def _tick_labels(tick_cols: list[int], cols: int, it_lo: int, it_hi: int) -> str:
+    """A row of right-spaced iteration numbers beneath the axis ticks, spanning
+    the displayed ``[it_lo, it_hi]`` window."""
     chars = [" "] * cols
+    span = it_hi - it_lo
     for col in tick_cols:
-        iteration = round(col / max(cols - 1, 1) * max_it)
+        iteration = it_lo + round(col / max(cols - 1, 1) * span)
         label = str(iteration)
         start = min(col, cols - len(label))
         for offset, char in enumerate(label):

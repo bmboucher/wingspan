@@ -3,12 +3,13 @@
 ``build_layout`` creates the five-band "FLYWAY CONTROL" skeleton once;
 ``render`` repaints it from a :class:`runstate.RunState` snapshot each frame.
 The bands, top to bottom, read as a guided narrative: WHERE AM I (header) ->
-WHAT IT'S PRODUCING / WHAT IT'S LEARNING (middle) -> IS IT GETTING BETTER
-(the gold-bordered hero convergence chart) -> DIAGNOSTICS (health + events).
+WHAT IT'S PRODUCING / WHAT IT'S LEARNING (middle) -> IS IT GETTING BETTER /
+HOW STRONG IS THE PLAY (the gold-bordered hero band, split into the win-rate
+and the self-play-points charts) -> DIAGNOSTICS (health + events).
 
 Two band-specific micro-renderables live here because they must fill the full
 panel width every refresh: the phase-colored status LED rule and the stacked
-six-component score bar. The two big charts come from :mod:`charts`.
+six-component score bar. The two hero charts come from :mod:`charts`.
 """
 
 from __future__ import annotations
@@ -45,6 +46,12 @@ def build_layout() -> layout.Layout:
         layout.Layout(name="produce", ratio=58),
         layout.Layout(name="learning", ratio=42, minimum_size=42),
     )
+    # The hero band is two side-by-side charts: win-rate (its own 0..100% axis)
+    # and self-play points / eval margin (a shared, auto-scaled point axis).
+    root["headline"].split_row(
+        layout.Layout(name="winrate", ratio=1),
+        layout.Layout(name="points", ratio=1),
+    )
     root["footer"].split_row(
         layout.Layout(name="health", ratio=40),
         layout.Layout(name="events", ratio=60),
@@ -58,7 +65,8 @@ def render(root: layout.Layout, state: runstate.RunState, frame: int) -> None:
     root["system"].update(_system(state))
     root["produce"].update(_produce(state))
     root["learning"].update(_learning(state))
-    root["headline"].update(_headline(state, frame))
+    root["winrate"].update(_winrate_panel(state, frame))
+    root["points"].update(_points_panel(state, frame))
     root["health"].update(_health(state))
     root["events"].update(_events(state))
 
@@ -302,30 +310,38 @@ def _mem_color(pct: float) -> str:
 
 
 def _produce(state: runstate.RunState) -> panel.Panel:
-    avg = state.avg_breakdown()
-    total_line = table.Table.grid(expand=True)
-    total_line.add_column(justify="left")
-    total_line.add_column(justify="right")
-    total_value = text.Text(no_wrap=True, end="")
-    total_value.append("TOTAL  ", style=theme.TEXT_MUTED)
-    total_value.append(f"{avg.total:.1f}", style=f"bold {theme.TEXT_BRIGHT}")
-    total_value.append(" pts/game", style=theme.TEXT_MUTED)
-    game_len = text.Text(no_wrap=True, end="")
-    game_len.append("avg game  ", style=theme.TEXT_MUTED)
-    game_len.append(f"{state.avg_decisions():.0f}", style=theme.TEXT_PRIMARY)
-    game_len.append(" decisions", style=theme.TEXT_MUTED)
-    total_line.add_row(total_value, game_len)
+    stats = state.produce_stats()
+    body: rich_console.RenderableType
+    if stats is None:
+        body = text.Text("awaiting first game…", style=theme.TEXT_MUTED)
+    else:
+        total_line = table.Table.grid(expand=True)
+        total_line.add_column(justify="left")
+        total_line.add_column(justify="right")
+        total_value = text.Text(no_wrap=True, end="")
+        total_value.append("TOTAL  ", style=theme.TEXT_MUTED)
+        total_value.append(
+            f"{stats.breakdown.total:.1f}", style=f"bold {theme.TEXT_BRIGHT}"
+        )
+        total_value.append(" pts/game", style=theme.TEXT_MUTED)
+        won_value = text.Text(no_wrap=True, end="")
+        won_value.append("winners  ", style=theme.TEXT_MUTED)
+        won_value.append(
+            f"{stats.winner_breakdown.total:.1f}", style=theme.TEXT_PRIMARY
+        )
+        won_value.append(" pts", style=theme.TEXT_MUTED)
+        total_line.add_row(total_value, won_value)
 
-    body = rich_console.Group(
-        total_line,
-        _StackedBar(avg),
-        _legend_table(avg),
-        _produce_footer(state),
-    )
+        body = rich_console.Group(
+            total_line,
+            _StackedBar(stats.breakdown),
+            _legend_table(stats),
+            _produce_footer(state, stats),
+        )
     return panel.Panel(
         body,
         title="[b]WHAT THE AI IS PRODUCING[/b]",
-        subtitle="average final score, split into its six sources",
+        subtitle="recent (EWMA) score by source · all games vs winners only",
         title_align="left",
         subtitle_align="left",
         box=box.ROUNDED,
@@ -358,40 +374,58 @@ class _StackedBar:
         yield bar
 
 
-def _legend_table(avg: metrics.ScoreBreakdown) -> table.Table:
-    components = avg.components()
+def _legend_table(stats: metrics.ProduceStats) -> table.Table:
+    """Per-source legend with two pts / share groups side by side: the all-game
+    average (left) and the same split conditioned on just the winning seat
+    (right), so the sources that separate winners from losers stand out."""
+    overall = stats.breakdown.components()
+    winner = dict(stats.winner_breakdown.components())
+    overall_total = stats.breakdown.total or 1.0
+    winner_total = stats.winner_breakdown.total or 1.0
     grid = table.Table.grid(padding=(0, 1))
     grid.add_column()  # swatch
     grid.add_column()  # name
-    grid.add_column(justify="right")  # pts
-    grid.add_column(justify="right")  # share
-    total = avg.total or 1.0
-    for name, value in components:
+    grid.add_column(justify="right")  # all-game pts
+    grid.add_column(justify="right")  # all-game share
+    grid.add_column(justify="right")  # winner pts
+    grid.add_column(justify="right")  # winner share
+    grid.add_row(
+        text.Text(""),
+        text.Text(""),
+        text.Text("all", style=theme.TEXT_MUTED),
+        text.Text(""),
+        text.Text("won", style=theme.TEXT_MUTED),
+        text.Text(""),
+    )
+    for name, value in overall:
         color = theme.SCORE_COLOR[name]
+        won = winner.get(name, 0.0)
         grid.add_row(
             text.Text("■", style=color),
             text.Text(name, style=theme.TEXT_PRIMARY),
             text.Text(f"{value:>4.1f} pts", style=theme.TEXT_PRIMARY),
-            text.Text(f"{value / total * 100:>4.1f}%", style=theme.TEXT_MUTED),
+            text.Text(f"{value / overall_total * 100:>4.1f}%", style=theme.TEXT_MUTED),
+            text.Text(f"{won:>4.1f} pts", style=theme.TEXT_DIM2),
+            text.Text(f"{won / winner_total * 100:>4.1f}%", style=theme.TEXT_MUTED),
         )
     return grid
 
 
-def _produce_footer(state: runstate.RunState) -> text.Text:
+def _produce_footer(state: runstate.RunState, stats: metrics.ProduceStats) -> text.Text:
     lo = state.game_len_min if state.game_len_min is not None else 0
     hi = state.game_len_max if state.game_len_max is not None else 0
     out = text.Text(no_wrap=True, end="")
     out.append("game length ", style=theme.TEXT_MUTED)
-    out.append(f"{state.avg_decisions():.0f}", style=theme.TEXT_PRIMARY)
+    out.append(f"{stats.decisions:.0f}", style=theme.TEXT_PRIMARY)
     out.append(f" dec/game  (range {lo}–{hi})\n", style=theme.TEXT_MUTED)
     out.append("score margin ", style=theme.TEXT_MUTED)
-    out.append(f"{state.avg_margin():+.1f}", style=theme.TEXT_PRIMARY)
+    out.append(f"{stats.margin:+.1f}", style=theme.TEXT_PRIMARY)
     out.append(" self−opp   σ ", style=theme.TEXT_MUTED)
-    out.append(f"{state.margin_std():.1f}\n", style=theme.TEXT_DIM2)
+    out.append(f"{stats.margin_std:.1f}\n", style=theme.TEXT_DIM2)
     out.append("winning margin ", style=theme.TEXT_MUTED)
-    out.append(f"{state.avg_abs_margin():.1f}", style=theme.TEXT_PRIMARY)
+    out.append(f"{stats.abs_margin:.1f}", style=theme.TEXT_PRIMARY)
     out.append(" |self−opp|   σ ", style=theme.TEXT_MUTED)
-    out.append(f"{state.abs_margin_std():.1f}", style=theme.TEXT_DIM2)
+    out.append(f"{stats.abs_margin_std:.1f}", style=theme.TEXT_DIM2)
     return out
 
 
@@ -417,20 +451,39 @@ def _learning(state: runstate.RunState) -> panel.Panel:
     )
 
 
-#### Headline band — convergence chart ####
+#### Headline band — convergence charts ####
 
 
-def _headline(state: runstate.RunState, frame: int) -> panel.Panel:
+def _winrate_panel(state: runstate.RunState, frame: int) -> panel.Panel:
     return panel.Panel(
-        charts.ConvergenceChart(state, frame),
+        charts.WinRateChart(state, frame),
         title="[b]IS IT GETTING BETTER?[/b]",
-        subtitle="win rate vs a random opponent · higher is better",
+        subtitle=f"win rate vs {_opponent_label(state)} · higher is better",
         title_align="left",
         subtitle_align="left",
         box=box.HEAVY,
         border_style=theme.BORDER_HEADLINE,
         padding=(0, 1),
     )
+
+
+def _points_panel(state: runstate.RunState, frame: int) -> panel.Panel:
+    return panel.Panel(
+        charts.PointsChart(state, frame),
+        title="[b]HOW STRONG IS THE PLAY?[/b]",
+        subtitle="avg self-play points & eval margin · climbing toward 100+",
+        title_align="left",
+        subtitle_align="left",
+        box=box.HEAVY,
+        border_style=theme.BORDER_HEADLINE,
+        padding=(0, 1),
+    )
+
+
+def _opponent_label(state: runstate.RunState) -> str:
+    """How the current reference opponent reads in the win-rate subtitle."""
+    gen = state.opponent_generation
+    return "a random opponent" if gen == 0 else f"a frozen self · gen {gen}"
 
 
 #### Footer band — health + events ####

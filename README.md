@@ -79,6 +79,29 @@ and a metrics log are written to the checkpoint directory (`checkpoints/` by
 default; change it with `--checkpoint-dir`), and runs are resumable. Pass
 `--iterations N` to stop automatically after N rounds instead.
 
+### Configure a run
+
+```
+python -m wingspan.training --config            # interactive "FLIGHT PLAN" configurator
+```
+
+`--config` opens a full-screen pre-flight screen for tuning every
+hyperparameter (learning rate, games/iteration, evaluation cadence, network
+width, …) and managing the runs already in the checkpoint directory. Arrow keys
+move between fields, ←/→ nudge a value (or cycle a choice), and Enter edits one
+directly; every value is validated as you type. The screen shows whether the
+directory holds a resumable run and flags which edits would force a fresh start
+(changing the network width can't reuse old weights). From there:
+
+- **Start** resumes a compatible run, or starts a fresh one in an empty
+  directory.
+- **New run** (or starting after an incompatible edit) prompts you to
+  **archive** the existing run to `checkpoints/archive/<label>/` — preserving
+  its checkpoints, metrics, and log — before the new run begins, so a long
+  training run is never silently overwritten.
+
+Starting or resuming transitions straight into the FLYWAY CONTROL dashboard.
+
 A simpler one-shot cycle is also available — it plays a batch of self-play
 games, runs a single training update starting from random weights, and saves a
 checkpoint:

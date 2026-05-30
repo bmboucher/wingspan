@@ -143,7 +143,7 @@ def test_dashboard_renders_populated_state(width: int):
     family = metrics.FamilyCounts()
     for index in range(140):
         family.bump(index % len(decisions.ALL_DECISION_FAMILIES))
-    state.record_game((breakdown, breakdown), 140, family)
+    state.record_game((breakdown, breakdown), 140, family, winner=0)
     iteration = _sample_iteration(breakdown)
     state.history.append(iteration)
     state.last_iter = iteration
@@ -194,7 +194,7 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
         games_per_iter=2,
         max_iterations=1,
         eval_every=1,
-        eval_games=1,
+        eval_games=2,
         hidden=32,
         checkpoint_dir=str(tmp_path),
     )
@@ -224,7 +224,7 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
         games_per_iter=2,
         max_iterations=1,
         eval_every=1,
-        eval_games=1,
+        eval_games=2,
         hidden=32,
         checkpoint_dir=str(tmp_path),
     )
@@ -233,6 +233,7 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     games = first.state.total_games
     last_iter = first.state.iteration
     best = first.state.best_win_rate
+    elapsed = first.state.elapsed()
     assert (tmp_path / "last.pt").exists()
 
     # A fresh loop on the same dir restores progress instead of starting at zero.
@@ -241,6 +242,13 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     assert resumed.state.iteration == last_iter
     assert resumed.state.best_win_rate == best
     assert resumed.state.history  # convergence chart history carried over
+    # The dashboard reopens with the prior clock and event log, not from scratch:
+    # the T+ chronometer resumes from the checkpointed elapsed (saved mid-iteration,
+    # so at most the first run's final elapsed), and the events ring carries the
+    # first run's "run started" line plus the new "resumed" line on top of it.
+    assert 0.0 < resumed.state.elapsed_offset <= elapsed
+    assert any("run started" in line.text for line in resumed.state.events)
+    assert any("resumed" in line.text for line in resumed.state.events)
 
     resumed.run()  # one more iteration continues the counts from the checkpoint
     assert resumed.state.total_games == games + cfg.games_per_iter

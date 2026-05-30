@@ -80,6 +80,13 @@ class RunProgress(pydantic.BaseModel):
     iteration: int = 0
     total_games: int = 0
     total_decisions: int = 0
+    # Wall-clock seconds the run had already accumulated at checkpoint time, so
+    # the dashboard's ``T+`` chronometer resumes where it left off instead of
+    # restarting at zero.
+    elapsed_seconds: float = 0.0
+    # The recent-events ring, so the RECENT EVENTS panel reopens with its log
+    # rather than empty.
+    events: list[EventLine] = pydantic.Field(default_factory=_new_events)
     cum_breakdown: metrics.ScoreBreakdown = pydantic.Field(
         default_factory=metrics.ScoreBreakdown
     )
@@ -92,9 +99,14 @@ class RunProgress(pydantic.BaseModel):
     cum_margin_sum: float = 0.0
     cum_margin_sq: float = 0.0
     cum_abs_margin_sum: float = 0.0
+    cum_winner_breakdown: metrics.ScoreBreakdown = pydantic.Field(
+        default_factory=metrics.ScoreBreakdown
+    )
+    cum_decided_games: int = 0
     game_len_min: int | None = None
     game_len_max: int | None = None
     best_win_rate: float | None = None
+    opponent_generation: int = 0
     last_iter: metrics.IterationMetrics | None = None
     history: list[metrics.IterationMetrics] = pydantic.Field(
         default_factory=_new_history
@@ -112,14 +124,18 @@ class RunState(pydantic.BaseModel):
     start_monotonic: float
     iter_start_monotonic: float
     stopped_monotonic: float | None = None
+    # Wall-clock seconds carried over from previous sessions (restored from a
+    # checkpoint on resume), added to the live ``now - start`` so ``T+`` counts
+    # total run time across restarts rather than just this session's.
+    elapsed_offset: float = 0.0
 
     # Live counters.
     iteration: int = 0
     game_in_iter: int = 0
     games_in_iter: int = 0
-    # During an EVALUATING phase these track held-out eval games (out of
-    # 2 * eval_games) so the header progress bar reports eval progress instead
-    # of the already-finished collection's counts.
+    # During an EVALUATING phase these track held-out eval games (out of the
+    # block's 2 * eval_pairs games) so the header progress bar reports eval
+    # progress instead of the already-finished collection's counts.
     eval_game_in_iter: int = 0
     eval_games_in_iter: int = 0
     total_games: int = 0
@@ -139,6 +155,10 @@ class RunState(pydantic.BaseModel):
     cum_margin_sum: float = 0.0  # Σ (player0 − player1)
     cum_margin_sq: float = 0.0  # Σ (player0 − player1)^2
     cum_abs_margin_sum: float = 0.0  # Σ |player0 − player1| (winning margin)
+    cum_winner_breakdown: metrics.ScoreBreakdown = pydantic.Field(
+        default_factory=metrics.ScoreBreakdown
+    )  # Σ winning-seat score split over decided games
+    cum_decided_games: int = 0  # games with a winner (excludes ties)
     game_len_min: int | None = None
     game_len_max: int | None = None
 
@@ -148,6 +168,9 @@ class RunState(pydantic.BaseModel):
         default_factory=_new_history
     )
     best_win_rate: float | None = None
+    # Which reference opponent evals are currently played against (0 = random
+    # agent; advanced to a frozen past self each time the policy crushes it).
+    opponent_generation: int = 0
 
     events: list[EventLine] = pydantic.Field(default_factory=_new_events)
     error: str | None = None
@@ -163,8 +186,11 @@ class RunState(pydantic.BaseModel):
         breakdowns: tuple[metrics.ScoreBreakdown, metrics.ScoreBreakdown],
         decisions_seen: int,
         family: metrics.FamilyCounts,
+        winner: int,
     ) -> None:
-        """Fold one finished game into the cumulative aggregates."""
+        """Fold one finished game into the cumulative aggregates. ``winner`` is
+        the winning seat (0 or 1, or -1 for a tie) so the winning-seat score
+        split can be aggregated alongside the all-seats one."""
         self.cum_breakdown = self.cum_breakdown + breakdowns[0] + breakdowns[1]
         self.cum_player_games += 2
         self.cum_games += 1
@@ -174,6 +200,9 @@ class RunState(pydantic.BaseModel):
         self.cum_margin_sum += margin
         self.cum_margin_sq += margin * margin
         self.cum_abs_margin_sum += abs(margin)
+        if winner >= 0:
+            self.cum_winner_breakdown = self.cum_winner_breakdown + breakdowns[winner]
+            self.cum_decided_games += 1
         self.game_len_min = (
             decisions_seen
             if self.game_len_min is None
@@ -205,7 +234,7 @@ class RunState(pydantic.BaseModel):
         )
 
     def elapsed(self) -> float:
-        return max(0.0, self.now() - self.start_monotonic)
+        return self.elapsed_offset + max(0.0, self.now() - self.start_monotonic)
 
     def iter_elapsed(self) -> float:
         return max(0.0, self.now() - self.iter_start_monotonic)
@@ -244,17 +273,24 @@ class RunState(pydantic.BaseModel):
         return var**0.5 if var > 0 else 0.0
 
     def eval_ewma(self) -> metrics.EvalEwma | None:
-        """EWMA-smoothed eval win-rate and margin over every evaluation so far.
+        """EWMA-smoothed eval win-rate and margin against the *current* reference
+        opponent.
 
         Folds the eval blocks in ``history`` with ``config.eval_ewma_alpha`` so
-        the dashboard can damp the per-eval sampling noise; None until the first
-        eval lands.
+        the dashboard can damp the per-eval sampling noise. Only evals played
+        against the current ``opponent_generation`` are folded, so advancing the
+        opponent resets the trend to a fresh climb rather than carrying the old
+        opponent's saturated win-rate forward. None until the first eval against
+        the current opponent lands.
         """
         alpha = self.config.eval_ewma_alpha
         win: float | None = None
         margin: float | None = None
         for item in self.history:
-            if item.eval is None:
+            if (
+                item.eval is None
+                or item.eval.opponent_generation != self.opponent_generation
+            ):
                 continue
             if win is None or margin is None:
                 win, margin = item.eval.win_rate, item.eval.mean_margin
@@ -265,6 +301,52 @@ class RunState(pydantic.BaseModel):
             return None
         return metrics.EvalEwma(win_rate=win, mean_margin=margin)
 
+    def produce_stats(self) -> metrics.ProduceStats | None:
+        """The PRODUCING band's readouts: a per-iteration EWMA once at least one
+        iteration has finished, otherwise the cumulative average folded over the
+        games of the in-progress first iteration (so the panel is live from the
+        very first game). None only before any game has been recorded."""
+        return self._produce_ewma() or self._produce_cumulative()
+
+    def _produce_ewma(self) -> metrics.ProduceStats | None:
+        """EWMA of each iteration's outcome aggregates (None until iteration 1)."""
+        alpha = self.config.produce_ewma_alpha
+        breakdown: metrics.ScoreBreakdown | None = None
+        winner: metrics.ScoreBreakdown | None = None
+        decisions = margin = margin_sq = abs_margin = 0.0
+        for item in self.history:
+            if breakdown is None or winner is None:
+                breakdown, winner = item.avg_breakdown, item.avg_winner_breakdown
+                decisions, margin = item.avg_decisions, item.avg_margin
+                margin_sq, abs_margin = item.avg_margin_sq, item.avg_abs_margin
+            else:
+                breakdown = _ewma_breakdown(item.avg_breakdown, breakdown, alpha)
+                winner = _ewma_breakdown(item.avg_winner_breakdown, winner, alpha)
+                decisions = _ewma(item.avg_decisions, decisions, alpha)
+                margin = _ewma(item.avg_margin, margin, alpha)
+                margin_sq = _ewma(item.avg_margin_sq, margin_sq, alpha)
+                abs_margin = _ewma(item.avg_abs_margin, abs_margin, alpha)
+        if breakdown is None or winner is None:
+            return None
+        return _produce_stats(
+            breakdown, winner, decisions, margin, margin_sq, abs_margin
+        )
+
+    def _produce_cumulative(self) -> metrics.ProduceStats | None:
+        """Since-start average — the fallback shown mid-first-iteration."""
+        if self.cum_games == 0:
+            return None
+        breakdown = self.cum_breakdown.scaled(1.0 / max(self.cum_player_games, 1))
+        winner = self.cum_winner_breakdown.scaled(1.0 / max(self.cum_decided_games, 1))
+        return _produce_stats(
+            breakdown,
+            winner,
+            self.cum_decisions / max(self.cum_games, 1),
+            self.cum_margin_sum / max(self.cum_games, 1),
+            self.cum_margin_sq / max(self.cum_games, 1),
+            self.cum_abs_margin_sum / max(self.cum_games, 1),
+        )
+
     # ----- checkpoint resume -----
 
     def to_progress(self) -> RunProgress:
@@ -274,6 +356,8 @@ class RunState(pydantic.BaseModel):
             iteration=self.iteration,
             total_games=self.total_games,
             total_decisions=self.total_decisions,
+            elapsed_seconds=self.elapsed(),
+            events=list(self.events),
             cum_breakdown=self.cum_breakdown,
             cum_player_games=self.cum_player_games,
             cum_games=self.cum_games,
@@ -282,9 +366,12 @@ class RunState(pydantic.BaseModel):
             cum_margin_sum=self.cum_margin_sum,
             cum_margin_sq=self.cum_margin_sq,
             cum_abs_margin_sum=self.cum_abs_margin_sum,
+            cum_winner_breakdown=self.cum_winner_breakdown,
+            cum_decided_games=self.cum_decided_games,
             game_len_min=self.game_len_min,
             game_len_max=self.game_len_max,
             best_win_rate=self.best_win_rate,
+            opponent_generation=self.opponent_generation,
             last_iter=self.last_iter,
             history=self.history,
         )
@@ -295,6 +382,8 @@ class RunState(pydantic.BaseModel):
         self.iteration = progress.iteration
         self.total_games = progress.total_games
         self.total_decisions = progress.total_decisions
+        self.elapsed_offset = progress.elapsed_seconds
+        self.events = list(progress.events)
         self.cum_breakdown = progress.cum_breakdown
         self.cum_player_games = progress.cum_player_games
         self.cum_games = progress.cum_games
@@ -303,9 +392,12 @@ class RunState(pydantic.BaseModel):
         self.cum_margin_sum = progress.cum_margin_sum
         self.cum_margin_sq = progress.cum_margin_sq
         self.cum_abs_margin_sum = progress.cum_abs_margin_sum
+        self.cum_winner_breakdown = progress.cum_winner_breakdown
+        self.cum_decided_games = progress.cum_decided_games
         self.game_len_min = progress.game_len_min
         self.game_len_max = progress.game_len_max
         self.best_win_rate = progress.best_win_rate
+        self.opponent_generation = progress.opponent_generation
         self.last_iter = progress.last_iter
         self.history = list(progress.history)
 
@@ -327,3 +419,43 @@ def _fmt_clock(seconds: float) -> str:
     hours, rem = divmod(total, 3600)
     minutes, secs = divmod(rem, 60)
     return f"{hours:d}:{minutes:02d}:{secs:02d}"
+
+
+def _ewma(new: float, prev: float, alpha: float) -> float:
+    """One exponentially-weighted moving-average step."""
+    return alpha * new + (1.0 - alpha) * prev
+
+
+def _ewma_breakdown(
+    new: metrics.ScoreBreakdown, prev: metrics.ScoreBreakdown, alpha: float
+) -> metrics.ScoreBreakdown:
+    """Per-source EWMA step over a whole score breakdown."""
+    return new.scaled(alpha) + prev.scaled(1.0 - alpha)
+
+
+def _produce_stats(
+    breakdown: metrics.ScoreBreakdown,
+    winner: metrics.ScoreBreakdown,
+    decisions: float,
+    margin: float,
+    margin_sq: float,
+    abs_margin: float,
+) -> metrics.ProduceStats:
+    """Assemble a :class:`metrics.ProduceStats`, deriving the two σ values from
+    the (mean, mean-of-squares) pair — ``|margin|² == margin²`` so the same
+    second moment serves both the signed and the winning margin."""
+    return metrics.ProduceStats(
+        breakdown=breakdown,
+        winner_breakdown=winner,
+        decisions=decisions,
+        margin=margin,
+        margin_std=_std(margin_sq, margin),
+        abs_margin=abs_margin,
+        abs_margin_std=_std(margin_sq, abs_margin),
+    )
+
+
+def _std(mean_sq: float, mean: float) -> float:
+    """Standard deviation from a mean-of-squares and a mean (clamped at 0)."""
+    var = mean_sq - mean * mean
+    return var**0.5 if var > 0 else 0.0

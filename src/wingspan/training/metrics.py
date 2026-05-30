@@ -117,24 +117,28 @@ class FamilyCounts(pydantic.BaseModel):
 
 
 class EvalResult(pydantic.BaseModel):
-    """Outcome of a paired-game evaluation against the random agent (§7.3).
+    """Outcome of a paired-game evaluation against the reference opponent (§7.3).
 
     ``win_rate`` and its ``ci95`` half-width use the normal approximation
     ``p ± 1.96·√(p(1−p)/n)``; ties count as half a win. ``mean_margin`` is the
     average score margin (policy − opponent) across the held-out games.
+    ``opponent_generation`` tags which reference opponent the eval was played
+    against (0 = the random agent; >0 = a frozen past self), so the dashboard's
+    EWMA can reset to a fresh trend each time the opponent is advanced.
     """
 
     n_games: int
     win_rate: float
     ci95: float
     mean_margin: float
+    opponent_generation: int = 0
 
 
 class EvalEwma(pydantic.BaseModel):
     """Exponentially-weighted moving average of the eval win-rate and margin
     across successive evaluations.
 
-    Each evaluation is only a ``2 * eval_games`` sample, so a single win-rate
+    Each evaluation is only an ``eval_games`` sample, so a single win-rate
     bounces from one eval to the next; folding the series with a fixed decay
     (``config.eval_ewma_alpha``) gives the dashboard a steadier trend than any
     one eval estimate. ``win_rate`` is a 0..1 fraction; ``mean_margin`` is in
@@ -143,6 +147,27 @@ class EvalEwma(pydantic.BaseModel):
 
     win_rate: float
     mean_margin: float
+
+
+class ProduceStats(pydantic.BaseModel):
+    """The smoothed "what the AI is producing" readouts the PRODUCING band shows.
+
+    Every field is an exponentially-weighted moving average folded once per
+    finished iteration (``config.produce_ewma_alpha``), so the panel tracks the
+    *current* policy rather than the diluted since-start average that barely
+    moves once a long run has accumulated millions of games. ``breakdown`` is
+    the average score split across *all* player-games; ``winner_breakdown`` is
+    the same split conditioned on just the winning seat of each decided game, so
+    the panel can show all-game and winners-only sources side by side.
+    """
+
+    breakdown: ScoreBreakdown  # avg six-way score split, all player-games
+    winner_breakdown: ScoreBreakdown  # avg split of the winning seat only
+    decisions: float  # avg trainable decisions per game
+    margin: float  # avg signed margin (player0 − player1); ~0 by symmetry
+    margin_std: float  # σ of the signed margin
+    abs_margin: float  # avg winning margin |player0 − player1|
+    abs_margin_std: float  # σ of the winning margin
 
 
 class IterationMetrics(pydantic.BaseModel):
@@ -166,6 +191,14 @@ class IterationMetrics(pydantic.BaseModel):
     avg_margin: float  # mean (player0 − player1); ~0 by self-play symmetry
     avg_breakdown: ScoreBreakdown
     avg_decisions: float  # mean trainable decisions per game
+
+    # Winner-conditioned + dispersion outcomes (default for backward-compatible
+    # loading of pre-existing metrics rows / checkpoints).
+    avg_winner_breakdown: ScoreBreakdown = pydantic.Field(
+        default_factory=ScoreBreakdown
+    )  # mean score split of the winning seat, over decided (non-tie) games
+    avg_abs_margin: float = 0.0  # mean |player0 − player1| (winning margin)
+    avg_margin_sq: float = 0.0  # mean (player0 − player1)^2, for an EWMA σ
 
     family_counts: FamilyCounts  # decisions seen this iteration, per family
 

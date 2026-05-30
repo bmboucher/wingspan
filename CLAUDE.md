@@ -31,6 +31,7 @@ python -m wingspan.cli manual                         # human vs random
 python -m wingspan.cli random --log game.log          # watch a random game
 python -m wingspan.train --device cuda --episodes 32  # one (legacy) training cycle
 python -m wingspan.training --device cpu              # live training dashboard ("FLYWAY CONTROL")
+python -m wingspan.training --config                  # interactive configurator ("FLIGHT PLAN")
 python -m pytest tests/
 ```
 
@@ -110,8 +111,9 @@ src/wingspan/
     cli.py               # cli_agent + mixed_agents (hotseat helper)
 
   training/              # live training + monitoring dashboard ("FLYWAY CONTROL")
-    __main__.py / app.py # entry point: argparse -> worker thread + rich.Live loop
+    __main__.py / app.py # entry point: argparse (+ --config) -> worker thread + rich.Live loop
     config.py            # TrainConfig (self-describing hyperparameters, §5.1)
+    artifacts.py         # shared checkpoint filenames (LAST_CKPT/BEST_CKPT/.../ARCHIVE_SUBDIR)
     metrics.py           # ScoreBreakdown / FamilyCounts / EvalResult / IterationMetrics
     runstate.py          # RunState: the shared live snapshot the dashboard reads
     policy.py            # single-decision sample (collect) + greedy (eval)
@@ -122,6 +124,13 @@ src/wingspan/
     theme.py             # palette + glyph constants ("wetland dawn")
     charts.py            # braille convergence chart, family histogram, sparklines
     dashboard.py         # the five-band Layout + per-region renderers
+    configure/           # interactive "FLIGHT PLAN" configurator (python -m wingspan.training --config)
+      fields.py          # FieldSpec hierarchy + FIELD_SPECS + read/format/commit/nudge
+      runs.py            # RunSummary + inspect_run / archive_run / clear_run / list_archives
+      state.py           # ConfiguratorState + Mode/Outcome/ConfirmPrompt value-objects
+      keys.py            # cross-platform raw single-key reader (msvcrt / termios), non-blocking
+      screen.py          # the rich Layout + per-region renderers + the modal
+      controller.py      # run_configurator Live loop + console-free build_initial_state / dispatch
 
 tests/                   # pytest; tests prepend src/ to sys.path themselves
 ```

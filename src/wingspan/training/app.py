@@ -25,17 +25,37 @@ import time
 import torch
 from rich import console, live
 
-from wingspan.training import config, dashboard, loop, runstate
+from wingspan.training import artifacts, config, configure, dashboard, loop, runstate
 
 _REFRESH_HZ = 8.0
 _STOP_GRACE_SECONDS = 30.0
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for ``python -m wingspan.training`` / ``wingspan-dashboard``."""
-    cfg = _config_from_args(argv)
-    _configure_file_logging(cfg)
+    """Entry point for ``python -m wingspan.training`` / ``wingspan-dashboard``.
+
+    With ``--config`` the interactive FLIGHT PLAN configurator runs first; the
+    config it returns (or the parsed flags otherwise) is then trained + monitored
+    on the FLYWAY CONTROL dashboard."""
+    args = _parse_args(argv)
+    cfg = _config_from_namespace(args)
     term = console.Console()
+    if args.config:
+        result = configure.run_configurator(cfg, term, torch.cuda.is_available())
+        if result is None:
+            return 0  # user quit the configurator without launching a run
+        cfg = result
+    return _run_training(cfg, term)
+
+
+###### PRIVATE #######
+
+
+def _run_training(cfg: config.TrainConfig, term: console.Console) -> int:
+    """Train + live-monitor one run: spin up the loop on a worker thread and
+    drive the dashboard until it finishes."""
+    cfg = _resolve_device(cfg)
+    _configure_file_logging(cfg)
     training = loop.TrainingLoop(cfg)
     worker = threading.Thread(target=training.run, name="wingspan-trainer", daemon=True)
     worker.start()
@@ -47,7 +67,13 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if training.state.phase is runstate.Phase.ERROR else 0
 
 
-###### PRIVATE #######
+def _resolve_device(cfg: config.TrainConfig) -> config.TrainConfig:
+    """Downgrade a ``cuda`` request to ``cpu`` when CUDA is unavailable, so a
+    configurator- or flag-chosen ``cuda`` on a CPU-only host still runs instead
+    of crashing the loop at model construction."""
+    if cfg.device.startswith("cuda") and not torch.cuda.is_available():
+        return cfg.model_copy(update={"device": "cpu"})
+    return cfg
 
 
 def _configure_file_logging(cfg: config.TrainConfig) -> None:
@@ -122,20 +148,37 @@ def _print_summary(term: console.Console, state: runstate.RunState) -> None:
         f"  avg game length  : {state.avg_decisions():.0f} decisions"
     )
     if state.best_win_rate is not None:
-        term.print(f"  best vs random   : {state.best_win_rate * 100:.1f}%")
+        opponent = (
+            "random"
+            if state.opponent_generation == 0
+            else f"self·gen{state.opponent_generation}"
+        )
+        term.print(
+            f"  best win rate    : {state.best_win_rate * 100:.1f}% vs {opponent}"
+        )
+    artifact_list = (
+        f"{artifacts.LAST_CKPT}, {artifacts.BEST_CKPT}, {artifacts.METRICS_LOG}"
+    )
+    if state.opponent_generation > 0:
+        artifact_list += f", {artifacts.OPPONENT_CKPT}"
     term.print(
-        f"  checkpoints      : {state.config.checkpoint_dir}/  (last.pt, best.pt, metrics.jsonl)"
+        f"  checkpoints      : {state.config.checkpoint_dir}/  ({artifact_list})"
     )
     if state.error:
         term.rule("[bold red]error[/bold red]")
         term.print(state.error)
 
 
-def _config_from_args(argv: list[str] | None) -> config.TrainConfig:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     default_device = "cuda" if torch.cuda.is_available() else "cpu"
     parser = argparse.ArgumentParser(
         prog="wingspan-dashboard",
         description="Run and live-monitor Wingspan self-play training (TRAINING.md Phase 1).",
+    )
+    parser.add_argument(
+        "--config",
+        action="store_true",
+        help="open the interactive FLIGHT PLAN configurator before training",
     )
     parser.add_argument("--device", default=default_device, help="cpu or cuda")
     parser.add_argument("--games-per-iter", type=int, default=64)
@@ -145,9 +188,17 @@ def _config_from_args(argv: list[str] | None) -> config.TrainConfig:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--entropy-coef", type=float, default=0.01)
     parser.add_argument("--value-coef", type=float, default=0.5)
-    parser.add_argument("--eval-every", type=int, default=2, help="0 disables eval")
     parser.add_argument(
-        "--eval-games", type=int, default=32, help="paired games per eval"
+        "--eval-every",
+        type=int,
+        default=5,
+        help="run an eval block every N training iterations (0 disables eval)",
+    )
+    parser.add_argument(
+        "--eval-games",
+        type=int,
+        default=128,
+        help="held-out games per eval block (played as mirrored pairs)",
     )
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--seed", type=int, default=0)
@@ -159,12 +210,13 @@ def _config_from_args(argv: list[str] | None) -> config.TrainConfig:
         default=True,
         help="resume from last.pt in --checkpoint-dir if present (--no-resume starts fresh)",
     )
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
 
-    device = args.device
-    if device.startswith("cuda") and not torch.cuda.is_available():
-        device = "cpu"  # graceful fallback so the dashboard still runs
 
+def _config_from_namespace(args: argparse.Namespace) -> config.TrainConfig:
+    """Build the run config from parsed flags. The ``cuda``->``cpu`` fallback is
+    deferred to :func:`_resolve_device` so both this and the configurator path
+    funnel device safety through one place."""
     return config.TrainConfig(
         games_per_iter=args.games_per_iter,
         max_iterations=args.iterations,
@@ -175,7 +227,7 @@ def _config_from_args(argv: list[str] | None) -> config.TrainConfig:
         eval_games=args.eval_games,
         hidden=args.hidden,
         seed=args.seed,
-        device=device,
+        device=args.device,
         checkpoint_dir=args.checkpoint_dir,
         run_name=args.run_name,
         resume=args.resume,

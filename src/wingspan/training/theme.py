@@ -77,7 +77,7 @@ WIN_COLOR = "#5BB98C"  # win-rate (primary, dominant)
 BEACON_A = "#BFF0D2"  # leading-edge beacon, frame A
 BEACON_B = "#FFFFFF"  # leading-edge beacon, frame B
 MARGIN_COLOR = "#3FB4A6"  # eval margin (secondary, dim teal)
-LOSS_COLOR = "#C46B6B"  # loss (tertiary, dim clay)
+POINTS_COLOR = "#D9B26A"  # average self-play points (warm amber, dominant)
 TARGET_GRID = "#2F5D4A"  # faint 100% gridline
 AXIS = "#6B7E8C"
 

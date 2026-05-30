@@ -1,0 +1,299 @@
+"""Inspecting and managing the training runs stored under a checkpoint dir.
+
+:func:`inspect_run` reads the metadata a configurator screen shows (iteration,
+games, best win-rate, opponent generation, the saved hyperparameters) straight
+out of ``last.pt`` — which already embeds the full ``TrainConfig`` and a
+``RunProgress`` snapshot — so it works on pre-existing checkpoints with no extra
+sidecar. :func:`architecture_compatible` is the single resume gate, shared with
+``loop`` through ``TrainConfig.architecture_key``. :func:`archive_run` relocates
+a finished run's artifacts into ``<checkpoint_dir>/archive/<label>/`` (preserving
+them) and :func:`clear_run` deletes them (the destructive overwrite path); both
+move/remove the same canonical artifact set in a crash-survivable order, leaving
+unrelated files (e.g. the test suite's ``_test.pt``) untouched.
+"""
+
+from __future__ import annotations
+
+import enum
+import pathlib
+import shutil
+import typing
+
+import pydantic
+import torch
+
+from wingspan.training import artifacts, config, runstate
+
+# Order matters: ``last.pt`` is relocated/removed LAST so an interruption
+# mid-archive never strands the directory in a state that resumes a run whose
+# best / opponent snapshots have already moved. Logs and stale temp files go
+# first; ``last.pt`` is appended by :func:`_archive_sources`.
+_SWEEP_BEFORE_LAST = (
+    artifacts.METRICS_LOG,
+    artifacts.BEST_CKPT,
+    artifacts.OPPONENT_CKPT,
+)
+_MAX_LABEL_SUFFIX = 1000  # give up de-duplicating a label dir after this many
+
+
+class RunStatus(enum.StrEnum):
+    """What [S] Start will do against the inspected directory, given the working
+    config — drives the run-management panel's verdict and color."""
+
+    EMPTY = "empty"  # no checkpoint — Start launches a fresh run here
+    RESUMABLE = "resumable"  # compatible checkpoint — Start resumes it
+    INCOMPATIBLE = "incompatible"  # checkpoint differs — needs a fresh run
+    UNREADABLE = "unreadable"  # checkpoint present but could not be read
+
+
+class ArchiveEntry(pydantic.BaseModel):
+    """One previously-archived run under ``<checkpoint_dir>/archive/``."""
+
+    label: str
+    modified: float  # directory mtime (epoch seconds)
+    has_checkpoint: bool  # whether it still holds a last.pt
+
+
+def _empty_names() -> list[str]:
+    return []
+
+
+def _empty_archives() -> list[ArchiveEntry]:
+    return []
+
+
+class ArchiveResult(pydantic.BaseModel):
+    """The outcome of an :func:`archive_run` call."""
+
+    destination: str
+    moved: list[str] = pydantic.Field(default_factory=_empty_names)
+    errors: list[str] = pydantic.Field(default_factory=_empty_names)
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+
+class RunSummary(pydantic.BaseModel):
+    """A read-only snapshot of the run currently stored in a checkpoint dir."""
+
+    checkpoint_dir: str
+    exists: bool = False  # a last.pt is present
+    readable: bool = True  # last.pt parsed (only meaningful when exists)
+    # The saved run's hyperparameters (named ``train_config`` rather than
+    # ``config`` so the field does not shadow the ``config`` module in its own
+    # annotation at class-definition time).
+    train_config: config.TrainConfig | None = None
+    iteration: int | None = None
+    total_games: int | None = None
+    best_win_rate: float | None = None
+    opponent_generation: int = 0
+    has_best: bool = False
+    has_opponent: bool = False
+    has_metrics: bool = False
+    git_sha: str | None = None
+    modified: float | None = None  # last.pt mtime (epoch seconds)
+    archives: list[ArchiveEntry] = pydantic.Field(default_factory=_empty_archives)
+    note: str = ""
+
+
+def inspect_run(checkpoint_dir: str) -> RunSummary:
+    """Read the run stored in ``checkpoint_dir`` (and list its archives). Never
+    raises: an unreadable checkpoint is reported via ``readable=False``."""
+    path = pathlib.Path(checkpoint_dir)
+    summary = RunSummary(
+        checkpoint_dir=checkpoint_dir, archives=list_archives(checkpoint_dir)
+    )
+    last = path / artifacts.LAST_CKPT
+    if not last.exists():
+        return summary
+
+    summary.exists = True
+    summary.has_best = (path / artifacts.BEST_CKPT).exists()
+    summary.has_opponent = (path / artifacts.OPPONENT_CKPT).exists()
+    summary.has_metrics = (path / artifacts.METRICS_LOG).exists()
+    summary.modified = last.stat().st_mtime
+
+    payload = _load_payload(last)
+    if payload is None:
+        summary.readable = False
+        summary.note = f"{artifacts.LAST_CKPT} could not be read"
+        return summary
+    _fill_from_payload(summary, payload)
+    return summary
+
+
+def architecture_compatible(
+    saved: config.TrainConfig | None, current: config.TrainConfig
+) -> bool:
+    """Whether ``current`` can resume a run saved with ``saved``. A pre-descriptor
+    checkpoint (``saved is None``) is assumed compatible, matching
+    ``loop._architecture_matches``."""
+    return saved is None or saved.architecture_key == current.architecture_key
+
+
+def resolve_status(summary: RunSummary, working: config.TrainConfig) -> RunStatus:
+    """Classify what Start will do against ``summary`` for the working config."""
+    if not summary.exists:
+        return RunStatus.EMPTY
+    if not summary.readable:
+        return RunStatus.UNREADABLE
+    if architecture_compatible(summary.train_config, working):
+        return RunStatus.RESUMABLE
+    return RunStatus.INCOMPATIBLE
+
+
+def list_archives(checkpoint_dir: str) -> list[ArchiveEntry]:
+    """Existing archived runs under ``<checkpoint_dir>/archive/``, oldest first."""
+    root = pathlib.Path(checkpoint_dir) / artifacts.ARCHIVE_SUBDIR
+    if not root.is_dir():
+        return []
+    entries = [
+        ArchiveEntry(
+            label=child.name,
+            modified=child.stat().st_mtime,
+            has_checkpoint=(child / artifacts.LAST_CKPT).exists(),
+        )
+        for child in sorted(root.iterdir())
+        if child.is_dir()
+    ]
+    return sorted(entries, key=lambda entry: entry.modified)
+
+
+def default_archive_label(summary: RunSummary, timestamp: str) -> str:
+    """A descriptive, filesystem-safe archive label: ``<run>_iterNNNN_<stamp>``.
+
+    ``timestamp`` is supplied by the caller (so this stays pure / testable)."""
+    run_name = (
+        summary.train_config.run_name if summary.train_config is not None else "run"
+    )
+    iteration = summary.iteration if summary.iteration is not None else 0
+    return f"{_sanitize(run_name)}_iter{iteration:04d}_{timestamp}"
+
+
+def archive_run(checkpoint_dir: str, label: str) -> ArchiveResult:
+    """Move the run's artifacts into ``<checkpoint_dir>/archive/<label>/``.
+
+    The label directory is made unique if it already exists, so repeated
+    archives never silently merge. Each move is independent — a failure on one
+    file (e.g. a Windows lock) is collected into ``errors`` rather than aborting
+    the rest, and ``last.pt`` is moved last so a partial archive stays
+    resume-loadable.
+    """
+    path = pathlib.Path(checkpoint_dir)
+    destination = _unique_dir(path / artifacts.ARCHIVE_SUBDIR / label)
+    destination.mkdir(parents=True, exist_ok=True)
+    result = ArchiveResult(destination=str(destination))
+    for source in _archive_sources(path):
+        try:
+            shutil.move(str(source), str(destination / source.name))
+            result.moved.append(source.name)
+        except OSError as error:
+            result.errors.append(f"{source.name}: {_os_error_text(error)}")
+    return result
+
+
+def clear_run(checkpoint_dir: str) -> list[str]:
+    """Delete the run's artifacts (the destructive overwrite path). Returns the
+    names removed; unrelated files are left untouched."""
+    removed: list[str] = []
+    for source in _archive_sources(pathlib.Path(checkpoint_dir)):
+        try:
+            source.unlink()
+            removed.append(source.name)
+        except OSError:
+            pass
+    return removed
+
+
+###### PRIVATE #######
+
+
+def _load_payload(path: pathlib.Path) -> dict[str, typing.Any] | None:
+    """Deserialize a checkpoint to CPU, or ``None`` if it is unreadable. Our own
+    checkpoints carry a config + progress dict, not just tensors, so the full
+    (non weights-only) unpickler is required."""
+    try:
+        return typing.cast(
+            "dict[str, typing.Any]",
+            torch.load(path, map_location="cpu", weights_only=False),
+        )
+    except Exception:  # noqa: BLE001 — a corrupt/unreadable checkpoint is reported
+        return None
+
+
+def _fill_from_payload(summary: RunSummary, payload: dict[str, typing.Any]) -> None:
+    """Populate ``summary`` from a parsed checkpoint payload."""
+    raw_config = payload.get("config")
+    if raw_config is not None:
+        try:
+            summary.train_config = config.TrainConfig.model_validate(raw_config)
+        except pydantic.ValidationError:
+            summary.note = "saved config could not be parsed"
+    progress = _progress_from_payload(payload)
+    summary.iteration = progress.iteration
+    summary.total_games = progress.total_games
+    summary.best_win_rate = progress.best_win_rate
+    summary.opponent_generation = progress.opponent_generation
+    sha = payload.get("git_sha")
+    summary.git_sha = sha if isinstance(sha, str) else None
+
+
+def _progress_from_payload(payload: dict[str, typing.Any]) -> runstate.RunProgress:
+    """The resumable progress in a checkpoint — the full snapshot when present,
+    otherwise the top-level counters older checkpoints stored."""
+    raw = payload.get("progress")
+    if raw is not None:
+        try:
+            return runstate.RunProgress.model_validate(raw)
+        except pydantic.ValidationError:
+            pass
+    return runstate.RunProgress(
+        iteration=_as_int(payload.get("iteration")),
+        total_games=_as_int(payload.get("total_games")),
+    )
+
+
+def _archive_sources(path: pathlib.Path) -> list[pathlib.Path]:
+    """The run's artifacts in crash-survivable relocation order (``last.pt``
+    last). Logs and stale temp files are swept first, then the metrics log and
+    the best / opponent snapshots, then the resumable head."""
+    sources: list[pathlib.Path] = []
+    sources.extend(sorted(path.glob(artifacts.LOG_GLOB)))
+    sources.extend(sorted(path.glob(artifacts.TMP_GLOB)))
+    sources.extend(path / name for name in _SWEEP_BEFORE_LAST)
+    sources.append(path / artifacts.LAST_CKPT)
+    # De-dup (a glob could re-list a named artifact) while preserving order, and
+    # drop anything not actually present.
+    seen: set[pathlib.Path] = set()
+    ordered: list[pathlib.Path] = []
+    for source in sources:
+        if source not in seen and source.exists():
+            seen.add(source)
+            ordered.append(source)
+    return ordered
+
+
+def _unique_dir(base: pathlib.Path) -> pathlib.Path:
+    """``base`` if free, else ``base-1`` / ``base-2`` / … so labels never merge."""
+    if not base.exists():
+        return base
+    for index in range(1, _MAX_LABEL_SUFFIX):
+        candidate = base.parent / f"{base.name}-{index}"
+        if not candidate.exists():
+            return candidate
+    return base
+
+
+def _sanitize(name: str) -> str:
+    """Reduce a run name to a filesystem-safe archive-label fragment."""
+    cleaned = "".join(char if char.isalnum() or char in "-_" else "_" for char in name)
+    return cleaned.strip("_") or "run"
+
+
+def _os_error_text(error: OSError) -> str:
+    return error.strerror or str(error)
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    return value if isinstance(value, int) else default

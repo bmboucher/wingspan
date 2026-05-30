@@ -28,6 +28,7 @@ from torch import optim
 
 from wingspan import model
 from wingspan.training import (
+    artifacts,
     collect,
     config,
     evaluate,
@@ -41,10 +42,6 @@ from wingspan.training import (
 # second keeps psutil's CPU sampling window meaningful while adding negligible
 # overhead next to self-play collection.
 _SYSMON_INTERVAL_SECONDS = 1.0
-
-# Checkpoint filenames within ``checkpoint_dir``.
-_LAST_CKPT = "last.pt"
-_BEST_CKPT = "best.pt"
 
 
 class TrainingLoop:
@@ -61,6 +58,10 @@ class TrainingLoop:
         self.state = runstate.new_run_state(cfg)
         self._stop = threading.Event()
         self._ckpt_dir = pathlib.Path(cfg.checkpoint_dir)
+        # The frozen reference opponent the eval plays against; None = the random
+        # agent (generation 0). Loaded from ``opponent.pt`` on resume when the
+        # restored run had already advanced past the random agent.
+        self._opponent_net: model.PolicyValueNet | None = None
         self._monitor = sysmon.SystemMonitor()
         self._monitor_stop = threading.Event()
         self._monitor_thread: threading.Thread | None = None
@@ -130,7 +131,7 @@ class TrainingLoop:
         fresh (and the next checkpoint will overwrite the mismatched one)."""
         if not self.config.resume:
             return
-        last = self._ckpt_dir / _LAST_CKPT
+        last = self._ckpt_dir / artifacts.LAST_CKPT
         if not last.exists():
             return
         try:
@@ -143,13 +144,13 @@ class TrainingLoop:
         except Exception:  # noqa: BLE001 — a corrupt/unreadable checkpoint starts fresh
             self.state.push_event(
                 runstate.EventKind.ALARM,
-                f"could not read {_LAST_CKPT} — starting fresh",
+                f"could not read {artifacts.LAST_CKPT} — starting fresh",
             )
             return
         if not self._architecture_matches(payload):
             self.state.push_event(
                 runstate.EventKind.ALARM,
-                f"{_LAST_CKPT} architecture differs — starting fresh",
+                f"{artifacts.LAST_CKPT} architecture differs — starting fresh",
             )
             return
 
@@ -159,10 +160,12 @@ class TrainingLoop:
         progress = _progress_from_payload(payload)
         self.state.restore_progress(progress)
         self._start_iteration = progress.iteration + 1
+        if self.state.opponent_generation > 0:
+            self._load_opponent()  # may reset generation to 0 if opponent.pt is gone
         self.state.push_event(
             runstate.EventKind.INFO,
-            f"resumed {_LAST_CKPT} · iter {progress.iteration:04d} · "
-            f"{progress.total_games:,} games",
+            f"resumed {artifacts.LAST_CKPT} · iter {progress.iteration:04d} · "
+            f"{progress.total_games:,} games · opponent {self._opponent_label()}",
         )
 
     def _architecture_matches(self, payload: dict[str, typing.Any]) -> bool:
@@ -172,12 +175,7 @@ class TrainingLoop:
         if raw_config is None:
             return True  # pre-descriptor checkpoint — assume compatible
         saved = config.TrainConfig.model_validate(raw_config)
-        return (
-            saved.state_dim == self.config.state_dim
-            and saved.choice_dim == self.config.choice_dim
-            and saved.family_order == self.config.family_order
-            and saved.hidden == self.config.hidden
-        )
+        return saved.architecture_key == self.config.architecture_key
 
     def _reset_optimizer_lr(self) -> None:
         """Apply this run's learning rate after loading an optimizer that may have
@@ -255,7 +253,9 @@ class TrainingLoop:
             decisions_seen = len(record.steps)
             family = _family_counts(record)
             with self.lock:
-                self.state.record_game(record.breakdowns, decisions_seen, family)
+                self.state.record_game(
+                    record.breakdowns, decisions_seen, family, record.winner
+                )
                 self.state.game_in_iter = game_idx + 1
                 self.state.games_per_sec = (game_idx + 1) / max(
                     self.state.iter_elapsed(), 1e-6
@@ -270,14 +270,16 @@ class TrainingLoop:
         with self.lock:
             self.state.phase = runstate.Phase.EVALUATING
             self.state.eval_game_in_iter = 0
-            self.state.eval_games_in_iter = 2 * self.config.eval_games
+            self.state.eval_games_in_iter = 2 * self.config.eval_pairs
         start = time.monotonic()
         eval_seed = self.config.seed * 7919 + iteration * 101 + 1
-        result = evaluate.evaluate_vs_random(
+        result = evaluate.evaluate_vs_opponent(
             self.net,
+            self._opponent_net,
             self.device,
-            self.config.eval_games,
+            self.config.eval_pairs,
             eval_seed,
+            opponent_generation=self.state.opponent_generation,
             on_progress=self._record_eval_progress,
         )
         return result, time.monotonic() - start
@@ -287,6 +289,90 @@ class TrainingLoop:
         with self.lock:
             self.state.eval_game_in_iter = games_done
             self.state.eval_games_in_iter = total_games
+
+    # ------------------------------------------------------------------
+    # Reference-opponent advancement (TRAINING.md §7)
+    # ------------------------------------------------------------------
+
+    def _opponent_label(self) -> str:
+        """A short name for the current reference opponent (for events)."""
+        gen = self.state.opponent_generation
+        return "random" if gen == 0 else f"self·gen{gen}"
+
+    def _maybe_advance_opponent(self, eval_result: metrics.EvalResult | None) -> None:
+        """When the smoothed win-rate against the current opponent clears the
+        configured threshold, freeze the current policy as the new "player to
+        beat": save it to ``opponent.pt``, bump the generation, and reset the
+        win-rate trend (best + EWMA) so progress against the stronger opponent
+        starts a fresh climb from ~50%."""
+        threshold = self.config.opponent_reset_win_rate
+        if eval_result is None or threshold <= 0.0:
+            return
+        with self.lock:
+            ewma = self.state.eval_ewma()
+            if ewma is None or ewma.win_rate < threshold:
+                return
+            new_generation = self.state.opponent_generation + 1
+
+        frozen = self._clone_net()
+        self._save_opponent(frozen, new_generation)
+        with self.lock:
+            self._opponent_net = frozen
+            self.state.opponent_generation = new_generation
+            self.state.best_win_rate = None  # best is per-opponent-generation
+            self.state.push_event(
+                runstate.EventKind.BEST,
+                f"opponent advanced → self·gen{new_generation} "
+                f"(beat {self._prev_opponent_label(new_generation)} "
+                f"{ewma.win_rate * 100:.0f}%) · win-rate reset",
+            )
+
+    def _prev_opponent_label(self, new_generation: int) -> str:
+        return "random" if new_generation == 1 else f"self·gen{new_generation - 1}"
+
+    def _clone_net(self) -> model.PolicyValueNet:
+        """An independent, eval-mode copy of the current policy network."""
+        clone = model.PolicyValueNet(
+            state_dim=self.config.state_dim,
+            choice_dim=self.config.choice_dim,
+            hidden=self.config.hidden,
+        ).to(self.device)
+        clone.load_state_dict(self.net.state_dict())
+        clone.eval()
+        return clone
+
+    def _save_opponent(self, opponent: model.PolicyValueNet, generation: int) -> None:
+        """Persist the frozen opponent so a resumed run keeps the same reference."""
+        self._ckpt_dir.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, object] = {
+            "config": self.config.model_dump(),
+            "model": opponent.state_dict(),
+            "opponent_generation": generation,
+            "git_sha": _git_sha(),
+        }
+        _atomic_save(payload, self._ckpt_dir / artifacts.OPPONENT_CKPT)
+
+    def _load_opponent(self) -> None:
+        """Restore the frozen opponent from ``opponent.pt`` on resume. If it is
+        missing or unreadable, fall back to the random agent (generation 0) so
+        the run stays consistent rather than evaluating against nothing."""
+        path = self._ckpt_dir / artifacts.OPPONENT_CKPT
+        try:
+            payload = typing.cast(
+                "dict[str, typing.Any]",
+                torch.load(path, map_location=self.device, weights_only=False),
+            )
+            opponent = self._clone_net()
+            opponent.load_state_dict(payload["model"])
+            opponent.eval()
+        except Exception:  # noqa: BLE001 — a missing/corrupt opponent resets to random
+            self.state.opponent_generation = 0
+            self.state.push_event(
+                runstate.EventKind.ALARM,
+                f"could not read {artifacts.OPPONENT_CKPT} — opponent reset to random",
+            )
+            return
+        self._opponent_net = opponent
 
     def _commit_iteration(
         self,
@@ -310,10 +396,15 @@ class TrainingLoop:
                     runstate.EventKind.EVAL,
                     f"eval iter {iter_metrics.iteration:04d} · "
                     f"{eval_result.win_rate * 100:.1f}% ±{eval_result.ci95 * 100:.1f}% "
-                    f"vs random",
+                    f"vs {self._opponent_label()}",
                 )
-            self.state.phase = runstate.Phase.CHECKPOINTING
 
+        # Advance the frozen opponent before checkpointing so ``last.pt`` records
+        # the new generation alongside the matching ``opponent.pt`` snapshot.
+        self._maybe_advance_opponent(eval_result)
+
+        with self.lock:
+            self.state.phase = runstate.Phase.CHECKPOINTING
         self._checkpoint(iter_metrics, eval_result)
 
     def _checkpoint(
@@ -323,9 +414,16 @@ class TrainingLoop:
     ) -> None:
         self._ckpt_dir.mkdir(parents=True, exist_ok=True)
         with self.lock:
-            improved = eval_result is not None and (
-                self.state.best_win_rate is None
-                or eval_result.win_rate > self.state.best_win_rate
+            # "best" is per opponent-generation: the eval that triggers an
+            # advancement belongs to the old opponent (its generation no longer
+            # matches), so it is not credited as the new generation's best.
+            improved = (
+                eval_result is not None
+                and eval_result.opponent_generation == self.state.opponent_generation
+                and (
+                    self.state.best_win_rate is None
+                    or eval_result.win_rate > self.state.best_win_rate
+                )
             )
             prev_best = self.state.best_win_rate
             if improved and eval_result is not None:
@@ -343,9 +441,9 @@ class TrainingLoop:
             "progress": progress.model_dump(),
             "git_sha": _git_sha(),
         }
-        _atomic_save(payload, self._ckpt_dir / _LAST_CKPT)
+        _atomic_save(payload, self._ckpt_dir / artifacts.LAST_CKPT)
         if improved and eval_result is not None:
-            _atomic_save(payload, self._ckpt_dir / _BEST_CKPT)
+            _atomic_save(payload, self._ckpt_dir / artifacts.BEST_CKPT)
 
         with self.lock:
             if improved and eval_result is not None:
@@ -354,14 +452,17 @@ class TrainingLoop:
                 )
                 self.state.push_event(
                     runstate.EventKind.BEST,
-                    f"new {_BEST_CKPT} (eval {eval_result.win_rate * 100:.1f}%{prev_txt})",
+                    f"new {artifacts.BEST_CKPT} (eval {eval_result.win_rate * 100:.1f}%{prev_txt})",
                 )
             else:
                 self.state.push_event(
-                    runstate.EventKind.CHECKPOINT, f"checkpoint saved  {_LAST_CKPT}"
+                    runstate.EventKind.CHECKPOINT,
+                    f"checkpoint saved  {artifacts.LAST_CKPT}",
                 )
 
-        with open(self._ckpt_dir / "metrics.jsonl", "a", encoding="utf-8") as handle:
+        with open(
+            self._ckpt_dir / artifacts.METRICS_LOG, "a", encoding="utf-8"
+        ) as handle:
             handle.write(iter_metrics.model_dump_json() + "\n")
 
     def _finish(self, phase: runstate.Phase) -> None:
@@ -401,18 +502,29 @@ def _build_iteration_metrics(
 ) -> metrics.IterationMetrics:
     n_games = len(records)
     sum_breakdown = metrics.ScoreBreakdown()
+    winner_breakdown = metrics.ScoreBreakdown()
+    decided_games = 0
     family = metrics.FamilyCounts()
     total_steps = 0
     margin_sum = 0.0
+    margin_sq_sum = 0.0
+    abs_margin_sum = 0.0
     self_score_sum = 0.0
     for record in records:
         sum_breakdown = sum_breakdown + record.breakdowns[0] + record.breakdowns[1]
         self_score_sum += record.breakdowns[0].total + record.breakdowns[1].total
-        margin_sum += record.breakdowns[0].total - record.breakdowns[1].total
+        margin = record.breakdowns[0].total - record.breakdowns[1].total
+        margin_sum += margin
+        margin_sq_sum += margin * margin
+        abs_margin_sum += abs(margin)
+        if record.winner >= 0:
+            winner_breakdown = winner_breakdown + record.breakdowns[record.winner]
+            decided_games += 1
         total_steps += len(record.steps)
         family = family + _family_counts(record)
 
     player_games = max(2 * n_games, 1)
+    games = max(n_games, 1)
     return metrics.IterationMetrics(
         iteration=iteration,
         total_games=total_games,
@@ -425,9 +537,12 @@ def _build_iteration_metrics(
         advantage_mean=stats.advantage_mean,
         advantage_std=stats.advantage_std,
         avg_self_score=self_score_sum / player_games,
-        avg_margin=margin_sum / max(n_games, 1),
+        avg_margin=margin_sum / games,
         avg_breakdown=sum_breakdown.scaled(1.0 / player_games),
-        avg_decisions=total_steps / max(n_games, 1),
+        avg_decisions=total_steps / games,
+        avg_winner_breakdown=winner_breakdown.scaled(1.0 / max(decided_games, 1)),
+        avg_abs_margin=abs_margin_sum / games,
+        avg_margin_sq=margin_sq_sum / games,
         family_counts=family,
         collect_seconds=collect_seconds,
         update_seconds=update_seconds,
