@@ -112,7 +112,7 @@ def _format_choice_line(
         if choice.bird is not None:
             return f"  [{idx}] {display.format_bird_full(choice.bird)}"
         return f"  [{idx}] Draw from the Deck"
-    return f"  [{idx}] {choice.label}"
+    return f"  [{idx}] {choice.display_label()}"
 
 
 def _cli_resolve_setup_choice(

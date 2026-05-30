@@ -14,6 +14,8 @@ Both operate on the vector types — :class:`cards.BirdCost` (6-tuple:
 
 from __future__ import annotations
 
+import typing
+
 from wingspan import cards, state
 
 
@@ -28,14 +30,21 @@ def cost_meets(cost: cards.BirdCost, payment: state.FoodPool) -> bool:
 
     where ``extra`` is the number of paid foods beyond the part that
     matches the bird's specific cost."""
+    return _cost_meets_counts(cost, payment.counts)
+
+
+def _cost_meets_counts(cost: cards.BirdCost, paid: typing.Sequence[int]) -> bool:
+    """``cost_meets`` on a raw per-food count vector, skipping the
+    ``FoodPool`` wrapper. ``enumerate_payments`` calls this in its inner loop
+    (millions of times per self-play game) so it can test a candidate without
+    constructing a pydantic model for the ones that don't pay."""
     extra = 0
     unfulfilled = 0
     for i in range(cards.N_FOODS):
         need = cost.counts[i]
-        paid = payment.counts[i]
-        matched = min(need, paid)
+        matched = min(need, paid[i])
         unfulfilled += need - matched
-        extra += paid - matched
+        extra += paid[i] - matched
     return extra == 2 * unfulfilled + cost.wild
 
 
@@ -71,9 +80,12 @@ def enumerate_payments(
         if idx == cards.N_FOODS:
             if total < min_total:
                 return
-            pool = state.FoodPool(counts=list(counts))
-            if cost_meets(cost, pool):
-                payments.append(pool)
+            # Test the raw count vector first; only the candidates that
+            # actually pay get wrapped in a (validated) ``FoodPool``. The
+            # counts are already a valid length-N vector, so ``model_construct``
+            # skips redundant validation on this hot path.
+            if _cost_meets_counts(cost, counts):
+                payments.append(state.FoodPool.model_construct(counts=list(counts)))
             return
         for k in range(0, avail[idx] + 1):
             counts[idx] = k
@@ -82,3 +94,35 @@ def enumerate_payments(
 
     rec(0, 0)
     return payments
+
+
+def any_payment_exists(available: state.FoodPool, cost: cards.BirdCost) -> bool:
+    """Whether ``available`` can pay ``cost`` *any* legal way.
+
+    The early-exit twin of :func:`enumerate_payments`: it walks the same
+    recursion but returns ``True`` the moment one satisfying payment is found
+    and builds no ``FoodPool`` objects. Used by
+    :func:`wingspan.engine.actions.any_playable_bird_play` to gate the
+    ``PLAY_BIRD`` main-action option without materializing the whole menu."""
+    cost_vec = cost.counts[: cards.N_FOODS]
+    avail = available.counts
+    wild = cost.wild
+    cost_total = sum(cost_vec)
+    max_total = 2 * cost_total + wild
+    min_total = cost_total + wild
+    counts = [0] * cards.N_FOODS
+
+    def rec(idx: int, total: int) -> bool:
+        if total > max_total:
+            return False
+        if idx == cards.N_FOODS:
+            return total >= min_total and _cost_meets_counts(cost, counts)
+        for k in range(0, avail[idx] + 1):
+            counts[idx] = k
+            if rec(idx + 1, total + k):
+                counts[idx] = 0
+                return True
+        counts[idx] = 0
+        return False
+
+    return rec(0, 0)

@@ -67,9 +67,17 @@ class Choice(pydantic.BaseModel):
 
     ``label`` is a short human-readable description used by the CLI and the
     game log. Subclasses add the typed fields that carry the choice's data.
+
+    Read the label through :meth:`display_label` rather than ``.label``
+    directly: a subclass whose label is expensive to build (``SetupChoice``)
+    can leave it empty at construction time and render it on first access.
     """
 
     label: str
+
+    def display_label(self) -> str:
+        """The human-readable label, computed on demand if not stored."""
+        return self.label
 
 
 class SkipChoice(Choice):
@@ -186,9 +194,27 @@ class SetupChoice(Choice):
     presents the pick.
     """
 
+    # ``label`` defaults empty: the setup deal enumerates 504 choices but the
+    # agent only ever reads one (and self-play reads none), so the human label
+    # is rendered lazily by ``display_label`` from the typed fields below
+    # instead of being built for every option up front.
+    label: str = ""
     kept_cards: tuple[cards.Bird, ...]
     kept_foods: tuple[cards.Food, ...]
     bonus_card: cards.BonusCard | None
+
+    def display_label(self) -> str:
+        """Render — and cache — the keep-cards / keep-foods / bonus summary on
+        first access. Only the CLI and the illegal-choice error path need it."""
+        if not self.label:
+            kept_names = [bird.name for bird in self.kept_cards] or ["none"]
+            food_names = [food.value for food in self.kept_foods] or ["none"]
+            bonus = self.bonus_card.name if self.bonus_card is not None else "(none)"
+            self.label = (
+                f"keep:[{','.join(kept_names)}] foods:[{','.join(food_names)}] "
+                f"bonus:{bonus}"
+            )
+        return self.label
 
 
 # ---------------------------------------------------------------------------
