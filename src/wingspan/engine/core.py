@@ -153,7 +153,7 @@ class Engine:
         choice: C = agent(self, decision)
         if choice not in decision.choices:
             raise ValueError(
-                f"agent returned illegal choice {choice.label!r} for "
+                f"agent returned illegal choice {choice.display_label()!r} for "
                 f"{type(decision).__name__}"
             )
         return choice
@@ -238,7 +238,7 @@ class Engine:
                 action=decisions.MainAction.DRAW_CARDS,
             ),
         ]
-        if actions.playable_bird_plays(player, habitat_filter=None):
+        if actions.any_playable_bird_play(player):
             choices.append(
                 decisions.MainActionChoice(
                     label="play a bird",
@@ -377,6 +377,10 @@ class Engine:
         bonuses: list[cards.BonusCard | None] = (
             list(dealt_bonus) if dealt_bonus else [None]
         )
+        # ``model_construct`` skips validation for these 504-per-deal options:
+        # the kept-card / kept-food subsets are built here and already valid,
+        # and the human label is left empty for ``SetupChoice.display_label``
+        # to render lazily (only the chosen / displayed option ever needs it).
         out: list[decisions.SetupChoice] = []
         for mask in range(1 << num_cards):
             kept = tuple(dealt_cards[i] for i in range(num_cards) if mask & (1 << i))
@@ -384,28 +388,13 @@ class Engine:
             for food_combo in itertools.combinations(all_foods, kept_food_size):
                 for bc in bonuses:
                     out.append(
-                        decisions.SetupChoice(
-                            label=Engine._setup_choice_label(kept, food_combo, bc),
+                        decisions.SetupChoice.model_construct(
                             kept_cards=kept,
                             kept_foods=tuple(food_combo),
                             bonus_card=bc,
                         )
                     )
         return out
-
-    @staticmethod
-    def _setup_choice_label(
-        kept_cards: tuple[cards.Bird, ...],
-        kept_foods: tuple[cards.Food, ...],
-        bonus_card: cards.BonusCard | None,
-    ) -> str:
-        kept_names = [bird.name for bird in kept_cards] or ["none"]
-        food_names = [food.value for food in kept_foods] or ["none"]
-        bonus = bonus_card.name if bonus_card is not None else "(none)"
-        return (
-            f"keep:[{','.join(kept_names)}] foods:[{','.join(food_names)}] "
-            f"bonus:{bonus}"
-        )
 
     def _apply_setup_choice(
         self,

@@ -57,6 +57,28 @@ def playable_bird_plays(
     return out
 
 
+def any_playable_bird_play(player: state.Player) -> bool:
+    """Whether ``player`` has *any* legal bird play right now.
+
+    The truthiness twin of :func:`playable_bird_plays` with ``habitat_filter``
+    of ``None``: ``MainActionDecision`` calls this once per turn purely to
+    decide whether to offer ``PLAY_BIRD`` at all, and only needs the boolean.
+    Returning on the first legal ``(bird, habitat)`` — and asking
+    ``helpers.any_payment_exists`` instead of enumerating every payment —
+    avoids building the full play menu (and a ``FoodPool`` per payment) just
+    to learn that at least one play exists. The actual menu is enumerated
+    later, only when ``PLAY_BIRD`` is chosen."""
+    for bird in player.hand:
+        if not helpers.any_payment_exists(player.food, bird.food_cost):
+            continue
+        for habitat in bird.habitats:
+            if player.can_play_in(habitat) and player.total_eggs >= (
+                player.board.next_egg_cost(habitat)
+            ):
+                return True
+    return False
+
+
 def do_play_bird(
     engine: "core.Engine",
     agent: "core.Agent",
