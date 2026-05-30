@@ -20,8 +20,15 @@ from wingspan.training import charts, metrics, runstate, theme
 
 _WORDMARK = "🪶 WINGSPAN  FLYWAY CONTROL"
 _PROGRESS_CELLS = 16
-_LEGEND_BAR_CELLS = 16
 _SPARK_CELLS = 8
+
+# System band gauges.
+_GAUGE_LABEL_W = 5  # "VRAM" + a space — the widest of CPU/RAM/GPU/VRAM
+_GAUGE_CAPS_W = 2  # the ▕ ▏ end-caps around the bar
+_GAUGE_PCT_W = 5  # the " 100%" / "   0%" trailing percent field (leading space)
+_GAUGE_GAP = 3  # blank columns between the left (compute) and right (memory) halves
+_GAUGE_MIN_CELLS = 4  # never draw a bar narrower than this
+_GAUGE_CHROME_W = _GAUGE_LABEL_W + _GAUGE_CAPS_W + _GAUGE_PCT_W  # non-bar width
 
 
 def build_layout() -> layout.Layout:
@@ -29,6 +36,7 @@ def build_layout() -> layout.Layout:
     root = layout.Layout(name="root")
     root.split_column(
         layout.Layout(name="header", size=5),
+        layout.Layout(name="system", size=3),
         layout.Layout(name="middle", ratio=12, minimum_size=14),
         layout.Layout(name="headline", ratio=13, minimum_size=12),
         layout.Layout(name="footer", size=8),
@@ -47,6 +55,7 @@ def build_layout() -> layout.Layout:
 def render(root: layout.Layout, state: runstate.RunState, frame: int) -> None:
     """Repaint every region from the current state."""
     root["header"].update(_header(state))
+    root["system"].update(_system(state))
     root["produce"].update(_produce(state))
     root["learning"].update(_learning(state))
     root["headline"].update(_headline(state, frame))
@@ -107,15 +116,24 @@ def _status_row(state: runstate.RunState) -> table.Table:
 
 def _left_status(state: runstate.RunState) -> text.Text:
     color = theme.PHASE_COLOR[state.phase]
+    label, done, total = _header_progress(state)
     out = text.Text(no_wrap=True, end="")
     out.append(f"iter {state.iteration:04d}", style=theme.TEXT_PRIMARY)
-    out.append("   game ", style=theme.TEXT_MUTED)
-    out.append(_progress_bar(state.game_in_iter, state.games_in_iter, color))
-    out.append(f" {state.game_in_iter}/{state.games_in_iter}", style=theme.TEXT_PRIMARY)
+    out.append(f"   {label} ", style=theme.TEXT_MUTED)
+    out.append(_progress_bar(done, total, color))
+    out.append(f" {done}/{total}", style=theme.TEXT_PRIMARY)
     out.append("   Σ ", style=theme.TEXT_MUTED)
     out.append(f"{state.total_games:,}", style=theme.TEXT_PRIMARY)
     out.append(" games", style=theme.TEXT_MUTED)
     return out
+
+
+def _header_progress(state: runstate.RunState) -> tuple[str, int, int]:
+    """The ``(label, done, total)`` for the header bar: held-out eval games
+    while evaluating, otherwise this iteration's self-play collection progress."""
+    if state.phase is runstate.Phase.EVALUATING and state.eval_games_in_iter > 0:
+        return "eval", state.eval_game_in_iter, state.eval_games_in_iter
+    return "game", state.game_in_iter, state.games_in_iter
 
 
 def _right_status(state: runstate.RunState) -> text.Text:
@@ -165,6 +183,121 @@ class _PhaseRule:
         yield line
 
 
+#### System band — host telemetry ####
+
+
+def _system(state: runstate.RunState) -> panel.Panel:
+    return panel.Panel(
+        _SystemGauges(state.system),
+        title="[b]SYSTEM[/b]",
+        subtitle=_system_subtitle(state.system),
+        title_align="left",
+        subtitle_align="left",
+        box=box.ROUNDED,
+        border_style=theme.BORDER_DEFAULT,
+        padding=(0, 1),
+    )
+
+
+def _system_subtitle(stats: metrics.SystemStats | None) -> str:
+    if stats is None:
+        return "host CPU / memory"
+    return f"proc {stats.proc_rss_gb:.1f} GB resident"
+
+
+class _SystemGauges:
+    """One gauge row — CPU utilization on the left, system RAM on the right —
+    sized to fill the panel. A width-aware renderable (like the score bar) so
+    each half takes half the width and the bars stretch with the terminal;
+    shows a placeholder until the monitor's first snapshot lands."""
+
+    def __init__(self, stats: metrics.SystemStats | None):
+        self.stats = stats
+
+    def __rich_console__(
+        self, console: rich_console.Console, options: rich_console.ConsoleOptions
+    ) -> rich_console.RenderResult:
+        if self.stats is None:
+            yield text.Text("  sampling host telemetry…", style=theme.TEXT_MUTED)
+            return
+        left_w, right_w = _split_halves(options.max_width)
+        cpu = _util_gauge("CPU", self.stats.cpu_percent, left_w)
+        ram = _mem_gauge(
+            "RAM",
+            self.stats.ram_used_gb,
+            self.stats.ram_total_gb,
+            self.stats.ram_percent,
+            right_w,
+        )
+        yield _gauge_row(cpu, ram, left_w)
+
+
+def _split_halves(width: int) -> tuple[int, int]:
+    left = max(0, (width - _GAUGE_GAP) // 2)
+    right = max(0, width - _GAUGE_GAP - left)
+    return left, right
+
+
+def _gauge_row(left: text.Text, right: text.Text, left_w: int) -> text.Text:
+    line = text.Text(no_wrap=True)  # default end newline: own one row
+    line.append_text(left)
+    pad = left_w - left.cell_len
+    if pad > 0:
+        line.append(" " * pad)
+    line.append(" " * _GAUGE_GAP)
+    line.append_text(right)
+    return line
+
+
+def _util_gauge(label: str, pct: float, width: int) -> text.Text:
+    color = (
+        theme.GAUGE_UTIL_PEAK if pct >= theme.GAUGE_UTIL_PEAK_PCT else theme.GAUGE_UTIL
+    )
+    out = _gauge_label(label)
+    _append_bar(out, pct / 100.0, color, width - _GAUGE_CHROME_W)
+    out.append(f" {pct:>3.0f}%", style=theme.TEXT_PRIMARY)
+    return out
+
+
+def _mem_gauge(
+    label: str, used_gb: float, total_gb: float, pct: float, width: int
+) -> text.Text:
+    suffix = f"  {used_gb:.1f}/{total_gb:.1f} GB"
+    bar_cells = width - _GAUGE_CHROME_W - len(suffix)
+    show_suffix = bar_cells >= _GAUGE_MIN_CELLS
+    if not show_suffix:
+        bar_cells = width - _GAUGE_CHROME_W
+    out = _gauge_label(label)
+    _append_bar(out, pct / 100.0, _mem_color(pct), bar_cells)
+    out.append(f" {pct:>3.0f}%", style=theme.TEXT_PRIMARY)
+    if show_suffix:
+        out.append(suffix, style=theme.TEXT_MUTED)
+    return out
+
+
+def _gauge_label(label: str) -> text.Text:
+    out = text.Text(no_wrap=True, end="")
+    out.append(f"{label:<{_GAUGE_LABEL_W}}", style=theme.SYSTEM_LABEL)
+    return out
+
+
+def _append_bar(out: text.Text, fraction: float, fill_color: str, cells: int) -> None:
+    cells = max(_GAUGE_MIN_CELLS, cells)
+    bar = charts.eighth_bar(fraction, cells, min_tick=True)
+    out.append("▕", style=theme.GAUGE_BRACKET)
+    out.append(bar, style=fill_color)
+    out.append("░" * (cells - len(bar)), style=theme.GAUGE_TRACK)
+    out.append("▏", style=theme.GAUGE_BRACKET)
+
+
+def _mem_color(pct: float) -> str:
+    if pct >= theme.GAUGE_MEM_FULL_PCT:
+        return theme.GAUGE_MEM_FULL
+    if pct >= theme.GAUGE_MEM_HIGH_PCT:
+        return theme.GAUGE_MEM_HIGH
+    return theme.GAUGE_MEM
+
+
 #### Produce band — score breakdown ####
 
 
@@ -202,8 +335,8 @@ def _produce(state: runstate.RunState) -> panel.Panel:
 
 
 class _StackedBar:
-    """One full-width bar split into six colored segments proportional to each
-    score component's average points."""
+    """One full-width bar split into six segments sized by each score component's
+    average points and told apart by color alone (no fill pattern)."""
 
     def __init__(self, avg: metrics.ScoreBreakdown):
         self.avg = avg
@@ -221,28 +354,24 @@ class _StackedBar:
             widths[0] = max(0, widths[0] + drift)
         bar = text.Text(no_wrap=True)  # default end newline: own its line in the Group
         for (name, _), seg_w in zip(components, widths):
-            bar.append(theme.SCORE_GLYPH[name] * seg_w, style=theme.SCORE_COLOR[name])
+            bar.append("█" * seg_w, style=theme.SCORE_COLOR[name])
         yield bar
 
 
 def _legend_table(avg: metrics.ScoreBreakdown) -> table.Table:
     components = avg.components()
-    max_value = max((value for _, value in components), default=1.0) or 1.0
     grid = table.Table.grid(padding=(0, 1))
     grid.add_column()  # swatch
     grid.add_column()  # name
     grid.add_column(justify="right")  # pts
-    grid.add_column()  # mini bar
     grid.add_column(justify="right")  # share
     total = avg.total or 1.0
     for name, value in components:
         color = theme.SCORE_COLOR[name]
-        bar = charts.eighth_bar(value / max_value, _LEGEND_BAR_CELLS, min_tick=True)
         grid.add_row(
             text.Text("■", style=color),
             text.Text(name, style=theme.TEXT_PRIMARY),
             text.Text(f"{value:>4.1f} pts", style=theme.TEXT_PRIMARY),
-            text.Text(bar.ljust(_LEGEND_BAR_CELLS), style=color),
             text.Text(f"{value / total * 100:>4.1f}%", style=theme.TEXT_MUTED),
         )
     return grid
@@ -258,7 +387,11 @@ def _produce_footer(state: runstate.RunState) -> text.Text:
     out.append("score margin ", style=theme.TEXT_MUTED)
     out.append(f"{state.avg_margin():+.1f}", style=theme.TEXT_PRIMARY)
     out.append(" self−opp   σ ", style=theme.TEXT_MUTED)
-    out.append(f"{state.margin_std():.1f}", style=theme.TEXT_DIM2)
+    out.append(f"{state.margin_std():.1f}\n", style=theme.TEXT_DIM2)
+    out.append("winning margin ", style=theme.TEXT_MUTED)
+    out.append(f"{state.avg_abs_margin():.1f}", style=theme.TEXT_PRIMARY)
+    out.append(" |self−opp|   σ ", style=theme.TEXT_MUTED)
+    out.append(f"{state.abs_margin_std():.1f}", style=theme.TEXT_DIM2)
     return out
 
 
@@ -389,8 +522,10 @@ def _verdict(mode: str, series: list[float], grad_clip: float) -> tuple[str, str
 
 
 def _events(state: runstate.RunState) -> panel.Panel:
+    # Oldest of the recent five first so the newest lands at the bottom and the
+    # log scrolls upward as fresh events arrive.
     lines: list[text.Text] = []
-    for event in reversed(state.events[-5:]):
+    for event in state.events[-5:]:
         glyph = theme.EVENT_GLYPH[event.kind]
         color = theme.EVENT_COLOR[event.kind]
         line = text.Text(no_wrap=True)  # default end newline: one event per line

@@ -13,6 +13,10 @@ the work:
 
 :class:`IterationMetrics` is the per-iteration row (losses, averaged outcomes,
 timings, optional eval block) appended to history and the metrics log.
+
+:class:`SystemStats` is the live host telemetry (CPU / RAM) the SYSTEM band
+renders — sampled ~once a second and held only on the live snapshot, never
+folded into the per-iteration metrics log.
 """
 
 from __future__ import annotations
@@ -126,6 +130,21 @@ class EvalResult(pydantic.BaseModel):
     mean_margin: float
 
 
+class EvalEwma(pydantic.BaseModel):
+    """Exponentially-weighted moving average of the eval win-rate and margin
+    across successive evaluations.
+
+    Each evaluation is only a ``2 * eval_games`` sample, so a single win-rate
+    bounces from one eval to the next; folding the series with a fixed decay
+    (``config.eval_ewma_alpha``) gives the dashboard a steadier trend than any
+    one eval estimate. ``win_rate`` is a 0..1 fraction; ``mean_margin`` is in
+    points (policy − opponent).
+    """
+
+    win_rate: float
+    mean_margin: float
+
+
 class IterationMetrics(pydantic.BaseModel):
     """One collect-then-update cycle's metrics, logged and charted."""
 
@@ -157,3 +176,24 @@ class IterationMetrics(pydantic.BaseModel):
     games_per_sec: float
 
     eval: EvalResult | None = None
+
+
+class SystemStats(pydantic.BaseModel):
+    """A point-in-time snapshot of host CPU / RAM utilization.
+
+    Refreshed ~once a second by the monitor thread for the dashboard's SYSTEM
+    band; it is live-only telemetry, so unlike :class:`IterationMetrics` it is
+    never serialized into the metrics log.
+    """
+
+    cpu_percent: float  # system-wide CPU utilization, 0..100
+    ram_used_gb: float
+    ram_total_gb: float
+    proc_rss_gb: float  # resident memory of this training process
+
+    @property
+    def ram_percent(self) -> float:
+        """System RAM in use as a percentage of total (0 if unknown)."""
+        if self.ram_total_gb <= 0:
+            return 0.0
+        return 100.0 * self.ram_used_gb / self.ram_total_gb

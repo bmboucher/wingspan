@@ -20,13 +20,31 @@ import subprocess
 import threading
 import time
 import traceback
+import typing
 
 import numpy as np
 import torch
 from torch import optim
 
 from wingspan import model
-from wingspan.training import collect, config, evaluate, learner, metrics, runstate
+from wingspan.training import (
+    collect,
+    config,
+    evaluate,
+    learner,
+    metrics,
+    runstate,
+    sysmon,
+)
+
+# How often the side thread refreshes the SYSTEM band's host telemetry. One
+# second keeps psutil's CPU sampling window meaningful while adding negligible
+# overhead next to self-play collection.
+_SYSMON_INTERVAL_SECONDS = 1.0
+
+# Checkpoint filenames within ``checkpoint_dir``.
+_LAST_CKPT = "last.pt"
+_BEST_CKPT = "best.pt"
 
 
 class TrainingLoop:
@@ -43,6 +61,13 @@ class TrainingLoop:
         self.state = runstate.new_run_state(cfg)
         self._stop = threading.Event()
         self._ckpt_dir = pathlib.Path(cfg.checkpoint_dir)
+        self._monitor = sysmon.SystemMonitor()
+        self._monitor_stop = threading.Event()
+        self._monitor_thread: threading.Thread | None = None
+        # Iteration the loop starts numbering from (advanced past a resumed
+        # checkpoint). Set last so resume can mutate net / optimizer / state.
+        self._start_iteration = 0
+        self._maybe_resume()
 
     # ------------------------------------------------------------------
     # Public API
@@ -60,13 +85,14 @@ class TrainingLoop:
         """Run iterations until ``max_iterations`` or a stop request. Intended
         as the target of a worker thread; never raises — failures land in
         ``state.phase = ERROR`` with the traceback in ``state.error``."""
+        self._start_monitor()
         with self.lock:
             self.state.push_event(
                 runstate.EventKind.INFO,
                 f"run started · {self.config.games_per_iter} games/iter · {self.device}",
             )
         try:
-            iteration = 0
+            iteration = self._start_iteration
             while not self._stop.is_set() and not self._reached_limit(iteration):
                 self._run_iteration(iteration)
                 iteration += 1
@@ -80,13 +106,105 @@ class TrainingLoop:
                 self.state.push_event(
                     runstate.EventKind.ALARM, "training crashed — see console"
                 )
+        finally:
+            self._monitor_stop.set()
 
     ###### PRIVATE #######
 
     def _reached_limit(self, iteration: int) -> bool:
+        # ``max_iterations`` caps iterations run *this session*, so resuming a run
+        # with ``--iterations N`` does N more rather than stopping immediately.
+        done_this_session = iteration - self._start_iteration
         return (
-            self.config.max_iterations > 0 and iteration >= self.config.max_iterations
+            self.config.max_iterations > 0
+            and done_this_session >= self.config.max_iterations
         )
+
+    def _maybe_resume(self) -> None:
+        """Restore the network, optimizer, and run progress from ``last.pt`` so a
+        restarted run continues where it left off instead of from scratch.
+
+        No-ops when resuming is disabled or there is no checkpoint. A checkpoint
+        that can't be read, or whose architecture differs from this run's, is
+        skipped with a dashboard alarm rather than crashing — the run then starts
+        fresh (and the next checkpoint will overwrite the mismatched one)."""
+        if not self.config.resume:
+            return
+        last = self._ckpt_dir / _LAST_CKPT
+        if not last.exists():
+            return
+        try:
+            # Our own trusted checkpoint carries a config dict + metrics, not just
+            # tensors, so the full (non weights-only) unpickler is required.
+            payload = typing.cast(
+                "dict[str, typing.Any]",
+                torch.load(last, map_location=self.device, weights_only=False),
+            )
+        except Exception:  # noqa: BLE001 — a corrupt/unreadable checkpoint starts fresh
+            self.state.push_event(
+                runstate.EventKind.ALARM,
+                f"could not read {_LAST_CKPT} — starting fresh",
+            )
+            return
+        if not self._architecture_matches(payload):
+            self.state.push_event(
+                runstate.EventKind.ALARM,
+                f"{_LAST_CKPT} architecture differs — starting fresh",
+            )
+            return
+
+        self.net.load_state_dict(payload["model"])
+        self.optimizer.load_state_dict(payload["optimizer"])
+        self._reset_optimizer_lr()  # honor this run's --lr over the saved one
+        progress = _progress_from_payload(payload)
+        self.state.restore_progress(progress)
+        self._start_iteration = progress.iteration + 1
+        self.state.push_event(
+            runstate.EventKind.INFO,
+            f"resumed {_LAST_CKPT} · iter {progress.iteration:04d} · "
+            f"{progress.total_games:,} games",
+        )
+
+    def _architecture_matches(self, payload: dict[str, typing.Any]) -> bool:
+        """Whether ``payload``'s saved network shape matches this run's, so its
+        weights can be loaded without misrouting heads (TRAINING.md §5.1)."""
+        raw_config = payload.get("config")
+        if raw_config is None:
+            return True  # pre-descriptor checkpoint — assume compatible
+        saved = config.TrainConfig.model_validate(raw_config)
+        return (
+            saved.state_dim == self.config.state_dim
+            and saved.choice_dim == self.config.choice_dim
+            and saved.family_order == self.config.family_order
+            and saved.hidden == self.config.hidden
+        )
+
+    def _reset_optimizer_lr(self) -> None:
+        """Apply this run's learning rate after loading an optimizer that may have
+        saved a different one (Adam's momentum is kept; only the step size moves)."""
+        for group in self.optimizer.param_groups:
+            group["lr"] = self.config.lr
+
+    def _start_monitor(self) -> None:
+        """Take one telemetry sample now (so the SYSTEM band paints immediately),
+        then keep sampling on a side thread so the gauges stay live even through
+        the blocking update and eval phases."""
+        self._sample_system()
+        self._monitor_thread = threading.Thread(
+            target=self._monitor_loop, name="wingspan-sysmon", daemon=True
+        )
+        self._monitor_thread.start()
+
+    def _monitor_loop(self) -> None:
+        # ``wait`` returns the moment the run ends, so a finished run never lingers
+        # a full interval before the sampler exits.
+        while not self._monitor_stop.wait(_SYSMON_INTERVAL_SECONDS):
+            self._sample_system()
+
+    def _sample_system(self) -> None:
+        stats = self._monitor.sample()
+        with self.lock:
+            self.state.system = stats
 
     def _run_iteration(self, iteration: int) -> None:
         with self.lock:
@@ -151,12 +269,24 @@ class TrainingLoop:
             return None, 0.0
         with self.lock:
             self.state.phase = runstate.Phase.EVALUATING
+            self.state.eval_game_in_iter = 0
+            self.state.eval_games_in_iter = 2 * self.config.eval_games
         start = time.monotonic()
         eval_seed = self.config.seed * 7919 + iteration * 101 + 1
         result = evaluate.evaluate_vs_random(
-            self.net, self.device, self.config.eval_games, eval_seed
+            self.net,
+            self.device,
+            self.config.eval_games,
+            eval_seed,
+            on_progress=self._record_eval_progress,
         )
         return result, time.monotonic() - start
+
+    def _record_eval_progress(self, games_done: int, total_games: int) -> None:
+        """Publish held-out eval progress so the header bar tracks eval games."""
+        with self.lock:
+            self.state.eval_game_in_iter = games_done
+            self.state.eval_games_in_iter = total_games
 
     def _commit_iteration(
         self,
@@ -192,6 +322,17 @@ class TrainingLoop:
         eval_result: metrics.EvalResult | None,
     ) -> None:
         self._ckpt_dir.mkdir(parents=True, exist_ok=True)
+        with self.lock:
+            improved = eval_result is not None and (
+                self.state.best_win_rate is None
+                or eval_result.win_rate > self.state.best_win_rate
+            )
+            prev_best = self.state.best_win_rate
+            if improved and eval_result is not None:
+                self.state.best_win_rate = eval_result.win_rate
+            # Snapshot the resumable progress (counters, aggregates, charts) so a
+            # later run picks up exactly here rather than from zero.
+            progress = self.state.to_progress()
         payload: dict[str, object] = {
             "config": self.config.model_dump(),
             "model": self.net.state_dict(),
@@ -199,27 +340,25 @@ class TrainingLoop:
             "iteration": iter_metrics.iteration,
             "total_games": self.state.total_games,
             "metrics": iter_metrics.model_dump(),
+            "progress": progress.model_dump(),
             "git_sha": _git_sha(),
         }
-        _atomic_save(payload, self._ckpt_dir / "last.pt")
+        _atomic_save(payload, self._ckpt_dir / _LAST_CKPT)
+        if improved and eval_result is not None:
+            _atomic_save(payload, self._ckpt_dir / _BEST_CKPT)
 
-        improved = eval_result is not None and (
-            self.state.best_win_rate is None
-            or eval_result.win_rate > self.state.best_win_rate
-        )
         with self.lock:
             if improved and eval_result is not None:
-                prev = self.state.best_win_rate
-                _atomic_save(payload, self._ckpt_dir / "best.pt")
-                self.state.best_win_rate = eval_result.win_rate
-                prev_txt = f" > prev {prev * 100:.1f}%" if prev is not None else ""
+                prev_txt = (
+                    f" > prev {prev_best * 100:.1f}%" if prev_best is not None else ""
+                )
                 self.state.push_event(
                     runstate.EventKind.BEST,
-                    f"new best.pt (eval {eval_result.win_rate * 100:.1f}%{prev_txt})",
+                    f"new {_BEST_CKPT} (eval {eval_result.win_rate * 100:.1f}%{prev_txt})",
                 )
             else:
                 self.state.push_event(
-                    runstate.EventKind.CHECKPOINT, "checkpoint saved  last.pt"
+                    runstate.EventKind.CHECKPOINT, f"checkpoint saved  {_LAST_CKPT}"
                 )
 
         with open(self._ckpt_dir / "metrics.jsonl", "a", encoding="utf-8") as handle:
@@ -295,6 +434,19 @@ def _build_iteration_metrics(
         eval_seconds=eval_seconds,
         games_per_sec=n_games / collect_seconds if collect_seconds > 0 else 0.0,
         eval=eval_result,
+    )
+
+
+def _progress_from_payload(payload: dict[str, typing.Any]) -> runstate.RunProgress:
+    """The resumable progress stored in a checkpoint. New checkpoints carry a
+    full ``progress`` snapshot; older ones only carry the iteration / total-games
+    counters, which still suffice to retain the run's place."""
+    raw_progress = payload.get("progress")
+    if raw_progress is not None:
+        return runstate.RunProgress.model_validate(raw_progress)
+    return runstate.RunProgress(
+        iteration=int(payload.get("iteration", 0)),
+        total_games=int(payload.get("total_games", 0)),
     )
 
 

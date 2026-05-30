@@ -158,14 +158,21 @@ def test_each_player_gains_die_stops_when_feeder_empty():
 
 
 def test_each_player_gains_die_routes_decisions_to_correct_agent():
-    """When active player chooses themselves to start, ensure each agent is
-    queried for its own die pick (and only for its own)."""
+    """When the active player chooses themselves to start, ensure each agent is
+    queried for its own die pick (and only for its own).
+
+    The feeder holds three distinct foods so *both* picks stay a genuine choice:
+    after the starter takes one die, the second player still sees two food
+    types. A single-option pick is forced and would be auto-resolved by
+    ``Engine.ask`` without consulting the agent, so it would never appear in the
+    routing log."""
     gs = _setup_state(seed=2)
 
     for food in gs.birdfeeder.counts:
         gs.birdfeeder.counts[food] = 0
     gs.birdfeeder.counts[cards.Food.SEED] = 1
     gs.birdfeeder.counts[cards.Food.RODENT] = 1
+    gs.birdfeeder.counts[cards.Food.FRUIT] = 1
 
     p0, p1 = gs.players
     gs.current_player = p0.id

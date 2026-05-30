@@ -4,8 +4,11 @@
 * Chart primitives (sparkline, eighth-block bar, human counts, braille canvas).
 * The dashboard renders without error for an empty *and* a populated state, at
   a wide width (eval inset docked) and a narrow one (inset drops to a strip).
+* The SYSTEM band: percentage math, a live host sample, and the CPU/RAM gauges
+  rendering.
 * One real end-to-end training iteration (collect -> length-bucketed update ->
   paired eval -> checkpoint) runs to completion and writes resumable artifacts.
+* Resuming a second run from ``last.pt`` continues the counters and charts.
 """
 
 from __future__ import annotations
@@ -25,7 +28,15 @@ pytest.importorskip("rich")
 import rich.console as rich_console
 
 from wingspan import decisions
-from wingspan.training import charts, config, dashboard, loop, metrics, runstate
+from wingspan.training import (
+    charts,
+    config,
+    dashboard,
+    loop,
+    metrics,
+    runstate,
+    sysmon,
+)
 
 
 def test_score_breakdown_arithmetic():
@@ -145,6 +156,38 @@ def test_dashboard_renders_populated_state(width: int):
     assert "macro_action" in plain  # the histogram rendered its family rows
 
 
+def test_system_stats_percentages():
+    stats = metrics.SystemStats(
+        cpu_percent=50.0, ram_used_gb=8.0, ram_total_gb=32.0, proc_rss_gb=1.0
+    )
+    assert stats.ram_percent == 25.0
+    # A zero total (e.g. the degraded fallback sample) never divides by zero.
+    empty = metrics.SystemStats(
+        cpu_percent=0.0, ram_used_gb=0.0, ram_total_gb=0.0, proc_rss_gb=0.0
+    )
+    assert empty.ram_percent == 0.0
+
+
+def test_system_monitor_sample():
+    stats = sysmon.SystemMonitor().sample()
+    assert 0.0 <= stats.cpu_percent <= 100.0
+    assert stats.ram_total_gb > 0.0
+    assert stats.proc_rss_gb >= 0.0
+
+
+def test_dashboard_system_band():
+    state = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    state.system = metrics.SystemStats(
+        cpu_percent=58.9, ram_used_gb=27.0, ram_total_gb=68.6, proc_rss_gb=1.3
+    )
+    plain = _render(state, colorize=False)
+    assert "SYSTEM" in plain and "CPU" in plain and "RAM" in plain
+    # The GPU line was removed entirely.
+    for absent in ("GPU", "VRAM", "CUDA"):
+        assert absent not in plain
+    assert len(_render(state)) > 1000  # colored path renders without error
+
+
 def test_training_loop_one_iteration(tmp_path: pathlib.Path):
     cfg = config.TrainConfig(
         device="cpu",
@@ -164,6 +207,7 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
     assert state.last_iter is not None
     assert state.last_iter.eval is not None
     assert state.cum_family.total() == state.total_decisions
+    assert state.system is not None  # the monitor thread took at least one sample
 
     assert (tmp_path / "last.pt").exists()
     assert (tmp_path / "best.pt").exists()
@@ -172,3 +216,36 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
     # The dashboard renders the real post-run state without error.
     assert len(_render(state)) > 1000
     assert "macro_action" in _render(state, colorize=False)
+
+
+def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
+    cfg = config.TrainConfig(
+        device="cpu",
+        games_per_iter=2,
+        max_iterations=1,
+        eval_every=1,
+        eval_games=1,
+        hidden=32,
+        checkpoint_dir=str(tmp_path),
+    )
+    first = loop.TrainingLoop(cfg)
+    first.run()
+    games = first.state.total_games
+    last_iter = first.state.iteration
+    best = first.state.best_win_rate
+    assert (tmp_path / "last.pt").exists()
+
+    # A fresh loop on the same dir restores progress instead of starting at zero.
+    resumed = loop.TrainingLoop(cfg)
+    assert resumed.state.total_games == games
+    assert resumed.state.iteration == last_iter
+    assert resumed.state.best_win_rate == best
+    assert resumed.state.history  # convergence chart history carried over
+
+    resumed.run()  # one more iteration continues the counts from the checkpoint
+    assert resumed.state.total_games == games + cfg.games_per_iter
+    assert resumed.state.iteration == last_iter + 1
+
+    # --no-resume ignores the checkpoint and starts fresh.
+    fresh = loop.TrainingLoop(cfg.model_copy(update={"resume": False}))
+    assert fresh.state.total_games == 0

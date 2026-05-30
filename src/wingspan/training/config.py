@@ -51,6 +51,10 @@ class TrainConfig(pydantic.BaseModel):
     # ---- evaluation (TRAINING.md §7) ----
     eval_every: int = 2  # run an eval block every N iterations (0 disables)
     eval_games: int = 32  # paired (mirror) games per eval => 2N full games
+    # Decay for the dashboard's EWMA of eval win-rate / margin: each new eval
+    # contributes this fraction (higher = more responsive, lower = smoother), so
+    # the trend readouts are not whipsawed by a single eval's sampling noise.
+    eval_ewma_alpha: float = 0.3
 
     # ---- runtime ----
     device: str = "cpu"
@@ -60,6 +64,9 @@ class TrainConfig(pydantic.BaseModel):
     # ---- checkpointing (TRAINING.md §5) ----
     checkpoint_dir: str = "checkpoints"
     run_name: str = "dashboard"
+    # Resume the network, optimizer, and run progress from ``last.pt`` in
+    # ``checkpoint_dir`` when one is present (set False to always start fresh).
+    resume: bool = True
 
     # ---- in-memory history cap (for the live convergence charts) ----
     history_len: int = 1024

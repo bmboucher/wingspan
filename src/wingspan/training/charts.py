@@ -291,9 +291,11 @@ class ConvergenceChart:
 
 class FamilyHistogram:
     """The 13-row "what it's learning to decide" panel: one row per judgment
-    family, sorted descending by live count, with honest (non-normalized)
-    absolute-% bars so the ~370× spread between the busiest and rarest family
-    is visceral, not flattened."""
+    family, sorted descending by live count. Each bar is scaled to the busiest
+    family — the top row fills the panel width — so the whole panel is used,
+    while the trailing percentage stays the honest share of *all* decisions, so
+    the ~370× spread between the busiest and rarest family stays legible in both
+    the relative bar lengths and the absolute percentages."""
 
     def __init__(self, counts: metrics.FamilyCounts):
         self.counts = counts
@@ -303,6 +305,7 @@ class FamilyHistogram:
     ) -> rich_console.RenderResult:
         width = options.max_width
         total = max(self.counts.total(), 1)
+        peak = max(self.counts.counts, default=0)
         label_w = 16 if width >= 96 else 13
         # label + space + bar + " 100.0%" (7) + "  " (2) + count(6) + margin
         bar_w = max(6, width - label_w - 17)
@@ -311,7 +314,8 @@ class FamilyHistogram:
         lines: list[text.Text] = []
         for family, count in rows:
             share = count / total
-            lines.append(self._row(family, count, share, label_w, bar_w))
+            bar_fraction = count / peak if peak else 0.0
+            lines.append(self._row(family, count, share, bar_fraction, label_w, bar_w))
 
         for i, line in enumerate(lines):
             if i:
@@ -323,6 +327,7 @@ class FamilyHistogram:
         family: decisions.DecisionFamily,
         count: int,
         share: float,
+        bar_fraction: float,
         label_w: int,
         bar_w: int,
     ) -> text.Text:
@@ -330,7 +335,7 @@ class FamilyHistogram:
         line = text.Text(no_wrap=True, end="")
         line.append(family.value[:label_w].ljust(label_w), style=theme.TEXT_DIM2)
         line.append(" ")
-        bar = eighth_bar(share, bar_w, min_tick=True)
+        bar = eighth_bar(bar_fraction, bar_w, min_tick=True)
         line.append(bar.ljust(bar_w), style=color)
         line.append(f" {share * 100:>5.1f}%", style=theme.TEXT_PRIMARY)
         line.append("  ")
@@ -522,6 +527,7 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
         body.append(_inset_text("  awaiting first eval…", theme.TEXT_MUTED))
     else:
         _, result = last_eval
+        ewma = state.eval_ewma()
         body.extend(_hero_block(result.win_rate * 100.0, state.best_win_rate))
         body.append(
             _inset_kv("win vs random", f"{result.win_rate * 100:.1f}%", theme.WIN_COLOR)
@@ -529,11 +535,21 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
         body.append(
             _inset_text(f"   ±{result.ci95 * 100:.1f}% (95% CI)", theme.TEXT_DIM2)
         )
+        if ewma is not None:
+            body.append(
+                _inset_kv("ewma win", f"{ewma.win_rate * 100:.1f}%", theme.WIN_COLOR)
+            )
         body.append(
             _inset_kv(
                 "mean margin", f"{result.mean_margin:+.1f} pts", theme.MARGIN_COLOR
             )
         )
+        if ewma is not None:
+            body.append(
+                _inset_kv(
+                    "ewma margin", f"{ewma.mean_margin:+.1f} pts", theme.MARGIN_COLOR
+                )
+            )
         body.append(_inset_kv("eval games", f"{result.n_games}", theme.TEXT_DIM2))
         if state.best_win_rate is not None:
             body.append(
@@ -598,12 +614,18 @@ def _eval_strip(state: runstate.RunState) -> list[text.Text]:
         line.append("eval: awaiting first evaluation…", style=theme.TEXT_MUTED)
         return [line]
     _, result = last_eval
+    ewma = state.eval_ewma()
     line.append("eval ", style=theme.TEXT_MUTED)
     line.append(
         f"{result.win_rate * 100:.1f}%", style=theme.hero_color(result.win_rate * 100)
     )
     line.append(f" ±{result.ci95 * 100:.1f}%  ", style=theme.TEXT_DIM2)
     line.append(f"margin {result.mean_margin:+.1f}", style=theme.MARGIN_COLOR)
+    if ewma is not None:
+        line.append(
+            f"  ewma {ewma.win_rate * 100:.1f}% / {ewma.mean_margin:+.1f}",
+            style=theme.TEXT_DIM2,
+        )
     return [line]
 
 

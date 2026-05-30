@@ -23,23 +23,22 @@ class RoundGoalStanding(pydantic.BaseModel):
 
 
 def score_round_goal(engine: "core.Engine", round_idx: int) -> None:
-    """Award round-goal VP based on each player's category score. In a 2P
-    game, the winner takes 1st-place VP, the loser takes 2nd; ties split
-    by both players taking 1st."""
+    """Award round-goal VP based on each player's category count. The payout
+    scales by round (``state.ROUND_GOAL_PAYOUTS_2P``): in a 2P game the higher
+    count takes 1st-place VP and the lower takes 2nd. Tied players split 1st and
+    2nd, each taking the floor of the combined payout (the official tie rule).
+    A player whose count is 0 does not place and scores nothing."""
     goal = engine.state.round_goals[round_idx]
-    scores = [eval_goal(player, goal) for player in engine.state.players]
-    engine.log(f"Round {round_idx + 1} goal '{goal.category}' scores: {scores}")
-    first, second = goal.payouts_2p
-    score_0, score_1 = scores
-    if score_0 > score_1:
-        engine.state.players[0].round_goal_points += first
-        engine.state.players[1].round_goal_points += second
-    elif score_1 > score_0:
-        engine.state.players[1].round_goal_points += first
-        engine.state.players[0].round_goal_points += second
-    else:
-        engine.state.players[0].round_goal_points += first
-        engine.state.players[1].round_goal_points += first
+    counts = [eval_goal(player, goal) for player in engine.state.players]
+    engine.log(f"Round {round_idx + 1} goal '{goal.category}' counts: {counts}")
+    first, second = state.ROUND_GOAL_PAYOUTS_2P[round_idx]
+    count_0, count_1 = counts
+    engine.state.players[0].round_goal_points += _placement_vp(
+        count_0, count_1, first, second
+    )
+    engine.state.players[1].round_goal_points += _placement_vp(
+        count_1, count_0, first, second
+    )
 
 
 def round_goal_standing(
@@ -47,15 +46,21 @@ def round_goal_standing(
 ) -> RoundGoalStanding:
     """``player``'s live standing on the current round goal, mirroring the
     2-player payout rule in :func:`score_round_goal` without mutating any state:
-    the higher category count takes 1st, the lower takes 2nd, and a tie shares
-    1st. Assumes a round goal is in play (``game_state.round_goals`` non-empty)."""
+    the higher category count takes 1st, the lower takes 2nd, a tie splits the
+    two places (floored), and a count of 0 does not place (0 VP). Assumes a
+    round goal is in play (``game_state.round_goals`` non-empty)."""
     goal = game_state.round_goals[game_state.round_idx]
     my_count = eval_goal(player, goal)
-    best = max(eval_goal(other, goal) for other in game_state.players)
-    place = 1 if my_count >= best else 2
-    first, second = goal.payouts_2p
+    opp_count = max(
+        (eval_goal(other, goal) for other in game_state.players if other is not player),
+        default=0,
+    )
+    first, second = state.ROUND_GOAL_PAYOUTS_2P[game_state.round_idx]
+    place = 1 if my_count >= opp_count else 2
     return RoundGoalStanding(
-        count=my_count, place=place, vp=first if place == 1 else second
+        count=my_count,
+        place=place,
+        vp=_placement_vp(my_count, opp_count, first, second),
     )
 
 
@@ -130,6 +135,22 @@ def bonus_score(player: state.Player, bc: cards.BonusCard) -> int:
 
 
 ###### PRIVATE #######
+
+
+def _placement_vp(my_count: int, opp_count: int, first: int, second: int) -> int:
+    """VP one player earns on a 2P round goal given both category counts. A
+    count of 0 never places (scores 0). Otherwise the higher count earns
+    ``first`` and the lower earns ``second``; on a tie the two players occupy
+    1st and 2nd place together, so each takes the floor of the combined payout
+    (the official rulebook tie rule) — e.g. round 1 pays ``(4 + 1) // 2 == 2``
+    to each tied player."""
+    if my_count == 0:
+        return 0
+    if my_count > opp_count:
+        return first
+    if my_count < opp_count:
+        return second
+    return (first + second) // 2
 
 
 def _count_birds_in(habitat: cards.Habitat) -> typing.Callable[[state.Player], int]:

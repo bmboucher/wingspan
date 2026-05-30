@@ -1,12 +1,20 @@
 # Wingspan
 
-A simulator and RL training pipeline for the board game [Wingspan](https://stonemaiergames.com/games/wingspan/).
+A simulator and reinforcement-learning training pipeline for the board game
+[Wingspan](https://stonemaiergames.com/games/wingspan/). You can play a full
+game from the terminal, run quick automated games for logs or debugging, and
+train a neural-network agent by self-play while watching it improve on a live
+dashboard.
 
-## Scope
+## What's modelled
 
-- **Core set only** (180 birds, 26 bonus cards, 16 end-of-round goals).
-- 2-player automa-free games.
-- Many bird "when played" / "when activated" / "between turns" powers are implemented via a small set of generic power patterns. Birds whose powers don't map onto the supported patterns fall back to a logged no-op so simulation always runs; the simulator prints a coverage report on startup so you can see which birds are fully modelled.
+- **Core set, two players, no automa:** 180 birds, 26 bonus cards, 16
+  end-of-round goals.
+- Every bird's "when played / when activated / between turns" power is handled
+  by a small library of generic power patterns. All core-set birds are covered;
+  anything a future pattern doesn't yet recognise falls back to a logged no-op
+  so a game never crashes, and the interactive game prints a power-coverage
+  report at startup so you can see what's modelled.
 
 ## Install
 
@@ -14,33 +22,84 @@ A simulator and RL training pipeline for the board game [Wingspan](https://stone
 pip install -e .
 ```
 
-PyTorch with CUDA must be available for the GPU training cycle (any 2.x build works).
-
-## Run a game manually (criterion 1)
-
-```
-python -m wingspan.cli manual          # you control player 0, opponent random
-python -m wingspan.cli manual --both-human
-```
-
-The CLI presents numbered menus for every choice the rules require.
-
-## Watch a random self-play game (criterion 2)
+This pulls in everything needed to play and to train (PyTorch, NumPy, Pydantic,
+rich). For the test suite and developer tooling:
 
 ```
-python -m wingspan.cli random --log game.log
-python -m wingspan.cli random --games 5 --log games.log     # writes games.log.0 ..
+pip install -e ".[dev]"
 ```
 
-Two random agents play; the action-by-action log is written to disk.
+Everything runs on CPU out of the box; a CUDA-capable PyTorch build is picked up
+automatically if one is present.
 
-## Run one training cycle (criterion 3)
+## Play a game interactively
 
 ```
-python -m wingspan.train --device cuda --episodes 32 --epochs 1
+python -m wingspan.cli manual                 # you are player 0 vs a random opponent
+python -m wingspan.cli manual --you 1         # control player 1 instead
+python -m wingspan.cli manual --both-human    # two humans, hotseat on one keyboard
+python -m wingspan.cli manual --seed 42       # reproducible deal
 ```
 
-Collects self-play data (policy net + epsilon exploration vs. random opponent) and runs a REINFORCE-with-value-baseline update.
+The game presents a numbered menu for every choice the rules require — pick a
+bird, choose a habitat, pay food, lay eggs, and so on. A short game log and the
+final scores are printed at the end.
+
+## Run fast automated games
+
+For quick games with no prompts — useful for logs, debugging, or sanity checks —
+two **random** agents can play to completion:
+
+```
+python -m wingspan.cli random                            # one game, prints the result
+python -m wingspan.cli random --games 5                  # five games back to back
+python -m wingspan.cli random --log game.log             # write the full action-by-action log
+python -m wingspan.cli random --games 5 --log games.log  # writes games.log.0 .. games.log.4
+```
+
+Games between **AI players** — the policy/value network playing against itself —
+are run by the training pipeline below: self-play generates the training data,
+and the agent is periodically evaluated head-to-head against a random opponent.
+
+## Train an agent
+
+The main training app is a live, `top`-style dashboard ("FLYWAY CONTROL") that
+runs self-play, learns from it, evaluates against a random opponent, and
+checkpoints as it goes:
+
+```
+python -m wingspan.training                    # auto-detects CUDA, falls back to CPU
+python -m wingspan.training --device cpu       # self-play collection is often fastest on CPU
+python -m wingspan.training --games-per-iter 64 --eval-every 2 --eval-games 32
+```
+
+It runs until you press **Ctrl+C**, which asks it to finish the current game,
+save a final checkpoint, and print a summary. Checkpoints (`last.pt`, `best.pt`)
+and a metrics log are written to the checkpoint directory (`checkpoints/` by
+default; change it with `--checkpoint-dir`), and runs are resumable. Pass
+`--iterations N` to stop automatically after N rounds instead.
+
+A simpler one-shot cycle is also available — it plays a batch of self-play
+games, runs a single training update starting from random weights, and saves a
+checkpoint:
+
+```
+python -m wingspan.train --device cuda --episodes 32
+```
+
+See [TRAINING.md](TRAINING.md) for the training program and
+[DECISIONS.md](DECISIONS.md) for the per-decision modelling direction.
+
+## Installed commands
+
+After `pip install -e .` the same entry points are available as plain commands:
+
+| Command             | Equivalent to                   |
+| ------------------- | ------------------------------- |
+| `wingspan-play`     | `python -m wingspan.cli manual` |
+| `wingspan-random`   | `python -m wingspan.cli random` |
+| `wingspan-dashboard`| `python -m wingspan.training`   |
+| `wingspan-train`    | `python -m wingspan.train`      |
 
 ## Tests
 
@@ -48,28 +107,17 @@ Collects self-play data (policy net + epsilon exploration vs. random opponent) a
 python -m pytest tests/
 ```
 
-## Layout
+## How it's organized
 
-Domain models are Pydantic v2 `BaseModel`s; the engine drives state mutation through them.
+All card data and game state are Pydantic models, and the engine drives every
+state change through them.
 
-- `src/wingspan/data/` — card data (downloaded from the [wingsearch](https://github.com/navarog/wingsearch) project).
-- `src/wingspan/cards/` — bird/bonus card schema + power-text parser + JSON loader.
-    - `schema.py` — enums, `Effect`/`Power` IR, `Bird`/`BonusCard`/`EndRoundGoal` models.
-    - `parse.py` — power-text → structured `Effect` parser.
-    - `load.py` — JSON loaders + power-coverage report.
-- `src/wingspan/state.py` — `GameState`, `Player`, `PlayedBird`, `Birdfeeder`.
-- `src/wingspan/actions.py` — `Decision`/`Choice` interface for agent prompts.
-- `src/wingspan/engine/` — game engine.
-    - `core.py` — `Engine` class, turn loop, setup, decision plumbing.
-    - `main_actions.py` — play_bird / gain_food / lay_eggs / draw_cards.
-    - `powers.py` — bird-power dispatch (`apply_effect` switch).
-    - `reactors.py` — pink between-turn reactor hooks.
-    - `scoring.py` — round-goal + final scoring.
-    - `helpers.py` — pure helpers (food enumeration, egg ladders, etc.).
-- `src/wingspan/agents/` — agent implementations.
-    - `base.py` — random-policy agent.
-    - `cli.py` — interactive human (stdin/stdout) agent plus the hotseat `mixed_agents` helper.
-- `src/wingspan/encode.py` — state/action tensor encoders for RL.
-- `src/wingspan/model.py` — PyTorch policy/value net.
-- `src/wingspan/train.py` — self-play data collection + training loop.
-- `src/wingspan/cli.py` — entry points.
+- `src/wingspan/cards/` — bird / bonus / goal definitions, the power-text
+  parser, and the JSON card loader (card data is bundled in `src/wingspan/data/`,
+  from the [wingsearch](https://github.com/navarog/wingsearch) project).
+- `src/wingspan/engine/` — the game engine: turn loop, the four main actions,
+  bird-power dispatch, between-turn reactors, and scoring.
+- `src/wingspan/agents/` — the random agent and the interactive human agent.
+- `src/wingspan/encode.py`, `model.py`, `train.py` — the RL feature encoder, the
+  policy/value network, and the self-play training loop.
+- `src/wingspan/training/` — the live training-and-monitoring dashboard.

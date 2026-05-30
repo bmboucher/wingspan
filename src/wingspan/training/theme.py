@@ -46,7 +46,8 @@ PHASE_COLOR: dict[runstate.Phase, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Six score components — one fixed hue + bar glyph each, reused everywhere
+# Six score components — one fixed hue each, reused everywhere (the stacked
+# score bar and its legend tell the sources apart by color alone)
 
 SCORE_COLOR: dict[str, str] = {
     "birds": "#6FB37A",  # forest green
@@ -55,14 +56,6 @@ SCORE_COLOR: dict[str, str] = {
     "tucked": "#7FA9C9",  # wetland blue
     "rounds": "#C9A24B",  # grassland gold (round-goal pts)
     "bonus": "#B08CD9",  # bonus violet
-}
-SCORE_GLYPH: dict[str, str] = {
-    "birds": "█",
-    "eggs": "▓",
-    "food": "▒",
-    "tucked": "░",
-    "rounds": "▚",
-    "bonus": "◆",
 }
 
 # ---------------------------------------------------------------------------
@@ -95,6 +88,27 @@ GOOD = "#5BB98C"
 CAUTION = "#C9A24B"
 BAD = "#C46B6B"
 SPARK_COLOR = "#7FA9C9"
+
+# ---------------------------------------------------------------------------
+# System telemetry band — host CPU / RAM gauges
+#
+# CPU utilization: a busy box is what you *want*, so the fill is a calm teal
+# that only brightens once it pegs near saturation. RAM: a full pool risks an
+# OOM, so it warms from blue -> gold -> clay as it climbs past the caution and
+# alarm thresholds.
+
+SYSTEM_LABEL = "#9FB3C8"  # the CPU / RAM row labels
+GAUGE_BRACKET = "#6B7E8C"  # the ▕ ▏ gauge end-caps
+GAUGE_TRACK = "#2A3A44"  # the unfilled remainder of a gauge
+GAUGE_UTIL = "#3FB4A6"  # CPU utilization fill (busy is good)
+GAUGE_UTIL_PEAK = "#8CCBA8"  # utilization at / near saturation
+GAUGE_MEM = "#7FA9C9"  # RAM fill, comfortable
+GAUGE_MEM_HIGH = "#C9A24B"  # RAM past the caution threshold
+GAUGE_MEM_FULL = "#C46B6B"  # RAM past the alarm threshold
+
+GAUGE_UTIL_PEAK_PCT = 95.0  # brighten the utilization fill above this
+GAUGE_MEM_HIGH_PCT = 80.0  # RAM caution color above this
+GAUGE_MEM_FULL_PCT = 92.0  # RAM alarm color above this
 
 # ---------------------------------------------------------------------------
 # Events — glyph + color per kind

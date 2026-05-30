@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml",
     "rich>=13.7",
+    "psutil>=5.9",  # host CPU / RAM telemetry for the dashboard SYSTEM band
 ]
 
 [project.optional-dependencies]

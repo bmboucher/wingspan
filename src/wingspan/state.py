@@ -50,6 +50,13 @@ EGG_COSTS = (0, 1, 1, 2, 2)
 # without a separate "row full" branch.
 FULL_ROW_EGG_COST = 99
 
+# Round-goal placement payouts for a 2-player game, indexed by round (0..3) as
+# ``(1st_place_vp, 2nd_place_vp)``. The printed goal board pays more in later
+# rounds. The payout belongs to the round slot, not the goal card. A player
+# whose category count is 0 does not place and scores nothing (see
+# ``engine.scoring.score_round_goal``).
+ROUND_GOAL_PAYOUTS_2P = ((4, 1), (5, 2), (6, 3), (7, 4))
+
 
 def _new_bird_list() -> list[cards.Bird]:
     return []

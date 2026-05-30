@@ -60,6 +60,48 @@ def test_engine_init_rejects_length_mismatch():
         engine.Engine(gs, agents=[_stub_agent()])  # 1 agent
 
 
+def test_ask_auto_resolves_single_choice_without_consulting_agent():
+    """A decision with one legal option is forced, so ``Engine.ask`` returns it
+    without ever calling the agent. Mirrors the reported lay-1-egg-with-a-single
+    -eligible-bird case, where the human must not be prompted to "pick" the only
+    option."""
+    eng = engine.Engine(_fresh_state())
+    only_target = decisions.BoardTargetChoice(
+        label="Clark's Grebe@wetland[0](0/2)",
+        habitat=cards.Habitat.WETLAND,
+        slot=0,
+    )
+    decision = decisions.LayEggDecision(
+        player_id=0, prompt="[P0] lay 1 egg", choices=[only_target]
+    )
+    # _stub_agent() raises if consulted, so reaching the assertion at all proves
+    # the short-circuit fired before the agent was called.
+    assert eng.ask(_stub_agent(), decision) is only_target
+
+
+def test_ask_consults_agent_for_a_genuine_fork():
+    """With more than one option the agent *is* consulted — the single-choice
+    short-circuit must not swallow real decisions."""
+    eng = engine.Engine(_fresh_state())
+    first = decisions.BoardTargetChoice(
+        label="bird-a", habitat=cards.Habitat.WETLAND, slot=0
+    )
+    second = decisions.BoardTargetChoice(
+        label="bird-b", habitat=cards.Habitat.GRASSLAND, slot=1
+    )
+    forked = decisions.LayEggDecision(
+        player_id=0, prompt="[P0] lay 1 egg", choices=[first, second]
+    )
+
+    def pick_second[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        return decision.choices[1]
+
+    assert eng.ask(pick_second, forked) is second
+
+
 def test_deepcopy_preserves_agent_routing():
     """Deepcopy of Engine (used by MCTS rollouts) must keep agent routing
     functional — the GameState invariant says state must be deep-copy-cheap,

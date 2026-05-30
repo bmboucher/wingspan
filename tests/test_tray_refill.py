@@ -132,7 +132,10 @@ def test_draw_options_shrink_as_tray_empties():
     )
 
 
-def test_empty_tray_offers_only_the_deck():
+def test_empty_tray_draws_from_deck_without_asking():
+    """With the tray drained, the deck is the only legal draw source — a forced
+    choice — so the engine resolves it without presenting a decision, and the
+    blind deck draw still lands in hand."""
     eng = _make_engine()
     eng.state.current_player = 0
     player = eng.state.me()
@@ -143,13 +146,12 @@ def test_empty_tray_offers_only_the_deck():
     sink: list[decisions.Decision[typing.Any]] = []
     actions.draw_one_card(eng, _tray_picking_agent(sink), player)
 
-    source_decisions = [
+    # The deck is the only option, so no draw-source decision is presented.
+    assert not [
         decision
         for decision in sink
         if isinstance(decision, decisions.DrawCardsPickSourceDecision)
     ]
-    assert len(source_decisions) == 1
-    assert [choice.source for choice in source_decisions[0].choices] == ["deck"]
     # The blind deck draw still lands in hand.
     assert len(player.hand) == 1
     assert len(eng.state.bird_deck) == deck_before - 1

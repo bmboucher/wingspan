@@ -68,6 +68,39 @@ def _new_events() -> list[EventLine]:
     return []
 
 
+class RunProgress(pydantic.BaseModel):
+    """The resumable slice of a run's live state, persisted in every checkpoint
+    so a restarted run continues its counters, cumulative aggregates, and
+    convergence charts instead of starting from zero.
+
+    Every field defaults, so an older checkpoint that stored only a couple of
+    counters still loads — the rest simply start empty.
+    """
+
+    iteration: int = 0
+    total_games: int = 0
+    total_decisions: int = 0
+    cum_breakdown: metrics.ScoreBreakdown = pydantic.Field(
+        default_factory=metrics.ScoreBreakdown
+    )
+    cum_player_games: int = 0
+    cum_games: int = 0
+    cum_decisions: int = 0
+    cum_family: metrics.FamilyCounts = pydantic.Field(
+        default_factory=metrics.FamilyCounts
+    )
+    cum_margin_sum: float = 0.0
+    cum_margin_sq: float = 0.0
+    cum_abs_margin_sum: float = 0.0
+    game_len_min: int | None = None
+    game_len_max: int | None = None
+    best_win_rate: float | None = None
+    last_iter: metrics.IterationMetrics | None = None
+    history: list[metrics.IterationMetrics] = pydantic.Field(
+        default_factory=_new_history
+    )
+
+
 class RunState(pydantic.BaseModel):
     """Everything the dashboard needs to repaint a single frame."""
 
@@ -84,6 +117,11 @@ class RunState(pydantic.BaseModel):
     iteration: int = 0
     game_in_iter: int = 0
     games_in_iter: int = 0
+    # During an EVALUATING phase these track held-out eval games (out of
+    # 2 * eval_games) so the header progress bar reports eval progress instead
+    # of the already-finished collection's counts.
+    eval_game_in_iter: int = 0
+    eval_games_in_iter: int = 0
     total_games: int = 0
     total_decisions: int = 0
     games_per_sec: float = 0.0
@@ -100,6 +138,7 @@ class RunState(pydantic.BaseModel):
     )
     cum_margin_sum: float = 0.0  # Σ (player0 − player1)
     cum_margin_sq: float = 0.0  # Σ (player0 − player1)^2
+    cum_abs_margin_sum: float = 0.0  # Σ |player0 − player1| (winning margin)
     game_len_min: int | None = None
     game_len_max: int | None = None
 
@@ -112,6 +151,10 @@ class RunState(pydantic.BaseModel):
 
     events: list[EventLine] = pydantic.Field(default_factory=_new_events)
     error: str | None = None
+
+    # Live host / accelerator telemetry, refreshed by the monitor thread
+    # (None until the first sample lands).
+    system: metrics.SystemStats | None = None
 
     # ----- writer-side helpers (called by the loop, under its lock) -----
 
@@ -130,6 +173,7 @@ class RunState(pydantic.BaseModel):
         margin = breakdowns[0].total - breakdowns[1].total
         self.cum_margin_sum += margin
         self.cum_margin_sq += margin * margin
+        self.cum_abs_margin_sum += abs(margin)
         self.game_len_min = (
             decisions_seen
             if self.game_len_min is None
@@ -184,6 +228,86 @@ class RunState(pydantic.BaseModel):
         mean = self.avg_margin()
         var = self.cum_margin_sq / self.cum_games - mean * mean
         return var**0.5 if var > 0 else 0.0
+
+    def avg_abs_margin(self) -> float:
+        """Mean winning margin |player0 − player1| — by how much the winner of a
+        self-play game typically wins (the signed mean is ~0 by symmetry)."""
+        return self.cum_abs_margin_sum / max(self.cum_games, 1)
+
+    def abs_margin_std(self) -> float:
+        if self.cum_games <= 1:
+            return 0.0
+        mean = self.avg_abs_margin()
+        # |margin|² == margin², so the running sum-of-squares already holds
+        # Σ|margin|² and serves the winning margin's variance too.
+        var = self.cum_margin_sq / self.cum_games - mean * mean
+        return var**0.5 if var > 0 else 0.0
+
+    def eval_ewma(self) -> metrics.EvalEwma | None:
+        """EWMA-smoothed eval win-rate and margin over every evaluation so far.
+
+        Folds the eval blocks in ``history`` with ``config.eval_ewma_alpha`` so
+        the dashboard can damp the per-eval sampling noise; None until the first
+        eval lands.
+        """
+        alpha = self.config.eval_ewma_alpha
+        win: float | None = None
+        margin: float | None = None
+        for item in self.history:
+            if item.eval is None:
+                continue
+            if win is None or margin is None:
+                win, margin = item.eval.win_rate, item.eval.mean_margin
+            else:
+                win = alpha * item.eval.win_rate + (1.0 - alpha) * win
+                margin = alpha * item.eval.mean_margin + (1.0 - alpha) * margin
+        if win is None or margin is None:
+            return None
+        return metrics.EvalEwma(win_rate=win, mean_margin=margin)
+
+    # ----- checkpoint resume -----
+
+    def to_progress(self) -> RunProgress:
+        """Snapshot the resumable counters, aggregates, and charts for a
+        checkpoint (the transient clocks, phase, and telemetry are not saved)."""
+        return RunProgress(
+            iteration=self.iteration,
+            total_games=self.total_games,
+            total_decisions=self.total_decisions,
+            cum_breakdown=self.cum_breakdown,
+            cum_player_games=self.cum_player_games,
+            cum_games=self.cum_games,
+            cum_decisions=self.cum_decisions,
+            cum_family=self.cum_family,
+            cum_margin_sum=self.cum_margin_sum,
+            cum_margin_sq=self.cum_margin_sq,
+            cum_abs_margin_sum=self.cum_abs_margin_sum,
+            game_len_min=self.game_len_min,
+            game_len_max=self.game_len_max,
+            best_win_rate=self.best_win_rate,
+            last_iter=self.last_iter,
+            history=self.history,
+        )
+
+    def restore_progress(self, progress: RunProgress) -> None:
+        """Load a checkpoint's :class:`RunProgress` back into the live state, so
+        the dashboard reopens with the prior counts, averages, and charts."""
+        self.iteration = progress.iteration
+        self.total_games = progress.total_games
+        self.total_decisions = progress.total_decisions
+        self.cum_breakdown = progress.cum_breakdown
+        self.cum_player_games = progress.cum_player_games
+        self.cum_games = progress.cum_games
+        self.cum_decisions = progress.cum_decisions
+        self.cum_family = progress.cum_family
+        self.cum_margin_sum = progress.cum_margin_sum
+        self.cum_margin_sq = progress.cum_margin_sq
+        self.cum_abs_margin_sum = progress.cum_abs_margin_sum
+        self.game_len_min = progress.game_len_min
+        self.game_len_max = progress.game_len_max
+        self.best_win_rate = progress.best_win_rate
+        self.last_iter = progress.last_iter
+        self.history = list(progress.history)
 
 
 def new_run_state(cfg: config.TrainConfig) -> RunState:

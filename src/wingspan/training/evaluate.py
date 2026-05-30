@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 import random
+import typing
 
 import torch
 
@@ -24,28 +25,39 @@ from wingspan.training import collect, metrics, policy
 
 _Z_95 = 1.96
 
+# Called after each held-out eval game with (games_done, total_games) so a
+# caller can drive a live progress bar; the eval result itself is unaffected.
+type EvalProgress = typing.Callable[[int, int], None]
+
 
 def evaluate_vs_random(
     net: model.PolicyValueNet,
     device: torch.device,
     n_pairs: int,
     seed: int,
+    on_progress: EvalProgress | None = None,
 ) -> metrics.EvalResult:
     """Play ``n_pairs`` mirrored deals against the random agent and summarize.
 
     Returns an :class:`metrics.EvalResult` with the greedy policy's win rate,
     its 95% CI half-width, and mean score margin over ``2 * n_pairs`` games.
+    ``on_progress``, if given, is called after every game with the running
+    ``(games_done, total_games)`` so the dashboard can track eval progress.
     """
+    n_games = 2 * n_pairs
     margins: list[int] = []
     wins = 0.0
+    games_done = 0
     for pair in range(n_pairs):
         pair_seed = seed + pair * 2
         for net_seat in (0, 1):
             margin = _play_eval_game(net, device, pair_seed, net_seat)
             margins.append(margin)
             wins += 1.0 if margin > 0 else (0.5 if margin == 0 else 0.0)
+            games_done += 1
+            if on_progress is not None:
+                on_progress(games_done, n_games)
 
-    n_games = 2 * n_pairs
     if n_games == 0:
         return metrics.EvalResult(n_games=0, win_rate=0.0, ci95=0.0, mean_margin=0.0)
     win_rate = wins / n_games

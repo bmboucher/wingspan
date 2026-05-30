@@ -21,21 +21,23 @@ from wingspan import cards, decisions, engine, state
 from wingspan.engine import actions
 
 
-def _single_food_bird(birds: list[cards.Bird]) -> cards.Bird:
-    """A non-WHITE, single-habitat bird whose cost is exactly one specific food
-    — so a one-of-that-food stash yields exactly one payment (no 2-for-1
-    substitutions) and the extra-play menu is a single ``PlayBirdChoice``.
-    Non-WHITE so playing it fires no when-played power mid-test."""
+def _two_habitat_single_food_bird(birds: list[cards.Bird]) -> cards.Bird:
+    """A non-WHITE bird playable in exactly two habitats whose cost is one
+    specific food token — so a one-of-that-food stash affords it and the
+    extra-play menu holds two ``PlayBirdChoice``s (one per habitat). Two options
+    make the menu a genuine fork the engine actually presents: a single-option
+    menu is forced and would be auto-resolved by ``Engine.ask`` without ever
+    reaching the agent. Non-WHITE so playing it fires no when-played power."""
     for bird in birds:
         cost = bird.food_cost
         if (
-            len(bird.habitats) == 1
+            len(bird.habitats) == 2
             and bird.color != cards.PowerColor.WHITE
             and cost.wild == 0
             and cost.total == 1
         ):
             return bird
-    raise AssertionError("no single-food single-habitat non-white bird in catalog")
+    raise AssertionError("no single-food two-habitat non-white bird in catalog")
 
 
 def test_extra_play_offered_as_play_menu_and_plays_the_bird():
@@ -45,7 +47,7 @@ def test_extra_play_offered_as_play_menu_and_plays_the_bird():
     gs.current_player = 0
     player = gs.me()
 
-    bird = _single_food_bird(birds)
+    bird = _two_habitat_single_food_bird(birds)
     food = next(f for f in cards.ALL_FOODS if bird.food_cost.specific_of(f) == 1)
     player.hand = [bird]
     for any_food in cards.ALL_FOODS:

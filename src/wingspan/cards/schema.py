@@ -262,8 +262,9 @@ class EndRoundGoal(pydantic.BaseModel):
     """One of the 16 end-of-round goals.
 
     ``category`` is a short tag the scoring engine dispatches on (set by the
-    loader). ``payouts_2p`` is ``(1st_place_vp, 2nd_place_vp)`` for 2-player
-    games."""
+    loader). The placement payout is intentionally not stored here: it depends
+    on which round the goal is scored in, not on the goal card itself — see
+    ``state.ROUND_GOAL_PAYOUTS_2P`` and ``engine.scoring.score_round_goal``."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -271,8 +272,6 @@ class EndRoundGoal(pydantic.BaseModel):
     description: str  # e.g. "[bird] in [forest]"
     # canonical category enum-string for easy dispatch
     category: str
-    # placement payouts: 1st/2nd places (2P game)
-    payouts_2p: tuple[int, int]
 
 
 # ---------------------------------------------------------------------------
@@ -285,10 +284,6 @@ class EndRoundGoal(pydantic.BaseModel):
 # above. The conversion helpers themselves live in :mod:`wingspan.cards.parse`
 # and are imported lazily inside ``.load()`` to avoid a top-level circular
 # import (``parse`` imports this module).
-
-
-# 2-player payout values: from the printed rules, 1st=5 and 2nd=2 by default.
-_GOAL_PAYOUTS_2P = (5, 2)
 
 
 class BirdRecord(pydantic.BaseModel):
@@ -406,5 +401,4 @@ class GoalRecord(pydantic.BaseModel):
             id=self.id,
             description=desc,
             category=parse.goal_category(desc),
-            payouts_2p=_GOAL_PAYOUTS_2P,
         )

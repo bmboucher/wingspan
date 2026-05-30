@@ -153,6 +153,12 @@ def _config_from_args(argv: list[str] | None) -> config.TrainConfig:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--checkpoint-dir", default="checkpoints")
     parser.add_argument("--run-name", default="dashboard")
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="resume from last.pt in --checkpoint-dir if present (--no-resume starts fresh)",
+    )
     args = parser.parse_args(argv)
 
     device = args.device
@@ -172,6 +178,7 @@ def _config_from_args(argv: list[str] | None) -> config.TrainConfig:
         device=device,
         checkpoint_dir=args.checkpoint_dir,
         run_name=args.run_name,
+        resume=args.resume,
     )
 
 
