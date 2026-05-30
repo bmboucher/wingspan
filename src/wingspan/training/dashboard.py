@@ -145,12 +145,10 @@ def _header_progress(state: runstate.RunState) -> tuple[str, int, int]:
 
 
 def _right_status(state: runstate.RunState) -> text.Text:
+    # Throughput now lives in the TRAINING HEALTH band (raw vs overall); the
+    # header just names the algorithm and learning rate.
     out = text.Text(no_wrap=True, end="")
-    out.append(f"{state.games_per_sec:.1f}", style=theme.TEXT_PRIMARY)
-    out.append(" g/s ", style=theme.TEXT_MUTED)
-    spark = charts.sparkline([im.games_per_sec for im in state.history], _SPARK_CELLS)
-    out.append(spark, style=theme.SPARK_COLOR)
-    out.append("  REINFORCE+baseline ", style=theme.TEXT_MUTED)
+    out.append("REINFORCE+baseline ", style=theme.TEXT_MUTED)
     out.append(f"lr {state.config.lr:.0e}", style=theme.TEXT_DIM2)
     return out
 
@@ -538,7 +536,7 @@ def _health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
                 "grad",
             ),
         ]
-    rows: list[tuple[text.Text, ...]] = []
+    rows: list[tuple[text.Text, ...]] = _perf_health_rows(state)
     for name, value, series, mode in specs:
         verdict_text, verdict_color = _verdict(mode, series, grad_clip)
         rows.append(
@@ -551,15 +549,53 @@ def _health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
                 text.Text(verdict_text, style=verdict_color),
             )
         )
-    if not rows:
-        rows.append((text.Text("awaiting first iteration…", style=theme.TEXT_MUTED),))
     return rows
+
+
+def _perf_health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
+    """The two throughput readouts, split apart so raw collection speed is not
+    conflated with end-to-end progress:
+
+    * ``raw`` — 1 / (avg wall time per game) during collection, i.e. how fast
+      self-play games are produced (``games_per_sec``). This is the figure the
+      header used to show; it excludes the update and eval phases.
+    * ``overall`` — total games / total run seconds, which *does* include the
+      update, eval, and checkpoint time, so it is the true end-to-end rate and
+      always trails ``raw``.
+    """
+    raw = state.games_per_sec
+    elapsed = state.elapsed()
+    overall = state.total_games / elapsed if elapsed > 0.0 else 0.0
+    raw_series = [im.games_per_sec for im in state.history]
+    raw_verdict_text, raw_verdict_color = _verdict("higher", raw_series, 0.0)
+    return [
+        (
+            text.Text("raw perf", style=theme.TEXT_MUTED),
+            text.Text(f"{raw:.1f} g/s", style=theme.TEXT_PRIMARY),
+            text.Text(
+                charts.sparkline(raw_series, _SPARK_CELLS), style=theme.SPARK_COLOR
+            ),
+            text.Text(raw_verdict_text, style=raw_verdict_color),
+        ),
+        (
+            text.Text("overall", style=theme.TEXT_MUTED),
+            text.Text(f"{overall:.2f} g/s", style=theme.TEXT_PRIMARY),
+            text.Text("", style=theme.SPARK_COLOR),
+            text.Text("incl update+eval", style=theme.TEXT_DIM2),
+        ),
+    ]
 
 
 def _verdict(mode: str, series: list[float], grad_clip: float) -> tuple[str, str]:
     if len(series) < 2:
         return "—", theme.TEXT_MUTED
     latest, previous = series[-1], series[-2]
+    if mode == "higher":
+        if latest > previous:
+            return "↑ faster", theme.GOOD
+        if latest < previous:
+            return "↓ slower", theme.CAUTION
+        return "= steady", theme.TEXT_MUTED
     if mode == "lower":
         if latest < previous:
             return "↓ good", theme.GOOD
