@@ -36,6 +36,7 @@ from wingspan.training import (
     evaluate,
     learner,
     metrics,
+    mp_collect,
     runstate,
     sysmon,
 )
@@ -78,6 +79,9 @@ class TrainingLoop:
         self._monitor = sysmon.SystemMonitor()
         self._monitor_stop = threading.Event()
         self._monitor_thread: threading.Thread | None = None
+        # Process-parallel CPU collector, created on first collect and reused
+        # across iterations (None until then, and unused on non-CPU devices).
+        self._collector: mp_collect.ProcessCollector | None = None
         # Iteration the loop starts numbering from (advanced past a resumed
         # checkpoint). Set last so resume can mutate net / optimizer / state.
         self._start_iteration = 0
@@ -123,6 +127,8 @@ class TrainingLoop:
                 )
         finally:
             self._monitor_stop.set()
+            if self._collector is not None:
+                self._collector.close()
 
     ###### PRIVATE #######
 
@@ -250,13 +256,25 @@ class TrainingLoop:
         if not records:
             return  # stopped before completing any game this iteration
 
+        games_per_sec = len(records) / collect_seconds if collect_seconds > 0 else 0.0
         with self.lock:
             self.state.phase = runstate.Phase.UPDATING
+            self.state.push_event(
+                runstate.EventKind.INFO,
+                f"COLLECT {len(records)} games in {collect_seconds:.1f}s · "
+                f"{games_per_sec:.1f} g/s · avg {_avg_points(records):.1f} pts/game",
+            )
         update_start = time.monotonic()
         stats = learner.update(
             self.net, self.optimizer, records, self.config, self.device
         )
         update_seconds = time.monotonic() - update_start
+        with self.lock:
+            self.state.push_event(
+                runstate.EventKind.INFO,
+                f"UPDATE in {update_seconds:.2f}s · loss {stats.loss:.3f} · "
+                f"entropy {stats.entropy:.3f} · |grad| {stats.grad_norm:.2f}",
+            )
 
         eval_result, eval_seconds = self._maybe_evaluate(iteration)
 
@@ -282,7 +300,25 @@ class TrainingLoop:
             self.config.seed * 1_000_000 + iteration * 10_000 + game_idx
             for game_idx in range(self.config.games_per_iter)
         ]
+        # CPU collection is GIL-bound under threads, so it fans across worker
+        # processes; CUDA collection keeps the in-process batched-inference path
+        # (one shared GPU forward beats one model copy per process).
+        if self.device.type == "cpu":
+            return self._collect_multiprocess(seeds)
         return batched_collect.collect_games(
+            self.net,
+            self.device,
+            seeds,
+            on_game_done=self._record_collected_game,
+            should_stop=self._stop.is_set,
+        )
+
+    def _collect_multiprocess(self, seeds: list[int]) -> list[collect.GameRecord]:
+        """Collect across worker processes; the pool is built on first use and
+        reused across iterations (closed in ``run``'s teardown)."""
+        if self._collector is None:
+            self._collector = mp_collect.ProcessCollector(self.config)
+        return self._collector.collect_games(
             self.net,
             self.device,
             seeds,
@@ -361,6 +397,7 @@ class TrainingLoop:
         with self.lock:
             self._opponent_net = frozen
             self.state.opponent_generation = new_generation
+            self.state.opponent_since_iteration = self.state.iteration
             self.state.best_win_rate = None  # best is per-opponent-generation
             self.state.push_event(
                 runstate.EventKind.BEST,
@@ -436,9 +473,11 @@ class TrainingLoop:
             if eval_result is not None:
                 self.state.push_event(
                     runstate.EventKind.EVAL,
-                    f"eval iter {iter_metrics.iteration:04d} · "
+                    f"EVAL {eval_result.n_games} games in "
+                    f"{iter_metrics.eval_seconds:.1f}s · "
                     f"{eval_result.win_rate * 100:.1f}% ±{eval_result.ci95 * 100:.1f}% "
-                    f"vs {self._opponent_label()}",
+                    f"vs {self._opponent_label()} · "
+                    f"margin {eval_result.mean_margin:+.1f}",
                 )
 
         # Advance the frozen opponent before checkpointing so ``last.pt`` records
@@ -488,6 +527,9 @@ class TrainingLoop:
             _atomic_save(payload, self._ckpt_dir / artifacts.BEST_CKPT)
 
         with self.lock:
+            # A new best is worth surfacing (it carries an eval number); a routine
+            # last.pt write is not — the RECENT EVENTS log tracks phase
+            # transitions (collect / update / eval), not file saves.
             if improved and eval_result is not None:
                 prev_txt = (
                     f" > prev {prev_best * 100:.1f}%" if prev_best is not None else ""
@@ -495,11 +537,6 @@ class TrainingLoop:
                 self.state.push_event(
                     runstate.EventKind.BEST,
                     f"new {artifacts.BEST_CKPT} (eval {eval_result.win_rate * 100:.1f}%{prev_txt})",
-                )
-            else:
-                self.state.push_event(
-                    runstate.EventKind.CHECKPOINT,
-                    f"checkpoint saved  {artifacts.LAST_CKPT}",
                 )
 
         with open(
@@ -532,6 +569,20 @@ def _family_counts(record: collect.GameRecord) -> metrics.FamilyCounts:
     return counts
 
 
+def _pop_std(sum_sq: float, mean: float, n: int) -> float:
+    """Population σ from a Σx², a mean, and a sample count (clamped at 0)."""
+    var = sum_sq / max(n, 1) - mean * mean
+    return var**0.5 if var > 0.0 else 0.0
+
+
+def _avg_points(records: list[collect.GameRecord]) -> float:
+    """Mean final score across both seats of every game in a collected batch."""
+    if not records:
+        return 0.0
+    total = sum(rec.breakdowns[0].total + rec.breakdowns[1].total for rec in records)
+    return total / (2 * len(records))
+
+
 def _build_iteration_metrics(
     iteration: int,
     total_games: int,
@@ -548,6 +599,7 @@ def _build_iteration_metrics(
     decided_games = 0
     family = metrics.FamilyCounts()
     total_steps = 0
+    total_steps_sq = 0
     margin_sum = 0.0
     margin_sq_sum = 0.0
     abs_margin_sum = 0.0
@@ -562,11 +614,17 @@ def _build_iteration_metrics(
         if record.winner >= 0:
             winner_breakdown = winner_breakdown + record.breakdowns[record.winner]
             decided_games += 1
-        total_steps += len(record.steps)
+        steps = len(record.steps)
+        total_steps += steps
+        total_steps_sq += steps * steps
         family = family + _family_counts(record)
 
     player_games = max(2 * n_games, 1)
     games = max(n_games, 1)
+    margin_mean = margin_sum / games
+    abs_margin_mean = abs_margin_sum / games
+    # Per-cycle population σ over this iteration's games. ``|margin|² == margin²``,
+    # so the signed-margin second moment also yields the winning-margin σ.
     return metrics.IterationMetrics(
         iteration=iteration,
         total_games=total_games,
@@ -579,12 +637,14 @@ def _build_iteration_metrics(
         advantage_mean=stats.advantage_mean,
         advantage_std=stats.advantage_std,
         avg_self_score=self_score_sum / player_games,
-        avg_margin=margin_sum / games,
+        avg_margin=margin_mean,
         avg_breakdown=sum_breakdown.scaled(1.0 / player_games),
         avg_decisions=total_steps / games,
         avg_winner_breakdown=winner_breakdown.scaled(1.0 / max(decided_games, 1)),
-        avg_abs_margin=abs_margin_sum / games,
-        avg_margin_sq=margin_sq_sum / games,
+        avg_abs_margin=abs_margin_mean,
+        margin_std=_pop_std(margin_sq_sum, margin_mean, games),
+        abs_margin_std=_pop_std(margin_sq_sum, abs_margin_mean, games),
+        decisions_std=_pop_std(total_steps_sq, total_steps / games, games),
         family_counts=family,
         collect_seconds=collect_seconds,
         update_seconds=update_seconds,

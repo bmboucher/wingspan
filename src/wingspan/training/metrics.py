@@ -164,6 +164,7 @@ class ProduceStats(pydantic.BaseModel):
     breakdown: ScoreBreakdown  # avg six-way score split, all player-games
     winner_breakdown: ScoreBreakdown  # avg split of the winning seat only
     decisions: float  # avg trainable decisions per game
+    decisions_std: float  # σ of trainable decisions per game
     margin: float  # avg signed margin (player0 − player1); ~0 by symmetry
     margin_std: float  # σ of the signed margin
     abs_margin: float  # avg winning margin |player0 − player1|
@@ -198,7 +199,12 @@ class IterationMetrics(pydantic.BaseModel):
         default_factory=ScoreBreakdown
     )  # mean score split of the winning seat, over decided (non-tie) games
     avg_abs_margin: float = 0.0  # mean |player0 − player1| (winning margin)
-    avg_margin_sq: float = 0.0  # mean (player0 − player1)^2, for an EWMA σ
+    # Per-cycle dispersion: the population σ over this iteration's games
+    # (n = games_this_iter). The dashboard EWMA-folds these and divides by
+    # √games_per_iter for the 95% CI it shows on the IN-GAME PERFORMANCE stats.
+    margin_std: float = 0.0  # σ of the signed margin (player0 − player1)
+    abs_margin_std: float = 0.0  # σ of the winning margin |player0 − player1|
+    decisions_std: float = 0.0  # σ of trainable decisions per game
 
     family_counts: FamilyCounts  # decisions seen this iteration, per family
 

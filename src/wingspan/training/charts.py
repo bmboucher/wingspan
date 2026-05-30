@@ -41,9 +41,15 @@ BRAILLE_BITS: dict[tuple[int, int], int] = {
 }
 
 _GUTTER_W = 5  # "100%" (4) + "┤" tick
-_BOTTOM_ROWS = 3  # axis ruler + iteration labels + caption/legend
+_TITLE_ROWS = 1  # the per-chart title row above each plot
+_AXIS_ROWS = 2  # axis ruler + iteration labels
+_CHART_GAP = 2  # blank columns between the two side-by-side charts
 _INSET_W = 28  # docked eval inset width
-_INSET_MIN_WIDTH = 96  # below this the inset moves below the axis
+_INSET_MIN_WIDTH = 96  # below this the inset moves below the side-by-side charts
+# The win-rate plot is pinned to exactly 11 rows so its 0..100% axis lands a
+# gridline every 2 rows (10% per row → 20% per 2 rows). The points plot matches
+# the same row count so the two charts stay vertically aligned for the merge.
+_WINRATE_PLOT_ROWS = 11
 _Y_LABELS = (100, 80, 60, 40, 20, 0)  # win-rate axis percent gridlines
 _POINTS_AXIS_TICKS = 5  # gridline count on the auto-scaled points axis
 # Once a run exceeds this many iterations the convergence charts show only the
@@ -145,15 +151,18 @@ class BrailleCanvas:
 
 
 # ---------------------------------------------------------------------------
-# Convergence charts (win-rate hero + self-play points / margin)
+# Convergence charts ("IS IT GETTING BETTER?" — two side-by-side plots + inset)
 
 
-class WinRateChart:
-    """The left HERO panel body: win-rate-vs-opponent on a fixed 0..100 axis,
-    a 100% target gridline, a pulsing leading-edge beacon, and a docked eval
-    inset (the cinematic hero win-rate number) that falls back to a one-line
-    strip when the panel is too narrow. The win-rate sawtooths back down each
-    time the reference opponent is advanced (it climbs vs a stronger self)."""
+class GettingBetterChart:
+    """The single "IS IT GETTING BETTER?" panel body: two side-by-side line
+    charts on their own axes — win-rate-vs-opponent (left, fixed 0..100% axis
+    with a yellow opponent-advance threshold line, raw + EWMA series) and
+    average self-play points / eval margin (right, auto-scaled with a zero line)
+    — followed by the docked EVAL inset (the cinematic hero win-rate plus its
+    recent/EWMA readouts) which falls back to a one-line strip when the panel is
+    too narrow. The win-rate sawtooths back down each time the reference opponent
+    is advanced (it then climbs again vs a stronger self)."""
 
     def __init__(self, state: runstate.RunState, frame: int):
         self.state = state
@@ -168,97 +177,176 @@ class WinRateChart:
         )
         inset = width >= _INSET_MIN_WIDTH
         inset_w = _INSET_W if inset else 0
-        bottom_extra = 0 if inset else 1  # the narrow-mode one-line eval strip
-        plot_cols = width - _GUTTER_W - inset_w - (1 if inset else 0)
-        plot_rows = height - _BOTTOM_ROWS - bottom_extra
+        charts_w = width - inset_w - (1 if inset else 0)
+        left_w = (charts_w - _CHART_GAP) // 2
+        right_w = charts_w - _CHART_GAP - left_w
+        plot_rows = height - _TITLE_ROWS - _AXIS_ROWS
 
-        if plot_cols < 20 or plot_rows < 5:
+        if plot_rows < 5 or left_w < 16:
             yield text.Text("  collecting data…", style=theme.TEXT_MUTED)
             return
 
-        it_lo, it_hi = _chart_window(self.state.history)
-        win = _windowed_series(self.state.history, "win", it_lo)
-        canvas = BrailleCanvas(plot_cols, plot_rows, 1)
-        _draw_series(canvas, 0, win, it_lo, it_hi, 0.0, 100.0, dotted=False)
-        beacon = _beacon_cell(canvas, win, it_lo, it_hi, 0.0, 100.0)
-
-        lines = _render_plot_grid(
-            canvas,
-            {0: theme.WIN_COLOR},
-            _percent_label_rows(plot_rows),
-            beacon,
-            self._beacon_color(),
-            target_row=0,
-        )
-        lines.extend(_axis_lines(it_lo, it_hi, plot_cols, _winrate_caption()))
+        rows = min(plot_rows, _WINRATE_PLOT_ROWS)
+        beacon_color = theme.BEACON_B if self.frame % 2 else theme.BEACON_A
+        left = _winrate_block(self.state, left_w, rows, beacon_color)
+        right = _points_block(self.state, right_w, rows, beacon_color)
+        merged = _join_columns([(left, left_w), (right, right_w)], _CHART_GAP)
 
         if inset:
-            inset_lines = _eval_inset(self.state, len(lines))
-            lines = _merge_columns(lines, inset_lines, _GUTTER_W + plot_cols)
+            merged = _merge_columns(
+                merged, _eval_inset(self.state, len(merged)), charts_w
+            )
         else:
-            lines.extend(_eval_strip(self.state))
+            merged.extend(_eval_strip(self.state))
 
-        for i, line in enumerate(lines):
+        for i, line in enumerate(merged):
             if i:
                 yield segment.Segment.line()
             yield line
 
-    def _beacon_color(self) -> str:
-        return theme.BEACON_B if self.frame % 2 else theme.BEACON_A
+
+def _winrate_block(
+    state: runstate.RunState, width: int, rows: int, beacon_color: str
+) -> list[text.Text]:
+    """The win-rate plot block (title + plot grid + x-axis), exactly
+    ``_TITLE_ROWS + rows + _AXIS_ROWS`` lines tall. Plots the raw per-eval
+    win-rate (dim, dotted) under its EWMA (solid), with a yellow horizontal
+    threshold line at the opponent-advance win rate."""
+    plot_cols = width - _GUTTER_W
+    it_lo, it_hi = _chart_window(state.history)
+    raw = _windowed_series(state.history, "win", it_lo)
+    ewma = [pt for pt in _winrate_ewma_points(state) if pt[0] >= it_lo]
+
+    canvas = BrailleCanvas(plot_cols, rows, 2)
+    _draw_series(canvas, 0, ewma, it_lo, it_hi, 0.0, 100.0, dotted=False)
+    _draw_series(canvas, 1, raw, it_lo, it_hi, 0.0, 100.0, dotted=True)
+    beacon = _beacon_cell(canvas, ewma or raw, it_lo, it_hi, 0.0, 100.0)
+
+    threshold = state.config.opponent_reset_win_rate * 100.0
+    target_row = (
+        round((1.0 - threshold / 100.0) * (rows - 1)) if threshold > 0 else None
+    )
+    grid = _render_plot_grid(
+        canvas,
+        {0: theme.WIN_COLOR, 1: theme.WIN_RAW},
+        _percent_label_rows(rows),
+        beacon,
+        beacon_color,
+        target_row,
+        theme.WIN_THRESHOLD,
+    )
+    return [_winrate_title(state, width), *grid, *_axis_two(it_lo, it_hi, plot_cols)]
 
 
-class PointsChart:
-    """The right HERO panel body: average self-play points per game (solid,
-    dominant) and the eval score-margin (dotted) on a shared, auto-scaled point
-    axis — the two point-valued series the win-rate panel can't show on its
-    0..100% axis. Average points is the headline "how good is the play" signal
-    (competitive Wingspan ends north of 100); a one-line readout sits beneath
-    the axis."""
+def _points_block(
+    state: runstate.RunState, width: int, rows: int, beacon_color: str
+) -> list[text.Text]:
+    """The points plot block (title + plot grid + x-axis): average self-play
+    points (solid) and eval margin (dotted) on a shared auto-scaled axis, with a
+    horizontal zero line marked when the range straddles zero."""
+    plot_cols = width - _GUTTER_W
+    it_lo, it_hi = _chart_window(state.history)
+    points = _windowed_series(state.history, "points", it_lo)
+    margin = _windowed_series(state.history, "margin", it_lo)
+    v_lo, v_hi = _value_span_padded(
+        [value for _, value in points] + [value for _, value in margin]
+    )
 
-    def __init__(self, state: runstate.RunState, frame: int):
-        self.state = state
-        self.frame = frame
+    canvas = BrailleCanvas(plot_cols, rows, 2)
+    _draw_series(canvas, 0, points, it_lo, it_hi, v_lo, v_hi, dotted=False)
+    _draw_series(canvas, 1, margin, it_lo, it_hi, v_lo, v_hi, dotted=True)
+    beacon = _beacon_cell(canvas, points, it_lo, it_hi, v_lo, v_hi)
 
-    def __rich_console__(
-        self, console: rich_console.Console, options: rich_console.ConsoleOptions
-    ) -> rich_console.RenderResult:
-        width = options.max_width
-        height = (
-            options.height if options.height is not None else (options.max_height or 16)
+    zero_row = _value_row(0.0, v_lo, v_hi, rows) if v_lo <= 0.0 <= v_hi else None
+    grid = _render_plot_grid(
+        canvas,
+        {0: theme.POINTS_COLOR, 1: theme.MARGIN_COLOR},
+        _auto_label_rows(rows, v_lo, v_hi),
+        beacon,
+        beacon_color,
+        zero_row,
+        theme.TARGET_GRID,
+    )
+    return [_points_title(state, width), *grid, *_axis_two(it_lo, it_hi, plot_cols)]
+
+
+def _winrate_title(state: runstate.RunState, width: int) -> text.Text:
+    gen = state.opponent_generation
+    opponent = "random" if gen == 0 else f"self·gen{gen}"
+    title = text.Text(no_wrap=True, end="", overflow="ellipsis")
+    title.append("WIN RATE", style=f"bold {theme.WIN_COLOR}")
+    title.append(f" vs {opponent}", style=theme.AXIS)
+    last_eval = _latest_eval(state)
+    if last_eval is not None:
+        win_pct = last_eval[1].win_rate * 100.0
+        title.append(f"  {win_pct:.1f}%", style=theme.hero_color(win_pct))
+    return _pad_to(title, width)
+
+
+def _points_title(state: runstate.RunState, width: int) -> text.Text:
+    title = text.Text(no_wrap=True, end="", overflow="ellipsis")
+    title.append("AVG POINTS", style=f"bold {theme.POINTS_COLOR}")
+    if state.last_iter is not None:
+        title.append(
+            f"  {state.last_iter.avg_self_score:.1f}", style=theme.POINTS_COLOR
         )
-        plot_cols = width - _GUTTER_W
-        plot_rows = height - _BOTTOM_ROWS - 1  # one readout strip line
+    last_eval = _latest_eval(state)
+    if last_eval is not None:
+        title.append("  · margin ", style=theme.AXIS)
+        title.append(f"{last_eval[1].mean_margin:+.1f}", style=theme.MARGIN_COLOR)
+    return _pad_to(title, width)
 
-        it_lo, it_hi = _chart_window(self.state.history)
-        points = _windowed_series(self.state.history, "points", it_lo)
-        margin = _windowed_series(self.state.history, "margin", it_lo)
-        if plot_cols < 20 or plot_rows < 5 or (not points and not margin):
-            yield text.Text("  collecting data…", style=theme.TEXT_MUTED)
-            return
 
-        v_lo, v_hi = _value_span_padded(
-            [value for _, value in points] + [value for _, value in margin]
-        )
-        canvas = BrailleCanvas(plot_cols, plot_rows, 2)
-        _draw_series(canvas, 0, points, it_lo, it_hi, v_lo, v_hi, dotted=False)
-        _draw_series(canvas, 1, margin, it_lo, it_hi, v_lo, v_hi, dotted=True)
-        beacon = _beacon_cell(canvas, points, it_lo, it_hi, v_lo, v_hi)
+def _winrate_ewma_points(state: runstate.RunState) -> list[tuple[int, float]]:
+    """The EWMA-smoothed win-rate (percent) per eval iteration. The EWMA resets
+    to the raw value whenever the reference opponent advances, so the curve
+    starts a fresh climb after each sawtooth rather than carrying the old
+    opponent's saturated rate forward."""
+    alpha = state.config.eval_ewma_alpha
+    points: list[tuple[int, float]] = []
+    ewma: float | None = None
+    generation: int | None = None
+    for item in state.history:
+        if item.eval is None:
+            continue
+        win_pct = item.eval.win_rate * 100.0
+        if ewma is None or item.eval.opponent_generation != generation:
+            ewma = win_pct
+            generation = item.eval.opponent_generation
+        else:
+            ewma = alpha * win_pct + (1.0 - alpha) * ewma
+        points.append((item.iteration, ewma))
+    return points
 
-        lines = _render_plot_grid(
-            canvas,
-            {0: theme.POINTS_COLOR, 1: theme.MARGIN_COLOR},
-            _auto_label_rows(plot_rows, v_lo, v_hi),
-            beacon,
-            theme.BEACON_B if self.frame % 2 else theme.BEACON_A,
-            target_row=None,
-        )
-        lines.extend(_axis_lines(it_lo, it_hi, plot_cols, _points_caption()))
-        lines.extend(_points_strip(self.state))
 
-        for i, line in enumerate(lines):
-            if i:
-                yield segment.Segment.line()
-            yield line
+def _pad_to(line: text.Text, width: int) -> text.Text:
+    pad = width - line.cell_len
+    if pad > 0:
+        line.append(" " * pad)
+    return line
+
+
+def _join_columns(
+    blocks: list[tuple[list[text.Text], int]], gap: int
+) -> list[text.Text]:
+    """Concatenate equal-height line blocks side by side, each padded to its own
+    width with ``gap`` blank columns between them."""
+    height = max((len(lines) for lines, _ in blocks), default=0)
+    out: list[text.Text] = []
+    for row in range(height):
+        line = text.Text(no_wrap=True, end="")
+        for index, (lines, block_w) in enumerate(blocks):
+            if index:
+                line.append(" " * gap)
+            if row < len(lines):
+                line.append_text(lines[row])
+                pad = block_w - lines[row].cell_len
+            else:
+                pad = block_w
+            if pad > 0:
+                line.append(" " * pad)
+        out.append(line)
+    return out
 
 
 # -- shared plot grid + axis -------------------------------------------------
@@ -271,10 +359,12 @@ def _render_plot_grid(
     beacon_cell: tuple[int, int] | None,
     beacon_color: str,
     target_row: int | None,
+    target_color: str,
 ) -> list[text.Text]:
     """Paint the braille canvas into colored text rows with a left value gutter,
-    an optional dotted target gridline on ``target_row``, and the leading-edge
-    beacon. Adjacent same-color cells are batched into one styled run."""
+    an optional dotted gridline (``target_row`` in ``target_color`` — the
+    win-rate threshold or the points zero line), and the leading-edge beacon.
+    Adjacent same-color cells are batched into one styled run."""
     lines: list[text.Text] = []
     for row in range(canvas.rows):
         line = text.Text(no_wrap=True, end="")
@@ -288,7 +378,7 @@ def _render_plot_grid(
             elif owner >= 0:
                 color = series_color[owner]
             elif target_row is not None and row == target_row and char == " ":
-                char, color = "┄", theme.TARGET_GRID
+                char, color = "┄", target_color
             else:
                 color = theme.AXIS
             if color != run_color:
@@ -303,12 +393,10 @@ def _render_plot_grid(
     return lines
 
 
-def _axis_lines(
-    it_lo: int, it_hi: int, cols: int, caption: text.Text
-) -> list[text.Text]:
-    """The shared bottom three rows: the tick ruler, the iteration labels, and
-    a chart-specific ``caption`` legend row. The labels span the displayed
-    ``[it_lo, it_hi]`` iteration window so they track the sliding x-axis."""
+def _axis_two(it_lo: int, it_hi: int, cols: int) -> list[text.Text]:
+    """The shared bottom two rows of a plot: the tick ruler and the iteration
+    labels. The labels span the displayed ``[it_lo, it_hi]`` iteration window so
+    they track the sliding x-axis."""
     n_ticks = max(2, min(12, cols // 8))
     tick_cols = [round(i * (cols - 1) / (n_ticks - 1)) for i in range(n_ticks)]
 
@@ -323,42 +411,14 @@ def _axis_lines(
     labels.append(" " * _GUTTER_W, style=theme.AXIS)
     labels.append(_tick_labels(tick_cols, cols, it_lo, it_hi), style=theme.TEXT_MUTED)
 
-    return [ruler, labels, caption]
+    return [ruler, labels]
 
 
-def _winrate_caption() -> text.Text:
-    caption = text.Text(no_wrap=True, end="")
-    caption.append(" " * _GUTTER_W)
-    caption.append("win% ", style=theme.WIN_COLOR)
-    caption.append("· climbs toward the ", style=theme.AXIS)
-    caption.append("100% target", style=theme.TARGET_GRID)
-    return caption
-
-
-def _points_caption() -> text.Text:
-    caption = text.Text(no_wrap=True, end="")
-    caption.append(" " * _GUTTER_W)
-    caption.append("self-play pts ", style=theme.POINTS_COLOR)
-    caption.append("· ", style=theme.AXIS)
-    caption.append("eval margin", style=theme.MARGIN_COLOR)
-    return caption
-
-
-def _points_strip(state: runstate.RunState) -> list[text.Text]:
-    """A one-line readout of the latest average self-play points and eval margin."""
-    line = text.Text(no_wrap=True, end="")
-    line.append(" " * _GUTTER_W)
-    if state.last_iter is None:
-        line.append("points: awaiting first iteration…", style=theme.TEXT_MUTED)
-        return [line]
-    line.append("avg ", style=theme.TEXT_MUTED)
-    line.append(f"{state.last_iter.avg_self_score:.1f} pts", style=theme.POINTS_COLOR)
-    last_eval = _latest_eval(state)
-    if last_eval is not None:
-        _, result = last_eval
-        line.append("   eval margin ", style=theme.TEXT_MUTED)
-        line.append(f"{result.mean_margin:+.1f}", style=theme.MARGIN_COLOR)
-    return [line]
+def _value_row(value: float, v_lo: float, v_hi: float, rows: int) -> int:
+    """The plot-row index a value lands on for an auto-scaled ``[v_lo, v_hi]``
+    axis (row 0 is the top)."""
+    frac = (value - v_lo) / (v_hi - v_lo) if v_hi > v_lo else 0.5
+    return round((1.0 - frac) * (rows - 1))
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +442,9 @@ class FamilyHistogram:
         width = options.max_width
         total = max(self.counts.total(), 1)
         peak = max(self.counts.counts, default=0)
-        label_w = 16 if width >= 96 else 13
+        # Wide enough for the longest display label (``commit_to_cost``, 14) so a
+        # family name is never truncated.
+        label_w = 15
         # label + space + bar + " 100.0%" (7) + "  " (2) + count(6) + margin
         bar_w = max(6, width - label_w - 17)
 
@@ -397,6 +459,9 @@ class FamilyHistogram:
             if i:
                 yield segment.Segment.line()
             yield line
+        # Trailing newline so a following Group sibling (the total-decisions
+        # footer) lands on its own row rather than abutting the last bar.
+        yield segment.Segment.line()
 
     def _row(
         self,
@@ -409,7 +474,7 @@ class FamilyHistogram:
     ) -> text.Text:
         color = _tier_color(share, count)
         line = text.Text(no_wrap=True, end="")
-        line.append(family.value[:label_w].ljust(label_w), style=theme.TEXT_DIM2)
+        line.append(theme.family_label(family).ljust(label_w), style=theme.TEXT_DIM2)
         line.append(" ")
         bar = eighth_bar(bar_fraction, bar_w, min_tick=True)
         line.append(bar.ljust(bar_w), style=color)
@@ -602,19 +667,13 @@ def _bresenham(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
 
 
 def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
-    """The right-docked eval box: the cinematic hero win-rate plus readouts.
-    Padded with blank lines to ``height`` so it aligns with the plot."""
+    """The right-docked eval box: the cinematic hero win-rate, then the most
+    recent win-rate / margin, then an identical EWMA section, then the eval
+    sample size, the reference opponent, and how many iterations have passed
+    since the frozen self model was last advanced. Padded with blank lines to
+    ``height`` so it aligns with the plots."""
     last_eval = _latest_eval(state)
-    body: list[text.Text] = []
-    title = text.Text(no_wrap=True, end="")
-    eval_iter = last_eval[0] if last_eval else None
-    label = "EVAL" if eval_iter is None else f"EVAL · iter {eval_iter:04d}"
-    title.append("┌─ ", style=theme.BORDER_EVAL)
-    title.append(label + " ", style=theme.BORDER_EVAL)
-    title.append(
-        "─" * max(0, _INSET_W - title.cell_len - 1) + "┐", style=theme.BORDER_EVAL
-    )
-    body.append(title)
+    body: list[text.Text] = [_inset_title(last_eval)]
 
     if last_eval is None:
         body.append(_inset_text("  awaiting first eval…", theme.TEXT_MUTED))
@@ -622,28 +681,24 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
         _, result = last_eval
         ewma = state.eval_ewma()
         body.extend(_hero_block(result.win_rate * 100.0, state.best_win_rate))
+        body.append(_inset_section("RECENT"))
         body.append(
-            _inset_kv("win vs random", f"{result.win_rate * 100:.1f}%", theme.WIN_COLOR)
+            _inset_kv("win rate", f"{result.win_rate * 100:.1f}%", theme.WIN_COLOR)
         )
         body.append(
-            _inset_text(f"   ±{result.ci95 * 100:.1f}% (95% CI)", theme.TEXT_DIM2)
-        )
-        if ewma is not None:
-            body.append(
-                _inset_kv("ewma win", f"{ewma.win_rate * 100:.1f}%", theme.WIN_COLOR)
-            )
-        body.append(
-            _inset_kv(
-                "mean margin", f"{result.mean_margin:+.1f} pts", theme.MARGIN_COLOR
-            )
+            _inset_kv("margin", f"{result.mean_margin:+.1f} pts", theme.MARGIN_COLOR)
         )
         if ewma is not None:
+            body.append(_inset_section("EWMA"))
             body.append(
-                _inset_kv(
-                    "ewma margin", f"{ewma.mean_margin:+.1f} pts", theme.MARGIN_COLOR
-                )
+                _inset_kv("win rate", f"{ewma.win_rate * 100:.1f}%", theme.WIN_COLOR)
+            )
+            body.append(
+                _inset_kv("margin", f"{ewma.mean_margin:+.1f} pts", theme.MARGIN_COLOR)
             )
         body.append(_inset_kv("eval games", f"{result.n_games}", theme.TEXT_DIM2))
+        body.append(_inset_kv("opponent", _inset_opponent(state), theme.TEXT_DIM2))
+        body.append(_inset_kv("since advance", _inset_since(state), theme.TEXT_DIM2))
         if state.best_win_rate is not None:
             body.append(
                 _inset_kv(
@@ -696,6 +751,41 @@ def _inset_text(content: str, color: str) -> text.Text:
     line.append(content.ljust(_INSET_W - 4), style=color)
     line.append(" │", style=theme.BORDER_EVAL)
     return line
+
+
+def _inset_title(last_eval: tuple[int, metrics.EvalResult] | None) -> text.Text:
+    """The top border of the eval inset, naming the most recent eval iteration."""
+    label = "EVAL" if last_eval is None else f"EVAL · iter {last_eval[0]:04d}"
+    title = text.Text(no_wrap=True, end="")
+    title.append("┌─ ", style=theme.BORDER_EVAL)
+    title.append(label + " ", style=theme.BORDER_EVAL)
+    title.append(
+        "─" * max(0, _INSET_W - title.cell_len - 1) + "┐", style=theme.BORDER_EVAL
+    )
+    return title
+
+
+def _inset_section(label: str) -> text.Text:
+    """A dim section header (``RECENT`` / ``EWMA``) inside the eval inset."""
+    line = text.Text(no_wrap=True, end="")
+    line.append("│ ", style=theme.BORDER_EVAL)
+    line.append(f"{label:<{_INSET_W - 4}}", style=f"bold {theme.TEXT_MUTED}")
+    line.append(" │", style=theme.BORDER_EVAL)
+    return line
+
+
+def _inset_opponent(state: runstate.RunState) -> str:
+    gen = state.opponent_generation
+    return "random" if gen == 0 else f"self·gen{gen}"
+
+
+def _inset_since(state: runstate.RunState) -> str:
+    """How many iterations since the frozen self model was last advanced (a dash
+    while still evaluating against the random agent, where no frozen self
+    exists)."""
+    if state.opponent_generation == 0:
+        return "—"
+    return f"{state.iteration - state.opponent_since_iteration} iters"
 
 
 def _eval_strip(state: runstate.RunState) -> list[text.Text]:

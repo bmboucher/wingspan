@@ -11,6 +11,7 @@ gradient and the cinematic eval hero-number recolor as a value changes.
 
 from __future__ import annotations
 
+from wingspan import decisions
 from wingspan.training import runstate
 
 # ---------------------------------------------------------------------------
@@ -59,6 +60,29 @@ SCORE_COLOR: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
+# Decision-family display labels — the human-facing name each judgment family
+# shows in the DECISION MODELS panel. The enum ``.value`` strings are the stable
+# identifiers baked into every checkpoint's architecture descriptor, so they are
+# left untouched; only the presentation label is remapped here. Families absent
+# from this map fall back to their enum ``.value``.
+
+FAMILY_LABEL: dict[decisions.DecisionFamily, str] = {
+    decisions.DecisionFamily.MACRO_ACTION: "main_action",
+    decisions.DecisionFamily.BIRD_ACQUISITION: "draw_bird",
+    decisions.DecisionFamily.BIRD_DISCARD: "discard_bird",
+    decisions.DecisionFamily.EGG_PLACEMENT: "lay_egg",
+    decisions.DecisionFamily.EGG_REMOVAL: "pay_egg",
+    decisions.DecisionFamily.BONUS_VALUATION: "choose_bonus",
+    decisions.DecisionFamily.HABITAT_PLACEMENT: "move_habitat",
+}
+
+
+def family_label(family: decisions.DecisionFamily) -> str:
+    """The DECISION MODELS display name for a judgment family."""
+    return FAMILY_LABEL.get(family, family.value)
+
+
+# ---------------------------------------------------------------------------
 # Family histogram — frequency tiers (also a gentle data-health signal)
 
 HIST_TOP = "#5BB98C"  # share >= 10%
@@ -73,12 +97,14 @@ HIST_LOW_SHARE = 0.01
 # ---------------------------------------------------------------------------
 # Convergence chart series
 
-WIN_COLOR = "#5BB98C"  # win-rate (primary, dominant)
+WIN_COLOR = "#5BB98C"  # win-rate EWMA (primary, dominant)
+WIN_RAW = "#3E7A57"  # raw per-eval win-rate (dim, plotted dotted under the EWMA)
 BEACON_A = "#BFF0D2"  # leading-edge beacon, frame A
 BEACON_B = "#FFFFFF"  # leading-edge beacon, frame B
 MARGIN_COLOR = "#3FB4A6"  # eval margin (secondary, dim teal)
 POINTS_COLOR = "#D9B26A"  # average self-play points (warm amber, dominant)
-TARGET_GRID = "#2F5D4A"  # faint 100% gridline
+TARGET_GRID = "#2F5D4A"  # faint gridline (points zero line)
+WIN_THRESHOLD = "#C9A24B"  # the yellow opponent-advance win-rate threshold line
 AXIS = "#6B7E8C"
 
 # ---------------------------------------------------------------------------
@@ -105,6 +131,7 @@ GAUGE_UTIL_PEAK = "#8CCBA8"  # utilization at / near saturation
 GAUGE_MEM = "#7FA9C9"  # RAM fill, comfortable
 GAUGE_MEM_HIGH = "#C9A24B"  # RAM past the caution threshold
 GAUGE_MEM_FULL = "#C46B6B"  # RAM past the alarm threshold
+GAUGE_MEM_PROC = "#B08CD9"  # this process's resident slice within the RAM bar
 
 GAUGE_UTIL_PEAK_PCT = 95.0  # brighten the utilization fill above this
 GAUGE_MEM_HIGH_PCT = 80.0  # RAM caution color above this

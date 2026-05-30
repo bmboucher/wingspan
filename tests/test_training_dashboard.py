@@ -153,7 +153,7 @@ def test_dashboard_renders_populated_state(width: int):
     assert len(_render(state, width=width)) > 1000  # colored path, no crash
     plain = _render(state, width=width, colorize=False)
     assert "WINGSPAN" in plain
-    assert "macro_action" in plain  # the histogram rendered its family rows
+    assert "main_action" in plain  # the histogram rendered its family rows
 
 
 def test_system_stats_percentages():
@@ -215,7 +215,7 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
 
     # The dashboard renders the real post-run state without error.
     assert len(_render(state)) > 1000
-    assert "macro_action" in _render(state, colorize=False)
+    assert "main_action" in _render(state, colorize=False)
 
 
 def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):

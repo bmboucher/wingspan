@@ -34,6 +34,11 @@ from wingspan import cards, decisions, state
 
 logger = logging.getLogger(__name__)
 
+# Decision class names already warned about for exceeding the soft choice-count
+# threshold, so the notice fires once per class per process rather than on every
+# wide decision (the setup deal alone would otherwise log it twice per game).
+_WARNED_WIDE: set[str] = set()
+
 
 # ---------------------------------------------------------------------------
 # Public constants — sanity bounds + normalization scales
@@ -250,7 +255,13 @@ def encode_choices(decision: _AnyDecision, state: state.GameState) -> np.ndarray
         f"decision {decision_name} produced {n_choices} choices, "
         f"exceeds MAX_CHOICES_HARD={MAX_CHOICES_HARD}"
     )
-    if n_choices > SOFT_CHOICE_WARN_THRESHOLD:
+    # The soft-threshold notice is a one-off-per-decision-class signal that a
+    # decision ballooned unexpectedly wide. SetupDecision (504) and a food-rich
+    # PlayBirdDecision routinely and legitimately exceed it, so warning on every
+    # such decision floods the log and adds per-call overhead in the hot path —
+    # dedupe by class name so it fires once per class per process.
+    if n_choices > SOFT_CHOICE_WARN_THRESHOLD and decision_name not in _WARNED_WIDE:
+        _WARNED_WIDE.add(decision_name)
         logger.warning(
             "Decision %s exposes %d choices (> %d soft threshold) for player %d",
             decision_name,
@@ -258,9 +269,12 @@ def encode_choices(decision: _AnyDecision, state: state.GameState) -> np.ndarray
             SOFT_CHOICE_WARN_THRESHOLD,
             decision.player_id,
         )
+    # Featurize straight into each row view rather than building a throwaway
+    # CHOICE_FEATURE_DIM array per candidate and copying it in — the rows start
+    # zeroed, and the handlers only ever index-assign their own stripes.
     feats = np.zeros((n_choices, CHOICE_FEATURE_DIM), dtype=np.float32)
     for i, choice in enumerate(decision.choices):
-        feats[i] = _featurize_choice(decision, choice, state)
+        _featurize_choice(feats[i], decision, choice, state)
     return feats
 
 
@@ -397,15 +411,21 @@ def _encode_decision_type(decision: _AnyDecision | None) -> np.ndarray:
 
 
 def _featurize_choice(
+    feat: np.ndarray,
     decision: _AnyDecision,
     choice: decisions.Choice,
     state: state.GameState,
-) -> np.ndarray:
-    """Fill a CHOICE_FEATURE_DIM vector for one (decision, choice) pair."""
-    feat = np.zeros(CHOICE_FEATURE_DIM, dtype=np.float32)
-    handler = _CHOICE_FEATURIZERS.get(type(choice), _featurize_default)
-    handler(feat, decision, choice, state)
-    return feat
+) -> None:
+    """Fill the pre-zeroed CHOICE_FEATURE_DIM row ``feat`` for one
+    (decision, choice) pair, dispatching on the concrete Choice subclass.
+
+    Writes into the caller's row view rather than allocating a fresh vector, so
+    ``encode_choices`` builds its ``(n_choices, DIM)`` matrix with no per-row
+    throwaway. The typed ``choice`` parameter keeps ``type(choice)`` a known
+    ``type[Choice]`` for the dispatch lookup."""
+    _CHOICE_FEATURIZERS.get(type(choice), _featurize_default)(
+        feat, decision, choice, state
+    )
 
 
 def _featurize_default(
@@ -603,19 +623,21 @@ def _featurize_setup(
             feat[_OFF_PAY + i] = 1.0 / _PAYMENT_COUNT_SCALE
     kept = choice.kept_cards
     # Identity multi-hot of the kept birds (the headline §3.1 fix) plus the
-    # aggregate stats that summarise the subset.
-    for bird in kept:
-        _fill_bird_identity(feat, bird)
+    # aggregate stats that summarise the subset. One pass sets each identity bit
+    # and accumulates all three sums (the setup deal featurizes 504 candidates,
+    # so folding three generator passes into one matters).
     if kept:
-        feat[_OFF_BIRD + 0] = sum(bird.points for bird in kept) / (
-            _POINTS_SCALE * _ROW_SLOTS_SCALE
-        )
-        feat[_OFF_BIRD + 1] = sum(bird.food_cost.total for bird in kept) / (
-            _FOOD_COST_SCALE * _ROW_SLOTS_SCALE
-        )
-        feat[_OFF_BIRD + 3] = sum(bird.egg_limit for bird in kept) / (
-            _EGG_LIMIT_SCALE * _ROW_SLOTS_SCALE
-        )
+        points = 0.0
+        cost = 0.0
+        eggs = 0.0
+        for bird in kept:
+            feat[_OFF_BIRD_ID + cards.bird_index(bird)] = 1.0
+            points += bird.points
+            cost += bird.food_cost.total
+            eggs += bird.egg_limit
+        feat[_OFF_BIRD + 0] = points / (_POINTS_SCALE * _ROW_SLOTS_SCALE)
+        feat[_OFF_BIRD + 1] = cost / (_FOOD_COST_SCALE * _ROW_SLOTS_SCALE)
+        feat[_OFF_BIRD + 3] = eggs / (_EGG_LIMIT_SCALE * _ROW_SLOTS_SCALE)
     feat[_OFF_BIRD + 4] = len(kept) / _ROW_SLOTS_SCALE
     if choice.bonus_card is not None:
         _fill_bonus_identity(feat, choice.bonus_card)
