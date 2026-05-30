@@ -46,6 +46,16 @@ _SYSMON_INTERVAL_SECONDS = 1.0
 _LAST_CKPT = "last.pt"
 _BEST_CKPT = "best.pt"
 
+# torch CPU intra-op thread count for the run. Self-play collection — the
+# throughput bottleneck — runs one small forward pass per decision (~130 per
+# game), and on CPU those tiny ops run *slower* when many torch threads
+# contend over them: measured ~5.7 games/sec at torch's default 12 threads vs
+# ~7.5 games/sec at 1-2 threads (+33%). The batched backprop in the update
+# phase would prefer more threads, but it costs <0.2s/iter against ~8s of
+# collection, so a low global count wins overall. Eval (also per-decision
+# inference) benefits identically to collection.
+_CPU_INTRAOP_THREADS = 2
+
 
 class TrainingLoop:
     """A resumable, stoppable self-play training run feeding a live RunState."""
@@ -53,6 +63,8 @@ class TrainingLoop:
     def __init__(self, cfg: config.TrainConfig):
         self.config = cfg
         self.device = torch.device(cfg.device)
+        if self.device.type == "cpu":
+            torch.set_num_threads(_CPU_INTRAOP_THREADS)
         _seed_everything(cfg.seed)
         self.net = model.PolicyValueNet(hidden=cfg.hidden).to(self.device)
         self.optimizer: optim.Optimizer = optim.Adam(self.net.parameters(), lr=cfg.lr)
