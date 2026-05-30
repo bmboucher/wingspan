@@ -23,6 +23,12 @@ _HEADER_H = 4
 _FOOTER_H = 5
 _LABEL_W = 16  # field-label column width
 _VALUE_W = 12  # field-value column width
+# Frames the edit caret stays on / off. Idle heartbeat renders land on frame
+# multiples of the controller's heartbeat (4), so dividing by 8 toggles the
+# caret every two heartbeats (~0.5 s) regardless of which frames get painted.
+_CARET_BLINK_FRAMES = 8
+_MODAL_WIDTH = 66  # confirmation modal width (clamped to the terminal)
+_MODAL_MIN_WIDTH = 40
 
 # Focus / change markers in the form's left gutter.
 _MARKER_FOCUS = "▸"
@@ -183,10 +189,13 @@ class _FormView:
         rows, selected_row = self._rows()
         height = options.height or options.max_height or len(rows)
         window, scroll_up, scroll_down = _viewport(rows, selected_row, height)
+        # end="" to match every other row: the loop below supplies the inter-row
+        # newlines, so a default-newline indicator would inject a blank line and
+        # push the bottom row (incl. the ▼ indicator itself) off the panel.
         if scroll_up:
-            window[0] = text.Text(_SCROLL_UP, style=theme.TEXT_MUTED)
+            window[0] = text.Text(_SCROLL_UP, style=theme.TEXT_MUTED, end="")
         if scroll_down:
-            window[-1] = text.Text(_SCROLL_DOWN, style=theme.TEXT_MUTED)
+            window[-1] = text.Text(_SCROLL_DOWN, style=theme.TEXT_MUTED, end="")
         for index, line in enumerate(window):
             if index:
                 yield text.Text("\n", end="")
@@ -233,7 +242,7 @@ def _value_text(
     view: state.ConfiguratorState, spec: fields.FieldSpec, editing: bool, frame: int
 ) -> text.Text:
     if editing:
-        caret = "▏" if frame % 2 == 0 else " "
+        caret = "▏" if (frame // _CARET_BLINK_FRAMES) % 2 == 0 else " "
         value = (view.edit_buffer + caret).ljust(_VALUE_W)
         return text.Text(value, style=f"bold {theme.BORDER_HEADLINE}")
     formatted = fields.format_value(view.working, spec).ljust(_VALUE_W)
@@ -375,7 +384,7 @@ def _runinfo(view: state.ConfiguratorState) -> panel.Panel:
 def _runinfo_lines(view: state.ConfiguratorState) -> list[text.Text]:
     status = view.status()
     summary = view.summary
-    lines: list[text.Text] = [_status_line(status, view)]
+    lines: list[text.Text] = [_status_line(status)]
     if summary.exists and summary.readable:
         lines.extend(_run_detail_lines(summary))
     lines.append(text.Text(""))
@@ -383,7 +392,7 @@ def _runinfo_lines(view: state.ConfiguratorState) -> list[text.Text]:
     return lines
 
 
-def _status_line(status: runs.RunStatus, view: state.ConfiguratorState) -> text.Text:
+def _status_line(status: runs.RunStatus) -> text.Text:
     out = text.Text(no_wrap=True)
     out.append(f"{_STATUS_GLYPH[status]} ", style=_STATUS_COLOR[status])
     out.append(_status_text(status), style=_STATUS_COLOR[status])
@@ -501,22 +510,52 @@ def _hint_row(pairs: list[tuple[str, str]], muted: bool = False) -> text.Text:
 #### Modal ####
 
 
-def _modal(prompt: state.ConfirmPrompt) -> align.Align:
-    body: list[text.Text] = [text.Text("")]
-    for line in prompt.lines:
-        body.append(text.Text(line, style=theme.TEXT_PRIMARY))
-    body.append(text.Text(""))
-    body.extend(_modal_option_lines(prompt))
-    inner = panel.Panel(
-        rich_console.Group(*body),
-        title=f"[b]{prompt.title}[/b]",
-        title_align="left",
-        box=box.HEAVY,
-        border_style=_MODE_COLOR[state.Mode.CONFIRM],
-        padding=(1, 3),
-        width=66,
-    )
-    return align.Align.center(inner, vertical="middle")
+class _Modal:
+    """The centered confirmation panel. Height-aware: the keyed options and the
+    title are always shown; when the body region is too short the explanatory
+    prompt lines are elided (with a ``…`` marker) rather than letting the
+    safety-critical option rows clip off the bottom (rich ``Align`` crops, it
+    does not shrink)."""
+
+    def __init__(self, prompt: state.ConfirmPrompt):
+        self.prompt = prompt
+
+    def __rich_console__(
+        self, console: rich_console.Console, options: rich_console.ConsoleOptions
+    ) -> rich_console.RenderResult:
+        height = options.height or options.max_height or 24
+        width = max(_MODAL_MIN_WIDTH, min(_MODAL_WIDTH, options.max_width - 4))
+        option_lines = _modal_option_lines(self.prompt)
+        # Reserve: the panel's two border rows, the option rows, and one blank
+        # separator. Whatever is left is the budget for the prompt text.
+        budget = height - 2 - len(option_lines) - 1
+        if budget >= len(self.prompt.lines):
+            shown, elided = self.prompt.lines, False
+        else:
+            shown = self.prompt.lines[: max(0, budget - 1)]  # a row for the ellipsis
+            elided = True
+
+        body: list[text.Text] = [
+            text.Text(line, style=theme.TEXT_PRIMARY) for line in shown
+        ]
+        if elided:
+            body.append(text.Text("…", style=theme.TEXT_MUTED))
+        body.append(text.Text(""))
+        body.extend(option_lines)
+        inner = panel.Panel(
+            rich_console.Group(*body),
+            title=f"[b]{self.prompt.title}[/b]",
+            title_align="left",
+            box=box.HEAVY,
+            border_style=_MODE_COLOR[state.Mode.CONFIRM],
+            padding=(0, 3),
+            width=width,
+        )
+        yield align.Align.center(inner, vertical="middle")
+
+
+def _modal(prompt: state.ConfirmPrompt) -> _Modal:
+    return _Modal(prompt)
 
 
 def _modal_option_lines(prompt: state.ConfirmPrompt) -> list[text.Text]:

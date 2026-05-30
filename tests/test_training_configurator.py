@@ -30,7 +30,7 @@ pytest.importorskip("rich")
 import rich.console as rich_console
 import torch
 
-from wingspan.training import artifacts, config, runstate
+from wingspan.training import artifacts, config, loop, runstate
 from wingspan.training.configure import controller, fields, keys, runs, screen, state
 
 # --------------------------------------------------------------------------- #
@@ -259,12 +259,19 @@ def test_list_archives(tmp_path: pathlib.Path):
 # --------------------------------------------------------------------------- #
 
 
-def _render(view: state.ConfiguratorState, width: int = 120, height: int = 44) -> str:
+# A frame on which the edit caret is in its "off" half (caret blinks every
+# screen._CARET_BLINK_FRAMES frames: on for [0,8), off for [8,16)).
+_BLINK_OFF_FRAME = 8
+
+
+def _render(
+    view: state.ConfiguratorState, width: int = 120, height: int = 44, frame: int = 0
+) -> str:
     buffer = io.StringIO()
     term = rich_console.Console(
         file=buffer, width=width, height=height, force_terminal=True, color_system=None
     )
-    term.print(screen.build(view, frame=0))
+    term.print(screen.build(view, frame=frame))
     return buffer.getvalue()
 
 
@@ -453,3 +460,101 @@ def test_dispatch_quit():
     view = _empty_state()
     assert controller.dispatch(view, _key(keys.KeyKind.CHAR, "q")) is state.Outcome.QUIT
     assert controller.dispatch(view, _key(keys.KeyKind.INTERRUPT)) is state.Outcome.QUIT
+
+
+def test_dispatch_edit_checkpoint_dir_reinspects(tmp_path: pathlib.Path):
+    run_dir = tmp_path / "run"
+    empty_dir = tmp_path / "elsewhere"
+    saved = config.TrainConfig(device="cpu", checkpoint_dir=str(run_dir), lr=7e-4)
+    _write_checkpoint(run_dir, saved)
+    view = controller.build_initial_state(
+        config.TrainConfig(device="cpu", checkpoint_dir=str(run_dir)),
+        cuda_available=False,
+    )
+    assert view.seeded_from_saved and view.working.lr == 7e-4
+    # Point checkpoint_dir at an empty directory; the re-inspect must drop the
+    # "resumed run" framing and report EMPTY, keeping the user's edited values.
+    view.selected_attr = "checkpoint_dir"
+    controller.dispatch(view, _key(keys.KeyKind.ENTER))
+    view.edit_buffer = str(empty_dir)
+    controller.dispatch(view, _key(keys.KeyKind.ENTER))
+    assert view.working.checkpoint_dir == str(empty_dir)
+    assert not view.seeded_from_saved
+    assert view.status() is runs.RunStatus.EMPTY
+    assert view.working.lr == 7e-4  # edits preserved across the re-inspect
+
+
+# --------------------------------------------------------------------------- #
+# review-confirmed regressions                                                #
+# --------------------------------------------------------------------------- #
+
+
+def test_inspect_run_invalid_config_is_unreadable(tmp_path: pathlib.Path):
+    cfg = config.TrainConfig(device="cpu")
+    payload = {
+        "config": {**cfg.model_dump(), "lr": 0.0},  # lr>0 — now out of bounds
+        "progress": runstate.RunProgress(iteration=3, total_games=12).model_dump(),
+    }
+    torch.save(payload, tmp_path / artifacts.LAST_CKPT)
+    summary = runs.inspect_run(str(tmp_path))
+    assert summary.exists and summary.config_invalid
+    assert summary.train_config is None
+    # Start must route through the fresh-run prompt, never offer resume.
+    assert runs.resolve_status(summary, cfg) is runs.RunStatus.UNREADABLE
+
+
+def test_loop_starts_fresh_on_invalid_saved_config(tmp_path: pathlib.Path):
+    cfg = config.TrainConfig(device="cpu", hidden=32, checkpoint_dir=str(tmp_path))
+    payload = {
+        "config": {**cfg.model_dump(), "eval_ewma_alpha": 0.0},  # now out of bounds
+        "progress": runstate.RunProgress(iteration=4, total_games=8).model_dump(),
+    }
+    torch.save(payload, tmp_path / artifacts.LAST_CKPT)
+    training = loop.TrainingLoop(cfg)  # must not raise on the invalid saved config
+    assert training.state.total_games == 0  # started fresh rather than resuming
+
+
+def test_loop_truncates_metrics_on_fresh_start(tmp_path: pathlib.Path):
+    (tmp_path / artifacts.METRICS_LOG).write_text("stale-row\n", encoding="utf-8")
+    cfg = config.TrainConfig(
+        device="cpu", hidden=32, checkpoint_dir=str(tmp_path), resume=False
+    )
+    loop.TrainingLoop(cfg)  # a non-resumed run clears a stale metrics log
+    assert (tmp_path / artifacts.METRICS_LOG).read_text(encoding="utf-8") == ""
+
+
+def test_edit_caret_blinks_across_frames():
+    view = _empty_state()
+    view.selected_attr = "lr"
+    view.mode = state.Mode.EDIT
+    view.edit_buffer = "0.001"
+    assert "▏" in _render(view, frame=0)  # caret on
+    assert "▏" not in _render(view, frame=_BLINK_OFF_FRAME)  # caret off
+
+
+def test_modal_keeps_options_on_short_terminal():
+    view = _empty_state()
+    view.mode = state.Mode.CONFIRM
+    view.confirm = state.ConfirmPrompt(
+        title="START A NEW RUN",
+        lines=[f"explanatory line {i}" for i in range(6)],
+        options=[
+            state.ConfirmOption(
+                key="a",
+                label="archive & start",
+                action=state.ConfirmAction.ARCHIVE_THEN_FRESH,
+            ),
+            state.ConfirmOption(
+                key="o",
+                label="overwrite & start",
+                action=state.ConfirmAction.OVERWRITE_THEN_FRESH,
+                danger=True,
+            ),
+            state.ConfirmOption(
+                key="c", label="cancel", action=state.ConfirmAction.CANCEL
+            ),
+        ],
+        default_key="a",
+    )
+    out = _render(view, width=100, height=18)  # a deliberately short terminal
+    assert "[A]" in out and "[O]" in out and "[C]" in out

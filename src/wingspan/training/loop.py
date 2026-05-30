@@ -23,6 +23,7 @@ import traceback
 import typing
 
 import numpy as np
+import pydantic
 import torch
 from torch import optim
 
@@ -69,6 +70,7 @@ class TrainingLoop:
         # checkpoint). Set last so resume can mutate net / optimizer / state.
         self._start_iteration = 0
         self._maybe_resume()
+        self._reset_metrics_log_if_fresh()
 
     # ------------------------------------------------------------------
     # Public API
@@ -168,13 +170,32 @@ class TrainingLoop:
             f"{progress.total_games:,} games · opponent {self._opponent_label()}",
         )
 
+    def _reset_metrics_log_if_fresh(self) -> None:
+        """Truncate a stale ``metrics.jsonl`` when this run did not resume, so a
+        fresh run (``--no-resume``, or one started over an overwritten directory)
+        never appends its rows onto a previous run's history. A resumed run
+        (``_start_iteration > 0``) keeps and continues its log."""
+        if self._start_iteration > 0:
+            return
+        log_path = self._ckpt_dir / artifacts.METRICS_LOG
+        if log_path.exists():
+            log_path.write_text("", encoding="utf-8")
+
     def _architecture_matches(self, payload: dict[str, typing.Any]) -> bool:
         """Whether ``payload``'s saved network shape matches this run's, so its
-        weights can be loaded without misrouting heads (TRAINING.md §5.1)."""
+        weights can be loaded without misrouting heads (TRAINING.md §5.1).
+
+        A saved config that no longer validates (e.g. a value since constrained
+        out of bounds) is treated as a mismatch so the run starts fresh with an
+        alarm rather than crashing ``__init__`` — preserving the non-fatal
+        contract a corrupt/incompatible checkpoint has everywhere else."""
         raw_config = payload.get("config")
         if raw_config is None:
             return True  # pre-descriptor checkpoint — assume compatible
-        saved = config.TrainConfig.model_validate(raw_config)
+        try:
+            saved = config.TrainConfig.model_validate(raw_config)
+        except pydantic.ValidationError:
+            return False
         return saved.architecture_key == self.config.architecture_key
 
     def _reset_optimizer_lr(self) -> None:

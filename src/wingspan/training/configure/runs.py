@@ -84,6 +84,11 @@ class RunSummary(pydantic.BaseModel):
     # ``config`` so the field does not shadow the ``config`` module in its own
     # annotation at class-definition time).
     train_config: config.TrainConfig | None = None
+    # The checkpoint carried a config that no longer validates (e.g. a value
+    # since constrained out of bounds). The payload still loaded, but the run is
+    # treated as not-resumable so Start routes through the fresh-run prompt
+    # instead of handing the loop a config it would reject mid-resume.
+    config_invalid: bool = False
     iteration: int | None = None
     total_games: int | None = None
     best_win_rate: float | None = None
@@ -136,7 +141,7 @@ def resolve_status(summary: RunSummary, working: config.TrainConfig) -> RunStatu
     """Classify what Start will do against ``summary`` for the working config."""
     if not summary.exists:
         return RunStatus.EMPTY
-    if not summary.readable:
+    if not summary.readable or summary.config_invalid:
         return RunStatus.UNREADABLE
     if architecture_compatible(summary.train_config, working):
         return RunStatus.RESUMABLE
@@ -229,6 +234,7 @@ def _fill_from_payload(summary: RunSummary, payload: dict[str, typing.Any]) -> N
         try:
             summary.train_config = config.TrainConfig.model_validate(raw_config)
         except pydantic.ValidationError:
+            summary.config_invalid = True
             summary.note = "saved config could not be parsed"
     progress = _progress_from_payload(payload)
     summary.iteration = progress.iteration

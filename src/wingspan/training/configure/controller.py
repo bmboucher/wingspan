@@ -14,6 +14,7 @@ or load error runs inside the alternate-screen block.
 
 from __future__ import annotations
 
+import sys
 import time
 
 import rich.console as rich_console
@@ -57,18 +58,7 @@ def build_initial_state(
     is already there, start from *its* saved settings (so the user tunes the
     actual run, not argparse defaults), keeping the directory they pointed at."""
     summary = runs.inspect_run(initial.checkpoint_dir)
-    working = initial
-    seeded = False
-    if (
-        summary.exists
-        and summary.readable
-        and summary.train_config is not None
-        and runs.architecture_compatible(summary.train_config, initial)
-    ):
-        working = summary.train_config.model_copy(
-            update={"checkpoint_dir": initial.checkpoint_dir}
-        )
-        seeded = True
+    working, seeded = _seed_from_summary(initial, summary)
     return state.ConfiguratorState(
         working=working,
         saved=summary.train_config,
@@ -77,6 +67,29 @@ def build_initial_state(
         selected_attr=fields.editable_attrs()[0],
         seeded_from_saved=seeded,
     )
+
+
+def _seed_from_summary(
+    current: config.TrainConfig, summary: runs.RunSummary
+) -> tuple[config.TrainConfig, bool]:
+    """Decide the editor's working config for an inspected directory: when it
+    holds a compatible, resumable run, seed from *its* saved settings (keeping
+    the directory pointed at) so the user tunes the actual run; otherwise keep
+    ``current`` for a fresh / incompatible / empty target. Returns
+    ``(working, seeded_from_saved)``. Shared by the initial build and the
+    re-inspect after a directory change so the two never disagree."""
+    if (
+        summary.exists
+        and summary.readable
+        and not summary.config_invalid
+        and summary.train_config is not None
+        and runs.architecture_compatible(summary.train_config, current)
+    ):
+        seeded = summary.train_config.model_copy(
+            update={"checkpoint_dir": current.checkpoint_dir}
+        )
+        return seeded, True
+    return current, False
 
 
 def dispatch(view: state.ConfiguratorState, event: keys.KeyEvent) -> state.Outcome:
@@ -101,32 +114,38 @@ def _run_loop(
 ) -> config.TrainConfig | None:
     frame = 0
     last_render = -_HEARTBEAT_FRAMES
-    with (
-        live.Live(
-            screen.build(view, frame),
-            console=console,
-            screen=True,
-            auto_refresh=False,
-            redirect_stdout=False,
-            redirect_stderr=False,
-        ) as display,
-        keys.KeyReader() as reader,
-    ):
-        while True:
-            if frame - last_render >= _HEARTBEAT_FRAMES:
+    try:
+        with (
+            live.Live(
+                screen.build(view, frame),
+                console=console,
+                screen=True,
+                auto_refresh=False,
+                redirect_stdout=False,
+                redirect_stderr=False,
+            ) as display,
+            keys.KeyReader() as reader,
+        ):
+            while True:
+                if frame - last_render >= _HEARTBEAT_FRAMES:
+                    display.update(screen.build(view, frame), refresh=True)
+                    last_render = frame
+                frame += 1
+                event = reader.poll()
+                if event is None:
+                    continue
+                outcome = _safe_dispatch(view, event)
                 display.update(screen.build(view, frame), refresh=True)
                 last_render = frame
-            frame += 1
-            event = reader.poll()
-            if event is None:
-                continue
-            outcome = _safe_dispatch(view, event)
-            display.update(screen.build(view, frame), refresh=True)
-            last_render = frame
-            if outcome is state.Outcome.QUIT:
-                return None
-            if outcome is state.Outcome.LAUNCH:
-                return view.working
+                if outcome is state.Outcome.QUIT:
+                    return None
+                if outcome is state.Outcome.LAUNCH:
+                    return view.working
+    except KeyboardInterrupt:
+        # An OS-level SIGINT (rather than a decoded \x03 byte) is still a clean
+        # quit — the Live / KeyReader context managers have already restored the
+        # terminal on the way out.
+        return None
 
 
 def _safe_dispatch(
@@ -144,8 +163,13 @@ def _safe_dispatch(
 
 
 def _interactive(console: rich_console.Console) -> bool:
-    """Whether the console can host a full-screen alternate-buffer TUI."""
-    return console.is_terminal and not console.legacy_windows
+    """Whether the console can host a full-screen alternate-buffer TUI. On POSIX
+    a real stdin is also required: the key reader puts stdin into raw mode, which
+    fails on a redirected / piped stdin (and Windows reads the console directly,
+    so stdin redirection there is irrelevant)."""
+    if not (console.is_terminal and not console.legacy_windows):
+        return False
+    return sys.platform == "win32" or sys.stdin.isatty()
 
 
 def _warn_not_interactive(console: rich_console.Console) -> None:
@@ -460,6 +484,13 @@ def _reinspect(view: state.ConfiguratorState) -> None:
     and the saved-config baseline without disturbing the user's working edits."""
     view.summary = runs.inspect_run(view.working.checkpoint_dir)
     view.saved = view.summary.train_config
+    # Re-run the same seeding decision the initial build used, so the header,
+    # the changed-field markers, and what Start does all stay consistent with
+    # the newly-inspected directory (e.g. pointing at a compatible run re-seeds
+    # its saved settings; archiving away the run drops the "resumed" framing).
+    view.working, view.seeded_from_saved = _seed_from_summary(
+        view.working, view.summary
+    )
     view.notify(state.MessageKind.INFO, f"inspected {view.working.checkpoint_dir}/")
 
 

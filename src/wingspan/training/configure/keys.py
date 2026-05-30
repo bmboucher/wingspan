@@ -134,6 +134,14 @@ class KeyReader:
             self._posix_fd = sys.stdin.fileno()
             self._posix_saved = termios.tcgetattr(self._posix_fd)
             tty.setcbreak(self._posix_fd)
+            # cbreak leaves ISIG set, so the driver would turn Ctrl-C into SIGINT
+            # before the byte ever reached us. Clear it so Ctrl-C arrives as the
+            # raw \x03 byte and decodes to INTERRUPT (a clean quit), matching the
+            # Windows getwch behaviour — without clearing OPOST the way setraw
+            # would (which can stagger rich's output).
+            attrs = termios.tcgetattr(self._posix_fd)
+            attrs[3] &= ~termios.ISIG
+            termios.tcsetattr(self._posix_fd, termios.TCSANOW, attrs)
         return self
 
     def __exit__(self, *exc: object) -> None:
