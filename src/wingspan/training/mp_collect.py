@@ -36,6 +36,7 @@ import random
 import typing
 from concurrent import futures
 
+import numpy as np
 import pydantic
 import torch
 
@@ -213,7 +214,25 @@ def _worker_play(task: _GameTask) -> collect.GameRecord:
     assert net is not None and device is not None, "worker net not initialized"
     _maybe_reload_weights(net, device, task.weights_path, task.weights_version)
     rng = random.Random(task.seed ^ _SAMPLE_RNG_SALT)
-    return collect.play_game(net, device, rng, task.seed)
+    return _compact(collect.play_game(net, device, rng, task.seed))
+
+
+def _compact(record: collect.GameRecord) -> collect.GameRecord:
+    """Downcast each recorded step's feature arrays to float16 in place before
+    the record is pickled back to the main process.
+
+    The per-candidate ``choices`` matrices dominate the IPC payload (measured
+    ~1.8 MB/game, ~90% of it choice features) and are ~96% zeros. The features
+    are normalized to roughly [0, 1.5], so float16 (~3-4 significant digits)
+    preserves them far below the policy-gradient noise floor — and the learner
+    re-tensorizes to float32 on the way into the network regardless
+    (``learner._forward_bucket``). Halving the element size roughly halves both
+    the pickled payload crossing the pipe and the trajectory buffer's resident
+    size, at no measurable cost to the update."""
+    for step in record.steps:
+        step.state = step.state.astype(np.float16)
+        step.choices = step.choices.astype(np.float16)
+    return record
 
 
 def _maybe_reload_weights(
