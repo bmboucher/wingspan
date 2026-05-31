@@ -23,6 +23,84 @@ changes stay consistent.
   the coverage report) so any future addition that doesn't yet have a
   pattern stays non-fatal.
 
+## Making changes: the worktree workflow
+
+Substantive code changes are implemented in an isolated git **worktree**, not
+directly in the main working directory, so the main checkout stays usable and
+nothing lands on `main` until the user says so. The shape is fixed:
+
+**plan → user approves → implement in a worktree → quality gate passes there →
+return and ask to merge → merge into `main` → gate passes again → commit + push.**
+
+**When this applies.** Any change that goes through plan-and-approve. Edit the
+main working directory directly (no worktree) only for trivial edits — one-line
+fixes, comment/doc tweaks — or when the user explicitly says to just edit in
+place. When in doubt, use the worktree.
+
+**1. Plan and get approval.** Don't touch code until the user approves the plan
+(standard plan-mode flow).
+
+**2. Commit any pre-existing work in `main` first.** Before creating the
+worktree, run `git status` in the main working directory. If anything is
+uncommitted (staged, unstaged, or untracked), commit it **all in one commit** on
+the current branch with a descriptive message summarizing what it is —
+autonomously, no need to ask. Never stash or discard. This guarantees the
+worktree branches from a clean, current `main` and keeps the later merge clean.
+
+**3. Create the worktree from the current local `HEAD`.** The worktree must
+branch from the commit you just made — local `HEAD`, not `origin/main` (which is
+often behind). The harness default base ref is `fresh` (origin), so branch
+explicitly, then switch the session into the worktree with `EnterWorktree` using
+its `path` (this CLAUDE.md instruction is the sanctioned trigger for that tool):
+
+```
+git worktree add .claude/worktrees/<name> -b wt/<feature-slug> HEAD
+```
+
+then `EnterWorktree(path=".claude/worktrees/<name>")`. All subsequent edits and
+commands now run inside the worktree.
+
+**4. Implement the change.** Make all edits in the worktree. The main working
+directory is untouched, so the user can keep working there.
+
+**5. Run the quality gate — in the worktree.** Run the full gate from
+**"Quality gate"** below (pyright → isort → black → pyright + `pytest`) from the
+worktree root. Because the tests add their own `src/` to `sys.path` via
+`__file__` and pyright/black/isort resolve `src`/`tests` relative to the
+invocation directory, the gate checks and formats the worktree's copy. (`.venv/`
+is gitignored and is **not** copied into the worktree, so the gate relies on the
+project venv at `C:\Repos\wingspan\.venv` — the same one the main dir uses; if a
+tool isn't found from the worktree, invoke it via that venv's `Scripts\` or
+activate it first.) Do not return until the gate is clean — fix every failure
+inside the worktree.
+
+**6. Commit, then return and ask before merging.** Once the gate is green,
+commit all worktree changes on the feature branch (uncommitted work is not
+merged). Then stop: report that the change is implemented and passing in the
+worktree, and ask the user when they're ready to merge into `main`. Do **not**
+merge on your own initiative.
+
+**7. On the user's go-ahead, merge into `main`.**
+
+- a. `ExitWorktree` with `action: "keep"` to return the session to the main
+  working directory with the feature branch left intact.
+- b. **Re-check `main` for uncommitted changes** (the user may have kept working
+  while you did). If any exist, commit them in one descriptive commit first —
+  same rule as step 2 — before merging.
+- c. Bring the feature branch into `main` with a squash merge:
+  `git merge --squash wt/<feature-slug>`. Resolve any merge conflicts in the
+  working tree, preserving both intents; if a conflict is genuinely ambiguous,
+  surface it to the user instead of guessing.
+- d. Re-run the full quality gate in the main working directory (black may
+  reformat the merged result). It must be clean before you commit.
+- e. `git add -A` and commit the merged result with a descriptive message
+  covering the change, then `git push` to `origin/main`.
+- f. Clean up the now-merged worktree and branch:
+  `git worktree remove .claude/worktrees/<name>` and
+  `git branch -D wt/<feature-slug>` (squash merges aren't recorded as merges, so
+  `-D` is needed). If anything in 7c–7e fails, leave the worktree in place for
+  inspection and tell the user.
+
 ## Run / test
 
 ```
