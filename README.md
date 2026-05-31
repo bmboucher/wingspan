@@ -29,8 +29,10 @@ rich). For the test suite and developer tooling:
 pip install -e ".[dev]"
 ```
 
-Everything runs on CPU out of the box; a CUDA-capable PyTorch build is picked up
-automatically if one is present.
+Training runs on **CPU**: self-play collection is CPU-bound and fans out across
+worker processes, and the gradient update is small, so the whole pipeline is
+designed for CPU. (A CUDA PyTorch build still works for one-off experiments, but
+CPU is the supported path.)
 
 ## Play a game interactively
 
@@ -68,16 +70,18 @@ runs self-play, learns from it, evaluates against a random opponent, and
 checkpoints as it goes:
 
 ```
-python -m wingspan.training                    # auto-detects CUDA, falls back to CPU
-python -m wingspan.training --device cpu       # self-play collection is often fastest on CPU
-python -m wingspan.training --games-per-iter 64 --eval-every 2 --eval-games 32
+python -m wingspan.training                    # CPU self-play (the supported path)
+python -m wingspan.training --games-per-iter 256 --eval-every 5 --eval-games 128
 ```
 
 It runs until you press **Ctrl+C**, which asks it to finish the current game,
-save a final checkpoint, and print a summary. Checkpoints (`last.pt`, `best.pt`)
-and a metrics log are written to the checkpoint directory (`checkpoints/` by
-default; change it with `--checkpoint-dir`), and runs are resumable. Pass
-`--iterations N` to stop automatically after N rounds instead.
+save a final checkpoint, and print a summary. As strength improves the
+evaluation opponent advances from the random agent to frozen past selves (a
+self-play ladder). Checkpoints (`last.pt`, `best.pt`, the frozen `opponent.pt`),
+a per-iteration `metrics.jsonl`, and a per-game `games.jsonl` are written to the
+checkpoint directory (`checkpoints/` by default; change it with
+`--checkpoint-dir`), and runs are resumable. Pass `--iterations N` to stop
+automatically after N rounds instead.
 
 ### Configure a run
 
@@ -102,12 +106,14 @@ directory holds a resumable run and flags which edits would force a fresh start
 
 Starting or resuming transitions straight into the FLYWAY CONTROL dashboard.
 
-A simpler one-shot cycle is also available — it plays a batch of self-play
-games, runs a single training update starting from random weights, and saves a
-checkpoint:
+A legacy one-shot cycle (`python -m wingspan.train`) also exists — it plays a
+batch of self-play games, runs a single REINFORCE update from random weights,
+and saves one checkpoint. It predates the dashboard pipeline (it still uses
+epsilon-greedy exploration and saves only at the end), so prefer
+`python -m wingspan.training` for real runs:
 
 ```
-python -m wingspan.train --device cuda --episodes 32
+python -m wingspan.train --episodes 32
 ```
 
 See [TRAINING.md](TRAINING.md) for the training program and

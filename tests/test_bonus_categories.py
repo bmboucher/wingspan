@@ -119,6 +119,53 @@ def test_tiered_bonus_still_scores():
     assert scoring.bonus_score(player, bird_feeder) == 3
 
 
+def test_tiered_bonus_scores_higher_plateau():
+    """The upper band triggers once the higher threshold is met (Bird Feeder:
+    8+ seed birds -> 7 VP, not the 3 VP of the lower band)."""
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _bonus(bonuses, "Bird Feeder")
+    seed = [bird for bird in birds if "Bird Feeder" in bird.bonus_categories][:8]
+    assert len(seed) == 8
+    player = _player_with_board(bird_feeder, seed)
+    assert scoring.bonus_score(player, bird_feeder) == 7
+
+
+def test_multiple_bonus_cards_sum():
+    """A player may hold more than one bonus card; the running score sums each
+    card's payout. Bird Feeder (tiered) + Bird Counter (per-bird) are scored on
+    disjoint qualifying-bird sets placed in two habitats."""
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _bonus(bonuses, "Bird Feeder")
+    bird_counter = _bonus(bonuses, "Bird Counter")
+    # Disjoint qualifying sets so each card's count (and thus VP) is exact.
+    feeder_birds = [
+        bird
+        for bird in birds
+        if "Bird Feeder" in bird.bonus_categories
+        and "Bird Counter" not in bird.bonus_categories
+    ][:6]
+    counter_birds = [
+        bird
+        for bird in birds
+        if "Bird Counter" in bird.bonus_categories
+        and "Bird Feeder" not in bird.bonus_categories
+    ][:3]
+    assert len(feeder_birds) == 6
+    assert len(counter_birds) == 3
+
+    player = state.Player(id=0, name="P0", bonus_cards=[bird_feeder, bird_counter])
+    player.board[cards.Habitat.FOREST] = [
+        state.PlayedBird(bird=bird) for bird in feeder_birds
+    ]
+    player.board[cards.Habitat.GRASSLAND] = [
+        state.PlayedBird(bird=bird) for bird in counter_birds
+    ]
+
+    assert scoring.bonus_score(player, bird_feeder) == 3  # 6 birds -> lower band
+    assert scoring.bonus_score(player, bird_counter) == 2 * 3  # per-bird
+    assert sum(scoring.bonus_score(player, bc) for bc in player.bonus_cards) == 9
+
+
 # --- Setup help line: per-bird cards now assessable, with deck share ------
 
 

@@ -11,7 +11,6 @@ gradient and the cinematic eval hero-number recolor as a value changes.
 
 from __future__ import annotations
 
-from wingspan import decisions
 from wingspan.training import runstate
 
 # ---------------------------------------------------------------------------
@@ -60,29 +59,6 @@ SCORE_COLOR: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Decision-family display labels — the human-facing name each judgment family
-# shows in the DECISION MODELS panel. The enum ``.value`` strings are the stable
-# identifiers baked into every checkpoint's architecture descriptor, so they are
-# left untouched; only the presentation label is remapped here. Families absent
-# from this map fall back to their enum ``.value``.
-
-FAMILY_LABEL: dict[decisions.DecisionFamily, str] = {
-    decisions.DecisionFamily.MACRO_ACTION: "main_action",
-    decisions.DecisionFamily.BIRD_ACQUISITION: "draw_bird",
-    decisions.DecisionFamily.BIRD_DISCARD: "discard_bird",
-    decisions.DecisionFamily.EGG_PLACEMENT: "lay_egg",
-    decisions.DecisionFamily.EGG_REMOVAL: "pay_egg",
-    decisions.DecisionFamily.BONUS_VALUATION: "choose_bonus",
-    decisions.DecisionFamily.HABITAT_PLACEMENT: "move_habitat",
-}
-
-
-def family_label(family: decisions.DecisionFamily) -> str:
-    """The DECISION MODELS display name for a judgment family."""
-    return FAMILY_LABEL.get(family, family.value)
-
-
-# ---------------------------------------------------------------------------
 # Family histogram — frequency tiers (also a gentle data-health signal)
 
 HIST_TOP = "#5BB98C"  # share >= 10%
@@ -105,6 +81,7 @@ MARGIN_COLOR = "#3FB4A6"  # eval margin (secondary, dim teal)
 POINTS_COLOR = "#D9B26A"  # average self-play points (warm amber, dominant)
 TARGET_GRID = "#2F5D4A"  # faint gridline (points zero line)
 WIN_THRESHOLD = "#C9A24B"  # the yellow opponent-advance win-rate threshold line
+CHALLENGER_MARK = "#5A6B86"  # vertical marker where the reference opponent advanced
 AXIS = "#6B7E8C"
 
 # ---------------------------------------------------------------------------

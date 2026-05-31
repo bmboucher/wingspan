@@ -176,8 +176,8 @@ class PlayedBird(pydantic.BaseModel):
 
     bird: cards.Bird
     eggs: int = 0
-    # generic count; we don't track specific cached food types
-    cached_food: int = 0
+    # cached food, tracked per food type so the encoder can see the composition
+    cached_food: FoodPool = pydantic.Field(default_factory=FoodPool)
     tucked_cards: int = 0
     # number of times the bird has been activated this round (used by some rules)
     activations: int = 0
@@ -287,7 +287,7 @@ class Player(pydantic.BaseModel):
 
     @property
     def total_cached(self) -> int:
-        return sum(pb.cached_food for row in self.board.values() for pb in row)
+        return sum(pb.cached_food.total() for row in self.board.values() for pb in row)
 
     def total_food(self) -> int:
         return self.food.total()
@@ -305,21 +305,80 @@ class Player(pydantic.BaseModel):
 # Shared game state
 
 
+# The two foods on the birdfeeder die's sixth (choice) face — the taker picks
+# one. Kept here so ``Birdfeeder.take`` and the reroll share one definition.
+_CHOICE_FACE_FOODS = (cards.Food.INVERTEBRATE, cards.Food.SEED)
+
+
 class Birdfeeder(pydantic.BaseModel):
-    """The communal birdfeeder dice tower."""
+    """The communal birdfeeder dice tower.
+
+    Wingspan's five dice each show one of six faces: the five single foods, plus
+    a sixth face that is *invertebrate or seed — the taker chooses*. The single
+    faces currently showing are held in ``counts``; ``choice_dice`` counts the
+    dice on the invertebrate/seed face, which resolve to one of those two foods
+    only when a player takes them. So fish / fruit / rodent each come up 1/6 of
+    the time, while invertebrate and seed are each obtainable 1/3 of the time
+    (their own face plus the shared choice face)."""
 
     counts: FoodPool = pydantic.Field(default_factory=FoodPool)
+    # Dice currently showing the invertebrate/seed choice face (unresolved until
+    # a player takes one and picks which of the two foods it yields).
+    choice_dice: int = 0
 
     def total(self) -> int:
-        return self.counts.total()
+        return self.counts.total() + self.choice_dice
+
+    def is_empty(self) -> bool:
+        return self.total() == 0
+
+    def distinct_faces(self) -> int:
+        """Number of distinct die faces currently showing — each single food in
+        play counts once, and the invertebrate/seed face counts once when any
+        die shows it. Drives the reroll-when-one-face-left rule."""
+        return len(self.counts.types_with_positive()) + (1 if self.choice_dice else 0)
+
+    def gainable_foods(self) -> list[cards.Food]:
+        """Foods a player could take right now, in canonical ``ALL_FOODS`` order:
+        every food with a single face showing, plus invertebrate and seed
+        whenever a choice die is showing."""
+        present = set(self.counts.types_with_positive())
+        if self.choice_dice > 0:
+            present.update(_CHOICE_FACE_FOODS)
+        return [food for food in cards.ALL_FOODS if food in present]
+
+    def gainable_count(self, food: cards.Food) -> int:
+        """How many dice could yield ``food`` — its single faces plus the shared
+        choice dice when it is invertebrate or seed (the choice dice count toward
+        both, since one die can be taken as either). For display only."""
+        extra = self.choice_dice if food in _CHOICE_FACE_FOODS else 0
+        return self.counts[food] + extra
+
+    def take(self, food: cards.Food) -> None:
+        """Consume one die yielding ``food``: spend a matching single face first,
+        and a choice die only when ``food`` is invertebrate/seed and no single
+        face of it is showing. Raises if ``food`` is not currently gainable —
+        callers gate on :meth:`gainable_foods`."""
+        if self.counts[food] > 0:
+            self.counts[food] -= 1
+        elif self.choice_dice > 0 and food in _CHOICE_FACE_FOODS:
+            self.choice_dice -= 1
+        else:
+            raise ValueError(f"{food.value} is not gainable from the birdfeeder")
 
     def reroll(self, rng: random.Random) -> None:
-        """Reroll all five dice. Wingspan uses five dice each showing one of
-        six faces (5 foods + 1 wild face that grants 2 foods of choice from
-        the feeder); we simplify by treating the wild face as a random food."""
+        """Reroll all five dice over the six equally-likely faces — the five
+        single foods plus the invertebrate/seed choice face."""
         self.counts.zero()
+        self.choice_dice = 0
         for _ in range(BIRDFEEDER_DICE):
-            self.counts[rng.choice(cards.ALL_FOODS)] += 1
+            face = rng.randint(
+                0, cards.N_FOODS
+            )  # 0..N_FOODS-1 -> food; N_FOODS -> choice
+            if face < cards.N_FOODS:
+                self.counts[cards.ALL_FOODS[face]] += 1
+            else:
+                self.choice_dice += 1
 
 
 class GameState(pydantic.BaseModel):

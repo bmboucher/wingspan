@@ -240,7 +240,9 @@ def _play_one_game(
     )
     score_0, score_1 = breakdowns[0].total, breakdowns[1].total
     winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
-    return collect.GameRecord(steps=recorded, breakdowns=breakdowns, winner=winner)
+    return collect.GameRecord(
+        steps=recorded, breakdowns=breakdowns, winner=winner, seed=seed
+    )
 
 
 def _batched_recording_agent(

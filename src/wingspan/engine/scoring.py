@@ -44,18 +44,27 @@ def score_round_goal(engine: "core.Engine", round_idx: int) -> None:
 def round_goal_standing(
     game_state: state.GameState, player: state.Player
 ) -> RoundGoalStanding:
-    """``player``'s live standing on the current round goal, mirroring the
+    """``player``'s live standing on the *current* round goal. Thin wrapper over
+    :func:`round_goal_standing_for_round` at ``game_state.round_idx``."""
+    return round_goal_standing_for_round(game_state, player, game_state.round_idx)
+
+
+def round_goal_standing_for_round(
+    game_state: state.GameState, player: state.Player, round_idx: int
+) -> RoundGoalStanding:
+    """``player``'s live standing on the round ``round_idx`` goal, mirroring the
     2-player payout rule in :func:`score_round_goal` without mutating any state:
     the higher category count takes 1st, the lower takes 2nd, a tie splits the
-    two places (floored), and a count of 0 does not place (0 VP). Assumes a
-    round goal is in play (``game_state.round_goals`` non-empty)."""
-    goal = game_state.round_goals[game_state.round_idx]
+    two places (floored), and a count of 0 does not place (0 VP). Assumes
+    ``round_idx`` indexes an in-play goal (``0 <= round_idx <
+    len(game_state.round_goals)``)."""
+    goal = game_state.round_goals[round_idx]
     my_count = eval_goal(player, goal)
     opp_count = max(
         (eval_goal(other, goal) for other in game_state.players if other is not player),
         default=0,
     )
-    first, second = state.ROUND_GOAL_PAYOUTS_2P[game_state.round_idx]
+    first, second = state.ROUND_GOAL_PAYOUTS_2P[round_idx]
     place = 1 if my_count >= opp_count else 2
     return RoundGoalStanding(
         count=my_count,
@@ -113,18 +122,24 @@ def running_score(player: state.Player) -> int:
     )
 
 
-def bonus_score(player: state.Player, bc: cards.BonusCard) -> int:
-    """VP ``player`` scores from bonus card ``bc``.
-
-    Counts the qualifying birds in play (those whose ``bonus_categories``
-    include ``bc.name``), then applies ``bc``'s payout: a per-bird card pays
-    ``per_bird_vp`` for each, a tiered card pays the highest threshold met."""
-    count = sum(
+def bonus_qualifying_count(player: state.Player, bc: cards.BonusCard) -> int:
+    """Number of ``player``'s in-play birds that qualify for bonus card ``bc``
+    (those whose ``bonus_categories`` include ``bc.name``)."""
+    return sum(
         1
         for row in player.board.values()
         for pb in row
         if bc.name in pb.bird.bonus_categories
     )
+
+
+def bonus_score(player: state.Player, bc: cards.BonusCard) -> int:
+    """VP ``player`` scores from bonus card ``bc`` (stepped payout).
+
+    Counts the qualifying birds in play, then applies ``bc``'s payout: a
+    per-bird card pays ``per_bird_vp`` for each, a tiered card pays the highest
+    threshold met."""
+    count = bonus_qualifying_count(player, bc)
     if bc.per_bird_vp is not None:
         return bc.per_bird_vp * count
     best = 0
@@ -132,6 +147,35 @@ def bonus_score(player: state.Player, bc: cards.BonusCard) -> int:
         if count >= thr and vp > best:
             best = vp
     return best
+
+
+def bonus_linear_value(player: state.Player, bc: cards.BonusCard) -> float:
+    """Dense piecewise-linear payoff estimate for bonus card ``bc``.
+
+    Where :func:`bonus_score` jumps in steps at each threshold, this
+    interpolates linearly between ``(0, 0)`` and each ``(count, vp)`` threshold
+    (ascending), holding flat at the final VP past the last threshold. It gives
+    the RL encoder a gradient that rewards incremental progress toward the next
+    plateau instead of the step function's flat regions. Per-bird cards are
+    already linear in the qualifying count, so they return
+    ``per_bird_vp * count``."""
+    count = bonus_qualifying_count(player, bc)
+    if bc.per_bird_vp is not None:
+        return float(bc.per_bird_vp * count)
+    if not bc.thresholds:
+        return 0.0
+    anchors: tuple[tuple[int, int], ...] = ((0, 0), *bc.thresholds)
+    last_count, last_vp = anchors[-1]
+    if count >= last_count:
+        return float(last_vp)
+    for i in range(1, len(anchors)):
+        lo_count, lo_vp = anchors[i - 1]
+        hi_count, hi_vp = anchors[i]
+        if count < hi_count:
+            span = hi_count - lo_count  # >0: anchors strictly ascending
+            frac = (count - lo_count) / span
+            return lo_vp + frac * (hi_vp - lo_vp)
+    return float(last_vp)  # unreachable; satisfies strict pyright
 
 
 ###### PRIVATE #######
@@ -202,6 +246,18 @@ def _count_tucked_birds(player: state.Player) -> int:
     return player.total_tucked
 
 
+def _count_total_birds(player: state.Player) -> int:
+    return sum(len(row) for row in player.board.values())
+
+
+def _count_egg_sets_three_habitats(player: state.Player) -> int:
+    """One 'set' is 1 egg in each of forest, grassland, and wetland, so the
+    number of complete sets is the smallest per-habitat egg count."""
+    return min(
+        sum(pb.eggs for pb in player.board[habitat]) for habitat in cards.ALL_HABITATS
+    )
+
+
 _CATEGORY_COUNTERS: dict[str, typing.Callable[[state.Player], int]] = {
     "birds_forest": _count_birds_in(cards.Habitat.FOREST),
     "birds_grassland": _count_birds_in(cards.Habitat.GRASSLAND),
@@ -220,4 +276,6 @@ _CATEGORY_COUNTERS: dict[str, typing.Callable[[state.Player], int]] = {
     "tucked_cards": _count_tucked_birds,
     "wingspan_under_30": _count_wingspan_under_30,
     "wingspan_over_65": _count_wingspan_over_65,
+    "total_birds": _count_total_birds,
+    "egg_sets_3habitats": _count_egg_sets_three_habitats,
 }

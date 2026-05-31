@@ -157,7 +157,8 @@ def _print_summary(term: console.Console, state: runstate.RunState) -> None:
             f"  best win rate    : {state.best_win_rate * 100:.1f}% vs {opponent}"
         )
     artifact_list = (
-        f"{artifacts.LAST_CKPT}, {artifacts.BEST_CKPT}, {artifacts.METRICS_LOG}"
+        f"{artifacts.LAST_CKPT}, {artifacts.BEST_CKPT}, {artifacts.METRICS_LOG}, "
+        f"{artifacts.GAMES_LOG}, {artifacts.MODEL_CONFIG_JSON}, {artifacts.PROCESS_GLOB}"
     )
     if state.opponent_generation > 0:
         artifact_list += f", {artifacts.OPPONENT_CKPT}"
@@ -181,7 +182,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="open the interactive FLIGHT PLAN configurator before training",
     )
     parser.add_argument("--device", default=default_device, help="cpu or cuda")
-    parser.add_argument("--games-per-iter", type=int, default=64)
+    parser.add_argument("--games-per-iter", type=int, default=256)
     parser.add_argument(
         "--iterations", type=int, default=0, help="max iterations (0 = until Ctrl+C)"
     )

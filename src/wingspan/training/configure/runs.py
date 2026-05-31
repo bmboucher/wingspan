@@ -26,10 +26,13 @@ from wingspan.training import artifacts, config, runstate
 
 # Order matters: ``last.pt`` is relocated/removed LAST so an interruption
 # mid-archive never strands the directory in a state that resumes a run whose
-# best / opponent snapshots have already moved. Logs and stale temp files go
-# first; ``last.pt`` is appended by :func:`_archive_sources`.
+# best / opponent snapshots have already moved. Logs, stale temp files, and the
+# dated process records go first (swept by glob); ``last.pt`` is appended by
+# :func:`_archive_sources`.
 _SWEEP_BEFORE_LAST = (
     artifacts.METRICS_LOG,
+    artifacts.GAMES_LOG,
+    artifacts.MODEL_CONFIG_JSON,
     artifacts.BEST_CKPT,
     artifacts.OPPONENT_CKPT,
 )
@@ -96,6 +99,7 @@ class RunSummary(pydantic.BaseModel):
     has_best: bool = False
     has_opponent: bool = False
     has_metrics: bool = False
+    has_games: bool = False
     git_sha: str | None = None
     modified: float | None = None  # last.pt mtime (epoch seconds)
     archives: list[ArchiveEntry] = pydantic.Field(default_factory=_empty_archives)
@@ -117,6 +121,7 @@ def inspect_run(checkpoint_dir: str) -> RunSummary:
     summary.has_best = (path / artifacts.BEST_CKPT).exists()
     summary.has_opponent = (path / artifacts.OPPONENT_CKPT).exists()
     summary.has_metrics = (path / artifacts.METRICS_LOG).exists()
+    summary.has_games = (path / artifacts.GAMES_LOG).exists()
     summary.modified = last.stat().st_mtime
 
     payload = _load_payload(last)
@@ -262,11 +267,13 @@ def _progress_from_payload(payload: dict[str, typing.Any]) -> runstate.RunProgre
 
 def _archive_sources(path: pathlib.Path) -> list[pathlib.Path]:
     """The run's artifacts in crash-survivable relocation order (``last.pt``
-    last). Logs and stale temp files are swept first, then the metrics log and
-    the best / opponent snapshots, then the resumable head."""
+    last). Logs, stale temp files, and the dated process records are swept first,
+    then the history logs, model descriptor, and best / opponent snapshots, then
+    the resumable head."""
     sources: list[pathlib.Path] = []
     sources.extend(sorted(path.glob(artifacts.LOG_GLOB)))
     sources.extend(sorted(path.glob(artifacts.TMP_GLOB)))
+    sources.extend(sorted(path.glob(artifacts.PROCESS_GLOB)))
     sources.extend(path / name for name in _SWEEP_BEFORE_LAST)
     sources.append(path / artifacts.LAST_CKPT)
     # De-dup (a glob could re-list a named artifact) while preserving order, and

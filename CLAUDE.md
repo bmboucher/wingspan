@@ -29,13 +29,15 @@ changes stay consistent.
 pip install -e ".[dev]"                               # runtime + pyright/black/isort/pytest
 python -m wingspan.cli manual                         # human vs random
 python -m wingspan.cli random --log game.log          # watch a random game
-python -m wingspan.train --device cuda --episodes 32  # one (legacy) training cycle
+python -m wingspan.train --episodes 32                # one (legacy) training cycle
 python -m wingspan.training --device cpu              # live training dashboard ("FLYWAY CONTROL")
 python -m wingspan.training --config                  # interactive configurator ("FLIGHT PLAN")
 python -m pytest tests/
 ```
 
-PyTorch with CUDA is needed for training runs; everything else runs on CPU.
+Training is CPU-only — collection fans out across worker processes and the
+gradient update is small, so no GPU is required (CUDA still works for one-off
+experiments but is not the supported path).
 `python -m wingspan.train` is the original minimal REINFORCE cycle;
 `python -m wingspan.training` (the `wingspan.training` package, console script
 `wingspan-dashboard`) is the `top`-style live training + monitoring app that
@@ -113,8 +115,9 @@ src/wingspan/
   training/              # live training + monitoring dashboard ("FLYWAY CONTROL")
     __main__.py / app.py # entry point: argparse (+ --config) -> worker thread + rich.Live loop
     config.py            # TrainConfig (self-describing hyperparameters, §5.1)
-    artifacts.py         # shared checkpoint filenames (LAST_CKPT/BEST_CKPT/.../ARCHIVE_SUBDIR)
-    metrics.py           # ScoreBreakdown / FamilyCounts / EvalResult / IterationMetrics
+    artifacts.py         # shared on-disk filenames (LAST/BEST/OPPONENT ckpt, metrics+games logs, model_config/process json)
+    runmeta.py           # model_config.json + dated process_<stamp>.json sidecar writers (torch-free)
+    metrics.py           # ScoreBreakdown / FamilyCounts / EvalResult / IterationMetrics / GameOutcome (games.jsonl row)
     runstate.py          # RunState: the shared live snapshot the dashboard reads
     policy.py            # single-decision sample (collect) + greedy (eval)
     collect.py           # self-play game -> recorded steps + score breakdown

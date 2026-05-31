@@ -63,6 +63,9 @@ def apply_effect(
         if eff.kind in (
             cards.EffectKind.PINK_LAY_EGG_ON_NEST,
             cards.EffectKind.PINK_PREDATOR_FEEDER,
+            cards.EffectKind.PINK_PLAY_BIRD_GAIN,
+            cards.EffectKind.PINK_PLAY_BIRD_TUCK,
+            cards.EffectKind.PINK_GAIN_FOOD_CACHE,
         ):
             return
         if eff.kind == cards.EffectKind.UNIMPLEMENTED:
@@ -153,13 +156,17 @@ def _h_gain_food_birdfeeder(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
+    from wingspan.engine import actions
+
     st = engine.state
     bird = pb.bird
-    if eff.food and st.birdfeeder.counts.get(eff.food, 0) > 0:
-        take = min(eff.amount, st.birdfeeder.counts[eff.food])
-        st.birdfeeder.counts[eff.food] -= take
-        player.food[eff.food] += take
-        engine.log(f"  {bird.name}: +{take} {eff.food.value} from birdfeeder")
+    if eff.food:
+        actions.offer_birdfeeder_reset(engine, agent, player)
+        take = min(eff.amount, st.birdfeeder.gainable_count(eff.food))
+        for _ in range(take):
+            actions.gain_feeder_die(engine, player, eff.food)
+        if take:
+            engine.log(f"  {bird.name}: +{take} {eff.food.value} from birdfeeder")
 
 
 def _h_gain_food_from_feeder_choice(
@@ -177,7 +184,9 @@ def _h_gain_food_from_feeder_choice(
     bird = pb.bird
     food_a, food_b = eff.food_a, eff.food_b
     assert food_a is not None and food_b is not None
-    avail = [food for food in (food_a, food_b) if st.birdfeeder.counts.get(food, 0) > 0]
+    actions.offer_birdfeeder_reset(engine, agent, player)
+    gainable = st.birdfeeder.gainable_foods()
+    avail = [food for food in (food_a, food_b) if food in gainable]
     if not avail:
         engine.log(
             f"  {bird.name}: neither {food_a.value} nor {food_b.value}"
@@ -207,7 +216,8 @@ def _h_gain_die_any(
 
     st = engine.state
     bird = pb.bird
-    avail = [food for food, count in st.birdfeeder.counts.items() if count > 0]
+    actions.offer_birdfeeder_reset(engine, agent, player)
+    avail = st.birdfeeder.gainable_foods()
     if not avail:
         engine.log(f"  {bird.name}: birdfeeder empty; skipped")
         return
@@ -275,7 +285,7 @@ def _h_cache_food(
     bird = pb.bird
     if eff.food and st.food_supply.get(eff.food, 0) >= eff.amount:
         st.food_supply[eff.food] -= eff.amount
-        pb.cached_food += eff.amount
+        pb.cached_food[eff.food] += eff.amount
         engine.log(f"  {bird.name}: cached {eff.amount} {eff.food.value}")
 
 
@@ -465,6 +475,8 @@ def _h_each_player_gains_die_choose_order(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
+    from wingspan.engine import actions
+
     st = engine.state
     bird = pb.bird
     n_players = len(st.players)
@@ -486,52 +498,31 @@ def _h_each_player_gains_die_choose_order(
         f"  {bird.name}: each player gains {eff.amount} [die] from feeder, "
         f"starting with P{start_idx}"
     )
-    stop_outer = False
     for offset in range(n_players):
-        if stop_outer:
-            break
         current_idx = (start_idx + offset) % n_players
         current_player = st.players[current_idx]
         responder = engine.agent_for(current_player)
         for _ in range(eff.amount):
-            avail = [
-                (food, count)
-                for food, count in st.birdfeeder.counts.items()
-                if count > 0
-            ]
-            if not avail:
-                if st.birdfeeder.total() > 0:
-                    st.birdfeeder.reroll(st.rng)
-                    engine.log(
-                        f"  {bird.name}: birdfeeder rerolled to "
-                        f"{st.birdfeeder.counts.format()}"
-                    )
-                    avail = [
-                        (food, count)
-                        for food, count in st.birdfeeder.counts.items()
-                        if count > 0
-                    ]
-                if not avail:
-                    engine.log(f"  {bird.name}: birdfeeder empty; stopping power early")
-                    stop_outer = True
-                    break
+            actions.offer_birdfeeder_reset(engine, responder, current_player)
             food_ch = engine.ask(
                 responder,
                 decisions.GainFoodDecision(
                     player_id=current_player.id,
                     prompt=f"[{current_player.name}] take 1 die from birdfeeder ({bird.name})",
                     choices=[
-                        decisions.FoodChoice(label=f"{food.value}({count})", food=food)
-                        for food, count in avail
+                        decisions.FoodChoice(
+                            label=f"{food.value}"
+                            f"({st.birdfeeder.gainable_count(food)})",
+                            food=food,
+                        )
+                        for food in st.birdfeeder.gainable_foods()
                     ],
                 ),
             )
             assert isinstance(food_ch, decisions.FoodChoice)
-            chosen_food = food_ch.food
-            st.birdfeeder.counts[chosen_food] -= 1
-            current_player.food[chosen_food] += 1
+            actions.gain_feeder_die(engine, current_player, food_ch.food)
             engine.log(
-                f"  [{current_player.name}] +1 {chosen_food.value} from birdfeeder"
+                f"  [{current_player.name}] +1 {food_ch.food.value} from birdfeeder"
             )
 
 
@@ -674,38 +665,36 @@ def _h_fewest_forest_gains_die(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
+    from wingspan.engine import actions
+
     st = engine.state
     bird = pb.bird
-    if st.birdfeeder.total() <= 0:
-        engine.log(f"  {bird.name}: birdfeeder empty; power skipped")
-        return
     counts = [len(other.board[cards.Habitat.FOREST]) for other in st.players]
     fewest = min(counts)
     for other_player, forest_count in zip(st.players, counts):
         if forest_count != fewest:
             continue
-        avail = [
-            (food, count) for food, count in st.birdfeeder.counts.items() if count > 0
-        ]
-        if not avail:
-            break
+        responder = engine.agent_for(other_player)
+        actions.offer_birdfeeder_reset(engine, responder, other_player)
+        avail = st.birdfeeder.gainable_foods()
         ch = engine.ask(
-            engine.agent_for(other_player),
+            responder,
             decisions.GainFoodDecision(
                 player_id=other_player.id,
                 prompt=f"[{other_player.name}] take 1 die from birdfeeder (from {bird.name})",
                 choices=[
-                    decisions.FoodChoice(label=f"{food.value}({count})", food=food)
-                    for food, count in avail
+                    decisions.FoodChoice(
+                        label=f"{food.value}({st.birdfeeder.gainable_count(food)})",
+                        food=food,
+                    )
+                    for food in avail
                 ],
             ),
         )
         assert isinstance(ch, decisions.FoodChoice)
-        chosen_food = ch.food
-        st.birdfeeder.counts[chosen_food] -= 1
-        other_player.food[chosen_food] += 1
+        actions.gain_feeder_die(engine, other_player, ch.food)
         engine.log(
-            f"  {bird.name}: [{other_player.name}] +1 {chosen_food.value} from birdfeeder"
+            f"  {bird.name}: [{other_player.name}] +1 {ch.food.value} from birdfeeder"
         )
 
 
@@ -860,14 +849,17 @@ def _h_gain_all_food_feeder(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
+    from wingspan.engine import actions
+
     st = engine.state
     bird = pb.bird
     assert eff.food is not None
     food = eff.food
-    count = st.birdfeeder.counts.get(food, 0)
+    actions.offer_birdfeeder_reset(engine, agent, player)
+    count = st.birdfeeder.gainable_count(food)
     if count > 0:
-        st.birdfeeder.counts[food] = 0
-        player.food[food] += count
+        for _ in range(count):
+            actions.gain_feeder_die(engine, player, food)
         engine.log(f"  {bird.name}: gained all {count} {food.value} from birdfeeder")
     else:
         engine.log(f"  {bird.name}: no {food.value} in birdfeeder; skipped")

@@ -106,6 +106,15 @@ class PayCostChoice(Choice):
     gained_tuck_count: int = 0  # cards tucked behind the bird (VP + tuck count)
 
 
+class ResetBirdfeederChoice(Choice):
+    """Affirm the optional birdfeeder reset — "yes, reroll all the dice".
+
+    Offered by ``ResetBirdfeederDecision`` as the yes side of a yes/no pick; the
+    no side reuses ``SkipChoice``. Carries no data beyond the label because the
+    reset itself is fully determined (reroll every die) — the only judgment is
+    whether to take it, so a bare affirmative choice is all the head needs."""
+
+
 class MainActionChoice(Choice):
     action: MainAction
 
@@ -248,7 +257,7 @@ class MainActionDecision(Decision[MainActionChoice]):
     decision picks only *which* action; if ``PLAY_BIRD`` is chosen, *which* bird
     to play (where, paid how) is a separate follow-up ``PlayBirdDecision``. The
     split keeps "which action?" and "which bird to play?" as distinct judgments
-    on distinct scoring heads (``MACRO_ACTION`` vs ``PLAY_BIRD``)."""
+    on distinct scoring heads (``MAIN_ACTION`` vs ``PLAY_BIRD``)."""
 
 
 class SetupDecision(Decision[SetupChoice]):
@@ -368,6 +377,20 @@ class BirdPowerPickHabitatDecision(Decision[HabitatChoice]):
     """Power asks the player to designate a habitat target."""
 
 
+class ResetBirdfeederDecision(Decision[ResetBirdfeederChoice | SkipChoice]):
+    """Offer the optional birdfeeder reset before a player takes food.
+
+    Wingspan lets a player reroll the whole feeder *before* gaining food
+    whenever every die shows the same face (one single food, or all on the
+    invertebrate/seed choice face). It is purely a player option — the separate
+    "reroll an empty feeder" rule is automatic and never surfaces as a decision.
+    The two choices are ``ResetBirdfeederChoice`` (yes, reroll) and
+    ``SkipChoice`` (no, take from the feeder as-is). Offered at every feeder
+    gain — the main Gain Food action and every bird power that pulls from the
+    feeder — so the judgment "is a fresh roll worth more than what's showing?"
+    is scored on its own head."""
+
+
 # ---------------------------------------------------------------------------
 # Stable iteration order for the encoder's decision-type one-hot stripe.
 # Append to the end when adding new decision subclasses so the existing
@@ -391,6 +414,7 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     GainExtraFoodDecision,
     LayExtraEggsDecision,
     AcceptExchangeDecision,
+    ResetBirdfeederDecision,
 )
 
 
@@ -421,62 +445,65 @@ class DecisionFamily(enum.StrEnum):
     """
 
     SETUP = "setup"
-    MACRO_ACTION = "macro_action"
-    BIRD_ACQUISITION = "bird_acquisition"
-    BIRD_DISCARD = "bird_discard"
+    MAIN_ACTION = "main_action"
+    DRAW_BIRD = "draw_bird"
+    DISCARD_BIRD = "discard_bird"
     GAIN_FOOD = "gain_food"
     SPEND_FOOD = "spend_food"
-    EGG_PLACEMENT = "egg_placement"
-    EGG_REMOVAL = "egg_removal"
+    LAY_EGG = "lay_egg"
+    PAY_EGG = "pay_egg"
     COMMIT_TO_COST = "commit_to_cost"
-    BONUS_VALUATION = "bonus_valuation"
-    HABITAT_PLACEMENT = "habitat_placement"
+    CHOOSE_BONUS = "choose_bonus"
+    MOVE_HABITAT = "move_habitat"
     MISC_RARE = "misc_rare"
     PLAY_BIRD = "play_bird"
+    RESET_BIRDFEEDER = "reset_birdfeeder"
 
 
 ALL_DECISION_FAMILIES: tuple[DecisionFamily, ...] = (
     DecisionFamily.SETUP,
-    DecisionFamily.MACRO_ACTION,
-    DecisionFamily.BIRD_ACQUISITION,
-    DecisionFamily.BIRD_DISCARD,
+    DecisionFamily.MAIN_ACTION,
+    DecisionFamily.DRAW_BIRD,
+    DecisionFamily.DISCARD_BIRD,
     DecisionFamily.GAIN_FOOD,
     DecisionFamily.SPEND_FOOD,
-    DecisionFamily.EGG_PLACEMENT,
-    DecisionFamily.EGG_REMOVAL,
+    DecisionFamily.LAY_EGG,
+    DecisionFamily.PAY_EGG,
     DecisionFamily.COMMIT_TO_COST,
-    DecisionFamily.BONUS_VALUATION,
-    DecisionFamily.HABITAT_PLACEMENT,
+    DecisionFamily.CHOOSE_BONUS,
+    DecisionFamily.MOVE_HABITAT,
     DecisionFamily.MISC_RARE,
     DecisionFamily.PLAY_BIRD,
+    DecisionFamily.RESET_BIRDFEEDER,
 )
 
 # Per-class assignment. Keyed on the concrete decision class so routing is a
 # pure function of the class. Bird valuation is split by direction (DECISIONS.md
 # §3.3): *acquiring* a bird ("which do I take?") and *giving one up* ("which do
 # I lose?") are opposite judgments and route to separate heads. Choosing the
-# turn's action *type* (``MainActionDecision`` -> ``MACRO_ACTION``) is split from
+# turn's action *type* (``MainActionDecision`` -> ``MAIN_ACTION``) is split from
 # choosing *which bird to play* (``PlayBirdDecision`` -> ``PLAY_BIRD``); the
 # latter serves both the main-action PLAY_BIRD branch and power-granted extra
 # plays, since "which bird, where, paid how?" is one judgment in both.
 _DECISION_FAMILY: dict[type[Decision[typing.Any]], DecisionFamily] = {
     SetupDecision: DecisionFamily.SETUP,
-    MainActionDecision: DecisionFamily.MACRO_ACTION,
+    MainActionDecision: DecisionFamily.MAIN_ACTION,
     PlayBirdDecision: DecisionFamily.PLAY_BIRD,
-    DrawCardsPickSourceDecision: DecisionFamily.BIRD_ACQUISITION,
-    BirdPowerPickBirdFromHandDecision: DecisionFamily.BIRD_ACQUISITION,
-    BirdPowerTuckFromHandDecision: DecisionFamily.BIRD_DISCARD,
-    GainExtraFoodDecision: DecisionFamily.BIRD_DISCARD,
+    DrawCardsPickSourceDecision: DecisionFamily.DRAW_BIRD,
+    BirdPowerPickBirdFromHandDecision: DecisionFamily.DRAW_BIRD,
+    BirdPowerTuckFromHandDecision: DecisionFamily.DISCARD_BIRD,
+    GainExtraFoodDecision: DecisionFamily.DISCARD_BIRD,
     GainFoodDecision: DecisionFamily.GAIN_FOOD,
     SpendFoodDecision: DecisionFamily.SPEND_FOOD,
     LayExtraEggsDecision: DecisionFamily.SPEND_FOOD,
-    LayEggDecision: DecisionFamily.EGG_PLACEMENT,
-    RemoveEggDecision: DecisionFamily.EGG_REMOVAL,
+    LayEggDecision: DecisionFamily.LAY_EGG,
+    RemoveEggDecision: DecisionFamily.PAY_EGG,
     AcceptExchangeDecision: DecisionFamily.COMMIT_TO_COST,
-    BirdPowerPickBonusCardDecision: DecisionFamily.BONUS_VALUATION,
-    BirdPowerPickHabitatDecision: DecisionFamily.HABITAT_PLACEMENT,
+    BirdPowerPickBonusCardDecision: DecisionFamily.CHOOSE_BONUS,
+    BirdPowerPickHabitatDecision: DecisionFamily.MOVE_HABITAT,
     BirdPowerPickPlayedBirdDecision: DecisionFamily.MISC_RARE,
     BirdPowerPickStartingPlayerDecision: DecisionFamily.MISC_RARE,
+    ResetBirdfeederDecision: DecisionFamily.RESET_BIRDFEEDER,
 }
 
 _DECISION_FAMILY_INDEX: dict[type[Decision[typing.Any]], int] = {

@@ -9,8 +9,9 @@ review:
 2. The ``DecisionType`` one-hot stripe in the state vector flips when the
    decision type changes.
 3. The state encoder rotates POV when the asking player changes.
-4. Choice-count truncation no longer silently drops options — a sanity-cap
-   assert fires if a decision balloons past encode.MAX_CHOICES_HARD.
+4. Choice-count truncation no longer silently drops options, and an over-wide
+   decision is non-fatal — it logs a warning past
+   encode.RUNAWAY_CHOICE_THRESHOLD and still featurizes every choice.
 """
 
 from __future__ import annotations
@@ -19,13 +20,12 @@ import os
 import sys
 
 import numpy as np
-import pytest
 
 # Make ``import wingspan`` work whether pytest is run from repo root or the
 # tests/ directory.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from wingspan import cards, decisions, encode, engine
+from wingspan import cards, decisions, encode, engine, state
 
 # ---------------------------------------------------------------------------
 # State encoder
@@ -286,30 +286,221 @@ def test_hand_identity_distinguishes_equal_size_hands():
     assert not np.array_equal(vec_a, vec_b)
 
 
+def test_bonus_progress_changes_state_vector():
+    """Held bonus cards and progress toward them are encoded in the state: a
+    held card's identity bit distinguishes it from not holding it (even at 0
+    progress), and adding qualifying birds moves the linear / stepped channels.
+    Without this stripe the model could not see its bonus cards during play."""
+    eng, birds, bonuses, _ = engine.Engine.create(seed=21)
+    me = eng.state.players[eng.state.current_player]
+    bird_feeder = next(bonus for bonus in bonuses if bonus.name == "Bird Feeder")
+    seed_birds = [bird for bird in birds if "Bird Feeder" in bird.bonus_categories][:6]
+
+    me.bonus_cards = []
+    me.board[cards.Habitat.FOREST] = []
+    vec_base = encode.encode_state(eng.state)
+
+    me.bonus_cards = [bird_feeder]
+    vec_held = encode.encode_state(eng.state)
+
+    me.board[cards.Habitat.FOREST] = [
+        state.PlayedBird(bird=bird) for bird in seed_birds
+    ]
+    vec_progress = encode.encode_state(eng.state)
+
+    assert not np.array_equal(vec_base, vec_held)  # identity bit flips
+    assert not np.array_equal(vec_held, vec_progress)  # value channels move
+
+
+def test_multiple_held_bonus_cards_each_appear_in_state():
+    """A player can hold more than one bonus card, and each held card is
+    encoded: adding a second card to the held set changes the state vector."""
+    eng, _birds, bonuses, _ = engine.Engine.create(seed=22)
+    me = eng.state.players[eng.state.current_player]
+    me.board[cards.Habitat.FOREST] = []
+
+    me.bonus_cards = [bonuses[0]]
+    vec_one = encode.encode_state(eng.state)
+    me.bonus_cards = [bonuses[0], bonuses[1]]
+    vec_two = encode.encode_state(eng.state)
+    assert not np.array_equal(vec_one, vec_two)
+
+
+# ---------------------------------------------------------------------------
+# Full per-slot board / tray / round-goal state stripes
+
+
+def test_board_birds_appear_in_state():
+    """Birds in play are encoded per slot: an empty forest differs from one with
+    a bird, and two different birds in the same slot yield different vectors
+    (the per-slot identity index the model embeds — no aggregate captures *which*
+    bird)."""
+    eng, birds, *_ = engine.Engine.create(seed=31)
+    me = eng.state.players[eng.state.current_player]
+    me.board[cards.Habitat.FOREST] = []
+    vec_empty = encode.encode_state(eng.state)
+    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=birds[0])]
+    vec_a = encode.encode_state(eng.state)
+    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=birds[1])]
+    vec_b = encode.encode_state(eng.state)
+    assert not np.array_equal(vec_empty, vec_a)  # a bird now occupies the slot
+    assert not np.array_equal(vec_a, vec_b)  # identity distinguishes which bird
+
+
+def test_per_slot_eggs_move_state():
+    """A bird's egg count is encoded per slot."""
+    eng, birds, *_ = engine.Engine.create(seed=32)
+    me = eng.state.players[eng.state.current_player]
+    egg_bird = next(bird for bird in birds if bird.egg_limit >= 1)
+    pb = state.PlayedBird(bird=egg_bird)
+    me.board[cards.Habitat.GRASSLAND] = [pb]
+    vec0 = encode.encode_state(eng.state)
+    pb.eggs = 1
+    vec1 = encode.encode_state(eng.state)
+    assert not np.array_equal(vec0, vec1)
+
+
+def test_per_slot_cached_food_by_type_moves_state():
+    """The headline of the per-type cached-food change: a bird caching 1 SEED
+    versus 1 FISH has the *same* total cached, so every aggregate stripe is
+    identical — yet the per-slot cached-by-type block makes the two states
+    differ. This was impossible under the old scalar ``cached_food``."""
+    eng, birds, *_ = engine.Engine.create(seed=33)
+    me = eng.state.players[eng.state.current_player]
+    pb = state.PlayedBird(bird=birds[0])
+    me.board[cards.Habitat.FOREST] = [pb]
+    pb.cached_food[cards.Food.SEED] = 1
+    vec_seed = encode.encode_state(eng.state)
+    pb.cached_food[cards.Food.SEED] = 0
+    pb.cached_food[cards.Food.FISH] = 1
+    vec_fish = encode.encode_state(eng.state)
+    assert pb.cached_food.total() == 1  # same total in both states
+    assert not np.array_equal(vec_seed, vec_fish)  # only the per-type block differs
+
+
+def test_tray_contents_encoded_and_order_invariant():
+    """The public bird tray is encoded at full detail: different tray contents
+    move the vector, but reordering the same cards does not (the ``bird_index``
+    sort makes the interchangeable tray slots order-invariant)."""
+    eng, birds, *_ = engine.Engine.create(seed=34)
+    eng.state.tray = [birds[0], birds[1]]
+    vec_ab = encode.encode_state(eng.state)
+    eng.state.tray = [birds[1], birds[0]]
+    vec_ba = encode.encode_state(eng.state)
+    eng.state.tray = [birds[2], birds[3]]
+    vec_cd = encode.encode_state(eng.state)
+    assert np.array_equal(vec_ab, vec_ba)  # order-invariant
+    assert not np.array_equal(vec_ab, vec_cd)  # different cards move the vector
+
+
+def test_round_goal_stripe_encodes_all_four_rounds():
+    """All four round goals are encoded, not just the current one: changing a
+    *future* round's goal moves the vector even while sitting in round 0. The old
+    encoder, which only saw ``round_goals[round_idx]``, could not."""
+    eng, _birds, _bonuses, goals = engine.Engine.create(seed=35)
+    eng.state.round_idx = 0
+    vec_before = encode.encode_state(eng.state)
+    current = eng.state.round_goals[3]
+    replacement = next(goal for goal in goals if goal.category != current.category)
+    eng.state.round_goals[3] = replacement
+    vec_after = encode.encode_state(eng.state)
+    assert not np.array_equal(vec_before, vec_after)
+
+
+def test_opponent_bonus_count_changes_pov_state():
+    """The opponent's bonus-card *count* is observable (a single scalar); their
+    identities are not. Holding one more opponent bonus card moves my POV vector
+    even though my own bonus stripes are untouched."""
+    eng, _birds, bonuses, _ = engine.Engine.create(seed=38)
+    pov = eng.state.current_player
+    opp = eng.state.players[1 - pov]
+    opp.bonus_cards = [bonuses[0]]
+    vec_one = encode.encode_state(eng.state)
+    opp.bonus_cards = [bonuses[0], bonuses[1]]
+    vec_two = encode.encode_state(eng.state)
+    assert not np.array_equal(vec_one, vec_two)
+
+
+# ---------------------------------------------------------------------------
+# Board birds carry full card attributes. Each test holds bird identity fixed
+# (``model_copy`` keeps ``id``, so the identity one-hot is unchanged) and varies
+# one attribute, so any state-vector change is attributable to that attribute's
+# encoding rather than to identity.
+
+
+def test_board_bird_nest_attribute_encoded():
+    """A bird's nest is encoded per slot: a star-nest bird and a bowl-nest bird
+    (same identity) yield different state vectors."""
+    eng, birds, *_ = engine.Engine.create(seed=41)
+    me = eng.state.players[eng.state.current_player]
+    star = birds[0].model_copy(update={"nest": cards.NestType.STAR})
+    bowl = birds[0].model_copy(update={"nest": cards.NestType.BOWL})
+    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=star)]
+    vec_star = encode.encode_state(eng.state)
+    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=bowl)]
+    vec_bowl = encode.encode_state(eng.state)
+    assert not np.array_equal(vec_star, vec_bowl)
+
+
+def test_board_bird_food_cost_encoded():
+    """A bird's food cost is encoded per slot."""
+    eng, birds, *_ = engine.Engine.create(seed=42)
+    me = eng.state.players[eng.state.current_player]
+    cheap = birds[0].model_copy(
+        update={"food_cost": cards.BirdCost.from_specific({cards.Food.SEED: 1})}
+    )
+    pricey = birds[0].model_copy(
+        update={"food_cost": cards.BirdCost.from_specific({cards.Food.FISH: 3}, wild=1)}
+    )
+    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=cheap)]
+    vec_cheap = encode.encode_state(eng.state)
+    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=pricey)]
+    vec_pricey = encode.encode_state(eng.state)
+    assert not np.array_equal(vec_cheap, vec_pricey)
+
+
+def test_board_bird_bonus_category_test_flags_encoded():
+    """A board bird's static bonus-card qualifications (the "test" flags such as
+    'named after a person') are encoded in its attribute vector. Holding no bonus
+    card isolates the flag from the bonus-progress stripe."""
+    eng, birds, *_ = engine.Engine.create(seed=43)
+    me = eng.state.players[eng.state.current_player]
+    me.bonus_cards = []
+    plain = birds[0].model_copy(update={"bonus_categories": ()})
+    tagged = birds[0].model_copy(update={"bonus_categories": ("Bird Feeder",)})
+    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=plain)]
+    vec_plain = encode.encode_state(eng.state)
+    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=tagged)]
+    vec_tagged = encode.encode_state(eng.state)
+    assert not np.array_equal(vec_plain, vec_tagged)
+
+
 # ---------------------------------------------------------------------------
 # Truncation behavior
 
 
-def test_encode_choices_asserts_on_absurd_cardinality():
-    """The hard cap protects against runaway choice generation (a sign of
-    a bug, not normal play)."""
+def test_encode_choices_warns_but_does_not_abort_on_absurd_cardinality():
+    """A decision wider than the runaway threshold is non-fatal: the encoder
+    warns and still featurizes every choice rather than asserting, so an
+    unattended training run is never killed by a single wide decision."""
     eng, _birds, *_ = engine.Engine.create(seed=8)
+    n_choices = encode.RUNAWAY_CHOICE_THRESHOLD + 1
     too_many: list[decisions.FoodChoice | decisions.SkipChoice] = [
         decisions.FoodChoice(label=f"c{i}", food=cards.Food.SEED)
-        for i in range(encode.MAX_CHOICES_HARD + 1)
+        for i in range(n_choices)
     ]
     decision = decisions.GainFoodDecision(
         player_id=0,
         prompt="x",
         choices=too_many,
     )
-    with pytest.raises(AssertionError):
-        encode.encode_choices(decision, eng.state)
+    feats = encode.encode_choices(decision, eng.state)
+    assert feats.shape == (n_choices, encode.CHOICE_FEATURE_DIM)
 
 
 def test_encode_choices_does_not_truncate_under_soft_threshold():
     """The old encoder silently capped at e.g. MAX_HAND_PICKS=10. The new
-    one returns every choice as long as it's under the hard cap."""
+    one returns every choice regardless of count."""
     eng, birds, *_ = engine.Engine.create(seed=9)
     n_birds = 25  # comfortably above the old hand-pick cap of 10
     decision = decisions.BirdPowerPickBirdFromHandDecision(

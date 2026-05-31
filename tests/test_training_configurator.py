@@ -73,7 +73,7 @@ def test_format_value_scientific_and_plain():
     cfg = config.TrainConfig(device="cpu")
     assert fields.format_value(cfg, fields.spec_for("lr")) == "3e-04"
     assert fields.format_value(cfg, fields.spec_for("value_coef")) == "0.5"
-    assert fields.format_value(cfg, fields.spec_for("games_per_iter")) == "64"
+    assert fields.format_value(cfg, fields.spec_for("games_per_iter")) == "256"
     assert fields.format_value(cfg, fields.spec_for("device")) == "cpu"
 
 
@@ -158,6 +158,9 @@ def _write_checkpoint(
     if extras:
         (directory / artifacts.BEST_CKPT).write_bytes(b"best")
         (directory / artifacts.METRICS_LOG).write_text("{}\n", encoding="utf-8")
+        (directory / artifacts.GAMES_LOG).write_text("{}\n", encoding="utf-8")
+        (directory / artifacts.MODEL_CONFIG_JSON).write_text("{}", encoding="utf-8")
+        (directory / "process_20260530-120000.json").write_text("{}", encoding="utf-8")
         (directory / "dashboard.log").write_text("log", encoding="utf-8")
         (directory / "_test.pt").write_bytes(b"scratch")  # unrelated, must survive
 
@@ -170,7 +173,7 @@ def test_inspect_run_reads_metadata(tmp_path: pathlib.Path):
     assert summary.iteration == 4 and summary.total_games == 320
     assert summary.best_win_rate == 0.71
     assert summary.train_config is not None and summary.train_config.run_name == "alpha"
-    assert summary.has_best and summary.has_metrics
+    assert summary.has_best and summary.has_metrics and summary.has_games
 
 
 def test_inspect_run_empty_dir(tmp_path: pathlib.Path):
@@ -203,9 +206,16 @@ def test_archive_run_moves_artifacts_and_leaves_scratch(tmp_path: pathlib.Path):
     assert (archive_dir / artifacts.LAST_CKPT).exists()
     assert (archive_dir / artifacts.BEST_CKPT).exists()
     assert (archive_dir / "dashboard.log").exists()
+    # The new run artifacts ride along: the game log, model descriptor, and the
+    # dated process record are all relocated, not left behind.
+    assert (archive_dir / artifacts.GAMES_LOG).exists()
+    assert (archive_dir / artifacts.MODEL_CONFIG_JSON).exists()
+    assert (archive_dir / "process_20260530-120000.json").exists()
     # The live dir is now clean of run artifacts, but unrelated scratch survives.
     assert not (tmp_path / artifacts.LAST_CKPT).exists()
     assert not (tmp_path / artifacts.METRICS_LOG).exists()
+    assert not (tmp_path / artifacts.GAMES_LOG).exists()
+    assert not list(tmp_path.glob(artifacts.PROCESS_GLOB))
     assert (tmp_path / "_test.pt").exists()
     assert artifacts.LAST_CKPT in result.moved
 
@@ -233,7 +243,9 @@ def test_clear_run_deletes_artifacts(tmp_path: pathlib.Path):
     _write_checkpoint(tmp_path, cfg)
     removed = runs.clear_run(str(tmp_path))
     assert artifacts.LAST_CKPT in removed
+    assert artifacts.GAMES_LOG in removed and artifacts.MODEL_CONFIG_JSON in removed
     assert not (tmp_path / artifacts.LAST_CKPT).exists()
+    assert not list(tmp_path.glob(artifacts.PROCESS_GLOB))
     assert (tmp_path / "_test.pt").exists()
 
 
@@ -514,13 +526,20 @@ def test_loop_starts_fresh_on_invalid_saved_config(tmp_path: pathlib.Path):
     assert training.state.total_games == 0  # started fresh rather than resuming
 
 
-def test_loop_truncates_metrics_on_fresh_start(tmp_path: pathlib.Path):
+def test_loop_truncates_history_on_fresh_start(tmp_path: pathlib.Path):
     (tmp_path / artifacts.METRICS_LOG).write_text("stale-row\n", encoding="utf-8")
+    (tmp_path / artifacts.GAMES_LOG).write_text("stale-game\n", encoding="utf-8")
+    (tmp_path / "process_20000101-000000.json").write_text("{}", encoding="utf-8")
     cfg = config.TrainConfig(
         device="cpu", hidden=32, checkpoint_dir=str(tmp_path), resume=False
     )
-    loop.TrainingLoop(cfg)  # a non-resumed run clears a stale metrics log
+    loop.TrainingLoop(cfg)  # a non-resumed run clears a previous run's history
     assert (tmp_path / artifacts.METRICS_LOG).read_text(encoding="utf-8") == ""
+    assert (tmp_path / artifacts.GAMES_LOG).read_text(encoding="utf-8") == ""
+    # The prior run's dated session record is dropped; only this startup's
+    # freshly-written one remains.
+    assert not (tmp_path / "process_20000101-000000.json").exists()
+    assert len(list(tmp_path.glob(artifacts.PROCESS_GLOB))) == 1
 
 
 def test_edit_caret_blinks_across_frames():

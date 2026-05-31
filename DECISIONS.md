@@ -212,17 +212,17 @@ The 17 decisions and the 13 families:
 | Family (one scoring head) | Decision class(es) that route to it | The skill |
 |---|---|---|
 | `SETUP` | `SetupDecision` | choosing a whole opening |
-| `MACRO_ACTION` | `MainActionDecision` | which of the four actions this turn |
+| `MAIN_ACTION` | `MainActionDecision` | which of the four actions this turn |
 | `PLAY_BIRD` | `PlayBirdDecision` | which bird to play, where, paid how |
-| `BIRD_ACQUISITION` | `DrawCardsPickSourceDecision`, `BirdPowerPickBirdFromHandDecision` | which bird to *take* |
-| `BIRD_DISCARD` | `BirdPowerTuckFromHandDecision`, `GainExtraFoodDecision` | which bird to *give up* |
+| `DRAW_BIRD` | `DrawCardsPickSourceDecision`, `BirdPowerPickBirdFromHandDecision` | which bird to *take* |
+| `DISCARD_BIRD` | `BirdPowerTuckFromHandDecision`, `GainExtraFoodDecision` | which bird to *give up* |
 | `GAIN_FOOD` | `GainFoodDecision` | which food to gain |
 | `SPEND_FOOD` | `SpendFoodDecision`, `LayExtraEggsDecision` | which food to give up |
-| `EGG_PLACEMENT` | `LayEggDecision` | which bird gets the egg |
-| `EGG_REMOVAL` | `RemoveEggDecision` | which bird loses an egg |
+| `LAY_EGG` | `LayEggDecision` | which bird gets the egg |
+| `PAY_EGG` | `RemoveEggDecision` | which bird loses an egg |
 | `COMMIT_TO_COST` | `AcceptExchangeDecision` | is this fixed trade worth it? |
-| `BONUS_VALUATION` | `BirdPowerPickBonusCardDecision` | which bonus card fits my plan |
-| `HABITAT_PLACEMENT` | `BirdPowerPickHabitatDecision` | which row benefits most |
+| `CHOOSE_BONUS` | `BirdPowerPickBonusCardDecision` | which bonus card fits my plan |
+| `MOVE_HABITAT` | `BirdPowerPickHabitatDecision` | which row benefits most |
 | `MISC_RARE` | `BirdPowerPickPlayedBirdDecision`, `BirdPowerPickStartingPlayerDecision` | rare structural picks |
 
 Two structural facts follow from this split and are worth holding onto:
@@ -232,7 +232,7 @@ Two structural facts follow from this split and are worth holding onto:
   with identical features (habitat, slot, current eggs, capacity remaining,
   cached food, tucked cards). What makes "more eggs already here" *attractive*
   for placement but *costly* for removal is that the two route to different
-  heads — `EGG_PLACEMENT` versus `EGG_REMOVAL`.
+  heads — `LAY_EGG` versus `PAY_EGG`.
 - **"Can I decline?" is a property of the moment, not the decision type.** The
   main Lay Eggs action forces you to place the egg somewhere; a pink between-turn
   power lets you decline the very same kind of placement. So a `SkipChoice` is
@@ -242,7 +242,7 @@ Two structural facts follow from this split and are worth holding onto:
 The decision-type identity is *also* fed to the network as a small one-hot
 appended to the state. With the judgment now carried by the head, that one-hot
 does a narrower job: it gives a head that serves more than one decision class
-(e.g. `BIRD_ACQUISITION`, which sees both the draw-source pick and the
+(e.g. `DRAW_BIRD`, which sees both the draw-source pick and the
 Oystercatcher draft) enough context to tell its own call sites apart.
 
 ---
@@ -279,11 +279,11 @@ network later. Crucially, each candidate exposes *which specific birds* it keeps
 synergies — which is precisely the kind of question ("what makes a good opening
 hand?") the whole project is trying to answer.
 
-### 3.2 `MACRO_ACTION` + `PLAY_BIRD` — the strategic spine, in two steps
+### 3.2 `MAIN_ACTION` + `PLAY_BIRD` — the strategic spine, in two steps
 
 **What happens.** At the top of each turn you choose *which* of four actions to
 take: Gain Food, Lay Eggs, Draw Cards, or Play a Bird. This is the
-`MACRO_ACTION` decision, and it picks the action *type* only. Play-a-bird is
+`MAIN_ACTION` decision, and it picks the action *type* only. Play-a-bird is
 offered only when you actually have a legal play. If you choose to play a bird,
 a *follow-up* `PLAY_BIRD` decision picks which bird, in which habitat, for which
 food payment — one candidate per legal combination.
@@ -297,7 +297,7 @@ card economy; and denying the opponent.
 **Why two heads.** "Which action is worth a cube this turn?" and "which bird is
 worth playing, where, paid how?" are different questions, so they get different
 heads. This is the well-known *action-type-then-arguments* factorization, and it
-buys a clean, legible signal: the `MACRO_ACTION` head's scores read directly as
+buys a clean, legible signal: the `MAIN_ACTION` head's scores read directly as
 "how often is playing a bird worth more than an engine action?" The four
 action-type options are intentionally featureless tokens — their value lives in
 the *board state*, not in the option itself — while the rich (bird, habitat,
@@ -309,7 +309,7 @@ The egg portion of a bird's cost is handled as a small follow-up (§3.7) rather
 than folded into the play candidate, keeping "which bird, paid in food" separate
 from "which of my birds gives up the egg."
 
-### 3.3 `BIRD_ACQUISITION` vs `BIRD_DISCARD` — valuing birds, in both directions
+### 3.3 `DRAW_BIRD` vs `DISCARD_BIRD` — valuing birds, in both directions
 
 "How valuable is this bird?" is really two opposite skills, and they get two
 heads.
@@ -378,7 +378,7 @@ step) — so the two opposite judgments never share weights. (Paying a bird's fo
 cost is not here; it is part of the `PLAY_BIRD` candidate, because "how to pay
 for this bird" is part of deciding to play it.)
 
-### 3.6 `EGG_PLACEMENT` — where the egg goes
+### 3.6 `LAY_EGG` — where the egg goes
 
 **The skill.** "Which of my birds gets this egg?" Used everywhere an egg is
 *added*: the main Lay Eggs action, the Grassland conversion, lay-any-egg powers,
@@ -394,7 +394,7 @@ each bird has left.
 heavy reuse is correct — and concentrating all egg-placement experience into one
 head is what lets it get good.
 
-### 3.7 `EGG_REMOVAL` — which egg to spend
+### 3.7 `PAY_EGG` — which egg to spend
 
 **The skill.** "Which egg can I best afford to lose?" Used wherever an egg is
 *removed*: paying a bird's egg cost, the Wetland egg-for-card conversion, and the
@@ -422,7 +422,7 @@ separate decision). This is the natural partner to §3.7: the *decision to pay* 
 its own skill, separate from *which resource to pay with*.
 
 It handles the fully-determined exchanges: the Wetland egg-for-card conversion
-(the bird the egg comes off is the separate `EGG_REMOVAL` follow-up) and the
+(the bird the egg comes off is the separate `PAY_EGG` follow-up) and the
 discard-food-to-tuck powers (where the food and the number of tucks are fixed by
 the card). The accept option carries the **terms of the trade as typed fields** —
 food paid, eggs paid, cards gained, cards tucked — so the head can literally weigh
@@ -438,7 +438,7 @@ Two cases are intentionally *not* routed here, both for good reason:
   chosen a bird to play, paying its egg cost is mandatory — so that "decision" is
   already part of the action pick (§3.2).
 
-### 3.9 `BONUS_VALUATION` — which bonus card fits the plan
+### 3.9 `CHOOSE_BONUS` — which bonus card fits the plan
 
 **The skill.** "Which bonus card matches the board I'm building?" — how many
 qualifying birds you have or can still get, and whether a VP threshold is in
@@ -453,7 +453,7 @@ qualifying-bird count), so it can generalize across bonus cards rather than
 learning each one in isolation. The per-card identity is the backbone that makes
 that learnable.
 
-### 3.10 `HABITAT_PLACEMENT` — which row benefits most
+### 3.10 `MOVE_HABITAT` — which row benefits most
 
 **The skill.** "Which row benefits most?" — now specifically the destination for
 a *moved* bird (the move-if-rightmost powers). Choosing a habitat for a
@@ -500,7 +500,12 @@ their own one-hot over the 26 bonus cards. The deciding player's *hand* is
 encoded as a multi-hot over birds, and the *opening keep* exposes its kept birds
 as a multi-hot too. The first layer over these identity stripes is, in effect, a
 **learned per-card embedding** — and that embedding *is* the card-power signal
-the project ultimately wants to read out. Two birds with identical printed stats
+the project ultimately wants to read out. (As built there are actually *two* such
+tables — the hand / opening multi-hot is read by the state trunk while a
+candidate's one-hot is read by the choice encoder — so a card has two learned
+vectors today; unifying them into one shared `nn.Embedding` is the TRAINING.md
+§6.3 refinement, and is what would make the readout a single per-card table.)
+Two birds with identical printed stats
 are still distinguishable, and the setup head can see exactly which cards an
 opening keeps. (Opponent hands stay hidden, as they should — only the size is
 revealed.)

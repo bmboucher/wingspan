@@ -13,6 +13,12 @@ twice on the same seed, once with the policy as player 0 and once with the
 seats swapped, which cancels Wingspan's real first-player / deal advantage. The
 result carries a 95% confidence interval (normal approximation, ties counting
 as half a win) so a 55% rate is not mistaken for 50%.
+
+The per-game unit (:func:`play_eval_game`) and the summarizer
+(:func:`summarize_eval`) are public so the process-parallel eval path
+(:meth:`mp_collect.ProcessCollector.evaluate_games`) can reuse the *exact* same
+game and statistics, guaranteeing the parallel result is identical to the
+sequential one game-for-game.
 """
 
 from __future__ import annotations
@@ -54,41 +60,18 @@ def evaluate_vs_opponent(
     """
     n_games = 2 * n_pairs
     margins: list[int] = []
-    wins = 0.0
-    games_done = 0
     for pair in range(n_pairs):
         pair_seed = seed + pair * 2
         for net_seat in (0, 1):
-            margin = _play_eval_game(net, opponent_net, device, pair_seed, net_seat)
-            margins.append(margin)
-            wins += 1.0 if margin > 0 else (0.5 if margin == 0 else 0.0)
-            games_done += 1
+            margins.append(
+                play_eval_game(net, opponent_net, device, pair_seed, net_seat)
+            )
             if on_progress is not None:
-                on_progress(games_done, n_games)
-
-    if n_games == 0:
-        return metrics.EvalResult(
-            n_games=0,
-            win_rate=0.0,
-            ci95=0.0,
-            mean_margin=0.0,
-            opponent_generation=opponent_generation,
-        )
-    win_rate = wins / n_games
-    ci95 = _Z_95 * math.sqrt(max(win_rate * (1.0 - win_rate), 0.0) / n_games)
-    return metrics.EvalResult(
-        n_games=n_games,
-        win_rate=win_rate,
-        ci95=ci95,
-        mean_margin=sum(margins) / len(margins),
-        opponent_generation=opponent_generation,
-    )
+                on_progress(len(margins), n_games)
+    return summarize_eval(margins, opponent_generation)
 
 
-###### PRIVATE #######
-
-
-def _play_eval_game(
+def play_eval_game(
     net: model.PolicyValueNet,
     opponent_net: model.PolicyValueNet | None,
     device: torch.device,
@@ -98,7 +81,8 @@ def _play_eval_game(
     """Play one greedy-policy-vs-opponent game on ``seed`` with the policy in
     ``net_seat``; return the policy's score margin (its score − opponent's). The
     opponent is the random agent when ``opponent_net is None``, otherwise that
-    net's own greedy policy."""
+    net's own greedy policy. Deterministic in ``(seed, net_seat)`` and the
+    weights, so it returns the same margin in any process."""
     eng = collect.new_engine(seed)
     net_agent = _greedy_agent(net, device)
     if opponent_net is None:
@@ -114,6 +98,40 @@ def _play_eval_game(
     net_score = eng.state.players[net_seat].final_score or 0
     opp_score = eng.state.players[1 - net_seat].final_score or 0
     return net_score - opp_score
+
+
+def summarize_eval(
+    margins: typing.Sequence[int], opponent_generation: int
+) -> metrics.EvalResult:
+    """Roll per-game score margins (policy − opponent) into an
+    :class:`metrics.EvalResult`: win rate with ties counting as half a win, the
+    95% CI half-width (normal approximation ``p ± 1.96·√(p(1−p)/n)``), and the
+    mean margin. Shared by the sequential and process-parallel eval paths so the
+    two report identical statistics from the same games."""
+    n_games = len(margins)
+    if n_games == 0:
+        return metrics.EvalResult(
+            n_games=0,
+            win_rate=0.0,
+            ci95=0.0,
+            mean_margin=0.0,
+            opponent_generation=opponent_generation,
+        )
+    wins = sum(
+        1.0 if margin > 0 else (0.5 if margin == 0 else 0.0) for margin in margins
+    )
+    win_rate = wins / n_games
+    ci95 = _Z_95 * math.sqrt(max(win_rate * (1.0 - win_rate), 0.0) / n_games)
+    return metrics.EvalResult(
+        n_games=n_games,
+        win_rate=win_rate,
+        ci95=ci95,
+        mean_margin=sum(margins) / n_games,
+        opponent_generation=opponent_generation,
+    )
+
+
+###### PRIVATE #######
 
 
 def _greedy_agent(net: model.PolicyValueNet, device: torch.device) -> engine.Agent:

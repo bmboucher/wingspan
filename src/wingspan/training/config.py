@@ -38,7 +38,10 @@ class TrainConfig(pydantic.BaseModel):
 
     # ---- loop shape ----
     # Training games collected (and learned from) per collect-then-update cycle.
-    games_per_iter: typing.Annotated[int, pydantic.Field(ge=1)] = 64
+    # A multiple of the mp worker count (16) so the final collection wave has no
+    # idle tail. 256 sits at the throughput knee (fixed per-iter overhead is
+    # small, so larger buys little) and lowers REINFORCE gradient variance.
+    games_per_iter: typing.Annotated[int, pydantic.Field(ge=1)] = 256
     max_iterations: typing.Annotated[int, pydantic.Field(ge=0)] = 0  # 0 = run forever
 
     # ---- optimization (TRAINING.md §3.3) ----
@@ -86,6 +89,9 @@ class TrainConfig(pydantic.BaseModel):
     device: str = "cpu"
     seed: typing.Annotated[int, pydantic.Field(ge=0)] = 0
     hidden: typing.Annotated[int, pydantic.Field(ge=1)] = 128
+    # Width of the shared per-card embedding (one learned vector per core-set
+    # bird, reused for every board / tray / hand / choice card slot).
+    card_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] = 64
 
     # ---- checkpointing (TRAINING.md §5) ----
     checkpoint_dir: str = "checkpoints"
@@ -111,10 +117,16 @@ class TrainConfig(pydantic.BaseModel):
         return self.eval_games // 2
 
     @property
-    def architecture_key(self) -> tuple[int, int, tuple[str, ...], int]:
+    def architecture_key(self) -> tuple[int, int, tuple[str, ...], int, int]:
         """The network-shape signature a checkpoint must match to be resumed
         (TRAINING.md §5.1): two trained nets are weight-compatible iff their
-        ``(state_dim, choice_dim, family_order, hidden)`` agree. Comparing this
-        one derived tuple keeps the resume gate and the configurator's
-        compatibility check from drifting apart."""
-        return (self.state_dim, self.choice_dim, self.family_order, self.hidden)
+        ``(state_dim, choice_dim, family_order, hidden, card_embed_dim)`` agree.
+        Comparing this one derived tuple keeps the resume gate and the
+        configurator's compatibility check from drifting apart."""
+        return (
+            self.state_dim,
+            self.choice_dim,
+            self.family_order,
+            self.hidden,
+            self.card_embed_dim,
+        )
