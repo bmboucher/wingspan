@@ -68,6 +68,10 @@ def _new_events() -> list[EventLine]:
     return []
 
 
+def _new_int_list() -> list[int]:
+    return []
+
+
 class RunProgress(pydantic.BaseModel):
     """The resumable slice of a run's live state, persisted in every checkpoint
     so a restarted run continues its counters, cumulative aggregates, and
@@ -112,6 +116,11 @@ class RunProgress(pydantic.BaseModel):
     # dashboard can show how many iterations have passed since the frozen self
     # model was last advanced.
     opponent_since_iteration: int = 0
+    # The iterations at which the reference opponent was advanced, so the WIN RATE
+    # convergence chart can mark each challenger upgrade with a vertical line.
+    opponent_change_iterations: list[int] = pydantic.Field(
+        default_factory=_new_int_list
+    )
     last_iter: metrics.IterationMetrics | None = None
     history: list[metrics.IterationMetrics] = pydantic.Field(
         default_factory=_new_history
@@ -180,6 +189,11 @@ class RunState(pydantic.BaseModel):
     # evaluating against the random agent), so the EVAL inset can report how many
     # iterations have passed since the frozen self model was last advanced.
     opponent_since_iteration: int = 0
+    # The iterations at which the reference opponent was advanced, so the WIN RATE
+    # convergence chart can mark each challenger upgrade with a vertical line.
+    opponent_change_iterations: list[int] = pydantic.Field(
+        default_factory=_new_int_list
+    )
 
     events: list[EventLine] = pydantic.Field(default_factory=_new_events)
     error: str | None = None
@@ -413,6 +427,7 @@ class RunState(pydantic.BaseModel):
             best_win_rate=self.best_win_rate,
             opponent_generation=self.opponent_generation,
             opponent_since_iteration=self.opponent_since_iteration,
+            opponent_change_iterations=list(self.opponent_change_iterations),
             last_iter=self.last_iter,
             history=self.history,
         )
@@ -441,6 +456,7 @@ class RunState(pydantic.BaseModel):
         self.best_win_rate = progress.best_win_rate
         self.opponent_generation = progress.opponent_generation
         self.opponent_since_iteration = progress.opponent_since_iteration
+        self.opponent_change_iterations = list(progress.opponent_change_iterations)
         self.last_iter = progress.last_iter
         self.history = list(progress.history)
 
