@@ -4,8 +4,8 @@
 * Chart primitives (sparkline, eighth-block bar, human counts, braille canvas).
 * The dashboard renders without error for an empty *and* a populated state, at
   a wide width (eval inset docked) and a narrow one (inset drops to a strip).
-* The SYSTEM band: percentage math, a live host sample, and the CPU/RAM gauges
-  rendering.
+* The header CPU/RAM gauges: percentage math, a live host sample, and the gauges
+  rendering on the progress row (the separate SYSTEM band was folded away).
 * One real end-to-end training iteration (collect -> length-bucketed update ->
   paired eval -> checkpoint) runs to completion and writes resumable artifacts.
 * Resuming a second run from ``last.pt`` continues the counters and charts.
@@ -76,6 +76,19 @@ def test_chart_helpers():
     canvas.set_dot(0, 0, 0)
     char, owner = canvas.cell(0, 0)
     assert owner == 0 and char != " "
+
+
+def test_family_histogram_keeps_total_when_short():
+    # The total-decisions footer is reserved: when the panel is too short to
+    # hold every family row the bars clip from the bottom, but the total stays.
+    counts = metrics.FamilyCounts()
+    for index in range(len(decisions.ALL_DECISION_FAMILIES)):
+        counts.bump(index)
+    total = counts.total()
+    buffer = io.StringIO()
+    term = rich_console.Console(file=buffer, width=60, height=8, color_system=None)
+    term.print(charts.FamilyHistogram(counts, total_decisions=total))
+    assert f"{total:,} total decisions" in buffer.getvalue()
 
 
 def _render(
@@ -176,13 +189,15 @@ def test_system_monitor_sample():
     assert stats.proc_rss_gb >= 0.0
 
 
-def test_dashboard_system_band():
+def test_dashboard_header_gauges():
     state = runstate.new_run_state(config.TrainConfig(device="cpu"))
     state.system = metrics.SystemStats(
         cpu_percent=58.9, ram_used_gb=27.0, ram_total_gb=68.6, proc_rss_gb=1.3
     )
     plain = _render(state, colorize=False)
-    assert "SYSTEM" in plain and "CPU" in plain and "RAM" in plain
+    # CPU + RAM gauges now ride on the header progress row, not a separate band.
+    assert "CPU" in plain and "RAM" in plain
+    assert "SYSTEM" not in plain  # the separate SYSTEM band was folded into the header
     # The GPU line was removed entirely.
     for absent in ("GPU", "VRAM", "CUDA"):
         assert absent not in plain

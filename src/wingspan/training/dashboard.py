@@ -1,6 +1,6 @@
 """Assembles the live dashboard: the Layout tree and the per-region renderers.
 
-``build_layout`` creates the five-band "FLYWAY CONTROL" skeleton once;
+``build_layout`` creates the four-band "FLYWAY CONTROL" skeleton once;
 ``render`` repaints it from a :class:`runstate.RunState` snapshot each frame.
 The bands, top to bottom, read as a guided narrative: WHERE AM I (header) ->
 IN-GAME PERFORMANCE / DECISION MODELS (middle) -> TRAINING IMPROVEMENT (the
@@ -8,9 +8,9 @@ gold-bordered hero band: the win-rate and self-play-points charts side by side
 plus the docked eval inset) -> DIAGNOSTICS (health + events).
 
 Several band-specific micro-renderables live here because they must fill the
-full panel width every refresh: the phase-colored header progress bar, the
-two-tone system RAM gauge, and the stacked six-component score bar. The hero
-charts come from :mod:`charts`.
+full panel width every refresh: the phase-colored header progress bar (which
+also carries the two-tone CPU and RAM gauges on the same row) and the stacked
+six-component score bar. The hero charts come from :mod:`charts`.
 """
 
 from __future__ import annotations
@@ -31,22 +31,27 @@ _PT_NAME_W = 8  # the per-source name column ("tucked" / "rounds" / "TOTAL")
 _PT_PAIR_W = 12  # one "###.#  ##.#%" points / share pair
 _Z95 = 1.96  # standard-normal z for the 95% confidence interval
 
-# System band gauges.
+# Header-row gauges — CPU + RAM ride beside the progress bar (no separate band).
 _GAUGE_LABEL_W = 5  # "VRAM" + a space — the widest of CPU/RAM/GPU/VRAM
 _GAUGE_CAPS_W = 2  # the ▕ ▏ end-caps around the bar
 _GAUGE_PCT_W = 5  # the " 100%" / "   0%" trailing percent field (leading space)
-_GAUGE_GAP = 3  # blank columns between the left (compute) and right (memory) halves
+_GAUGE_GAP = 3  # blank columns between the three header sections (bar · CPU · RAM)
 _GAUGE_MIN_CELLS = 4  # never draw a bar narrower than this
 _GAUGE_CHROME_W = _GAUGE_LABEL_W + _GAUGE_CAPS_W + _GAUGE_PCT_W  # non-bar width
+# Below this header content width the inline gauges are dropped and the progress
+# bar spans the whole row (three sections each need a gauge's minimum footprint).
+_HEADER_GAUGE_MIN_WIDTH = 3 * (_GAUGE_CHROME_W + _GAUGE_MIN_CELLS) + 2 * _GAUGE_GAP
 
 
 def build_layout() -> layout.Layout:
-    """Create the empty five-band layout skeleton (populated by :func:`render`)."""
+    """Create the empty four-band layout skeleton (populated by :func:`render`)."""
     root = layout.Layout(name="root")
     root.split_column(
         layout.Layout(name="header", size=5),
-        layout.Layout(name="system", size=3),
-        layout.Layout(name="middle", ratio=12, minimum_size=14),
+        # minimum_size fits the DECISION MODELS panel in full: one row per
+        # judgment family + a blank + the total line, plus two panel borders.
+        # Bump this when ``ALL_DECISION_FAMILIES`` grows past 14 entries.
+        layout.Layout(name="middle", ratio=12, minimum_size=18),
         layout.Layout(name="headline", ratio=13, minimum_size=12),
         layout.Layout(name="footer", size=8),
     )
@@ -64,7 +69,6 @@ def build_layout() -> layout.Layout:
 def render(root: layout.Layout, state: runstate.RunState, frame: int) -> None:
     """Repaint every region from the current state."""
     root["header"].update(_header(state))
-    root["system"].update(_system(state))
     root["produce"].update(_produce(state))
     root["learning"].update(_learning(state))
     root["headline"].update(_getting_better_panel(state, frame))
@@ -145,9 +149,11 @@ def _header_progress(state: runstate.RunState) -> tuple[str, int, int]:
 
 
 class _HeaderProgress:
-    """The full-width progress bar row for the current iteration, colored by the
-    active phase (the phase word itself is dropped — the upper-right badge already
-    names it)."""
+    """The header progress + telemetry row: the phase-colored iteration progress
+    bar (the phase word itself is dropped — the upper-right badge already names
+    it) sharing its row with the CPU and RAM gauges, each section taking a third
+    of the width. On a narrow terminal — or before host telemetry first lands —
+    the gauges drop and the bar spans the whole row."""
 
     def __init__(self, state: runstate.RunState):
         self.state = state
@@ -158,74 +164,49 @@ class _HeaderProgress:
         width = options.max_width
         color = theme.PHASE_COLOR[self.state.phase]
         _, done, total = _header_progress(self.state)
-        cells = max(1, width - 2)  # leave room for the ▕ ▏ end-caps
-        fill = round(cells * done / total) if total else 0
-        bar = text.Text(no_wrap=True, end="")
-        bar.append("▕", style=theme.TEXT_MUTED)
-        bar.append("█" * fill, style=color)
-        bar.append("░" * (cells - fill), style=theme.BORDER_DEFAULT)
-        bar.append("▏", style=theme.TEXT_MUTED)
-        yield bar
-
-
-#### System band — host telemetry ####
-
-
-def _system(state: runstate.RunState) -> panel.Panel:
-    return panel.Panel(
-        _SystemGauges(state.system),
-        title="[b]SYSTEM[/b]",
-        title_align="left",
-        box=box.ROUNDED,
-        border_style=theme.BORDER_DEFAULT,
-        padding=(0, 1),
-    )
-
-
-class _SystemGauges:
-    """One gauge row — CPU utilization on the left, system RAM on the right —
-    sized to fill the panel. A width-aware renderable (like the score bar) so
-    each half takes half the width and the bars stretch with the terminal;
-    shows a placeholder until the monitor's first snapshot lands. This process's
-    resident slice rides inside the RAM bar in its own color."""
-
-    def __init__(self, stats: metrics.SystemStats | None):
-        self.stats = stats
-
-    def __rich_console__(
-        self, console: rich_console.Console, options: rich_console.ConsoleOptions
-    ) -> rich_console.RenderResult:
-        if self.stats is None:
-            yield text.Text("  sampling host telemetry…", style=theme.TEXT_MUTED)
+        stats = self.state.system
+        if stats is None or width < _HEADER_GAUGE_MIN_WIDTH:
+            yield _progress_bar(color, done, total, width)
             return
-        left_w, right_w = _split_halves(options.max_width)
-        cpu = _util_gauge("CPU", self.stats.cpu_percent, left_w)
-        ram = _mem_gauge(
-            "RAM",
-            self.stats.ram_used_gb,
-            self.stats.ram_total_gb,
-            self.stats.proc_rss_gb,
-            self.stats.ram_percent,
-            right_w,
+
+        # Split the row into thirds — progress bar · CPU · RAM — with the bar
+        # absorbing the rounding remainder so the three sections plus the two
+        # gaps between them exactly fill the width.
+        section_w = (width - 2 * _GAUGE_GAP) // 3
+        bar_w = width - 2 * _GAUGE_GAP - 2 * section_w
+        line = text.Text(no_wrap=True, end="")
+        line.append_text(_progress_bar(color, done, total, bar_w))
+        line.append(" " * _GAUGE_GAP)
+        cpu = _util_gauge("CPU", stats.cpu_percent, section_w)
+        line.append_text(cpu)
+        line.append(" " * max(0, section_w - cpu.cell_len))
+        line.append(" " * _GAUGE_GAP)
+        line.append_text(
+            _mem_gauge(
+                "RAM",
+                stats.ram_used_gb,
+                stats.ram_total_gb,
+                stats.proc_rss_gb,
+                stats.ram_percent,
+                section_w,
+            )
         )
-        yield _gauge_row(cpu, ram, left_w)
+        yield line
 
 
-def _split_halves(width: int) -> tuple[int, int]:
-    left = max(0, (width - _GAUGE_GAP) // 2)
-    right = max(0, width - _GAUGE_GAP - left)
-    return left, right
+def _progress_bar(color: str, done: int, total: int, width: int) -> text.Text:
+    """A single phase-colored progress bar ``width`` cells wide (``▕███░░░▏``)."""
+    cells = max(1, width - 2)  # leave room for the ▕ ▏ end-caps
+    fill = round(cells * done / total) if total else 0
+    bar = text.Text(no_wrap=True, end="")
+    bar.append("▕", style=theme.TEXT_MUTED)
+    bar.append("█" * fill, style=color)
+    bar.append("░" * (cells - fill), style=theme.BORDER_DEFAULT)
+    bar.append("▏", style=theme.TEXT_MUTED)
+    return bar
 
 
-def _gauge_row(left: text.Text, right: text.Text, left_w: int) -> text.Text:
-    line = text.Text(no_wrap=True)  # default end newline: own one row
-    line.append_text(left)
-    pad = left_w - left.cell_len
-    if pad > 0:
-        line.append(" " * pad)
-    line.append(" " * _GAUGE_GAP)
-    line.append_text(right)
-    return line
+#### Host-telemetry gauges (shared by the header row) ####
 
 
 def _util_gauge(label: str, pct: float, width: int) -> text.Text:
@@ -463,28 +444,16 @@ def _ci95(std: float, n: int) -> float:
 
 
 def _learning(state: runstate.RunState) -> panel.Panel:
-    body = rich_console.Group(
-        charts.FamilyHistogram(state.cum_family),
-        text.Text(""),
-        _total_decisions_line(state),
-    )
+    # FamilyHistogram owns its own total-decisions footer so the count is never
+    # truncated when the panel is short (the bars are clipped first instead).
     return panel.Panel(
-        body,
+        charts.FamilyHistogram(state.cum_family, state.total_decisions),
         title="[b]DECISION MODELS[/b]",
         title_align="left",
         box=box.ROUNDED,
         border_style=theme.BORDER_DEFAULT,
         padding=(0, 1),
     )
-
-
-def _total_decisions_line(state: runstate.RunState) -> text.Text:
-    """The full (un-shortened) cumulative decision count, sitting just above the
-    panel's bottom border."""
-    line = text.Text(no_wrap=True)  # default end newline: own its row in the Group
-    line.append(f"{state.total_decisions:,}", style=theme.TEXT_PRIMARY)
-    line.append(" total decisions", style=theme.TEXT_MUTED)
-    return line
 
 
 #### Headline band — convergence charts ####

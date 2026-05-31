@@ -47,10 +47,12 @@ _AXIS_ROWS = 2  # axis ruler + iteration labels
 _CHART_GAP = 2  # blank columns between the two side-by-side charts
 _INSET_W = 28  # docked eval inset width
 _INSET_MIN_WIDTH = 96  # below this the inset moves below the side-by-side charts
-# The win-rate plot is pinned to exactly 11 rows so its 0..100% axis lands a
-# gridline every 2 rows (10% per row → 20% per 2 rows). The points plot matches
-# the same row count so the two charts stay vertically aligned for the merge.
-_WINRATE_PLOT_ROWS = 11
+_MIN_PLOT_ROWS = 5  # below this the panel is too short to plot — show a placeholder
+# Both convergence plots fill the panel's full plot height (and so does the
+# docked inset beside them). The win-rate 0..100% gutter labels (every 20%) are
+# placed proportionally, so they stay readable at any row count rather than being
+# pinned to a fixed height. The two charts always share the same row count so the
+# side-by-side merge stays vertically aligned.
 _Y_LABELS = (100, 80, 60, 40, 20, 0)  # win-rate axis percent gridlines
 _POINTS_AXIS_TICKS = 5  # gridline count on the auto-scaled points axis
 # Retained for the configurator's history-length hint in
@@ -185,11 +187,13 @@ class GettingBetterChart:
         right_w = charts_w - _CHART_GAP - left_w
         plot_rows = height - _TITLE_ROWS - _AXIS_ROWS
 
-        if plot_rows < 5 or left_w < 16:
+        if plot_rows < _MIN_PLOT_ROWS or left_w < 16:
             yield text.Text("  collecting data…", style=theme.TEXT_MUTED)
             return
 
-        rows = min(plot_rows, _WINRATE_PLOT_ROWS)
+        # Use the full available height: both charts (and the inset that aligns
+        # to them) grow with the panel rather than capping at a fixed row count.
+        rows = plot_rows
         beacon_color = theme.BEACON_B if self.frame % 2 else theme.BEACON_A
         # The convergence charts read the full on-disk history (beyond the
         # in-memory cap) so WIN RATE can span the whole run and FINAL SCORE /
@@ -473,9 +477,18 @@ def _render_dual_axis_grid(
 def _axis_two(it_lo: int, it_hi: int, cols: int) -> list[text.Text]:
     """The shared bottom two rows of a plot: the tick ruler and the iteration
     labels. The labels span the displayed ``[it_lo, it_hi]`` iteration window so
-    they track the sliding x-axis."""
+    they track the sliding x-axis. Every label is left-aligned under its tick;
+    the tick count is reduced until consecutive labels have room (a number plus at
+    least two trailing columns) so they never collide at 5-digit iterations."""
+    label_w = len(str(it_hi))  # it_hi is the widest label (the most digits)
+    min_spacing = label_w + 2  # a number plus at least two trailing spaces
+    # Hold the rightmost tick ``label_w`` columns in from the edge so its
+    # left-aligned label still fits on-screen instead of overflowing.
+    track = max(1, cols - label_w)
     n_ticks = max(2, min(12, cols // 8))
-    tick_cols = [round(i * (cols - 1) / (n_ticks - 1)) for i in range(n_ticks)]
+    while n_ticks > 2 and track / (n_ticks - 1) < min_spacing:
+        n_ticks -= 1
+    tick_cols = [round(i * track / (n_ticks - 1)) for i in range(n_ticks)]
 
     ruler = text.Text(no_wrap=True, end="")
     ruler.append(" " * (_GUTTER_W - 1) + "└", style=theme.AXIS)
@@ -503,15 +516,24 @@ def _value_row(value: float, v_lo: float, v_hi: float, rows: int) -> int:
 
 
 class FamilyHistogram:
-    """The 13-row "what it's learning to decide" panel: one row per judgment
-    family, sorted descending by live count. Each bar is scaled to the busiest
-    family — the top row fills the panel width — so the whole panel is used,
-    while the trailing percentage stays the honest share of *all* decisions, so
-    the ~370× spread between the busiest and rarest family stays legible in both
-    the relative bar lengths and the absolute percentages."""
+    """The "what it's learning to decide" panel: one row per judgment family,
+    sorted descending by live count, then a blank spacer and the cumulative
+    total-decisions footer. Each bar is scaled to the busiest family — the top
+    row fills the panel width — so the whole panel is used, while the trailing
+    percentage stays the honest share of *all* decisions, so the wide spread
+    between the busiest and rarest family stays legible in both the relative bar
+    lengths and the absolute percentages.
 
-    def __init__(self, counts: metrics.FamilyCounts):
+    The label column auto-sizes to the longest family name (so a new, longer
+    family never overflows it), and the total footer is reserved at the bottom so
+    it is never truncated — the family bars are clipped from the bottom first
+    when the panel is too short to hold every row."""
+
+    def __init__(
+        self, counts: metrics.FamilyCounts, total_decisions: int | None = None
+    ):
         self.counts = counts
+        self.total_decisions = total_decisions
 
     def __rich_console__(
         self, console: rich_console.Console, options: rich_console.ConsoleOptions
@@ -519,15 +541,24 @@ class FamilyHistogram:
         width = options.max_width
         total = max(self.counts.total(), 1)
         peak = max(self.counts.counts, default=0)
-        # Wide enough for the longest display label (``commit_to_cost``, 14) so a
-        # family name is never truncated.
-        label_w = 15
+
+        rows = sorted(self.counts.items(), key=lambda item: item[1], reverse=True)
+        # Size the label column to the longest family name (+1 gap) so a name is
+        # never truncated, even as new decision families are added.
+        label_w = max((len(family.value) for family, _ in rows), default=14) + 1
         # label + space + bar + " 100.0%" (7) + "  " (2) + count(6) + margin
         bar_w = max(6, width - label_w - 17)
 
-        rows = sorted(self.counts.items(), key=lambda item: item[1], reverse=True)
+        # Reserve the bottom two rows (a blank spacer + the total line) so the
+        # total is never pushed off a short panel; clip family bars to fit.
+        footer_rows = 2 if self.total_decisions is not None else 0
+        height = (
+            options.height if options.height is not None else (options.max_height or 0)
+        )
+        visible = max(1, height - footer_rows) if height else len(rows)
+
         lines: list[text.Text] = []
-        for family, count in rows:
+        for family, count in rows[:visible]:
             share = count / total
             bar_fraction = count / peak if peak else 0.0
             lines.append(self._row(family, count, share, bar_fraction, label_w, bar_w))
@@ -536,9 +567,13 @@ class FamilyHistogram:
             if i:
                 yield segment.Segment.line()
             yield line
-        # Trailing newline so a following Group sibling (the total-decisions
-        # footer) lands on its own row rather than abutting the last bar.
-        yield segment.Segment.line()
+
+        if self.total_decisions is not None:
+            # A blank spacer row, then the full (un-shortened) cumulative count
+            # sitting just above the panel's bottom border.
+            yield segment.Segment.line()
+            yield segment.Segment.line()
+            yield _total_decisions_line(self.total_decisions)
 
     def _row(
         self,
@@ -559,6 +594,14 @@ class FamilyHistogram:
         line.append("  ")
         line.append(f"{human_count(count):>6}", style=theme.HIST_COUNT)
         return line
+
+
+def _total_decisions_line(total_decisions: int) -> text.Text:
+    """The full (un-shortened) cumulative decision count footer line."""
+    line = text.Text(no_wrap=True, end="")
+    line.append(f"{total_decisions:,}", style=theme.TEXT_PRIMARY)
+    line.append(" total decisions", style=theme.TEXT_MUTED)
+    return line
 
 
 # ---------------------------------------------------------------------------
@@ -659,17 +702,20 @@ def _gutter_right(row: int, label_rows: dict[int, str]) -> str:
 
 
 def _tick_labels(tick_cols: list[int], cols: int, it_lo: int, it_hi: int) -> str:
-    """A row of right-spaced iteration numbers beneath the axis ticks, spanning
-    the displayed ``[it_lo, it_hi]`` window."""
+    """A row of left-aligned iteration numbers beneath the axis ticks, spanning
+    the displayed ``[it_lo, it_hi]`` window. Each label starts at its tick column
+    (the caller spaces the ticks far enough apart that they do not collide and
+    holds the last tick in from the edge so its number still fits). Values are
+    taken by tick fraction so the first and last labels read exactly it_lo / it_hi."""
     chars = [" "] * cols
     span = it_hi - it_lo
-    for col in tick_cols:
-        iteration = it_lo + round(col / max(cols - 1, 1) * span)
+    last_index = len(tick_cols) - 1
+    for index, col in enumerate(tick_cols):
+        iteration = it_lo + round(index / max(last_index, 1) * span)
         label = str(iteration)
-        start = min(col, cols - len(label))
         for offset, char in enumerate(label):
-            if 0 <= start + offset < cols:
-                chars[start + offset] = char
+            if 0 <= col + offset < cols:
+                chars[col + offset] = char
     return "".join(chars)
 
 
