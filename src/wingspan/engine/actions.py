@@ -113,6 +113,9 @@ def do_play_bird(
     # WHITE power triggers when played.
     if card.color == cards.PowerColor.WHITE:
         powers.dispatch_power(engine, agent, player, pb, habitat, "play")
+    # Pink reactors: an opponent's "when another player plays a bird in their
+    # [habitat]" power fires when this play's habitat matches.
+    reactors.trigger_pink_play_bird_reactors(engine, player, habitat)
 
 
 def do_play_bird_action(engine: "core.Engine", agent: "core.Agent") -> None:
@@ -202,6 +205,7 @@ def do_gain_food(engine: "core.Engine", agent: "core.Agent") -> None:
     """Run a Gain Food action (always Forest): pull dice equal to the column
     reward then activate row powers right-to-left."""
     player = engine.state.me()
+    food_before = list(player.food.counts)
     n_birds = player.row_activation_count(cards.Habitat.FOREST)
     n_dice = player.board.gain_food_count()
     engine.log(
@@ -210,13 +214,80 @@ def do_gain_food(engine: "core.Engine", agent: "core.Agent") -> None:
     for _ in range(n_dice):
         _take_one_die_active(engine, agent, player)
     _convert_gain_food(engine, agent, player)
-    # Reroll if 1 or fewer faces showing (printed rule).
-    types_left = sum(
-        1 for count in engine.state.birdfeeder.counts.values() if count > 0
-    )
-    if types_left <= 1 and engine.state.birdfeeder.total() > 0:
-        engine.state.birdfeeder.reroll(engine.state.rng)
     activate_row_powers(engine, agent, player, cards.Habitat.FOREST)
+    # Pink reactors: an opponent's "when another player gains [food]" power
+    # (Loggerhead Shrike) fires on the foods gained during this action.
+    gained_foods = {
+        food
+        for i, food in enumerate(cards.ALL_FOODS)
+        if player.food.counts[i] > food_before[i]
+    }
+    reactors.trigger_pink_gain_food_reactors(engine, player, gained_foods)
+
+
+def offer_birdfeeder_reset(
+    engine: "core.Engine", agent: "core.Agent", player: state.Player
+) -> None:
+    """Apply the birdfeeder reset rules just before ``player`` takes food.
+
+    Two printed rules fire here, in order, so callers can treat this as the
+    single "prepare the feeder for a gain" step and then read its gainable
+    foods:
+
+    * **Empty feeder — automatic (Rule 1).** A feeder with no dice is rerolled
+      at once; it is never a player choice. :func:`gain_feeder_die` already
+      refills the feeder the instant a take empties it, so in normal play the
+      feeder is never empty here — this guard only matters for a feeder emptied
+      out of band, and it keeps a gain from ever building a choice-less
+      decision.
+    * **Single face — optional (Rule 2).** When every die shows the same face —
+      one single food, or all dice on the invertebrate/seed choice face
+      (``Birdfeeder.distinct_faces() == 1``) — the player may reroll the whole
+      feeder before taking. ``engine.ask`` a ``ResetBirdfeederDecision``; on the
+      affirmative choice, reroll.
+
+    Call this *before* inspecting the feeder for gainable foods, so the offered
+    foods reflect any reroll."""
+    feeder = engine.state.birdfeeder
+    if feeder.is_empty():
+        feeder.reroll(engine.state.rng)
+        engine.log(f"  birdfeeder empty; rerolled to {feeder.counts.format()}")
+    if feeder.distinct_faces() != 1:
+        return
+    ch = engine.ask(
+        agent,
+        decisions.ResetBirdfeederDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] feeder shows one face; reroll it first?",
+            choices=[
+                decisions.ResetBirdfeederChoice(
+                    label="reset the birdfeeder (reroll all dice)"
+                ),
+                decisions.SkipChoice(label="take from the feeder as-is"),
+            ],
+        ),
+    )
+    if isinstance(ch, decisions.ResetBirdfeederChoice):
+        feeder.reroll(engine.state.rng)
+        engine.log(f"  {player.name} resets the birdfeeder -> {feeder.counts.format()}")
+
+
+def gain_feeder_die(
+    engine: "core.Engine", player: state.Player, food: cards.Food
+) -> None:
+    """Move one ``food`` die from the feeder into ``player``'s supply, then apply
+    Rule 1: if that emptied the feeder, immediately reroll it.
+
+    Every birdfeeder gain routes through here so the "reroll an empty feeder"
+    rule lives in one place — the feeder is therefore never observed empty at any
+    decision point. The caller must ensure ``food`` is gainable right now (see
+    ``Birdfeeder.gainable_foods``)."""
+    feeder = engine.state.birdfeeder
+    feeder.take(food)
+    player.food[food] += 1
+    if feeder.is_empty():
+        feeder.reroll(engine.state.rng)
+        engine.log(f"  birdfeeder emptied; rerolled to {feeder.counts.format()}")
 
 
 def take_one_from_feeder(
@@ -230,7 +301,12 @@ def take_one_from_feeder(
     """Pull one die from the birdfeeder into ``player``'s food. If only one food
     type is offered the choice is auto-resolved; otherwise the agent picks.
     ``avail`` must be non-empty and every entry must have a non-zero count
-    in the birdfeeder."""
+    in the birdfeeder.
+
+    The optional single-face reset is *not* offered here: callers compute
+    ``avail`` from the feeder before calling, so they must invoke
+    :func:`offer_birdfeeder_reset` first (before reading the feeder) for any
+    reroll to be reflected in ``avail``."""
     st = engine.state
     if len(avail) == 1:
         chosen_food = avail[0]
@@ -242,7 +318,8 @@ def take_one_from_feeder(
                 prompt=f"[{player.name}] pick 1 from birdfeeder for {pb.bird.name}",
                 choices=[
                     decisions.FoodChoice(
-                        label=f"{food.value}({st.birdfeeder.counts[food]})", food=food
+                        label=f"{food.value}({st.birdfeeder.gainable_count(food)})",
+                        food=food,
                     )
                     for food in avail
                 ],
@@ -250,8 +327,7 @@ def take_one_from_feeder(
         )
         assert isinstance(ch, decisions.FoodChoice)
         chosen_food = ch.food
-    st.birdfeeder.counts[chosen_food] -= 1
-    player.food[chosen_food] += 1
+    gain_feeder_die(engine, player, chosen_food)
     engine.log(f"  {pb.bird.name}: +1 {chosen_food.value} from birdfeeder")
 
 
@@ -446,41 +522,29 @@ def _log_wasted_extra_play(
 def _take_one_die_active(
     engine: "core.Engine", agent: "core.Agent", player: state.Player
 ) -> None:
-    """One iteration of the main Gain Food action loop: pull a die, rerolling
-    once on an empty feeder, then stop if still empty."""
-    avail = [
-        (food, count)
-        for food, count in engine.state.birdfeeder.counts.items()
-        if count > 0
-    ]
-    if not avail:
-        engine.state.birdfeeder.reroll(engine.state.rng)
-        engine.log(
-            f"  birdfeeder empty; rerolled to {engine.state.birdfeeder.counts.format()}"
-        )
-        avail = [
-            (food, count)
-            for food, count in engine.state.birdfeeder.counts.items()
-            if count > 0
-        ]
-        if not avail:
-            return
+    """One iteration of the main Gain Food action loop: offer the optional
+    single-face reset, then pull one die into ``player``'s food.
+
+    The feeder is kept non-empty by :func:`gain_feeder_die` (and the setup
+    reroll), so there is always at least one gainable food to offer here."""
+    offer_birdfeeder_reset(engine, agent, player)
+    feeder = engine.state.birdfeeder
     ch = engine.ask(
         agent,
         decisions.GainFoodDecision(
             player_id=player.id,
             prompt=f"[{player.name}] take 1 die from birdfeeder",
             choices=[
-                decisions.FoodChoice(label=f"{food.value}({count})", food=food)
-                for food, count in avail
+                decisions.FoodChoice(
+                    label=f"{food.value}({feeder.gainable_count(food)})", food=food
+                )
+                for food in feeder.gainable_foods()
             ],
         ),
     )
     assert isinstance(ch, decisions.FoodChoice)
-    chosen_food = ch.food
-    engine.state.birdfeeder.counts[chosen_food] -= 1
-    player.food[chosen_food] += 1
-    engine.log(f"  +1 {chosen_food.value}")
+    gain_feeder_die(engine, player, ch.food)
+    engine.log(f"  +1 {ch.food.value}")
 
 
 #### Habitat-action conversions ####

@@ -50,6 +50,7 @@ class PolicyValueNet(nn.Module):
         choice_dim: int = encode.CHOICE_FEATURE_DIM,
         hidden: int = 128,
         num_families: int = len(decisions.ALL_DECISION_FAMILIES),
+        card_embed_dim: int = 64,
     ):
         super().__init__()
         if state_dim is None:
@@ -58,15 +59,39 @@ class PolicyValueNet(nn.Module):
         self.choice_dim = choice_dim
         self.hidden = hidden
         self.num_families = num_families
+        self.card_embed_dim = card_embed_dim
 
+        # One shared learned vector per core-set bird (row 0 is the padding /
+        # empty-slot vector). nn.Embedding(idx) == one_hot @ W, so this is the
+        # per-position card encoder, weight-shared across every board slot, tray
+        # slot, the hand (mean-pooled), and each choice candidate. A single card
+        # therefore has one learned value used by both the critic-state read and
+        # the actor's candidate scoring (DECISIONS.md card power-ranking goal).
+        self.card_embed = nn.Embedding(
+            encode.HAND_MULTIHOT_DIM + 1, card_embed_dim, padding_idx=0
+        )
+
+        # The trunk reads the continuous state features plus the looked-up card
+        # embeddings: the index block becomes one embedding per slot (flattened),
+        # the hand multi-hot becomes a single mean-pooled embedding.
+        trunk_in_dim = (
+            state_dim
+            - encode.N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings
+            - encode.HAND_MULTIHOT_DIM  # hand multi-hot -> one pooled embedding
+            + encode.N_CARD_INDEX_SLOTS * card_embed_dim
+            + card_embed_dim
+        )
         self.state_trunk = nn.Sequential(
-            nn.Linear(state_dim, hidden),
+            nn.Linear(trunk_in_dim, hidden),
             nn.ReLU(),
             nn.Linear(hidden, hidden),
             nn.ReLU(),
         )
+        # The per-choice encoder reads the candidate's non-identity features plus
+        # its card identity embedded through the same shared table.
+        choice_in_dim = choice_dim - encode.CHOICE_BIRD_ID_DIM + card_embed_dim
         self.choice_encoder = nn.Sequential(
-            nn.Linear(choice_dim, hidden),
+            nn.Linear(choice_in_dim, hidden),
             nn.ReLU(),
             nn.Linear(hidden, hidden),
         )
@@ -104,13 +129,16 @@ class PolicyValueNet(nn.Module):
             logits: ``(B, K)`` — masked rows are set to ``-inf``
             value:  ``(B,)``
         """
-        # State trunk produces both the per-decision context and the value.
-        state_ctx = self.state_trunk(state)  # (B, H)
+        # State trunk produces both the per-decision context and the value. The
+        # flat state's card-identity columns are embedded through the shared
+        # table before the trunk sees them.
+        state_ctx = self.state_trunk(self._embed_state(state))  # (B, H)
         value = self.value_head(state_ctx).squeeze(-1)  # (B,)
 
-        # Per-choice MLP. choices is (B, K, F); the Linear layers broadcast
-        # across the K dimension naturally.
-        ce = self.choice_encoder(choices)  # (B, K, H)
+        # Per-choice MLP. choices is (B, K, F); the Linear layers broadcast across
+        # the K dimension naturally. Each candidate's card identity is embedded
+        # through the same shared table first.
+        ce = self.choice_encoder(self._embed_choices(choices))  # (B, K, H)
         num_choices = ce.shape[1]
         s_exp = state_ctx.unsqueeze(1).expand(-1, num_choices, -1)  # (B, K, H)
         combined = torch.cat([s_exp, ce], dim=-1)  # (B, K, 2H)
@@ -143,3 +171,43 @@ class PolicyValueNet(nn.Module):
         any_legal = mask.sum(dim=-1, keepdim=True) > 0
         logits = torch.where(any_legal, logits, torch.zeros_like(logits))
         return logits, value
+
+    def _embed_state(self, state: torch.Tensor) -> torch.Tensor:
+        """Turn the flat state ``(B, state_dim)`` into the trunk's input by
+        replacing the card-identity columns with shared embeddings: the index
+        block becomes one embedding per slot (flattened) and the hand multi-hot
+        becomes a single mean-pooled embedding, both concatenated with the
+        continuous features (everything outside the index/hand blocks, including
+        the trailing decision-type stripe)."""
+        off_index = encode.OFF_CARD_INDEX
+        off_hand = encode.OFF_HAND_MULTIHOT
+        off_decision = encode.OFF_DECISION_TYPE
+        continuous = torch.cat([state[:, :off_index], state[:, off_decision:]], dim=-1)
+
+        # Card-index block -> per-slot embedding lookups, flattened. The encoder
+        # always writes indices in range; the clamp only guards synthetic inputs.
+        card_idx = (
+            state[:, off_index:off_hand].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
+        )
+        slot_emb = self.card_embed(card_idx).reshape(card_idx.shape[0], -1)
+
+        # Hand multi-hot -> mean of held cards' embeddings via the same weight.
+        hand_multihot = state[:, off_hand:off_decision]
+        hand_sum = hand_multihot @ self.card_embed.weight[1:]
+        hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
+        hand_emb = hand_sum / hand_count
+
+        return torch.cat([continuous, slot_emb, hand_emb], dim=-1)
+
+    def _embed_choices(self, choices: torch.Tensor) -> torch.Tensor:
+        """Turn the per-choice features ``(B, K, choice_dim)`` into the choice
+        encoder's input by embedding each candidate's card-identity stripe through
+        the shared table (a single-card one-hot maps to that card's embedding; the
+        setup pick's kept-set multi-hot sums their embeddings) and concatenating
+        the candidate's remaining, non-identity features."""
+        off_bird = encode.CHOICE_BIRD_ID_OFFSET
+        end_bird = off_bird + encode.CHOICE_BIRD_ID_DIM
+        bird_multihot = choices[..., off_bird:end_bird]
+        rest = torch.cat([choices[..., :off_bird], choices[..., end_bird:]], dim=-1)
+        cand_emb = bird_multihot @ self.card_embed.weight[1:]
+        return torch.cat([rest, cand_emb], dim=-1)

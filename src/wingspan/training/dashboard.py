@@ -3,7 +3,7 @@
 ``build_layout`` creates the five-band "FLYWAY CONTROL" skeleton once;
 ``render`` repaints it from a :class:`runstate.RunState` snapshot each frame.
 The bands, top to bottom, read as a guided narrative: WHERE AM I (header) ->
-IN-GAME PERFORMANCE / DECISION MODELS (middle) -> IS IT GETTING BETTER (the
+IN-GAME PERFORMANCE / DECISION MODELS (middle) -> TRAINING IMPROVEMENT (the
 gold-bordered hero band: the win-rate and self-play-points charts side by side
 plus the docked eval inset) -> DIAGNOSTICS (health + events).
 
@@ -22,6 +22,9 @@ from wingspan.training import charts, metrics, runstate, theme
 
 _WORDMARK = "🪶 WINGSPAN  FLYWAY CONTROL"
 _SPARK_CELLS = 8
+# RECENT EVENTS lines that fill the footer band: its ``size=8`` minus the
+# panel's top and bottom border rows leaves six content rows.
+_EVENT_LINES = 6
 
 # IN-GAME PERFORMANCE score table geometry.
 _PT_NAME_W = 8  # the per-source name column ("tucked" / "rounds" / "TOTAL")
@@ -87,10 +90,20 @@ def _header(state: runstate.RunState) -> panel.Panel:
 
 
 def _wordmark_row(state: runstate.RunState) -> table.Table:
+    label = state.phase.value.upper()
     grid = table.Table.grid(expand=True)
-    grid.add_column(justify="left")
-    grid.add_column(justify="right")
-    grid.add_row(_gradient_text(_WORDMARK), _phase_pill(state))
+    grid.add_column(justify="left", ratio=1)  # absorbs expansion; badge stays fixed
+    # A fixed-width, centered badge column carrying the phase color as its cell
+    # background. The column style fills the whole cell — including the pad cell
+    # on each side of the centered word — so the badge gets symmetric padding;
+    # a trailing styled *space* would instead be stripped as line-final
+    # whitespace, leaving the right side flush.
+    grid.add_column(
+        justify="center",
+        width=len(label) + 2,
+        style=f"bold {theme.CANVAS} on {theme.PHASE_COLOR[state.phase]}",
+    )
+    grid.add_row(_gradient_text(_WORDMARK), text.Text(label, no_wrap=True, end=""))
     return grid
 
 
@@ -102,19 +115,11 @@ def _gradient_text(content: str) -> text.Text:
     return out
 
 
-def _phase_pill(state: runstate.RunState) -> text.Text:
-    """The upper-right phase badge — just the phase word on its accent color."""
-    color = theme.PHASE_COLOR[state.phase]
-    pill = text.Text(no_wrap=True, end="")
-    pill.append(
-        f" {state.phase.value.upper()} ", style=f"bold {theme.CANVAS} on {color}"
-    )
-    return pill
-
-
 def _header_stats_row(state: runstate.RunState) -> text.Text:
     """The single text status line: iteration, this iteration's progress count,
-    cumulative games, total runtime, and this iteration's elapsed seconds."""
+    cumulative games, the two wall-time chronometers (total time since iter 0
+    across restarts, and this process's own session), and this iteration's
+    elapsed seconds."""
     label, done, total = _header_progress(state)
     out = text.Text(no_wrap=True)  # default end newline: own its row in the Group
     out.append(f"iter {state.iteration:04d}", style=theme.TEXT_PRIMARY)
@@ -123,11 +128,11 @@ def _header_stats_row(state: runstate.RunState) -> text.Text:
     out.append("    Σ ", style=theme.TEXT_MUTED)
     out.append(f"{state.total_games:,}", style=theme.TEXT_PRIMARY)
     out.append(" games", style=theme.TEXT_MUTED)
-    out.append("    RUNTIME: ", style=theme.TEXT_MUTED)
+    out.append("    SINCE ITER 0 ", style=theme.TEXT_MUTED)
     out.append(_runtime_clock(state.elapsed()), style=theme.TEXT_DIM2)
-    out.append(
-        f"   ({state.iter_elapsed():.1f}s current iteration)", style=theme.TEXT_MUTED
-    )
+    out.append("    THIS RUN ", style=theme.TEXT_MUTED)
+    out.append(_runtime_clock(state.session_elapsed()), style=theme.TEXT_DIM2)
+    out.append(f"    ({state.iter_elapsed():.1f}s this iter)", style=theme.TEXT_MUTED)
     return out
 
 
@@ -305,9 +310,9 @@ def _produce(state: runstate.RunState) -> panel.Panel:
         body = text.Text("awaiting first game…", style=theme.TEXT_MUTED)
     else:
         body = rich_console.Group(
-            _StackedBar(stats.breakdown),
-            text.Text(""),
             _produce_table(stats),
+            text.Text(""),
+            _StackedBar(stats.breakdown),
             text.Text(""),
             _produce_stats_block(state, stats),
         )
@@ -460,6 +465,7 @@ def _ci95(std: float, n: int) -> float:
 def _learning(state: runstate.RunState) -> panel.Panel:
     body = rich_console.Group(
         charts.FamilyHistogram(state.cum_family),
+        text.Text(""),
         _total_decisions_line(state),
     )
     return panel.Panel(
@@ -489,10 +495,8 @@ def _getting_better_panel(state: runstate.RunState, frame: int) -> panel.Panel:
     (win rate · avg points) plus the docked EVAL inset."""
     return panel.Panel(
         charts.GettingBetterChart(state, frame),
-        title="[b]IS IT GETTING BETTER?[/b]",
-        subtitle="win rate (left) · avg self-play points & eval margin (right)",
+        title="[b]TRAINING IMPROVEMENT[/b]",
         title_align="left",
-        subtitle_align="left",
         box=box.HEAVY,
         border_style=theme.BORDER_HEADLINE,
         padding=(0, 1),
@@ -569,25 +573,25 @@ def _health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
 
 def _perf_health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
     """The two throughput readouts, split apart so raw collection speed is not
-    conflated with end-to-end progress — both measured over the *same* recent
-    window (the last completed iteration) so ``overall`` is exactly ``raw``
-    minus the update/eval/checkpoint overhead:
+    conflated with end-to-end progress, and each held *steady between updates*
+    rather than recomputed every game (which made both jitter while a cycle was
+    still in flight):
 
-    * ``raw`` — 1 / (avg wall time per game) during collection, i.e. how fast
-      self-play games are produced (live ``games_per_sec``); excludes the
-      update and eval phases.
-    * ``overall`` — the last iteration's games over its *total* wall time
-      (collect + update + eval), the true end-to-end rate. Always ``<= raw``
-      because the denominator only adds time. (Deliberately not the lifetime
-      ``total_games / elapsed()``: that is a cumulative average distorted by
-      resume accounting and by game length drifting over training, and it can
-      read *above* the current collection rate — the opposite of intent.)
+    * ``raw`` — the last completed iteration's collection rate
+      (games / collect-seconds). It is that iteration's settled figure, so it
+      stays fixed while the next iteration's games are still streaming in
+      instead of fluctuating with every game that lands.
+    * ``overall`` — the true end-to-end rate (games over collect + update + eval
+      wall time) across the whole most-recent evaluation cycle: every iteration
+      since the previous eval up to and including the one that ran the latest
+      eval. Amortizing the eval cost over all the iterations it covers means the
+      value no longer dips on the single eval iteration — it advances once per
+      eval cycle. Always ``<= raw`` (the denominator only adds overhead).
     """
-    raw = state.games_per_sec
     last = state.last_iter
-    overall = _iter_overall_rate(last) if last is not None else 0.0
+    raw = last.games_per_sec if last is not None else 0.0
     raw_series = [im.games_per_sec for im in state.history]
-    overall_series = [_iter_overall_rate(im) for im in state.history]
+    overall, overall_series = _overall_rates(state.history)
     raw_verdict_text, raw_verdict_color = _verdict("higher", raw_series, 0.0)
     return [
         (
@@ -609,12 +613,38 @@ def _perf_health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
     ]
 
 
-def _iter_overall_rate(im: metrics.IterationMetrics) -> float:
-    """End-to-end games/sec for one iteration: its collected games over its
-    whole wall time (collection + update + eval). On an eval-less iteration
-    ``eval_seconds`` is 0, so this approaches the raw collection rate."""
-    seconds = im.collect_seconds + im.update_seconds + im.eval_seconds
-    return im.games_this_iter / seconds if seconds > 0.0 else 0.0
+def _overall_rates(
+    history: list[metrics.IterationMetrics],
+) -> tuple[float, list[float]]:
+    """The end-to-end games/sec of each completed evaluation cycle plus the most
+    recent one. An eval cycle runs from just after the previous eval through the
+    iteration that ran the next eval; its rate is the cycle's games over its
+    total collect + update + eval wall time. The series gains a point only when
+    an eval completes, so the live ``overall`` readout holds steady between
+    evals. Before the first eval it falls back to the latest iteration's own
+    end-to-end rate so the readout is still populated."""
+    series: list[float] = []
+    cycle_start = 0
+    for index, item in enumerate(history):
+        if item.eval is None:
+            continue
+        series.append(_cycle_rate(history[cycle_start : index + 1]))
+        cycle_start = index + 1
+    if series:
+        return series[-1], series
+    if history:
+        return _cycle_rate(history[-1:]), []
+    return 0.0, []
+
+
+def _cycle_rate(items: list[metrics.IterationMetrics]) -> float:
+    """End-to-end games/sec over a span of iterations: their collected games over
+    their total collect + update + eval wall time."""
+    games = sum(item.games_this_iter for item in items)
+    seconds = sum(
+        item.collect_seconds + item.update_seconds + item.eval_seconds for item in items
+    )
+    return games / seconds if seconds > 0.0 else 0.0
 
 
 def _verdict(mode: str, series: list[float], grad_clip: float) -> tuple[str, str]:
@@ -642,10 +672,10 @@ def _verdict(mode: str, series: list[float], grad_clip: float) -> tuple[str, str
 
 
 def _events(state: runstate.RunState) -> panel.Panel:
-    # Oldest of the recent five first so the newest lands at the bottom and the
-    # log scrolls upward as fresh events arrive.
+    # Oldest of the recent events first so the newest lands at the bottom and the
+    # log scrolls upward as fresh events arrive; show as many as fill the band.
     lines: list[text.Text] = []
-    for event in state.events[-5:]:
+    for event in state.events[-_EVENT_LINES:]:
         glyph = theme.EVENT_GLYPH[event.kind]
         color = theme.EVENT_COLOR[event.kind]
         line = text.Text(no_wrap=True)  # default end newline: one event per line

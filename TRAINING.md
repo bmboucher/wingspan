@@ -14,6 +14,28 @@ Everything quantitative below was **measured on this codebase** (current `main`,
 RTX 4080, 12-core CPU, the `model.PolicyValueNet` defaults) rather than guessed.
 The measured profile is in §1 and is the foundation for every later decision.
 
+> **Status — as-built (read me first).** This document was written as a forward
+> *plan*; much of it now ships. The live trainer is `python -m wingspan.training`
+> (the `wingspan.training` package), which already implements: length-bucketed
+> batches (§4.2a), Python/NumPy/torch seeding (§5), a paired-game evaluation
+> harness with a 95% CI and a frozen-opponent ladder (§7), resumable full
+> checkpoints — model + optimizer + counters + config + git SHA (§5.1), and
+> parallel **CPU** self-play workers with per-iteration weight broadcast (§4.1).
+> **Training is CPU-only now** — the CUDA framing below ("collect on CPU, update
+> on GPU", §1.4/§4) is historical; the update also runs on CPU.
+>
+> Still open: PPO + reuse epochs and GAE (§3.4), a frozen `iter_N.pt` league
+> (§5.2), the shared card embedding (§6.3), and per-card visit-count logging (§8).
+>
+> Two caveats on the numbers/claims below: the §1.1 measured sizes predate the
+> encoder expansion (the state vector is now **2204**, not 282 — re-measure
+> before quoting), and checkpoints do **not** store RNG state, so a resumed
+> session is *not* bit-for-bit identical — but every collected game is
+> seed-reproducible from `config.seed`, so the per-game logs are stable. Engine
+> fidelity as of this pass: all core bird powers fire (including the four pink
+> "when another player …" reactors) and all 16 round goals score, pinned by
+> `tests/test_power_coverage.py` and `tests/test_round_goal_coverage.py`.
+
 ---
 
 ## 0. TL;DR — the program in one page
@@ -758,8 +780,10 @@ met — that discipline is what keeps the analysis trustworthy.
 Fix the `MAX_CHOICES_HARD` crash (§4.3); length-bucket the batch (§4.2a); seed
 torch and write a full resumable checkpoint (§5); add the evaluation harness vs.
 the random agent (§7). *Exit:* a 200-game run completes without crashing or
-OOM-ing, checkpoints resume bit-for-bit, and you can print an honest win-rate-
-vs-random with a confidence interval.
+OOM-ing, checkpoints resume cleanly (weights + optimizer + counters; collected
+games stay seed-reproducible, though resume is not bit-for-bit — RNG state is not
+stored), and you can print an honest win-rate-vs-random with a confidence
+interval.
 
 **Phase 1 — An honest single-machine baseline (a day).**
 Synchronous loop, REINFORCE + value baseline + advantage normalization, drop

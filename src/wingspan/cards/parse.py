@@ -120,13 +120,26 @@ def _extract_effects(text: str) -> list[schema.Effect]:
 
     Order matters: more specific patterns must run before less specific
     overlapping patterns (e.g. the "or"-disjunction birdfeeder pattern runs
-    before the generic ``Gain N [food] from the birdfeeder``)."""
+    before the generic ``Gain N [food] from the birdfeeder``).
+
+    Reactive ("when another player ...") powers are matched only against the
+    pink-reactor patterns: their consequent clause ("gain 1 [fish] from the
+    supply", "tuck 1 [card] ...", "cache 1 [rodent] ...") would otherwise also
+    match a generic when-played matcher and be mis-modelled as the bird's own
+    effect, which never fires for a pink bird."""
+    matchers = _PINK_MATCHERS if _is_reactive(text) else _PATTERN_MATCHERS
     effects: list[schema.Effect] = []
-    for matcher in _PATTERN_MATCHERS:
+    for matcher in matchers:
         eff = matcher(text)
         if eff is not None:
             effects.append(eff)
     return effects
+
+
+def _is_reactive(text: str) -> bool:
+    """Whether ``text`` is a pink between-turn power that triggers off another
+    player's action (every such core power begins "When another player ...")."""
+    return text.strip().lower().startswith("when another player")
 
 
 #### Pattern matchers ####
@@ -616,6 +629,62 @@ def _m_pink_predator_feeder(text: str) -> schema.Effect | None:
     return None
 
 
+def _m_pink_play_bird_gain(text: str) -> schema.Effect | None:
+    # Belted Kingfisher / Eastern Kingbird: "When another player plays a bird in
+    # their [habitat], gain N [food] from the supply."
+    match = re.search(
+        r"plays a bird in (?:their )?(\[\w+\]).*?gain\s+(\d+|a|an|one|two|three)\s+"
+        r"(\[\w+\])\s+from the supply",
+        text,
+        re.I,
+    )
+    if match and match.group(1) in HABITAT_TAGS and match.group(3) in FOOD_TAGS:
+        return schema.Effect(
+            kind=schema.EffectKind.PINK_PLAY_BIRD_GAIN,
+            habitat=HABITAT_TAGS[match.group(1)],
+            food=FOOD_TAGS[match.group(3)],
+            amount=_to_int(match.group(2)) or 1,
+            raw_text=match.group(0),
+        )
+    return None
+
+
+def _m_pink_play_bird_tuck(text: str) -> schema.Effect | None:
+    # Horned Lark: "When another player plays a bird in their [habitat], tuck N
+    # [card] from your hand behind this bird."
+    match = re.search(
+        r"plays a bird in (?:their )?(\[\w+\]).*?tuck\s+(\d+|a|an|one|two|three)\s+\[card\]",
+        text,
+        re.I,
+    )
+    if match and match.group(1) in HABITAT_TAGS:
+        return schema.Effect(
+            kind=schema.EffectKind.PINK_PLAY_BIRD_TUCK,
+            habitat=HABITAT_TAGS[match.group(1)],
+            amount=_to_int(match.group(2)) or 1,
+            raw_text=match.group(0),
+        )
+    return None
+
+
+def _m_pink_gain_food_cache(text: str) -> schema.Effect | None:
+    # Loggerhead Shrike: "When another player takes the [gain food] action, if
+    # they gain any number of [food], cache N [food] from the supply on this bird."
+    match = re.search(
+        r"gain food.*?cache\s+(\d+|a|an|one|two|three)\s+(\[\w+\])",
+        text,
+        re.I,
+    )
+    if match and match.group(2) in FOOD_TAGS:
+        return schema.Effect(
+            kind=schema.EffectKind.PINK_GAIN_FOOD_CACHE,
+            food=FOOD_TAGS[match.group(2)],
+            amount=_to_int(match.group(1)) or 1,
+            raw_text=match.group(0),
+        )
+    return None
+
+
 _PATTERN_MATCHERS = (
     _m_gain_food_supply,
     _m_gain_food_from_feeder_choice,
@@ -648,6 +717,17 @@ _PATTERN_MATCHERS = (
     _m_repeat_predator,
     _m_pink_lay_egg_on_nest,
     _m_pink_predator_feeder,
+)
+
+# Reactive ("when another player ...") powers are matched against only these
+# pink patterns (see ``_extract_effects``), so a consequent like "gain 1 [fish]
+# from the supply" is not also captured by the generic when-played matchers.
+_PINK_MATCHERS = (
+    _m_pink_lay_egg_on_nest,
+    _m_pink_predator_feeder,
+    _m_pink_play_bird_gain,
+    _m_pink_play_bird_tuck,
+    _m_pink_gain_food_cache,
 )
 
 
@@ -876,6 +956,8 @@ _GOAL_CATEGORIES: dict[str, str] = {
     "[cavity] [bird] with [egg]": "cavity_birds_with_eggs",
     "[ground] [bird] with [egg]": "ground_birds_with_eggs",
     "[platform] [bird] with [egg]": "platform_birds_with_eggs",
+    "total [bird]": "total_birds",
+    "sets of [egg][egg][egg] in [wetland][grassland][forest]": "egg_sets_3habitats",
 }
 
 

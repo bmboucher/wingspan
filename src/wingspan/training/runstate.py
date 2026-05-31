@@ -145,7 +145,6 @@ class RunState(pydantic.BaseModel):
     eval_games_in_iter: int = 0
     total_games: int = 0
     total_decisions: int = 0
-    games_per_sec: float = 0.0
 
     # Cumulative running aggregates (since the run started).
     cum_breakdown: metrics.ScoreBreakdown = pydantic.Field(
@@ -245,7 +244,13 @@ class RunState(pydantic.BaseModel):
         )
 
     def elapsed(self) -> float:
+        """Total wall time since iteration 0, carrying the offset restored from a
+        checkpoint so it accumulates across restarts."""
         return self.elapsed_offset + max(0.0, self.now() - self.start_monotonic)
+
+    def session_elapsed(self) -> float:
+        """Wall time of just this process's session (no resumed offset)."""
+        return max(0.0, self.now() - self.start_monotonic)
 
     def iter_elapsed(self) -> float:
         return max(0.0, self.now() - self.iter_start_monotonic)

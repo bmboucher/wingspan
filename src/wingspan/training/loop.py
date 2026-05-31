@@ -13,6 +13,7 @@ loop never touches the terminal — all presentation lives in the dashboard.
 
 from __future__ import annotations
 
+import datetime
 import os
 import pathlib
 import random
@@ -37,6 +38,7 @@ from wingspan.training import (
     learner,
     metrics,
     mp_collect,
+    runmeta,
     runstate,
     sysmon,
 )
@@ -66,7 +68,9 @@ class TrainingLoop:
         if self.device.type == "cpu":
             torch.set_num_threads(_CPU_INTRAOP_THREADS)
         _seed_everything(cfg.seed)
-        self.net = model.PolicyValueNet(hidden=cfg.hidden).to(self.device)
+        self.net = model.PolicyValueNet(
+            hidden=cfg.hidden, card_embed_dim=cfg.card_embed_dim
+        ).to(self.device)
         self.optimizer: optim.Optimizer = optim.Adam(self.net.parameters(), lr=cfg.lr)
         self.lock = threading.RLock()
         self.state = runstate.new_run_state(cfg)
@@ -86,7 +90,8 @@ class TrainingLoop:
         # checkpoint). Set last so resume can mutate net / optimizer / state.
         self._start_iteration = 0
         self._maybe_resume()
-        self._reset_metrics_log_if_fresh()
+        self._reset_history_logs_if_fresh()
+        self._write_run_metadata()
 
     # ------------------------------------------------------------------
     # Public API
@@ -188,16 +193,40 @@ class TrainingLoop:
             f"{progress.total_games:,} games · opponent {self._opponent_label()}",
         )
 
-    def _reset_metrics_log_if_fresh(self) -> None:
-        """Truncate a stale ``metrics.jsonl`` when this run did not resume, so a
-        fresh run (``--no-resume``, or one started over an overwritten directory)
-        never appends its rows onto a previous run's history. A resumed run
-        (``_start_iteration > 0``) keeps and continues its log."""
+    def _reset_history_logs_if_fresh(self) -> None:
+        """Clear a previous run's history when this run did not resume, so a fresh
+        run (``--no-resume``, or one started over an overwritten directory) never
+        appends its rows onto stale history. Truncates both append-only logs
+        (``metrics.jsonl`` / ``games.jsonl``) and removes the prior run's dated
+        ``process_*.json`` session records, leaving the directory reflecting only
+        the run starting here. A resumed run (``_start_iteration > 0``) keeps and
+        continues its logs (and just adds this session's record)."""
         if self._start_iteration > 0:
             return
-        log_path = self._ckpt_dir / artifacts.METRICS_LOG
-        if log_path.exists():
-            log_path.write_text("", encoding="utf-8")
+        for name in (artifacts.METRICS_LOG, artifacts.GAMES_LOG):
+            log_path = self._ckpt_dir / name
+            if log_path.exists():
+                log_path.write_text("", encoding="utf-8")
+        for stale_session in self._ckpt_dir.glob(artifacts.PROCESS_GLOB):
+            stale_session.unlink(missing_ok=True)
+
+    def _write_run_metadata(self) -> None:
+        """Drop this startup's JSON sidecars: the (overwritten) model descriptor
+        and a fresh dated process record. Called once per session after the
+        resume decision, so the process record can note where it resumed from."""
+        now = datetime.datetime.now()
+        runmeta.write_model_config(self.config.checkpoint_dir, self.config)
+        session_path = runmeta.write_session_record(
+            self.config.checkpoint_dir,
+            self.config,
+            stamp=now.strftime("%Y%m%d-%H%M%S"),
+            started_at=now.isoformat(timespec="seconds"),
+            git_sha=_git_sha(),
+            resumed_from_iteration=self._start_iteration,
+        )
+        self.state.push_event(
+            runstate.EventKind.INFO, f"session log → {session_path.name}"
+        )
 
     def _architecture_matches(self, payload: dict[str, typing.Any]) -> bool:
         """Whether ``payload``'s saved network shape matches this run's, so its
@@ -288,7 +317,7 @@ class TrainingLoop:
             update_seconds,
             eval_seconds,
         )
-        self._commit_iteration(iter_metrics, stats, eval_result)
+        self._commit_iteration(iter_metrics, stats, eval_result, records)
 
     def _collect(self, iteration: int) -> list[collect.GameRecord]:
         """Play ``games_per_iter`` self-play games with batched inference,
@@ -316,15 +345,20 @@ class TrainingLoop:
     def _collect_multiprocess(self, seeds: list[int]) -> list[collect.GameRecord]:
         """Collect across worker processes; the pool is built on first use and
         reused across iterations (closed in ``run``'s teardown)."""
-        if self._collector is None:
-            self._collector = mp_collect.ProcessCollector(self.config)
-        return self._collector.collect_games(
+        return self._ensure_collector().collect_games(
             self.net,
             self.device,
             seeds,
             on_game_done=self._record_collected_game,
             should_stop=self._stop.is_set,
         )
+
+    def _ensure_collector(self) -> mp_collect.ProcessCollector:
+        """The shared worker pool, built on first use and reused for both
+        collection and evaluation across iterations."""
+        if self._collector is None:
+            self._collector = mp_collect.ProcessCollector(self.config)
+        return self._collector
 
     def _record_collected_game(self, record: collect.GameRecord) -> None:
         """Fold one finished self-play game into the live dashboard state."""
@@ -336,9 +370,6 @@ class TrainingLoop:
                 record.winner,
             )
             self.state.game_in_iter += 1
-            self.state.games_per_sec = self.state.game_in_iter / max(
-                self.state.iter_elapsed(), 1e-6
-            )
 
     def _maybe_evaluate(
         self, iteration: int
@@ -351,15 +382,29 @@ class TrainingLoop:
             self.state.eval_games_in_iter = 2 * self.config.eval_pairs
         start = time.monotonic()
         eval_seed = self.config.seed * 7919 + iteration * 101 + 1
-        result = evaluate.evaluate_vs_opponent(
-            self.net,
-            self._opponent_net,
-            self.device,
-            self.config.eval_pairs,
-            eval_seed,
-            opponent_generation=self.state.opponent_generation,
-            on_progress=self._record_eval_progress,
-        )
+        # CPU eval fans across the same worker pool collection uses; CUDA keeps
+        # the in-process sequential path (one shared GPU beats a model per
+        # process). Both paths run identical per-game logic, so results match.
+        if self.device.type == "cpu":
+            result = self._ensure_collector().evaluate_games(
+                self.net,
+                self._opponent_net,
+                self.device,
+                self.config.eval_pairs,
+                eval_seed,
+                opponent_generation=self.state.opponent_generation,
+                on_progress=self._record_eval_progress,
+            )
+        else:
+            result = evaluate.evaluate_vs_opponent(
+                self.net,
+                self._opponent_net,
+                self.device,
+                self.config.eval_pairs,
+                eval_seed,
+                opponent_generation=self.state.opponent_generation,
+                on_progress=self._record_eval_progress,
+            )
         return result, time.monotonic() - start
 
     def _record_eval_progress(self, games_done: int, total_games: int) -> None:
@@ -415,6 +460,7 @@ class TrainingLoop:
             state_dim=self.config.state_dim,
             choice_dim=self.config.choice_dim,
             hidden=self.config.hidden,
+            card_embed_dim=self.config.card_embed_dim,
         ).to(self.device)
         clone.load_state_dict(self.net.state_dict())
         clone.eval()
@@ -458,6 +504,7 @@ class TrainingLoop:
         iter_metrics: metrics.IterationMetrics,
         stats: learner.UpdateStats,
         eval_result: metrics.EvalResult | None,
+        records: list[collect.GameRecord],
     ) -> None:
         with self.lock:
             self.state.last_iter = iter_metrics
@@ -486,12 +533,13 @@ class TrainingLoop:
 
         with self.lock:
             self.state.phase = runstate.Phase.CHECKPOINTING
-        self._checkpoint(iter_metrics, eval_result)
+        self._checkpoint(iter_metrics, eval_result, records)
 
     def _checkpoint(
         self,
         iter_metrics: metrics.IterationMetrics,
         eval_result: metrics.EvalResult | None,
+        records: list[collect.GameRecord],
     ) -> None:
         self._ckpt_dir.mkdir(parents=True, exist_ok=True)
         with self.lock:
@@ -544,6 +592,23 @@ class TrainingLoop:
         ) as handle:
             handle.write(iter_metrics.model_dump_json() + "\n")
 
+        # Per-game history is appended after ``last.pt`` (written above) so a
+        # crash between the two only ever loses this iteration's rows rather than
+        # duplicating them on the resume that re-plays the un-checkpointed cycle.
+        self._append_game_history(_build_game_outcomes(records, iter_metrics.iteration))
+
+    def _append_game_history(self, outcomes: list[metrics.GameOutcome]) -> None:
+        """Append one ``games.jsonl`` line per finished game (a single buffered
+        write per iteration — ~256 lines every few seconds — so the per-game log
+        never becomes a throughput drag)."""
+        if not outcomes:
+            return
+        rows = "".join(outcome.model_dump_json() + "\n" for outcome in outcomes)
+        with open(
+            self._ckpt_dir / artifacts.GAMES_LOG, "a", encoding="utf-8"
+        ) as handle:
+            handle.write(rows)
+
     def _finish(self, phase: runstate.Phase) -> None:
         with self.lock:
             self.state.phase = phase
@@ -567,6 +632,24 @@ def _family_counts(record: collect.GameRecord) -> metrics.FamilyCounts:
     for step in record.steps:
         counts.bump(step.family_idx)
     return counts
+
+
+def _build_game_outcomes(
+    records: list[collect.GameRecord], iteration: int
+) -> list[metrics.GameOutcome]:
+    """One persisted :class:`metrics.GameOutcome` per finished game, tagged with
+    the ``iteration`` that produced it — the rows appended to ``games.jsonl``."""
+    return [
+        metrics.GameOutcome(
+            iteration=iteration,
+            seed=record.seed,
+            winner=record.winner,
+            decisions=len(record.steps),
+            breakdowns=record.breakdowns,
+            family_counts=_family_counts(record),
+        )
+        for record in records
+    ]
 
 
 def _pop_std(sum_sq: float, mean: float, n: int) -> float:

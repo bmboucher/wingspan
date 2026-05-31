@@ -107,6 +107,11 @@ class EffectKind(enum.StrEnum):
     REPEAT_PREDATOR_POWER = "repeat_predator_power"
     PINK_LAY_EGG_ON_NEST = "pink_lay_egg_on_nest"
     PINK_PREDATOR_FEEDER = "pink_predator_feeder"
+    # Reactive ("when another player ...") triggers keyed on the active player's
+    # action. Fired from engine.reactors, not from apply_effect (no-ops there).
+    PINK_PLAY_BIRD_GAIN = "pink_play_bird_gain"  # they play in [habitat] -> gain food
+    PINK_PLAY_BIRD_TUCK = "pink_play_bird_tuck"  # they play in [habitat] -> tuck a card
+    PINK_GAIN_FOOD_CACHE = "pink_gain_food_cache"  # they gain [food] -> cache that food
     UNIMPLEMENTED = "unimplemented"
 
 

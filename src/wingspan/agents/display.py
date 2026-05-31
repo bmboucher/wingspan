@@ -177,7 +177,7 @@ def format_played_bird_full(
     head = _bird_head(pb.bird, name_width, eggs_laid=pb.eggs)
     extras = [
         f"{label} {n}"
-        for label, n in (("tucked", pb.tucked_cards), ("food", pb.cached_food))
+        for label, n in (("tucked", pb.tucked_cards), ("food", pb.cached_food.total()))
         if n
     ]
     if extras:
@@ -249,8 +249,8 @@ def _style_power_text(color: cards.PowerColor, text: str) -> str:
 def format_played_bird(pb: state.PlayedBird) -> str:
     """Compact rendering of a bird in play (name + per-bird mutable state)."""
     parts = [f"eggs={pb.eggs}/{pb.bird.egg_limit}"]
-    if pb.cached_food:
-        parts.append(f"cached={pb.cached_food}")
+    if pb.cached_food.total():
+        parts.append(f"cached={pb.cached_food.format()}")
     if pb.tucked_cards:
         parts.append(f"tucked={pb.tucked_cards}")
     return f"{pb.bird.name} ({', '.join(parts)})"
@@ -322,6 +322,10 @@ def format_board(game_state: state.GameState, player: state.Player) -> str:
         lines.append(f"  round goal: {_icons(goal.description)}")
     lines.append("  birdfeeder:")
     lines.extend(_food_rows(game_state.birdfeeder.counts))
+    if game_state.birdfeeder.choice_dice:
+        lines.append(
+            f"    invertebrate/seed (choice): {game_state.birdfeeder.choice_dice}"
+        )
     lines.append("")
     lines.extend(_habitat_rows(player))
     lines.append("")

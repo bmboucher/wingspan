@@ -11,7 +11,6 @@ gradient and the cinematic eval hero-number recolor as a value changes.
 
 from __future__ import annotations
 
-from wingspan import decisions
 from wingspan.training import runstate
 
 # ---------------------------------------------------------------------------
@@ -58,29 +57,6 @@ SCORE_COLOR: dict[str, str] = {
     "rounds": "#C9A24B",  # grassland gold (round-goal pts)
     "bonus": "#B08CD9",  # bonus violet
 }
-
-# ---------------------------------------------------------------------------
-# Decision-family display labels — the human-facing name each judgment family
-# shows in the DECISION MODELS panel. The enum ``.value`` strings are the stable
-# identifiers baked into every checkpoint's architecture descriptor, so they are
-# left untouched; only the presentation label is remapped here. Families absent
-# from this map fall back to their enum ``.value``.
-
-FAMILY_LABEL: dict[decisions.DecisionFamily, str] = {
-    decisions.DecisionFamily.MACRO_ACTION: "main_action",
-    decisions.DecisionFamily.BIRD_ACQUISITION: "draw_bird",
-    decisions.DecisionFamily.BIRD_DISCARD: "discard_bird",
-    decisions.DecisionFamily.EGG_PLACEMENT: "lay_egg",
-    decisions.DecisionFamily.EGG_REMOVAL: "pay_egg",
-    decisions.DecisionFamily.BONUS_VALUATION: "choose_bonus",
-    decisions.DecisionFamily.HABITAT_PLACEMENT: "move_habitat",
-}
-
-
-def family_label(family: decisions.DecisionFamily) -> str:
-    """The DECISION MODELS display name for a judgment family."""
-    return FAMILY_LABEL.get(family, family.value)
-
 
 # ---------------------------------------------------------------------------
 # Family histogram — frequency tiers (also a gentle data-health signal)

@@ -97,10 +97,14 @@ def test_food_choice_takes_only_available_food():
     )
     player = eng.state.players[0]
     eng.state.current_player = 0
-    # Birdfeeder: only fruit available.
+    # Birdfeeder: only fruit is one of the power's two foods. A second, different
+    # face (rodent) keeps the feeder multi-face so the single-face reset offer
+    # does not fire — this test is about auto-taking the only matching food.
     for food in cards.Food:
         eng.state.birdfeeder.counts[food] = 0
+    eng.state.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
     eng.state.birdfeeder.counts[cards.Food.FRUIT] = 2
+    eng.state.birdfeeder.counts[cards.Food.RODENT] = 1
     food_before = player.food[cards.Food.FRUIT]
 
     def agent[C: decisions.Choice](
@@ -124,6 +128,7 @@ def test_food_choice_asks_when_both_present():
     eng.state.current_player = 0
     for food in cards.Food:
         eng.state.birdfeeder.counts[food] = 0
+    eng.state.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
     eng.state.birdfeeder.counts[cards.Food.INVERTEBRATE] = 1
     eng.state.birdfeeder.counts[cards.Food.FRUIT] = 1
     inv_before = player.food[cards.Food.INVERTEBRATE]
@@ -168,9 +173,13 @@ def test_food_choice_skips_when_neither_present():
     )
     player = eng.state.players[0]
     eng.state.current_player = 0
+    # Two different faces, neither of which is seed or fruit: the power finds
+    # nothing it can take, and the multi-face feeder means no reset is offered.
     for food in cards.Food:
         eng.state.birdfeeder.counts[food] = 0
-    eng.state.birdfeeder.counts[cards.Food.INVERTEBRATE] = 3  # neither seed nor fruit
+    eng.state.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
+    eng.state.birdfeeder.counts[cards.Food.INVERTEBRATE] = 2
+    eng.state.birdfeeder.counts[cards.Food.RODENT] = 1
     snapshot = player.food.as_dict()
 
     def agent[C: decisions.Choice](
@@ -181,7 +190,8 @@ def test_food_choice_skips_when_neither_present():
 
     powers.dispatch_power(eng, agent, player, pb, pb.bird.habitats[0], "activate")
     assert player.food.as_dict() == snapshot
-    assert eng.state.birdfeeder.counts[cards.Food.INVERTEBRATE] == 3
+    assert eng.state.birdfeeder.counts[cards.Food.INVERTEBRATE] == 2
+    assert eng.state.birdfeeder.counts[cards.Food.RODENT] == 1
 
 
 def test_die_any_picks_from_all_available_foods():
@@ -191,6 +201,7 @@ def test_die_any_picks_from_all_available_foods():
     eng.state.current_player = 0
     for food in cards.Food:
         eng.state.birdfeeder.counts[food] = 0
+    eng.state.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
     eng.state.birdfeeder.counts[cards.Food.SEED] = 2
     eng.state.birdfeeder.counts[cards.Food.RODENT] = 1
     seed_before = player.food[cards.Food.SEED]
@@ -222,23 +233,33 @@ def test_die_any_picks_from_all_available_foods():
     assert eng.state.birdfeeder.counts[cards.Food.SEED] == 2
 
 
-def test_die_any_skips_when_feeder_empty():
+def test_die_any_refills_empty_feeder():
+    """An empty feeder is auto-rerolled (Rule 1) before the gain, so the power
+    still takes a die rather than silently skipping."""
     eng = _make_engine()
     pb = _stage_played_bird(eng, "Gain 1 [die] from the birdfeeder.")
     player = eng.state.players[0]
     eng.state.current_player = 0
     for food in cards.Food:
         eng.state.birdfeeder.counts[food] = 0
-    snapshot = player.food.as_dict()
+    eng.state.birdfeeder.choice_dice = 0  # truly empty feeder
+    food_before = sum(player.food.values())
 
     def agent[C: decisions.Choice](
         _eng: engine.Engine,
-        _d: decisions.Decision[C],
-    ) -> C:  # pragma: no cover - must not be consulted
-        raise AssertionError("agent should not be asked when feeder is empty")
+        decision: decisions.Decision[C],
+    ) -> C:
+        # Decline any optional reset of the freshly rerolled feeder; take the
+        # first die offered.
+        if isinstance(decision, decisions.ResetBirdfeederDecision):
+            for choice in decision.choices:
+                if isinstance(choice, decisions.SkipChoice):
+                    return typing.cast(C, choice)
+        return typing.cast(C, decision.choices[0])
 
     powers.dispatch_power(eng, agent, player, pb, pb.bird.habitats[0], "activate")
-    assert player.food.as_dict() == snapshot
+    assert eng.state.birdfeeder.total() > 0  # rerolled, not left empty
+    assert sum(player.food.values()) == food_before + 1  # one die was taken
 
 
 # ---------------------------------------------------------------------------

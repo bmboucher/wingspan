@@ -511,6 +511,7 @@ def test_pink_predator_feeder_fires_when_predator_succeeds():
     eng.state.bird_deck.append(small)
     # Give feeder some food.
     eng.state.birdfeeder.counts.zero()
+    eng.state.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
     eng.state.birdfeeder.counts[cards.Food.SEED] = 3
     for food in p1.food:
         p1.food[food] = 0

@@ -57,11 +57,7 @@ def trigger_pink_predator_success(
                 for eff in pb.bird.power.effects:
                     if eff.kind != cards.EffectKind.PINK_PREDATOR_FEEDER:
                         continue
-                    avail = [
-                        food
-                        for food, count in st.birdfeeder.counts.items()
-                        if count > 0
-                    ]
+                    avail = st.birdfeeder.gainable_foods()
                     if not avail:
                         engine.log(
                             f"  {pb.bird.name} (pink): birdfeeder empty; skipped"
@@ -127,3 +123,122 @@ def fire_pink_lay_egg(
         f"  {pb.bird.name} (pink): [{other_player.name}] laid 1 egg on "
         f"{other_player.board[ch.habitat][ch.slot].bird.name}@{ch.habitat.value}[{ch.slot}]"
     )
+
+
+def trigger_pink_play_bird_reactors(
+    engine: "core.Engine",
+    active_player: state.Player,
+    played_habitat: cards.Habitat,
+) -> None:
+    """Called after ``active_player`` plays a bird into ``played_habitat``. Each
+    OTHER player's pink "when another player plays a bird in their [habitat]"
+    power whose habitat matches fires now: gain a food from the supply (Belted
+    Kingfisher / Eastern Kingbird) or tuck a card from hand (Horned Lark). Birds
+    are scanned clockwise from ``active_player.id + 1``."""
+    st = engine.state
+    num_players = len(st.players)
+    for offset in range(1, num_players):
+        other_player = st.players[(active_player.id + offset) % num_players]
+        for _, row in other_player.board.items():
+            for pb in row:
+                if pb.bird.color != cards.PowerColor.PINK:
+                    continue
+                for eff in pb.bird.power.effects:
+                    if eff.habitat != played_habitat:
+                        continue
+                    if eff.kind == cards.EffectKind.PINK_PLAY_BIRD_GAIN:
+                        _react_gain_from_supply(engine, other_player, pb, eff)
+                    elif eff.kind == cards.EffectKind.PINK_PLAY_BIRD_TUCK:
+                        _react_tuck_from_hand(engine, other_player, pb, eff)
+
+
+def trigger_pink_gain_food_reactors(
+    engine: "core.Engine",
+    active_player: state.Player,
+    gained_foods: set[cards.Food],
+) -> None:
+    """Called after ``active_player`` completes a Gain Food action having gained
+    the foods in ``gained_foods``. Each OTHER player's pink "when another player
+    gains [food]" power (Loggerhead Shrike) caches one of that food from the
+    supply when the food was gained."""
+    st = engine.state
+    num_players = len(st.players)
+    for offset in range(1, num_players):
+        other_player = st.players[(active_player.id + offset) % num_players]
+        for _, row in other_player.board.items():
+            for pb in row:
+                if pb.bird.color != cards.PowerColor.PINK:
+                    continue
+                for eff in pb.bird.power.effects:
+                    if (
+                        eff.kind == cards.EffectKind.PINK_GAIN_FOOD_CACHE
+                        and eff.food is not None
+                        and eff.food in gained_foods
+                    ):
+                        _react_cache_from_supply(engine, pb, eff)
+
+
+def _react_gain_from_supply(
+    engine: "core.Engine",
+    other_player: state.Player,
+    pb: state.PlayedBird,
+    eff: cards.Effect,
+) -> None:
+    assert eff.food is not None
+    st = engine.state
+    if st.food_supply.get(eff.food, 0) < eff.amount:
+        return
+    st.food_supply[eff.food] -= eff.amount
+    other_player.food[eff.food] += eff.amount
+    engine.log(
+        f"  {pb.bird.name} (pink): [{other_player.name}] +{eff.amount} "
+        f"{eff.food.value} from supply"
+    )
+
+
+def _react_cache_from_supply(
+    engine: "core.Engine", pb: state.PlayedBird, eff: cards.Effect
+) -> None:
+    assert eff.food is not None
+    st = engine.state
+    if st.food_supply.get(eff.food, 0) < eff.amount:
+        return
+    st.food_supply[eff.food] -= eff.amount
+    pb.cached_food[eff.food] += eff.amount
+    engine.log(f"  {pb.bird.name} (pink): cached {eff.amount} {eff.food.value}")
+
+
+def _react_tuck_from_hand(
+    engine: "core.Engine",
+    other_player: state.Player,
+    pb: state.PlayedBird,
+    eff: cards.Effect,
+) -> None:
+    """The reacting player tucks ``eff.amount`` card(s) from hand behind ``pb``;
+    they choose which card. Mandatory while a card is available (no skip), and a
+    no-op once the hand is empty."""
+    for _ in range(eff.amount):
+        if not other_player.hand:
+            return
+        choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
+            decisions.BirdChoice(label=card.name, bird=card)
+            for card in other_player.hand
+        ]
+        ch = engine.ask(
+            engine.agent_for(other_player),
+            decisions.BirdPowerTuckFromHandDecision(
+                player_id=other_player.id,
+                prompt=(
+                    f"[{other_player.name}] tuck 1 card behind {pb.bird.name} "
+                    f"(reacting to a bird played in [{eff.habitat.value if eff.habitat else '?'}])"
+                ),
+                choices=choices,
+            ),
+        )
+        if isinstance(ch, decisions.SkipChoice):
+            return
+        other_player.hand.remove(ch.bird)
+        pb.tucked_cards += 1
+        engine.log(
+            f"  {pb.bird.name} (pink): [{other_player.name}] tucked {ch.bird.name}"
+        )

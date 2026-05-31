@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import pathlib
 import sys
@@ -213,6 +214,23 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
     assert (tmp_path / "best.pt").exists()
     assert (tmp_path / "metrics.jsonl").exists()
 
+    # The four required run artifacts are all left behind: the model descriptor,
+    # this session's dated process record, and one game-history row per game.
+    assert (tmp_path / "model_config.json").exists()
+    assert len(list(tmp_path.glob("process_*.json"))) == 1
+    game_rows = [
+        line for line in (tmp_path / "games.jsonl").read_text().splitlines() if line
+    ]
+    assert len(game_rows) == state.total_games  # one record per game played
+    outcomes = [
+        metrics.GameOutcome.model_validate(json.loads(row)) for row in game_rows
+    ]
+    assert all(game.iteration == 0 and game.decisions > 0 for game in outcomes)
+    assert outcomes[0].family_counts.total() == outcomes[0].decisions
+    # The board-shuffle seed rides through the real collector to each row, so the
+    # distinct per-game seeds make every record independently reproducible.
+    assert len({game.seed for game in outcomes}) == len(outcomes)
+
     # The dashboard renders the real post-run state without error.
     assert len(_render(state)) > 1000
     assert "main_action" in _render(state, colorize=False)
@@ -254,6 +272,18 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     assert resumed.state.total_games == games + cfg.games_per_iter
     assert resumed.state.iteration == last_iter + 1
 
+    # The game-history log was appended across the resume (not truncated), and
+    # each session dropped its own dated process record.
+    game_rows = [
+        line for line in (tmp_path / "games.jsonl").read_text().splitlines() if line
+    ]
+    assert len(game_rows) == games + cfg.games_per_iter
+    assert len(list(tmp_path.glob("process_*.json"))) == 2
+
     # --no-resume ignores the checkpoint and starts fresh.
     fresh = loop.TrainingLoop(cfg.model_copy(update={"resume": False}))
     assert fresh.state.total_games == 0
+    # A fresh start clears the prior run's game log and stale session records,
+    # leaving only this startup's process file.
+    assert (tmp_path / "games.jsonl").read_text() == ""
+    assert len(list(tmp_path.glob("process_*.json"))) == 1

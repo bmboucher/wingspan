@@ -344,24 +344,39 @@ def test_fewest_forest_gains_die_ties_each_gets_one():
     assert p1.food[cards.Food.SEED] == food_before[1][cards.Food.SEED] + 1
 
 
-def test_fewest_forest_gains_die_empty_feeder_no_op():
+def test_fewest_forest_gains_die_refills_empty_feeder():
+    """An empty feeder is auto-rerolled (Rule 1) before the gain, so the
+    fewest-forest player still takes a die rather than the power no-opping."""
     eng, pb = _make_engine_with_bird(
         "Player(s) with the fewest birds in their [forest] gain 1 [die] from birdfeeder.",
         color=cards.PowerColor.BROWN,
     )
     gs = eng.state
     gs.current_player = 0
+    p0, p1 = gs.players
+    # P1 has a forest bird, so only P0 is "fewest" and gains the die.
+    p1.board[cards.Habitat.FOREST].append(state.PlayedBird(bird=pb.bird))
     for food in cards.ALL_FOODS:
         gs.birdfeeder.counts[food] = 0
+    gs.birdfeeder.choice_dice = 0  # truly empty feeder: clear the choice face too
+    food_before = sum(p0.food.values())
 
-    def agent[C: decisions.Choice](  # pragma: no cover
+    def agent[C: decisions.Choice](
         _engine: engine.Engine,
-        _decision: decisions.Decision[C],
+        decision: decisions.Decision[C],
     ) -> C:
-        pytest.fail("should not be consulted when feeder is empty")
+        # Decline any optional reset of the freshly rerolled feeder; take the
+        # first die offered.
+        if isinstance(decision, decisions.ResetBirdfeederDecision):
+            for choice in decision.choices:
+                if isinstance(choice, decisions.SkipChoice):
+                    return typing.cast(C, choice)
+        return typing.cast(C, decision.choices[0])
 
     eng.agents = [agent, agent]
-    powers.dispatch_power(eng, agent, gs.me(), pb, cards.Habitat.FOREST, "activate")
+    powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.FOREST, "activate")
+    assert gs.birdfeeder.total() > 0  # rerolled, not left empty
+    assert sum(p0.food.values()) == food_before + 1  # one die was taken
 
 
 # ---------------------------------------------------------------------------

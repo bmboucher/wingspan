@@ -217,6 +217,27 @@ class IterationMetrics(pydantic.BaseModel):
     eval: EvalResult | None = None
 
 
+class GameOutcome(pydantic.BaseModel):
+    """One finished self-play game's persisted summary — a single ``games.jsonl``
+    row.
+
+    The durable per-game record the project's card / strategy analysis reads back
+    later: each game's final six-way score split per seat, who won, how many
+    trainable decisions it took, and how those decisions split across the
+    judgment-family heads (the "decision model use counts"). ``seed`` is the
+    game's board-shuffle seed, so a single row is enough to replay the exact
+    game; ``iteration`` ties it back to the training cycle (and the policy
+    snapshot) that produced it.
+    """
+
+    iteration: int
+    seed: int
+    winner: int  # winning seat (0 or 1), or -1 for a tie
+    decisions: int  # trainable (multi-option) decisions recorded this game
+    breakdowns: tuple[ScoreBreakdown, ScoreBreakdown]  # per-seat final split
+    family_counts: FamilyCounts  # decisions routed to each judgment-family head
+
+
 class SystemStats(pydantic.BaseModel):
     """A point-in-time snapshot of host CPU / RAM utilization.
 

@@ -52,11 +52,14 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
     """Active player picks P1 to start, so the dice are credited P1 then P0."""
     gs = _setup_state(seed=0)
 
-    # Make the feeder deterministic: 1 seed, 1 fruit, everything else 0.
+    # One die of each single food (five dice, five faces): the two takes never
+    # leave the feeder showing a single face, so no reset is offered, and the
+    # feeder never empties, so it is not auto-rerolled mid-power.
     for food in gs.birdfeeder.counts:
         gs.birdfeeder.counts[food] = 0
-    gs.birdfeeder.counts[cards.Food.SEED] = 1
-    gs.birdfeeder.counts[cards.Food.FRUIT] = 1
+    gs.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
+    for food in cards.ALL_FOODS:
+        gs.birdfeeder.counts[food] = 1
 
     p0, p1 = gs.players
     gs.current_player = p0.id
@@ -103,15 +106,18 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
     # Total food gained: each player got exactly 1 die.
     assert sum(p0.food.values()) - sum(food_before_p0.values()) == 1
     assert sum(p1.food.values()) - sum(food_before_p1.values()) == 1
-    assert gs.birdfeeder.total() == 0
+    assert gs.birdfeeder.total() == 3  # five dice, two taken
 
 
-def test_each_player_gains_die_stops_when_feeder_empty():
-    """Only 1 die is in the feeder, so only the starting player gets one."""
+def test_each_player_gains_die_refills_empty_feeder():
+    """Only 1 die is in the feeder, but the starter taking it empties the feeder,
+    which is immediately rerolled (Rule 1) — so the second player still gains a
+    die rather than the power stopping early."""
     gs = _setup_state(seed=1)
 
     for food in gs.birdfeeder.counts:
         gs.birdfeeder.counts[food] = 0
+    gs.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
     gs.birdfeeder.counts[cards.Food.SEED] = 1
 
     p0, p1 = gs.players
@@ -127,6 +133,16 @@ def test_each_player_gains_die_stops_when_feeder_empty():
         kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
     )
 
+    def take_first_decline_reset[C: decisions.Choice](
+        decision: decisions.Decision[C],
+    ) -> C:
+        # Decline any optional single-face reset; otherwise take the first die.
+        if isinstance(decision, decisions.ResetBirdfeederDecision):
+            for choice in decision.choices:
+                if isinstance(choice, decisions.SkipChoice):
+                    return typing.cast(C, choice)
+        return typing.cast(C, decision.choices[0])
+
     def agent_p0[C: decisions.Choice](
         _engine: engine.Engine,
         decision: decisions.Decision[C],
@@ -136,25 +152,21 @@ def test_each_player_gains_die_stops_when_feeder_empty():
                 if choice.player_id == p0.id:
                     return typing.cast(C, choice)
             raise AssertionError("p0 not in choices")
-        if isinstance(decision, decisions.GainFoodDecision):
-            assert decision.player_id == p0.id
-            return typing.cast(C, decision.choices[0])
-        raise AssertionError(f"unexpected decision for p0: {type(decision).__name__}")
+        return take_first_decline_reset(decision)
 
     def agent_p1[C: decisions.Choice](
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        raise AssertionError(
-            f"p1 should not be asked when feeder empties: {type(decision).__name__}"
-        )
+        return take_first_decline_reset(decision)
 
     eng = engine.Engine(gs, agents=[agent_p0, agent_p1])
     powers.apply_effect(eng, agent_p0, p0, pb, carrier.habitats[0], eff, "play")
 
+    # Both players gained a die: the feeder refilled after the starter emptied it.
     assert sum(p0.food.values()) - sum(food_before_p0.values()) == 1
-    assert sum(p1.food.values()) - sum(food_before_p1.values()) == 0
-    assert gs.birdfeeder.total() == 0
+    assert sum(p1.food.values()) - sum(food_before_p1.values()) == 1
+    assert gs.birdfeeder.total() > 0  # rerolled, not left empty
 
 
 def test_each_player_gains_die_routes_decisions_to_correct_agent():
@@ -170,6 +182,7 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
 
     for food in gs.birdfeeder.counts:
         gs.birdfeeder.counts[food] = 0
+    gs.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
     gs.birdfeeder.counts[cards.Food.SEED] = 1
     gs.birdfeeder.counts[cards.Food.RODENT] = 1
     gs.birdfeeder.counts[cards.Food.FRUIT] = 1

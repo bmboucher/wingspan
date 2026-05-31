@@ -155,14 +155,14 @@ class BrailleCanvas:
 
 
 class GettingBetterChart:
-    """The single "IS IT GETTING BETTER?" panel body: two side-by-side line
-    charts on their own axes — win-rate-vs-opponent (left, fixed 0..100% axis
-    with a yellow opponent-advance threshold line, raw + EWMA series) and
-    average self-play points / eval margin (right, auto-scaled with a zero line)
-    — followed by the docked EVAL inset (the cinematic hero win-rate plus its
-    recent/EWMA readouts) which falls back to a one-line strip when the panel is
-    too narrow. The win-rate sawtooths back down each time the reference opponent
-    is advanced (it then climbs again vs a stronger self)."""
+    """The single "TRAINING IMPROVEMENT" panel body: the left-docked EVAL inset
+    (the cinematic hero win-rate plus its last/EWMA readouts) followed by two
+    side-by-side line charts on their own axes — win-rate-vs-opponent (fixed
+    0..100% axis with a yellow opponent-advance threshold line, raw + EWMA
+    series) and average self-play points / eval margin (auto-scaled with a zero
+    line). When the panel is too narrow the inset drops to a one-line strip
+    beneath the charts. The win-rate sawtooths back down each time the reference
+    opponent is advanced (it then climbs again vs a stronger self)."""
 
     def __init__(self, state: runstate.RunState, frame: int):
         self.state = state
@@ -193,9 +193,8 @@ class GettingBetterChart:
         merged = _join_columns([(left, left_w), (right, right_w)], _CHART_GAP)
 
         if inset:
-            merged = _merge_columns(
-                merged, _eval_inset(self.state, len(merged)), charts_w
-            )
+            eval_box = _eval_inset(self.state, len(merged))
+            merged = _merge_columns(eval_box, merged, _INSET_W)
         else:
             merged.extend(_eval_strip(self.state))
 
@@ -474,7 +473,7 @@ class FamilyHistogram:
     ) -> text.Text:
         color = _tier_color(share, count)
         line = text.Text(no_wrap=True, end="")
-        line.append(theme.family_label(family).ljust(label_w), style=theme.TEXT_DIM2)
+        line.append(family.value.ljust(label_w), style=theme.TEXT_DIM2)
         line.append(" ")
         bar = eighth_bar(bar_fraction, bar_w, min_tick=True)
         line.append(bar.ljust(bar_w), style=color)
@@ -667,7 +666,7 @@ def _bresenham(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
 
 
 def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
-    """The right-docked eval box: the cinematic hero win-rate, then the most
+    """The left-docked eval box: the cinematic hero win-rate, then the most
     recent win-rate / margin, then an identical EWMA section, then the eval
     sample size, the reference opponent, and how many iterations have passed
     since the frozen self model was last advanced. Padded with blank lines to
@@ -681,7 +680,7 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
         _, result = last_eval
         ewma = state.eval_ewma()
         body.extend(_hero_block(result.win_rate * 100.0, state.best_win_rate))
-        body.append(_inset_section("RECENT"))
+        body.append(_inset_section("LAST"))
         body.append(
             _inset_kv("win rate", f"{result.win_rate * 100:.1f}%", theme.WIN_COLOR)
         )
@@ -689,6 +688,7 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
             _inset_kv("margin", f"{result.mean_margin:+.1f} pts", theme.MARGIN_COLOR)
         )
         if ewma is not None:
+            body.append(_inset_blank())
             body.append(_inset_section("EWMA"))
             body.append(
                 _inset_kv("win rate", f"{ewma.win_rate * 100:.1f}%", theme.WIN_COLOR)
@@ -696,6 +696,7 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
             body.append(
                 _inset_kv("margin", f"{ewma.mean_margin:+.1f} pts", theme.MARGIN_COLOR)
             )
+        body.append(_inset_blank())
         body.append(_inset_kv("eval games", f"{result.n_games}", theme.TEXT_DIM2))
         body.append(_inset_kv("opponent", _inset_opponent(state), theme.TEXT_DIM2))
         body.append(_inset_kv("since advance", _inset_since(state), theme.TEXT_DIM2))
@@ -707,11 +708,13 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
             )
 
     while len(body) < height - 1:
-        body.append(_inset_text("", theme.BORDER_EVAL))
+        body.append(_inset_blank())
+    # Reserve the final row for the bottom border so it survives even when the
+    # body (hero + both sections + the readouts) would otherwise overflow the
+    # available height and push the border off the bottom.
     footer = text.Text(no_wrap=True, end="")
     footer.append("└" + "─" * (_INSET_W - 2) + "┘", style=theme.BORDER_EVAL)
-    body.append(footer)
-    return body[:height]
+    return body[: height - 1] + [footer]
 
 
 def _hero_block(win_pct: float, best: float | None) -> list[text.Text]:
@@ -753,6 +756,12 @@ def _inset_text(content: str, color: str) -> text.Text:
     return line
 
 
+def _inset_blank() -> text.Text:
+    """An empty inset row that keeps the box's side borders (used as a spacer
+    between sections and to pad the inset down to the chart height)."""
+    return _inset_text("", theme.BORDER_EVAL)
+
+
 def _inset_title(last_eval: tuple[int, metrics.EvalResult] | None) -> text.Text:
     """The top border of the eval inset, naming the most recent eval iteration."""
     label = "EVAL" if last_eval is None else f"EVAL · iter {last_eval[0]:04d}"
@@ -766,10 +775,11 @@ def _inset_title(last_eval: tuple[int, metrics.EvalResult] | None) -> text.Text:
 
 
 def _inset_section(label: str) -> text.Text:
-    """A dim section header (``RECENT`` / ``EWMA``) inside the eval inset."""
+    """A dim, centered section header (``-- LAST --`` / ``-- EWMA --``) inside the
+    eval inset."""
     line = text.Text(no_wrap=True, end="")
     line.append("│ ", style=theme.BORDER_EVAL)
-    line.append(f"{label:<{_INSET_W - 4}}", style=f"bold {theme.TEXT_MUTED}")
+    line.append(f"-- {label} --".center(_INSET_W - 4), style=f"bold {theme.TEXT_MUTED}")
     line.append(" │", style=theme.BORDER_EVAL)
     return line
 

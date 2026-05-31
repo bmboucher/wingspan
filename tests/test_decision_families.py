@@ -77,25 +77,25 @@ def test_bird_acquisition_and_discard_are_distinct_families():
             decisions.GainExtraFoodDecision,
         )
     }
-    assert acquisition == {decisions.DecisionFamily.BIRD_ACQUISITION}
-    assert discard == {decisions.DecisionFamily.BIRD_DISCARD}
+    assert acquisition == {decisions.DecisionFamily.DRAW_BIRD}
+    assert discard == {decisions.DecisionFamily.DISCARD_BIRD}
     assert acquisition.isdisjoint(discard)
 
 
 def test_choosing_an_action_and_choosing_a_bird_to_play_are_distinct():
-    """Picking the turn's action *type* (``MainActionDecision`` -> ``MACRO_ACTION``)
+    """Picking the turn's action *type* (``MainActionDecision`` -> ``MAIN_ACTION``)
     and picking which bird to play (``PlayBirdDecision`` -> ``PLAY_BIRD``, used for
     both the main ``PLAY_BIRD`` branch and extra plays) are separate judgments on
     separate heads (the hierarchical macro split)."""
     assert (
         decisions.family_for(decisions.MainActionDecision)
-        == decisions.DecisionFamily.MACRO_ACTION
+        == decisions.DecisionFamily.MAIN_ACTION
     )
     assert (
         decisions.family_for(decisions.PlayBirdDecision)
         == decisions.DecisionFamily.PLAY_BIRD
     )
-    assert decisions.DecisionFamily.MACRO_ACTION != decisions.DecisionFamily.PLAY_BIRD
+    assert decisions.DecisionFamily.MAIN_ACTION != decisions.DecisionFamily.PLAY_BIRD
 
 
 def test_gain_food_and_spend_food_are_distinct_families():
@@ -118,8 +118,8 @@ def test_egg_placement_and_removal_are_distinct_families():
     renamed the removal decision)."""
     placement = decisions.family_for(decisions.LayEggDecision)
     removal = decisions.family_for(decisions.RemoveEggDecision)
-    assert placement == decisions.DecisionFamily.EGG_PLACEMENT
-    assert removal == decisions.DecisionFamily.EGG_REMOVAL
+    assert placement == decisions.DecisionFamily.LAY_EGG
+    assert removal == decisions.DecisionFamily.PAY_EGG
     assert placement != removal
 
 
@@ -141,7 +141,7 @@ def test_setup_has_its_own_family():
 def test_habitat_placement_head():
     assert (
         decisions.family_for(decisions.BirdPowerPickHabitatDecision)
-        == decisions.DecisionFamily.HABITAT_PLACEMENT
+        == decisions.DecisionFamily.MOVE_HABITAT
     )
 
 

@@ -31,13 +31,16 @@ from wingspan.training import metrics, policy
 
 class GameRecord(pydantic.BaseModel):
     """One finished self-play game: its recorded steps plus the per-player
-    final score breakdown and the winner (0, 1, or -1 for a tie)."""
+    final score breakdown, the winner (0, 1, or -1 for a tie), and the
+    board-shuffle ``seed`` that produced it (carried so the persisted per-game
+    history row stays independently reproducible)."""
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
     steps: list[train.Step]
     breakdowns: tuple[metrics.ScoreBreakdown, metrics.ScoreBreakdown]
     winner: int
+    seed: int
 
     @property
     def scores(self) -> tuple[int, int]:
@@ -63,7 +66,7 @@ def play_game(
     )
     score_0, score_1 = breakdowns[0].total, breakdowns[1].total
     winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
-    return GameRecord(steps=recorded, breakdowns=breakdowns, winner=winner)
+    return GameRecord(steps=recorded, breakdowns=breakdowns, winner=winner, seed=seed)
 
 
 def player_breakdown(player: state.Player) -> metrics.ScoreBreakdown:
