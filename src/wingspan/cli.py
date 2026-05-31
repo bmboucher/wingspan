@@ -1,4 +1,5 @@
-"""Entry points: manual CLI play, random self-play with log, and a training entry."""
+"""Entry points: manual CLI play, random self-play, configurable-matchup
+selfplay (random/AI in any seat), and a training entry."""
 
 from __future__ import annotations
 
@@ -6,7 +7,7 @@ import argparse
 import random
 import sys
 
-from wingspan import agents, cards, engine
+from wingspan import agents, cards, engine, selfplay
 
 
 def main_manual(argv: list[str] | None = None) -> int:
@@ -90,5 +91,7 @@ if __name__ == "__main__":
         sys.exit(main_manual(sys.argv[2:]))
     elif len(sys.argv) > 1 and sys.argv[1] == "random":
         sys.exit(main_random(sys.argv[2:]))
+    elif len(sys.argv) > 1 and sys.argv[1] == "selfplay":
+        sys.exit(selfplay.main_selfplay(sys.argv[2:]))
     else:
         sys.exit(main_random(sys.argv[1:]))

@@ -29,6 +29,7 @@ dev = [
 [project.scripts]
 wingspan-play = "wingspan.cli:main_manual"
 wingspan-random = "wingspan.cli:main_random"
+wingspan-selfplay = "wingspan.selfplay:main_selfplay"
 wingspan-train = "wingspan.train:main"
 wingspan-dashboard = "wingspan.training.app:main"
 

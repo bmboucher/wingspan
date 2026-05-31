@@ -9,6 +9,10 @@ differ only in selection rule:
   entropy bonus, TRAINING.md §3.3).
 * :func:`greedy_action` takes the argmax — used by the evaluation harness, which
   measures *strength*, not exploration (TRAINING.md §7.3).
+
+:func:`policy_probs` exposes the underlying softmax distribution itself, for
+callers that want every option's probability (e.g. the selfplay log annotator)
+rather than just the selected index.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ def sample_action(
     rng: random.Random,
 ) -> int:
     """Sample a choice index from the current policy (on-policy)."""
-    probs = _policy_probs(net, device, state_vec, choice_feats, family_idx)
+    probs = policy_probs(net, device, state_vec, choice_feats, family_idx)
     return sample_index_from_probs(probs, choice_feats.shape[0], rng)
 
 
@@ -43,7 +47,7 @@ def greedy_action(
     family_idx: int,
 ) -> int:
     """Pick the argmax choice index — deterministic strength play."""
-    probs = _policy_probs(net, device, state_vec, choice_feats, family_idx)
+    probs = policy_probs(net, device, state_vec, choice_feats, family_idx)
     return int(np.argmax(probs))
 
 
@@ -60,10 +64,7 @@ def sample_index_from_probs(
     return _weighted_index(rng, (probs / total).tolist())
 
 
-###### PRIVATE #######
-
-
-def _policy_probs(
+def policy_probs(
     net: model.PolicyValueNet,
     device: torch.device,
     state_vec: np.ndarray,
@@ -71,7 +72,9 @@ def _policy_probs(
     family_idx: int,
 ) -> np.ndarray:
     """Softmax over the candidate logits for one decision (no padding needed —
-    every row of ``choice_feats`` is a real, legal choice)."""
+    every row of ``choice_feats`` is a real, legal choice). Public so callers
+    that want the full distribution (e.g. the selfplay log annotator) can read
+    it directly rather than only the sampled / argmax index."""
     n_choices = choice_feats.shape[0]
     with torch.no_grad():
         state_t = torch.tensor(state_vec, dtype=torch.float32, device=device).unsqueeze(
@@ -84,6 +87,9 @@ def _policy_probs(
         family_t = torch.tensor([family_idx], dtype=torch.long, device=device)
         logits, _ = net(state_t, choice_t, mask_t, family_t)
         return F.softmax(logits, dim=-1).squeeze(0).cpu().numpy()
+
+
+###### PRIVATE #######
 
 
 def _weighted_index(rng: random.Random, weights: list[float]) -> int:
