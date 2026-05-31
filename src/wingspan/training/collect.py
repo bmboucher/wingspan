@@ -52,12 +52,24 @@ def play_game(
     device: torch.device,
     rng: random.Random,
     seed: int,
+    opponent_agent: engine.Agent | None = None,
 ) -> GameRecord:
-    """Play one self-play game and return its recorded transitions + scores."""
+    """Play one game and return its recorded transitions + scores.
+
+    With ``opponent_agent`` omitted this is ordinary self-play: both seats
+    consult the policy and every multi-option decision is recorded. With an
+    ``opponent_agent`` (the random-opponent bootstrap phase), the net plays
+    seat 0 and ``opponent_agent`` plays seat 1; only the net's decisions are
+    recorded, since the opponent's off-policy moves are not trained on.
+    """
     eng = new_engine(seed)
     recorded: list[train.Step] = []
-    agent_a = _recording_agent(net, device, rng, recorded)
-    agent_b = _recording_agent(net, device, rng, recorded)
+    net_agent = _recording_agent(net, device, rng, recorded)
+    agent_a, agent_b = (
+        (net_agent, net_agent)
+        if opponent_agent is None
+        else (net_agent, opponent_agent)
+    )
     engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
 
     breakdowns = (

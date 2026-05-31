@@ -41,12 +41,17 @@ import numpy as np
 import pydantic
 import torch
 
-from wingspan import model
+from wingspan import agents, model
 from wingspan.training import collect, config, evaluate, metrics
 
 # Match batched_collect's per-game sampling salt so a seed maps to the same
 # sampling stream regardless of which collector plays it.
 _SAMPLE_RNG_SALT = 0x9E3779B9
+
+# Distinct salt for the bootstrap phase's random opponent, kept separate from
+# the policy-sampling stream so a seed reproduces both the same game and the
+# same opponent without the two RNGs sharing a sequence.
+_OPPONENT_RNG_SALT = 0x85EBCA6B
 
 # Broadcast weights filename, written under the run's checkpoint dir each
 # iteration and read by workers when their cached version is stale.
@@ -77,13 +82,16 @@ class _WorkerArch(pydantic.BaseModel):
 
 class _GameTask(pydantic.BaseModel):
     """One unit of work shipped to a worker: which weights to play under (by
-    on-disk path + version) and which game seed to play."""
+    on-disk path + version) and which game seed to play. ``vs_random`` selects
+    the bootstrap phase, where the net plays seat 0 against the random agent
+    instead of self-play."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     weights_path: str
     weights_version: int
     seed: int
+    vs_random: bool = False
 
 
 class _EvalTask(pydantic.BaseModel):
@@ -139,8 +147,10 @@ class ProcessCollector:
         seeds: typing.Sequence[int],
         on_game_done: typing.Callable[[collect.GameRecord], None] | None = None,
         should_stop: typing.Callable[[], bool] | None = None,
+        vs_random: bool = False,
     ) -> list[collect.GameRecord]:
-        """Play ``len(seeds)`` self-play games across the worker pool.
+        """Play ``len(seeds)`` games across the worker pool — self-play, or (when
+        ``vs_random``) the net at seat 0 against the random agent.
 
         Broadcasts ``net``'s current weights once, submits one task per seed,
         and fires ``on_game_done`` as each game completes (from this thread, so
@@ -157,6 +167,7 @@ class ProcessCollector:
                 weights_path=str(self._weights_path),
                 weights_version=self._weights_version,
                 seed=seed,
+                vs_random=vs_random,
             )
             for seed in seeds
         ]
@@ -321,13 +332,19 @@ def _worker_init(arch: _WorkerArch) -> None:
 
 
 def _worker_play(task: _GameTask) -> collect.GameRecord:
-    """Play one seeded self-play game under the task's weights."""
+    """Play one seeded game under the task's weights — self-play, or the net
+    (seat 0) vs the random agent in the bootstrap phase."""
     net = _worker_net
     device = _worker_device
     assert net is not None and device is not None, "worker net not initialized"
     _maybe_reload_weights(net, device, task.weights_path, task.weights_version)
     rng = random.Random(task.seed ^ _SAMPLE_RNG_SALT)
-    return _compact(collect.play_game(net, device, rng, task.seed))
+    opponent = (
+        agents.random_agent(random.Random(task.seed ^ _OPPONENT_RNG_SALT))
+        if task.vs_random
+        else None
+    )
+    return _compact(collect.play_game(net, device, rng, task.seed, opponent))
 
 
 def _worker_eval(task: _EvalTask) -> int:

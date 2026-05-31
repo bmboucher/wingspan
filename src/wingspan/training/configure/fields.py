@@ -204,6 +204,25 @@ FIELD_SPECS: list[FieldSpec] = [
         "clears this (0 disables). Lowering it below the current win-rate triggers "
         "an immediate advance + win-rate reset.",
     ),
+    ChoiceField(
+        attr="initial_vs_random",
+        label="bootstrap vs random",
+        section=ConfigSection.EVAL,
+        choices=["True", "False"],
+        help="Fresh runs only: start by collecting against the random agent "
+        "(net at seat 0, eval paused) before switching to self-play. A resumed "
+        "run keeps the phase stored in its checkpoint.",
+    ),
+    FloatField(
+        attr="random_phase_win_rate",
+        label="graduate @",
+        section=ConfigSection.EVAL,
+        step=0.05,
+        impact=ChangeImpact.REGIME,
+        help="Smoothed collection win-rate (vs random) at which the bootstrap "
+        "phase freezes self·gen1 and switches to self-play. Lowering it below "
+        "the current win-rate graduates immediately.",
+    ),
     FloatField(
         attr="produce_ewma_alpha",
         label="produce ewma α",

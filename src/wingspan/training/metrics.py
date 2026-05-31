@@ -216,6 +216,13 @@ class IterationMetrics(pydantic.BaseModel):
 
     eval: EvalResult | None = None
 
+    # Win fraction for the net (player 0) over this iteration's collection games,
+    # ties counting as half. Non-None only during the random-opponent bootstrap
+    # phase, where the net always takes seat 0 against the random agent; in
+    # self-play it is None (both seats are the net, so a collection win-rate is
+    # meaningless) and strength is read from ``eval`` instead.
+    collection_win_rate: float | None = None
+
 
 class GameOutcome(pydantic.BaseModel):
     """One finished self-play game's persisted summary — a single ``games.jsonl``

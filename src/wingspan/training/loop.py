@@ -90,6 +90,7 @@ class TrainingLoop:
         # checkpoint). Set last so resume can mutate net / optimizer / state.
         self._start_iteration = 0
         self._maybe_resume()
+        self._init_training_phase()
         self._reset_history_logs_if_fresh()
         self._write_run_metadata()
 
@@ -192,6 +193,22 @@ class TrainingLoop:
             f"resumed {artifacts.LAST_CKPT} · iter {progress.iteration:04d} · "
             f"{progress.total_games:,} games · opponent {self._opponent_label()}",
         )
+
+    def _init_training_phase(self) -> None:
+        """Open a fresh run in the random-opponent bootstrap phase when
+        ``config.initial_vs_random`` asks for it (collect vs random, eval
+        paused). A resumed run keeps the phase restored from its checkpoint —
+        ``_start_iteration`` is 0 only on a fresh start — so this never overrides
+        a run that already graduated to self-play."""
+        if self._start_iteration > 0 or not self.config.initial_vs_random:
+            return
+        with self.lock:
+            self.state.training_phase = runstate.TrainingPhase.RANDOM_OPPONENT
+            self.state.push_event(
+                runstate.EventKind.INFO,
+                "bootstrap: collecting vs random opponent · eval paused "
+                f"until {self.config.random_phase_win_rate * 100:.0f}% win-rate",
+            )
 
     def _reset_history_logs_if_fresh(self) -> None:
         """Clear a previous run's history when this run did not resume, so a fresh
@@ -307,6 +324,13 @@ class TrainingLoop:
 
         eval_result, eval_seconds = self._maybe_evaluate(iteration)
 
+        # Only the bootstrap phase has a meaningful collection win-rate: the net
+        # is seat 0 against the random agent, so winner == 0 is a net win.
+        collection_win_rate = (
+            _collection_win_rate(records)
+            if self.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT
+            else None
+        )
         iter_metrics = _build_iteration_metrics(
             iteration,
             self.state.total_games,
@@ -316,33 +340,38 @@ class TrainingLoop:
             collect_seconds,
             update_seconds,
             eval_seconds,
+            collection_win_rate,
         )
         self._commit_iteration(iter_metrics, stats, eval_result, records)
 
     def _collect(self, iteration: int) -> list[collect.GameRecord]:
-        """Play ``games_per_iter`` self-play games with batched inference,
-        updating the live state as each game finishes so the dashboard advances
-        mid-iteration. Games run concurrently and complete out of order; the
-        per-game callback runs under ``self.lock`` so the shared state stays
-        consistent."""
+        """Play ``games_per_iter`` games with batched inference, updating the
+        live state as each game finishes so the dashboard advances mid-iteration.
+        Games run concurrently and complete out of order; the per-game callback
+        runs under ``self.lock`` so the shared state stays consistent. In the
+        bootstrap phase the games are net-vs-random rather than self-play."""
         seeds = [
             self.config.seed * 1_000_000 + iteration * 10_000 + game_idx
             for game_idx in range(self.config.games_per_iter)
         ]
+        vs_random = self.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT
         # CPU collection is GIL-bound under threads, so it fans across worker
         # processes; CUDA collection keeps the in-process batched-inference path
         # (one shared GPU forward beats one model copy per process).
         if self.device.type == "cpu":
-            return self._collect_multiprocess(seeds)
+            return self._collect_multiprocess(seeds, vs_random)
         return batched_collect.collect_games(
             self.net,
             self.device,
             seeds,
             on_game_done=self._record_collected_game,
             should_stop=self._stop.is_set,
+            vs_random=vs_random,
         )
 
-    def _collect_multiprocess(self, seeds: list[int]) -> list[collect.GameRecord]:
+    def _collect_multiprocess(
+        self, seeds: list[int], vs_random: bool
+    ) -> list[collect.GameRecord]:
         """Collect across worker processes; the pool is built on first use and
         reused across iterations (closed in ``run``'s teardown)."""
         return self._ensure_collector().collect_games(
@@ -351,6 +380,7 @@ class TrainingLoop:
             seeds,
             on_game_done=self._record_collected_game,
             should_stop=self._stop.is_set,
+            vs_random=vs_random,
         )
 
     def _ensure_collector(self) -> mp_collect.ProcessCollector:
@@ -374,6 +404,10 @@ class TrainingLoop:
     def _maybe_evaluate(
         self, iteration: int
     ) -> tuple[metrics.EvalResult | None, float]:
+        # The bootstrap phase reads strength from the collection win-rate vs
+        # random, so the separate eval block is paused until it graduates.
+        if self.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT:
+            return None, 0.0
         if self.config.eval_every <= 0 or iteration % self.config.eval_every != 0:
             return None, 0.0
         with self.lock:
@@ -421,6 +455,34 @@ class TrainingLoop:
         """A short name for the current reference opponent (for events)."""
         gen = self.state.opponent_generation
         return "random" if gen == 0 else f"self·gen{gen}"
+
+    def _maybe_graduate_from_random_phase(self) -> None:
+        """Leave the random-opponent bootstrap phase once the smoothed collection
+        win-rate clears ``config.random_phase_win_rate``: freeze the current
+        policy as the first self-play opponent (self·gen1), switch collection to
+        self-play, and resume evaluation against it. A no-op outside the
+        bootstrap phase, so it is safe to call every iteration."""
+        if self.state.training_phase != runstate.TrainingPhase.RANDOM_OPPONENT:
+            return
+        threshold = self.config.random_phase_win_rate
+        with self.lock:
+            ewma = self.state.collection_win_rate_ewma()
+            if ewma is None or ewma < threshold:
+                return
+
+        frozen = self._clone_net()
+        self._save_opponent(frozen, generation=1)
+        with self.lock:
+            self._opponent_net = frozen
+            self.state.training_phase = runstate.TrainingPhase.SELF_PLAY
+            self.state.opponent_generation = 1
+            self.state.opponent_since_iteration = self.state.iteration
+            self.state.best_win_rate = None  # best is per-opponent-generation
+            self.state.push_event(
+                runstate.EventKind.BEST,
+                f"graduated random phase → self·gen1 "
+                f"(collection win-rate {ewma * 100:.0f}%) · self-play + eval resume",
+            )
 
     def _maybe_advance_opponent(self, eval_result: metrics.EvalResult | None) -> None:
         """When the smoothed win-rate against the current opponent clears the
@@ -527,8 +589,13 @@ class TrainingLoop:
                     f"margin {eval_result.mean_margin:+.1f}",
                 )
 
-        # Advance the frozen opponent before checkpointing so ``last.pt`` records
-        # the new generation alongside the matching ``opponent.pt`` snapshot.
+        # Graduate out of the bootstrap phase (freezes self·gen1) or advance the
+        # frozen opponent before checkpointing, so ``last.pt`` records the new
+        # generation / phase alongside the matching ``opponent.pt`` snapshot. The
+        # two are mutually exclusive within an iteration: graduation runs only in
+        # the random phase (where ``eval_result`` is always None), and opponent
+        # advancement only acts on a non-None eval result.
+        self._maybe_graduate_from_random_phase()
         self._maybe_advance_opponent(eval_result)
 
         with self.lock:
@@ -666,6 +733,17 @@ def _avg_points(records: list[collect.GameRecord]) -> float:
     return total / (2 * len(records))
 
 
+def _collection_win_rate(records: list[collect.GameRecord]) -> float:
+    """Win fraction for the net over a bootstrap-phase batch, ties as half. The
+    net always plays seat 0 against the random agent, so ``winner == 0`` is a net
+    win and ``winner == -1`` is a tie."""
+    if not records:
+        return 0.0
+    wins = sum(1 for record in records if record.winner == 0)
+    ties = sum(1 for record in records if record.winner < 0)
+    return (wins + 0.5 * ties) / len(records)
+
+
 def _build_iteration_metrics(
     iteration: int,
     total_games: int,
@@ -675,6 +753,7 @@ def _build_iteration_metrics(
     collect_seconds: float,
     update_seconds: float,
     eval_seconds: float,
+    collection_win_rate: float | None,
 ) -> metrics.IterationMetrics:
     n_games = len(records)
     sum_breakdown = metrics.ScoreBreakdown()
@@ -734,6 +813,7 @@ def _build_iteration_metrics(
         eval_seconds=eval_seconds,
         games_per_sec=n_games / collect_seconds if collect_seconds > 0 else 0.0,
         eval=eval_result,
+        collection_win_rate=collection_win_rate,
     )
 
 

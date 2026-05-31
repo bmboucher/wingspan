@@ -68,24 +68,48 @@ def marker_columns(
 def winrate_ewma_points(
     history: list[metrics.IterationMetrics], alpha: float
 ) -> list[tuple[int, float]]:
-    """The EWMA-smoothed win-rate (percent) per eval iteration. The EWMA resets
-    to the raw value whenever the reference opponent advances, so the curve
-    starts a fresh climb after each sawtooth rather than carrying the old
-    opponent's saturated rate forward."""
+    """The EWMA-smoothed win-rate (percent) per win-rate-bearing iteration: the
+    eval win-rate where an eval ran, else the random-opponent bootstrap phase's
+    collection win-rate vs random. The EWMA resets to the raw value whenever the
+    regime changes — each reference opponent advance, and the bootstrap →
+    self-play graduation — so the curve starts a fresh climb after each sawtooth
+    rather than carrying the old regime's saturated rate forward."""
     points: list[tuple[int, float]] = []
     ewma: float | None = None
-    generation: int | None = None
+    regime: tuple[str, int] | None = None
     for item in history:
-        if item.eval is None:
+        win_pct = _winrate_pct(item)
+        if win_pct is None:
             continue
-        win_pct = item.eval.win_rate * 100.0
-        if ewma is None or item.eval.opponent_generation != generation:
+        item_regime = _regime(item)
+        if ewma is None or item_regime != regime:
             ewma = win_pct
-            generation = item.eval.opponent_generation
+            regime = item_regime
         else:
             ewma = alpha * win_pct + (1.0 - alpha) * ewma
         points.append((item.iteration, ewma))
     return points
+
+
+def _winrate_pct(item: metrics.IterationMetrics) -> float | None:
+    """The win-rate (percent) one iteration contributes: the eval win-rate, else
+    the bootstrap collection win-rate vs random, else None (a self-play
+    iteration with no eval)."""
+    if item.eval is not None:
+        return item.eval.win_rate * 100.0
+    if item.collection_win_rate is not None:
+        return item.collection_win_rate * 100.0
+    return None
+
+
+def _regime(item: metrics.IterationMetrics) -> tuple[str, int]:
+    """A key the win-rate / margin EWMA resets on: eval points are grouped by
+    reference opponent generation, and the bootstrap phase's collection points
+    form their own ``("collect", 0)`` regime so the EWMA restarts at
+    graduation."""
+    if item.eval is not None:
+        return ("eval", item.eval.opponent_generation)
+    return ("collect", 0)
 
 
 def score_ewma_points(
@@ -105,20 +129,33 @@ def score_ewma_points(
 def margin_ewma_points(
     history: list[metrics.IterationMetrics], alpha: float
 ) -> list[tuple[int, float]]:
-    """The EWMA-smoothed eval margin per eval iteration, reset at each opponent
-    advance like the win-rate EWMA (the margin is measured vs the reference
-    opponent, so it belongs to that generation)."""
+    """The EWMA-smoothed margin per win-rate-bearing iteration: the eval margin
+    where an eval ran, else (bootstrap phase) the net's average margin over the
+    random opponent (``avg_margin`` is seat 0 minus seat 1). Reset at each regime
+    change like the win-rate EWMA — the margin belongs to the opponent it was
+    measured against."""
     points: list[tuple[int, float]] = []
     ewma: float | None = None
-    generation: int | None = None
+    regime: tuple[str, int] | None = None
     for item in history:
-        if item.eval is None:
+        value = _margin_value(item)
+        if value is None:
             continue
-        value = item.eval.mean_margin
-        if ewma is None or item.eval.opponent_generation != generation:
+        item_regime = _regime(item)
+        if ewma is None or item_regime != regime:
             ewma = value
-            generation = item.eval.opponent_generation
+            regime = item_regime
         else:
             ewma = alpha * value + (1.0 - alpha) * ewma
         points.append((item.iteration, ewma))
     return points
+
+
+def _margin_value(item: metrics.IterationMetrics) -> float | None:
+    """The margin one iteration contributes: the eval margin, else the bootstrap
+    phase's net-vs-random ``avg_margin``, else None."""
+    if item.eval is not None:
+        return item.eval.mean_margin
+    if item.collection_win_rate is not None:
+        return item.avg_margin
+    return None

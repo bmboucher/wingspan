@@ -39,6 +39,24 @@ class Phase(enum.StrEnum):
         return self in (Phase.DONE, Phase.STOPPED, Phase.ERROR)
 
 
+class TrainingPhase(enum.StrEnum):
+    """Which opponent regime the run is in — distinct from :class:`Phase` (the
+    live collect/update/eval activity).
+
+    ``RANDOM_OPPONENT`` is the bootstrap phase: collection games pit the net
+    (seat 0) against the random agent and evaluation is paused, so strength is
+    read from the collection win-rate. ``SELF_PLAY`` is the ordinary regime:
+    both seats are the net and evaluation runs against the frozen reference
+    opponent. A fresh run starts in whichever phase ``config.initial_vs_random``
+    selects and graduates to ``SELF_PLAY`` once the smoothed collection win-rate
+    clears ``config.random_phase_win_rate``; the default is ``SELF_PLAY`` so
+    checkpoints written before this phase existed resume unchanged.
+    """
+
+    RANDOM_OPPONENT = "random_opponent"
+    SELF_PLAY = "self_play"
+
+
 class EventKind(enum.StrEnum):
     """Category of a recent-events log line (drives its glyph + color)."""
 
@@ -121,6 +139,9 @@ class RunProgress(pydantic.BaseModel):
     opponent_change_iterations: list[int] = pydantic.Field(
         default_factory=_new_int_list
     )
+    # Which opponent regime the run is in. Defaults to SELF_PLAY so a checkpoint
+    # written before the bootstrap phase existed resumes into the old behavior.
+    training_phase: TrainingPhase = TrainingPhase.SELF_PLAY
     last_iter: metrics.IterationMetrics | None = None
     history: list[metrics.IterationMetrics] = pydantic.Field(
         default_factory=_new_history
@@ -194,6 +215,10 @@ class RunState(pydantic.BaseModel):
     opponent_change_iterations: list[int] = pydantic.Field(
         default_factory=_new_int_list
     )
+    # The opponent regime collection plays under (random-opponent bootstrap vs
+    # self-play). Drives whether evaluation runs and which win-rate the dashboard
+    # plots.
+    training_phase: TrainingPhase = TrainingPhase.SELF_PLAY
 
     events: list[EventLine] = pydantic.Field(default_factory=_new_events)
     error: str | None = None
@@ -331,6 +356,26 @@ class RunState(pydantic.BaseModel):
             return None
         return metrics.EvalEwma(win_rate=win, mean_margin=margin)
 
+    def collection_win_rate_ewma(self) -> float | None:
+        """EWMA-smoothed collection win-rate (vs random) across the bootstrap
+        phase's iterations.
+
+        Folds every iteration that recorded a ``collection_win_rate`` (set only
+        while in the random-opponent phase) with ``config.eval_ewma_alpha``, so
+        the graduation gate and the dashboard read a steadier trend than any one
+        noisy 256-game iteration. None until the first such iteration lands.
+        """
+        alpha = self.config.eval_ewma_alpha
+        win: float | None = None
+        for item in self.history:
+            if item.collection_win_rate is None:
+                continue
+            if win is None:
+                win = item.collection_win_rate
+            else:
+                win = alpha * item.collection_win_rate + (1.0 - alpha) * win
+        return win
+
     def produce_stats(self) -> metrics.ProduceStats | None:
         """The PRODUCING band's readouts: a per-iteration EWMA once at least one
         iteration has finished, otherwise the cumulative average folded over the
@@ -428,6 +473,7 @@ class RunState(pydantic.BaseModel):
             opponent_generation=self.opponent_generation,
             opponent_since_iteration=self.opponent_since_iteration,
             opponent_change_iterations=list(self.opponent_change_iterations),
+            training_phase=self.training_phase,
             last_iter=self.last_iter,
             history=self.history,
         )
@@ -457,6 +503,7 @@ class RunState(pydantic.BaseModel):
         self.opponent_generation = progress.opponent_generation
         self.opponent_since_iteration = progress.opponent_since_iteration
         self.opponent_change_iterations = list(progress.opponent_change_iterations)
+        self.training_phase = progress.training_phase
         self.last_iter = progress.last_iter
         self.history = list(progress.history)
 

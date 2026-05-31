@@ -79,6 +79,23 @@ class TrainConfig(pydantic.BaseModel):
         0.95
     )
 
+    # ---- random-opponent bootstrap phase ----
+    # Start a fresh run collecting against the random agent instead of self-play:
+    # the net plays seat 0 and the random agent plays seat 1, only the net's
+    # decisions are recorded (so a run yields half the steps but each game is
+    # cheaper — only one seat queries the policy), and evaluation is paused since
+    # the collection games already measure strength vs random. Once the smoothed
+    # collection win-rate clears ``random_phase_win_rate`` the current policy is
+    # frozen as "self·gen1" and the run switches to ordinary self-play + eval.
+    # Only affects fresh runs; a resumed run keeps the phase stored in its
+    # checkpoint.
+    initial_vs_random: bool = True
+    # Smoothed collection win-rate (vs random, EWMA over ``eval_ewma_alpha``) at
+    # which a fresh run graduates from the random-opponent phase to self-play.
+    random_phase_win_rate: typing.Annotated[float, pydantic.Field(gt=0.0, le=1.0)] = (
+        0.65
+    )
+
     # ---- "what the AI is producing" smoothing ----
     # Decay for the PRODUCING band's EWMA of the per-iteration score breakdown,
     # game length, and margins (folded once per finished iteration). In (0, 1]

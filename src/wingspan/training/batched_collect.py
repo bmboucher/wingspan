@@ -39,8 +39,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wingspan import decisions, encode, engine, model, train
+from wingspan import agents, decisions, encode, engine, model, train
 from wingspan.training import collect, policy
+
+# Distinct salt for the bootstrap phase's random opponent, kept separate from
+# the policy-sampling stream (mirrors ``mp_collect._OPPONENT_RNG_SALT``).
+_OPPONENT_RNG_SALT = 0x85EBCA6B
 
 # Distinct RNG stream for in-game sampling, kept separate from the per-game
 # board-shuffle seed so the two never share a sequence. Xed into the seed.
@@ -59,15 +63,18 @@ def collect_games(
     on_game_done: typing.Callable[[collect.GameRecord], None] | None = None,
     should_stop: typing.Callable[[], bool] | None = None,
     max_concurrent: int = _MAX_CONCURRENT_GAMES,
+    vs_random: bool = False,
 ) -> list[collect.GameRecord]:
-    """Play ``len(seeds)`` self-play games concurrently with batched inference.
+    """Play ``len(seeds)`` games concurrently with batched inference — self-play,
+    or (when ``vs_random``) the net at seat 0 against the random agent.
 
     Games run in waves of at most ``max_concurrent`` threads; within a wave
-    every game's policy forward pass is batched together. Returns the finished
-    records in ``seeds`` order. ``on_game_done`` fires once per game as it
-    completes (from a worker thread, serialized), and ``should_stop`` is polled
-    between waves so a stop request halts before launching more games (games
-    already in flight finish)."""
+    every game's policy forward pass is batched together (in the ``vs_random``
+    phase only the net's seat-0 queries route through the server — seat 1 picks
+    randomly off-server). Returns the finished records in ``seeds`` order.
+    ``on_game_done`` fires once per game as it completes (from a worker thread,
+    serialized), and ``should_stop`` is polled between waves so a stop request
+    halts before launching more games (games already in flight finish)."""
     server = _BatchInferenceServer(net, device)
     server.start()
     results: list[collect.GameRecord | None] = [None] * len(seeds)
@@ -79,7 +86,15 @@ def collect_games(
                 break
             batch = list(range(start, min(start + wave, len(seeds))))
             _run_wave(
-                net, device, server, seeds, batch, results, on_game_done, done_lock
+                net,
+                device,
+                server,
+                seeds,
+                batch,
+                results,
+                on_game_done,
+                done_lock,
+                vs_random,
             )
     finally:
         server.stop()
@@ -195,13 +210,14 @@ def _run_wave(
     results: list[collect.GameRecord | None],
     on_game_done: typing.Callable[[collect.GameRecord], None] | None,
     done_lock: threading.Lock,
+    vs_random: bool,
 ) -> None:
     """Play one wave of games (one thread each) to completion."""
 
     def run_one(slot: int) -> None:
         server.register()
         try:
-            record = _play_one_game(net, device, server, seeds[slot])
+            record = _play_one_game(net, device, server, seeds[slot], vs_random)
         finally:
             server.unregister()
         results[slot] = record
@@ -224,15 +240,22 @@ def _play_one_game(
     device: torch.device,
     server: _BatchInferenceServer,
     seed: int,
+    vs_random: bool,
 ) -> collect.GameRecord:
-    """Play a single self-play game whose policy queries route through the
-    shared batch server. Mirrors :func:`collect.play_game` exactly apart from
-    the batched inference path."""
+    """Play a single game whose policy queries route through the shared batch
+    server. Mirrors :func:`collect.play_game` exactly apart from the batched
+    inference path: self-play by default, or — when ``vs_random`` — the net's
+    recording agent at seat 0 against an off-server random agent at seat 1."""
     eng = collect.new_engine(seed)
     recorded: list[train.Step] = []
     sample_rng = random.Random(seed ^ _SAMPLE_RNG_SALT)
-    agent = _batched_recording_agent(server, sample_rng, recorded)
-    engine.Engine.play_one_game(eng.state, (agent, agent))
+    net_agent = _batched_recording_agent(server, sample_rng, recorded)
+    agent_a, agent_b = (
+        (net_agent, agents.random_agent(random.Random(seed ^ _OPPONENT_RNG_SALT)))
+        if vs_random
+        else (net_agent, net_agent)
+    )
+    engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
 
     breakdowns = (
         collect.player_breakdown(eng.state.players[0]),

@@ -207,11 +207,18 @@ class GettingBetterChart:
         )
         merged = _join_columns([(left, left_w), (right, right_w)], _CHART_GAP)
 
+        random_phase = _is_random_phase(self.state)
         if inset:
-            eval_box = _eval_inset(self.state, len(merged))
-            merged = _merge_columns(eval_box, merged, _INSET_W)
+            box_lines = (
+                _collect_inset(self.state, len(merged))
+                if random_phase
+                else _eval_inset(self.state, len(merged))
+            )
+            merged = _merge_columns(box_lines, merged, _INSET_W)
         else:
-            merged.extend(_eval_strip(self.state))
+            merged.extend(
+                _collect_strip(self.state) if random_phase else _eval_strip(self.state)
+            )
 
         for i, line in enumerate(merged):
             if i:
@@ -238,7 +245,7 @@ def _winrate_block(
     _draw_series(canvas, 0, ewma, it_lo, it_hi, 0.0, 100.0, dotted=False)
     beacon = _beacon_cell(canvas, ewma, it_lo, it_hi, 0.0, 100.0)
 
-    threshold = state.config.opponent_reset_win_rate * 100.0
+    threshold = _winrate_threshold_pct(state)
     target_row = (
         round((1.0 - threshold / 100.0) * (rows - 1)) if threshold > 0 else None
     )
@@ -307,13 +314,29 @@ def _score_margin_block(
 
 def _winrate_title(state: runstate.RunState, width: int) -> text.Text:
     """``WIN RATE vs <opponent>`` — the win-rate value itself is dropped here
-    since it is shown large in the docked EVAL box."""
-    gen = state.opponent_generation
-    opponent = "random" if gen == 0 else f"self·gen{gen}"
+    since it is shown large in the docked box (the EVAL win-rate, or the
+    collection win-rate during the random-opponent bootstrap phase)."""
     title = text.Text(no_wrap=True, end="", overflow="ellipsis")
     title.append("WIN RATE", style=f"bold {theme.WIN_COLOR}")
-    title.append(f" vs {opponent}", style=theme.AXIS)
+    if _is_random_phase(state):
+        title.append(" vs random · collect", style=theme.AXIS)
+    else:
+        gen = state.opponent_generation
+        opponent = "random" if gen == 0 else f"self·gen{gen}"
+        title.append(f" vs {opponent}", style=theme.AXIS)
     return _pad_to(title, width)
+
+
+def _is_random_phase(state: runstate.RunState) -> bool:
+    return state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT
+
+
+def _winrate_threshold_pct(state: runstate.RunState) -> float:
+    """The win-rate the dashed threshold line marks: the bootstrap graduation
+    bar during the random phase, the opponent-advance bar otherwise."""
+    if _is_random_phase(state):
+        return state.config.random_phase_win_rate * 100.0
+    return state.config.opponent_reset_win_rate * 100.0
 
 
 def _score_margin_title(state: runstate.RunState, width: int) -> text.Text:
@@ -791,6 +814,12 @@ def _inset_blank() -> text.Text:
 def _inset_title(last_eval: tuple[int, metrics.EvalResult] | None) -> text.Text:
     """The top border of the eval inset, naming the most recent eval iteration."""
     label = "EVAL" if last_eval is None else f"EVAL · iter {last_eval[0]:04d}"
+    return _inset_box_title(label)
+
+
+def _inset_box_title(label: str) -> text.Text:
+    """A docked-inset top border carrying ``label`` (shared by the EVAL and
+    COLLECT insets)."""
     title = text.Text(no_wrap=True, end="")
     title.append("┌─ ", style=theme.BORDER_EVAL)
     title.append(label + " ", style=theme.BORDER_EVAL)
@@ -850,6 +879,70 @@ def _eval_strip(state: runstate.RunState) -> list[text.Text]:
             f"  ewma {ewma.win_rate * 100:.1f}% / {ewma.mean_margin:+.1f}",
             style=theme.TEXT_DIM2,
         )
+    return [line]
+
+
+def _collect_inset(state: runstate.RunState, height: int) -> list[text.Text]:
+    """The left-docked bootstrap-phase box — the random-phase twin of
+    :func:`_eval_inset`: the cinematic hero collection win-rate (vs random), its
+    last / EWMA readouts, and the graduation target. Padded to ``height`` so it
+    aligns with the plots."""
+    last_iter = state.last_iter
+    label = (
+        "COLLECT" if last_iter is None else f"COLLECT · iter {last_iter.iteration:04d}"
+    )
+    body: list[text.Text] = [_inset_box_title(label)]
+
+    if last_iter is None or last_iter.collection_win_rate is None:
+        body.append(_inset_text("  collecting vs random…", theme.TEXT_MUTED))
+    else:
+        last = last_iter.collection_win_rate
+        ewma = state.collection_win_rate_ewma()
+        hero_pct = (ewma if ewma is not None else last) * 100.0
+        body.extend(_hero_block(hero_pct, None))
+        body.append(_inset_section("LAST"))
+        body.append(_inset_kv("win rate", f"{last * 100:.1f}%", theme.WIN_COLOR))
+        body.append(
+            _inset_kv("margin", f"{last_iter.avg_margin:+.1f} pts", theme.MARGIN_COLOR)
+        )
+        if ewma is not None:
+            body.append(_inset_blank())
+            body.append(_inset_section("EWMA"))
+            body.append(_inset_kv("win rate", f"{ewma * 100:.1f}%", theme.WIN_COLOR))
+        body.append(_inset_blank())
+        body.append(_inset_kv("opponent", "random", theme.TEXT_DIM2))
+        body.append(
+            _inset_kv(
+                "graduate @",
+                f"{state.config.random_phase_win_rate * 100:.0f}%",
+                theme.TEXT_DIM2,
+            )
+        )
+
+    while len(body) < height - 1:
+        body.append(_inset_blank())
+    footer = text.Text(no_wrap=True, end="")
+    footer.append("└" + "─" * (_INSET_W - 2) + "┘", style=theme.BORDER_EVAL)
+    return body[: height - 1] + [footer]
+
+
+def _collect_strip(state: runstate.RunState) -> list[text.Text]:
+    """Compact one-line bootstrap readout when the panel is too narrow for the
+    inset (the random-phase twin of :func:`_eval_strip`)."""
+    line = text.Text(no_wrap=True, end="")
+    line.append(" " * _GUTTER_W)
+    last = None if state.last_iter is None else state.last_iter.collection_win_rate
+    if last is None:
+        line.append(
+            "collect: vs random, awaiting first iteration…", style=theme.TEXT_MUTED
+        )
+        return [line]
+    ewma = state.collection_win_rate_ewma()
+    line.append("collect ", style=theme.TEXT_MUTED)
+    line.append(f"{last * 100:.1f}%", style=theme.hero_color(last * 100))
+    line.append(" vs random", style=theme.TEXT_DIM2)
+    if ewma is not None:
+        line.append(f"  ewma {ewma * 100:.1f}%", style=theme.TEXT_DIM2)
     return [line]
 
 

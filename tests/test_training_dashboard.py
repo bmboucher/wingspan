@@ -198,6 +198,9 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
         eval_games=2,
         hidden=32,
         checkpoint_dir=str(tmp_path),
+        # Exercise the self-play + eval path directly (the random-opponent
+        # bootstrap phase pauses eval; that path is covered separately).
+        initial_vs_random=False,
     )
     training = loop.TrainingLoop(cfg)
     training.run()  # synchronous (no worker thread) for a deterministic test
@@ -245,6 +248,9 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
         eval_games=2,
         hidden=32,
         checkpoint_dir=str(tmp_path),
+        # Resume continuity is tested on the self-play + eval regime; the
+        # bootstrap phase has its own resume/graduation coverage.
+        initial_vs_random=False,
     )
     first = loop.TrainingLoop(cfg)
     first.run()
@@ -287,3 +293,128 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     # leaving only this startup's process file.
     assert (tmp_path / "games.jsonl").read_text() == ""
     assert len(list(tmp_path.glob("process_*.json"))) == 1
+
+
+# ---------------------------------------------------------------------------
+# Random-opponent bootstrap phase
+
+
+def _bootstrap_iteration(collection_win_rate: float) -> metrics.IterationMetrics:
+    """A finished-iteration metrics row in the bootstrap shape: a collection
+    win-rate vs random and no eval block."""
+    breakdown = metrics.ScoreBreakdown(birds=20.0)
+    return _sample_iteration(breakdown).model_copy(
+        update={"collection_win_rate": collection_win_rate, "eval": None}
+    )
+
+
+def _bootstrap_config(
+    tmp_path: pathlib.Path, **overrides: object
+) -> config.TrainConfig:
+    base: dict[str, object] = {
+        "device": "cpu",
+        "games_per_iter": 2,
+        "max_iterations": 1,
+        "hidden": 32,
+        "checkpoint_dir": str(tmp_path),
+        "initial_vs_random": True,
+        "random_phase_win_rate": 0.5,
+        "eval_ewma_alpha": 0.3,
+    }
+    base.update(overrides)
+    return config.TrainConfig.model_validate(base)
+
+
+def test_collection_win_rate_ewma():
+    state = runstate.new_run_state(
+        config.TrainConfig(device="cpu", eval_ewma_alpha=0.3)
+    )
+    assert state.collection_win_rate_ewma() is None  # nothing folded yet
+
+    # Self-play iterations (collection_win_rate is None) are skipped; only the
+    # bootstrap rows fold, in order, at alpha = 0.3.
+    state.history.append(_bootstrap_iteration(0.4))
+    state.history.append(_sample_iteration(metrics.ScoreBreakdown()))  # eval row
+    state.history.append(_bootstrap_iteration(0.6))
+    state.history.append(_bootstrap_iteration(0.8))
+
+    expected = 0.4
+    expected = 0.3 * 0.6 + 0.7 * expected
+    expected = 0.3 * 0.8 + 0.7 * expected
+    ewma = state.collection_win_rate_ewma()
+    assert ewma is not None
+    assert abs(ewma - expected) < 1e-9
+
+
+def test_training_phase_round_trips_through_progress():
+    cfg = config.TrainConfig(device="cpu")
+    # A checkpoint written before the phase existed defaults to SELF_PLAY.
+    assert runstate.RunProgress().training_phase is runstate.TrainingPhase.SELF_PLAY
+
+    state = runstate.new_run_state(cfg)
+    state.training_phase = runstate.TrainingPhase.RANDOM_OPPONENT
+    progress = state.to_progress()
+    assert progress.training_phase is runstate.TrainingPhase.RANDOM_OPPONENT
+
+    restored = runstate.new_run_state(cfg)
+    restored.restore_progress(progress)
+    assert restored.training_phase is runstate.TrainingPhase.RANDOM_OPPONENT
+
+
+def test_training_loop_bootstrap_collects_vs_random(tmp_path: pathlib.Path):
+    # A graduation bar of 1.0 keeps the single iteration in the bootstrap phase;
+    # the assertions below hold whether or not it happens to graduate.
+    training = loop.TrainingLoop(_bootstrap_config(tmp_path, random_phase_win_rate=1.0))
+    # A fresh run opens in the bootstrap phase against the random agent (no
+    # frozen opponent yet — generation 0).
+    assert training.state.training_phase is runstate.TrainingPhase.RANDOM_OPPONENT
+    assert training.state.opponent_generation == 0
+
+    training.run()
+
+    last = training.state.last_iter
+    assert last is not None
+    # Eval is paused in the bootstrap phase; strength is the collection win-rate.
+    assert last.eval is None
+    assert last.eval_seconds == 0.0
+    assert last.collection_win_rate is not None
+    assert 0.0 <= last.collection_win_rate <= 1.0
+    # No eval ran, so no best.pt was written during the bootstrap phase.
+    assert not (tmp_path / "best.pt").exists()
+
+
+def test_bootstrap_graduates_to_self_play(tmp_path: pathlib.Path):
+    training = loop.TrainingLoop(_bootstrap_config(tmp_path))
+    assert training.state.training_phase is runstate.TrainingPhase.RANDOM_OPPONENT
+
+    # Pre-load the win-rate history so the first real iteration's EWMA clears the
+    # 0.5 bar regardless of how the untrained net actually fares against random
+    # (EWMA ends at 0.3·win + 0.7·1.0 >= 0.7). Graduation then runs through the
+    # ordinary commit path.
+    for _ in range(5):
+        training.state.history.append(_bootstrap_iteration(1.0))
+    training.run()
+
+    assert training.state.training_phase is runstate.TrainingPhase.SELF_PLAY
+    assert training.state.opponent_generation == 1  # froze self·gen1
+    assert (tmp_path / "opponent.pt").exists()  # and persisted for resume
+
+    # A resumed run restores the graduated phase and reloads self·gen1.
+    resumed = loop.TrainingLoop(_bootstrap_config(tmp_path))
+    assert resumed.state.training_phase is runstate.TrainingPhase.SELF_PLAY
+    assert resumed.state.opponent_generation == 1
+
+
+def test_bootstrap_stays_below_graduation_threshold(tmp_path: pathlib.Path):
+    training = loop.TrainingLoop(_bootstrap_config(tmp_path))
+
+    # Pre-load a 0.0 win-rate history so the first real iteration's EWMA stays
+    # below the 0.5 bar regardless of the net's actual result (EWMA ends at
+    # 0.3·win + 0.7·0.0 <= 0.3): the run must remain in the bootstrap phase.
+    for _ in range(5):
+        training.state.history.append(_bootstrap_iteration(0.0))
+    training.run()
+
+    assert training.state.training_phase is runstate.TrainingPhase.RANDOM_OPPONENT
+    assert training.state.opponent_generation == 0
+    assert not (tmp_path / "opponent.pt").exists()
