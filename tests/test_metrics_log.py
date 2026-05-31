@@ -65,12 +65,23 @@ def test_reads_all_rows(tmp_path: pathlib.Path):
     assert rows[2].avg_self_score == 60.0
 
 
-def test_unchanged_file_is_cached(tmp_path: pathlib.Path):
+def test_unchanged_fingerprint_serves_cache(tmp_path: pathlib.Path):
     log = tmp_path / artifacts.METRICS_LOG
     _write(log, [_row(0, 50.0)])
+    original = log.stat()
     first = metrics_log.read_iteration_history(str(tmp_path))
-    second = metrics_log.read_iteration_history(str(tmp_path))
-    assert first is second  # the memoised list is returned without re-parsing
+    assert [row.iteration for row in first] == [0]
+
+    # Overwrite with a same-length payload (iteration 1 prints the same byte
+    # length as iteration 0) and restore the exact size + mtime, so the cache
+    # fingerprint is unchanged. A correct cache then serves the stale parse
+    # rather than re-reading the new bytes.
+    log.write_text(_row(1, 50.0).model_dump_json() + "\n", encoding="utf-8")
+    os.utime(log, (original.st_atime, original.st_mtime))
+    assert log.stat().st_size == original.st_size  # fingerprint unchanged
+
+    cached = metrics_log.read_iteration_history(str(tmp_path))
+    assert [row.iteration for row in cached] == [0]  # stale snapshot served
 
 
 def test_growth_invalidates_cache(tmp_path: pathlib.Path):

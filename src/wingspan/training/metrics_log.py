@@ -56,9 +56,11 @@ def read_iteration_history(checkpoint_dir: str) -> list[metrics.IterationMetrics
     ):
         return cached.rows
 
-    rows = _parse(path)
-    _CACHE[key] = _CachedLog(size=stat.st_size, mtime=stat.st_mtime, rows=rows)
-    return rows
+    entry = _CachedLog(size=stat.st_size, mtime=stat.st_mtime, rows=_parse(path))
+    _CACHE[key] = entry
+    # Return the stored model's ``rows`` (pydantic re-wraps the list on
+    # construction) so a subsequent cached read returns the *same* object.
+    return entry.rows
 
 
 def _parse(path: pathlib.Path) -> list[metrics.IterationMetrics]:

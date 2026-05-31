@@ -191,6 +191,19 @@ def test_titles_swap_to_final_score_and_margin(tmp_path: pathlib.Path):
     assert "AVG POINTS" not in plain  # the old title is gone
 
 
+def test_inset_opponent_names_frozen_challenger():
+    from wingspan.training import charts
+
+    state = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    assert charts._inset_opponent(state) == "random"
+    assert charts._inset_since(state) == "—"
+    state.opponent_generation = 2
+    state.opponent_since_iteration = 120
+    state.iteration = 175
+    assert charts._inset_opponent(state) == "gen2 @ 0120"
+    assert charts._inset_since(state) == "55 iters"
+
+
 def test_eval_box_shows_frozen_challenger(tmp_path: pathlib.Path):
     state = _state(tmp_path)
     for iteration in range(0, 200, 50):
@@ -200,8 +213,8 @@ def test_eval_box_shows_frozen_challenger(tmp_path: pathlib.Path):
     state.iteration = 175
     state.last_iter = state.history[-1]
     plain = _render(state, colorize=False)
-    assert "challenger" in plain and "frozen iter" in plain
-    assert "gen2" in plain and "0120" in plain
+    assert "challenger" in plain
+    assert "gen2 @ 0120" in plain
 
 
 def test_renders_long_history_with_markers(tmp_path: pathlib.Path):

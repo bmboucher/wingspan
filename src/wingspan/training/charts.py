@@ -690,10 +690,10 @@ def _bresenham(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
 def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
     """The left-docked eval box: the cinematic hero win-rate, then the most
     recent win-rate / margin, then an identical EWMA section, then the eval
-    sample size, the challenger (random or the frozen generation and the
-    iteration it was frozen at), and how many iterations have passed since the
-    last upgrade. Padded with blank lines to ``height`` so it aligns with the
-    plots."""
+    sample size, the challenger (``random`` or ``gen N @ iter`` — the frozen
+    generation and the iteration it was frozen at), and how many iterations have
+    passed since the last upgrade. Padded with blank lines to ``height`` so it
+    aligns with the plots."""
     last_eval = _latest_eval(state)
     body: list[text.Text] = [_inset_title(last_eval)]
 
@@ -703,6 +703,11 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
         _, result = last_eval
         ewma = state.eval_ewma()
         body.extend(_hero_block(result.win_rate * 100.0, state.best_win_rate))
+        # The challenger identity rides right under the hero number so it
+        # survives even when a short panel truncates the LAST / EWMA detail.
+        body.append(_inset_kv("challenger", _inset_opponent(state), theme.TEXT_DIM2))
+        body.append(_inset_kv("since adv", _inset_since(state), theme.TEXT_DIM2))
+        body.append(_inset_blank())
         body.append(_inset_section("LAST"))
         body.append(
             _inset_kv("win rate", f"{result.win_rate * 100:.1f}%", theme.WIN_COLOR)
@@ -721,9 +726,6 @@ def _eval_inset(state: runstate.RunState, height: int) -> list[text.Text]:
             )
         body.append(_inset_blank())
         body.append(_inset_kv("eval games", f"{result.n_games}", theme.TEXT_DIM2))
-        body.append(_inset_kv("challenger", _inset_opponent(state), theme.TEXT_DIM2))
-        body.append(_inset_kv("frozen iter", _inset_frozen(state), theme.TEXT_DIM2))
-        body.append(_inset_kv("since adv", _inset_since(state), theme.TEXT_DIM2))
         if state.best_win_rate is not None:
             body.append(
                 _inset_kv(
@@ -809,18 +811,13 @@ def _inset_section(label: str) -> text.Text:
 
 
 def _inset_opponent(state: runstate.RunState) -> str:
-    """The current reference opponent (the "challenger"): ``random`` or the
-    frozen self generation ``gen N``."""
+    """The current reference opponent (the "challenger"): ``random`` while still
+    evaluating against the random agent, otherwise the frozen self generation and
+    the iteration it was frozen at (``gen N @ iter``)."""
     gen = state.opponent_generation
-    return "random" if gen == 0 else f"gen{gen}"
-
-
-def _inset_frozen(state: runstate.RunState) -> str:
-    """The iteration the current frozen-self opponent was frozen at (a dash while
-    still evaluating against the random agent, where no frozen self exists)."""
-    if state.opponent_generation == 0:
-        return "—"
-    return f"{state.opponent_since_iteration:04d}"
+    if gen == 0:
+        return "random"
+    return f"gen{gen} @ {state.opponent_since_iteration:04d}"
 
 
 def _inset_since(state: runstate.RunState) -> str:
