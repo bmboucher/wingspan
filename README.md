@@ -1,29 +1,22 @@
 # Wingspan
 
-A simulator and reinforcement-learning training pipeline for the board game
-[Wingspan](https://stonemaiergames.com/games/wingspan/). You can play a full
-game from the terminal, run quick automated games for logs or debugging, and
-train a neural-network agent by self-play while watching it improve on a live
-dashboard.
+A simulator and reinforcement-learning training pipeline for the **core-set,
+two-player** board game [Wingspan](https://stonemaiergames.com/games/wingspan/).
+You can play a full game from the terminal, run quick automated games for logs or
+debugging, watch a trained network play (against itself, a frozen past self, or a
+random agent), and train a neural-network agent by self-play while watching it
+improve on a live dashboard.
 
-## What's modelled
+## Setup
 
-- **Core set, two players, no automa:** 180 birds, 26 bonus cards, 16
-  end-of-round goals.
-- Every bird's "when played / when activated / between turns" power is handled
-  by a small library of generic power patterns. All core-set birds are covered;
-  anything a future pattern doesn't yet recognise falls back to a logged no-op
-  so a game never crashes, and the interactive game prints a power-coverage
-  report at startup so you can see what's modelled.
-
-## Install
+Requires **Python 3.12+**. Install the package (editable) into your environment:
 
 ```
 pip install -e .
 ```
 
 This pulls in everything needed to play and to train (PyTorch, NumPy, Pydantic,
-rich). For the test suite and developer tooling:
+rich). For the test suite and developer tooling (pyright, black, isort, pytest):
 
 ```
 pip install -e ".[dev]"
@@ -59,9 +52,29 @@ python -m wingspan.cli random --log game.log             # write the full action
 python -m wingspan.cli random --games 5 --log games.log  # writes games.log.0 .. games.log.4
 ```
 
-Games between **AI players** — the policy/value network playing against itself —
-are run by the training pipeline below: self-play generates the training data,
-and the agent is periodically evaluated head-to-head against a random opponent.
+To pit a *trained* network against itself, a frozen past self, or the random
+agent, use the `selfplay` command below.
+
+## Watch trained agents play
+
+Once you have a checkpoint (see **Train an agent**), `selfplay` runs games with
+any agent in either seat, so the random/random, random/AI, and AI/AI matchups all
+go through one command. Set each seat with `--p0` / `--p1`; the value is
+`random`, a named checkpoint (`last`, `best`, or `opponent`, resolved against
+`--checkpoint-dir`), or a path to a `.pt` file:
+
+```
+python -m wingspan.cli selfplay --p0 best                            # trained "best" vs random
+python -m wingspan.cli selfplay --p0 best --p1 opponent --games 10   # best vs the frozen ladder rung
+python -m wingspan.cli selfplay --p0 best --p1 best --greedy --log ai.log  # best vs itself, argmax play
+python -m wingspan.cli selfplay --p0 runs/exp/last.pt --p1 random    # a checkpoint by path
+```
+
+When a seat is AI-driven, every genuine decision is annotated in the game log
+with the policy's ranked probability distribution over the legal options, turning
+the log into a move-by-move readout of what the network was "thinking".
+`--greedy` makes AI agents take the argmax option instead of sampling; `--games`,
+`--log`, `--seed`, and `--quiet` behave as in the `random` command.
 
 ## Train an agent
 
@@ -83,6 +96,11 @@ checkpoint directory (`checkpoints/` by default; change it with
 `--checkpoint-dir`), and runs are resumable. Pass `--iterations N` to stop
 automatically after N rounds instead.
 
+You can also set a **target-iteration** milestone (in the configurator below):
+the run pauses there, runs a large fixed-model self-play evaluation, and waits
+for you to **[C]ontinue** — optionally entering a new target — or **[E]nd** the
+run and return to the configurator.
+
 ### Configure a run
 
 ```
@@ -90,12 +108,13 @@ python -m wingspan.training --config            # interactive "FLIGHT PLAN" conf
 ```
 
 `--config` opens a full-screen pre-flight screen for tuning every
-hyperparameter (learning rate, games/iteration, evaluation cadence, network
-width, …) and managing the runs already in the checkpoint directory. Arrow keys
-move between fields, ←/→ nudge a value (or cycle a choice), and Enter edits one
-directly; every value is validated as you type. The screen shows whether the
-directory holds a resumable run and flags which edits would force a fresh start
-(changing the network width can't reuse old weights). From there:
+hyperparameter (learning rate, games/iteration, evaluation cadence,
+target-iteration milestone, network width, …) and managing the runs already in
+the checkpoint directory. Arrow keys move between fields, ←/→ nudge a value (or
+cycle a choice), and Enter edits one directly; every value is validated as you
+type. The screen shows whether the directory holds a resumable run and flags
+which edits would force a fresh start (changing the network width can't reuse old
+weights). From there:
 
 - **Start** resumes a compatible run, or starts a fresh one in an empty
   directory.
@@ -123,18 +142,29 @@ See [TRAINING.md](TRAINING.md) for the training program and
 
 After `pip install -e .` the same entry points are available as plain commands:
 
-| Command             | Equivalent to                   |
-| ------------------- | ------------------------------- |
-| `wingspan-play`     | `python -m wingspan.cli manual` |
-| `wingspan-random`   | `python -m wingspan.cli random` |
-| `wingspan-dashboard`| `python -m wingspan.training`   |
-| `wingspan-train`    | `python -m wingspan.train`      |
+| Command              | Equivalent to                     |
+| -------------------- | --------------------------------- |
+| `wingspan-play`      | `python -m wingspan.cli manual`   |
+| `wingspan-random`    | `python -m wingspan.cli random`   |
+| `wingspan-selfplay`  | `python -m wingspan.cli selfplay` |
+| `wingspan-dashboard` | `python -m wingspan.training`     |
+| `wingspan-train`     | `python -m wingspan.train`        |
 
 ## Tests
 
 ```
 python -m pytest tests/
 ```
+
+## What's modelled
+
+- **Core set, two players, no automa:** 180 birds, 26 bonus cards, 16
+  end-of-round goals.
+- Every bird's "when played / when activated / between turns" power is handled
+  by a small library of generic power patterns. All core-set birds are covered;
+  anything a future pattern doesn't yet recognise falls back to a logged no-op
+  so a game never crashes, and the interactive game prints a power-coverage
+  report at startup so you can see what's modelled.
 
 ## How it's organized
 
@@ -146,7 +176,15 @@ state change through them.
   from the [wingsearch](https://github.com/navarog/wingsearch) project).
 - `src/wingspan/engine/` — the game engine: turn loop, the four main actions,
   bird-power dispatch, between-turn reactors, and scoring.
-- `src/wingspan/agents/` — the random agent and the interactive human agent.
-- `src/wingspan/encode.py`, `model.py`, `train.py` — the RL feature encoder, the
-  policy/value network, and the self-play training loop.
-- `src/wingspan/training/` — the live training-and-monitoring dashboard.
+- `src/wingspan/agents/` — the random agent and the interactive human (CLI)
+  agent.
+- `src/wingspan/encode/`, `model.py`, `architecture.py` — the RL feature encoder
+  (state + per-choice), the policy/value network, and its torch-free topology
+  descriptor.
+- `src/wingspan/train.py`, `selfplay.py` — the legacy one-shot REINFORCE cycle
+  and the configurable-matchup self-play runner.
+- `src/wingspan/training/` — the live training-and-monitoring dashboard
+  (self-play, learning, evaluation, checkpointing) and its interactive
+  configurator.
+- `src/wingspan/setup_model/` — an optional, separate model for the
+  start-of-game hand/food keep (a value-regression bandit, off by default).
