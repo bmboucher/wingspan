@@ -25,6 +25,14 @@ MODEL_CONFIG_JSON = "model_config.json"  # weight-compatibility descriptor
 PROCESS_PREFIX = "process_"  # session record name stem -> ``process_<stamp>.json``
 PROCESS_GLOB = "process_*.json"  # the dated per-session process records
 
+# Setup-model artifacts (only written when ``TrainConfig.use_setup_model``): the
+# setup net's resumable checkpoint, its weight-compatibility descriptor, and the
+# append-only log of (setup features, realized margin) samples the one-time
+# offline fit reads back. They sit beside the main-net artifacts above.
+SETUP_CKPT = "setup.pt"  # setup net + optimizer + offline-fit-done flag
+SETUP_CONFIG_JSON = "setup_config.json"  # setup-net shape descriptor
+SETUP_DATA_LOG = "setup_data.jsonl"  # one (features, margin) sample per line
+
 # The subfolder under ``checkpoint_dir`` where a finished run's artifacts are
 # moved when the configurator archives it before a fresh run.
 ARCHIVE_SUBDIR = "archive"

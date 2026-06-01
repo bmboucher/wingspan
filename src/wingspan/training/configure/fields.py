@@ -43,6 +43,7 @@ class ConfigSection(enum.StrEnum):
     OPTIM = "optimization"
     EVAL = "evaluation"
     MODEL = "model & seed"
+    SETUP = "setup model"
     RUNTIME = "runtime"
     CHECKPOINT = "checkpoints"
 
@@ -53,6 +54,7 @@ SECTION_ORDER: tuple[ConfigSection, ...] = (
     ConfigSection.OPTIM,
     ConfigSection.EVAL,
     ConfigSection.MODEL,
+    ConfigSection.SETUP,
     ConfigSection.RUNTIME,
     ConfigSection.CHECKPOINT,
 )
@@ -370,6 +372,119 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="iters",
         step=128,
         help="In-memory iterations retained for the live convergence charts.",
+    ),
+    ChoiceField(
+        attr="use_setup_model",
+        label="use setup model",
+        section=ConfigSection.SETUP,
+        choices=["True", "False"],
+        impact=ChangeImpact.REGIME,
+        help="Train the start-of-game keep with a separate value-regression net "
+        "instead of the in-game policy. Off = unchanged behaviour. Has its own "
+        "checkpoint, so toggling it never invalidates the main net's weights.",
+    ),
+    LayersField(
+        attr="setup_hidden_layers",
+        label="setup layers",
+        section=ConfigSection.SETUP,
+        unit="units",
+        impact=ChangeImpact.REGIME,
+        help="Setup-net MLP hidden widths (input→output). Type to set sizes; ←/→ "
+        "adds/removes a layer. Changing it restarts ONLY the setup net (the main "
+        "run resumes); the setup net then refits from its recorded samples.",
+    ),
+    ChoiceField(
+        attr="setup_activation",
+        label="setup activation",
+        section=ConfigSection.SETUP,
+        choices=[name.value for name in architecture.ActivationName],
+        impact=ChangeImpact.REGIME,
+        help="Activation for the setup net's MLP blocks (resumable for the main "
+        "run; reinterprets the setup net).",
+    ),
+    FloatField(
+        attr="setup_dropout",
+        label="setup dropout",
+        section=ConfigSection.SETUP,
+        step=0.05,
+        impact=ChangeImpact.REGIME,
+        help="Dropout after each setup-net activation (training only). 0 disables.",
+    ),
+    FloatField(
+        attr="setup_lr",
+        label="setup lr",
+        section=ConfigSection.SETUP,
+        step=1e-4,
+        scientific=True,
+        help="Adam step size for the setup net's MSE updates (its own optimizer).",
+    ),
+    FloatField(
+        attr="setup_policy_temperature",
+        label="setup temperature",
+        section=ConfigSection.SETUP,
+        step=0.05,
+        help="Softmax temperature over the 504 candidates' predicted margins when "
+        "sampling a setup during collection (eval takes the argmax).",
+    ),
+    IntField(
+        attr="setup_record_start_iter",
+        label="record start @",
+        section=ConfigSection.SETUP,
+        unit="iters",
+        step=100,
+        impact=ChangeImpact.REGIME,
+        help="Iteration at which to start recording (setup, margin) samples — "
+        "below it setups are random and unrecorded (skips early bad data).",
+    ),
+    IntField(
+        attr="setup_train_iter",
+        label="train @",
+        section=ConfigSection.SETUP,
+        unit="iters",
+        step=100,
+        impact=ChangeImpact.REGIME,
+        help="Iteration at which the setup net is fit once offline on the recorded "
+        "window and then drives selection + trains on-policy. Must exceed record "
+        "start.",
+    ),
+    IntField(
+        attr="setup_hand_combos",
+        label="hand combos",
+        section=ConfigSection.SETUP,
+        step=1,
+        help="Random generator: joint (P0,P1) keep-combos sampled per shared-deal "
+        "batch.",
+    ),
+    IntField(
+        attr="setup_food_sets",
+        label="food sets",
+        section=ConfigSection.SETUP,
+        step=1,
+        help="Random generator: food keeps sampled per kept hand (softmax-biased "
+        "toward food that pays for more hand/tray birds).",
+    ),
+    IntField(
+        attr="setup_tuples_per_batch",
+        label="tuples / batch",
+        section=ConfigSection.SETUP,
+        step=1,
+        help="Random generator: joint setups sampled per batch = games sharing one "
+        "deal (should divide games/iter).",
+    ),
+    IntField(
+        attr="setup_offline_epochs",
+        label="offline epochs",
+        section=ConfigSection.SETUP,
+        step=5,
+        help="Epochs over the recorded window in the one-time offline fit.",
+    ),
+    IntField(
+        attr="setup_offline_batch_size",
+        label="setup batch size",
+        section=ConfigSection.SETUP,
+        unit="samples",
+        step=64,
+        help="Minibatch size for the setup net's offline fit and on-policy steps.",
     ),
 ]
 

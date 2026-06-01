@@ -18,7 +18,7 @@ import typing
 
 import pydantic
 
-from wingspan import architecture, decisions, encode
+from wingspan import architecture, decisions, encode, setup_model
 
 
 def _default_family_order() -> tuple[str, ...]:
@@ -134,6 +134,43 @@ class TrainConfig(pydantic.BaseModel):
     # bird, reused for every board / tray / hand / choice card slot).
     card_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] = 64
 
+    # ---- setup model (TRAINING.md / DECISIONS.md: the start-of-game keep) ----
+    # When enabled, the start-of-game setup decision is pulled out of the in-game
+    # policy into a separate value-regression bandit (``wingspan.setup_model``):
+    # setups are drawn by the random generator early on, recorded over a window,
+    # the setup net is fit once offline, then it drives setup selection and trains
+    # on-policy. Default OFF so existing checkpoints and behaviour are unchanged —
+    # this knob does not touch the *main* net's ``architecture_key``; the setup net
+    # has its own ``setup_architecture_key`` and its own checkpoint.
+    use_setup_model: bool = False
+    # The setup net's MLP hidden widths (input-to-output) — a setup-FRESH change
+    # (restarts only the setup net, never the main net).
+    setup_hidden_layers: typing.Annotated[
+        architecture.Widths, pydantic.Field(min_length=1)
+    ] = (128, 64)
+    setup_activation: architecture.ActivationName = architecture.ActivationName.RELU
+    setup_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
+    setup_lr: typing.Annotated[float, pydantic.Field(gt=0.0)] = 1e-3
+    # Softmax temperature over the 504 candidates' predicted margins when sampling
+    # a setup during collection (eval takes the argmax). Higher = more exploration
+    # while predictions are near-flat early on.
+    setup_policy_temperature: typing.Annotated[float, pydantic.Field(gt=0.0)] = 0.5
+    # Schedule (cumulative/lifetime iterations): below ``record_start`` setups are
+    # random and unrecorded; in ``[record_start, train)`` they are random and
+    # recorded; at ``train`` the net is fit once offline and then drives selection
+    # and trains on-policy. ``train`` must exceed ``record_start``.
+    setup_record_start_iter: typing.Annotated[int, pydantic.Field(ge=0)] = 1000
+    setup_train_iter: typing.Annotated[int, pydantic.Field(ge=1)] = 2000
+    # Random-generation knobs (per batch): joint keep-combos sampled, food keeps
+    # per kept hand, and joint setup tuples sampled (= games per shared-deal batch).
+    setup_hand_combos: typing.Annotated[int, pydantic.Field(ge=1)] = 10
+    setup_food_sets: typing.Annotated[int, pydantic.Field(ge=1)] = 3
+    setup_tuples_per_batch: typing.Annotated[int, pydantic.Field(ge=1)] = 16
+    # The one-time offline fit's epochs over the recorded window, and the minibatch
+    # size used for both the offline fit and the on-policy updates.
+    setup_offline_epochs: typing.Annotated[int, pydantic.Field(ge=1)] = 20
+    setup_offline_batch_size: typing.Annotated[int, pydantic.Field(ge=1)] = 256
+
     # ---- checkpointing (TRAINING.md §5) ----
     checkpoint_dir: str = "checkpoints"
     run_name: str = "dashboard"
@@ -161,6 +198,19 @@ class TrainConfig(pydantic.BaseModel):
         _ = self.arch
         return self
 
+    @pydantic.model_validator(mode="after")
+    def _check_setup_schedule(self) -> TrainConfig:
+        """The setup model must start recording before it is fit/deployed, so the
+        offline-fit window is non-empty. Enforced as a normal validation error so
+        the configurator rejects an inconsistent edit the same way it rejects an
+        out-of-range scalar."""
+        if self.setup_train_iter <= self.setup_record_start_iter:
+            raise ValueError(
+                "setup_train_iter must exceed setup_record_start_iter "
+                f"(got {self.setup_train_iter} <= {self.setup_record_start_iter})"
+            )
+        return self
+
     @property
     def eval_pairs(self) -> int:
         """Mirror-deal pairs per eval block — ``eval_games`` games played as
@@ -183,6 +233,26 @@ class TrainConfig(pydantic.BaseModel):
             layernorm=self.layernorm,
             card_embed_dim=self.card_embed_dim,
         )
+
+    @property
+    def setup_arch(self) -> setup_model.SetupArchitecture:
+        """The setup network's topology descriptor assembled from the flat setup
+        fields — what ``SetupNet`` builds from and ``setup_config.json``
+        serializes. Named ``setup_arch`` (mirroring ``arch``) so it never shadows
+        the imported ``setup_model`` package in this class's annotations."""
+        return setup_model.SetupArchitecture(
+            hidden_layers=self.setup_hidden_layers,
+            activation=self.setup_activation,
+            dropout=self.setup_dropout,
+        )
+
+    @property
+    def setup_architecture_key(self) -> tuple[int, setup_model.SetupShapeKey]:
+        """The setup-net shape signature a ``setup.pt`` must match to be resumed:
+        the encoder's feature width and the MLP's hidden shape. Independent of the
+        main net's ``architecture_key`` — toggling the setup model never
+        invalidates the main net's weights."""
+        return (setup_model.SETUP_FEATURE_DIM, self.setup_arch.shape_key)
 
     @property
     def hidden(self) -> int:

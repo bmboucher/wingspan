@@ -44,8 +44,8 @@ import numpy as np
 import pydantic
 import torch
 
-from wingspan import agents, architecture, model
-from wingspan.training import collect, config, evaluate, metrics
+from wingspan import agents, architecture, model, setup_model
+from wingspan.training import collect, config, evaluate, metrics, setup_net
 
 # Match batched_collect's per-game sampling salt so a seed maps to the same
 # sampling stream regardless of which collector plays it.
@@ -64,6 +64,10 @@ _WEIGHTS_FILENAME = "_mp_weights.pt"
 # generation advances (the random-agent opponent at generation 0 needs no file).
 _OPPONENT_FILENAME = "_mp_opponent.pt"
 
+# Broadcast setup-net weights filename, written each model-driven iteration (the
+# setup net is unused — and unwritten — in the random setup phases).
+_SETUP_WEIGHTS_FILENAME = "_mp_setup_weights.pt"
+
 # Leave a couple of cores for the main thread, the OS, and the dashboard render.
 _RESERVED_CORES = 2
 # Spawning + importing torch per worker is not free; past this the marginal
@@ -81,6 +85,16 @@ class _WorkerArch(pydantic.BaseModel):
     state_dim: int
     choice_dim: int
     arch: architecture.ModelArchitecture
+    # Setup-model shape + generation knobs a worker needs to build its local
+    # setup net and random generator. Absent (``setup_enabled=False``) when the
+    # run does not use the setup model.
+    setup_enabled: bool = False
+    setup_arch: setup_model.SetupArchitecture | None = None
+    setup_feature_dim: int = 0
+    setup_hand_combos: int = 1
+    setup_food_sets: int = 1
+    setup_tuples_per_batch: int = 1
+    setup_temperature: float = 1.0
 
 
 class _GameTask(pydantic.BaseModel):
@@ -94,6 +108,21 @@ class _GameTask(pydantic.BaseModel):
     weights_path: str
     weights_version: int
     seed: int
+    vs_random: bool = False
+
+
+class _SetupGameTask(pydantic.BaseModel):
+    """One setup-model game: the policy weights to play under, the setup-net
+    weights (used only in the model-driven phase), and the per-game setup
+    directive. ``vs_random`` selects the bootstrap phase (net at seat 0)."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    weights_path: str
+    weights_version: int
+    setup_weights_path: str
+    setup_weights_version: int
+    spec: collect.SetupGameSpec
     vs_random: bool = False
 
 
@@ -128,12 +157,23 @@ class ProcessCollector:
             state_dim=cfg.state_dim,
             choice_dim=cfg.choice_dim,
             arch=cfg.arch,
+            setup_enabled=cfg.use_setup_model,
+            setup_arch=cfg.setup_arch if cfg.use_setup_model else None,
+            setup_feature_dim=setup_model.SETUP_FEATURE_DIM,
+            setup_hand_combos=cfg.setup_hand_combos,
+            setup_food_sets=cfg.setup_food_sets,
+            setup_tuples_per_batch=cfg.setup_tuples_per_batch,
+            setup_temperature=cfg.setup_policy_temperature,
         )
         self._weights_path = pathlib.Path(cfg.checkpoint_dir) / _WEIGHTS_FILENAME
         self._opponent_path = pathlib.Path(cfg.checkpoint_dir) / _OPPONENT_FILENAME
+        self._setup_weights_path = (
+            pathlib.Path(cfg.checkpoint_dir) / _SETUP_WEIGHTS_FILENAME
+        )
         self._num_workers = num_workers or _default_worker_count(cfg.games_per_iter)
         self._pool: futures.ProcessPoolExecutor | None = None
         self._weights_version = 0
+        self._setup_weights_version = 0
         # The opponent file is rewritten only when the generation advances; -1
         # forces the first non-random eval to broadcast it.
         self._opponent_broadcast_generation = -1
@@ -176,6 +216,56 @@ class ProcessCollector:
 
         results: list[collect.GameRecord] = []
         pending = {pool.submit(_worker_play, task): task for task in tasks}
+        for future in futures.as_completed(pending):
+            record = future.result()
+            results.append(record)
+            if on_game_done is not None:
+                on_game_done(record)
+            if should_stop is not None and should_stop():
+                for other in pending:
+                    other.cancel()
+                break
+        return results
+
+    def collect_games_with_setup(
+        self,
+        net: model.PolicyValueNet,
+        setup_policy_net: setup_net.SetupNet | None,
+        device: torch.device,
+        specs: typing.Sequence[collect.SetupGameSpec],
+        on_game_done: typing.Callable[[collect.GameRecord], None] | None = None,
+        should_stop: typing.Callable[[], bool] | None = None,
+        vs_random: bool = False,
+    ) -> list[collect.GameRecord]:
+        """Play one game per ``SetupGameSpec`` across the worker pool with setups
+        chosen by the random generator / setup net (mirrors :meth:`collect_games`
+        but for the setup-model collection path). Broadcasts the policy weights
+        every call and the setup-net weights when any spec is model-driven."""
+        if not specs:
+            return []
+        pool = self._ensure_pool()
+        self._weights_version += 1
+        self._broadcast_weights(net)
+        model_driven = any(
+            spec.phase is collect.SetupPhase.MODEL_DRIVEN for spec in specs
+        )
+        if model_driven and setup_policy_net is not None:
+            self._setup_weights_version += 1
+            self._broadcast_setup_weights(setup_policy_net)
+        tasks = [
+            _SetupGameTask(
+                weights_path=str(self._weights_path),
+                weights_version=self._weights_version,
+                setup_weights_path=str(self._setup_weights_path),
+                setup_weights_version=self._setup_weights_version,
+                spec=spec,
+                vs_random=vs_random,
+            )
+            for spec in specs
+        ]
+
+        results: list[collect.GameRecord] = []
+        pending = {pool.submit(_worker_play_setup, task): task for task in tasks}
         for future in futures.as_completed(pending):
             record = future.result()
             results.append(record)
@@ -244,6 +334,7 @@ class ProcessCollector:
             self._pool = None
         self._weights_path.unlink(missing_ok=True)
         self._opponent_path.unlink(missing_ok=True)
+        self._setup_weights_path.unlink(missing_ok=True)
 
     ###### PRIVATE #######
 
@@ -272,6 +363,11 @@ class ProcessCollector:
         _save_state_atomic(self._opponent_path, opponent_net)
         self._opponent_broadcast_generation = generation
 
+    def _broadcast_setup_weights(self, setup_policy_net: setup_net.SetupNet) -> None:
+        """Write the current setup-net weights to the versioned file so workers
+        pick them up on the next model-driven version bump."""
+        _save_module_state_atomic(self._setup_weights_path, setup_policy_net)
+
 
 def _default_worker_count(games_per_iter: int) -> int:
     """Workers default to (cores - reserved), capped, and never more than the
@@ -284,9 +380,15 @@ def _default_worker_count(games_per_iter: int) -> int:
 def _save_state_atomic(path: pathlib.Path, net: model.PolicyValueNet) -> None:
     """Write ``net``'s CPU ``state_dict`` to ``path`` via a temp file + rename so
     a worker mid-read never sees a half-written file."""
+    _save_module_state_atomic(path, net)
+
+
+def _save_module_state_atomic(path: pathlib.Path, module: torch.nn.Module) -> None:
+    """Atomically write any module's CPU ``state_dict`` to ``path`` (the policy
+    net and the setup net share this write-then-rename path)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     cpu_state = {
-        name: tensor.detach().to("cpu") for name, tensor in net.state_dict().items()
+        name: tensor.detach().to("cpu") for name, tensor in module.state_dict().items()
     }
     tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save(cpu_state, tmp)
@@ -306,6 +408,13 @@ _worker_weights_version: int = -1
 # net); refreshed when the broadcast opponent generation advances.
 _worker_opponent_net: model.PolicyValueNet | None = None
 _worker_opponent_version: int = -1
+# Setup-model worker state: the local setup net + its broadcast version, the
+# random generator, and the softmax temperature. Built in ``_worker_init`` only
+# when the run uses the setup model.
+_worker_setup_net: setup_net.SetupNet | None = None
+_worker_setup_version: int = -1
+_worker_generator: setup_model.RandomSetupGenerator | None = None
+_worker_setup_temperature: float = 1.0
 
 
 def _worker_init(arch: _WorkerArch) -> None:
@@ -313,6 +422,8 @@ def _worker_init(arch: _WorkerArch) -> None:
     single thread so the workers parallelize across cores rather than fighting
     over them."""
     global _worker_arch, _worker_net, _worker_device, _worker_weights_version
+    global _worker_setup_net, _worker_setup_version, _worker_generator
+    global _worker_setup_temperature
     torch.set_num_threads(1)
     _worker_arch = arch
     _worker_device = torch.device("cpu")
@@ -323,6 +434,20 @@ def _worker_init(arch: _WorkerArch) -> None:
     ).to(_worker_device)
     _worker_net.eval()
     _worker_weights_version = -1
+    # Build the setup net + random generator once (only when the run uses the
+    # setup model), so each game just reloads weights and plays.
+    if arch.setup_enabled and arch.setup_arch is not None:
+        _worker_setup_net = setup_net.SetupNet(
+            feature_dim=arch.setup_feature_dim, arch=arch.setup_arch
+        ).to(_worker_device)
+        _worker_setup_net.eval()
+        _worker_setup_version = -1
+        _worker_setup_temperature = arch.setup_temperature
+        _worker_generator = setup_model.RandomSetupGenerator(
+            hand_combos=arch.setup_hand_combos,
+            food_sets=arch.setup_food_sets,
+            tuples_per_batch=arch.setup_tuples_per_batch,
+        )
     # This process inherits no logging handlers — the dashboard configures file
     # logging in the main process only. Without a handler, a WARNING+ record
     # emitted here (e.g. the encoder's wide-decision notices) falls through to
@@ -346,6 +471,48 @@ def _worker_play(task: _GameTask) -> collect.GameRecord:
         else None
     )
     return _compact(collect.play_game(net, device, rng, task.seed, opponent))
+
+
+def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
+    """Play one setup-model game: reload the policy (and, in the model-driven
+    phase, the setup-net) weights, then resolve setups via the worker's generator
+    / setup net and play. The opponent is the random agent in the bootstrap
+    phase, seeded off the continuation seed so a seed reproduces the matchup."""
+    net = _worker_net
+    device = _worker_device
+    generator = _worker_generator
+    assert net is not None and device is not None, "worker net not initialized"
+    assert generator is not None, "worker setup generator not initialized"
+    _maybe_reload_weights(net, device, task.weights_path, task.weights_version)
+
+    setup_policy_net: setup_net.SetupNet | None = None
+    if task.spec.phase is collect.SetupPhase.MODEL_DRIVEN:
+        setup_policy_net = _worker_setup_net
+        assert setup_policy_net is not None, "worker setup net not initialized"
+        _maybe_reload_setup_weights(
+            setup_policy_net,
+            device,
+            task.setup_weights_path,
+            task.setup_weights_version,
+        )
+    opponent = (
+        agents.random_agent(
+            random.Random(task.spec.continuation_seed ^ _OPPONENT_RNG_SALT)
+        )
+        if task.vs_random
+        else None
+    )
+    return _compact(
+        collect.play_game_with_setup(
+            net,
+            device,
+            task.spec,
+            generator,
+            setup_policy_net,
+            _worker_setup_temperature,
+            opponent,
+        )
+    )
 
 
 def _worker_eval(task: _EvalTask) -> int:
@@ -375,6 +542,11 @@ def _compact(record: collect.GameRecord) -> collect.GameRecord:
     for step in record.steps:
         step.state = step.state.astype(np.float16)
         step.choices = step.choices.astype(np.float16)
+    # The setup samples' multi-hot/one-hot features are exact in float16 (0/1)
+    # and the small count/goal stripes lose nothing meaningful; the margin stays
+    # a float. Halving the feature payload mirrors the step compaction above.
+    for sample in record.setup_samples:
+        sample.features = sample.features.astype(np.float16)
     return record
 
 
@@ -395,6 +567,23 @@ def _maybe_reload_weights(
     net.load_state_dict(state_dict)
     net.eval()
     _worker_weights_version = version
+
+
+def _maybe_reload_setup_weights(
+    net: setup_net.SetupNet, device: torch.device, path: str, version: int
+) -> None:
+    """Load ``path`` into the worker's setup net if its cached weights are older
+    than ``version`` — at most once per model-driven iteration per worker."""
+    global _worker_setup_version
+    if version == _worker_setup_version:
+        return
+    state_dict = typing.cast(
+        "dict[str, torch.Tensor]",
+        torch.load(path, map_location=device, weights_only=True),
+    )
+    net.load_state_dict(state_dict)
+    net.eval()
+    _worker_setup_version = version
 
 
 def _ensure_worker_opponent(

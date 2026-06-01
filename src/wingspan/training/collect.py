@@ -25,15 +25,30 @@ pass. Which one the training loop uses is decided per device in
 
 from __future__ import annotations
 
+import enum
 import functools
 import random
 
+import numpy as np
 import pydantic
 import torch
 
-from wingspan import cards, decisions, encode, engine, model, state, train
+from wingspan import cards, decisions, encode, engine, model, setup_model, state, train
 from wingspan.engine import scoring
-from wingspan.training import metrics, policy
+from wingspan.training import config, metrics, policy, setup_net
+
+# Distinct salt for the setup-selection RNG (random generator + setup-net sampling),
+# kept separate from the in-game sampling and opponent salts so a seed reproduces
+# the setup, the game, and the opponent without the streams sharing a sequence.
+_SETUP_RNG_SALT = 0xC2B2AE35
+# Salt for the post-setup continuation reseed, distinct from the (unsalted)
+# main-net sampling stream so a game's dice/draw rerolls and its policy sampling
+# draw from independent sequences off the same continuation seed.
+_CONTINUATION_SALT = 0x27D4EB2F
+# Offset that separates a batch's shared deal seed from the per-game seeds within
+# the same iteration (game seeds occupy ``base + [0, games_per_iter)``; batch deal
+# seeds occupy ``base + OFFSET + [0, n_batches)`` — disjoint, same iteration stride).
+_BATCH_SEED_OFFSET = 5000
 
 
 class GameRecord(pydantic.BaseModel):
@@ -48,10 +63,87 @@ class GameRecord(pydantic.BaseModel):
     breakdowns: tuple[metrics.ScoreBreakdown, metrics.ScoreBreakdown]
     winner: int
     seed: int
+    # Setup-model samples recorded this game (one per net-controlled seat, only
+    # in the recording / model-driven phases); empty when the setup model is off
+    # or in the unrecorded random phase.
+    setup_samples: list[setup_model.SetupSample] = pydantic.Field(
+        default_factory=list[setup_model.SetupSample]
+    )
 
     @property
     def scores(self) -> tuple[int, int]:
         return (round(self.breakdowns[0].total), round(self.breakdowns[1].total))
+
+
+class SetupPhase(enum.IntEnum):
+    """Which setup regime a game is collected under (a pure function of the
+    lifetime iteration vs the configured thresholds; computed by the loop)."""
+
+    RANDOM_NO_RECORD = 0  # iter < record_start: random setups, not recorded
+    RANDOM_RECORD = 1  # record_start <= iter < train: random setups, recorded
+    MODEL_DRIVEN = 2  # iter >= train: the setup net chooses + records on-policy
+
+    @property
+    def records(self) -> bool:
+        """Whether games in this phase contribute setup-model training samples."""
+        return self is not SetupPhase.RANDOM_NO_RECORD
+
+
+class SetupGameSpec(pydantic.BaseModel):
+    """How one game's setups are decided — the picklable per-game directive the
+    loop computes and the collectors (sequential or process-parallel) act on.
+
+    ``deal_seed`` produces the deal (shared across a batch in the random phases so
+    its games compare different keeps over one deal); ``continuation_seed`` reseeds
+    the post-setup game so those games still diverge. ``tuple_index`` picks this
+    game's joint setup out of the batch's generated set (random phases only)."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    phase: SetupPhase
+    deal_seed: int
+    continuation_seed: int
+    tuple_index: int
+    iteration: int
+
+
+def build_setup_specs(
+    cfg: config.TrainConfig, iteration: int, phase: SetupPhase
+) -> list[SetupGameSpec]:
+    """One :class:`SetupGameSpec` per game this iteration.
+
+    In the random phases, games are grouped into shared-deal batches of
+    ``setup_tuples_per_batch``: the games of a batch share a deal seed (so they
+    explore that deal's keeps) but keep distinct continuation seeds. In the
+    model-driven phase each game deals independently and the setup net chooses per
+    seat, so deal and continuation seeds coincide."""
+    base = cfg.seed * 1_000_000 + iteration * 10_000
+    tuples_per_batch = cfg.setup_tuples_per_batch
+    specs: list[SetupGameSpec] = []
+    for game_idx in range(cfg.games_per_iter):
+        game_seed = base + game_idx
+        if phase is SetupPhase.MODEL_DRIVEN:
+            specs.append(
+                SetupGameSpec(
+                    phase=phase,
+                    deal_seed=game_seed,
+                    continuation_seed=game_seed,
+                    tuple_index=0,
+                    iteration=iteration,
+                )
+            )
+        else:
+            batch_seed = base + _BATCH_SEED_OFFSET + game_idx // tuples_per_batch
+            specs.append(
+                SetupGameSpec(
+                    phase=phase,
+                    deal_seed=batch_seed,
+                    continuation_seed=game_seed,
+                    tuple_index=game_idx % tuples_per_batch,
+                    iteration=iteration,
+                )
+            )
+    return specs
 
 
 def play_game(
@@ -86,6 +178,94 @@ def play_game(
     score_0, score_1 = breakdowns[0].total, breakdowns[1].total
     winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
     return GameRecord(steps=recorded, breakdowns=breakdowns, winner=winner, seed=seed)
+
+
+def play_game_with_setup(
+    net: model.PolicyValueNet,
+    device: torch.device,
+    spec: SetupGameSpec,
+    generator: setup_model.RandomSetupGenerator,
+    setup_policy_net: setup_net.SetupNet | None,
+    setup_temperature: float,
+    opponent_agent: engine.Agent | None = None,
+) -> GameRecord:
+    """Play one game whose setups are chosen externally (the setup-model path).
+
+    The in-game decisions are still recorded for the main net exactly as in
+    :func:`play_game`; the setup phase is bypassed (no ``SetupDecision`` is ever
+    asked) and resolved by the random generator or the setup net per ``spec``.
+    Per net-controlled seat (seat 0 always; seat 1 too in self-play) a
+    ``SetupSample`` is recorded in the recording / model-driven phases, with its
+    realized margin filled in once the game's scores are known."""
+    eng = new_engine(spec.deal_seed)
+    main_rng = random.Random(spec.continuation_seed)
+    recorded: list[train.Step] = []
+    net_agent = _recording_agent(net, device, main_rng, recorded)
+    if opponent_agent is None:
+        agent_a, agent_b = net_agent, net_agent
+        net_seats = (0, 1)
+    else:
+        agent_a, agent_b = net_agent, opponent_agent
+        net_seats = (0,)
+
+    setup_rng = random.Random(spec.deal_seed ^ _SETUP_RNG_SALT)
+    pending_setups: list[tuple[int, np.ndarray]] = []
+
+    def choose_setups(
+        chooser_engine: engine.Engine,
+        dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
+    ) -> list[setup_model.SetupCandidate]:
+        context = setup_model.SetupContext.from_state(chooser_engine.state)
+        keeps = _choose_setups(
+            spec,
+            dealt,
+            context,
+            net_seats=net_seats,
+            generator=generator,
+            setup_policy_net=setup_policy_net,
+            setup_temperature=setup_temperature,
+            setup_rng=setup_rng,
+            device=device,
+        )
+        if spec.phase.records:
+            for seat in net_seats:
+                features = setup_model.encode_setup_candidate(keeps[seat], context)
+                pending_setups.append((seat, features))
+        # Shared deal, independent continuation: reseed the post-setup game (and
+        # reshuffle the undealt deck) so a batch's games — which share ``deal_seed``
+        # and thus the deal — still diverge through the rest of play.
+        chooser_engine.state.rng = random.Random(
+            spec.continuation_seed ^ _CONTINUATION_SALT
+        )
+        chooser_engine.state.rng.shuffle(chooser_engine.state.bird_deck)
+        return keeps
+
+    engine.Engine.play_one_game_with_setups(
+        eng.state, (agent_a, agent_b), choose_setups
+    )
+
+    breakdowns = (
+        player_breakdown(eng.state.players[0]),
+        player_breakdown(eng.state.players[1]),
+    )
+    score_0, score_1 = breakdowns[0].total, breakdowns[1].total
+    winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
+    totals = (score_0, score_1)
+    setup_samples = [
+        setup_model.SetupSample(
+            features=features,
+            margin=totals[seat] - totals[1 - seat],
+            iteration=spec.iteration,
+        )
+        for seat, features in pending_setups
+    ]
+    return GameRecord(
+        steps=recorded,
+        breakdowns=breakdowns,
+        winner=winner,
+        seed=spec.continuation_seed,
+        setup_samples=setup_samples,
+    )
 
 
 def player_breakdown(player: state.Player) -> metrics.ScoreBreakdown:
@@ -156,3 +336,58 @@ def _recording_agent(
         return decision.choices[chosen_idx]
 
     return agent
+
+
+def _choose_setups(
+    spec: SetupGameSpec,
+    dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
+    context: setup_model.SetupContext,
+    *,
+    net_seats: tuple[int, ...],
+    generator: setup_model.RandomSetupGenerator,
+    setup_policy_net: setup_net.SetupNet | None,
+    setup_temperature: float,
+    setup_rng: random.Random,
+    device: torch.device,
+) -> list[setup_model.SetupCandidate]:
+    """Decide both seats' setups for one game.
+
+    Random phases draw a joint setup from the generator (the batch's ``deal_seed``
+    seeds it, so a batch's games share the generated set and ``tuple_index`` picks
+    this game's); the model-driven phase scores each net seat's 504 candidates
+    with the setup net and samples (softmax over predicted margins), while any
+    random-opponent seat keeps a food-aware random keep."""
+    if spec.phase is not SetupPhase.MODEL_DRIVEN:
+        joint = generator.generate(setup_rng, (dealt[0], dealt[1]), context)
+        chosen = joint[spec.tuple_index % len(joint)]
+        return [chosen[0], chosen[1]]
+
+    assert setup_policy_net is not None, "model-driven setup needs a setup net"
+    keeps: list[setup_model.SetupCandidate] = []
+    for seat in (0, 1):
+        dealt_cards, dealt_bonus = dealt[seat]
+        if seat in net_seats:
+            candidates = setup_model.enumerate_setup_candidates(
+                dealt_cards, dealt_bonus
+            )
+            features = np.stack(
+                [setup_model.encode_setup_candidate(c, context) for c in candidates]
+            )
+            margins = _setup_predict(setup_policy_net, device, features)
+            index = setup_model.select_by_margins(margins, setup_temperature, setup_rng)
+            keeps.append(candidates[index])
+        else:
+            keeps.append(
+                generator.generate_one(setup_rng, (dealt_cards, dealt_bonus), context)
+            )
+    return keeps
+
+
+def _setup_predict(
+    setup_policy_net: setup_net.SetupNet, device: torch.device, features: np.ndarray
+) -> np.ndarray:
+    """Forward a candidate feature matrix ``(K, feature_dim)`` through the setup
+    net and return the ``(K,)`` predicted margins."""
+    with torch.no_grad():
+        feats_t = torch.tensor(features, dtype=torch.float32, device=device)
+        return setup_policy_net(feats_t).cpu().numpy()

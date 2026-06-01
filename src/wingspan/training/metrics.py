@@ -171,6 +171,22 @@ class ProduceStats(pydantic.BaseModel):
     abs_margin_std: float  # σ of the winning margin
 
 
+class SetupUpdateStats(pydantic.BaseModel):
+    """Summary of one setup-net update (the offline fit or an on-policy step).
+
+    Torch-free (plain floats / ints) so it lives here with the other metric
+    records and can be carried on the live ``RunState`` and folded into
+    ``IterationMetrics`` without pulling torch into the dashboard's read path. The
+    margin readouts are in points (the normalized regression target multiplied
+    back by ``score_norm``) so predicted and realized margins compare directly."""
+
+    loss: float  # mean MSE over the update's minibatches (normalized target)
+    pred_margin_mean: float  # mean predicted margin in points
+    realized_margin_mean: float  # mean realized margin in points
+    n_samples: int
+    n_epochs: int
+
+
 class IterationMetrics(pydantic.BaseModel):
     """One collect-then-update cycle's metrics, logged and charted."""
 
@@ -222,6 +238,16 @@ class IterationMetrics(pydantic.BaseModel):
     # self-play it is None (both seats are the net, so a collection win-rate is
     # meaningless) and strength is read from ``eval`` instead.
     collection_win_rate: float | None = None
+
+    # Setup-model readouts (all None unless ``use_setup_model``; default so
+    # pre-existing metrics rows / checkpoints still validate). ``setup_phase`` is
+    # the regime this iteration ran under; the loss / margin / sample fields carry
+    # the iteration's offline-fit or on-policy setup update.
+    setup_phase: str | None = None
+    setup_loss: float | None = None
+    setup_pred_margin_mean: float | None = None
+    setup_realized_margin_mean: float | None = None
+    setup_samples_recorded: int | None = None
 
 
 class GameOutcome(pydantic.BaseModel):

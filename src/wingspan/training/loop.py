@@ -28,7 +28,7 @@ import pydantic
 import torch
 from torch import optim
 
-from wingspan import model
+from wingspan import agents, model, setup_model
 from wingspan.training import (
     artifacts,
     batched_collect,
@@ -40,8 +40,15 @@ from wingspan.training import (
     mp_collect,
     runmeta,
     runstate,
+    setup_learner,
+    setup_net,
+    setup_runmeta,
     sysmon,
 )
+
+# Salt for the sequential (non-CPU) setup-collection path's random opponent,
+# matching the role ``mp_collect._OPPONENT_RNG_SALT`` plays on the CPU path.
+_SEQ_SETUP_OPPONENT_SALT = 0x85EBCA6B
 
 # How often the side thread refreshes the SYSTEM band's host telemetry. One
 # second keeps psutil's CPU sampling window meaningful while adding negligible
@@ -84,10 +91,26 @@ class TrainingLoop:
         # Process-parallel CPU collector, created on first collect and reused
         # across iterations (None until then, and unused on non-CPU devices).
         self._collector: mp_collect.ProcessCollector | None = None
+        # Setup model: a separate value-regression net trained on a different
+        # schedule (built only when enabled). Its optimizer, on-disk sample store,
+        # and one-time-offline-fit flag live alongside the main net's.
+        self._setup_net: setup_net.SetupNet | None = None
+        self._setup_optimizer: optim.Optimizer | None = None
+        self._setup_store: setup_model.SetupDataStore | None = None
+        self._setup_fit_done = False
+        if cfg.use_setup_model:
+            self._setup_net = setup_net.SetupNet(arch=cfg.setup_arch).to(self.device)
+            self._setup_optimizer = optim.Adam(
+                self._setup_net.parameters(), lr=cfg.setup_lr
+            )
+            self._setup_store = setup_model.SetupDataStore(
+                self._ckpt_dir / artifacts.SETUP_DATA_LOG
+            )
         # Iteration the loop starts numbering from (advanced past a resumed
         # checkpoint). Set last so resume can mutate net / optimizer / state.
         self._start_iteration = 0
         self._maybe_resume()
+        self._maybe_resume_setup()
         self._init_training_phase()
         self._reset_history_logs_if_fresh()
         self._write_run_metadata()
@@ -226,6 +249,10 @@ class TrainingLoop:
                 log_path.write_text("", encoding="utf-8")
         for stale_session in self._ckpt_dir.glob(artifacts.PROCESS_GLOB):
             stale_session.unlink(missing_ok=True)
+        # The setup-sample log is append-only history too — clear it on a fresh
+        # run so a new run's offline fit never reads a prior run's samples.
+        if self._setup_store is not None:
+            self._setup_store.clear()
 
     def _write_run_metadata(self) -> None:
         """Drop this startup's JSON sidecars: the (overwritten) model descriptor
@@ -233,6 +260,8 @@ class TrainingLoop:
         resume decision, so the process record can note where it resumed from."""
         now = datetime.datetime.now()
         runmeta.write_model_config(self.config.checkpoint_dir, self.config)
+        if self.config.use_setup_model:
+            setup_runmeta.write_setup_config(self.config.checkpoint_dir, self.config)
         session_path = runmeta.write_session_record(
             self.config.checkpoint_dir,
             self.config,
@@ -306,8 +335,23 @@ class TrainingLoop:
             self.state.game_in_iter = 0
             self.state.iter_start_monotonic = time.monotonic()
 
+        # Setup-model schedule: which regime this iteration runs under (None when
+        # the feature is off). The one-time offline fit happens before this
+        # iteration's collection so the net is trained before it drives selection.
+        setup_phase = (
+            self._setup_phase_for(iteration) if self.config.use_setup_model else None
+        )
+        if setup_phase is not None:
+            with self.lock:
+                self.state.setup_phase = setup_phase.name
+            if (
+                setup_phase is collect.SetupPhase.MODEL_DRIVEN
+                and not self._setup_fit_done
+            ):
+                self._run_offline_setup_fit()
+
         collect_start = time.monotonic()
-        records = self._collect(iteration)
+        records = self._collect(iteration, setup_phase)
         collect_seconds = time.monotonic() - collect_start
         if not records:
             return  # stopped before completing any game this iteration
@@ -332,6 +376,14 @@ class TrainingLoop:
                 f"entropy {stats.entropy:.3f} · |grad| {stats.grad_norm:.2f}",
             )
 
+        # Setup-model update: record this iteration's samples (random-record
+        # phase) or run one on-policy MSE step (model-driven phase).
+        setup_stats = (
+            self._update_setup(setup_phase, records)
+            if setup_phase is not None
+            else None
+        )
+
         eval_result, eval_seconds = self._maybe_evaluate(iteration)
 
         # Only the bootstrap phase has a meaningful collection win-rate: the net
@@ -351,22 +403,32 @@ class TrainingLoop:
             update_seconds,
             eval_seconds,
             collection_win_rate,
+            setup_phase,
+            setup_stats,
         )
         self._commit_iteration(iter_metrics, stats, eval_result, records)
 
     #### Collection ####
 
-    def _collect(self, iteration: int) -> list[collect.GameRecord]:
+    def _collect(
+        self, iteration: int, setup_phase: collect.SetupPhase | None
+    ) -> list[collect.GameRecord]:
         """Play ``games_per_iter`` games with batched inference, updating the
         live state as each game finishes so the dashboard advances mid-iteration.
         Games run concurrently and complete out of order; the per-game callback
         runs under ``self.lock`` so the shared state stays consistent. In the
-        bootstrap phase the games are net-vs-random rather than self-play."""
+        bootstrap phase the games are net-vs-random rather than self-play.
+
+        When the setup model is enabled (``setup_phase`` is not None), setups are
+        chosen externally via the setup-aware collection path instead of by the
+        in-game policy."""
+        vs_random = self.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT
+        if setup_phase is not None:
+            return self._collect_with_setup(iteration, setup_phase, vs_random)
         seeds = [
             self.config.seed * 1_000_000 + iteration * 10_000 + game_idx
             for game_idx in range(self.config.games_per_iter)
         ]
-        vs_random = self.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT
         # CPU collection is GIL-bound under threads, so it fans across worker
         # processes; CUDA collection keeps the in-process batched-inference path
         # (one shared GPU forward beats one model copy per process).
@@ -380,6 +442,64 @@ class TrainingLoop:
             should_stop=self._stop.is_set,
             vs_random=vs_random,
         )
+
+    def _collect_with_setup(
+        self, iteration: int, setup_phase: collect.SetupPhase, vs_random: bool
+    ) -> list[collect.GameRecord]:
+        """Collect games whose setups are chosen by the random generator / setup
+        net. CPU fans across the worker pool (as ordinary collection does); the
+        non-CPU path runs the games sequentially in-process (the batched CUDA
+        collector does not implement the setup path — training is CPU-anyway)."""
+        specs = collect.build_setup_specs(self.config, iteration, setup_phase)
+        if self.device.type == "cpu":
+            return self._ensure_collector().collect_games_with_setup(
+                self.net,
+                self._setup_net,
+                self.device,
+                specs,
+                on_game_done=self._record_collected_game,
+                should_stop=self._stop.is_set,
+                vs_random=vs_random,
+            )
+        return self._collect_with_setup_sequential(specs, vs_random)
+
+    def _collect_with_setup_sequential(
+        self, specs: list[collect.SetupGameSpec], vs_random: bool
+    ) -> list[collect.GameRecord]:
+        """In-process setup collection (the non-CPU fallback)."""
+        generator = setup_model.RandomSetupGenerator(
+            hand_combos=self.config.setup_hand_combos,
+            food_sets=self.config.setup_food_sets,
+            tuples_per_batch=self.config.setup_tuples_per_batch,
+        )
+        records: list[collect.GameRecord] = []
+        for spec in specs:
+            if self._stop.is_set():
+                break
+            opponent = (
+                agents.random_agent(
+                    random.Random(spec.continuation_seed ^ _SEQ_SETUP_OPPONENT_SALT)
+                )
+                if vs_random
+                else None
+            )
+            setup_policy_net = (
+                self._setup_net
+                if spec.phase is collect.SetupPhase.MODEL_DRIVEN
+                else None
+            )
+            record = collect.play_game_with_setup(
+                self.net,
+                self.device,
+                spec,
+                generator,
+                setup_policy_net,
+                self.config.setup_policy_temperature,
+                opponent,
+            )
+            records.append(record)
+            self._record_collected_game(record)
+        return records
 
     def _collect_multiprocess(
         self, seeds: list[int], vs_random: bool
@@ -412,6 +532,162 @@ class TrainingLoop:
                 record.winner,
             )
             self.state.game_in_iter += 1
+
+    #### Setup model ####
+
+    def _setup_phase_for(self, iteration: int) -> collect.SetupPhase:
+        """The setup regime for a (lifetime) iteration: random + unrecorded below
+        ``setup_record_start_iter``, random + recorded up to ``setup_train_iter``,
+        then model-driven. A pure function of the iteration + thresholds, so it
+        recomputes correctly on resume."""
+        if iteration < self.config.setup_record_start_iter:
+            return collect.SetupPhase.RANDOM_NO_RECORD
+        if iteration < self.config.setup_train_iter:
+            return collect.SetupPhase.RANDOM_RECORD
+        return collect.SetupPhase.MODEL_DRIVEN
+
+    def _run_offline_setup_fit(self) -> None:
+        """The one-time offline fit at ``setup_train_iter``: regress the setup net
+        onto every recorded sample, then mark the fit done so a resume past the
+        threshold never refits. A no-op (still marked done) if nothing was
+        recorded."""
+        assert self._setup_net is not None and self._setup_optimizer is not None
+        assert self._setup_store is not None
+        count = self._setup_store.count()
+        if count == 0:
+            self._setup_fit_done = True
+            with self.lock:
+                self.state.push_event(
+                    runstate.EventKind.ALARM,
+                    "SETUP offline fit skipped — no recorded samples",
+                )
+            return
+        with self.lock:
+            self.state.push_event(
+                runstate.EventKind.INFO, f"SETUP offline fit starting · {count:,} rows"
+            )
+        stats = setup_learner.offline_fit(
+            self._setup_net,
+            self._setup_optimizer,
+            self._setup_store,
+            self.config,
+            self.device,
+        )
+        self._setup_fit_done = True
+        with self.lock:
+            self.state.last_setup = stats
+            self.state.push_event(
+                runstate.EventKind.BEST,
+                f"SETUP fit {stats.n_samples:,} rows · MSE {stats.loss:.4f} · "
+                f"pred {stats.pred_margin_mean:+.1f} vs real "
+                f"{stats.realized_margin_mean:+.1f}",
+            )
+
+    def _update_setup(
+        self, setup_phase: collect.SetupPhase, records: list[collect.GameRecord]
+    ) -> metrics.SetupUpdateStats | None:
+        """Fold this iteration's setup samples into the store (record phase) or run
+        one on-policy MSE step on them (model-driven phase). None in the
+        unrecorded random phase."""
+        assert self._setup_store is not None
+        samples = [sample for record in records for sample in record.setup_samples]
+        if setup_phase is collect.SetupPhase.RANDOM_RECORD:
+            self._setup_store.append(samples)
+            stats = metrics.SetupUpdateStats(
+                loss=0.0,
+                pred_margin_mean=0.0,
+                realized_margin_mean=_mean_setup_margin(samples),
+                n_samples=len(samples),
+                n_epochs=0,
+            )
+        elif setup_phase is collect.SetupPhase.MODEL_DRIVEN:
+            assert self._setup_net is not None and self._setup_optimizer is not None
+            stats = setup_learner.online_update(
+                self._setup_net,
+                self._setup_optimizer,
+                samples,
+                self.config,
+                self.device,
+            )
+            with self.lock:
+                self.state.push_event(
+                    runstate.EventKind.INFO,
+                    f"SETUP MSE {stats.loss:.4f} · pred "
+                    f"{stats.pred_margin_mean:+.1f} vs real "
+                    f"{stats.realized_margin_mean:+.1f} ({stats.n_samples} samples)",
+                )
+        else:
+            return None
+        with self.lock:
+            self.state.last_setup = stats
+        return stats
+
+    def _maybe_resume_setup(self) -> None:
+        """Restore the setup net, its optimizer, and the offline-fit-done flag from
+        ``setup.pt`` so a resumed run continues the setup model where it left off.
+        No-ops when the feature is off, resuming is disabled, or there is no setup
+        checkpoint; a mismatched / unreadable one starts the setup net fresh with
+        an alarm (the main net resumes independently)."""
+        if self._setup_net is None or self._setup_optimizer is None:
+            return
+        if not self.config.resume:
+            return
+        path = self._ckpt_dir / artifacts.SETUP_CKPT
+        if not path.exists():
+            return
+        try:
+            payload = typing.cast(
+                "dict[str, typing.Any]",
+                torch.load(path, map_location=self.device, weights_only=False),
+            )
+        except Exception:  # noqa: BLE001 — a corrupt setup checkpoint starts fresh
+            self.state.push_event(
+                runstate.EventKind.ALARM,
+                f"could not read {artifacts.SETUP_CKPT} — setup net starting fresh",
+            )
+            return
+        if not self._setup_architecture_matches(payload):
+            self.state.push_event(
+                runstate.EventKind.ALARM,
+                f"{artifacts.SETUP_CKPT} architecture differs — setup net fresh",
+            )
+            return
+        self._setup_net.load_state_dict(payload["setup_model"])
+        self._setup_optimizer.load_state_dict(payload["setup_optimizer"])
+        for group in self._setup_optimizer.param_groups:
+            group["lr"] = self.config.setup_lr
+        self._setup_fit_done = bool(payload.get("setup_fit_done", False))
+        self.state.push_event(
+            runstate.EventKind.INFO,
+            f"resumed {artifacts.SETUP_CKPT} · offline-fit "
+            f"{'done' if self._setup_fit_done else 'pending'}",
+        )
+
+    def _setup_architecture_matches(self, payload: dict[str, typing.Any]) -> bool:
+        """Whether a ``setup.pt`` payload's setup-net shape matches this run's, so
+        its weights load without mis-shaping (the setup-net twin of
+        ``_architecture_matches``)."""
+        raw_config = payload.get("setup_config")
+        if raw_config is None:
+            return True
+        try:
+            saved = config.TrainConfig.model_validate(raw_config)
+        except pydantic.ValidationError:
+            return False
+        return saved.setup_architecture_key == self.config.setup_architecture_key
+
+    def _save_setup_checkpoint(self) -> None:
+        """Persist the setup net + optimizer + offline-fit flag to ``setup.pt``."""
+        if self._setup_net is None or self._setup_optimizer is None:
+            return
+        payload: dict[str, object] = {
+            "setup_config": self.config.model_dump(),
+            "setup_model": self._setup_net.state_dict(),
+            "setup_optimizer": self._setup_optimizer.state_dict(),
+            "setup_fit_done": self._setup_fit_done,
+            "git_sha": _git_sha(),
+        }
+        _atomic_save(payload, self._ckpt_dir / artifacts.SETUP_CKPT)
 
     #### Evaluation ####
 
@@ -686,6 +962,9 @@ class TrainingLoop:
         _atomic_save(payload, self._ckpt_dir / artifacts.LAST_CKPT)
         if improved and eval_result is not None:
             _atomic_save(payload, self._ckpt_dir / artifacts.BEST_CKPT)
+        # The setup net resumes from its own checkpoint (its own optimizer + the
+        # offline-fit flag), written alongside ``last.pt`` each iteration.
+        self._save_setup_checkpoint()
 
         with self.lock:
             # A new best is worth surfacing (it carries an eval number); a routine
@@ -805,6 +1084,8 @@ def _build_iteration_metrics(
     update_seconds: float,
     eval_seconds: float,
     collection_win_rate: float | None,
+    setup_phase: collect.SetupPhase | None,
+    setup_stats: metrics.SetupUpdateStats | None,
 ) -> metrics.IterationMetrics:
     n_games = len(records)
     sum_breakdown = metrics.ScoreBreakdown()
@@ -865,7 +1146,26 @@ def _build_iteration_metrics(
         games_per_sec=n_games / collect_seconds if collect_seconds > 0 else 0.0,
         eval=eval_result,
         collection_win_rate=collection_win_rate,
+        setup_phase=setup_phase.name if setup_phase is not None else None,
+        setup_loss=setup_stats.loss if setup_stats is not None else None,
+        setup_pred_margin_mean=(
+            setup_stats.pred_margin_mean if setup_stats is not None else None
+        ),
+        setup_realized_margin_mean=(
+            setup_stats.realized_margin_mean if setup_stats is not None else None
+        ),
+        setup_samples_recorded=(
+            setup_stats.n_samples if setup_stats is not None else None
+        ),
     )
+
+
+def _mean_setup_margin(samples: list[setup_model.SetupSample]) -> float:
+    """Mean realized margin across a list of setup samples (0 if empty) — the
+    recording phase's readout, since it runs no optimizer step."""
+    if not samples:
+        return 0.0
+    return sum(sample.margin for sample in samples) / len(samples)
 
 
 def _progress_from_payload(payload: dict[str, typing.Any]) -> runstate.RunProgress:

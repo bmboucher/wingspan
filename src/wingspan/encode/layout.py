@@ -297,3 +297,8 @@ _GOAL_CATEGORIES = [
     "total_birds",
     "egg_sets_3habitats",
 ]
+
+# Public alias of the goal-category ordering, re-exported from the package so
+# the (separately-encoded) setup model can build its own round-goal one-hots
+# against the same stable category order the state encoder uses.
+GOAL_CATEGORIES = _GOAL_CATEGORIES

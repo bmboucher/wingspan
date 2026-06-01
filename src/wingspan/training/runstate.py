@@ -223,6 +223,13 @@ class RunState(pydantic.BaseModel):
     events: list[EventLine] = pydantic.Field(default_factory=_new_events)
     error: str | None = None
 
+    # Setup-model live readouts (None when the setup model is off). ``setup_phase``
+    # is the current regime label (random / recording / model); ``last_setup`` is
+    # the most recent setup-net update summary. Transient (dashboard-only) — not
+    # persisted in ``RunProgress``; the durable record is ``metrics.jsonl``.
+    setup_phase: str | None = None
+    last_setup: metrics.SetupUpdateStats | None = None
+
     # Live host / accelerator telemetry, refreshed by the monitor thread
     # (None until the first sample lands).
     system: metrics.SystemStats | None = None

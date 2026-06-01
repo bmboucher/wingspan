@@ -21,7 +21,6 @@ Engine itself only owns the top-level turn loop, the setup phase, and the
 
 from __future__ import annotations
 
-import itertools
 import logging
 import random
 import typing
@@ -52,6 +51,27 @@ class Agent(typing.Protocol):
         decision: decisions.Decision[C],
         /,
     ) -> C: ...
+
+
+class SetupKeep(typing.Protocol):
+    """A pre-decided setup keep for one seat (e.g. a
+    ``wingspan.setup_model.SetupCandidate``).
+
+    The fixed-setup collection path only needs to convert a keep into a
+    ``SetupChoice`` to apply it, so the engine depends on this minimal protocol
+    rather than importing the setup-model package (and risking an import cycle)."""
+
+    def to_setup_choice(self) -> decisions.SetupChoice: ...
+
+
+# A callback that, given the engine and the per-seat dealt inputs
+# ``((dealt_cards, dealt_bonus), …)``, returns each seat's decided setup keep.
+# Supplied by the collector when setups are chosen externally — by the random
+# generator or the setup model — instead of by asking an agent.
+type SetupChooser = typing.Callable[
+    ["Engine", tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...]],
+    typing.Sequence[SetupKeep],
+]
 
 
 class Engine:
@@ -110,6 +130,29 @@ class Engine:
         eng = Engine(gs, agents=agents)
         eng.log("=== Wingspan game start ===")
         eng._setup_phase(agents)
+        for round_idx in range(4):
+            eng._play_round(round_idx, agents)
+        scoring.final_scoring(eng)
+        eng.state.game_over = True
+        eng.log("=== Wingspan game end ===")
+        return eng
+
+    @staticmethod
+    def play_one_game_with_setups(
+        gs: state.GameState,
+        agents: tuple[Agent, Agent],
+        choose_setups: SetupChooser,
+    ) -> Engine:
+        """Like :meth:`play_one_game`, but the setup phase is resolved by
+        ``choose_setups`` (the random generator or the setup model) instead of by
+        asking each agent — the setup-model collection path.
+
+        The engine still deals the starting hands / bonus / food, so the chooser
+        decides over exactly the inputs an agent would have seen; everything after
+        setup is identical to ``play_one_game``."""
+        eng = Engine(gs, agents=agents)
+        eng.log("=== Wingspan game start ===")
+        eng._setup_phase_fixed(choose_setups)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
@@ -259,13 +302,31 @@ class Engine:
         """Pre-round-1 setup: deal each player a starting hand, prompt the
         combined keep-cards / discard-food / bonus-card pick, log the result."""
         for player in self.state.players:
-            self._deal_starting_hand(player)
-            self._resolve_setup_choice(player, agents)
-            self.log(
-                f"[{player.name}] starts with "
-                f"hand=[{', '.join(bird.name for bird in player.hand)}] "
-                f"food={player.food.format()}"
+            dealt_cards, dealt_bonus = self._deal_setup_inputs(player)
+            self._resolve_setup_choice(player, agents, dealt_cards, dealt_bonus)
+            self._log_setup_result(player)
+
+    def _setup_phase_fixed(self, choose_setups: SetupChooser) -> None:
+        """Resolve setup from a chooser callback rather than agent prompts (the
+        setup-model path): deal each player's inputs, ask the chooser for both
+        seats' keeps over those inputs, then apply them. Skips ``Engine.ask``
+        because both seats' setups are decided together up front."""
+        dealt = tuple(self._deal_setup_inputs(player) for player in self.state.players)
+        keeps = choose_setups(self, dealt)
+        for player in self.state.players:
+            dealt_cards, dealt_bonus = dealt[player.id]
+            self._apply_setup_choice(
+                player, dealt_cards, dealt_bonus, keeps[player.id].to_setup_choice()
             )
+            self._log_setup_result(player)
+
+    def _log_setup_result(self, player: state.Player) -> None:
+        """Log a player's post-setup starting hand and retained food."""
+        self.log(
+            f"[{player.name}] starts with "
+            f"hand=[{', '.join(bird.name for bird in player.hand)}] "
+            f"food={player.food.format()}"
+        )
 
     # ------------------------------------------------------------------
     # Round / extra-plays helpers
@@ -316,22 +377,34 @@ class Engine:
             if drawn:
                 player.hand.append(drawn)
 
+    def _deal_setup_inputs(
+        self, player: state.Player
+    ) -> tuple[list[cards.Bird], list[cards.BonusCard]]:
+        """Deal ``player``'s starting hand and bonus cards and give one of each
+        food, returning the dealt cards and dealt bonus the setup pick is made
+        over. The shared dealing prefix of both setup paths (the ask-the-agent
+        ``_resolve_setup_choice`` and the fixed-setup ``_setup_phase_fixed``), so
+        a chooser decides over exactly the inputs an agent would see."""
+        self._deal_starting_hand(player)
+        dealt_bonus = self._deal_starting_bonus()
+        for food in cards.ALL_FOODS:
+            player.food[food] = 1
+        return list(player.hand), dealt_bonus
+
     def _resolve_setup_choice(
         self,
         player: state.Player,
         agents: typing.Sequence[Agent],
+        dealt_cards: list[cards.Bird],
+        dealt_bonus: list[cards.BonusCard],
     ) -> None:
-        """Present the combined hand / food / bonus pick as a single Decision.
+        """Present the combined hand / food / bonus pick as a single Decision over
+        the already-dealt inputs.
 
-        We deal bonus cards, give the player one of each food, then enumerate
-        every legal ``SetupChoice`` (kept-card subset × discarded-food subset
-        of matching size × bonus card). For the default 5-card / 2-bonus deal
-        that produces 2 * sum_k C(5,k)^2 = 504 choices, which matches the RL
+        Enumerates every legal ``SetupChoice`` (kept-card subset × retained-food
+        subset of matching size × bonus card). For the default 5-card / 2-bonus
+        deal that produces 2 * sum_k C(5,k)^2 = 504 choices, which matches the RL
         action space."""
-        dealt_bonus = self._deal_starting_bonus()
-        for food in cards.ALL_FOODS:
-            player.food[food] = 1
-        dealt_cards = list(player.hand)
         choices = self._build_setup_choices(dealt_cards, dealt_bonus)
         self.state.current_player = player.id
         decision = decisions.SetupDecision(
@@ -369,32 +442,21 @@ class Engine:
     ) -> list[decisions.SetupChoice]:
         """Enumerate every legal ``SetupChoice``.
 
-        Iteration order is ``(kept_mask, kept_food_combo, bonus)`` so the list
-        is deterministic for a given deal — useful when matching a CLI-assembled
-        answer back to a Choice instance."""
-        num_cards = len(dealt_cards)
-        all_foods = list(cards.ALL_FOODS)
-        bonuses: list[cards.BonusCard | None] = (
-            list(dealt_bonus) if dealt_bonus else [None]
-        )
-        # ``model_construct`` skips validation for these 504-per-deal options:
-        # the kept-card / kept-food subsets are built here and already valid,
-        # and the human label is left empty for ``SetupChoice.display_label``
-        # to render lazily (only the chosen / displayed option ever needs it).
-        out: list[decisions.SetupChoice] = []
-        for mask in range(1 << num_cards):
-            kept = tuple(dealt_cards[i] for i in range(num_cards) if mask & (1 << i))
-            kept_food_size = len(all_foods) - len(kept)
-            for food_combo in itertools.combinations(all_foods, kept_food_size):
-                for bc in bonuses:
-                    out.append(
-                        decisions.SetupChoice.model_construct(
-                            kept_cards=kept,
-                            kept_foods=tuple(food_combo),
-                            bonus_card=bc,
-                        )
-                    )
-        return out
+        Delegates to ``setup_model.candidates.enumerate_setup_candidates`` so the
+        504-candidate set (and its ``(kept_mask, kept_food_combo, bonus)`` order)
+        has a single source of truth shared with the setup model — which scores
+        exactly these candidates. Imported lazily to avoid an import cycle (the
+        setup-model package transitively imports the engine). Each candidate
+        renders to a ``SetupChoice`` whose label is built lazily by
+        ``display_label`` (only the chosen / displayed option ever needs it)."""
+        from wingspan.setup_model import candidates as setup_candidates
+
+        return [
+            candidate.to_setup_choice()
+            for candidate in setup_candidates.enumerate_setup_candidates(
+                dealt_cards, dealt_bonus
+            )
+        ]
 
     def _apply_setup_choice(
         self,
