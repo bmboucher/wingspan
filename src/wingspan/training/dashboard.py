@@ -61,19 +61,26 @@ def build_layout() -> layout.Layout:
     )
     root["footer"].split_row(
         layout.Layout(name="health", ratio=40),
+        layout.Layout(name="timer", size=28),
         layout.Layout(name="events", ratio=60),
     )
     return root
 
 
-def render(root: layout.Layout, state: runstate.RunState, frame: int) -> None:
+def render(
+    root: layout.Layout,
+    state: runstate.RunState,
+    frame: int,
+    pause_buffer: str = "",
+) -> None:
     """Repaint every region from the current state."""
     root["header"].update(_header(state))
     root["produce"].update(_produce(state))
     root["learning"].update(_learning(state))
     root["headline"].update(_getting_better_panel(state, frame))
     root["health"].update(_health(state))
-    root["events"].update(_events(state))
+    root["timer"].update(_timer(state))
+    root["events"].update(_events(state, pause_buffer))
 
 
 ###### PRIVATE #######
@@ -134,9 +141,13 @@ def _header_stats_row(state: runstate.RunState) -> text.Text:
 
 def _header_progress(state: runstate.RunState) -> tuple[str, int, int]:
     """The ``(label, done, total)`` for the header bar: held-out eval games
-    while evaluating, otherwise this iteration's self-play collection progress."""
+    while evaluating, final-eval progress during the target milestone phase,
+    otherwise this iteration's self-play collection progress."""
     if state.phase is runstate.Phase.EVALUATING and state.eval_games_in_iter > 0:
         return "eval", state.eval_game_in_iter, state.eval_games_in_iter
+    if state.phase is runstate.Phase.FINAL_EVALUATING:
+        done, total = state.final_eval_progress
+        return "final eval", done, max(total, 1)
     return "game", state.game_in_iter, state.games_in_iter
 
 
@@ -289,12 +300,19 @@ def _produce(state: runstate.RunState) -> panel.Panel:
             text.Text(""),
             _produce_stats_block(state, stats),
         )
+    title = (
+        "[b]IN-GAME PERFORMANCE  \\[FINAL][/b]"
+        if state.pinned_stats is not None
+        else "[b]IN-GAME PERFORMANCE[/b]"
+    )
     return panel.Panel(
         body,
-        title="[b]IN-GAME PERFORMANCE[/b]",
+        title=title,
         title_align="left",
         box=box.ROUNDED,
-        border_style=theme.BORDER_DEFAULT,
+        border_style=(
+            theme.GOOD if state.pinned_stats is not None else theme.BORDER_DEFAULT
+        ),
         padding=(0, 1),
     )
 
@@ -632,7 +650,83 @@ def _verdict(mode: str, series: list[float], grad_clip: float) -> tuple[str, str
     return f"= ok <{grad_clip:.0f}", theme.GOOD
 
 
-def _events(state: runstate.RunState) -> panel.Panel:
+def _timer(state: runstate.RunState) -> rich_console.RenderableType:
+    """The time-to-target countdown panel between TRAINING HEALTH and RECENT EVENTS.
+
+    Shows an invisible spacer when no target is set, progress during the final
+    eval, "TARGET REACHED" at the pause, and a D:HH:MM:SS countdown otherwise.
+    """
+    target = state.target_iterations
+    if target <= 0 or state.phase.is_terminal:
+        # No target or run finished: render borderless spacer so health/events
+        # expand symmetrically; the layout column still occupies its 28 chars.
+        return panel.Panel(
+            text.Text(""),
+            box=box.SIMPLE,
+            border_style=theme.BORDER_DEFAULT,
+            padding=(0, 0),
+        )
+
+    body_lines: list[text.Text] = []
+
+    if state.phase is runstate.Phase.PAUSED_AT_TARGET:
+        line = text.Text(no_wrap=True)
+        line.append("TARGET REACHED", style=theme.GOOD)
+        body_lines.append(line)
+        target_line = text.Text(no_wrap=True)
+        target_line.append("iter ", style=theme.TEXT_MUTED)
+        target_line.append(f"{target:,}", style=theme.TEXT_DIM2)
+        body_lines.append(target_line)
+    elif state.phase is runstate.Phase.FINAL_EVALUATING:
+        done, total = state.final_eval_progress
+        label_line = text.Text("FINAL EVAL", style=theme.TEXT_MUTED, no_wrap=True)
+        body_lines.append(label_line)
+        progress_line = text.Text(no_wrap=True)
+        progress_line.append(f"{done}", style=theme.TEXT_PRIMARY)
+        progress_line.append(" / ", style=theme.TEXT_MUTED)
+        progress_line.append(f"{total}", style=theme.TEXT_DIM2)
+        body_lines.append(progress_line)
+    else:
+        remaining = state.time_remaining_seconds()
+        if remaining is None:
+            body_lines.append(text.Text("estimating…", style=theme.TEXT_MUTED))
+        elif remaining <= 0:
+            body_lines.append(text.Text("arriving…", style=theme.GOOD))
+        else:
+            clock_line = text.Text(no_wrap=True)
+            clock_line.append(_fmt_remaining(remaining), style=theme.TEXT_PRIMARY)
+            clock_line.append(" remaining", style=theme.TEXT_MUTED)
+            body_lines.append(clock_line)
+        target_line = text.Text(no_wrap=True)
+        target_line.append("target: ", style=theme.TEXT_MUTED)
+        target_line.append(f"{target:,}", style=theme.TEXT_DIM2)
+        body_lines.append(target_line)
+
+    return panel.Panel(
+        rich_console.Group(*body_lines),
+        box=box.ROUNDED,
+        border_style=theme.BORDER_DEFAULT,
+        padding=(0, 1),
+    )
+
+
+def _fmt_remaining(seconds: float) -> str:
+    """Format a remaining-time duration as ``D:HH:MM:SS`` (days omitted when 0)."""
+    total = int(seconds)
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    if days > 0:
+        return f"{days:d}:{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{hours:d}:{minutes:02d}:{secs:02d}"
+
+
+def _events(state: runstate.RunState, pause_buffer: str = "") -> panel.Panel:
+    # When the run is paused at the target milestone, replace the event log
+    # with the user acknowledgment UI (keys + new-target input).
+    if state.phase is runstate.Phase.PAUSED_AT_TARGET:
+        return _pause_panel(state, pause_buffer)
+
     # Oldest of the recent events first so the newest lands at the bottom and the
     # log scrolls upward as fresh events arrive; show as many as fill the band.
     lines: list[text.Text] = []
@@ -655,6 +749,64 @@ def _events(state: runstate.RunState) -> panel.Panel:
         title_align="left",
         box=box.ROUNDED,
         border_style=theme.BORDER_DEFAULT,
+        padding=(0, 1),
+    )
+
+
+def _pause_panel(state: runstate.RunState, pause_buffer: str) -> panel.Panel:
+    """Acknowledgment overlay shown in the events panel at PAUSED_AT_TARGET.
+
+    Displays final eval stats and prompts the user with [C]ontinue / [E]nd
+    options plus an optional new-target numeric input field.
+    """
+    eval_stats = state.pinned_stats
+    lines: list[text.Text] = [text.Text("")]
+
+    summary_line = text.Text(no_wrap=True)
+    summary_line.append(
+        f"  Iteration {state.iteration + 1:,} complete.", style=theme.TEXT_PRIMARY
+    )
+    lines.append(summary_line)
+
+    if eval_stats is not None:
+        stats_line = text.Text(no_wrap=True)
+        stats_line.append(
+            f"  avg {eval_stats.avg_breakdown.total:.1f} pts · "
+            f"margin {eval_stats.mean_margin:.1f} pts",
+            style=theme.TEXT_DIM2,
+        )
+        lines.append(stats_line)
+
+    lines.append(text.Text(""))
+
+    key_line = text.Text(no_wrap=True)
+    key_line.append("  ", style=theme.TEXT_MUTED)
+    key_line.append("[C]", style=theme.GOOD)
+    key_line.append(" Continue  ", style=theme.TEXT_PRIMARY)
+    key_line.append("[E]", style=theme.CAUTION)
+    key_line.append(" End run", style=theme.TEXT_PRIMARY)
+    lines.append(key_line)
+
+    lines.append(text.Text(""))
+
+    prompt_line = text.Text(no_wrap=True)
+    prompt_line.append("  New target + ENTER to continue:", style=theme.TEXT_MUTED)
+    lines.append(prompt_line)
+
+    input_line = text.Text(no_wrap=True)
+    input_line.append("  > ", style=theme.TEXT_MUTED)
+    input_line.append(
+        pause_buffer if pause_buffer else "(or ENTER to skip)", style=theme.TEXT_PRIMARY
+    )
+    input_line.append("_", style=theme.TEXT_MUTED)
+    lines.append(input_line)
+
+    return panel.Panel(
+        rich_console.Group(*lines),
+        title="[b]TARGET REACHED[/b]",
+        title_align="left",
+        box=box.ROUNDED,
+        border_style=theme.GOOD,
         padding=(0, 1),
     )
 

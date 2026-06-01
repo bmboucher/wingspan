@@ -45,6 +45,8 @@ PHASE_COLOR: dict[runstate.Phase, str] = {
     runstate.Phase.UPDATING: "#C9A24B",  # grassland gold
     runstate.Phase.EVALUATING: "#58A6FF",  # sky blue
     runstate.Phase.CHECKPOINTING: "#B08CD9",  # soft violet
+    runstate.Phase.FINAL_EVALUATING: "#58A6FF",  # sky blue (same as eval)
+    runstate.Phase.PAUSED_AT_TARGET: "#5BB98C",  # success green — waiting for input
     runstate.Phase.DONE: "#5BB98C",  # success green
     runstate.Phase.STOPPED: "#C9A24B",
     runstate.Phase.ERROR: "#C0564E",

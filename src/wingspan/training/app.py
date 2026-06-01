@@ -12,6 +12,12 @@ wall-clocks tick smoothly every frame.
 ``Ctrl+C`` requests a graceful stop: the loop finishes the current game, writes
 a final checkpoint, and the dashboard shows the shutdown before the screen is
 restored and a plain-text summary is printed.
+
+When the training loop reaches its ``target_iterations`` milestone it pauses and
+displays an acknowledgment overlay in the events panel; the main loop handles
+``[C]``ontinue and ``[E]``nd keypresses, optionally setting a new target before
+unblocking the worker thread. On ``[E]``nd the run's checkpoints are archived
+and the interactive FLIGHT PLAN configurator is reopened.
 """
 
 from __future__ import annotations
@@ -27,6 +33,8 @@ from rich import console, live
 
 from wingspan import architecture
 from wingspan.training import artifacts, config, configure, dashboard, loop, runstate
+from wingspan.training.configure import keys
+from wingspan.training.configure import runs as config_runs
 
 _REFRESH_HZ = 8.0
 _STOP_GRACE_SECONDS = 30.0
@@ -37,24 +45,37 @@ def main(argv: list[str] | None = None) -> int:
 
     With ``--config`` the interactive FLIGHT PLAN configurator runs first; the
     config it returns (or the parsed flags otherwise) is then trained + monitored
-    on the FLYWAY CONTROL dashboard."""
+    on the FLYWAY CONTROL dashboard.
+
+    When the training loop ends with the user choosing ``[E]nd run`` at a target
+    milestone, the run is archived and the configurator is reopened so the user
+    can adjust settings and start another run without leaving the application.
+    """
     args = _parse_args(argv)
     cfg = _config_from_namespace(args)
     term = console.Console()
-    if args.config:
-        result = configure.run_configurator(cfg, term, torch.cuda.is_available())
-        if result is None:
-            return 0  # user quit the configurator without launching a run
-        cfg = result
-    return _run_training(cfg, term)
+    show_config = args.config
+    while True:
+        if show_config:
+            result = configure.run_configurator(cfg, term, torch.cuda.is_available())
+            if result is None:
+                return 0  # user quit the configurator without launching a run
+            cfg = result
+        return_to_config = _run_training(cfg, term)
+        if not return_to_config:
+            return 0
+        show_config = True  # always show configurator on re-entry after "end run"
 
 
 ###### PRIVATE #######
 
 
-def _run_training(cfg: config.TrainConfig, term: console.Console) -> int:
-    """Train + live-monitor one run: spin up the loop on a worker thread and
-    drive the dashboard until it finishes."""
+def _run_training(cfg: config.TrainConfig, term: console.Console) -> bool:
+    """Train + live-monitor one run.
+
+    Returns ``True`` iff the user chose ``[E]nd run`` at a target milestone and
+    the caller should re-open the configurator; ``False`` on a normal exit.
+    """
     cfg = _resolve_device(cfg)
     _configure_file_logging(cfg)
     training = loop.TrainingLoop(cfg)
@@ -65,7 +86,16 @@ def _run_training(cfg: config.TrainConfig, term: console.Console) -> int:
 
     worker.join(timeout=_STOP_GRACE_SECONDS)
     _print_summary(term, training.state)
-    return 1 if training.state.phase is runstate.Phase.ERROR else 0
+
+    # If the user chose "end run", archive the checkpoints and signal the caller
+    # to re-open the configurator.
+    if training.state.user_target_choice == "end":
+        term.print(
+            f"\n  Archiving run to {cfg.checkpoint_dir}/{artifacts.ARCHIVE_SUBDIR}/…"
+        )
+        config_runs.archive_run(cfg.checkpoint_dir, cfg.run_name)
+        return True
+    return False
 
 
 def _resolve_device(cfg: config.TrainConfig) -> config.TrainConfig:
@@ -100,11 +130,18 @@ def _run_dashboard(
     training: loop.TrainingLoop,
     worker: threading.Thread,
 ) -> None:
-    """Drive the Live display until the worker finishes (or a second Ctrl+C)."""
+    """Drive the Live display until the worker finishes (or a second Ctrl+C).
+
+    During ``PAUSED_AT_TARGET`` the KeyReader receives ``[C]``ontinue and
+    ``[E]``nd keypresses and forwards them to the training loop via
+    :meth:`loop.TrainingLoop.signal_target_response`.
+    """
     root = dashboard.build_layout()
     interval = 1.0 / _REFRESH_HZ
     frame = 0
     stop_requested = False
+    pause_buffer = ""
+
     with live.Live(
         root,
         console=term,
@@ -113,24 +150,61 @@ def _run_dashboard(
         redirect_stdout=False,
         redirect_stderr=False,
     ) as display:
-        while True:
-            try:
-                # Render AND refresh under the lock: the chart/histogram
-                # renderables read live state (history, family counts) lazily at
-                # refresh time, so the worker must not mutate mid-frame.
-                with training.lock:
-                    dashboard.render(root, training.state, frame)
-                    terminal = training.state.phase.is_terminal
-                    display.refresh()
-                frame += 1
-                if terminal and not worker.is_alive():
-                    break
-                time.sleep(interval)
-            except KeyboardInterrupt:
-                if stop_requested:
-                    break  # second Ctrl+C — drop out immediately
-                training.request_stop()
-                stop_requested = True
+        with keys.KeyReader() as reader:
+            while True:
+                try:
+                    # Render AND refresh under the lock: the chart/histogram
+                    # renderables read live state (history, family counts) lazily at
+                    # refresh time, so the worker must not mutate mid-frame.
+                    with training.lock:
+                        dashboard.render(root, training.state, frame, pause_buffer)
+                        current_phase = training.state.phase
+                        terminal = current_phase.is_terminal
+                        display.refresh()
+                    frame += 1
+                    if terminal and not worker.is_alive():
+                        break
+                    event = reader.poll()
+                    if event is not None:
+                        if current_phase is runstate.Phase.PAUSED_AT_TARGET:
+                            pause_buffer = _handle_pause_key(
+                                training, event, pause_buffer
+                            )
+                    time.sleep(interval)
+                except KeyboardInterrupt:
+                    if stop_requested:
+                        break  # second Ctrl+C — drop out immediately
+                    training.request_stop()
+                    stop_requested = True
+
+
+def _handle_pause_key(
+    training: loop.TrainingLoop,
+    event: keys.KeyEvent,
+    pause_buffer: str,
+) -> str:
+    """Route a keypress received while the dashboard is PAUSED_AT_TARGET.
+
+    Returns the new pause buffer (possibly unchanged). Signals the training loop
+    via :meth:`loop.TrainingLoop.signal_target_response` on ``[C]``, ``[E]``,
+    or ``ENTER``; digit keys accumulate in the buffer for a new-target number.
+    """
+    if event.kind is keys.KeyKind.BACKSPACE:
+        return pause_buffer[:-1]
+    if event.kind is keys.KeyKind.ENTER:
+        new_target = int(pause_buffer) if pause_buffer.isdigit() else 0
+        training.signal_target_response("continue", new_target)
+        return ""
+    if event.char in ("e", "E"):
+        training.signal_target_response("end", 0)
+        return ""
+    if event.char in ("c", "C"):
+        # Immediate continue with no new target (clears the milestone).
+        training.signal_target_response("continue", 0)
+        return ""
+    if event.char and event.char.isdigit():
+        return pause_buffer + event.char
+    return pause_buffer
 
 
 def _print_summary(term: console.Console, state: runstate.RunState) -> None:
@@ -276,10 +350,10 @@ def _config_from_namespace(args: argparse.Namespace) -> config.TrainConfig:
     )
 
 
-def _parse_layers(text: str) -> tuple[int, ...]:
+def _parse_layers(layer_text: str) -> tuple[int, ...]:
     """Parse a comma-separated layer-width flag into a tuple (empty string → the
     empty tuple, for a head with no hidden layers)."""
-    return tuple(int(part) for part in text.replace(" ", "").split(",") if part)
+    return tuple(int(part) for part in layer_text.replace(" ", "").split(",") if part)
 
 
 def _summary_clock(seconds: float) -> str:

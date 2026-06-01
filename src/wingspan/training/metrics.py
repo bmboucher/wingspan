@@ -271,6 +271,25 @@ class GameOutcome(pydantic.BaseModel):
     family_counts: FamilyCounts  # decisions routed to each judgment-family head
 
 
+class FinalEvalStats(pydantic.BaseModel):
+    """Score and game stats from the large fixed-model self-play eval at a target milestone.
+
+    Collected when the training loop reaches ``TrainConfig.target_iterations``:
+    the model is frozen, ``effective_target_eval_games`` games are played with
+    the model against itself (greedy both seats), and the results are averaged
+    here without EWMA smoothing so the dashboard can display a clean "what did
+    the model we landed on actually produce?" snapshot.
+    """
+
+    n_games: int
+    avg_breakdown: ScoreBreakdown
+    avg_winner_breakdown: ScoreBreakdown
+    decisions_per_game: float
+    mean_margin: float  # avg abs(seat0 score − seat1 score)
+    self_play_win_rate: float  # wins by seat 0 (~0.5 by symmetry)
+    at_iteration: int
+
+
 class SystemStats(pydantic.BaseModel):
     """A point-in-time snapshot of host CPU / RAM utilization.
 

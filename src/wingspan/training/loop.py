@@ -109,9 +109,13 @@ class TrainingLoop:
         # Iteration the loop starts numbering from (advanced past a resumed
         # checkpoint). Set last so resume can mutate net / optimizer / state.
         self._start_iteration = 0
+        # Signals the loop to wake from PAUSED_AT_TARGET when the dashboard
+        # receives a user [C]ontinue or [E]nd keypress.
+        self._target_reached_event = threading.Event()
         self._maybe_resume()
         self._maybe_resume_setup()
         self._init_training_phase()
+        self._init_target_if_fresh()
         self._reset_history_logs_if_fresh()
         self._write_run_metadata()
 
@@ -127,6 +131,24 @@ class TrainingLoop:
     def stopped(self) -> bool:
         return self._stop.is_set()
 
+    def signal_target_response(
+        self,
+        choice: typing.Literal["continue", "end"],
+        new_target: int = 0,
+    ) -> None:
+        """Unblock the loop from PAUSED_AT_TARGET.
+
+        Called from the dashboard thread. ``choice`` is ``"continue"`` or
+        ``"end"``; ``new_target`` sets the next milestone when > 0, or clears
+        the target entirely when 0 (the user chose to continue without a new
+        target and training runs until ``max_iterations`` or Ctrl+C).
+        """
+        with self.lock:
+            self.state.user_target_choice = choice
+            if choice == "continue":
+                self.state.target_iterations = new_target
+        self._target_reached_event.set()
+
     def run(self) -> None:
         """Run iterations until ``max_iterations`` or a stop request. Intended
         as the target of a worker thread; never raises — failures land in
@@ -141,6 +163,8 @@ class TrainingLoop:
             iteration = self._start_iteration
             while not self._stop.is_set() and not self._reached_limit(iteration):
                 self._run_iteration(iteration)
+                if self._handle_target_if_reached(iteration):
+                    break  # user chose "end" → exit the iteration loop
                 iteration += 1
             self._finish(
                 runstate.Phase.STOPPED if self._stop.is_set() else runstate.Phase.DONE
@@ -232,6 +256,17 @@ class TrainingLoop:
                 "bootstrap: collecting vs random opponent · eval paused "
                 f"until {self.config.random_phase_win_rate * 100:.0f}% win-rate",
             )
+
+    def _init_target_if_fresh(self) -> None:
+        """Seed the live target from the config on fresh runs.
+
+        Resumed runs restore ``state.target_iterations`` from ``RunProgress``
+        (via ``restore_progress``), so we never overwrite a live target the
+        user may have updated in a prior continuation."""
+        if self._start_iteration > 0:
+            return
+        with self.lock:
+            self.state.target_iterations = self.config.target_iterations
 
     def _reset_history_logs_if_fresh(self) -> None:
         """Clear a previous run's history when this run did not resume, so a fresh
@@ -880,6 +915,97 @@ class TrainingLoop:
             return
         self._opponent_net = opponent
 
+    #### Target milestone ####
+
+    def _handle_target_if_reached(self, iteration: int) -> bool:
+        """Check whether the target milestone was reached after ``iteration``.
+
+        If so, run the full target sequence (final checkpoint → large eval →
+        pause for user input) and return ``True`` iff the user chose "end".
+        Returns ``False`` immediately when no target is set or the target has
+        not been reached yet.
+        """
+        with self.lock:
+            target = self.state.target_iterations
+        if target <= 0 or (iteration + 1) < target:
+            return False
+        self._handle_target_reached(iteration)
+        with self.lock:
+            return self.state.user_target_choice == "end"
+
+    def _handle_target_reached(self, iteration: int) -> None:
+        """Execute the target-milestone sequence: checkpoint → eval → pause."""
+        # Step 1: save the final milestone checkpoint (same payload as last.pt).
+        final_name = artifacts.final_ckpt_name(iteration + 1)
+        self._ckpt_dir.mkdir(parents=True, exist_ok=True)
+        with self.lock:
+            self.state.push_event(
+                runstate.EventKind.CHECKPOINT,
+                f"target {self.state.target_iterations:,} reached → saving {final_name}",
+            )
+            progress = self.state.to_progress()
+        payload: dict[str, object] = {
+            "config": self.config.model_dump(),
+            "model": self.net.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "iteration": iteration,
+            "total_games": self.state.total_games,
+            "progress": progress.model_dump(),
+            "git_sha": _git_sha(),
+        }
+        _atomic_save(payload, self._ckpt_dir / final_name)
+        with self.lock:
+            self.state.push_event(runstate.EventKind.CHECKPOINT, f"saved {final_name}")
+
+        # Step 2: run the large fixed-model self-play eval.
+        n_eval = self.config.effective_target_eval_games
+        with self.lock:
+            self.state.phase = runstate.Phase.FINAL_EVALUATING
+            self.state.final_eval_progress = (0, n_eval)
+
+        def _on_progress(done: int, total: int) -> None:
+            with self.lock:
+                self.state.final_eval_progress = (done, total)
+
+        final_stats = evaluate.run_final_self_play_eval(
+            self.net,
+            self.device,
+            n_games=n_eval,
+            seed=self.config.seed + iteration * 1000,
+            at_iteration=iteration + 1,
+            on_progress=_on_progress,
+        )
+
+        # Step 3: pin the eval stats and transition to PAUSED_AT_TARGET.
+        with self.lock:
+            self.state.pinned_stats = final_stats
+            self.state.phase = runstate.Phase.PAUSED_AT_TARGET
+            self.state.user_target_choice = None
+            self.state.push_event(
+                runstate.EventKind.EVAL,
+                f"final eval {n_eval} games · "
+                f"avg {final_stats.avg_breakdown.total:.1f} pts · "
+                f"margin {final_stats.mean_margin:.1f} pts",
+            )
+
+        # Step 4: block until the dashboard receives user [C]ontinue or [E]nd.
+        self._target_reached_event.wait()
+        self._target_reached_event.clear()
+
+        # Step 5: if continuing, clear pinned stats so EWMA picks up.
+        self._resume_after_target()
+
+    def _resume_after_target(self) -> None:
+        """Clear the pinned stats and resume COLLECTING after a target milestone.
+
+        Separated from :meth:`_handle_target_reached` so pyright does not
+        flow-narrow ``user_target_choice`` to ``None`` across the threading
+        boundary where it is explicitly reset before waiting on the event."""
+        with self.lock:
+            if self.state.user_target_choice == "continue":
+                self.state.pinned_stats = None
+                self.state.phase = runstate.Phase.COLLECTING
+
     #### Checkpointing ####
 
     def _commit_iteration(
@@ -889,7 +1015,11 @@ class TrainingLoop:
         eval_result: metrics.EvalResult | None,
         records: list[collect.GameRecord],
     ) -> None:
+        # Capture the phase before graduation fires so timing lands in the
+        # right bucket (graduation mutates training_phase inside this call).
+        iter_phase_for_timing: runstate.TrainingPhase
         with self.lock:
+            iter_phase_for_timing = self.state.training_phase
             self.state.last_iter = iter_metrics
             self.state.history.append(iter_metrics)
             cap = self.config.history_len
@@ -923,6 +1053,19 @@ class TrainingLoop:
         with self.lock:
             self.state.phase = runstate.Phase.CHECKPOINTING
         self._checkpoint(iter_metrics, eval_result, records)
+
+        # Update per-phase timing counters for the time-to-target estimate.
+        # Using iter_start_monotonic (set at the top of _run_iteration) gives
+        # the full iteration wall-clock including collection, update, eval, and
+        # checkpointing — the right denominator for an iterations-per-second rate.
+        iter_secs = time.monotonic() - self.state.iter_start_monotonic
+        with self.lock:
+            if iter_phase_for_timing == runstate.TrainingPhase.RANDOM_OPPONENT:
+                self.state.random_phase_iter_count += 1
+                self.state.random_phase_seconds += iter_secs
+            else:
+                self.state.self_play_iter_count += 1
+                self.state.self_play_seconds += iter_secs
 
     def _checkpoint(
         self,

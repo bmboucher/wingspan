@@ -100,6 +100,70 @@ def play_eval_game(
     return net_score - opp_score
 
 
+def run_final_self_play_eval(
+    net: model.PolicyValueNet,
+    device: torch.device,
+    n_games: int,
+    seed: int,
+    at_iteration: int,
+    on_progress: EvalProgress | None = None,
+) -> metrics.FinalEvalStats:
+    """Play ``n_games`` of model-vs-itself (both seats greedy, model fixed).
+
+    Pairs each seed so the same deal is played from both seat perspectives,
+    cancelling first-player advantage in the breakdown averages. Returns a
+    :class:`metrics.FinalEvalStats` with averaged score breakdowns and game
+    stats for the IN-GAME PERFORMANCE pin — no EWMA, a clean snapshot of
+    the model we "landed on".
+    """
+    n_pairs = n_games // 2
+    actual_games = 2 * n_pairs
+
+    breakdown_sum = metrics.ScoreBreakdown()
+    winner_breakdown_sum = metrics.ScoreBreakdown()
+    total_decisions = 0
+    total_decided_games = 0
+    margin_sum = 0.0
+    seat0_wins = 0
+
+    for pair in range(n_pairs):
+        pair_seed = seed + pair * 2
+        for flip in (0, 1):
+            game_seed = pair_seed + flip
+            decision_count: list[int] = [0]
+            greedy = _counting_greedy_agent(net, device, decision_count)
+            eng = collect.new_engine(game_seed)
+            engine.Engine.play_one_game(eng.state, (greedy, greedy))
+            bd0 = collect.player_breakdown(eng.state.players[0])
+            bd1 = collect.player_breakdown(eng.state.players[1])
+            breakdown_sum = breakdown_sum + bd0 + bd1
+            score0, score1 = round(bd0.total), round(bd1.total)
+            if score0 > score1:
+                seat0_wins += 1
+                winner_breakdown_sum = winner_breakdown_sum + bd0
+                total_decided_games += 1
+            elif score1 > score0:
+                winner_breakdown_sum = winner_breakdown_sum + bd1
+                total_decided_games += 1
+            margin_sum += abs(score0 - score1)
+            total_decisions += decision_count[0]
+            if on_progress is not None:
+                on_progress(pair * 2 + flip + 1, actual_games)
+
+    player_games = max(actual_games * 2, 1)
+    return metrics.FinalEvalStats(
+        n_games=actual_games,
+        avg_breakdown=breakdown_sum.scaled(1.0 / player_games),
+        avg_winner_breakdown=winner_breakdown_sum.scaled(
+            1.0 / max(total_decided_games, 1)
+        ),
+        decisions_per_game=total_decisions / max(actual_games, 1),
+        mean_margin=margin_sum / max(actual_games, 1),
+        self_play_win_rate=seat0_wins / max(actual_games, 1),
+        at_iteration=at_iteration,
+    )
+
+
 def summarize_eval(
     margins: typing.Sequence[int], opponent_generation: int
 ) -> metrics.EvalResult:
@@ -143,6 +207,29 @@ def _greedy_agent(net: model.PolicyValueNet, device: torch.device) -> engine.Age
     ) -> C:
         if len(decision.choices) == 1:
             return decision.choices[0]
+        family_idx = decisions.family_index_for(type(decision))
+        state_vec = encode.encode_state(eng.state, decision)
+        choice_feats = encode.encode_choices(decision, eng.state)
+        idx = policy.greedy_action(net, device, state_vec, choice_feats, family_idx)
+        return decision.choices[idx]
+
+    return agent
+
+
+def _counting_greedy_agent(
+    net: model.PolicyValueNet,
+    device: torch.device,
+    counter: list[int],
+) -> engine.Agent:
+    """A greedy agent that increments ``counter[0]`` for every multi-option decision."""
+
+    def agent[C: decisions.Choice](
+        eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if len(decision.choices) == 1:
+            return decision.choices[0]
+        counter[0] += 1
         family_idx = decisions.family_index_for(type(decision))
         state_vec = encode.encode_state(eng.state, decision)
         choice_feats = encode.encode_choices(decision, eng.state)

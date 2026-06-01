@@ -144,6 +144,15 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Additional iterations to run THIS session (0 = until you press Stop). "
         "On a resumed run this is counted from the resume point, not from zero.",
     ),
+    IntField(
+        attr="target_iterations",
+        label="target iterations",
+        section=ConfigSection.LOOP,
+        unit="iters",
+        step=1000,
+        help="Pause at this iteration for a final evaluation + user acknowledgment. "
+        "0 = no target. Must be ≤ max_iterations when both are > 0.",
+    ),
     FloatField(
         attr="lr",
         label="learning rate",
@@ -257,6 +266,15 @@ FIELD_SPECS: list[FieldSpec] = [
         step=0.05,
         impact=ChangeImpact.REGIME,
         help="Smoothing for the PRODUCING band's score / margin readouts.",
+    ),
+    IntField(
+        attr="target_eval_games",
+        label="target eval games",
+        section=ConfigSection.EVAL,
+        unit="games",
+        step=100,
+        help="Self-play games (model fixed, greedy) run at the target milestone. "
+        "0 = auto: 10 × eval games.",
     ),
     LayersField(
         attr="trunk_layers",

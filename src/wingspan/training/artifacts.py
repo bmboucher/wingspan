@@ -44,3 +44,12 @@ LOG_GLOB = "*.log"
 # Suffix ``loop._atomic_save`` appends for its write-then-replace temp file; a
 # crash mid-write can leave one behind, so the archive sweep clears them too.
 TMP_GLOB = "*.tmp"
+
+
+def final_ckpt_name(iteration: int) -> str:
+    """Return the filename for a target-milestone final checkpoint.
+
+    Uses Python's underscore thousands-separator so the iteration count is
+    immediately legible: ``final_1_000_000.pt`` for iteration 1 000 000.
+    """
+    return f"final_{iteration:_}.pt"

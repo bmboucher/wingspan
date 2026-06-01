@@ -30,6 +30,8 @@ class Phase(enum.StrEnum):
     UPDATING = "updating"
     EVALUATING = "evaluating"
     CHECKPOINTING = "checkpointing"
+    FINAL_EVALUATING = "final_evaluating"  # large fixed-model eval at target milestone
+    PAUSED_AT_TARGET = "paused_at_target"  # waiting for user [C]ontinue / [E]nd input
     DONE = "done"
     STOPPED = "stopped"
     ERROR = "error"
@@ -147,6 +149,18 @@ class RunProgress(pydantic.BaseModel):
         default_factory=_new_history
     )
 
+    # Target milestone (initialized from config on fresh run; updated when the user
+    # continues with a new target). Stored here so it persists across checkpoints.
+    target_iterations: int = 0
+
+    # Per-phase timing counters for time-to-target estimation.  Each iteration
+    # records its wall-clock duration in the appropriate bucket so the rate can be
+    # computed without any transient clock state.
+    random_phase_iter_count: int = 0
+    random_phase_seconds: float = 0.0
+    self_play_iter_count: int = 0
+    self_play_seconds: float = 0.0
+
 
 class RunState(pydantic.BaseModel):
     """Everything the dashboard needs to repaint a single frame."""
@@ -223,6 +237,15 @@ class RunState(pydantic.BaseModel):
     events: list[EventLine] = pydantic.Field(default_factory=_new_events)
     error: str | None = None
 
+    # Target-milestone counters (persisted via RunProgress → to_progress /
+    # restore_progress). ``target_iterations`` is the live goal (initialised from
+    # config on fresh runs; updated when the user continues with a new target).
+    target_iterations: int = 0
+    random_phase_iter_count: int = 0
+    random_phase_seconds: float = 0.0
+    self_play_iter_count: int = 0
+    self_play_seconds: float = 0.0
+
     # Setup-model live readouts (None when the setup model is off). ``setup_phase``
     # is the current regime label (random / recording / model); ``last_setup`` is
     # the most recent setup-net update summary. Transient (dashboard-only) — not
@@ -233,6 +256,17 @@ class RunState(pydantic.BaseModel):
     # Live host / accelerator telemetry, refreshed by the monitor thread
     # (None until the first sample lands).
     system: metrics.SystemStats | None = None
+
+    # Target-milestone transient state (not persisted in RunProgress).
+    # ``pinned_stats`` is set after the final self-play eval and cleared when the
+    # first new training iteration completes after a [C]ontinue; it drives the
+    # IN-GAME PERFORMANCE "[FINAL]" display.
+    pinned_stats: metrics.FinalEvalStats | None = None
+    # Progress of the FINAL_EVALUATING phase: (games_done, games_total).
+    final_eval_progress: tuple[int, int] = (0, 0)
+    # Written by the dashboard key-handler; read by the loop after it wakes from
+    # the PAUSED_AT_TARGET wait.
+    user_target_choice: str | None = None  # "continue" | "end" | None
 
     # ----- writer-side helpers (called by the loop, under its lock) -----
 
@@ -300,6 +334,34 @@ class RunState(pydantic.BaseModel):
 
     def iter_elapsed(self) -> float:
         return max(0.0, self.now() - self.iter_start_monotonic)
+
+    def time_remaining_seconds(self) -> float | None:
+        """Estimated seconds until ``target_iterations`` is reached.
+
+        During the RANDOM_OPPONENT bootstrap phase the estimate uses half the
+        current random-phase iteration rate (self-play is ~2× slower, so we
+        assume the transition happens "now" and the rest runs at the slower
+        rate). After graduation the estimate tracks the actual self-play rate.
+        Returns ``None`` while the rate is still unknown (< 2 iterations
+        recorded) and 0.0 once the target is reached.
+        """
+        if self.target_iterations <= 0:
+            return None
+        remaining = self.target_iterations - (self.iteration + 1)
+        if remaining <= 0:
+            return 0.0
+
+        if self.training_phase == TrainingPhase.RANDOM_OPPONENT:
+            if self.random_phase_iter_count < 2 or self.random_phase_seconds <= 0:
+                return None
+            # Assume the rest runs at the (slower) self-play rate.
+            rate = (self.random_phase_iter_count / self.random_phase_seconds) / 2.0
+        else:
+            if self.self_play_iter_count < 2 or self.self_play_seconds <= 0:
+                return None
+            rate = self.self_play_iter_count / self.self_play_seconds
+
+        return remaining / rate if rate > 0 else None
 
     def avg_breakdown(self) -> metrics.ScoreBreakdown:
         return self.cum_breakdown.scaled(1.0 / max(self.cum_player_games, 1))
@@ -387,7 +449,24 @@ class RunState(pydantic.BaseModel):
         """The PRODUCING band's readouts: a per-iteration EWMA once at least one
         iteration has finished, otherwise the cumulative average folded over the
         games of the in-progress first iteration (so the panel is live from the
-        very first game). None only before any game has been recorded."""
+        very first game). None only before any game has been recorded.
+
+        When ``pinned_stats`` is set (at a target milestone) the fixed measurement
+        is returned instead of the EWMA so the panel shows the "landed" model's
+        clean values rather than the smoothed training history.
+        """
+        if self.pinned_stats is not None:
+            pinned = self.pinned_stats
+            return metrics.ProduceStats(
+                breakdown=pinned.avg_breakdown,
+                winner_breakdown=pinned.avg_winner_breakdown,
+                decisions=pinned.decisions_per_game,
+                decisions_std=0.0,
+                margin=pinned.mean_margin,
+                margin_std=0.0,
+                abs_margin=pinned.mean_margin,
+                abs_margin_std=0.0,
+            )
         return self._produce_ewma() or self._produce_cumulative()
 
     def _produce_ewma(self) -> metrics.ProduceStats | None:
@@ -483,6 +562,11 @@ class RunState(pydantic.BaseModel):
             training_phase=self.training_phase,
             last_iter=self.last_iter,
             history=self.history,
+            target_iterations=self.target_iterations,
+            random_phase_iter_count=self.random_phase_iter_count,
+            random_phase_seconds=self.random_phase_seconds,
+            self_play_iter_count=self.self_play_iter_count,
+            self_play_seconds=self.self_play_seconds,
         )
 
     def restore_progress(self, progress: RunProgress) -> None:
@@ -513,6 +597,11 @@ class RunState(pydantic.BaseModel):
         self.training_phase = progress.training_phase
         self.last_iter = progress.last_iter
         self.history = list(progress.history)
+        self.target_iterations = progress.target_iterations
+        self.random_phase_iter_count = progress.random_phase_iter_count
+        self.random_phase_seconds = progress.random_phase_seconds
+        self.self_play_iter_count = progress.self_play_iter_count
+        self.self_play_seconds = progress.self_play_seconds
 
 
 def new_run_state(cfg: config.TrainConfig) -> RunState:

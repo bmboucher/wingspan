@@ -43,6 +43,13 @@ class TrainConfig(pydantic.BaseModel):
     # small, so larger buys little) and lowers REINFORCE gradient variance.
     games_per_iter: typing.Annotated[int, pydantic.Field(ge=1)] = 256
     max_iterations: typing.Annotated[int, pydantic.Field(ge=0)] = 0  # 0 = run forever
+    # Pause at this iteration count: save a final checkpoint, run a large
+    # fixed-model eval, and wait for the user to [C]ontinue or [E]nd the run.
+    # 0 = no target. Must be ≤ max_iterations when both are > 0.
+    target_iterations: typing.Annotated[int, pydantic.Field(ge=0)] = 0
+    # Self-play games (model fixed, greedy both seats) run at the target milestone.
+    # 0 = auto: 10 × eval_games.
+    target_eval_games: typing.Annotated[int, pydantic.Field(ge=0)] = 0
 
     # ---- optimization (TRAINING.md §3.3) ----
     lr: typing.Annotated[float, pydantic.Field(gt=0.0)] = 3e-4
@@ -211,11 +218,36 @@ class TrainConfig(pydantic.BaseModel):
             )
         return self
 
+    @pydantic.model_validator(mode="after")
+    def _check_target_iterations(self) -> "TrainConfig":
+        """target_iterations must not exceed max_iterations when both are nonzero,
+        since the target is a milestone *within* the run rather than a replacement
+        for the hard cap."""
+        if self.target_iterations > 0 and self.max_iterations > 0:
+            if self.target_iterations > self.max_iterations:
+                raise ValueError(
+                    "target_iterations must be ≤ max_iterations when both are > 0 "
+                    f"(got {self.target_iterations} > {self.max_iterations})"
+                )
+        return self
+
     @property
     def eval_pairs(self) -> int:
         """Mirror-deal pairs per eval block — ``eval_games`` games played as
         paired deals (rounded down so each deal is mirrored)."""
         return self.eval_games // 2
+
+    @property
+    def effective_target_eval_games(self) -> int:
+        """The number of self-play games run at the target milestone.
+
+        Explicit ``target_eval_games`` wins; 0 falls back to 10 × ``eval_games``
+        so the default scales sensibly with the normal evaluation budget."""
+        return (
+            self.target_eval_games
+            if self.target_eval_games > 0
+            else 10 * self.eval_games
+        )
 
     @property
     def arch(self) -> architecture.ModelArchitecture:
