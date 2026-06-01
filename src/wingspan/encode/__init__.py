@@ -29,6 +29,8 @@ from wingspan.encode.layout import (
     OFF_HAND_MULTIHOT,
     RUNAWAY_CHOICE_THRESHOLD,
     SOFT_CHOICE_WARN_THRESHOLD,
+    choice_input_dim,
+    trunk_input_dim,
 )
 from wingspan.encode.state_encode import encode_state, state_size
 
@@ -47,8 +49,10 @@ __all__ = [
     "OFF_HAND_MULTIHOT",
     "RUNAWAY_CHOICE_THRESHOLD",
     "SOFT_CHOICE_WARN_THRESHOLD",
+    "choice_input_dim",
     "encode_choices",
     "encode_decision",
     "encode_state",
     "state_size",
+    "trunk_input_dim",
 ]

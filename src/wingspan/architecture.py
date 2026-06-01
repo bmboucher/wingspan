@@ -99,3 +99,151 @@ class ModelArchitecture(pydantic.BaseModel):
             self.layernorm,
             self.card_embed_dim,
         )
+
+
+class LayerParam(pydantic.BaseModel):
+    """The parameter count of one ``Linear`` layer and the ``LayerNorm`` that may
+    follow it. ``linear`` is ``in*out + out`` (weight + bias); ``norm`` is
+    ``2*out`` when a LayerNorm follows (its affine weight + bias), else 0. They are
+    tracked apart so the diagram can annotate the Linear row with the dominant
+    ``linear`` cost while ``params`` still rolls the LayerNorm into the block total."""
+
+    in_features: int
+    out_features: int
+    linear: int
+    norm: int = 0
+
+    @property
+    def params(self) -> int:
+        """Total trainable parameters in this layer (Linear + any LayerNorm)."""
+        return self.linear + self.norm
+
+
+class BlockParam(pydantic.BaseModel):
+    """One network block's parameter breakdown: its per-layer counts plus a flat
+    ``extra`` (the embedding table), scaled by ``multiplier`` — the scorer bank
+    instantiates one identical readout head per decision family."""
+
+    label: str
+    layers: tuple[LayerParam, ...] = ()
+    multiplier: int = 1
+    extra: int = 0
+
+    @property
+    def total(self) -> int:
+        """The block's trainable-parameter count, including the family multiplier."""
+        return self.multiplier * (
+            sum(layer.params for layer in self.layers) + self.extra
+        )
+
+
+class ParamReport(pydantic.BaseModel):
+    """The whole network's parameter accounting, block by block — the display
+    source for the configurator's per-layer / per-block / total counts. Built by
+    :func:`count_parameters`; its block totals sum to ``sum(p.numel())`` of the
+    equivalent :class:`model.PolicyValueNet`."""
+
+    embed: BlockParam
+    trunk: BlockParam
+    choice: BlockParam
+    scorer: BlockParam
+    value: BlockParam
+
+    @property
+    def blocks(self) -> tuple[BlockParam, ...]:
+        """The five blocks in flow order (embed, trunk, choice, scorer, value)."""
+        return (self.embed, self.trunk, self.choice, self.scorer, self.value)
+
+    @property
+    def total(self) -> int:
+        """The network's total trainable-parameter count."""
+        return sum(block.total for block in self.blocks)
+
+
+def count_parameters(
+    arch: ModelArchitecture,
+    *,
+    trunk_in: int,
+    choice_in: int,
+    embed_rows: int,
+    num_families: int,
+) -> ParamReport:
+    """Analytic per-block parameter accounting for the network ``arch`` describes.
+
+    Torch-free — it reproduces the exact layer shapes ``model._build_body`` /
+    ``_build_readout`` would create, so the returned counts equal
+    ``sum(p.numel())`` of the built net. The effective post-embedding input widths
+    (``trunk_in`` / ``choice_in``, from ``encode.{trunk,choice}_input_dim``) and the
+    embedding-table row count are passed in to keep this module free of the
+    encoder / torch.
+    """
+    # The trunk ends at width M and the choice encoder at width N; the scorer
+    # heads read the M+N concat and the value head reads the trunk's M alone,
+    # mirroring ``model.PolicyValueNet.__init__``.
+    trunk_m = arch.trunk_embed_width
+    scorer_in = arch.trunk_embed_width + arch.choice_embed_width
+    return ParamReport(
+        embed=BlockParam(label="EMBED", extra=embed_rows * arch.card_embed_dim),
+        trunk=BlockParam(
+            label="TRUNK", layers=_body_layers(trunk_in, arch.trunk_layers, arch)
+        ),
+        choice=BlockParam(
+            label="CHOICE", layers=_body_layers(choice_in, arch.choice_layers, arch)
+        ),
+        scorer=BlockParam(
+            label="SCORER",
+            layers=_readout_layers(scorer_in, arch.head_layers, arch),
+            multiplier=num_families,
+        ),
+        value=BlockParam(
+            label="VALUE", layers=_readout_layers(trunk_m, arch.value_layers, arch)
+        ),
+    )
+
+
+def _linear_params(in_features: int, out_features: int) -> int:
+    """Parameter count of ``nn.Linear(in, out)`` — the weight plus the bias."""
+    return in_features * out_features + out_features
+
+
+def _body_layers(
+    in_dim: int, widths: Widths, arch: ModelArchitecture
+) -> tuple[LayerParam, ...]:
+    """Per-layer counts for a body block (trunk / choice encoder): each width is a
+    ``Linear`` followed — when ``arch.layernorm`` — by a ``LayerNorm`` on every
+    layer, mirroring ``model._build_body`` (activation / dropout add no params)."""
+    layers: list[LayerParam] = []
+    prev = in_dim
+    for width in widths:
+        norm = 2 * width if arch.layernorm else 0
+        layers.append(
+            LayerParam(
+                in_features=prev,
+                out_features=width,
+                linear=_linear_params(prev, width),
+                norm=norm,
+            )
+        )
+        prev = width
+    return tuple(layers)
+
+
+def _readout_layers(
+    in_dim: int, widths: Widths, arch: ModelArchitecture
+) -> tuple[LayerParam, ...]:
+    """Per-layer counts for a readout block (scorer head / value head): the hidden
+    ``widths`` as bare ``Linear`` layers (readouts never LayerNorm) then a final
+    ``Linear(prev, 1)``, mirroring ``model._build_readout``."""
+    layers: list[LayerParam] = []
+    prev = in_dim
+    for width in widths:
+        layers.append(
+            LayerParam(
+                in_features=prev, out_features=width, linear=_linear_params(prev, width)
+            )
+        )
+        prev = width
+    layers.append(
+        LayerParam(in_features=prev, out_features=1, linear=_linear_params(prev, 1))
+    )
+    return tuple(layers)

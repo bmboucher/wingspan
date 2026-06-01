@@ -260,6 +260,29 @@ CHOICE_BIRD_ID_DIM = _BIRD_ID_DIM
 CHOICE_BONUS_ID_OFFSET = _OFF_BONUS_ID
 
 
+def trunk_input_dim(state_dim: int, card_embed_dim: int) -> int:
+    """The state trunk's first-``Linear`` input width: the flat ``state_dim`` with
+    the card-index block and the hand multi-hot replaced by their shared-embedding
+    lookups — one ``card_embed_dim`` vector per index slot, plus one mean-pooled
+    hand embedding. The model splits the flat state on exactly this basis, so this
+    is the single source of truth for the post-embedding width (used both by
+    ``model.PolicyValueNet`` and by the configurator's parameter accounting)."""
+    return (
+        state_dim
+        - N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings
+        - HAND_MULTIHOT_DIM  # hand multi-hot -> one pooled embedding
+        + N_CARD_INDEX_SLOTS * card_embed_dim
+        + card_embed_dim
+    )
+
+
+def choice_input_dim(choice_dim: int, card_embed_dim: int) -> int:
+    """The per-choice encoder's first-``Linear`` input width: the flat
+    ``choice_dim`` with the candidate's bird-identity one-hot replaced by its
+    shared-embedding lookup (one ``card_embed_dim`` vector)."""
+    return choice_dim - CHOICE_BIRD_ID_DIM + card_embed_dim
+
+
 # ---------------------------------------------------------------------------
 # Decision-type one-hot. Indexed by Decision subclass so adding a new
 # decision is a single registration in ``ALL_DECISION_CLASSES``.

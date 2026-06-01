@@ -284,17 +284,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--choice-layers",
         default="128,128",
-        help="per-choice encoder widths (its last width must equal the trunk's)",
+        help="per-choice encoder widths (independent of the trunk; ends at N)",
     )
     parser.add_argument(
         "--head-layers",
         default="128",
-        help="per-family scorer hidden widths (empty string = direct 2H->1)",
+        help="per-family scorer hidden widths (empty string = direct (M+N)->1)",
     )
     parser.add_argument(
         "--value-layers",
         default="",
-        help="value-head hidden widths (empty string = direct H->1)",
+        help="value-head hidden widths (empty string = direct M->1)",
     )
     parser.add_argument(
         "--activation",

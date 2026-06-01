@@ -30,8 +30,17 @@ pytest.importorskip("rich")
 import rich.console as rich_console
 import torch
 
+from wingspan import architecture, encode, model
 from wingspan.training import artifacts, config, loop, runstate
-from wingspan.training.configure import controller, fields, keys, runs, screen, state
+from wingspan.training.configure import (
+    arch_diagram,
+    controller,
+    fields,
+    keys,
+    runs,
+    screen,
+    state,
+)
 
 # --------------------------------------------------------------------------- #
 # keys                                                                        #
@@ -401,6 +410,141 @@ def test_screen_renders_confirm_modal():
     )
     out = _render(view)
     assert "START A NEW RUN" in out and "archive & start" in out
+
+
+# --------------------------------------------------------------------------- #
+# architecture diagram                                                        #
+# --------------------------------------------------------------------------- #
+
+
+# Tall enough that the whole flow (down to the VALUE box + TOTAL) fits without
+# the viewport clipping the bottom — the per-size test below covers clipping.
+_FULL_DIAGRAM_HEIGHT = 60
+
+
+def _arch_state(
+    selected_attr: str = "trunk_layers", **overrides: object
+) -> state.ConfiguratorState:
+    base = config.TrainConfig(device="cpu", checkpoint_dir="checkpoints")
+    cfg = base.model_copy(update=dict(overrides))
+    summary = runs.RunSummary(checkpoint_dir="checkpoints")
+    return state.ConfiguratorState(
+        working=cfg, summary=summary, selected_attr=selected_attr
+    )
+
+
+def _render_diagram(view: state.ConfiguratorState, width: int, height: int) -> str:
+    buffer = io.StringIO()
+    term = rich_console.Console(
+        file=buffer, width=width, height=height, force_terminal=True, color_system=None
+    )
+    term.print(arch_diagram.ArchitectureDiagram(view))
+    return buffer.getvalue()
+
+
+def _param_report_for(cfg: config.TrainConfig) -> architecture.ParamReport:
+    return architecture.count_parameters(
+        cfg.arch,
+        trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
+        choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
+        embed_rows=encode.HAND_MULTIHOT_DIM + 1,
+        num_families=len(cfg.family_order),
+    )
+
+
+@pytest.mark.parametrize("width,height", [(128, 44), (128, 18), (80, 44), (80, 18)])
+def test_arch_diagram_renders_all_sizes(width: int, height: int):
+    out = _render(_arch_state(), width=width, height=height)
+    assert "ARCHITECTURE" in out and "TRUNK" in out  # top of the flow is always shown
+
+
+def test_arch_diagram_all_blocks_present():
+    out = _render(_arch_state(), height=_FULL_DIAGRAM_HEIGHT)
+    for block in ("EMBED", "TRUNK", "CHOICE", "CONCAT", "SCORER", "VALUE"):
+        assert block in out
+
+
+def test_arch_diagram_dropout_appears_and_hides():
+    assert "Dropout" not in _render(_arch_state())  # default dropout 0 -> no row
+    assert "Dropout" in _render(_arch_state("dropout", dropout=0.15))
+
+
+def test_arch_diagram_layernorm_appears():
+    assert "LayerNorm" not in _render(_arch_state())  # default off -> no row
+    assert "LayerNorm" in _render(_arch_state("layernorm", layernorm=True))
+
+
+def test_arch_diagram_activation_label():
+    assert "relu" in _render(_arch_state())
+    assert "gelu" in _render(
+        _arch_state("activation", activation=architecture.ActivationName.GELU)
+    )
+
+
+def test_arch_diagram_readout_never_layernorms():
+    # Even with LayerNorm enabled and a hidden scorer layer, the readout heads
+    # must not draw a LayerNorm row (mirrors model._build_readout). LayerNorm
+    # shows up in the body blocks (above SCORER) but never from SCORER onward.
+    view = _arch_state(layernorm=True, head_layers=(128,))
+    out = _render(view, width=128, height=_FULL_DIAGRAM_HEIGHT)
+    assert "LayerNorm" in out  # the trunk / choice bodies do carry it
+    readouts = out.split("SCORER", 1)[1]
+    assert "LayerNorm" not in readouts
+
+
+def test_arch_diagram_collapse_tag():
+    view = _arch_state(
+        trunk_layers=(128, 128, 128, 128), choice_layers=(128, 128, 128, 128)
+    )
+    assert "×4" in _render(view)  # four identical trunk layers fold to one ×4 group
+
+
+def test_arch_diagram_narrow_fallback():
+    # Below the box-width floor the renderable drops to the compact text list;
+    # it must still name the blocks and not crash.
+    out = _render_diagram(_arch_state(), width=16, height=20)
+    assert "TRUNK" in out
+
+
+def test_arch_diagram_focus_highlight_smoke():
+    out = _render(_arch_state("dropout", dropout=0.15))
+    assert "Dropout" in out  # focusing the dropout handle still renders cleanly
+
+
+def test_arch_diagram_param_count_matches_model():
+    # The analytic per-block accounting equals sum(p.numel()) of the real net,
+    # exercising LayerNorm params, a per-family scorer multiplier, both heads, and
+    # asymmetric trunk/choice widths (M=16, N=24) so the scorer's M+N input is
+    # distinct from 2M and 2N — a regression to a "2H" concat would fail here.
+    cfg = config.TrainConfig(
+        device="cpu",
+        trunk_layers=(32, 16),
+        choice_layers=(64, 24),
+        head_layers=(8,),
+        value_layers=(8,),
+        card_embed_dim=8,
+        layernorm=True,
+        dropout=0.1,
+    )
+    net = model.PolicyValueNet(
+        state_dim=cfg.state_dim,
+        choice_dim=cfg.choice_dim,
+        num_families=len(cfg.family_order),
+        arch=cfg.arch,
+    )
+    report = _param_report_for(cfg)
+    assert report.total == sum(param.numel() for param in net.parameters())
+
+
+def test_arch_diagram_param_count_scales_with_embed_dim():
+    small = _param_report_for(config.TrainConfig(device="cpu", card_embed_dim=16))
+    large = _param_report_for(config.TrainConfig(device="cpu", card_embed_dim=64))
+    assert large.total > small.total
+
+
+def test_arch_diagram_param_display():
+    out = _render(_arch_state(), width=128, height=_FULL_DIAGRAM_HEIGHT)
+    assert "TOTAL" in out and "params" in out
 
 
 # --------------------------------------------------------------------------- #

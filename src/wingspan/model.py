@@ -101,19 +101,13 @@ class PolicyValueNet(nn.Module):
         # activation on its final layer (its output is an internal representation,
         # not a logit); the choice encoder does not (its output is concatenated
         # with the trunk context before scoring, matching the original shape).
-        trunk_in_dim = (
-            state_dim
-            - encode.N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings
-            - encode.HAND_MULTIHOT_DIM  # hand multi-hot -> one pooled embedding
-            + encode.N_CARD_INDEX_SLOTS * arch.card_embed_dim
-            + arch.card_embed_dim
-        )
+        trunk_in_dim = encode.trunk_input_dim(state_dim, arch.card_embed_dim)
         self.state_trunk, _ = _build_body(
             trunk_in_dim, arch.trunk_layers, arch, final_activation=True
         )
         # The per-choice encoder reads the candidate's non-identity features plus
         # its card identity embedded through the same shared table.
-        choice_in_dim = choice_dim - encode.CHOICE_BIRD_ID_DIM + arch.card_embed_dim
+        choice_in_dim = encode.choice_input_dim(choice_dim, arch.card_embed_dim)
         self.choice_encoder, _ = _build_body(
             choice_in_dim, arch.choice_layers, arch, final_activation=False
         )
@@ -293,8 +287,9 @@ def _build_readout(
     """Build a scalar-readout MLP (a scorer head or the value head): the hidden
     ``widths`` as ``Linear`` → activation → (optional) ``Dropout`` blocks, then a
     final ``Linear(·, 1)`` with no activation. Empty ``widths`` collapses to a
-    single ``Linear(in_dim, 1)`` — the original head shapes (scorer ``2H→H→1``,
-    value head ``H→1``) when the defaults are used."""
+    single ``Linear(in_dim, 1)`` — the original head shapes (scorer ``(M+N)→…→1``
+    over the trunk/choice concat, value head ``M→1`` over the trunk) when the
+    defaults are used."""
     modules: list[nn.Module] = []
     prev = in_dim
     for width in widths:

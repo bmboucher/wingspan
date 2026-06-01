@@ -16,7 +16,7 @@ import rich.console as rich_console
 from rich import align, box, layout, panel, table, text
 
 from wingspan.training import charts, theme
-from wingspan.training.configure import fields, runs, state
+from wingspan.training.configure import arch_diagram, fields, runs, state
 
 _WORDMARK = "🪶 WINGSPAN  FLIGHT PLAN"
 _HEADER_H = 4
@@ -191,7 +191,9 @@ class _FormView:
     ) -> rich_console.RenderResult:
         rows, selected_row = self._rows()
         height = options.height or options.max_height or len(rows)
-        window, scroll_up, scroll_down = _viewport(rows, selected_row, height)
+        window, scroll_up, scroll_down = arch_diagram.viewport(
+            rows, selected_row, height
+        )
         # end="" to match every other row: the loop below supplies the inter-row
         # newlines, so a default-newline indicator would inject a blank line and
         # push the bottom row (incl. the ▼ indicator itself) off the panel.
@@ -277,126 +279,19 @@ def _label_color(focused: bool, changed: bool, spec: fields.FieldSpec) -> str:
 
 #### Architecture diagram band ####
 
-# Which selected attr lights up each diagram section.
-_ARCH_SECTION_ATTRS: dict[str, set[str]] = {
-    "trunk": {"trunk_layers"},
-    "choice": {"choice_layers"},
-    "embed": {"card_embed_dim"},
-    "scorer": {"head_layers"},
-    "value": {"value_layers"},
-    "shared": {"activation", "dropout", "layernorm"},
-}
-
 
 def _arch_panel(view: state.ConfiguratorState) -> panel.Panel:
-    """A static panel showing the current model topology as a flow diagram."""
+    """The model-topology panel: a live box-and-arrow flow diagram of the working
+    network (see :class:`arch_diagram.ArchitectureDiagram`), which reacts to the
+    edited config and highlights the focused field."""
     return panel.Panel(
-        rich_console.Group(*_arch_lines(view)),
+        arch_diagram.ArchitectureDiagram(view),
         title="[b]ARCHITECTURE[/b]",
         title_align="left",
         box=box.ROUNDED,
         border_style=theme.BORDER_DEFAULT,
         padding=(0, 1),
     )
-
-
-def _arch_section_focused(view: state.ConfiguratorState, section: str) -> bool:
-    return view.selected_attr in _ARCH_SECTION_ATTRS.get(section, set())
-
-
-def _arch_label(
-    view: state.ConfiguratorState, section: str, text_str: str
-) -> text.Text:
-    color = (
-        theme.TEXT_BRIGHT if _arch_section_focused(view, section) else theme.TEXT_MUTED
-    )
-    return text.Text(text_str, style=f"bold {color}")
-
-
-def _arch_layer_row(widths: tuple[int, ...], prefix: str = "  ") -> str:
-    """'128 → 128' from a width tuple."""
-    return prefix + " → ".join(str(width) for width in widths)
-
-
-def _arch_lines(view: state.ConfiguratorState) -> list[text.Text]:
-    cfg = view.working
-    trunk = cfg.trunk_layers
-    choice = cfg.choice_layers
-    head = cfg.head_layers
-    value = cfg.value_layers
-    trunk_h = trunk[-1]
-    choice_h = choice[-1]
-    concat_mn = trunk_h + choice_h
-
-    lines: list[text.Text] = []
-
-    # Card embedding block
-    lines.append(_arch_label(view, "embed", "CARD EMBED"))
-    embed_line = text.Text(no_wrap=True)
-    embed_line.append(f"  180 birds × {cfg.card_embed_dim}", style=theme.TEXT_PRIMARY)
-    lines.append(embed_line)
-
-    lines.append(text.Text(""))
-
-    # Trunk block
-    lines.append(_arch_label(view, "trunk", "TRUNK  (state)"))
-    trunk_in = text.Text(no_wrap=True)
-    trunk_in.append(f"  {cfg.state_dim}", style=theme.TEXT_DIM2)
-    lines.append(trunk_in)
-    for width in trunk:
-        row = text.Text(no_wrap=True)
-        row.append(f"   → {width}", style=theme.TEXT_PRIMARY)
-        lines.append(row)
-    m_line = text.Text(no_wrap=True)
-    m_line.append(f"  M = {trunk_h}", style=theme.CAUTION)
-    lines.append(m_line)
-
-    lines.append(text.Text(""))
-
-    # Choice encoder block
-    lines.append(_arch_label(view, "choice", "CHOICE  (per-choice)"))
-    choice_in = text.Text(no_wrap=True)
-    choice_in.append(f"  {cfg.choice_dim}", style=theme.TEXT_DIM2)
-    lines.append(choice_in)
-    for width in choice:
-        row = text.Text(no_wrap=True)
-        row.append(f"   → {width}", style=theme.TEXT_PRIMARY)
-        lines.append(row)
-    n_line = text.Text(no_wrap=True)
-    n_line.append(f"  N = {choice_h}", style=theme.CAUTION)
-    lines.append(n_line)
-
-    lines.append(text.Text(""))
-
-    # Concat separator
-    sep = text.Text(no_wrap=True)
-    sep.append("─" * 20, style=theme.TEXT_DIM2)
-    lines.append(sep)
-    concat_line = text.Text(no_wrap=True)
-    concat_line.append("CONCAT  ", style=theme.TEXT_MUTED)
-    concat_line.append(f"M+N = {concat_mn}", style=theme.CAUTION)
-    lines.append(concat_line)
-    lines.append(text.Text(sep.plain, style=theme.TEXT_DIM2))
-
-    lines.append(text.Text(""))
-
-    # Scorer heads block
-    lines.append(_arch_label(view, "scorer", "SCORER  (per family)"))
-    scorer_widths = (concat_mn,) + head + (1,)
-    scorer_row = text.Text(no_wrap=True)
-    scorer_row.append(_arch_layer_row(scorer_widths), style=theme.TEXT_PRIMARY)
-    lines.append(scorer_row)
-
-    lines.append(text.Text(""))
-
-    # Value head block
-    lines.append(_arch_label(view, "value", "VALUE HEAD"))
-    value_widths = (trunk_h,) + value + (1,)
-    value_row = text.Text(no_wrap=True)
-    value_row.append(_arch_layer_row(value_widths), style=theme.TEXT_PRIMARY)
-    lines.append(value_row)
-
-    return lines
 
 
 #### Detail band ####
@@ -724,15 +619,3 @@ def _kv(label: str, value: str) -> text.Text:
 
 def _specs_in(section: fields.ConfigSection) -> list[fields.FieldSpec]:
     return [spec for spec in fields.FIELD_SPECS if spec.section is section]
-
-
-def _viewport(
-    rows: list[text.Text], selected_row: int, height: int
-) -> tuple[list[text.Text], bool, bool]:
-    """The slice of ``rows`` to show, keeping ``selected_row`` visible, plus
-    whether rows are clipped above / below."""
-    if height <= 0 or len(rows) <= height:
-        return list(rows), False, False
-    first = min(max(selected_row - height // 2, 0), len(rows) - height)
-    window = list(rows[first : first + height])
-    return window, first > 0, first + height < len(rows)
