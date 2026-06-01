@@ -18,9 +18,11 @@ class GettingBetterChart:
     """The single "TRAINING IMPROVEMENT" panel body: the left-docked EVAL inset
     (the cinematic hero win-rate plus its last/EWMA readouts) followed by two
     side-by-side line charts on their own axes. WIN RATE spans the whole run (no
-    sliding window, read from ``metrics.jsonl``) on a fixed 0..100% axis with the
-    yellow opponent-advance threshold line and a vertical marker at each
-    challenger upgrade — a single EWMA series. FINAL SCORE / MARGIN is a
+    sliding window, read from ``metrics.jsonl``) with the yellow opponent-advance
+    threshold line and a vertical marker at each challenger upgrade — a single
+    EWMA series. The y-axis shows the full 0..100% range during the random-opponent
+    phase and clips to 50..100% once the first opponent has been advanced (self-play
+    evaluations can never drop below 50%). FINAL SCORE / MARGIN is a
     dual-axis chart: the EWMA final score on a color-coded left axis and the EWMA
     eval margin on a color-coded right axis, each scaled to its own visible
     range, over a sliding 2000-iteration window pinned to a round left edge. When
@@ -134,13 +136,20 @@ def _winrate_block(
     it_lo, it_hi = convergence.full_range(history)
     ewma = convergence.winrate_ewma_points(history, state.config.eval_ewma_alpha)
 
+    # Clip the y-floor to 50% once the first opponent has been advanced;
+    # self-play evaluations are symmetric and can never fall below 50%.
+    v_lo = 50.0 if state.opponent_change_iterations else 0.0
+    v_hi = 100.0
+
     canvas = braille.BrailleCanvas(plot_cols, rows, 1)
-    _draw_series(canvas, 0, ewma, it_lo, it_hi, 0.0, 100.0, dotted=False)
-    beacon = _beacon_cell(canvas, ewma, it_lo, it_hi, 0.0, 100.0)
+    _draw_series(canvas, 0, ewma, it_lo, it_hi, v_lo, v_hi, dotted=False)
+    beacon = _beacon_cell(canvas, ewma, it_lo, it_hi, v_lo, v_hi)
 
     threshold = _winrate_threshold_pct(state)
     target_row = (
-        round((1.0 - threshold / 100.0) * (rows - 1)) if threshold > 0 else None
+        round((1.0 - (threshold - v_lo) / (v_hi - v_lo)) * (rows - 1))
+        if threshold > v_lo
+        else None
     )
     markers = convergence.marker_columns(
         state.opponent_change_iterations, it_lo, it_hi, plot_cols
@@ -148,7 +157,7 @@ def _winrate_block(
     grid = _render_plot_grid(
         canvas,
         {0: theme.WIN_COLOR},
-        _percent_label_rows(rows),
+        _percent_label_rows(rows, v_lo),
         beacon,
         beacon_color,
         target_row,
@@ -467,9 +476,17 @@ def _beacon_cell(
     return (py // 4, px // 2)
 
 
-def _percent_label_rows(rows: int) -> dict[int, str]:
-    """Map plot-row index -> percent gutter label for the fixed 0..100% axis."""
-    return {round((1 - pct / 100) * (rows - 1)): f"{pct}%" for pct in geometry.Y_LABELS}
+def _percent_label_rows(rows: int, v_lo: float = 0.0) -> dict[int, str]:
+    """Map plot-row index -> percent gutter label for the win-rate axis.
+
+    Uses denser 10%-step gridlines when ``v_lo`` is 50 (the clipped self-play
+    range) and the standard 20%-step set for the full 0..100% range.
+    """
+    labels = geometry.Y_LABELS_CLIPPED if v_lo >= 50.0 else geometry.Y_LABELS
+    return {
+        round((1.0 - (pct - v_lo) / (100.0 - v_lo)) * (rows - 1)): f"{pct}%"
+        for pct in labels
+    }
 
 
 def _auto_label_rows(rows: int, lo: float, hi: float) -> dict[int, str]:
