@@ -149,7 +149,7 @@ class TrainConfig(pydantic.BaseModel):
     # on-policy. Default OFF so existing checkpoints and behaviour are unchanged —
     # this knob does not touch the *main* net's ``architecture_key``; the setup net
     # has its own ``setup_architecture_key`` and its own checkpoint.
-    use_setup_model: bool = False
+    use_setup_model: bool = True
     # The setup net's MLP hidden widths (input-to-output) — a setup-FRESH change
     # (restarts only the setup net, never the main net).
     setup_hidden_layers: typing.Annotated[

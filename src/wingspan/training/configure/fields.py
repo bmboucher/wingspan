@@ -292,8 +292,8 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.MODEL,
         unit="units",
         impact=ChangeImpact.FRESH,
-        help="Per-choice encoder widths. Its LAST width must equal trunk layers' "
-        "last (both produce the H that is concatenated for scoring). Fresh run.",
+        help="Per-choice encoder widths. Last width auto-syncs with trunk layers "
+        "(both must produce the same embedding H for scoring). Fresh run.",
     ),
     LayersField(
         attr="head_layers",
@@ -566,6 +566,9 @@ def commit(
     parsed, parse_error = _parse(spec, raw)
     if parsed is None:
         return cfg, parse_error or "invalid value"
+    if isinstance(spec, LayersField) and spec.attr in {"trunk_layers", "choice_layers"}:
+        assert isinstance(parsed, tuple)
+        return _update_layers_synced(cfg, spec, parsed)
     return _validated_update(cfg, spec, parsed)
 
 
@@ -581,7 +584,20 @@ def nudge(
     if isinstance(spec, ChoiceField):
         return _cycle_choice(cfg, spec, direction), None
     if isinstance(spec, LayersField):
-        return _nudge_layers(cfg, spec, direction)
+        widths = _read_layers(cfg, spec)
+        if direction > 0:
+            last_width = widths[-1] if widths else _NEW_LAYER_WIDTH
+            new_widths = widths + (last_width,)
+        elif len(widths) <= spec.min_len:
+            return (
+                cfg,
+                f"{spec.label}: already at the minimum of {spec.min_len} layer(s)",
+            )
+        else:
+            new_widths = widths[:-1]
+        if spec.attr in {"trunk_layers", "choice_layers"}:
+            return _update_layers_synced(cfg, spec, new_widths)
+        return _validated_update(cfg, spec, new_widths)
     if isinstance(spec, IntField):
         return _validated_update(
             cfg, spec, _read_int(cfg, spec) + direction * spec.step
@@ -593,6 +609,30 @@ def nudge(
 
 
 ###### PRIVATE #######
+
+
+def _update_layers_synced(
+    cfg: config.TrainConfig,
+    spec: LayersField,
+    new_widths: tuple[int, ...],
+) -> tuple[config.TrainConfig, str | None]:
+    """Validate a trunk_layers or choice_layers change, auto-syncing the partner
+    block's last width in the same model_validate call so the H-embedding
+    constraint is always satisfied.
+
+    Only the last element of the partner block is updated; intermediate widths
+    are preserved."""
+    updates: dict[str, object] = {**cfg.model_dump(), spec.attr: new_widths}
+    if new_widths:
+        new_h = new_widths[-1]
+        if spec.attr == "trunk_layers" and cfg.choice_layers[-1] != new_h:
+            updates["choice_layers"] = cfg.choice_layers[:-1] + (new_h,)
+        elif spec.attr == "choice_layers" and cfg.trunk_layers[-1] != new_h:
+            updates["trunk_layers"] = cfg.trunk_layers[:-1] + (new_h,)
+    try:
+        return config.TrainConfig.model_validate(updates), None
+    except pydantic.ValidationError as error:
+        return cfg, _friendly_error(spec, error)
 
 
 def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue | None, str | None]:
@@ -669,18 +709,3 @@ def _read_float(cfg: config.TrainConfig, spec: FieldSpec) -> float:
 def _read_layers(cfg: config.TrainConfig, spec: FieldSpec) -> tuple[int, ...]:
     value = read_field(cfg, spec)
     return value if isinstance(value, tuple) else ()
-
-
-def _nudge_layers(
-    cfg: config.TrainConfig, spec: LayersField, direction: int
-) -> tuple[config.TrainConfig, str | None]:
-    """Change a width list's *length*: RIGHT appends a layer (duplicating the
-    last width, or seeding one when empty), LEFT drops the trailing layer down to
-    ``spec.min_len``. Sizes are set by typing; this only adds / removes layers."""
-    widths = _read_layers(cfg, spec)
-    if direction > 0:
-        last_width = widths[-1] if widths else _NEW_LAYER_WIDTH
-        return _validated_update(cfg, spec, widths + (last_width,))
-    if len(widths) <= spec.min_len:
-        return cfg, f"{spec.label}: already at the minimum of {spec.min_len} layer(s)"
-    return _validated_update(cfg, spec, widths[:-1])
