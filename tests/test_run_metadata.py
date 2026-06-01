@@ -25,38 +25,67 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 pytest.importorskip("torch")
 
+from wingspan import model
 from wingspan.training import artifacts, config, metrics, runmeta
 
 
 def test_write_model_config_round_trips(tmp_path: pathlib.Path):
-    cfg = config.TrainConfig(device="cpu", run_name="alpha", hidden=64)
+    cfg = config.TrainConfig(
+        device="cpu", run_name="alpha", trunk_layers=(64, 64), choice_layers=(64, 64)
+    )
     path = runmeta.write_model_config(str(tmp_path), cfg)
     assert path.name == artifacts.MODEL_CONFIG_JSON
-    descriptor = runmeta.ModelConfig.model_validate_json(
-        path.read_text(encoding="utf-8")
-    )
-    assert descriptor.run_name == "alpha" and descriptor.hidden == 64
-    # The shape fields are exactly the weight-compatibility key.
+    descriptor = runmeta.read_model_config(str(tmp_path))
+    assert descriptor.run_name == "alpha"
+    assert descriptor.architecture == cfg.arch
+    # The descriptor's fields reproduce the weight-compatibility key exactly.
     assert (
         descriptor.state_dim,
         descriptor.choice_dim,
         descriptor.family_order,
-        descriptor.hidden,
-        descriptor.card_embed_dim,
+        descriptor.architecture.shape_key,
     ) == cfg.architecture_key
 
 
 def test_write_model_config_overwrites(tmp_path: pathlib.Path):
     runmeta.write_model_config(
-        str(tmp_path), config.TrainConfig(device="cpu", hidden=64)
+        str(tmp_path), config.TrainConfig(device="cpu", card_embed_dim=64)
     )
     runmeta.write_model_config(
-        str(tmp_path), config.TrainConfig(device="cpu", hidden=128)
+        str(tmp_path), config.TrainConfig(device="cpu", card_embed_dim=96)
     )
-    descriptor = runmeta.ModelConfig.model_validate_json(
-        (tmp_path / artifacts.MODEL_CONFIG_JSON).read_text(encoding="utf-8")
+    descriptor = runmeta.read_model_config(str(tmp_path))
+    # Rewritten in place, not appended.
+    assert descriptor.architecture.card_embed_dim == 96
+
+
+def test_model_config_reconstitutes_net(tmp_path: pathlib.Path):
+    """The saved descriptor rebuilds a net whose weights match the original's
+    shapes, so a run's network can be reconstituted from ``model_config.json``."""
+    cfg = config.TrainConfig(
+        device="cpu",
+        trunk_layers=(96, 48),
+        choice_layers=(64, 48),
+        head_layers=(32,),
+        value_layers=(16,),
+        activation=config.architecture.ActivationName.GELU,
+        dropout=0.1,
+        layernorm=True,
+        card_embed_dim=48,
     )
-    assert descriptor.hidden == 128  # rewritten in place, not appended
+    original = model.PolicyValueNet(arch=cfg.arch)
+    runmeta.write_model_config(str(tmp_path), cfg)
+
+    rebuilt = model.PolicyValueNet.from_model_config(
+        runmeta.read_model_config(str(tmp_path))
+    )
+    original_shapes = {
+        name: tuple(p.shape) for name, p in original.state_dict().items()
+    }
+    rebuilt_shapes = {name: tuple(p.shape) for name, p in rebuilt.state_dict().items()}
+    assert original_shapes == rebuilt_shapes
+    # The rebuilt net loads the original's weights without complaint.
+    rebuilt.load_state_dict(original.state_dict())
 
 
 def test_write_session_record_captures_context(tmp_path: pathlib.Path):

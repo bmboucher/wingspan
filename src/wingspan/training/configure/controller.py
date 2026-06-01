@@ -30,6 +30,8 @@ _HEARTBEAT_FRAMES = 4
 _PAGE_JUMP = 5
 # Characters accepted while typing into a numeric field.
 _NUMERIC_CHARS = frozenset("0123456789.eE+-")
+# Characters accepted while typing a per-layer width list (digits + separators).
+_LAYERS_CHARS = frozenset("0123456789, ")
 # Single-letter commands recognized in NAVIGATE mode.
 _QUIT_CHARS = frozenset("qQ")
 _START_CHARS = frozenset("sS")
@@ -220,6 +222,8 @@ def _navigate_char(view: state.ConfiguratorState, char: str) -> state.Outcome:
         spec, (fields.IntField, fields.FloatField)
     ):
         _begin_edit(view, spec, initial=char)
+    elif char in _LAYERS_CHARS and isinstance(spec, fields.LayersField):
+        _begin_edit(view, spec, initial=char)
     return state.Outcome.CONTINUE
 
 
@@ -312,6 +316,8 @@ def _commit_edit(view: state.ConfiguratorState) -> state.Outcome:
 def _accepts_char(spec: fields.FieldSpec, char: str) -> bool:
     if isinstance(spec, (fields.IntField, fields.FloatField)):
         return char in _NUMERIC_CHARS
+    if isinstance(spec, fields.LayersField):
+        return char in _LAYERS_CHARS
     return char.isprintable()
 
 

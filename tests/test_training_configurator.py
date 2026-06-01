@@ -125,6 +125,47 @@ def test_is_changed_against_saved():
     assert not fields.is_changed(working, None, games)  # no saved run -> unchanged
 
 
+def test_layers_field_format_and_commit():
+    cfg = config.TrainConfig(device="cpu")
+    trunk = fields.spec_for("trunk_layers")
+    assert isinstance(trunk, fields.LayersField)
+    assert fields.format_value(cfg, trunk) == "128, 128"
+    # Typing comma/space separated widths sets the sizes (the final width stays
+    # 128 so it still matches the choice encoder's last layer).
+    updated, error = fields.commit(cfg, trunk, "256, 192, 128")
+    assert error is None and updated.trunk_layers == (256, 192, 128)
+    # An empty head list formats as "none" and parses back to ().
+    head = fields.spec_for("head_layers")
+    empty, error = fields.commit(cfg, head, "none")
+    assert error is None and empty.head_layers == ()
+    assert fields.format_value(empty, head) == "none"
+    # Non-numeric tokens are a parse error, not a crash.
+    _, parse_error = fields.commit(cfg, trunk, "256, wide")
+    assert parse_error is not None
+
+
+def test_layers_field_cross_field_rejected():
+    # choice_layers must end at the trunk's final width; an inconsistent edit is
+    # rejected by the model and the config is left unchanged.
+    cfg = config.TrainConfig(device="cpu")
+    choice = fields.spec_for("choice_layers")
+    rejected, error = fields.commit(cfg, choice, "128, 64")
+    assert error is not None and rejected.choice_layers == cfg.choice_layers
+
+
+def test_layers_field_nudge_changes_depth():
+    cfg = config.TrainConfig(device="cpu")  # trunk defaults to (128, 128)
+    trunk = fields.spec_for("trunk_layers")
+    deeper, error = fields.nudge(cfg, trunk, 1)
+    assert error is None and deeper.trunk_layers == (128, 128, 128)  # duplicates last
+    shallower, error = fields.nudge(deeper, trunk, -1)
+    assert error is None and shallower.trunk_layers == (128, 128)
+    # A body block cannot drop below its single-layer floor.
+    one_layer = cfg.model_copy(update={"trunk_layers": (128,), "choice_layers": (128,)})
+    floored, error = fields.nudge(one_layer, trunk, -1)
+    assert error is not None and floored.trunk_layers == (128,)
+
+
 # --------------------------------------------------------------------------- #
 # runs                                                                        #
 # --------------------------------------------------------------------------- #
@@ -186,7 +227,9 @@ def test_architecture_compatible_and_status(tmp_path: pathlib.Path):
     cfg = config.TrainConfig(device="cpu")
     assert runs.architecture_compatible(None, cfg)  # pre-descriptor -> compatible
     assert runs.architecture_compatible(cfg, cfg)
-    wider = cfg.model_copy(update={"hidden": cfg.hidden * 2})
+    wider = cfg.model_copy(
+        update={"trunk_layers": (256, 256), "choice_layers": (256, 256)}
+    )
     assert not runs.architecture_compatible(cfg, wider)
 
     _write_checkpoint(tmp_path, cfg)
@@ -516,7 +559,12 @@ def test_inspect_run_invalid_config_is_unreadable(tmp_path: pathlib.Path):
 
 
 def test_loop_starts_fresh_on_invalid_saved_config(tmp_path: pathlib.Path):
-    cfg = config.TrainConfig(device="cpu", hidden=32, checkpoint_dir=str(tmp_path))
+    cfg = config.TrainConfig(
+        device="cpu",
+        trunk_layers=(32, 32),
+        choice_layers=(32, 32),
+        checkpoint_dir=str(tmp_path),
+    )
     payload = {
         "config": {**cfg.model_dump(), "eval_ewma_alpha": 0.0},  # now out of bounds
         "progress": runstate.RunProgress(iteration=4, total_games=8).model_dump(),
@@ -531,7 +579,11 @@ def test_loop_truncates_history_on_fresh_start(tmp_path: pathlib.Path):
     (tmp_path / artifacts.GAMES_LOG).write_text("stale-game\n", encoding="utf-8")
     (tmp_path / "process_20000101-000000.json").write_text("{}", encoding="utf-8")
     cfg = config.TrainConfig(
-        device="cpu", hidden=32, checkpoint_dir=str(tmp_path), resume=False
+        device="cpu",
+        trunk_layers=(32, 32),
+        choice_layers=(32, 32),
+        checkpoint_dir=str(tmp_path),
+        resume=False,
     )
     loop.TrainingLoop(cfg)  # a non-resumed run clears a previous run's history
     assert (tmp_path / artifacts.METRICS_LOG).read_text(encoding="utf-8") == ""

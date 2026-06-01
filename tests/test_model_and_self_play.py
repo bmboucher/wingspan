@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 torch = pytest.importorskip("torch")
 functional = pytest.importorskip("torch.nn.functional")
 
-from wingspan import cards, decisions, encode, engine, model, state, train
+from wingspan import architecture, cards, decisions, encode, engine, model, state, train
 
 
 def test_model_forward_shapes_and_mask():
@@ -165,9 +165,49 @@ def test_model_has_one_scorer_head_per_family():
 def test_card_embedding_table_shape():
     """One shared embedding row per core-set bird plus a padding row (index 0),
     and the padding row is held at zero."""
-    net = model.PolicyValueNet(card_embed_dim=64)
+    net = model.PolicyValueNet(arch=architecture.ModelArchitecture(card_embed_dim=64))
     assert net.card_embed.weight.shape == (encode.HAND_MULTIHOT_DIM + 1, 64)
     assert torch.allclose(net.card_embed.weight[0], torch.zeros(64))
+
+
+def test_model_forward_with_custom_architecture():
+    """A non-default topology — asymmetric per-block depths, a different
+    activation, dropout, and LayerNorm — still produces well-shaped, finite,
+    properly-masked outputs (the build is fully data-driven)."""
+    arch = architecture.ModelArchitecture(
+        trunk_layers=(96, 64, 48),
+        choice_layers=(72, 48),
+        head_layers=(32,),
+        value_layers=(24, 16),
+        activation=architecture.ActivationName.GELU,
+        dropout=0.1,
+        layernorm=True,
+        card_embed_dim=48,
+    )
+    net = model.PolicyValueNet(arch=arch)
+    net.eval()  # disable dropout for a deterministic shape check
+    assert net.hidden == 48  # embedding width H = trunk's final layer
+    batch_size, n_choices = 3, 5
+    state_vec = torch.zeros(batch_size, encode.state_size())
+    choices = torch.randn(batch_size, n_choices, encode.CHOICE_FEATURE_DIM)
+    mask = torch.tensor(
+        [[1, 1, 1, 0, 0], [1, 1, 0, 0, 0], [1, 1, 1, 1, 1]], dtype=torch.float32
+    )
+    family = torch.tensor([0, 1, 2], dtype=torch.long)
+    logits, value = net(state_vec, choices, mask, family)
+    assert logits.shape == (batch_size, n_choices)
+    assert value.shape == (batch_size,)
+    probs = functional.softmax(logits, dim=-1)
+    assert torch.allclose(probs[0, 3:], torch.zeros(2))
+    assert torch.allclose(probs.sum(dim=-1), torch.ones(batch_size), atol=1e-5)
+    assert torch.isfinite(value).all()
+
+
+def test_model_rejects_mismatched_body_widths():
+    """The trunk and choice encoder must end at the same width; an inconsistent
+    architecture is rejected at construction (via the descriptor's validator)."""
+    with pytest.raises(ValueError):
+        architecture.ModelArchitecture(trunk_layers=(128, 64), choice_layers=(128, 128))
 
 
 def test_card_embedding_shared_between_board_and_hand():

@@ -27,39 +27,64 @@ of choice" without multiplying the trunk or starving the shared critic.
 
 from __future__ import annotations
 
+import typing
+
 import torch
 from torch import nn
 
-from wingspan import decisions, encode
+from wingspan import architecture, decisions, encode
+
+if typing.TYPE_CHECKING:
+    from wingspan.training import runmeta
+
+# The selectable activation functions, keyed by their descriptor enum. Each maps
+# to a zero-argument ``nn.Module`` factory.
+_ACTIVATIONS: dict[architecture.ActivationName, typing.Callable[[], nn.Module]] = {
+    architecture.ActivationName.RELU: nn.ReLU,
+    architecture.ActivationName.GELU: nn.GELU,
+    architecture.ActivationName.TANH: nn.Tanh,
+    architecture.ActivationName.SILU: nn.SiLU,
+    architecture.ActivationName.LEAKY_RELU: nn.LeakyReLU,
+}
 
 
 class PolicyValueNet(nn.Module):
     """Actor-critic over (state, choice-set) decisions with per-family heads.
 
-    A two-layer state trunk feeds (a) a state-context vector used to rescore
-    every candidate and (b) the shared value head. A two-layer per-choice
-    encoder consumes the per-choice features. The score for choice ``i`` is an
-    MLP over ``concat(state_ctx, choice_emb[i])``, selected per decision by its
-    judgment family (``decisions.ALL_DECISION_FAMILIES``) so different kinds of
-    choice are scored by different, specialized heads.
+    A state trunk feeds (a) a state-context vector used to rescore every
+    candidate and (b) the shared value head; a per-choice encoder consumes the
+    per-choice features. The score for choice ``i`` is an MLP over
+    ``concat(state_ctx, choice_emb[i])``, selected per decision by its judgment
+    family (``decisions.ALL_DECISION_FAMILIES``) so different kinds of choice are
+    scored by different, specialized heads.
+
+    Every block's depth, width, activation, dropout, and LayerNorm come from a
+    :class:`architecture.ModelArchitecture` (the topology saved to
+    ``model_config.json``), so the network's shape is fully data-driven; the
+    trunk and choice encoder are required to end at the same width ``H`` so their
+    outputs concatenate into the ``2H`` vector each scorer reads.
     """
 
     def __init__(
         self,
+        *,
         state_dim: int | None = None,
         choice_dim: int = encode.CHOICE_FEATURE_DIM,
-        hidden: int = 128,
         num_families: int = len(decisions.ALL_DECISION_FAMILIES),
-        card_embed_dim: int = 64,
+        arch: architecture.ModelArchitecture | None = None,
     ):
         super().__init__()
         if state_dim is None:
             state_dim = encode.state_size()
+        if arch is None:
+            arch = architecture.ModelArchitecture()
         self.state_dim = state_dim
         self.choice_dim = choice_dim
-        self.hidden = hidden
         self.num_families = num_families
-        self.card_embed_dim = card_embed_dim
+        self.arch = arch
+        self.card_embed_dim = arch.card_embed_dim
+        self.hidden = arch.embed_width  # H — kept for external readouts
+        embed_width = arch.embed_width
 
         # One shared learned vector per core-set bird (row 0 is the padding /
         # empty-slot vector). nn.Embedding(idx) == one_hot @ W, so this is the
@@ -68,45 +93,54 @@ class PolicyValueNet(nn.Module):
         # therefore has one learned value used by both the critic-state read and
         # the actor's candidate scoring (DECISIONS.md card power-ranking goal).
         self.card_embed = nn.Embedding(
-            encode.HAND_MULTIHOT_DIM + 1, card_embed_dim, padding_idx=0
+            encode.HAND_MULTIHOT_DIM + 1, arch.card_embed_dim, padding_idx=0
         )
 
         # The trunk reads the continuous state features plus the looked-up card
         # embeddings: the index block becomes one embedding per slot (flattened),
-        # the hand multi-hot becomes a single mean-pooled embedding.
+        # the hand multi-hot becomes a single mean-pooled embedding. It keeps an
+        # activation on its final layer (its output is an internal representation,
+        # not a logit); the choice encoder does not (its output is concatenated
+        # with the trunk context before scoring, matching the original shape).
         trunk_in_dim = (
             state_dim
             - encode.N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings
             - encode.HAND_MULTIHOT_DIM  # hand multi-hot -> one pooled embedding
-            + encode.N_CARD_INDEX_SLOTS * card_embed_dim
-            + card_embed_dim
+            + encode.N_CARD_INDEX_SLOTS * arch.card_embed_dim
+            + arch.card_embed_dim
         )
-        self.state_trunk = nn.Sequential(
-            nn.Linear(trunk_in_dim, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
+        self.state_trunk, _ = _build_body(
+            trunk_in_dim, arch.trunk_layers, arch, final_activation=True
         )
         # The per-choice encoder reads the candidate's non-identity features plus
         # its card identity embedded through the same shared table.
-        choice_in_dim = choice_dim - encode.CHOICE_BIRD_ID_DIM + card_embed_dim
-        self.choice_encoder = nn.Sequential(
-            nn.Linear(choice_in_dim, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
+        choice_in_dim = choice_dim - encode.CHOICE_BIRD_ID_DIM + arch.card_embed_dim
+        self.choice_encoder, _ = _build_body(
+            choice_in_dim, arch.choice_layers, arch, final_activation=False
         )
-        # One scoring head per judgment family. The trunk + choice-encoder are
-        # shared; specialization lives here. ``family_idx`` routes each
-        # decision to its head in ``forward``.
+        # One scoring head per judgment family, each a readout MLP over the ``2H``
+        # concat. The trunk + choice-encoder are shared; specialization lives
+        # here. ``family_idx`` routes each decision to its head in ``forward``.
         self.scorers = nn.ModuleList(
-            nn.Sequential(
-                nn.Linear(hidden * 2, hidden),
-                nn.ReLU(),
-                nn.Linear(hidden, 1),
-            )
+            _build_readout(2 * embed_width, arch.head_layers, arch)
             for _ in range(num_families)
         )
-        self.value_head = nn.Linear(hidden, 1)
+        # The value head reads the trunk context (a property of the board, not of
+        # the decision asked, so it is shared across families).
+        self.value_head = _build_readout(embed_width, arch.value_layers, arch)
+
+    @classmethod
+    def from_model_config(cls, descriptor: "runmeta.ModelConfig") -> "PolicyValueNet":
+        """Rebuild a net matching a saved ``model_config.json`` descriptor — its
+        full topology plus the encoding dims and family-head count it was trained
+        under. The returned net has fresh weights in the saved shape, ready for
+        ``load_state_dict`` from the run's checkpoint."""
+        return cls(
+            state_dim=descriptor.state_dim,
+            choice_dim=descriptor.choice_dim,
+            num_families=len(descriptor.family_order),
+            arch=descriptor.architecture,
+        )
 
     def forward(
         self,
@@ -211,3 +245,61 @@ class PolicyValueNet(nn.Module):
         rest = torch.cat([choices[..., :off_bird], choices[..., end_bird:]], dim=-1)
         cand_emb = bird_multihot @ self.card_embed.weight[1:]
         return torch.cat([rest, cand_emb], dim=-1)
+
+
+###### PRIVATE #######
+
+
+def _activation_module(name: architecture.ActivationName) -> nn.Module:
+    """A fresh activation module for the descriptor's chosen function."""
+    return _ACTIVATIONS[name]()
+
+
+def _build_body(
+    in_dim: int,
+    widths: architecture.Widths,
+    arch: architecture.ModelArchitecture,
+    *,
+    final_activation: bool,
+) -> tuple[nn.Sequential, int]:
+    """Build a body MLP — the trunk or the choice encoder — and return it with
+    its output width. Each layer is ``Linear`` → (optional) ``LayerNorm`` →
+    activation → (optional) ``Dropout``; the activation + dropout on the final
+    layer are emitted only when ``final_activation`` (the trunk keeps a trailing
+    activation, the choice encoder does not). LayerNorm — when enabled on the
+    architecture — is applied to these body blocks; the readout heads omit it."""
+    modules: list[nn.Module] = []
+    prev = in_dim
+    last_index = len(widths) - 1
+    for index, width in enumerate(widths):
+        modules.append(nn.Linear(prev, width))
+        if arch.layernorm:
+            modules.append(nn.LayerNorm(width))
+        if final_activation or index != last_index:
+            modules.append(_activation_module(arch.activation))
+            if arch.dropout > 0.0:
+                modules.append(nn.Dropout(arch.dropout))
+        prev = width
+    return nn.Sequential(*modules), prev
+
+
+def _build_readout(
+    in_dim: int,
+    widths: architecture.Widths,
+    arch: architecture.ModelArchitecture,
+) -> nn.Sequential:
+    """Build a scalar-readout MLP (a scorer head or the value head): the hidden
+    ``widths`` as ``Linear`` → activation → (optional) ``Dropout`` blocks, then a
+    final ``Linear(·, 1)`` with no activation. Empty ``widths`` collapses to a
+    single ``Linear(in_dim, 1)`` — the original head shapes (scorer ``2H→H→1``,
+    value head ``H→1``) when the defaults are used."""
+    modules: list[nn.Module] = []
+    prev = in_dim
+    for width in widths:
+        modules.append(nn.Linear(prev, width))
+        modules.append(_activation_module(arch.activation))
+        if arch.dropout > 0.0:
+            modules.append(nn.Dropout(arch.dropout))
+        prev = width
+    modules.append(nn.Linear(prev, 1))
+    return nn.Sequential(*modules)

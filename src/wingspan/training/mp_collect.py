@@ -41,7 +41,7 @@ import numpy as np
 import pydantic
 import torch
 
-from wingspan import agents, model
+from wingspan import agents, architecture, model
 from wingspan.training import collect, config, evaluate, metrics
 
 # Match batched_collect's per-game sampling salt so a seed maps to the same
@@ -70,14 +70,14 @@ _MAX_WORKERS = 16
 
 class _WorkerArch(pydantic.BaseModel):
     """The network shape a worker needs to build its local net before any
-    weights arrive. Passed once to each worker as pool ``initargs``."""
+    weights arrive. Passed once to each worker as pool ``initargs``; the full
+    topology travels in ``arch`` so the worker rebuilds a byte-identical net."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     state_dim: int
     choice_dim: int
-    hidden: int
-    card_embed_dim: int
+    arch: architecture.ModelArchitecture
 
 
 class _GameTask(pydantic.BaseModel):
@@ -124,8 +124,7 @@ class ProcessCollector:
         self._arch = _WorkerArch(
             state_dim=cfg.state_dim,
             choice_dim=cfg.choice_dim,
-            hidden=cfg.hidden,
-            card_embed_dim=cfg.card_embed_dim,
+            arch=cfg.arch,
         )
         self._weights_path = pathlib.Path(cfg.checkpoint_dir) / _WEIGHTS_FILENAME
         self._opponent_path = pathlib.Path(cfg.checkpoint_dir) / _OPPONENT_FILENAME
@@ -317,8 +316,7 @@ def _worker_init(arch: _WorkerArch) -> None:
     _worker_net = model.PolicyValueNet(
         state_dim=arch.state_dim,
         choice_dim=arch.choice_dim,
-        hidden=arch.hidden,
-        card_embed_dim=arch.card_embed_dim,
+        arch=arch.arch,
     ).to(_worker_device)
     _worker_net.eval()
     _worker_weights_version = -1
@@ -410,8 +408,7 @@ def _ensure_worker_opponent(
         _worker_opponent_net = model.PolicyValueNet(
             state_dim=_worker_arch.state_dim,
             choice_dim=_worker_arch.choice_dim,
-            hidden=_worker_arch.hidden,
-            card_embed_dim=_worker_arch.card_embed_dim,
+            arch=_worker_arch.arch,
         ).to(device)
         _worker_opponent_net.eval()
     if task.opponent_version != _worker_opponent_version:

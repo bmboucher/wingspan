@@ -211,7 +211,8 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
         max_iterations=1,
         eval_every=1,
         eval_games=2,
-        hidden=32,
+        trunk_layers=(32, 32),
+        choice_layers=(32, 32),
         checkpoint_dir=str(tmp_path),
         # Exercise the self-play + eval path directly (the random-opponent
         # bootstrap phase pauses eval; that path is covered separately).
@@ -261,7 +262,8 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
         max_iterations=1,
         eval_every=1,
         eval_games=2,
-        hidden=32,
+        trunk_layers=(32, 32),
+        choice_layers=(32, 32),
         checkpoint_dir=str(tmp_path),
         # Resume continuity is tested on the self-play + eval regime; the
         # bootstrap phase has its own resume/graduation coverage.
@@ -330,7 +332,8 @@ def _bootstrap_config(
         "device": "cpu",
         "games_per_iter": 2,
         "max_iterations": 1,
-        "hidden": 32,
+        "trunk_layers": (32, 32),
+        "choice_layers": (32, 32),
         "checkpoint_dir": str(tmp_path),
         "initial_vs_random": True,
         "random_phase_win_rate": 0.5,

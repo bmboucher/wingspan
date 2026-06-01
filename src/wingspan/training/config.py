@@ -18,7 +18,7 @@ import typing
 
 import pydantic
 
-from wingspan import decisions, encode
+from wingspan import architecture, decisions, encode
 
 
 def _default_family_order() -> tuple[str, ...]:
@@ -105,7 +105,27 @@ class TrainConfig(pydantic.BaseModel):
     # ---- runtime ----
     device: str = "cpu"
     seed: typing.Annotated[int, pydantic.Field(ge=0)] = 0
-    hidden: typing.Annotated[int, pydantic.Field(ge=1)] = 128
+
+    # ---- network topology (see architecture.ModelArchitecture) ----
+    # The four blocks' hidden-layer widths (input-to-output). The trunk and the
+    # choice encoder must end at the same width (the embedding H concatenated and
+    # fed to the scorers); the head blocks may be empty for a direct readout.
+    # These flat fields mirror ``ModelArchitecture`` so the configurator can edit
+    # each one independently; ``self.arch`` assembles the descriptor.
+    trunk_layers: typing.Annotated[
+        architecture.Widths, pydantic.Field(min_length=1)
+    ] = (
+        128,
+        128,
+    )
+    choice_layers: typing.Annotated[
+        architecture.Widths, pydantic.Field(min_length=1)
+    ] = (128, 128)
+    head_layers: architecture.Widths = (128,)
+    value_layers: architecture.Widths = ()
+    activation: architecture.ActivationName = architecture.ActivationName.RELU
+    dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
+    layernorm: bool = False
     # Width of the shared per-card embedding (one learned vector per core-set
     # bird, reused for every board / tray / hand / choice card slot).
     card_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] = 64
@@ -127,6 +147,16 @@ class TrainConfig(pydantic.BaseModel):
         default_factory=_default_family_order
     )
 
+    @pydantic.model_validator(mode="after")
+    def _check_architecture(self) -> TrainConfig:
+        """Surface the topology's cross-field invariant (choice / trunk share a
+        final width) as a normal validation error, so the configurator's
+        validated-update path rejects an inconsistent edit the same way it
+        rejects an out-of-range scalar. Assembling ``arch`` runs its
+        ``@model_validator``."""
+        _ = self.arch
+        return self
+
     @property
     def eval_pairs(self) -> int:
         """Mirror-deal pairs per eval block — ``eval_games`` games played as
@@ -134,16 +164,41 @@ class TrainConfig(pydantic.BaseModel):
         return self.eval_games // 2
 
     @property
-    def architecture_key(self) -> tuple[int, int, tuple[str, ...], int, int]:
+    def arch(self) -> architecture.ModelArchitecture:
+        """The network topology descriptor assembled from the flat topology
+        fields — the single object the model builds from and ``model_config.json``
+        serializes. Named ``arch`` (not ``architecture``) so it never shadows the
+        imported ``architecture`` module in this class's field annotations."""
+        return architecture.ModelArchitecture(
+            trunk_layers=self.trunk_layers,
+            choice_layers=self.choice_layers,
+            head_layers=self.head_layers,
+            value_layers=self.value_layers,
+            activation=self.activation,
+            dropout=self.dropout,
+            layernorm=self.layernorm,
+            card_embed_dim=self.card_embed_dim,
+        )
+
+    @property
+    def hidden(self) -> int:
+        """The embedding width ``H`` (the trunk's output, the heads' input) — a
+        read-only alias of ``trunk_layers[-1]`` kept for readouts that referred to
+        the former scalar ``hidden`` field."""
+        return self.trunk_layers[-1]
+
+    @property
+    def architecture_key(
+        self,
+    ) -> tuple[int, int, tuple[str, ...], architecture.ShapeKey]:
         """The network-shape signature a checkpoint must match to be resumed
         (TRAINING.md §5.1): two trained nets are weight-compatible iff their
-        ``(state_dim, choice_dim, family_order, hidden, card_embed_dim)`` agree.
-        Comparing this one derived tuple keeps the resume gate and the
+        ``(state_dim, choice_dim, family_order)`` and full topology ``shape_key``
+        agree. Comparing this one derived tuple keeps the resume gate and the
         configurator's compatibility check from drifting apart."""
         return (
             self.state_dim,
             self.choice_dim,
             self.family_order,
-            self.hidden,
-            self.card_embed_dim,
+            self.arch.shape_key,
         )

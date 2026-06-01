@@ -164,7 +164,7 @@ def _load_policy_net(
 ) -> model.PolicyValueNet:
     """Load a ``PolicyValueNet`` from a training checkpoint, rebuilding it from
     the ``TrainConfig`` stored alongside the weights so the caller need not know
-    the network's hidden / embedding widths. Raises with a clear message when
+    the network's layer widths. Raises with a clear message when
     the file is missing, lacks a config, or was trained against an incompatible
     encoding layout."""
     if not checkpoint_path.exists():
@@ -185,11 +185,11 @@ def _load_policy_net(
             "self-describing checkpoint format and cannot be loaded here."
         )
 
-    # The net is rebuilt from the checkpoint's own hidden / card_embed_dim, so
-    # those always match its weights; what must match the *current* code is the
+    # The net is rebuilt from the checkpoint's own topology, so its layer widths
+    # always match its weights; what must match the *current* code is the
     # encoding layout (state/choice feature dims and the family head order),
     # since freshly-encoded states are fed into the net at inference. A net
-    # trained with a different hidden width is still perfectly usable here.
+    # trained with a different topology is still perfectly usable here.
     saved = config.TrainConfig.model_validate(payload["config"])
     current = config.TrainConfig()
     if _encoding_key(saved) != _encoding_key(current):
@@ -200,9 +200,7 @@ def _load_policy_net(
             "It was trained against a different encode.py / decisions.py layout."
         )
 
-    net = model.PolicyValueNet(
-        hidden=saved.hidden, card_embed_dim=saved.card_embed_dim
-    ).to(device)
+    net = model.PolicyValueNet(arch=saved.arch).to(device)
     net.load_state_dict(payload["model"])
     net.eval()
     return net
@@ -211,7 +209,7 @@ def _load_policy_net(
 def _encoding_key(cfg: config.TrainConfig) -> tuple[int, int, tuple[str, ...]]:
     """The encoding-compatibility signature: the parts of the architecture that
     must agree with the live ``encode`` / ``decisions`` modules for a checkpoint
-    to consume freshly-encoded inputs (the hidden width is excluded — it is
+    to consume freshly-encoded inputs (the layer widths are excluded — they are
     self-consistent with the loaded weights)."""
     return (cfg.state_dim, cfg.choice_dim, cfg.family_order)
 

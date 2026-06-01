@@ -25,6 +25,7 @@ import time
 import torch
 from rich import console, live
 
+from wingspan import architecture
 from wingspan.training import artifacts, config, configure, dashboard, loop, runstate
 
 _REFRESH_HZ = 8.0
@@ -201,7 +202,40 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=128,
         help="held-out games per eval block (played as mirrored pairs)",
     )
-    parser.add_argument("--hidden", type=int, default=128)
+    parser.add_argument(
+        "--trunk-layers",
+        default="128,128",
+        help="state-trunk hidden widths, comma-separated (e.g. 256,128)",
+    )
+    parser.add_argument(
+        "--choice-layers",
+        default="128,128",
+        help="per-choice encoder widths (its last width must equal the trunk's)",
+    )
+    parser.add_argument(
+        "--head-layers",
+        default="128",
+        help="per-family scorer hidden widths (empty string = direct 2H->1)",
+    )
+    parser.add_argument(
+        "--value-layers",
+        default="",
+        help="value-head hidden widths (empty string = direct H->1)",
+    )
+    parser.add_argument(
+        "--activation",
+        default=architecture.ActivationName.RELU.value,
+        choices=[name.value for name in architecture.ActivationName],
+        help="activation function for every MLP block",
+    )
+    parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument(
+        "--layernorm",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="apply LayerNorm in the trunk / choice-encoder body blocks",
+    )
+    parser.add_argument("--card-embed-dim", type=int, default=64, dest="card_embed_dim")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--checkpoint-dir", default="checkpoints")
     parser.add_argument("--run-name", default="dashboard")
@@ -226,13 +260,26 @@ def _config_from_namespace(args: argparse.Namespace) -> config.TrainConfig:
         value_coef=args.value_coef,
         eval_every=args.eval_every,
         eval_games=args.eval_games,
-        hidden=args.hidden,
+        trunk_layers=_parse_layers(args.trunk_layers),
+        choice_layers=_parse_layers(args.choice_layers),
+        head_layers=_parse_layers(args.head_layers),
+        value_layers=_parse_layers(args.value_layers),
+        activation=architecture.ActivationName(args.activation),
+        dropout=args.dropout,
+        layernorm=args.layernorm,
+        card_embed_dim=args.card_embed_dim,
         seed=args.seed,
         device=args.device,
         checkpoint_dir=args.checkpoint_dir,
         run_name=args.run_name,
         resume=args.resume,
     )
+
+
+def _parse_layers(text: str) -> tuple[int, ...]:
+    """Parse a comma-separated layer-width flag into a tuple (empty string → the
+    empty tuple, for a head with no hidden layers)."""
+    return tuple(int(part) for part in text.replace(" ", "").split(",") if part)
 
 
 def _summary_clock(seconds: float) -> str:

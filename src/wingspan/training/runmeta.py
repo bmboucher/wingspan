@@ -27,6 +27,7 @@ import pathlib
 
 import pydantic
 
+from wingspan import architecture
 from wingspan.training import artifacts, config
 
 # Up to this many same-second restarts get a unique ``process_<stamp>-N.json``
@@ -35,20 +36,22 @@ _MAX_SESSION_SUFFIX = 1000
 
 
 class ModelConfig(pydantic.BaseModel):
-    """The network-shape descriptor written to ``model_config.json``.
+    """The full network descriptor written to ``model_config.json``.
 
-    These shape fields are exactly ``TrainConfig.architecture_key`` — the
-    signature two checkpoints must share to be weight-compatible — plus the run
-    name for context. A change to any of them invalidates previously-trained
-    weights.
+    Carries the encoding dims and family-head order the net was trained against
+    plus its complete :class:`architecture.ModelArchitecture` topology, so the
+    file both reads as a one-glance summary of the run's network *and* fully
+    reconstitutes it (``model.PolicyValueNet.from_model_config``). The
+    weight-compatibility signature ``TrainConfig.architecture_key`` is derived
+    from exactly these fields, so a change to any of them invalidates
+    previously-trained weights.
     """
 
     run_name: str
     state_dim: int
     choice_dim: int
-    hidden: int
     family_order: tuple[str, ...]
-    card_embed_dim: int
+    architecture: architecture.ModelArchitecture
 
 
 class SessionRecord(pydantic.BaseModel):
@@ -73,13 +76,22 @@ def write_model_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
         run_name=cfg.run_name,
         state_dim=cfg.state_dim,
         choice_dim=cfg.choice_dim,
-        hidden=cfg.hidden,
         family_order=cfg.family_order,
-        card_embed_dim=cfg.card_embed_dim,
+        architecture=cfg.arch,
     )
     path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
     path.write_text(descriptor.model_dump_json(indent=2), encoding="utf-8")
     return path
+
+
+def read_model_config(checkpoint_dir: str) -> ModelConfig:
+    """Read the ``model_config.json`` topology descriptor from ``checkpoint_dir``.
+
+    Pairs with :func:`write_model_config`: the returned descriptor reconstitutes
+    the run's network via ``model.PolicyValueNet.from_model_config``. Raises
+    ``FileNotFoundError`` if the run has no descriptor on disk."""
+    path = pathlib.Path(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
+    return ModelConfig.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def write_session_record(

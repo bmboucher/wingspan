@@ -336,6 +336,8 @@ def _impact_note(impact: fields.ChangeImpact) -> str:
 def _detail_constraint(spec: fields.FieldSpec) -> str:
     if isinstance(spec, fields.ChoiceField):
         return " / ".join(spec.choices)
+    if isinstance(spec, fields.LayersField):
+        return "type widths (e.g. 256,128) · ←/→ adds/removes a layer"
     if isinstance(spec, fields.IntField):
         return f"step {spec.step}"
     if isinstance(spec, fields.FloatField):

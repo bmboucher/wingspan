@@ -167,7 +167,8 @@ src/wingspan/
   state.py               # GameState, Player, Board, FoodPool, PlayedBird, Birdfeeder, new_game
   decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction
   encode.py              # state/choice tensor encoders for RL
-  model.py               # PyTorch PolicyValueNet
+  architecture.py        # ModelArchitecture + ActivationName (torch-free network topology descriptor)
+  model.py               # PyTorch PolicyValueNet (built from a ModelArchitecture)
   train.py               # self-play + REINFORCE
   data/*.json            # wingsearch card data (bundled)
 
@@ -195,7 +196,7 @@ src/wingspan/
     __main__.py / app.py # entry point: argparse (+ --config) -> worker thread + rich.Live loop
     config.py            # TrainConfig (self-describing hyperparameters, §5.1)
     artifacts.py         # shared on-disk filenames (LAST/BEST/OPPONENT ckpt, metrics+games logs, model_config/process json)
-    runmeta.py           # model_config.json + dated process_<stamp>.json sidecar writers (torch-free)
+    runmeta.py           # model_config.json (full topology, reconstitutable) + dated process_<stamp>.json sidecars (torch-free); read_model_config reader
     metrics.py           # ScoreBreakdown / FamilyCounts / EvalResult / IterationMetrics / GameOutcome (games.jsonl row)
     runstate.py          # RunState: the shared live snapshot the dashboard reads
     policy.py            # single-decision sample (collect) + greedy (eval)
@@ -305,6 +306,32 @@ Agents resolve decisions, not raw action ints. The shape is fixed:
 When adding a new decision point: define the Choice subclass first (or
 reuse an existing one), then the `Decision[C]` subclass, then add it to
 `ALL_DECISION_CLASSES`, then teach `encode.py` how to featurize it.
+
+### Configurable network topology
+
+The network shape is data-driven, not hard-coded. `architecture.ModelArchitecture`
+(top-level, torch-free) is the single descriptor of the topology: per-block
+hidden-width lists for the four blocks (`trunk_layers`, `choice_layers`,
+`head_layers`, `value_layers`) plus the `activation`, `dropout`, `layernorm`, and
+`card_embed_dim` handles. `PolicyValueNet` builds every block from it
+(`_build_body` / `_build_readout`), `TrainConfig` mirrors the same fields flat
+(so the configurator edits each independently) and assembles them via its `arch`
+property, and `runmeta.write_model_config` / `read_model_config` serialize the
+full descriptor to `model_config.json` so a run's network reads at a glance and
+reconstitutes via `PolicyValueNet.from_model_config`.
+
+Invariants to preserve when extending it: the trunk and choice encoder must end
+at the same width `H` (the cross-field rule on `ModelArchitecture`, since their
+outputs are concatenated to `2H` for the scorers); `ShapeKey` /
+`architecture_key` must include any new field that changes a tensor shape (a
+FRESH change — old checkpoints then restart cleanly via
+`loop._architecture_matches`), while shape-preserving knobs like `activation` /
+`dropout` stay out of it (REGIME, resumable). In the configurator, a per-layer
+width list is a `LayersField` (type widths to set sizes, ←/→ to add/remove a
+layer); scalar handles reuse the existing `IntField` / `FloatField` /
+`ChoiceField`. The `arch` property is deliberately *not* named `architecture` —
+that would shadow the imported `architecture` module in `TrainConfig`'s field
+annotations and break pydantic's hint resolution.
 
 ### Engine = orchestrator; sibling modules = free functions
 

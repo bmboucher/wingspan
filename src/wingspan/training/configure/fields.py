@@ -24,12 +24,16 @@ import typing
 
 import pydantic
 
+from wingspan import architecture
 from wingspan.training import config
 
-# A single editable scalar value. Every editable field is one of these; ``bool``
-# is intentionally excluded (the only bool, ``resume``, is an action not an edit)
-# so the union never has to disambiguate ``bool`` from ``int`` under isinstance.
-type FieldValue = int | float | str
+# A single editable value. Scalars cover the int/float/choice/text fields;
+# ``bool`` is intentionally excluded (the only bools, ``resume`` and the
+# choice-rendered ``layernorm``, are handled as an action / a choice) so the
+# union never has to disambiguate ``bool`` from ``int`` under isinstance. The
+# trailing ``tuple[int, ...]`` is the per-layer width list edited by a
+# :class:`LayersField`.
+type FieldValue = int | float | str | tuple[int, ...]
 
 
 class ConfigSection(enum.StrEnum):
@@ -104,6 +108,17 @@ class TextField(FieldSpec):
 
 class PathField(FieldSpec):
     """A filesystem-path field (e.g. the checkpoint directory)."""
+
+
+class LayersField(FieldSpec):
+    """A per-layer width list (a network block's hidden widths).
+
+    Edited by typing comma-separated widths (``256, 128, 64`` sets the sizes);
+    LEFT / RIGHT nudges change the *number* of layers — RIGHT appends a layer
+    (duplicating the last width), LEFT drops the trailing one — down to
+    ``min_len`` (1 for the body blocks, 0 for the heads, which may be empty)."""
+
+    min_len: int = 1
 
 
 # The full editable surface, grouped by section. Help text is distilled from the
@@ -231,15 +246,81 @@ FIELD_SPECS: list[FieldSpec] = [
         impact=ChangeImpact.REGIME,
         help="Smoothing for the PRODUCING band's score / margin readouts.",
     ),
+    LayersField(
+        attr="trunk_layers",
+        label="trunk layers",
+        section=ConfigSection.MODEL,
+        unit="units",
+        impact=ChangeImpact.FRESH,
+        help="State-trunk hidden widths (input→output), e.g. 256,128. Type to set "
+        "the sizes; ←/→ adds or removes a layer. Its last width is the embedding "
+        "H the heads consume. Changes the architecture — a fresh run is required.",
+    ),
+    LayersField(
+        attr="choice_layers",
+        label="choice layers",
+        section=ConfigSection.MODEL,
+        unit="units",
+        impact=ChangeImpact.FRESH,
+        help="Per-choice encoder widths. Its LAST width must equal trunk layers' "
+        "last (both produce the H that is concatenated for scoring). Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers",
+        label="scorer head layers",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        help="Per-family scorer hidden widths between the 2H concat and the final "
+        "logit. Empty (←  to 0 layers) = a direct 2H→1 readout. Fresh run.",
+    ),
+    LayersField(
+        attr="value_layers",
+        label="value head layers",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        help="Value-head hidden widths before the scalar output. Empty = a direct "
+        "H→1 readout (the default). Fresh run.",
+    ),
+    ChoiceField(
+        attr="activation",
+        label="activation",
+        section=ConfigSection.MODEL,
+        choices=[name.value for name in architecture.ActivationName],
+        impact=ChangeImpact.REGIME,
+        help="Activation for every MLP block. Resumable (it doesn't change tensor "
+        "shapes), but it reinterprets an in-progress run.",
+    ),
+    FloatField(
+        attr="dropout",
+        label="dropout",
+        section=ConfigSection.MODEL,
+        step=0.05,
+        impact=ChangeImpact.REGIME,
+        help="Dropout after each activation, active only in the learner's update "
+        "(collection / eval run eval-mode). 0 disables it. Resumable.",
+    ),
+    ChoiceField(
+        attr="layernorm",
+        label="layernorm",
+        section=ConfigSection.MODEL,
+        choices=["True", "False"],
+        impact=ChangeImpact.FRESH,
+        help="Apply LayerNorm in the trunk / choice-encoder body blocks. Adds "
+        "parameters, so toggling it requires a fresh run.",
+    ),
     IntField(
-        attr="hidden",
-        label="hidden width",
+        attr="card_embed_dim",
+        label="card embed dim",
         section=ConfigSection.MODEL,
         unit="units",
         step=16,
         impact=ChangeImpact.FRESH,
-        help="Network hidden width. Changing it changes the architecture, so the "
-        "existing checkpoint cannot be resumed — a fresh run is required.",
+        help="Width of the shared per-bird embedding (reused for every board / "
+        "tray / hand / choice card slot). Changes the architecture — fresh run.",
     ),
     IntField(
         attr="seed",
@@ -285,6 +366,8 @@ FIELD_SPECS: list[FieldSpec] = [
 _BY_ATTR: dict[str, FieldSpec] = {spec.attr: spec for spec in FIELD_SPECS}
 _DEFAULTS = config.TrainConfig()
 _FLOAT_ROUND = 6  # decimal places a nudged float is rounded to (kills FP crud)
+# Width seeded when a RIGHT-nudge adds the first layer to an empty list.
+_NEW_LAYER_WIDTH = 128
 
 
 def spec_for(attr: str) -> FieldSpec:
@@ -311,6 +394,9 @@ def format_value(cfg: config.TrainConfig, spec: FieldSpec) -> str:
         if spec.scientific:
             return f"{value:.0e}"
         return f"{value:.6f}".rstrip("0").rstrip(".") or "0"
+    if isinstance(spec, LayersField):
+        widths = value if isinstance(value, tuple) else ()
+        return ", ".join(str(width) for width in widths) or "none"
     return str(value)
 
 
@@ -346,10 +432,13 @@ def nudge(
     """Apply a LEFT (``direction == -1``) / RIGHT (``+1``) step to ``spec``.
 
     Numeric fields step by ``spec.step`` and are validated; a choice cycles; a
-    text / path field has no step and is returned unchanged.
+    layer list adds / removes a layer; a text / path field has no step and is
+    returned unchanged.
     """
     if isinstance(spec, ChoiceField):
         return _cycle_choice(cfg, spec, direction), None
+    if isinstance(spec, LayersField):
+        return _nudge_layers(cfg, spec, direction)
     if isinstance(spec, IntField):
         return _validated_update(
             cfg, spec, _read_int(cfg, spec) + direction * spec.step
@@ -380,6 +469,16 @@ def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue | None, str | None]:
         if text in spec.choices:
             return text, None
         return None, f"{spec.label}: choose one of {', '.join(spec.choices)}"
+    if isinstance(spec, LayersField):
+        tokens = [
+            token for token in text.replace(",", " ").split() if token.lower() != "none"
+        ]
+        if not tokens:
+            return (), None  # empty list (valid only where min_len is 0)
+        try:
+            return tuple(int(token) for token in tokens), None
+        except ValueError:
+            return None, f"{spec.label}: expects comma-separated whole numbers"
     if not text:
         return None, f"{spec.label}: cannot be empty"
     return text, None
@@ -422,3 +521,23 @@ def _read_int(cfg: config.TrainConfig, spec: FieldSpec) -> int:
 def _read_float(cfg: config.TrainConfig, spec: FieldSpec) -> float:
     value = read_field(cfg, spec)
     return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _read_layers(cfg: config.TrainConfig, spec: FieldSpec) -> tuple[int, ...]:
+    value = read_field(cfg, spec)
+    return value if isinstance(value, tuple) else ()
+
+
+def _nudge_layers(
+    cfg: config.TrainConfig, spec: LayersField, direction: int
+) -> tuple[config.TrainConfig, str | None]:
+    """Change a width list's *length*: RIGHT appends a layer (duplicating the
+    last width, or seeding one when empty), LEFT drops the trailing layer down to
+    ``spec.min_len``. Sizes are set by typing; this only adds / removes layers."""
+    widths = _read_layers(cfg, spec)
+    if direction > 0:
+        last_width = widths[-1] if widths else _NEW_LAYER_WIDTH
+        return _validated_update(cfg, spec, widths + (last_width,))
+    if len(widths) <= spec.min_len:
+        return cfg, f"{spec.label}: already at the minimum of {spec.min_len} layer(s)"
+    return _validated_update(cfg, spec, widths[:-1])
