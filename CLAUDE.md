@@ -30,7 +30,7 @@ directly in the main working directory, so the main checkout stays usable and
 nothing lands on `main` until the user says so. The shape is fixed:
 
 **plan → user approves → implement in a worktree → quality gate passes there →
-return and ask to merge → merge into `main` → gate passes again → commit + push.**
+return and ask to merge → merge into `main` → gate passes again → commit + push → remove worktree.**
 
 **When this applies.** Any change that goes through plan-and-approve. Edit the
 main working directory directly (no worktree) only for trivial edits — one-line
@@ -95,11 +95,12 @@ merge on your own initiative.
   reformat the merged result). It must be clean before you commit.
 - e. `git add -A` and commit the merged result with a descriptive message
   covering the change, then `git push` to `origin/main`.
-- f. Clean up the now-merged worktree and branch:
-  `git worktree remove .claude/worktrees/<name>` and
+- f. **Always clean up the worktree and branch after a successful merge.**
+  Run `git worktree remove .claude/worktrees/<name>` then
   `git branch -D wt/<feature-slug>` (squash merges aren't recorded as merges, so
-  `-D` is needed). If anything in 7c–7e fails, leave the worktree in place for
-  inspection and tell the user.
+  `-D` is needed). Do this every time — don't leave stale worktrees behind.
+  If anything in 7c–7e fails, leave the worktree in place for inspection and
+  tell the user; cleanup is skipped only on failure.
 
 ## Run / test
 
