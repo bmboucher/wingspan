@@ -219,6 +219,16 @@ FIELD_SPECS: list[FieldSpec] = [
         "clears this (0 disables). Lowering it below the current win-rate triggers "
         "an immediate advance + win-rate reset.",
     ),
+    IntField(
+        attr="opponent_max_iterations",
+        label="opp. max iters",
+        section=ConfigSection.EVAL,
+        step=50,
+        impact=ChangeImpact.REGIME,
+        help="Force-advance the opponent after this many iterations even if the "
+        "win-rate threshold is not yet met (0 disables). Only applies during "
+        "self-play; the random-phase bootstrap uses its own graduation logic.",
+    ),
     ChoiceField(
         attr="initial_vs_random",
         label="bootstrap vs random",

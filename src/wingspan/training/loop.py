@@ -499,17 +499,41 @@ class TrainingLoop:
             )
 
     def _maybe_advance_opponent(self, eval_result: metrics.EvalResult | None) -> None:
-        """When the smoothed win-rate against the current opponent clears the
-        configured threshold, freeze the current policy as the new "player to
-        beat": save it to ``opponent.pt``, bump the generation, and reset the
-        win-rate trend (best + EWMA) so progress against the stronger opponent
-        starts a fresh climb from ~50%."""
-        threshold = self.config.opponent_reset_win_rate
-        if eval_result is None or threshold <= 0.0:
+        """Advance the frozen reference opponent when either trigger fires:
+
+        - *Win-rate trigger*: the EWMA win-rate against the current opponent
+          clears ``config.opponent_reset_win_rate``.
+        - *Time trigger*: more than ``config.opponent_max_iterations`` iterations
+          have elapsed since the current opponent was set (0 disables the cap).
+
+        Either way the current policy is frozen as the new "player to beat",
+        saved to ``opponent.pt``, and the win-rate trend resets toward 50% so
+        progress against the stronger opponent starts a fresh climb.
+
+        Only active in the SELF_PLAY phase; the random-phase bootstrap uses
+        ``_maybe_graduate_from_random_phase`` instead.
+        """
+        if self.state.training_phase != runstate.TrainingPhase.SELF_PLAY:
             return
+
+        threshold = self.config.opponent_reset_win_rate
+        max_iters = self.config.opponent_max_iterations
+
+        # Evaluate both triggers under the lock so iteration / EWMA are consistent.
+        ewma_snap: metrics.EvalEwma | None
+        iters_since: int
+        new_generation: int
         with self.lock:
-            ewma = self.state.eval_ewma()
-            if ewma is None or ewma.win_rate < threshold:
+            ewma_snap = self.state.eval_ewma()
+            iters_since = self.state.iteration - self.state.opponent_since_iteration
+            win_rate_fires = (
+                eval_result is not None
+                and threshold > 0.0
+                and ewma_snap is not None
+                and ewma_snap.win_rate >= threshold
+            )
+            time_fires = max_iters > 0 and iters_since >= max_iters
+            if not win_rate_fires and not time_fires:
                 return
             new_generation = self.state.opponent_generation + 1
 
@@ -520,11 +544,17 @@ class TrainingLoop:
             self.state.opponent_generation = new_generation
             self.state.opponent_since_iteration = self.state.iteration
             self.state.best_win_rate = None  # best is per-opponent-generation
+            if win_rate_fires and ewma_snap is not None:
+                reason = (
+                    f"beat {self._prev_opponent_label(new_generation)} "
+                    f"{ewma_snap.win_rate * 100:.0f}%"
+                )
+            else:
+                reason = f"stalled for {iters_since} iters"
             self.state.push_event(
                 runstate.EventKind.BEST,
                 f"opponent advanced → self·gen{new_generation} "
-                f"(beat {self._prev_opponent_label(new_generation)} "
-                f"{ewma.win_rate * 100:.0f}%) · win-rate reset",
+                f"({reason}) · win-rate reset",
             )
 
     def _prev_opponent_label(self, new_generation: int) -> str:
@@ -606,10 +636,11 @@ class TrainingLoop:
 
         # Graduate out of the bootstrap phase (freezes self·gen1) or advance the
         # frozen opponent before checkpointing, so ``last.pt`` records the new
-        # generation / phase alongside the matching ``opponent.pt`` snapshot. The
-        # two are mutually exclusive within an iteration: graduation runs only in
-        # the random phase (where ``eval_result`` is always None), and opponent
-        # advancement only acts on a non-None eval result.
+        # generation / phase alongside the matching ``opponent.pt`` snapshot.
+        # Graduation and advancement are mutually exclusive within an iteration:
+        # graduation runs only in the random phase, and _maybe_advance_opponent
+        # guards itself to SELF_PLAY only. Advancement fires on either the
+        # win-rate trigger or the iteration-cap trigger (see _maybe_advance_opponent).
         self._maybe_graduate_from_random_phase()
         self._maybe_advance_opponent(eval_result)
 

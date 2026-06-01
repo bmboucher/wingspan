@@ -78,6 +78,10 @@ class TrainConfig(pydantic.BaseModel):
     opponent_reset_win_rate: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = (
         0.95
     )
+    # Force-advance the opponent after this many iterations even if the win-rate
+    # threshold has not been reached yet. 0 disables the cap. Only applies in the
+    # SELF_PLAY phase — the random-phase bootstrap uses its own graduation logic.
+    opponent_max_iterations: typing.Annotated[int, pydantic.Field(ge=0)] = 500
 
     # ---- random-opponent bootstrap phase ----
     # Start a fresh run collecting against the random agent instead of self-play:
