@@ -186,7 +186,7 @@ def test_model_forward_with_custom_architecture():
     )
     net = model.PolicyValueNet(arch=arch)
     net.eval()  # disable dropout for a deterministic shape check
-    assert net.hidden == 48  # embedding width H = trunk's final layer
+    assert net.trunk_hidden == 48  # trunk output width M
     batch_size, n_choices = 3, 5
     state_vec = torch.zeros(batch_size, encode.state_size())
     choices = torch.randn(batch_size, n_choices, encode.CHOICE_FEATURE_DIM)
@@ -203,11 +203,25 @@ def test_model_forward_with_custom_architecture():
     assert torch.isfinite(value).all()
 
 
-def test_model_rejects_mismatched_body_widths():
-    """The trunk and choice encoder must end at the same width; an inconsistent
-    architecture is rejected at construction (via the descriptor's validator)."""
-    with pytest.raises(ValueError):
-        architecture.ModelArchitecture(trunk_layers=(128, 64), choice_layers=(128, 128))
+def test_model_accepts_asymmetric_body_widths():
+    """Trunk and choice encoder may end at different widths M and N; the scorer
+    input is M+N and the model builds and runs without error."""
+    arch = architecture.ModelArchitecture(
+        trunk_layers=(128, 64),
+        choice_layers=(128, 128),
+    )
+    assert arch.trunk_embed_width == 64
+    assert arch.choice_embed_width == 128
+    net = model.PolicyValueNet(arch=arch)
+    net.eval()
+    assert net.trunk_hidden == 64
+    state_vec = torch.zeros(2, encode.state_size())
+    choices = torch.randn(2, 3, encode.CHOICE_FEATURE_DIM)
+    mask = torch.ones(2, 3)
+    family = torch.zeros(2, dtype=torch.long)
+    logits, value = net(state_vec, choices, mask, family)
+    assert logits.shape == (2, 3)
+    assert value.shape == (2,)
 
 
 def test_card_embedding_shared_between_board_and_hand():

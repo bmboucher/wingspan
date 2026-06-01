@@ -144,29 +144,23 @@ def test_layers_field_format_and_commit():
     assert parse_error is not None
 
 
-def test_layers_field_embedding_width_auto_syncs():
-    # Changing choice_layers' last width auto-syncs trunk_layers' last width so
-    # the H-embedding constraint is satisfied without a second edit.
+def test_layers_field_widths_are_independent():
+    # Trunk and choice encoder widths are now fully independent; editing one
+    # does not touch the other.
     cfg = config.TrainConfig(device="cpu")  # trunk=(128,128), choice=(128,128)
     choice = fields.spec_for("choice_layers")
     updated, error = fields.commit(cfg, choice, "128, 64")
     assert error is None
     assert updated.choice_layers == (128, 64)
-    # trunk_layers last element synced to 64; intermediate unchanged.
-    assert updated.trunk_layers == (128, 64)
+    # trunk_layers is unchanged — no auto-sync.
+    assert updated.trunk_layers == (128, 128)
 
-    # Symmetrical: editing trunk_layers syncs choice_layers.
     trunk = fields.spec_for("trunk_layers")
     updated2, error2 = fields.commit(cfg, trunk, "256, 32")
     assert error2 is None
     assert updated2.trunk_layers == (256, 32)
-    assert updated2.choice_layers == (128, 32)
-
-    # Changing only intermediate widths does not touch the partner.
-    updated3, error3 = fields.commit(cfg, trunk, "256, 128")
-    assert error3 is None
-    assert updated3.trunk_layers == (256, 128)
-    assert updated3.choice_layers == (128, 128)  # unchanged
+    # choice_layers is unchanged — no auto-sync.
+    assert updated2.choice_layers == (128, 128)
 
 
 def test_layers_field_nudge_changes_depth():

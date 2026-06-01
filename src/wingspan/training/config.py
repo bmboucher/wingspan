@@ -118,11 +118,12 @@ class TrainConfig(pydantic.BaseModel):
     seed: typing.Annotated[int, pydantic.Field(ge=0)] = 0
 
     # ---- network topology (see architecture.ModelArchitecture) ----
-    # The four blocks' hidden-layer widths (input-to-output). The trunk and the
-    # choice encoder must end at the same width (the embedding H concatenated and
-    # fed to the scorers); the head blocks may be empty for a direct readout.
-    # These flat fields mirror ``ModelArchitecture`` so the configurator can edit
-    # each one independently; ``self.arch`` assembles the descriptor.
+    # The four blocks' hidden-layer widths (input-to-output). The trunk ends at
+    # width M and the choice encoder at width N; both are independent and their
+    # outputs are concatenated to M+N for the scorer heads. Head blocks may be
+    # empty for a direct readout. These flat fields mirror ``ModelArchitecture``
+    # so the configurator can edit each one independently; ``self.arch``
+    # assembles the descriptor.
     trunk_layers: typing.Annotated[
         architecture.Widths, pydantic.Field(min_length=1)
     ] = (
@@ -197,11 +198,10 @@ class TrainConfig(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _check_architecture(self) -> TrainConfig:
-        """Surface the topology's cross-field invariant (choice / trunk share a
-        final width) as a normal validation error, so the configurator's
-        validated-update path rejects an inconsistent edit the same way it
-        rejects an out-of-range scalar. Assembling ``arch`` runs its
-        ``@model_validator``."""
+        """Verify the topology descriptor assembles without error — surfaces any
+        future cross-field invariants added to ``ModelArchitecture`` as normal
+        validation errors so the configurator rejects them the same way it
+        rejects out-of-range scalars."""
         _ = self.arch
         return self
 
@@ -287,11 +287,16 @@ class TrainConfig(pydantic.BaseModel):
         return (setup_model.SETUP_FEATURE_DIM, self.setup_arch.shape_key)
 
     @property
-    def hidden(self) -> int:
-        """The embedding width ``H`` (the trunk's output, the heads' input) — a
-        read-only alias of ``trunk_layers[-1]`` kept for readouts that referred to
-        the former scalar ``hidden`` field."""
+    def trunk_hidden(self) -> int:
+        """The trunk's output width ``M`` — the state-context and value-head input
+        width."""
         return self.trunk_layers[-1]
+
+    @property
+    def choice_hidden(self) -> int:
+        """The choice encoder's output width ``N`` — concatenated with ``M`` before
+        the scorer heads."""
+        return self.choice_layers[-1]
 
     @property
     def architecture_key(

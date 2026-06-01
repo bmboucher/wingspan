@@ -60,9 +60,9 @@ class PolicyValueNet(nn.Module):
 
     Every block's depth, width, activation, dropout, and LayerNorm come from a
     :class:`architecture.ModelArchitecture` (the topology saved to
-    ``model_config.json``), so the network's shape is fully data-driven; the
-    trunk and choice encoder are required to end at the same width ``H`` so their
-    outputs concatenate into the ``2H`` vector each scorer reads.
+    ``model_config.json``), so the network's shape is fully data-driven. The
+    trunk ends at width ``M`` and the choice encoder at width ``N``; their
+    outputs are concatenated to ``M+N`` for the scorer heads.
     """
 
     def __init__(
@@ -83,8 +83,7 @@ class PolicyValueNet(nn.Module):
         self.num_families = num_families
         self.arch = arch
         self.card_embed_dim = arch.card_embed_dim
-        self.hidden = arch.embed_width  # H — kept for external readouts
-        embed_width = arch.embed_width
+        self.trunk_hidden = arch.trunk_embed_width  # M — kept for external readouts
 
         # One shared learned vector per core-set bird (row 0 is the padding /
         # empty-slot vector). nn.Embedding(idx) == one_hot @ W, so this is the
@@ -118,16 +117,19 @@ class PolicyValueNet(nn.Module):
         self.choice_encoder, _ = _build_body(
             choice_in_dim, arch.choice_layers, arch, final_activation=False
         )
-        # One scoring head per judgment family, each a readout MLP over the ``2H``
+        # One scoring head per judgment family, each a readout MLP over the M+N
         # concat. The trunk + choice-encoder are shared; specialization lives
         # here. ``family_idx`` routes each decision to its head in ``forward``.
+        scorer_in_dim = arch.trunk_embed_width + arch.choice_embed_width
         self.scorers = nn.ModuleList(
-            _build_readout(2 * embed_width, arch.head_layers, arch)
+            _build_readout(scorer_in_dim, arch.head_layers, arch)
             for _ in range(num_families)
         )
         # The value head reads the trunk context (a property of the board, not of
         # the decision asked, so it is shared across families).
-        self.value_head = _build_readout(embed_width, arch.value_layers, arch)
+        self.value_head = _build_readout(
+            arch.trunk_embed_width, arch.value_layers, arch
+        )
 
     @classmethod
     def from_model_config(cls, descriptor: "runmeta.ModelConfig") -> "PolicyValueNet":
@@ -175,7 +177,7 @@ class PolicyValueNet(nn.Module):
         ce = self.choice_encoder(self._embed_choices(choices))  # (B, K, H)
         num_choices = ce.shape[1]
         s_exp = state_ctx.unsqueeze(1).expand(-1, num_choices, -1)  # (B, K, H)
-        combined = torch.cat([s_exp, ce], dim=-1)  # (B, K, 2H)
+        combined = torch.cat([s_exp, ce], dim=-1)  # (B, K, M+N)
 
         # Route each decision through its judgment family's scoring head. Every
         # candidate in a decision shares one head (family is a property of the

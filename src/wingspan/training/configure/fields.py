@@ -283,8 +283,8 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         impact=ChangeImpact.FRESH,
         help="State-trunk hidden widths (input→output), e.g. 256,128. Type to set "
-        "the sizes; ←/→ adds or removes a layer. Its last width is the embedding "
-        "H the heads consume. Changes the architecture — a fresh run is required.",
+        "the sizes; ←/→ adds or removes a layer. Its last width is M, the trunk "
+        "embedding fed to the value head and concatenated for scoring. Fresh run.",
     ),
     LayersField(
         attr="choice_layers",
@@ -292,8 +292,9 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.MODEL,
         unit="units",
         impact=ChangeImpact.FRESH,
-        help="Per-choice encoder widths. Last width auto-syncs with trunk layers "
-        "(both must produce the same embedding H for scoring). Fresh run.",
+        help="Per-choice encoder widths (input→output). Its last width is N, the "
+        "choice embedding concatenated with M before the scorer heads. Independent "
+        "of trunk layers. Fresh run.",
     ),
     LayersField(
         attr="head_layers",
@@ -302,8 +303,8 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        help="Per-family scorer hidden widths between the 2H concat and the final "
-        "logit. Empty (←  to 0 layers) = a direct 2H→1 readout. Fresh run.",
+        help="Per-family scorer hidden widths between the M+N concat and the final "
+        "logit. Empty (←  to 0 layers) = a direct (M+N)→1 readout. Fresh run.",
     ),
     LayersField(
         attr="value_layers",
@@ -313,7 +314,7 @@ FIELD_SPECS: list[FieldSpec] = [
         min_len=0,
         impact=ChangeImpact.FRESH,
         help="Value-head hidden widths before the scalar output. Empty = a direct "
-        "H→1 readout (the default). Fresh run.",
+        "M→1 readout (the default). Fresh run.",
     ),
     ChoiceField(
         attr="activation",
@@ -566,9 +567,6 @@ def commit(
     parsed, parse_error = _parse(spec, raw)
     if parsed is None:
         return cfg, parse_error or "invalid value"
-    if isinstance(spec, LayersField) and spec.attr in {"trunk_layers", "choice_layers"}:
-        assert isinstance(parsed, tuple)
-        return _update_layers_synced(cfg, spec, parsed)
     return _validated_update(cfg, spec, parsed)
 
 
@@ -595,8 +593,6 @@ def nudge(
             )
         else:
             new_widths = widths[:-1]
-        if spec.attr in {"trunk_layers", "choice_layers"}:
-            return _update_layers_synced(cfg, spec, new_widths)
         return _validated_update(cfg, spec, new_widths)
     if isinstance(spec, IntField):
         return _validated_update(
@@ -609,30 +605,6 @@ def nudge(
 
 
 ###### PRIVATE #######
-
-
-def _update_layers_synced(
-    cfg: config.TrainConfig,
-    spec: LayersField,
-    new_widths: tuple[int, ...],
-) -> tuple[config.TrainConfig, str | None]:
-    """Validate a trunk_layers or choice_layers change, auto-syncing the partner
-    block's last width in the same model_validate call so the H-embedding
-    constraint is always satisfied.
-
-    Only the last element of the partner block is updated; intermediate widths
-    are preserved."""
-    updates: dict[str, object] = {**cfg.model_dump(), spec.attr: new_widths}
-    if new_widths:
-        new_h = new_widths[-1]
-        if spec.attr == "trunk_layers" and cfg.choice_layers[-1] != new_h:
-            updates["choice_layers"] = cfg.choice_layers[:-1] + (new_h,)
-        elif spec.attr == "choice_layers" and cfg.trunk_layers[-1] != new_h:
-            updates["trunk_layers"] = cfg.trunk_layers[:-1] + (new_h,)
-    try:
-        return config.TrainConfig.model_validate(updates), None
-    except pydantic.ValidationError as error:
-        return cfg, _friendly_error(spec, error)
 
 
 def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue | None, str | None]:

@@ -324,8 +324,9 @@ def _arch_lines(view: state.ConfiguratorState) -> list[text.Text]:
     choice = cfg.choice_layers
     head = cfg.head_layers
     value = cfg.value_layers
-    embed_h = trunk[-1]
-    concat_2h = embed_h * 2
+    trunk_h = trunk[-1]
+    choice_h = choice[-1]
+    concat_mn = trunk_h + choice_h
 
     lines: list[text.Text] = []
 
@@ -346,9 +347,9 @@ def _arch_lines(view: state.ConfiguratorState) -> list[text.Text]:
         row = text.Text(no_wrap=True)
         row.append(f"   → {width}", style=theme.TEXT_PRIMARY)
         lines.append(row)
-    h_line = text.Text(no_wrap=True)
-    h_line.append(f"  H = {embed_h}", style=theme.CAUTION)
-    lines.append(h_line)
+    m_line = text.Text(no_wrap=True)
+    m_line.append(f"  M = {trunk_h}", style=theme.CAUTION)
+    lines.append(m_line)
 
     lines.append(text.Text(""))
 
@@ -361,9 +362,9 @@ def _arch_lines(view: state.ConfiguratorState) -> list[text.Text]:
         row = text.Text(no_wrap=True)
         row.append(f"   → {width}", style=theme.TEXT_PRIMARY)
         lines.append(row)
-    h_line2 = text.Text(no_wrap=True)
-    h_line2.append(f"  H = {embed_h}", style=theme.CAUTION)
-    lines.append(h_line2)
+    n_line = text.Text(no_wrap=True)
+    n_line.append(f"  N = {choice_h}", style=theme.CAUTION)
+    lines.append(n_line)
 
     lines.append(text.Text(""))
 
@@ -373,7 +374,7 @@ def _arch_lines(view: state.ConfiguratorState) -> list[text.Text]:
     lines.append(sep)
     concat_line = text.Text(no_wrap=True)
     concat_line.append("CONCAT  ", style=theme.TEXT_MUTED)
-    concat_line.append(f"2H = {concat_2h}", style=theme.CAUTION)
+    concat_line.append(f"M+N = {concat_mn}", style=theme.CAUTION)
     lines.append(concat_line)
     lines.append(text.Text(sep.plain, style=theme.TEXT_DIM2))
 
@@ -381,7 +382,7 @@ def _arch_lines(view: state.ConfiguratorState) -> list[text.Text]:
 
     # Scorer heads block
     lines.append(_arch_label(view, "scorer", "SCORER  (per family)"))
-    scorer_widths = (concat_2h,) + head + (1,)
+    scorer_widths = (concat_mn,) + head + (1,)
     scorer_row = text.Text(no_wrap=True)
     scorer_row.append(_arch_layer_row(scorer_widths), style=theme.TEXT_PRIMARY)
     lines.append(scorer_row)
@@ -390,7 +391,7 @@ def _arch_lines(view: state.ConfiguratorState) -> list[text.Text]:
 
     # Value head block
     lines.append(_arch_label(view, "value", "VALUE HEAD"))
-    value_widths = (embed_h,) + value + (1,)
+    value_widths = (trunk_h,) + value + (1,)
     value_row = text.Text(no_wrap=True)
     value_row.append(_arch_layer_row(value_widths), style=theme.TEXT_PRIMARY)
     lines.append(value_row)

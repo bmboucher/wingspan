@@ -16,9 +16,8 @@ so the top-level ``model`` module can import it without dragging in the training
 package; kept torch-free (only ``pydantic`` / ``enum``) so ``config`` and
 ``runmeta`` import it without pulling in torch. The four blocks it sizes are the
 state trunk, the per-choice encoder, the per-family scorer heads, and the value
-head; the trunk and the choice encoder must end at the same width (the embedding
-``H`` that is concatenated and fed to the scorers), which is the descriptor's one
-genuine cross-field invariant.
+head. The trunk and the choice encoder may end at different widths ``M`` and
+``N``; their outputs are concatenated to ``M+N`` before the scorer heads.
 """
 
 from __future__ import annotations
@@ -60,9 +59,10 @@ class ModelArchitecture(pydantic.BaseModel):
     """The full, reconstitutable topology of a :class:`model.PolicyValueNet`.
 
     Width lists are ordered input-to-output: ``trunk_layers=(256, 128)`` is a
-    two-layer trunk that projects to 128. ``trunk_layers`` and ``choice_layers``
-    must share a final width — both produce the embedding ``H`` that is
-    concatenated (``2H``) and scored — which is checked after construction.
+    two-layer trunk that projects to 128. The trunk ends at width ``M``
+    (``trunk_embed_width``) and the choice encoder ends at width ``N``
+    (``choice_embed_width``); both are independent and their outputs are
+    concatenated to ``M+N`` before the scorer heads.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -76,23 +76,16 @@ class ModelArchitecture(pydantic.BaseModel):
     layernorm: bool = False
     card_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] = 64
 
-    @pydantic.model_validator(mode="after")
-    def _check_embedding_width(self) -> ModelArchitecture:
-        """Trunk and choice encoder must end at the same width: their outputs are
-        concatenated into the ``2H`` vector each scorer head reads."""
-        if self.choice_layers[-1] != self.trunk_layers[-1]:
-            raise ValueError(
-                "choice_layers must end at the same width as trunk_layers "
-                f"(got {self.choice_layers[-1]} vs {self.trunk_layers[-1]}) — both "
-                "produce the embedding width H that is concatenated for scoring"
-            )
-        return self
+    @property
+    def trunk_embed_width(self) -> int:
+        """The trunk's output width ``M`` — what the scorer and value heads consume."""
+        return self.trunk_layers[-1]
 
     @property
-    def embed_width(self) -> int:
-        """The embedding width ``H`` the heads consume (the trunk / choice-encoder
-        output width)."""
-        return self.trunk_layers[-1]
+    def choice_embed_width(self) -> int:
+        """The choice encoder's output width ``N`` — concatenated with ``M`` for
+        scoring."""
+        return self.choice_layers[-1]
 
     @property
     def shape_key(self) -> ShapeKey:
