@@ -4,12 +4,17 @@ Every color, glyph ramp, and per-role hue the dashboard uses lives here so the
 look can be retuned in one place (the house rule: public constants in a single
 file). Colors are truecolor hex strings consumed directly by ``rich.style.Style``.
 
-Two small pure color helpers (:func:`lerp_color`, :func:`hero_color`) also live
-here because they are part of the palette's definition — how the wordmark
-gradient and the cinematic eval hero-number recolor as a value changes.
+Small pure helpers (:func:`lerp_color`, :func:`gradient_stops`,
+:func:`gradient_text`, :func:`hero_color`) also live here because they are part
+of the palette's definition — how the wordmark gradient and the cinematic eval
+hero-number recolor as a value changes. :func:`gradient_text` renders the
+gradient wordmark and is shared by both full-screen UIs (the dashboard header
+and the configurator header).
 """
 
 from __future__ import annotations
+
+from rich import text
 
 from wingspan.training import runstate
 
@@ -165,6 +170,16 @@ def gradient_stops(stops: tuple[str, ...], n: int) -> list[str]:
         pos = i / (n - 1) * segments
         lo = min(int(pos), segments - 1)
         out.append(lerp_color(stops[lo], stops[lo + 1], pos - lo))
+    return out
+
+
+def gradient_text(content: str) -> text.Text:
+    """Render ``content`` as a bold, left-to-right wordmark gradient (the
+    :data:`WORDMARK_STOPS` habitats). Used by both full-screen UI headers."""
+    colors = gradient_stops(WORDMARK_STOPS, len(content))
+    out = text.Text(no_wrap=True, end="")
+    for char, color in zip(content, colors):
+        out.append(char, style=f"bold {color}")
     return out
 
 

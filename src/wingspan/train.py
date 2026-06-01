@@ -13,6 +13,12 @@ signals when the game's outcome is asymmetric).
 This is deliberately minimal — the goal is criterion 3: *"complete a single
 training cycle starting from random weights"*. The infrastructure scales
 naturally to more sophisticated algorithms (PPO/GAE, AlphaZero) later.
+
+This module is the minimal *reference* cycle. The full training pipeline — live
+dashboard, length-bucketed update, paired eval, resumable checkpoints, and
+process-parallel collection — lives in the :mod:`wingspan.training` package
+(run ``python -m wingspan.training``). Prefer that for real runs; keep this as
+the small, readable end-to-end example.
 """
 
 from __future__ import annotations
@@ -175,95 +181,10 @@ def train_step(
     every step recorded by player 1. The same network learns from both
     sides; symmetry comes from the per-step POV plus POV-aware state
     encoding."""
-    if not trajectories:
-        return TrainStepStats(
-            loss=0.0,
-            policy_loss=0.0,
-            value_loss=0.0,
-            entropy=0.0,
-            n_steps=0,
-        )
-
-    flat_states: list[np.ndarray] = []
-    flat_choices: list[np.ndarray] = []
-    flat_idx: list[int] = []
-    flat_returns: list[float] = []
-    flat_n_choices: list[int] = []
-    flat_family: list[int] = []
-    for tr in trajectories:
-        score_self_minus_other = [
-            (tr.scores[0] - tr.scores[1]) / SCORE_ADVANTAGE_NORM,
-            (tr.scores[1] - tr.scores[0]) / SCORE_ADVANTAGE_NORM,
-        ]
-        for st in tr.steps:
-            flat_states.append(st.state)
-            flat_choices.append(st.choices)
-            flat_idx.append(st.chosen_idx)
-            flat_returns.append(score_self_minus_other[st.player_id])
-            flat_n_choices.append(st.choices.shape[0])
-            flat_family.append(st.family_idx)
-
-    if not flat_states:
-        return TrainStepStats(
-            loss=0.0,
-            policy_loss=0.0,
-            value_loss=0.0,
-            entropy=0.0,
-            n_steps=0,
-        )
-
-    # Pad choice tensors across the batch so a single forward pass handles
-    # all of them. Mask carries the variable cardinality.
-    batch_size = len(flat_states)
-    max_k = max(flat_n_choices)
-    state_batch = np.stack(flat_states)
-    choice_batch = np.zeros(
-        (batch_size, max_k, encode.CHOICE_FEATURE_DIM), dtype=np.float32
-    )
-    mask_batch = np.zeros((batch_size, max_k), dtype=np.float32)
-    for i, (choice_feats, count) in enumerate(zip(flat_choices, flat_n_choices)):
-        choice_batch[i, :count] = choice_feats
-        mask_batch[i, :count] = 1.0
-
-    state_t = torch.tensor(state_batch, dtype=torch.float32, device=device)
-    choice_t = torch.tensor(choice_batch, dtype=torch.float32, device=device)
-    mask_t = torch.tensor(mask_batch, dtype=torch.float32, device=device)
-    idx_t = torch.tensor(flat_idx, dtype=torch.long, device=device)
-    ret_t = torch.tensor(flat_returns, dtype=torch.float32, device=device)
-    family_t = torch.tensor(flat_family, dtype=torch.long, device=device)
-
-    logits, value = net(state_t, choice_t, mask_t, family_t)
-    logp = F.log_softmax(logits, dim=-1)
-
-    # Policy loss: REINFORCE w/ value baseline, gather log-prob at chosen
-    # index. Padding rows have -inf there but the chosen index is always a
-    # real position by construction.
-    chosen_logp = logp.gather(1, idx_t.unsqueeze(1)).squeeze(1)
-    advantages = ret_t - value.detach()
-    policy_loss = -(chosen_logp * advantages).mean()
-
-    value_loss = F.mse_loss(value, ret_t)
-
-    # Entropy regularizer over legal slots only — torch.where prevents NaN
-    # from 0 * -inf when summing over padding columns.
-    zeros = torch.zeros_like(logp)
-    legal_logp = torch.where(mask_t > 0.5, logp, zeros)
-    legal_p = torch.where(mask_t > 0.5, logp.exp(), zeros)
-    entropy = -(legal_p * legal_logp).sum(dim=-1).mean()
-
-    loss = policy_loss + VALUE_COEF * value_loss - ENTROPY_COEF * entropy
-
-    optimizer.zero_grad()
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=GRAD_CLIP)
-    optimizer.step()
-    return TrainStepStats(
-        loss=float(loss.detach()),
-        policy_loss=float(policy_loss.detach()),
-        value_loss=float(value_loss.detach()),
-        entropy=float(entropy.detach()),
-        n_steps=batch_size,
-    )
+    flat = _flatten_steps(trajectories)
+    if not flat.states:
+        return _empty_stats()
+    return _reinforce_update(net, optimizer, flat, device)
 
 
 # ---------------------------------------------------------------------------
@@ -271,19 +192,7 @@ def train_step(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run one Wingspan training cycle.")
-    parser.add_argument(
-        "--device", default="cuda" if torch.cuda.is_available() else "cpu"
-    )
-    parser.add_argument("--episodes", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--lr", type=float, default=DEFAULT_LR)
-    parser.add_argument("--epsilon", type=float, default=DEFAULT_EPSILON)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument(
-        "--checkpoint", type=str, default="checkpoints/wingspan_cycle0.pt"
-    )
-    args = parser.parse_args(argv)
+    args = _build_arg_parser().parse_args(argv)
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -337,6 +246,139 @@ def main(argv: list[str] | None = None) -> int:
 
 
 ###### PRIVATE #######
+
+#### Training-step helpers ####
+
+
+class _FlatSteps(pydantic.BaseModel):
+    """The per-step training arrays flattened across a batch of trajectories.
+
+    Six parallel lists, one entry per recorded step: the state vector, the
+    ``(n_choices, F)`` candidate features, the chosen index, the POV return,
+    the choice cardinality, and the judgment-family head index.
+    """
+
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+
+    states: list[np.ndarray]
+    choices: list[np.ndarray]
+    chosen_idx: list[int]
+    returns: list[float]
+    n_choices: list[int]
+    family: list[int]
+
+
+def _empty_stats() -> TrainStepStats:
+    """The zero update returned when there are no trainable steps."""
+    return TrainStepStats(
+        loss=0.0, policy_loss=0.0, value_loss=0.0, entropy=0.0, n_steps=0
+    )
+
+
+def _flatten_steps(trajectories: list[Trajectory]) -> _FlatSteps:
+    """Flatten every trajectory's steps into parallel per-step arrays, tagging
+    each step with its own player's terminal score advantage as the return."""
+    flat = _FlatSteps(
+        states=[], choices=[], chosen_idx=[], returns=[], n_choices=[], family=[]
+    )
+    for tr in trajectories:
+        score_self_minus_other = [
+            (tr.scores[0] - tr.scores[1]) / SCORE_ADVANTAGE_NORM,
+            (tr.scores[1] - tr.scores[0]) / SCORE_ADVANTAGE_NORM,
+        ]
+        for st in tr.steps:
+            flat.states.append(st.state)
+            flat.choices.append(st.choices)
+            flat.chosen_idx.append(st.chosen_idx)
+            flat.returns.append(score_self_minus_other[st.player_id])
+            flat.n_choices.append(st.choices.shape[0])
+            flat.family.append(st.family_idx)
+    return flat
+
+
+def _reinforce_update(
+    net: model.PolicyValueNet,
+    optimizer: optim.Optimizer,
+    flat: _FlatSteps,
+    device: torch.device,
+) -> TrainStepStats:
+    """Pad the flattened batch, run one forward pass, and take a single clipped
+    REINFORCE optimizer step. The math is unchanged from the original inline
+    body; only the flattening was factored out into :func:`_flatten_steps`."""
+    # Pad choice tensors across the batch so a single forward pass handles
+    # all of them. The mask carries the variable cardinality.
+    batch_size = len(flat.states)
+    max_k = max(flat.n_choices)
+    choice_batch = np.zeros(
+        (batch_size, max_k, encode.CHOICE_FEATURE_DIM), dtype=np.float32
+    )
+    mask_batch = np.zeros((batch_size, max_k), dtype=np.float32)
+    for i, (choice_feats, count) in enumerate(zip(flat.choices, flat.n_choices)):
+        choice_batch[i, :count] = choice_feats
+        mask_batch[i, :count] = 1.0
+
+    state_t = torch.tensor(np.stack(flat.states), dtype=torch.float32, device=device)
+    choice_t = torch.tensor(choice_batch, dtype=torch.float32, device=device)
+    mask_t = torch.tensor(mask_batch, dtype=torch.float32, device=device)
+    idx_t = torch.tensor(flat.chosen_idx, dtype=torch.long, device=device)
+    ret_t = torch.tensor(flat.returns, dtype=torch.float32, device=device)
+    family_t = torch.tensor(flat.family, dtype=torch.long, device=device)
+
+    logits, value = net(state_t, choice_t, mask_t, family_t)
+    logp = F.log_softmax(logits, dim=-1)
+
+    # Policy loss: REINFORCE w/ value baseline, gather log-prob at chosen
+    # index. Padding rows have -inf there but the chosen index is always a
+    # real position by construction.
+    chosen_logp = logp.gather(1, idx_t.unsqueeze(1)).squeeze(1)
+    advantages = ret_t - value.detach()
+    policy_loss = -(chosen_logp * advantages).mean()
+
+    value_loss = F.mse_loss(value, ret_t)
+
+    # Entropy regularizer over legal slots only — torch.where prevents NaN
+    # from 0 * -inf when summing over padding columns.
+    zeros = torch.zeros_like(logp)
+    legal_logp = torch.where(mask_t > 0.5, logp, zeros)
+    legal_p = torch.where(mask_t > 0.5, logp.exp(), zeros)
+    entropy = -(legal_p * legal_logp).sum(dim=-1).mean()
+
+    loss = policy_loss + VALUE_COEF * value_loss - ENTROPY_COEF * entropy
+
+    optimizer.zero_grad()
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=GRAD_CLIP)
+    optimizer.step()
+    return TrainStepStats(
+        loss=float(loss.detach()),
+        policy_loss=float(policy_loss.detach()),
+        value_loss=float(value_loss.detach()),
+        entropy=float(entropy.detach()),
+        n_steps=batch_size,
+    )
+
+
+#### CLI ####
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """The one-cycle trainer's command-line surface."""
+    parser = argparse.ArgumentParser(description="Run one Wingspan training cycle.")
+    parser.add_argument(
+        "--device", default="cuda" if torch.cuda.is_available() else "cpu"
+    )
+    parser.add_argument("--episodes", type=int, default=32)
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--lr", type=float, default=DEFAULT_LR)
+    parser.add_argument("--epsilon", type=float, default=DEFAULT_EPSILON)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--checkpoint", type=str, default="checkpoints/wingspan_cycle0.pt"
+    )
+    return parser
+
+
+#### Policy sampling ####
 
 
 def _sample_choice(

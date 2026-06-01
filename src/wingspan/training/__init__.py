@@ -21,6 +21,10 @@ console script). The package is split by concern:
 - ``runstate``  — the shared live state the dashboard reads
 - ``theme`` / ``charts`` / ``dashboard`` — the rich-based display
 - ``app``       — argparse entry point + the Live render loop
+
+For a single, minimal REINFORCE cycle without the dashboard or scaled
+collection, see the standalone :mod:`wingspan.train` module — it is the
+readable reference; this package is the production pipeline.
 """
 
 from wingspan.training.app import main

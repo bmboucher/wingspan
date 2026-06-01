@@ -166,7 +166,10 @@ src/wingspan/
   cli.py                 # argparse entry points (main_manual, main_random)
   state.py               # GameState, Player, Board, FoodPool, PlayedBird, Birdfeeder, new_game
   decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction
-  encode.py              # state/choice tensor encoders for RL
+  encode/                # state/choice tensor encoders for RL (package)
+    layout.py            # feature dims, stripe offsets, normalization scales (the chain)
+    state_encode.py      # encode_state / state_size + per-aspect state summaries
+    choice_encode.py     # encode_choices + per-Choice featurizers + stripe fillers
   architecture.py        # ModelArchitecture + ActivationName (torch-free network topology descriptor)
   model.py               # PyTorch PolicyValueNet (built from a ModelArchitecture)
   train.py               # self-play + REINFORCE
@@ -176,13 +179,24 @@ src/wingspan/
     __init__.py          # re-exports the public surface (Bird, Food, parse_power, load_all, ...)
     schema.py            # enums, Effect/Power IR, Bird/BonusCard/EndRoundGoal models,
                          #   BirdRecord/BonusRecord/GoalRecord raw-JSON record models
-    parse.py             # JSON loader (load_all), per-field parsers, power-text parser
+    parse/               # JSON loader + power-text parser (package)
+      tags.py            # inline-icon tag tables + number-word parsing
+      registry.py        # ordered @pattern / @pink_pattern matcher registries
+      power.py           # parse_power + normalization + dispatch
+      matchers.py        # general power-text matchers (pink_matchers.py: reactive ones)
+      loader.py          # load_all / power_coverage (the JSON loader)
+      catalog.py         # stable card -> dense-index maps for the encoder
+      fields.py          # record-field parsers (parse_*, goal_category)
 
   engine/                # mutation logic
     __init__.py          # re-exports Engine, Agent, print_coverage_report
     core.py              # Engine class, Agent protocol, turn loop, setup, ask plumbing
     actions.py           # do_play_bird / do_gain_food / do_lay_eggs / do_draw_cards
-    powers.py            # dispatch_power + apply_effect (one big EffectKind switch)
+    powers/              # bird-power dispatch (package)
+      registry.py        # _HANDLERS table + @registry.handles decorator + handler_for
+      dispatch.py        # dispatch_power / apply_effect (registry lookup) / lay_one_egg_on_nest
+      grants.py egg_trade.py multi_actor.py tray_trade.py drafting.py
+      nest_aggregate.py predator_repeat.py   # @handles handlers grouped by family
     reactors.py          # pink between-turn reactor hooks
     scoring.py           # score_round_goal, final_scoring
     helpers.py           # cost_meets, enumerate_payments — pure functions
@@ -205,7 +219,13 @@ src/wingspan/
     evaluate.py          # paired-game strength vs random + 95% CI (§7)
     loop.py              # TrainingLoop orchestrator (collect/update/eval/checkpoint)
     theme.py             # palette + glyph constants ("wetland dawn")
-    charts.py            # braille convergence chart, family histogram, sparklines
+    charts/              # custom rich renderables (package)
+      geometry.py        # layout constants (gutter, inset width, ...)
+      braille.py         # the 2x4-dot braille bitmap canvas
+      text_helpers.py    # sparkline / eighth-block bar / human-count
+      convergence_chart.py  # GettingBetterChart + its drawing helpers
+      histogram.py       # FamilyHistogram
+      insets.py          # the docked eval inset + narrow-panel strip
     dashboard.py         # the five-band Layout + per-region renderers
     configure/           # interactive "FLIGHT PLAN" configurator (python -m wingspan.training --config)
       fields.py          # FieldSpec hierarchy + FIELD_SPECS + read/format/commit/nudge
@@ -305,7 +325,7 @@ Agents resolve decisions, not raw action ints. The shape is fixed:
 
 When adding a new decision point: define the Choice subclass first (or
 reuse an existing one), then the `Decision[C]` subclass, then add it to
-`ALL_DECISION_CLASSES`, then teach `encode.py` how to featurize it.
+`ALL_DECISION_CLASSES`, then teach `encode/choice_encode.py` how to featurize it.
 
 ### Configurable network topology
 
@@ -377,14 +397,17 @@ Adding support for a new bird power is a three-step pattern:
    data the existing carriers don't cover (`amount`, `food`, `habitat`,
    `keep_count`, `max_wingspan_cm`, `nest`, `food_a`, `food_b`), add a new
    typed carrier field to `Effect` — don't reach for a generic payload.
-2. Add a pattern matcher in `cards.parse` and register it in
-   `_PATTERN_MATCHERS`. Matchers are independent; ordering matters when
-   patterns overlap (more specific first).
-3. Add a handler in `engine.powers._HANDLERS` keyed by the new
-   `EffectKind`. Pink (between-turn) effects are dispatched from
-   `engine.reactors`, not from `apply_effect`; if the new effect is a pink
-   reactor, register it there and have `apply_effect` treat it as a
-   silent no-op.
+2. Add a pattern matcher in `cards.parse.matchers` and decorate it with
+   `@registry.pattern` (or `@registry.pink_pattern` in `pink_matchers` for a
+   reactive one). Matchers are independent; **registration order = source
+   order**, and ordering matters when patterns overlap (more specific first) —
+   see `cards.parse.registry`.
+3. Add a handler in the matching `engine.powers` submodule (grouped by family)
+   and decorate it with `@registry.handles(EffectKind.X)`; the package
+   `__init__` imports every handler submodule so the table self-populates. Pink
+   (between-turn) effects are dispatched from `engine.reactors`, not from
+   `apply_effect`; if the new effect is a pink reactor, register it there and
+   have `apply_effect` treat it as a silent no-op.
 
 Keep the `UNIMPLEMENTED` fallback in place — every core-set bird is
 modelled today, but the fallback is what lets future expansion cards (or
@@ -397,9 +420,10 @@ pattern.
 Action / track / cost constants live at the top of `state.py`
 (`ROUND_CUBES`, `ROW_SLOTS`, `BIRDFEEDER_DICE`, `STARTING_HAND_SIZE`,
 `GAIN_FOOD_TRACK`, `LAY_EGGS_TRACK`, `DRAW_CARDS_TRACK`, `EGG_COSTS`,
-`FULL_ROW_EGG_COST`, ...). Encoder normalisation scales live at the top of
-`encode.py` as module-private constants. Don't sprinkle magic numbers in
-function bodies — promote them.
+`FULL_ROW_EGG_COST`, ...). Encoder feature dims, stripe offsets, and
+normalisation scales live in `encode/layout.py` (the whole chain in one file).
+Chart layout sizes live in `training/charts/geometry.py`. Don't sprinkle magic
+numbers in function bodies — promote them.
 
 ### Per-turn scratch state
 

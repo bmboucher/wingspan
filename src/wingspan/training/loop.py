@@ -136,6 +136,8 @@ class TrainingLoop:
 
     ###### PRIVATE #######
 
+    #### Resume & init ####
+
     def _reached_limit(self, iteration: int) -> bool:
         # ``max_iterations`` caps iterations run *this session*, so resuming a run
         # with ``--iterations N`` does N more rather than stopping immediately.
@@ -266,6 +268,8 @@ class TrainingLoop:
         for group in self.optimizer.param_groups:
             group["lr"] = self.config.lr
 
+    #### System monitor ####
+
     def _start_monitor(self) -> None:
         """Take one telemetry sample now (so the SYSTEM band paints immediately),
         then keep sampling on a side thread so the gauges stay live even through
@@ -287,6 +291,14 @@ class TrainingLoop:
         with self.lock:
             self.state.system = stats
 
+    #### Iteration orchestration ####
+
+    # One training iteration -- the heart of the loop. Five phases run in order:
+    #   1. collect  -- self-play games into recorded forked decisions (_collect)
+    #   2. update   -- one length-bucketed REINFORCE step (learner.update)
+    #   3. evaluate -- periodic paired games vs the reference opponent (_maybe_evaluate)
+    #   4. measure  -- fold the above into one IterationMetrics row
+    #   5. commit   -- graduate/advance the opponent, checkpoint, log (_commit_iteration)
     def _run_iteration(self, iteration: int) -> None:
         with self.lock:
             self.state.phase = runstate.Phase.COLLECTING
@@ -341,6 +353,8 @@ class TrainingLoop:
             collection_win_rate,
         )
         self._commit_iteration(iter_metrics, stats, eval_result, records)
+
+    #### Collection ####
 
     def _collect(self, iteration: int) -> list[collect.GameRecord]:
         """Play ``games_per_iter`` games with batched inference, updating the
@@ -399,6 +413,8 @@ class TrainingLoop:
             )
             self.state.game_in_iter += 1
 
+    #### Evaluation ####
+
     def _maybe_evaluate(
         self, iteration: int
     ) -> tuple[metrics.EvalResult | None, float]:
@@ -447,7 +463,7 @@ class TrainingLoop:
 
     # ------------------------------------------------------------------
     # Reference-opponent advancement (TRAINING.md §7)
-    # ------------------------------------------------------------------
+    #### Opponent advancement ####
 
     def _opponent_label(self) -> str:
         """A short name for the current reference opponent (for events)."""
@@ -557,6 +573,8 @@ class TrainingLoop:
             )
             return
         self._opponent_net = opponent
+
+    #### Checkpointing ####
 
     def _commit_iteration(
         self,
@@ -690,6 +708,8 @@ class TrainingLoop:
 # ---------------------------------------------------------------------------
 # Pure helpers
 
+#### Metrics aggregation ####
+
 
 def _family_counts(record: collect.GameRecord) -> metrics.FamilyCounts:
     counts = metrics.FamilyCounts()
@@ -739,6 +759,9 @@ def _collection_win_rate(records: list[collect.GameRecord]) -> float:
     wins = sum(1 for record in records if record.winner == 0)
     ties = sum(1 for record in records if record.winner < 0)
     return (wins + 0.5 * ties) / len(records)
+
+
+#### Iteration metrics ####
 
 
 def _build_iteration_metrics(
@@ -827,6 +850,9 @@ def _progress_from_payload(payload: dict[str, typing.Any]) -> runstate.RunProgre
     )
 
 
+#### Seeding ####
+
+
 def _seed_everything(seed: int) -> None:
     """Seed Python, NumPy, and torch (TRAINING.md §5 reproducibility)."""
     random.seed(seed)
@@ -836,6 +862,9 @@ def _seed_everything(seed: int) -> None:
     torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType]
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)  # pyright: ignore[reportUnknownMemberType]
+
+
+#### Checkpoint I/O ####
 
 
 def _atomic_save(payload: dict[str, object], path: pathlib.Path) -> None:

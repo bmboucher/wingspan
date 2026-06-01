@@ -14,6 +14,13 @@ The bundled card catalog is parsed once and reused across games (the card
 models are immutable and ``state.new_game`` copies the deck lists before
 shuffling), which avoids re-reading the JSON on every game — the dominant
 fixed cost of ``Engine.create``.
+
+This single-game collector is the baseline the two scaled collectors relate to:
+``mp_collect`` runs :func:`play_game` itself inside each worker process, while
+``batched_collect`` reimplements the per-game loop around one shared forward
+pass. Which one the training loop uses is decided per device in
+``loop._collect`` (CPU → ``mp_collect``; CUDA → ``batched_collect``). See
+``training/COLLECTORS.md`` for the side-by-side.
 """
 
 from __future__ import annotations

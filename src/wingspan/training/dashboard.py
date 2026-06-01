@@ -107,16 +107,8 @@ def _wordmark_row(state: runstate.RunState) -> table.Table:
         width=len(label) + 2,
         style=f"bold {theme.CANVAS} on {theme.PHASE_COLOR[state.phase]}",
     )
-    grid.add_row(_gradient_text(_WORDMARK), text.Text(label, no_wrap=True, end=""))
+    grid.add_row(theme.gradient_text(_WORDMARK), text.Text(label, no_wrap=True, end=""))
     return grid
-
-
-def _gradient_text(content: str) -> text.Text:
-    colors = theme.gradient_stops(theme.WORDMARK_STOPS, len(content))
-    out = text.Text(no_wrap=True, end="")
-    for char, color in zip(content, colors):
-        out.append(char, style=f"bold {color}")
-    return out
 
 
 def _header_stats_row(state: runstate.RunState) -> text.Text:

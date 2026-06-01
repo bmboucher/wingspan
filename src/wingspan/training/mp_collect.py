@@ -26,6 +26,9 @@ collect_games` mirrors :func:`batched_collect.collect_games` (same arguments,
 same return), so ``loop._collect`` can choose either path by device. Results
 come back in completion order, not seed order — every downstream aggregate is
 order-independent.
+
+Selection: ``loop._collect`` routes **CPU** collection here and CUDA collection
+to ``batched_collect``. See ``training/COLLECTORS.md`` for the side-by-side.
 """
 
 from __future__ import annotations

@@ -27,6 +27,12 @@ The public entry point is :func:`collect_games`; it returns the same
 :class:`collect.GameRecord` objects the sequential collector produced, in seed
 order, and fires ``on_game_done`` as each game finishes so the dashboard can
 advance mid-iteration.
+
+Selection: ``loop._collect`` now routes **CUDA** collection here (one shared GPU
+forward beats one model copy per process); the CPU path moved to the
+process-parallel ``mp_collect`` once threads proved GIL-bound. The ~1.2x figure
+above is from when this *was* the CPU path — it documents the shared-forward
+technique, not the current CPU route. See ``training/COLLECTORS.md``.
 """
 
 from __future__ import annotations

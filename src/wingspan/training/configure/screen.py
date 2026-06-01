@@ -115,7 +115,7 @@ def _header(view: state.ConfiguratorState) -> panel.Panel:
     top = table.Table.grid(expand=True)
     top.add_column(justify="left")
     top.add_column(justify="right")
-    top.add_row(_gradient_text(_WORDMARK), _mode_pill(view))
+    top.add_row(theme.gradient_text(_WORDMARK), _mode_pill(view))
     return panel.Panel(
         rich_console.Group(top, _context_row(view)),
         box=box.ROUNDED,
@@ -597,14 +597,6 @@ def _kv(label: str, value: str) -> text.Text:
 
 def _specs_in(section: fields.ConfigSection) -> list[fields.FieldSpec]:
     return [spec for spec in fields.FIELD_SPECS if spec.section is section]
-
-
-def _gradient_text(content: str) -> text.Text:
-    colors = theme.gradient_stops(theme.WORDMARK_STOPS, len(content))
-    out = text.Text(no_wrap=True, end="")
-    for char, color in zip(content, colors):
-        out.append(char, style=f"bold {color}")
-    return out
 
 
 def _viewport(
