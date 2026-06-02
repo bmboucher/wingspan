@@ -66,6 +66,47 @@ def test_state_encoder_pov_rotates_with_decision_player():
     assert not np.array_equal(v0, v1), "POV rotation should flip me/opp features"
 
 
+def test_card_identity_offsets_align_with_encoder_output():
+    """``model._embed_state`` splits the flat state at ``OFF_CARD_INDEX`` /
+    ``OFF_HAND_MULTIHOT`` / ``OFF_DECISION_TYPE`` to pull out the card-index
+    block, hand multi-hot, and decision-type stripe. Those offsets derive from
+    ``_CONT_PREFIX_DIM``, a separate sum from ``state_size`` and from the actual
+    ``encode_state`` parts — and once drifted out of sync (the birdfeeder stripe
+    was counted as 5, not 6), shifting the model's window one column off the real
+    blocks. This guards the alignment without hard-coding any absolute offset."""
+    eng, birds, *_ = engine.Engine.create(seed=51)
+    me = eng.state.players[0]
+    # Fill the tray so the final card-index slot carries a real bird index > 1;
+    # under an off-by-one split it would leak into the hand multi-hot block.
+    eng.state.tray = [birds[10], birds[20], birds[30]]
+    me.hand = [birds[40], birds[41]]
+    decision = decisions.MainActionDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.MainActionChoice(label="a", action=decisions.MainAction.GAIN_FOOD)
+        ],
+    )
+    vec = encode.encode_state(eng.state, decision)
+
+    card_block = vec[encode.OFF_CARD_INDEX : encode.OFF_HAND_MULTIHOT]
+    hand_block = vec[encode.OFF_HAND_MULTIHOT : encode.OFF_DECISION_TYPE]
+    decision_block = vec[encode.OFF_DECISION_TYPE :]
+
+    # Card-index entries are whole numbers (``bird_index + 1``, or 0 for empty);
+    # a leaked birdfeeder scalar would be fractional.
+    assert np.array_equal(card_block, np.floor(card_block))
+    # The hand multi-hot is strictly 0/1; a leaked card index would break it.
+    assert set(np.unique(hand_block)).issubset({0.0, 1.0})
+    # The decision-type stripe is a clean one-hot of exactly the declared width.
+    assert decision_block.shape == (encode.DECISION_TYPE_DIM,)
+    assert decision_block.sum() == 1.0
+    # The three tray birds occupy the last TRAY_SIZE card-index slots by identity.
+    tray_slots = card_block[-state.TRAY_SIZE :]
+    expected = sorted(cards.bird_index(bird) + 1 for bird in eng.state.tray)
+    assert sorted(int(round(value)) for value in tray_slots) == expected
+
+
 def test_state_encoder_decision_type_one_hot_flips():
     eng, *_ = engine.Engine.create(seed=2)
     d_main = decisions.MainActionDecision(

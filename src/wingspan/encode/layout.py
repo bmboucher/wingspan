@@ -244,7 +244,7 @@ _CONT_PREFIX_DIM = (
     + 4 * _BONUS_ID_DIM  # bonus progress (held + count + stepped + linear)
     + 1  # opponent bonus-card count
     + 1  # opponent hand size
-    + 5  # birdfeeder
+    + 6  # birdfeeder (5 single-food faces + choice-die count)
     + 7  # misc scalars
     + _ROUND_GOALS_STRIPE_DIM  # all four round goals
 )
