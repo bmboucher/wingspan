@@ -56,9 +56,9 @@ def run_configurator(
 def build_initial_state(
     initial: config.TrainConfig, cuda_available: bool
 ) -> state.ConfiguratorState:
-    """Inspect the target directory and seed the editor. When a compatible run
-    is already there, start from *its* saved settings (so the user tunes the
-    actual run, not argparse defaults), keeping the directory they pointed at."""
+    """Inspect the target directory and seed the editor. When a readable run is
+    already there, start from *its* saved settings (so the user tunes the actual
+    run, not argparse defaults), keeping the directory they pointed at."""
     summary = runs.inspect_run(initial.checkpoint_dir)
     working, seeded = _seed_from_summary(initial, summary)
     return state.ConfiguratorState(
@@ -75,17 +75,26 @@ def _seed_from_summary(
     current: config.TrainConfig, summary: runs.RunSummary
 ) -> tuple[config.TrainConfig, bool]:
     """Decide the editor's working config for an inspected directory: when it
-    holds a compatible, resumable run, seed from *its* saved settings (keeping
-    the directory pointed at) so the user tunes the actual run; otherwise keep
-    ``current`` for a fresh / incompatible / empty target. Returns
-    ``(working, seeded_from_saved)``. Shared by the initial build and the
-    re-inspect after a directory change so the two never disagree."""
+    holds a run whose saved config still reads cleanly, seed from *those*
+    settings (keeping the directory pointed at) so the user tunes the actual
+    run rather than argparse defaults; otherwise keep ``current`` for a fresh /
+    unreadable / empty target. Returns ``(working, seeded_from_saved)``. Shared
+    by the initial build and the re-inspect after a directory change so the two
+    never disagree.
+
+    The saved config is seeded regardless of whether its architecture matches
+    ``current``: gating on compatibility would discard the saved settings in
+    exactly the case where they matter most (a run with a non-default
+    architecture), leaving the editor on argparse defaults and reporting a
+    spurious "architecture changed" the moment the screen opens. By always
+    seeding, ``working`` equals the saved run on entry (so it reads RESUMABLE
+    and nothing is marked changed); the INCOMPATIBLE verdict then appears only
+    once the user actually edits an architecture field."""
     if (
         summary.exists
         and summary.readable
         and not summary.config_invalid
         and summary.train_config is not None
-        and runs.architecture_compatible(summary.train_config, current)
     ):
         seeded = summary.train_config.model_copy(
             update={"checkpoint_dir": current.checkpoint_dir}

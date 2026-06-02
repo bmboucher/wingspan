@@ -576,6 +576,23 @@ def test_initial_state_seeds_from_compatible_run(tmp_path: pathlib.Path):
     assert view.status() is runs.RunStatus.RESUMABLE
 
 
+def test_initial_state_seeds_from_run_with_other_architecture(tmp_path: pathlib.Path):
+    # Reopening --config on a run whose architecture differs from the argparse
+    # defaults must still load *its* saved settings, so the screen opens on the
+    # actual run (RESUMABLE, nothing marked changed) rather than reverting to the
+    # defaults and reporting a spurious "architecture changed / needs fresh run".
+    saved = config.TrainConfig(
+        device="cpu", checkpoint_dir=str(tmp_path), trunk_layers=(256, 256)
+    )
+    assert saved.trunk_layers != config.TrainConfig().trunk_layers  # not the default
+    _write_checkpoint(tmp_path, saved)
+    launched = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    view = controller.build_initial_state(launched, cuda_available=False)
+    assert view.seeded_from_saved
+    assert view.working.trunk_layers == (256, 256)
+    assert view.status() is runs.RunStatus.RESUMABLE
+
+
 def test_dispatch_navigation_and_nudge():
     view = _empty_state()
     attrs = fields.editable_attrs()
