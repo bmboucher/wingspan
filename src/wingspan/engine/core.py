@@ -361,6 +361,12 @@ class Engine:
                     self.state.current_player = idx
                     self._take_turn(agents[idx])
         scoring.score_round_goal(self, round_idx)
+        # Discard the face-up tray and replenish it with fresh cards so every
+        # round opens on three new options. This matches the rulebook's
+        # end-of-round setup step; the last turn's refill_tray() still runs
+        # (restoring any slots emptied during that turn) and those cards are
+        # then discarded here before the new cards go face-up.
+        self.state.reset_tray()
 
     # Power-granted extra plays are resolved by ``actions.consume_extra_plays``
     # (a free function, like the other action logic), called from ``_take_turn``.

@@ -454,6 +454,16 @@ class GameState(pydantic.BaseModel):
                 break
             self.tray.append(drawn)
 
+    def reset_tray(self) -> None:
+        """Discard all face-up tray cards and replenish with fresh ones.
+
+        Called at the end of each round. The discarded cards enter
+        ``bird_discard`` so they can be shuffled back into the deck when it
+        runs dry later in the game."""
+        self.bird_discard.extend(self.tray)
+        self.tray = []
+        self.refill_tray()
+
     def reset_turn_state(self) -> None:
         """Clear per-turn scratch fields. Called at the start of every turn."""
         self.turn_extra_plays = 0

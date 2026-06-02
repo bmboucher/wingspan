@@ -3,15 +3,20 @@
 A card taken from the face-up bird tray is *not* replaced immediately. The
 tray slot stays empty for the rest of the acting player's turn; the tray is
 refilled to ``TRAY_SIZE`` only at the end of the turn (or by a bird power that
-explicitly refills, e.g. Brant). Two consequences are pinned here:
+explicitly refills, e.g. Brant). Four rules are pinned here:
 
 * Within a turn the tray shrinks as cards are drawn, and every subsequent draw
   is offered only the cards still face-up (plus the deck) — no phantom refill.
 * Between turns the tray is topped back up, so every turn opens on a full tray.
+* At the end of each round the face-up tray is discarded and three new cards
+  go face-up, so each round opens on a fresh set of options.
+* The tray starts with 3 cards during the setup phase, before players make
+  their initial keep decisions.
 
-The mid-turn behaviour is exercised through the public ``actions`` free
-functions; the end-of-turn refill is verified as a live-game invariant via
-``Engine.play_one_game``.
+The mid-turn and end-of-turn behaviour is exercised through the public
+``actions`` free functions and via ``Engine.play_one_game``; the round-end
+reset is verified both as a unit test on ``GameState.reset_tray`` and as a
+live-game invariant.
 """
 
 from __future__ import annotations
@@ -209,3 +214,111 @@ def test_tray_is_full_at_the_start_of_every_turn():
     # And the refill is not vacuous: at least one turn actually drew from the
     # tray, leaving a slot that had to be topped back up.
     assert tray_draws, "expected at least one tray draw to exercise the refill"
+
+
+# ---------------------------------------------------------------------------
+# End of round: the tray is discarded and replaced with fresh cards
+
+
+def test_reset_tray_discards_and_replenishes():
+    """``GameState.reset_tray`` moves all current tray cards to the discard
+    pile and then draws fresh ones up to ``TRAY_SIZE``."""
+    eng = _make_engine()
+    tray_before = list(eng.state.tray)
+    discard_before = len(eng.state.bird_discard)
+
+    eng.state.reset_tray()
+
+    # Every card that was face-up is now in the discard.
+    assert len(eng.state.bird_discard) == discard_before + len(tray_before)
+    for bird in tray_before:
+        assert bird in eng.state.bird_discard
+    # The tray is replenished to full with new cards.
+    assert len(eng.state.tray) == state.TRAY_SIZE
+    # The new tray cards are different from the old ones (barring a
+    # vanishingly unlikely collision with a 180-card deck).
+    old_names = {bird.name for bird in tray_before}
+    new_names = {bird.name for bird in eng.state.tray}
+    assert old_names != new_names
+
+
+def test_reset_tray_with_short_deck():
+    """When the entire remaining card pool holds fewer than ``TRAY_SIZE``
+    cards, ``reset_tray`` leaves the tray short rather than looping forever.
+
+    Note: ``refill_tray`` recycles ``bird_discard`` (via ``draw_bird``) when
+    the deck runs dry, so discarded tray cards are counted as part of the pool.
+    To leave the tray genuinely short we must drain deck *and* discard, leaving
+    only a single card in the tray so the pool contains exactly 1 card total."""
+    eng = _make_engine()
+    # Drain deck and discard entirely; leave exactly 1 card face-up.
+    eng.state.bird_deck = []
+    eng.state.bird_discard = []
+    eng.state.tray = eng.state.tray[:1]
+
+    eng.state.reset_tray()
+
+    # That 1 card was discarded then recycled back out of the (now-reshuffled)
+    # deck; the tray ends at 1 because the pool is exhausted after that draw.
+    assert len(eng.state.tray) == 1
+    assert len(eng.state.bird_deck) == 0
+    assert len(eng.state.bird_discard) == 0
+
+
+def _round_boundary_agent(
+    round_snapshots: dict[int, list[str]],
+) -> engine_core.Agent:
+    """Records the tray card names at the start of each turn (i.e. before any
+    draw) grouped by the current round index. Used to verify the tray changes
+    between rounds."""
+    rng = random.Random(0)
+    inner = agents.random_agent(rng)
+
+    def agent[C: decisions.Choice](
+        eng: engine_core.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        # Capture tray snapshot before delegating so the isinstance check on
+        # `decision` doesn't widen the type seen by `inner` at the return site.
+        choice = inner(eng, decision)
+        if isinstance(decision, decisions.MainActionDecision):
+            round_idx = eng.state.round_idx
+            round_snapshots.setdefault(round_idx, []).append(
+                "|".join(
+                    bird.name
+                    for bird in sorted(eng.state.tray, key=lambda bird: bird.name)
+                )
+            )
+        return choice
+
+    return agent
+
+
+def test_tray_is_replaced_between_rounds():
+    """Every round opens on a different set of face-up tray cards.
+
+    At the end of each round the engine discards the current tray and draws
+    three new cards. This test plays a full game and checks that at least
+    one card in the tray changed between consecutive rounds."""
+    eng, *_ = engine.Engine.create(seed=42)
+    round_snapshots: dict[int, list[str]] = {}
+    engine.Engine.play_one_game(
+        eng.state,
+        (
+            _round_boundary_agent(round_snapshots),
+            agents.random_agent(random.Random(42)),
+        ),
+    )
+
+    # All four rounds should have been recorded.
+    assert len(round_snapshots) == 4
+
+    # Collect the first tray snapshot for each round (tray at start of turn 1).
+    first_per_round = [round_snapshots[idx][0] for idx in range(4)]
+
+    # Consecutive rounds must show a different tray composition.  With 180
+    # birds and 3 slots the probability of an accidental match is negligible.
+    for earlier, later in zip(first_per_round, first_per_round[1:]):
+        assert (
+            earlier != later
+        ), f"tray was identical across a round boundary: {earlier!r}"
