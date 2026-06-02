@@ -13,7 +13,11 @@ random generator, sample store); the network and its learner live under
 without torch.
 """
 
-from wingspan.setup_model.architecture import SetupArchitecture, SetupShapeKey
+from wingspan.setup_model.architecture import (
+    SetupArchitecture,
+    SetupShapeKey,
+    count_setup_parameters,
+)
 from wingspan.setup_model.candidates import (
     SetupCandidate,
     enumerate_setup_candidates,
@@ -40,6 +44,7 @@ __all__ = [
     "SetupDataStore",
     "SetupSample",
     "SetupShapeKey",
+    "count_setup_parameters",
     "encode_setup_candidate",
     "enumerate_setup_candidates",
     "select_by_margins",

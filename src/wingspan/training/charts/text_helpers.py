@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import typing
 
+from rich import text
+
 from wingspan.training import theme
 
 # Retained for the configurator's history-length hint in
@@ -55,3 +57,28 @@ def human_count(value: int) -> str:
         thousands = value / 1000.0
         return f"{thousands:.1f}k" if thousands < 10 else f"{thousands:.0f}k"
     return f"{value / 1_000_000:.2f}M"
+
+
+def join_columns(
+    blocks: list[tuple[list[text.Text], int]], gap: int
+) -> list[text.Text]:
+    """Concatenate line blocks side by side, each padded to its own width with
+    ``gap`` blank columns between them. Blocks of unequal height are bottom-padded
+    to the tallest so every output row spans every column. Shared by the
+    convergence charts and the configurator's architecture diagram."""
+    height = max((len(lines) for lines, _ in blocks), default=0)
+    out: list[text.Text] = []
+    for row in range(height):
+        line = text.Text(no_wrap=True, end="")
+        for index, (lines, block_w) in enumerate(blocks):
+            if index:
+                line.append(" " * gap)
+            if row < len(lines):
+                line.append_text(lines[row])
+                pad = block_w - lines[row].cell_len
+            else:
+                pad = block_w
+            if pad > 0:
+                line.append(" " * pad)
+        out.append(line)
+    return out

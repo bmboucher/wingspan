@@ -55,3 +55,22 @@ class SetupArchitecture(pydantic.BaseModel):
         """The weight-compatibility signature (everything that changes a tensor
         shape). Two setup nets load each other's weights iff these agree."""
         return self.hidden_layers
+
+
+def count_setup_parameters(
+    setup_arch: SetupArchitecture, *, feature_dim: int
+) -> architecture.BlockParam:
+    """Analytic per-layer parameter accounting for the ``SetupNet`` that
+    ``setup_arch`` describes.
+
+    The setup net is a plain readout MLP (``feature_dim → hidden… → 1``, Linears
+    only, no LayerNorm), so its per-layer counts are exactly
+    :func:`wingspan.architecture.readout_layers`. Returns one
+    :class:`wingspan.architecture.BlockParam` whose ``total`` equals
+    ``sum(p.numel())`` of the built ``SetupNet`` — the architecture diagram's
+    per-op and Σ source for the separate setup model.
+    """
+    return architecture.BlockParam(
+        label="SETUP",
+        layers=architecture.readout_layers(feature_dim, setup_arch.hidden_layers),
+    )

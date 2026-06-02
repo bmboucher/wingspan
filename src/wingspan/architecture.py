@@ -210,11 +210,11 @@ def count_parameters(
         ),
         scorer=BlockParam(
             label="SCORER",
-            layers=_readout_layers(scorer_in, arch.head_layers, arch),
+            layers=readout_layers(scorer_in, arch.head_layers),
             multiplier=num_families,
         ),
         value=BlockParam(
-            label="VALUE", layers=_readout_layers(trunk_m, arch.value_layers, arch)
+            label="VALUE", layers=readout_layers(trunk_m, arch.value_layers)
         ),
     )
 
@@ -246,12 +246,11 @@ def _body_layers(
     return tuple(layers)
 
 
-def _readout_layers(
-    in_dim: int, widths: Widths, arch: ModelArchitecture
-) -> tuple[LayerParam, ...]:
-    """Per-layer counts for a readout block (scorer head / value head): the hidden
-    ``widths`` as bare ``Linear`` layers (readouts never LayerNorm) then a final
-    ``Linear(prev, 1)``, mirroring ``model._build_readout``."""
+def readout_layers(in_dim: int, widths: Widths) -> tuple[LayerParam, ...]:
+    """Per-layer counts for a readout block (scorer head / value head, and the
+    separate setup net): the hidden ``widths`` as bare ``Linear`` layers (readouts
+    never LayerNorm) then a final ``Linear(prev, 1)``, mirroring
+    ``model._build_readout`` / ``setup_net.SetupNet``."""
     layers: list[LayerParam] = []
     prev = in_dim
     for width in widths:

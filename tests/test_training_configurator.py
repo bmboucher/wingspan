@@ -30,8 +30,8 @@ pytest.importorskip("rich")
 import rich.console as rich_console
 import torch
 
-from wingspan import architecture, encode, model
-from wingspan.training import artifacts, config, loop, runstate
+from wingspan import architecture, encode, model, setup_model
+from wingspan.training import artifacts, config, loop, runstate, setup_net
 from wingspan.training.configure import (
     arch_diagram,
     controller,
@@ -417,9 +417,11 @@ def test_screen_renders_confirm_modal():
 # --------------------------------------------------------------------------- #
 
 
-# Tall enough that the whole flow (down to the VALUE box + TOTAL) fits without
-# the viewport clipping the bottom — the per-size test below covers clipping.
-_FULL_DIAGRAM_HEIGHT = 60
+# A direct render wide enough to engage the two-column box mode (not the narrow
+# fallback) and tall enough that the whole diagram is visible without the viewport
+# clipping the bottom — the per-size test below covers clipping.
+_BOX_W = 64
+_BOX_H = 120
 
 
 def _arch_state(
@@ -442,6 +444,12 @@ def _render_diagram(view: state.ConfiguratorState, width: int, height: int) -> s
     return buffer.getvalue()
 
 
+def _box_diagram(view: state.ConfiguratorState) -> str:
+    """The diagram rendered wide + tall enough that box mode is active and the
+    whole flow is visible."""
+    return _render_diagram(view, width=_BOX_W, height=_BOX_H)
+
+
 def _param_report_for(cfg: config.TrainConfig) -> architecture.ParamReport:
     return architecture.count_parameters(
         cfg.arch,
@@ -459,55 +467,85 @@ def test_arch_diagram_renders_all_sizes(width: int, height: int):
 
 
 def test_arch_diagram_all_blocks_present():
-    out = _render(_arch_state(), height=_FULL_DIAGRAM_HEIGHT)
-    for block in ("EMBED", "TRUNK", "CHOICE", "CONCAT", "SCORER", "VALUE"):
+    out = _box_diagram(_arch_state())
+    for block in (
+        "SETUP MODEL",
+        "CARD ENCODER",
+        "STATE TRUNK",
+        "CHOICE ENC",
+        "VALUE",
+        "DECISION",
+    ):
         assert block in out
 
 
+def test_arch_diagram_setup_box_toggles():
+    # The separate setup net is its own box at the top when enabled, and a single
+    # "off" line otherwise (it is trained independently of the in-game policy).
+    on = _box_diagram(_arch_state())  # use_setup_model defaults True
+    assert "SETUP MODEL" in on
+    off = _box_diagram(_arch_state(use_setup_model=False))
+    assert "SETUP MODEL" not in off
+    assert "setup model · off" in off
+
+
+def test_arch_diagram_extra_input_boxes():
+    # Each trunk carries a small box counting the additional, non-card features it
+    # consumes alongside the fanned-out card embeddings.
+    out = _box_diagram(_arch_state())
+    assert "feats" in out
+
+
+def test_arch_diagram_card_encoder_is_mlp():
+    # The card encoder renders as an MLP body block, so its hidden widths show up
+    # as Linear layer boxes (here a distinctive 256-wide hidden layer).
+    out = _box_diagram(_arch_state("card_encoder_layers", card_encoder_layers=(256,)))
+    assert "CARD ENCODER" in out and "256" in out
+
+
 def test_arch_diagram_dropout_appears_and_hides():
-    assert "Dropout" not in _render(_arch_state())  # default dropout 0 -> no row
-    assert "Dropout" in _render(_arch_state("dropout", dropout=0.15))
+    assert "Dropout" not in _box_diagram(_arch_state())  # default 0 -> no card
+    assert "Dropout" in _box_diagram(_arch_state("dropout", dropout=0.15))
 
 
 def test_arch_diagram_layernorm_appears():
-    assert "LayerNorm" not in _render(_arch_state())  # default off -> no row
-    assert "LayerNorm" in _render(_arch_state("layernorm", layernorm=True))
+    assert "LayerNorm" not in _box_diagram(_arch_state())  # default off
+    assert "LayerNorm" in _box_diagram(_arch_state("layernorm", layernorm=True))
 
 
 def test_arch_diagram_activation_label():
-    assert "relu" in _render(_arch_state())
-    assert "gelu" in _render(
+    assert "relu" in _box_diagram(_arch_state())
+    assert "gelu" in _box_diagram(
         _arch_state("activation", activation=architecture.ActivationName.GELU)
     )
 
 
 def test_arch_diagram_readout_never_layernorms():
     # Even with LayerNorm enabled and a hidden scorer layer, the readout heads
-    # must not draw a LayerNorm row (mirrors model._build_readout). LayerNorm
-    # shows up in the body blocks (above SCORER) but never from SCORER onward.
+    # must not draw a LayerNorm card (mirrors model._build_readout). LayerNorm
+    # shows up in the body blocks (above the heads) but never from DECISION onward.
     view = _arch_state(layernorm=True, head_layers=(128,))
-    out = _render(view, width=128, height=_FULL_DIAGRAM_HEIGHT)
+    out = _box_diagram(view)
     assert "LayerNorm" in out  # the trunk / choice bodies do carry it
-    readouts = out.split("SCORER", 1)[1]
-    assert "LayerNorm" not in readouts
+    assert "LayerNorm" not in out.split("DECISION", 1)[1]
 
 
 def test_arch_diagram_collapse_tag():
     view = _arch_state(
         trunk_layers=(128, 128, 128, 128), choice_layers=(128, 128, 128, 128)
     )
-    assert "×4" in _render(view)  # four identical trunk layers fold to one ×4 group
+    assert "×4" in _box_diagram(view)  # four identical trunk layers fold to ×4
 
 
 def test_arch_diagram_narrow_fallback():
-    # Below the box-width floor the renderable drops to the compact text list;
+    # Below the two-column floor the renderable drops to the compact text list;
     # it must still name the blocks and not crash.
     out = _render_diagram(_arch_state(), width=16, height=20)
     assert "TRUNK" in out
 
 
 def test_arch_diagram_focus_highlight_smoke():
-    out = _render(_arch_state("dropout", dropout=0.15))
+    out = _box_diagram(_arch_state("dropout", dropout=0.15))
     assert "Dropout" in out  # focusing the dropout handle still renders cleanly
 
 
@@ -542,8 +580,21 @@ def test_arch_diagram_param_count_scales_with_embed_dim():
     assert large.total > small.total
 
 
+def test_arch_diagram_setup_param_count_matches_net():
+    # The separate setup net's analytic accounting equals sum(p.numel()) of the
+    # real SetupNet — the diagram's per-op / Σ source for the unconnected box.
+    cfg = config.TrainConfig(device="cpu", setup_hidden_layers=(32, 16))
+    block = setup_model.count_setup_parameters(
+        cfg.setup_arch, feature_dim=setup_model.SETUP_FEATURE_DIM
+    )
+    net = setup_net.SetupNet(
+        feature_dim=setup_model.SETUP_FEATURE_DIM, arch=cfg.setup_arch
+    )
+    assert block.total == sum(param.numel() for param in net.parameters())
+
+
 def test_arch_diagram_param_display():
-    out = _render(_arch_state(), width=128, height=_FULL_DIAGRAM_HEIGHT)
+    out = _box_diagram(_arch_state())
     assert "TOTAL" in out and "params" in out
 
 

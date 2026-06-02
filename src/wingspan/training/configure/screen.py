@@ -99,8 +99,8 @@ def build(view: state.ConfiguratorState, frame: int) -> layout.Layout:
         body = root["body"]
         body.split_row(
             layout.Layout(_form_panel(view, frame), name="form", ratio=50),
-            layout.Layout(_arch_panel(view), name="arch", ratio=28, minimum_size=26),
-            layout.Layout(name="side", ratio=22, minimum_size=26),
+            layout.Layout(_arch_panel(view), name="arch", ratio=34, minimum_size=30),
+            layout.Layout(name="side", ratio=16, minimum_size=26),
         )
         body["side"].split_column(
             layout.Layout(_detail(view), name="detail", ratio=46),

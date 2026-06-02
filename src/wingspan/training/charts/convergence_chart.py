@@ -11,7 +11,7 @@ import rich.console as rich_console
 from rich import segment, text
 
 from wingspan.training import convergence, metrics, metrics_log, runstate, theme
-from wingspan.training.charts import braille, geometry, insets
+from wingspan.training.charts import braille, geometry, insets, text_helpers
 
 
 class GettingBetterChart:
@@ -268,23 +268,9 @@ def _join_columns(
     blocks: list[tuple[list[text.Text], int]], gap: int
 ) -> list[text.Text]:
     """Concatenate equal-height line blocks side by side, each padded to its own
-    width with ``gap`` blank columns between them."""
-    height = max((len(lines) for lines, _ in blocks), default=0)
-    out: list[text.Text] = []
-    for row in range(height):
-        line = text.Text(no_wrap=True, end="")
-        for index, (lines, block_w) in enumerate(blocks):
-            if index:
-                line.append(" " * gap)
-            if row < len(lines):
-                line.append_text(lines[row])
-                pad = block_w - lines[row].cell_len
-            else:
-                pad = block_w
-            if pad > 0:
-                line.append(" " * pad)
-        out.append(line)
-    return out
+    width with ``gap`` blank columns between them (the shared
+    :func:`text_helpers.join_columns`)."""
+    return text_helpers.join_columns(blocks, gap)
 
 
 # -- shared plot grid + axis -------------------------------------------------
