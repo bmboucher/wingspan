@@ -20,15 +20,16 @@ class GettingBetterChart:
     side-by-side line charts on their own axes. WIN RATE spans the whole run (no
     sliding window, read from ``metrics.jsonl``) with the yellow opponent-advance
     threshold line and a vertical marker at each challenger upgrade — a single
-    EWMA series. The y-axis shows the full 0..100% range during the random-opponent
-    phase and clips to 50..100% once the first opponent has been advanced (self-play
-    evaluations can never drop below 50%). FINAL SCORE / MARGIN is a
-    dual-axis chart: the EWMA final score on a color-coded left axis and the EWMA
-    eval margin on a color-coded right axis, each scaled to its own visible
-    range, over a sliding 2000-iteration window pinned to a round left edge. When
-    the panel is too narrow the inset drops to a one-line strip beneath the
-    charts. The win-rate sawtooths back down each time the reference opponent is
-    advanced (it then climbs again vs a stronger self)."""
+    EWMA series.  The y-axis top is always 100%; the floor is set dynamically
+    from the global minimum EWMA value (floored to a 5% step) so the scale uses
+    the available vertical space.  Segments below 50% are drawn in red; a solid
+    dim-red baseline marks the 50% level.  FINAL SCORE / MARGIN is a dual-axis
+    chart: the EWMA final score on a color-coded left axis and the EWMA eval
+    margin on a color-coded right axis, each scaled to its own visible range,
+    over a sliding 2000-iteration window pinned to a round left edge. When the
+    panel is too narrow the inset drops to a one-line strip beneath the charts.
+    The win-rate sawtooths back down each time the reference opponent is advanced
+    (it then climbs again vs a stronger self)."""
 
     def __init__(self, state: runstate.RunState, frame: int):
         self.state = state
@@ -129,28 +130,44 @@ def _winrate_block(
     beacon_color: str,
 ) -> list[text.Text]:
     """The win-rate plot block (title + plot grid + x-axis), exactly
-    ``geometry.TITLE_ROWS + rows + geometry.AXIS_ROWS`` lines tall. Plots a single EWMA win-rate
-    series over the *whole* run, with the yellow opponent-advance threshold line,
-    a cool-slate vertical marker at each challenger upgrade, and a warm-amber
-    vertical marker at each setup-model phase transition."""
+    ``geometry.TITLE_ROWS + rows + geometry.AXIS_ROWS`` lines tall. Plots the
+    EWMA win-rate series over the whole run with dynamic y-axis scaling: the top
+    is always 100% and the floor is derived from the minimum EWMA value seen
+    (rounded to a stable 5% step). Segments above 50% are drawn in green;
+    segments below 50% are drawn in red. A solid dim-red horizontal line marks
+    the 50% level when it falls within the chart range."""
     plot_cols = max(1, width - geometry.GUTTER_W)
     it_lo, it_hi = convergence.full_range(history)
     ewma = convergence.winrate_ewma_points(history, state.config.eval_ewma_alpha)
 
-    # Clip the y-floor to 50% once in self-play: evals are symmetric and can
-    # never fall below 50%.  Use training_phase directly so old checkpoints
-    # where opponent_change_iterations was not yet populated also clip correctly.
-    v_lo = 50.0 if state.training_phase == runstate.TrainingPhase.SELF_PLAY else 0.0
+    # Dynamic floor derived from the global minimum in history; series 0 = red
+    # (below 50%, higher canvas priority), series 1 = green (above 50%).
+    v_lo = _winrate_v_lo(ewma)
     v_hi = 100.0
 
-    canvas = braille.BrailleCanvas(plot_cols, rows, 1)
-    _draw_series(canvas, 0, ewma, it_lo, it_hi, v_lo, v_hi, dotted=False)
+    canvas = braille.BrailleCanvas(plot_cols, rows, 2)
+    _draw_series_split(
+        canvas,
+        series_above=1,
+        series_below=0,
+        points=ewma,
+        it_lo=it_lo,
+        it_hi=it_hi,
+        v_lo=v_lo,
+        v_hi=v_hi,
+        threshold=50.0,
+    )
     beacon = _beacon_cell(canvas, ewma, it_lo, it_hi, v_lo, v_hi)
 
     threshold = _winrate_threshold_pct(state)
     target_row = (
         round((1.0 - (threshold - v_lo) / (v_hi - v_lo)) * (rows - 1))
         if threshold > v_lo
+        else None
+    )
+    fifty_row = (
+        round((1.0 - (50.0 - v_lo) / (v_hi - v_lo)) * (rows - 1))
+        if v_lo < 50.0
         else None
     )
     challenger_markers = convergence.marker_columns(
@@ -161,8 +178,8 @@ def _winrate_block(
     )
     grid = _render_plot_grid(
         canvas,
-        {0: theme.WIN_COLOR},
-        _percent_label_rows(rows, v_lo),
+        {0: theme.WIN_BELOW_50, 1: theme.WIN_COLOR},
+        _winrate_label_rows(rows, v_lo),
         beacon,
         beacon_color,
         target_row,
@@ -171,6 +188,8 @@ def _winrate_block(
         theme.CHALLENGER_MARK,
         setup_markers,
         theme.SETUP_MARK,
+        baseline_row=fifty_row,
+        baseline_color=theme.FIFTY_PCT_LINE,
     )
     return [_winrate_title(state, width), *grid, *_axis_two(it_lo, it_hi, plot_cols)]
 
@@ -288,15 +307,19 @@ def _render_plot_grid(
     marker_color: str = theme.AXIS,
     marker2_cols: typing.AbstractSet[int] = frozenset(),
     marker2_color: str = theme.AXIS,
+    baseline_row: int | None = None,
+    baseline_color: str = "",
 ) -> list[text.Text]:
     """Paint the braille canvas into colored text rows with a left value gutter,
     an optional dotted gridline (``target_row`` in ``target_color`` — the
-    win-rate threshold or the points zero line), up to two sets of optional
-    vertical markers (``marker_cols`` / ``marker2_cols`` in their respective
-    colors — challenger-upgrade and setup-phase-transition lines), and the
-    leading-edge beacon. Adjacent same-color cells are batched into one styled
-    run; markers and the gridline only fill cells the data line did not.
-    ``marker_cols`` takes priority over ``marker2_cols`` when they overlap."""
+    win-rate threshold or the points zero line), an optional solid baseline
+    gridline (``baseline_row`` in ``baseline_color`` — the 50% neutral line),
+    up to two sets of optional vertical markers (``marker_cols`` /
+    ``marker2_cols`` in their respective colors — challenger-upgrade and
+    setup-phase-transition lines), and the leading-edge beacon. Adjacent
+    same-color cells are batched into one styled run; markers and gridlines
+    only fill cells the data line did not. ``marker_cols`` takes priority over
+    ``marker2_cols`` when they overlap."""
     lines: list[text.Text] = []
     for row in range(canvas.rows):
         line = text.Text(no_wrap=True, end="")
@@ -311,6 +334,8 @@ def _render_plot_grid(
                 color = series_color[owner]
             elif target_row is not None and row == target_row and char == " ":
                 char, color = "┄", target_color
+            elif baseline_row is not None and row == baseline_row and char == " ":
+                char, color = "─", baseline_color
             elif col in marker_cols and char == " ":
                 char, color = "┊", marker_color
             elif col in marker2_cols and char == " ":
@@ -443,6 +468,56 @@ def _draw_series(
         canvas.line(x0, y0, x1, y1, series, dotted=dotted)
 
 
+def _draw_series_split(
+    canvas: braille.BrailleCanvas,
+    series_above: int,
+    series_below: int,
+    points: list[tuple[int, float]],
+    it_lo: int,
+    it_hi: int,
+    v_lo: float,
+    v_hi: float,
+    threshold: float,
+) -> None:
+    """Draw a line in two series split at ``threshold``, handling crossings.
+
+    Segments where the value is >= threshold go to ``series_above``; segments
+    below go to ``series_below``.  When a segment crosses the threshold the
+    crossing pixel is interpolated and each sub-segment is routed to its
+    correct series so the color boundary is precise.
+    """
+    if not points:
+        return
+    dots = [
+        _to_dot(canvas, it, value, it_lo, it_hi, v_lo, v_hi) for it, value in points
+    ]
+
+    # Threshold in braille dot-pixel space (higher py = lower value on screen).
+    y_thresh = round((1.0 - (threshold - v_lo) / (v_hi - v_lo)) * (canvas.dot_h - 1))
+
+    if len(dots) == 1:
+        series = series_above if dots[0][1] <= y_thresh else series_below
+        canvas.set_dot(dots[0][0], dots[0][1], series)
+        return
+
+    for (x0, y0), (x1, y1) in zip(dots, dots[1:]):
+        above0 = y0 <= y_thresh  # lower py means higher value (above threshold)
+        above1 = y1 <= y_thresh
+        if above0 == above1:
+            # Whole segment on one side — no crossing.
+            canvas.line(x0, y0, x1, y1, series_above if above0 else series_below)
+        else:
+            # Segment crosses the threshold; interpolate the crossing pixel.
+            dy = y1 - y0
+            x_cross = x0 + round((x1 - x0) * (y_thresh - y0) / dy) if dy else x0
+            canvas.line(
+                x0, y0, x_cross, y_thresh, series_above if above0 else series_below
+            )
+            canvas.line(
+                x_cross, y_thresh, x1, y1, series_above if above1 else series_below
+            )
+
+
 def _to_dot(
     canvas: braille.BrailleCanvas,
     iteration: int,
@@ -475,17 +550,34 @@ def _beacon_cell(
     return (py // 4, px // 2)
 
 
-def _percent_label_rows(rows: int, v_lo: float = 0.0) -> dict[int, str]:
+def _winrate_v_lo(ewma: list[tuple[int, float]]) -> float:
+    """Dynamic y-axis floor for the win-rate chart.
+
+    Takes the global minimum EWMA value seen in history, floors it to the
+    nearest 5%, then subtracts a 5% breathing margin.  Using the global
+    minimum means the floor can only move down, never jump upward mid-run.
+    """
+    if not ewma:
+        return 0.0
+    min_val = min(val for _, val in ewma)
+    floor5 = (min_val // 5) * 5
+    return max(0.0, floor5 - 5.0)
+
+
+def _winrate_label_rows(rows: int, v_lo: float) -> dict[int, str]:
     """Map plot-row index -> percent gutter label for the win-rate axis.
 
-    Uses denser 10%-step gridlines when ``v_lo`` is 50 (the clipped self-play
-    range) and the standard 20%-step set for the full 0..100% range.
+    Places ``geometry.WIN_RATE_TICK_COUNT`` ticks at equidistant row positions
+    that never move, with label values recomputed from the current ``v_lo`` so
+    the scale adapts without the tick marks jumping around.
     """
-    labels = geometry.Y_LABELS_CLIPPED if v_lo >= 50.0 else geometry.Y_LABELS
-    return {
-        round((1.0 - (pct - v_lo) / (100.0 - v_lo)) * (rows - 1)): f"{pct}%"
-        for pct in labels
-    }
+    tick_count = geometry.WIN_RATE_TICK_COUNT
+    labels: dict[int, str] = {}
+    for k in range(tick_count):
+        row = round(k * (rows - 1) / (tick_count - 1))
+        val = 100.0 - k * (100.0 - v_lo) / (tick_count - 1)
+        labels[row] = f"{round(val)}%"
+    return labels
 
 
 def _auto_label_rows(rows: int, lo: float, hi: float) -> dict[int, str]:

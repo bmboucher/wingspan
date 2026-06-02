@@ -15,19 +15,10 @@ INSET_W = 28  # docked eval inset width
 INSET_MIN_WIDTH = 96  # below this the inset moves below the side-by-side charts
 MIN_PLOT_ROWS = 5  # below this the panel is too short to plot — show a placeholder
 # Both convergence plots fill the panel's full plot height (and so does the
-# docked inset beside them). The win-rate gutter labels are placed proportionally
-# so they stay readable at any row count. During the random-opponent phase the
-# full 0..100% range is shown (every 20%); once the first opponent is advanced
-# the y-floor clips to 50% and the denser 50..100% set (every 10%) fills the
-# same height. The two charts always share the same row count so the side-by-side
-# merge stays vertically aligned.
-Y_LABELS = (100, 80, 60, 40, 20, 0)  # win-rate gridlines for the full 0–100% range
-Y_LABELS_CLIPPED = (
-    100,
-    90,
-    80,
-    70,
-    60,
-    50,
-)  # gridlines when the y-floor is clipped to 50%
+# docked inset beside them). The win-rate gutter labels are placed at
+# WIN_RATE_TICK_COUNT equidistant row positions; their percentage values are
+# computed dynamically from the current y-floor so the ticks never move but
+# their labels adapt as the scale changes.  The two charts always share the
+# same row count so the side-by-side merge stays vertically aligned.
+WIN_RATE_TICK_COUNT = 6  # equidistant y-axis tick count for the win-rate chart
 POINTS_AXIS_TICKS = 5  # gridline count on the auto-scaled points axis
