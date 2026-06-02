@@ -130,15 +130,17 @@ def _winrate_block(
 ) -> list[text.Text]:
     """The win-rate plot block (title + plot grid + x-axis), exactly
     ``geometry.TITLE_ROWS + rows + geometry.AXIS_ROWS`` lines tall. Plots a single EWMA win-rate
-    series over the *whole* run, with the yellow opponent-advance threshold line
-    and a vertical marker at each challenger upgrade."""
+    series over the *whole* run, with the yellow opponent-advance threshold line,
+    a cool-slate vertical marker at each challenger upgrade, and a warm-amber
+    vertical marker at each setup-model phase transition."""
     plot_cols = max(1, width - geometry.GUTTER_W)
     it_lo, it_hi = convergence.full_range(history)
     ewma = convergence.winrate_ewma_points(history, state.config.eval_ewma_alpha)
 
-    # Clip the y-floor to 50% once the first opponent has been advanced;
-    # self-play evaluations are symmetric and can never fall below 50%.
-    v_lo = 50.0 if state.opponent_change_iterations else 0.0
+    # Clip the y-floor to 50% once in self-play: evals are symmetric and can
+    # never fall below 50%.  Use training_phase directly so old checkpoints
+    # where opponent_change_iterations was not yet populated also clip correctly.
+    v_lo = 50.0 if state.training_phase == runstate.TrainingPhase.SELF_PLAY else 0.0
     v_hi = 100.0
 
     canvas = braille.BrailleCanvas(plot_cols, rows, 1)
@@ -151,8 +153,11 @@ def _winrate_block(
         if threshold > v_lo
         else None
     )
-    markers = convergence.marker_columns(
+    challenger_markers = convergence.marker_columns(
         state.opponent_change_iterations, it_lo, it_hi, plot_cols
+    )
+    setup_markers = convergence.marker_columns(
+        convergence.setup_transition_iterations(history), it_lo, it_hi, plot_cols
     )
     grid = _render_plot_grid(
         canvas,
@@ -162,8 +167,10 @@ def _winrate_block(
         beacon_color,
         target_row,
         theme.WIN_THRESHOLD,
-        markers,
+        challenger_markers,
         theme.CHALLENGER_MARK,
+        setup_markers,
+        theme.SETUP_MARK,
     )
     return [_winrate_title(state, width), *grid, *_axis_two(it_lo, it_hi, plot_cols)]
 
@@ -293,13 +300,17 @@ def _render_plot_grid(
     target_color: str,
     marker_cols: typing.AbstractSet[int] = frozenset(),
     marker_color: str = theme.AXIS,
+    marker2_cols: typing.AbstractSet[int] = frozenset(),
+    marker2_color: str = theme.AXIS,
 ) -> list[text.Text]:
     """Paint the braille canvas into colored text rows with a left value gutter,
     an optional dotted gridline (``target_row`` in ``target_color`` — the
-    win-rate threshold or the points zero line), optional vertical markers
-    (``marker_cols`` in ``marker_color`` — the challenger-upgrade lines), and the
+    win-rate threshold or the points zero line), up to two sets of optional
+    vertical markers (``marker_cols`` / ``marker2_cols`` in their respective
+    colors — challenger-upgrade and setup-phase-transition lines), and the
     leading-edge beacon. Adjacent same-color cells are batched into one styled
-    run; markers and the gridline only fill cells the data line did not."""
+    run; markers and the gridline only fill cells the data line did not.
+    ``marker_cols`` takes priority over ``marker2_cols`` when they overlap."""
     lines: list[text.Text] = []
     for row in range(canvas.rows):
         line = text.Text(no_wrap=True, end="")
@@ -316,6 +327,8 @@ def _render_plot_grid(
                 char, color = "┄", target_color
             elif col in marker_cols and char == " ":
                 char, color = "┊", marker_color
+            elif col in marker2_cols and char == " ":
+                char, color = "┊", marker2_color
             else:
                 color = theme.AXIS
             if color != run_color:

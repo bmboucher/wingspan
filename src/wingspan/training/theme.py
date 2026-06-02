@@ -89,6 +89,7 @@ POINTS_COLOR = "#D9B26A"  # average self-play points (warm amber, dominant)
 TARGET_GRID = "#2F5D4A"  # faint gridline (points zero line)
 WIN_THRESHOLD = "#C9A24B"  # the yellow opponent-advance win-rate threshold line
 CHALLENGER_MARK = "#5A6B86"  # vertical marker where the reference opponent advanced
+SETUP_MARK = "#C9844B"  # vertical marker where the setup model entered a new phase
 AXIS = "#6B7E8C"
 
 # ---------------------------------------------------------------------------

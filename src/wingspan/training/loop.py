@@ -802,6 +802,7 @@ class TrainingLoop:
             self.state.training_phase = runstate.TrainingPhase.SELF_PLAY
             self.state.opponent_generation = 1
             self.state.opponent_since_iteration = self.state.iteration
+            self.state.opponent_change_iterations.append(self.state.iteration)
             self.state.best_win_rate = None  # best is per-opponent-generation
             self.state.push_event(
                 runstate.EventKind.BEST,
@@ -854,6 +855,7 @@ class TrainingLoop:
             self._opponent_net = frozen
             self.state.opponent_generation = new_generation
             self.state.opponent_since_iteration = self.state.iteration
+            self.state.opponent_change_iterations.append(self.state.iteration)
             self.state.best_win_rate = None  # best is per-opponent-generation
             if win_rate_fires and ewma_snap is not None:
                 reason = (
