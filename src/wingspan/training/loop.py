@@ -299,6 +299,7 @@ class TrainingLoop:
         resume decision, so the process record can note where it resumed from."""
         now = datetime.datetime.now()
         runmeta.write_model_config(self.config.checkpoint_dir, self.config)
+        runmeta.write_inspect_report(self.config.checkpoint_dir, self.config)
         if self.config.use_setup_model:
             setup_runmeta.write_setup_config(self.config.checkpoint_dir, self.config)
         session_path = runmeta.write_session_record(

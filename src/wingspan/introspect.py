@@ -1,0 +1,356 @@
+"""Model introspection CLI: state/choice vector layout, architecture, and parameters.
+
+Entry point: ``wingspan-inspect`` (or ``python -m wingspan.introspect``).
+Prints four sections:
+
+1. **STATE VECTOR** — every stripe in the ``encode_state`` output, named,
+   described, with its offset, size, encoding kind, and value range.
+2. **CHOICE VECTOR** — same breakdown for the per-candidate feature vector.
+3. **ARCHITECTURE** — the same box-and-arrow flow shown by FLIGHT PLAN.
+4. **PARAMETERS** — per-layer and per-block trainable-weight counts.
+
+Without ``--checkpoint-dir`` the tool uses the default
+:class:`~wingspan.architecture.ModelArchitecture` (the out-of-the-box network
+shape). Pass a run's checkpoint directory to read its ``model_config.json`` and
+show the exact topology that checkpoint was trained with.
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import sys
+
+import rich.console as rich_console
+import rich.panel as rich_panel
+import rich.table as rich_table
+from rich import text as rich_text
+
+from wingspan import architecture, decisions, encode
+from wingspan.encode import stripes as encode_stripes
+from wingspan.training import runmeta
+from wingspan.training.charts import text_helpers
+from wingspan.training.configure import arch_diagram
+
+
+def main_inspect(argv: list[str] | None = None) -> int:
+    """CLI entry point: print the model introspection report."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Inspect the Wingspan model: state/choice vector layout, "
+            "architecture, and parameter breakdown."
+        )
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Load architecture from model_config.json in this directory. "
+            "Defaults to the standard ModelArchitecture() baseline."
+        ),
+    )
+    parser.add_argument(
+        "--section",
+        choices=["state", "choice", "arch", "params", "all"],
+        default="all",
+        help="Which section(s) to print (default: all).",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Override terminal column width.",
+    )
+    args = parser.parse_args(argv)
+
+    # Ensure UTF-8 output on Windows — box-drawing glyphs and Unicode symbols
+    # in the arch diagram are not encodable in cp1252 (the Windows default).
+    stdout = _utf8_stdout()
+    console = rich_console.Console(file=stdout, width=args.width, legacy_windows=False)
+    info = _load_arch_info(args.checkpoint_dir, console)
+
+    show_all = args.section == "all"
+    if show_all or args.section == "state":
+        _print_state_section(console, info)
+    if show_all or args.section == "choice":
+        _print_choice_section(console, info)
+    if show_all or args.section == "arch":
+        _print_arch_section(console, info)
+    if show_all or args.section == "params":
+        _print_params_section(console, info)
+
+    return 0
+
+
+###### PRIVATE #######
+
+#### Console setup ####
+
+
+def _utf8_stdout() -> io.TextIOWrapper:
+    """Return a UTF-8 text stream over stdout.
+
+    On Windows the default stdout encoding is cp1252, which cannot encode the
+    box-drawing characters and Greek letters the architecture diagram uses.
+    Wrapping ``sys.stdout.buffer`` in a UTF-8 TextIOWrapper fixes that without
+    affecting the encoding of other streams. Falls back to the original stdout
+    when no ``buffer`` attribute is available (already a text stream without a
+    backing binary buffer, e.g. in some test harnesses)."""
+    if hasattr(sys.stdout, "buffer"):
+        return io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    return sys.stdout  # type: ignore[return-value]
+
+
+#### Data loading ####
+
+
+class _ArchInfo:
+    """The resolved architecture and encoding dims for one introspection run."""
+
+    def __init__(
+        self,
+        arch: architecture.ModelArchitecture,
+        state_dim: int,
+        choice_dim: int,
+        family_order: tuple[str, ...],
+        run_name: str = "(baseline)",
+    ):
+        self.arch = arch
+        self.state_dim = state_dim
+        self.choice_dim = choice_dim
+        self.family_order = family_order
+        self.run_name = run_name
+
+
+def _default_family_order() -> tuple[str, ...]:
+    return tuple(family.value for family in decisions.ALL_DECISION_FAMILIES)
+
+
+def _load_arch_info(
+    checkpoint_dir: str | None, console: rich_console.Console
+) -> _ArchInfo:
+    """Load architecture from ``model_config.json`` or fall back to defaults."""
+    if checkpoint_dir is None:
+        return _ArchInfo(
+            arch=architecture.ModelArchitecture(),
+            state_dim=encode.state_size(),
+            choice_dim=encode.CHOICE_FEATURE_DIM,
+            family_order=_default_family_order(),
+        )
+    try:
+        descriptor = runmeta.read_model_config(checkpoint_dir)
+    except FileNotFoundError:
+        console.print(
+            f"[yellow]Warning:[/yellow] no model_config.json in {checkpoint_dir!r}; "
+            "using baseline architecture."
+        )
+        return _ArchInfo(
+            arch=architecture.ModelArchitecture(),
+            state_dim=encode.state_size(),
+            choice_dim=encode.CHOICE_FEATURE_DIM,
+            family_order=_default_family_order(),
+        )
+    return _ArchInfo(
+        arch=descriptor.architecture,
+        state_dim=descriptor.state_dim,
+        choice_dim=descriptor.choice_dim,
+        family_order=descriptor.family_order,
+        run_name=descriptor.run_name,
+    )
+
+
+#### Vector layout sections ####
+
+
+def _print_state_section(console: rich_console.Console, info: _ArchInfo) -> None:
+    """Print the STATE VECTOR breakdown table."""
+    layout = encode_stripes.state_stripe_layout()
+    table = _make_stripe_table(layout, "STATE VECTOR")
+    console.print()
+    console.print(
+        rich_panel.Panel(
+            table,
+            title=f"[bold]STATE VECTOR[/bold]  ({layout.total_size} elements)",
+            subtitle=f"run: {info.run_name}",
+            border_style="bright_blue",
+        )
+    )
+
+
+def _print_choice_section(console: rich_console.Console, info: _ArchInfo) -> None:
+    """Print the CHOICE VECTOR breakdown table."""
+    layout = encode_stripes.choice_stripe_layout()
+    table = _make_stripe_table(layout, "CHOICE VECTOR")
+    console.print()
+    console.print(
+        rich_panel.Panel(
+            table,
+            title=f"[bold]CHOICE VECTOR[/bold]  ({layout.total_size} elements)",
+            subtitle=f"run: {info.run_name}",
+            border_style="bright_blue",
+        )
+    )
+
+
+def _make_stripe_table(
+    layout: encode_stripes.VectorLayout, section_name: str
+) -> rich_table.Table:
+    """Build a Rich Table for a :class:`VectorLayout`."""
+    table = rich_table.Table(
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("Name", style="bold", no_wrap=True)
+    table.add_column("Offset", justify="right", style="dim")
+    table.add_column("Size", justify="right")
+    table.add_column("Encoding", style="green", no_wrap=True)
+    table.add_column("Range", style="yellow", no_wrap=True)
+    table.add_column("Description / Notes")
+
+    for stripe in layout.stripes:
+        desc = stripe.description
+        if stripe.notes:
+            desc = f"{stripe.description}\n[dim]{stripe.notes}[/dim]"
+        table.add_row(
+            stripe.name,
+            str(stripe.offset),
+            str(stripe.size),
+            stripe.encoding,
+            stripe.value_range,
+            desc,
+        )
+
+    return table
+
+
+#### Architecture section ####
+
+
+def _print_arch_section(console: rich_console.Console, info: _ArchInfo) -> None:
+    """Print the ARCHITECTURE block diagram (identical to FLIGHT PLAN)."""
+    # Use ~40 columns for the diagram box so it fits even in narrow terminals.
+    box_width = min(48, (console.width or 80) - 4)
+    rows = arch_diagram.render_static(
+        info.arch,
+        state_dim=info.state_dim,
+        choice_dim=info.choice_dim,
+        family_order=info.family_order,
+        width=box_width,
+    )
+    # Render each row separated by newlines inside a panel.
+    lines = rich_text.Text()
+    for index, row in enumerate(rows):
+        if index:
+            lines.append("\n")
+        lines.append_text(row)
+    console.print()
+    console.print(
+        rich_panel.Panel(
+            lines,
+            title="[bold]ARCHITECTURE[/bold]",
+            subtitle=f"run: {info.run_name}",
+            border_style="bright_blue",
+        )
+    )
+
+
+#### Parameters section ####
+
+
+def _print_params_section(console: rich_console.Console, info: _ArchInfo) -> None:
+    """Print the per-layer / per-block parameter breakdown."""
+    report = architecture.count_parameters(
+        info.arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
+        trunk_in=encode.trunk_input_dim(info.state_dim, info.arch.card_embed_dim),
+        choice_in=encode.choice_input_dim(info.choice_dim, info.arch.card_embed_dim),
+        num_families=len(info.family_order),
+    )
+    total = report.total
+    table = _build_params_table(report, total)
+    console.print()
+    console.print(
+        rich_panel.Panel(
+            table,
+            title=f"[bold]PARAMETERS[/bold]  ({text_helpers.human_count(total)} total)",
+            subtitle=f"run: {info.run_name}",
+            border_style="bright_blue",
+        )
+    )
+
+
+def _build_params_table(
+    report: architecture.ParamReport, total: int
+) -> rich_table.Table:
+    """Build the per-block/per-layer parameter Rich Table."""
+    table = rich_table.Table(
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("Block", style="bold", no_wrap=True)
+    table.add_column("Layer", no_wrap=True)
+    table.add_column("Params", justify="right")
+    table.add_column("% Total", justify="right", style="dim")
+    table.add_column("Cumulative", justify="right", style="dim")
+
+    running = 0
+    for block in report.blocks:
+        # Per-layer rows for this block (multiplied by block.multiplier for scorer).
+        block_label = block.label
+        if block.multiplier > 1:
+            block_label = f"{block.label} x{block.multiplier}"
+
+        for index, layer in enumerate(block.layers):
+            layer_label = f"Linear  {layer.in_features} -> {layer.out_features}"
+            layer_params = layer.linear * block.multiplier
+            running += layer_params
+            table.add_row(
+                block_label if index == 0 else "",
+                layer_label,
+                text_helpers.human_count(layer_params),
+                f"{100.0 * layer_params / max(total, 1):.1f}%",
+                text_helpers.human_count(running),
+            )
+            if layer.norm > 0:
+                norm_params = layer.norm * block.multiplier
+                running += norm_params
+                table.add_row(
+                    "",
+                    f"LayerNorm  {layer.out_features}",
+                    text_helpers.human_count(norm_params),
+                    f"{100.0 * norm_params / max(total, 1):.1f}%",
+                    text_helpers.human_count(running),
+                )
+
+        # Block subtotal row.
+        table.add_row(
+            "",
+            f"[bold]Subtotal {block_label}[/bold]",
+            f"[bold]{text_helpers.human_count(block.total)}[/bold]",
+            f"[bold]{100.0 * block.total / max(total, 1):.1f}%[/bold]",
+            "",
+            style="on grey7",
+        )
+
+    # Grand total footer.
+    table.add_row(
+        "[bold bright_white]TOTAL[/bold bright_white]",
+        "",
+        f"[bold bright_white]{text_helpers.human_count(total)}[/bold bright_white]",
+        "[bold bright_white]100%[/bold bright_white]",
+        "",
+        style="on grey11",
+    )
+
+    return table
+
+
+if __name__ == "__main__":
+    sys.exit(main_inspect())

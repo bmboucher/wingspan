@@ -27,7 +27,8 @@ import pathlib
 
 import pydantic
 
-from wingspan import architecture
+from wingspan import architecture, encode
+from wingspan.encode import stripes as encode_stripes
 from wingspan.training import artifacts, config
 
 # Up to this many same-second restarts get a unique ``process_<stamp>-N.json``
@@ -70,6 +71,21 @@ class SessionRecord(pydantic.BaseModel):
     config: config.TrainConfig
 
 
+class InspectReport(pydantic.BaseModel):
+    """The encoding + parameter breakdown saved as ``model_inspect.json``.
+
+    Written alongside ``model_config.json`` at the start of every fresh run so
+    the checkpoint directory is fully self-documenting: the state and choice
+    stripe registry explains every input element, and the parameter report gives
+    the per-layer accounting for the network's trainable weight count.
+    """
+
+    state_layout: encode_stripes.VectorLayout
+    choice_layout: encode_stripes.VectorLayout
+    param_report: architecture.ParamReport
+    total_params: int
+
+
 def write_model_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
     """Write (overwriting) ``model_config.json`` for ``cfg`` and return its path."""
     descriptor = ModelConfig(
@@ -81,6 +97,34 @@ def write_model_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
     )
     path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
     path.write_text(descriptor.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
+    """Write (overwriting) ``model_inspect.json`` for ``cfg`` and return its path.
+
+    Builds the state and choice stripe registries from the live encoding
+    constants and the per-block parameter accounting from the architecture, then
+    writes the result as :class:`InspectReport` JSON.  The file is
+    self-documenting: every input element is named and described, and the
+    parameter count matches ``sum(p.numel())`` of the equivalent
+    :class:`~wingspan.model.PolicyValueNet`.
+    """
+    param_report = architecture.count_parameters(
+        cfg.arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
+        trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
+        choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
+        num_families=len(cfg.family_order),
+    )
+    report = InspectReport(
+        state_layout=encode_stripes.state_stripe_layout(),
+        choice_layout=encode_stripes.choice_stripe_layout(),
+        param_report=param_report,
+        total_params=param_report.total,
+    )
+    path = _ensure_dir(checkpoint_dir) / artifacts.INSPECT_REPORT_JSON
+    path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return path
 
 

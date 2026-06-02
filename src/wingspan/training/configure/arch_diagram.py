@@ -33,6 +33,7 @@ the diagram degrades to a compact single-column text list.
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 import typing
 
@@ -1009,3 +1010,71 @@ def _border_style(focused: bool, accent: str) -> str:
 def _fmt_dropout(dropout: float) -> str:
     """Compact dropout probability (``0.15`` → ``.15``)."""
     return f"{dropout:g}".lstrip("0")
+
+
+#### Static rendering (for wingspan-inspect, no focus state) ####
+
+
+@dataclasses.dataclass
+class _StaticConfig:
+    """Minimal working-config adapter for focus-free diagram rendering.
+
+    Exposes only the attributes the diagram draw functions read from a real
+    ``TrainConfig``, so :func:`render_static` can drive them without constructing
+    a full training config."""
+
+    state_dim: int
+    choice_dim: int
+    card_embed_dim: int
+    trunk_layers: architecture.Widths
+    choice_layers: architecture.Widths
+    head_layers: architecture.Widths
+    value_layers: architecture.Widths
+    card_encoder_layers: architecture.Widths
+    activation: architecture.ActivationName
+    layernorm: bool
+    dropout: float
+    arch: architecture.ModelArchitecture
+    family_order: tuple[str, ...]
+
+
+@dataclasses.dataclass
+class _StaticView:
+    """Minimal view adapter for focus-free diagram rendering."""
+
+    working: _StaticConfig
+    selected_attr: str = ""
+
+
+def render_static(
+    arch: architecture.ModelArchitecture,
+    state_dim: int,
+    choice_dim: int,
+    family_order: tuple[str, ...],
+    width: int = 48,
+) -> list[text.Text]:
+    """Render the architecture block diagram without interactive focus state.
+
+    Returns the same box-and-arrow rows the FLIGHT PLAN ARCHITECTURE panel draws
+    — ``EMBED → TRUNK → CHOICE → CONCAT → SCORER`` (with value-head tap) and the
+    total-param line — as a plain list of Rich ``Text`` rows ready to print.
+    ``width`` is the box interior column budget (default 48).
+    """
+    cfg = _StaticConfig(
+        state_dim=state_dim,
+        choice_dim=choice_dim,
+        card_embed_dim=arch.card_embed_dim,
+        trunk_layers=arch.trunk_layers,
+        choice_layers=arch.choice_layers,
+        head_layers=arch.head_layers,
+        value_layers=arch.value_layers,
+        card_encoder_layers=arch.card_encoder_layers,
+        activation=arch.activation,
+        layernorm=arch.layernorm,
+        dropout=arch.dropout,
+        arch=arch,
+        family_order=family_order,
+    )
+    view = _StaticView(working=cfg)
+    rows, _ = _diagram_rows(typing.cast("state.ConfiguratorState", view), width)
+    return rows
