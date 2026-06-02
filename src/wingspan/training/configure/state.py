@@ -49,6 +49,7 @@ class ConfirmAction(enum.StrEnum):
     ARCHIVE_THEN_FRESH = "archive_then_fresh"
     OVERWRITE_THEN_FRESH = "overwrite_then_fresh"
     ARCHIVE_ONLY = "archive_only"
+    RESET_TO_DEFAULTS = "reset_to_defaults"
     CANCEL = "cancel"
 
 

@@ -500,6 +500,7 @@ def _action_hints(view: state.ConfiguratorState) -> text.Text:
             ("S", _start_action_label(view)),
             ("N", "new run"),
             ("A", "archive"),
+            ("R", "reset defaults"),
             ("Q", "quit"),
         ]
     )

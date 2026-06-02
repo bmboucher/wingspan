@@ -37,6 +37,7 @@ _QUIT_CHARS = frozenset("qQ")
 _START_CHARS = frozenset("sS")
 _NEW_CHARS = frozenset("nN")
 _ARCHIVE_CHARS = frozenset("aA")
+_RESET_CHARS = frozenset("rR")
 
 
 def run_configurator(
@@ -226,6 +227,8 @@ def _navigate_char(view: state.ConfiguratorState, char: str) -> state.Outcome:
         return _new_run_action(view)
     if char in _ARCHIVE_CHARS:
         return _archive_action(view)
+    if char in _RESET_CHARS:
+        return _reset_action(view)
     spec = view.selected_spec()
     if char in _NUMERIC_CHARS and isinstance(
         spec, (fields.IntField, fields.FloatField)
@@ -361,6 +364,12 @@ def _archive_action(view: state.ConfiguratorState) -> state.Outcome:
     return state.Outcome.CONTINUE
 
 
+def _reset_action(view: state.ConfiguratorState) -> state.Outcome:
+    view.confirm = _reset_confirm()
+    view.mode = state.Mode.CONFIRM
+    return state.Outcome.CONTINUE
+
+
 def _launch(view: state.ConfiguratorState, resume: bool) -> state.Outcome:
     view.working = view.working.model_copy(update={"resume": resume})
     return state.Outcome.LAUNCH
@@ -400,6 +409,8 @@ def _apply_confirm(
         return _archive_then(view, launch=True)
     if action is state.ConfirmAction.ARCHIVE_ONLY:
         return _archive_then(view, launch=False)
+    if action is state.ConfirmAction.RESET_TO_DEFAULTS:
+        return _apply_reset_to_defaults(view)
     return _overwrite_then_fresh(view)
 
 
@@ -489,6 +500,40 @@ def _archive_only_confirm(view: state.ConfiguratorState) -> state.ConfirmPrompt:
         ],
         default_key="a",
     )
+
+
+def _reset_confirm() -> state.ConfirmPrompt:
+    return state.ConfirmPrompt(
+        title="RESET TO DEFAULTS",
+        lines=[
+            "Restore all fields to factory defaults.",
+            "Your current edits will be lost.",
+        ],
+        options=[
+            state.ConfirmOption(
+                key="r",
+                label="reset",
+                action=state.ConfirmAction.RESET_TO_DEFAULTS,
+                danger=True,
+            ),
+            state.ConfirmOption(
+                key="c", label="cancel", action=state.ConfirmAction.CANCEL
+            ),
+        ],
+        default_key="c",
+    )
+
+
+def _apply_reset_to_defaults(view: state.ConfiguratorState) -> state.Outcome:
+    defaults = config.TrainConfig()
+    view.working = defaults.model_copy(
+        update={"checkpoint_dir": view.working.checkpoint_dir}
+    )
+    view.seeded_from_saved = False
+    view.mode = state.Mode.NAVIGATE
+    view.confirm = None
+    view.notify(state.MessageKind.SUCCESS, "reset to factory defaults")
+    return state.Outcome.CONTINUE
 
 
 #### Shared ####
