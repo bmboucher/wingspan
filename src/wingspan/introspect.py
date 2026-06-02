@@ -26,9 +26,9 @@ import rich.panel as rich_panel
 import rich.table as rich_table
 from rich import text as rich_text
 
-from wingspan import architecture, decisions, encode
+from wingspan import architecture, decisions, encode, report
 from wingspan.encode import stripes as encode_stripes
-from wingspan.training import runmeta
+from wingspan.training import artifacts, runmeta
 from wingspan.training.charts import text_helpers
 from wingspan.training.configure import arch_diagram
 
@@ -62,6 +62,18 @@ def main_inspect(argv: list[str] | None = None) -> int:
         default=None,
         help="Override terminal column width.",
     )
+    parser.add_argument(
+        "--html",
+        metavar="FILE",
+        nargs="?",
+        const="",
+        default=None,
+        help=(
+            "Write a standalone HTML report instead of (or in addition to) "
+            "terminal output.  FILE is the output path; omit to use "
+            "<checkpoint-dir>/model_summary.html or ./model_summary.html."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # Ensure UTF-8 output on Windows — box-drawing glyphs and Unicode symbols
@@ -69,6 +81,12 @@ def main_inspect(argv: list[str] | None = None) -> int:
     stdout = _utf8_stdout()
     console = rich_console.Console(file=stdout, width=args.width, legacy_windows=False)
     info = _load_arch_info(args.checkpoint_dir, console)
+
+    # --html: write the HTML report, then optionally also print terminal output.
+    if args.html is not None:
+        _write_html_report(args, info, console)
+        if args.section == "all":
+            return 0
 
     show_all = args.section == "all"
     if show_all or args.section == "state":
@@ -84,6 +102,48 @@ def main_inspect(argv: list[str] | None = None) -> int:
 
 
 ###### PRIVATE #######
+
+#### HTML report ####
+
+
+def _write_html_report(
+    args: argparse.Namespace,
+    info: _ArchInfo,
+    console: rich_console.Console,
+) -> None:
+    """Generate and write the HTML report; print the output path to the console."""
+    import pathlib
+
+    # Resolve the output path: explicit FILE, then <checkpoint-dir>/model_summary.html,
+    # then ./model_summary.html as last resort.
+    if args.html:
+        out_path = pathlib.Path(args.html)
+    elif args.checkpoint_dir:
+        out_path = pathlib.Path(args.checkpoint_dir) / artifacts.MODEL_SUMMARY_HTML
+    else:
+        out_path = pathlib.Path(artifacts.MODEL_SUMMARY_HTML)
+
+    param_report = architecture.count_parameters(
+        info.arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
+        trunk_in=encode.trunk_input_dim(info.state_dim, info.arch.card_embed_dim),
+        choice_in=encode.choice_input_dim(info.choice_dim, info.arch.card_embed_dim),
+        num_families=len(info.family_order),
+    )
+    html_content = report.generate_html_report(
+        encode_stripes.state_stripe_layout(),
+        encode_stripes.choice_stripe_layout(),
+        param_report,
+        info.arch,
+        state_dim=info.state_dim,
+        choice_dim=info.choice_dim,
+        family_order=info.family_order,
+        run_name=info.run_name,
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(html_content, encoding="utf-8")
+    console.print(f"[bold green]HTML report written →[/bold green] {out_path}")
+
 
 #### Console setup ####
 

@@ -23,6 +23,7 @@ GAMES_LOG = "games.jsonl"  # one GameOutcome row per finished game, appended
 # one-per-session, dated, and accumulate across restarts.
 MODEL_CONFIG_JSON = "model_config.json"  # weight-compatibility descriptor
 INSPECT_REPORT_JSON = "model_inspect.json"  # encoding + parameter breakdown sidecar
+MODEL_SUMMARY_HTML = "model_summary.html"  # standalone browser-readable model report
 PROCESS_PREFIX = "process_"  # session record name stem -> ``process_<stamp>.json``
 PROCESS_GLOB = "process_*.json"  # the dated per-session process records
 

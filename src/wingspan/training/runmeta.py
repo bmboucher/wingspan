@@ -27,7 +27,7 @@ import pathlib
 
 import pydantic
 
-from wingspan import architecture, encode
+from wingspan import architecture, encode, report
 from wingspan.encode import stripes as encode_stripes
 from wingspan.training import artifacts, config
 
@@ -117,14 +117,46 @@ def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathli
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
         num_families=len(cfg.family_order),
     )
-    report = InspectReport(
+    inspect_report = InspectReport(
         state_layout=encode_stripes.state_stripe_layout(),
         choice_layout=encode_stripes.choice_stripe_layout(),
         param_report=param_report,
         total_params=param_report.total,
     )
     path = _ensure_dir(checkpoint_dir) / artifacts.INSPECT_REPORT_JSON
-    path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    path.write_text(inspect_report.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+def write_model_summary_html(
+    checkpoint_dir: str, cfg: config.TrainConfig
+) -> pathlib.Path:
+    """Write (overwriting) ``model_summary.html`` for ``cfg`` and return its path.
+
+    Produces a self-contained browser-readable summary covering the full
+    state/choice vector layouts (with per-element drill-down), the network
+    architecture diagram, and the per-layer parameter accounting.  Regenerated
+    on every startup, matching the contract of :func:`write_model_config`.
+    """
+    param_report = architecture.count_parameters(
+        cfg.arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
+        trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
+        choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
+        num_families=len(cfg.family_order),
+    )
+    html_content = report.generate_html_report(
+        encode_stripes.state_stripe_layout(),
+        encode_stripes.choice_stripe_layout(),
+        param_report,
+        cfg.arch,
+        state_dim=cfg.state_dim,
+        choice_dim=cfg.choice_dim,
+        family_order=cfg.family_order,
+        run_name=cfg.run_name,
+    )
+    path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_SUMMARY_HTML
+    path.write_text(html_content, encoding="utf-8")
     return path
 
 

@@ -1036,6 +1036,7 @@ class _StaticConfig:
     dropout: float
     arch: architecture.ModelArchitecture
     family_order: tuple[str, ...]
+    use_setup_model: bool = False
 
 
 @dataclasses.dataclass

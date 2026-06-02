@@ -18,6 +18,43 @@ from wingspan import cards, decisions, state
 from wingspan.encode import layout
 
 
+class SubFieldDescriptor(pydantic.BaseModel):
+    """One named element or logical sub-group within a complex stripe.
+
+    Used by :class:`StripeDescriptor` to expose drill-down detail for stripes
+    whose elements are semantically distinct from each other (e.g. the 7 scalars
+    in ``misc_scalars``, the 9 mutable features in a board slot, …).  Homogeneous
+    stripes where every element has the same meaning (``hand_multihot``, bonus
+    one-hots) do not carry sub-fields — the parent stripe's ``notes`` are
+    sufficient there.
+    """
+
+    name: str
+    """Dot-qualified sub-field name, e.g. ``forest_0.eggs``."""
+
+    description: str
+    """Human-readable sentence describing this specific element or block."""
+
+    relative_offset: int
+    """Index of the first element *within the parent stripe* (0-based)."""
+
+    size: int = 1
+    """Element count (1 for a scalar; >1 for a one-hot block treated as a unit)."""
+
+    encoding: str
+    """Encoding kind matching the parent stripe's vocabulary."""
+
+    value_range: str
+    """Typical element values."""
+
+    notes: str | None = None
+    """Additional normalization or sub-structure details."""
+
+    group: str | None = None
+    """Optional grouping label used to nest sub-fields in the HTML report
+    (e.g. ``"slot_forest_0"`` groups the 9 per-slot elements together)."""
+
+
 class StripeDescriptor(pydantic.BaseModel):
     """One named region of a flat feature vector."""
 
@@ -42,6 +79,10 @@ class StripeDescriptor(pydantic.BaseModel):
 
     notes: str | None = None
     """Sub-field layout, normalization constants, or other caveats."""
+
+    sub_fields: tuple[SubFieldDescriptor, ...] = ()
+    """Per-element drill-down for semantically distinct stripes.  Empty for
+    homogeneous stripes where every element has the same meaning."""
 
 
 class VectorLayout(pydantic.BaseModel):
@@ -79,6 +120,7 @@ def state_stripe_layout() -> VectorLayout:
             encoding="vector",
             value_range="[0, ~1.7]",
             notes=f"Food types in order: {food_names}. Normalized ÷ 6.",
+            sub_fields=_food_sub_fields(),
         )
     )
     off += cards.N_FOODS
@@ -92,6 +134,7 @@ def state_stripe_layout() -> VectorLayout:
             encoding="vector",
             value_range="[0, ~1.7]",
             notes=f"Food types in order: {food_names}. Normalized ÷ 6.",
+            sub_fields=_food_sub_fields(),
         )
     )
     off += cards.N_FOODS
@@ -117,6 +160,7 @@ def state_stripe_layout() -> VectorLayout:
             encoding="complex",
             value_range="[0, ~1]",
             notes=_board_notes,
+            sub_fields=_board_slot_sub_fields(),
         )
     )
     off += board_dim
@@ -130,6 +174,7 @@ def state_stripe_layout() -> VectorLayout:
             encoding="complex",
             value_range="[0, ~1]",
             notes=_board_notes,
+            sub_fields=_board_slot_sub_fields(),
         )
     )
     off += board_dim
@@ -152,6 +197,7 @@ def state_stripe_layout() -> VectorLayout:
             encoding="vector",
             value_range="[0, ~1]",
             notes=_board_summary_notes,
+            sub_fields=_board_summary_sub_fields(),
         )
     )
     off += _board_summary_size
@@ -165,6 +211,7 @@ def state_stripe_layout() -> VectorLayout:
             encoding="vector",
             value_range="[0, ~1]",
             notes=_board_summary_notes,
+            sub_fields=_board_summary_sub_fields(),
         )
     )
     off += _board_summary_size
@@ -181,8 +228,9 @@ def state_stripe_layout() -> VectorLayout:
             notes=(
                 "8 stats: hand_size (÷10), mean_points (÷9), max_points (÷9), "
                 "mean_food_cost (÷7), min_food_cost (÷7), mean_egg_limit (÷6), "
-                "forest_bird_count (÷hand_size), wetland_bird_count (÷hand_size)."
+                "forest_bird_count (÷10), wetland_bird_count (÷10)."
             ),
+            sub_fields=_hand_summary_sub_fields(),
         )
     )
     off += 8
@@ -284,6 +332,7 @@ def state_stripe_layout() -> VectorLayout:
                 "then the count of choice-die (wild) faces. "
                 "Each normalized ÷ 5 (max dice showing that face)."
             ),
+            sub_fields=_birdfeeder_sub_fields(),
         )
     )
     off += 6
@@ -302,6 +351,7 @@ def state_stripe_layout() -> VectorLayout:
                 "opp_action_cubes (÷8), my_round_goal_pts (÷10), "
                 "opp_round_goal_pts (÷10), tray_size (÷3), deck_size (÷100)."
             ),
+            sub_fields=_misc_scalars_sub_fields(),
         )
     )
     off += 7
@@ -323,6 +373,7 @@ def state_stripe_layout() -> VectorLayout:
                 "my_count (normalized ÷ 5), opp_count (normalized ÷ 5), "
                 "placement_vp (normalized ÷ 10)."
             ),
+            sub_fields=_round_goals_sub_fields(),
         )
     )
     off += rounds_dim
@@ -449,6 +500,7 @@ def choice_stripe_layout() -> VectorLayout:
             encoding="one-hot",
             value_range="{0, 1}",
             notes=f"Indices: {kind_labels}.",
+            sub_fields=_kind_sub_fields(),
         )
     )
 
@@ -461,6 +513,7 @@ def choice_stripe_layout() -> VectorLayout:
             encoding="one-hot",
             value_range="{0, 1}",
             notes=f"Food types in order: {food_names}. Zero for non-food choices.",
+            sub_fields=_choice_food_sub_fields(),
         )
     )
 
@@ -473,6 +526,7 @@ def choice_stripe_layout() -> VectorLayout:
             encoding="one-hot",
             value_range="{0, 1}",
             notes=f"Habitats in order: {habitat_names}. Zero for non-habitat choices.",
+            sub_fields=_choice_habitat_sub_fields(),
         )
     )
 
@@ -488,6 +542,7 @@ def choice_stripe_layout() -> VectorLayout:
                 f"One value per food type ({food_names}), normalized ÷ 4. "
                 "Used for FoodPaymentChoice."
             ),
+            sub_fields=_choice_payment_sub_fields(),
         )
     )
 
@@ -506,6 +561,7 @@ def choice_stripe_layout() -> VectorLayout:
                 "total_cached_food (normalized ÷ 6), tucked_cards (normalized ÷ 6). "
                 "Zero for non-board-target choices."
             ),
+            sub_fields=_board_target_sub_fields(),
         )
     )
 
@@ -522,6 +578,7 @@ def choice_stripe_layout() -> VectorLayout:
                 "encoded_main_action_slot[1] (÷4, for MainAction choices), "
                 "setup_is_keep[2] {0,1} (for SetupChoice)."
             ),
+            sub_fields=_special_sub_fields(),
         )
     )
 
@@ -538,6 +595,7 @@ def choice_stripe_layout() -> VectorLayout:
                 "tucks_gained (÷3). "
                 "Food paid reuses the FOOD stripe. Zero for non-exchange choices."
             ),
+            sub_fields=_exchange_sub_fields(),
         )
     )
 
@@ -556,6 +614,7 @@ def choice_stripe_layout() -> VectorLayout:
                 "summed_egg_limit (÷6), kept_count (÷5). "
                 "Zero for non-setup choices."
             ),
+            sub_fields=_setup_agg_sub_fields(),
         )
     )
 
@@ -601,3 +660,571 @@ def choice_stripe_layout() -> VectorLayout:
     )
 
     return VectorLayout(total_size=total, stripes=tuple(stripes))
+
+
+###### PRIVATE #######
+
+#### State sub-field builders ####
+
+
+def _food_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """One sub-field per food type (inventory or birdfeeder face count)."""
+    return tuple(
+        SubFieldDescriptor(
+            name=f"food_{food.value}",
+            description=f"Count of {food.value}.",
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1.7]",
+            notes="Normalized ÷ 6.",
+        )
+        for idx, food in enumerate(cards.ALL_FOODS)
+    )
+
+
+def _board_slot_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """All 135 per-element sub-fields for a board continuous stripe.
+
+    Iterates all 15 slots (3 habitats × 5 positions) in the same order the
+    encoder writes them.  Each slot contributes 9 elements; the ``group``
+    field names the slot so the HTML report can nest them.
+    """
+    food_names = [food.value for food in cards.ALL_FOODS]
+
+    # Name / description / notes for each of the 9 per-slot dims in order.
+    slot_dim_meta = [
+        ("eggs", "Eggs currently on this bird.", "Normalized ÷ 6."),
+        (
+            "egg_cap_remaining",
+            "Remaining egg capacity of this bird.",
+            "Normalized ÷ 6.",
+        ),
+        *[
+            (
+                f"cached_{food}",
+                f"Cached {food} food count.",
+                "Normalized ÷ 6.",
+            )
+            for food in food_names
+        ],
+        ("tucked", "Number of tucked cards under this bird.", "Normalized ÷ 6."),
+        (
+            "activations",
+            "Times this bird has been activated this round.",
+            "Normalized ÷ 4.",
+        ),
+    ]
+
+    sub_fields: list[SubFieldDescriptor] = []
+    slot_number = 0
+    for habitat in cards.ALL_HABITATS:
+        for position in range(state.ROW_SLOTS):
+            group = f"slot_{habitat.value}_{position}"
+            slot_base = slot_number * layout._SLOT_MUT_DIM
+            for dim_idx, (dim_name, dim_desc, dim_notes) in enumerate(slot_dim_meta):
+                sub_fields.append(
+                    SubFieldDescriptor(
+                        name=f"{habitat.value}_{position}.{dim_name}",
+                        description=dim_desc,
+                        relative_offset=slot_base + dim_idx,
+                        size=1,
+                        encoding="scalar",
+                        value_range="[0, ~1]",
+                        notes=dim_notes,
+                        group=group,
+                    )
+                )
+            slot_number += 1
+    return tuple(sub_fields)
+
+
+def _board_summary_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """18 sub-fields for a board-summary stripe (3 habitats × 6 named stats)."""
+    stats = [
+        (
+            "row_length",
+            "Number of occupied slots in this habitat row.",
+            "Normalized ÷ 5 (max slots).",
+        ),
+        ("total_eggs", "Total eggs on all birds in this habitat.", "Normalized ÷ 6."),
+        (
+            "total_points",
+            "Total point value of birds in this habitat.",
+            "Normalized ÷ 45 (9 pts × 5 slots).",
+        ),
+        (
+            "total_tucked",
+            "Total tucked cards across all birds in this habitat.",
+            "Normalized ÷ 6.",
+        ),
+        (
+            "total_cached_food",
+            "Total cached food units across all birds in this habitat.",
+            "Normalized ÷ 6.",
+        ),
+        (
+            "brown_bird_count",
+            "Number of brown-power birds in this habitat.",
+            "Normalized ÷ 5 (max slots).",
+        ),
+    ]
+    sub_fields: list[SubFieldDescriptor] = []
+    for hab_idx, habitat in enumerate(cards.ALL_HABITATS):
+        base = hab_idx * len(stats)
+        for stat_idx, (stat_name, stat_desc, stat_notes) in enumerate(stats):
+            sub_fields.append(
+                SubFieldDescriptor(
+                    name=f"{habitat.value}.{stat_name}",
+                    description=f"{stat_desc}",
+                    relative_offset=base + stat_idx,
+                    size=1,
+                    encoding="scalar",
+                    value_range="[0, ~1]",
+                    notes=stat_notes,
+                    group=habitat.value,
+                )
+            )
+    return tuple(sub_fields)
+
+
+def _hand_summary_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """8 sub-fields for the hand-summary stripe."""
+    entries = [
+        ("hand_size", "Total cards currently in hand.", "[0, ~1]", "Normalized ÷ 10."),
+        (
+            "mean_points",
+            "Mean point value of cards in hand.",
+            "[0, ~1]",
+            "Normalized ÷ 9.",
+        ),
+        (
+            "max_points",
+            "Highest single-card point value in hand.",
+            "[0, ~1]",
+            "Normalized ÷ 9.",
+        ),
+        (
+            "mean_food_cost",
+            "Mean total food cost of cards in hand.",
+            "[0, ~1]",
+            "Normalized ÷ 7.",
+        ),
+        (
+            "min_food_cost",
+            "Lowest food cost of any card in hand.",
+            "[0, ~1]",
+            "Normalized ÷ 7.",
+        ),
+        (
+            "mean_egg_limit",
+            "Mean egg capacity of cards in hand.",
+            "[0, ~1]",
+            "Normalized ÷ 6.",
+        ),
+        (
+            "forest_bird_count",
+            "Number of forest birds in hand.",
+            "[0, ~1]",
+            "Normalized ÷ 10 (max hand size).",
+        ),
+        (
+            "wetland_bird_count",
+            "Number of wetland birds in hand.",
+            "[0, ~1]",
+            "Normalized ÷ 10 (max hand size).",
+        ),
+    ]
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range=vrange,
+            notes=notes,
+        )
+        for idx, (name, desc, vrange, notes) in enumerate(entries)
+    )
+
+
+def _birdfeeder_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """6 sub-fields for the birdfeeder stripe (one per food face + choice die)."""
+    sub_fields: list[SubFieldDescriptor] = []
+    for idx, food in enumerate(cards.ALL_FOODS):
+        sub_fields.append(
+            SubFieldDescriptor(
+                name=f"face_{food.value}",
+                description=f"Dice showing a {food.value} face in the birdfeeder.",
+                relative_offset=idx,
+                size=1,
+                encoding="scalar",
+                value_range="[0, 1]",
+                notes="Normalized ÷ 5 (max dice showing that face).",
+            )
+        )
+    sub_fields.append(
+        SubFieldDescriptor(
+            name="face_choice_die",
+            description="Dice showing a choice-wild (any food) face in the birdfeeder.",
+            relative_offset=len(sub_fields),
+            size=1,
+            encoding="scalar",
+            value_range="[0, 1]",
+            notes="Normalized ÷ 5.",
+        )
+    )
+    return tuple(sub_fields)
+
+
+def _misc_scalars_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """7 sub-fields for the misc-scalars stripe."""
+    entries = [
+        ("round_index", "Current round number (0–3).", "Normalized ÷ 4."),
+        ("my_action_cubes", "My remaining action cubes this round.", "Normalized ÷ 8."),
+        (
+            "opp_action_cubes",
+            "Opponent remaining action cubes this round.",
+            "Normalized ÷ 8.",
+        ),
+        (
+            "my_round_goal_pts",
+            "My accumulated round-goal VP so far.",
+            "Normalized ÷ 10.",
+        ),
+        (
+            "opp_round_goal_pts",
+            "Opponent accumulated round-goal VP so far.",
+            "Normalized ÷ 10.",
+        ),
+        (
+            "tray_size",
+            "Number of face-up cards currently in the tray.",
+            "Normalized ÷ 3.",
+        ),
+        (
+            "deck_size",
+            "Number of cards remaining in the draw deck.",
+            "Normalized ÷ 100.",
+        ),
+    ]
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes=notes,
+        )
+        for idx, (name, desc, notes) in enumerate(entries)
+    )
+
+
+def _round_goals_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """16 logical sub-field groups for the round-goals stripe (4 rounds × 4 groups).
+
+    Each round contributes a category one-hot block (size 20) plus three
+    individual scalars for my count, opponent count, and current placement VP.
+    """
+    sub_fields: list[SubFieldDescriptor] = []
+    for round_idx in range(layout._NUM_ROUNDS):
+        base = round_idx * layout._ROUND_GOAL_SLOT_DIM
+        group = f"round_{round_idx}"
+        sub_fields.append(
+            SubFieldDescriptor(
+                name=f"round_{round_idx}.category",
+                description=(
+                    f"Round {round_idx} goal category "
+                    f"(one-hot over {layout.MAX_GOAL_CATEGORIES} categories)."
+                ),
+                relative_offset=base,
+                size=layout.MAX_GOAL_CATEGORIES,
+                encoding="one-hot",
+                value_range="{0, 1}",
+                notes=(
+                    f"Categories in index order: "
+                    f"{', '.join(layout.GOAL_CATEGORIES)}."
+                ),
+                group=group,
+            )
+        )
+        sub_fields.append(
+            SubFieldDescriptor(
+                name=f"round_{round_idx}.my_count",
+                description=f"Round {round_idx}: my current count toward the goal.",
+                relative_offset=base + layout._ROUND_GOAL_MY_COUNT,
+                size=1,
+                encoding="scalar",
+                value_range="[0, ~1]",
+                notes="Normalized ÷ 5.",
+                group=group,
+            )
+        )
+        sub_fields.append(
+            SubFieldDescriptor(
+                name=f"round_{round_idx}.opp_count",
+                description=f"Round {round_idx}: opponent's current count toward the goal.",
+                relative_offset=base + layout._ROUND_GOAL_OPP_COUNT,
+                size=1,
+                encoding="scalar",
+                value_range="[0, ~1]",
+                notes="Normalized ÷ 5.",
+                group=group,
+            )
+        )
+        sub_fields.append(
+            SubFieldDescriptor(
+                name=f"round_{round_idx}.placement_vp",
+                description=f"Round {round_idx}: VP I would receive at my current standing.",
+                relative_offset=base + layout._ROUND_GOAL_VP,
+                size=1,
+                encoding="scalar",
+                value_range="[0, ~1]",
+                notes="Normalized ÷ 10.",
+                group=group,
+            )
+        )
+    return tuple(sub_fields)
+
+
+#### Choice sub-field builders ####
+
+
+def _kind_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """6 sub-fields for the choice-kind one-hot."""
+    kind_meta = [
+        ("bird", "This choice is a bird card pick."),
+        ("food", "This choice is a food type pick."),
+        ("habitat", "This choice is a habitat pick."),
+        ("payment", "This choice is a food payment specification."),
+        ("board_target", "This choice targets a specific board slot."),
+        (
+            "special",
+            "This choice is a special action (skip, main action, or setup pick).",
+        ),
+    ]
+    return tuple(
+        SubFieldDescriptor(
+            name=f"kind_{name}",
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="one-hot bit",
+            value_range="{0, 1}",
+        )
+        for idx, (name, desc) in enumerate(kind_meta)
+    )
+
+
+def _choice_food_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """5 sub-fields for the food-type one-hot in a choice vector."""
+    return tuple(
+        SubFieldDescriptor(
+            name=f"food_{food.value}",
+            description=f"This choice selects {food.value} food.",
+            relative_offset=idx,
+            size=1,
+            encoding="one-hot bit",
+            value_range="{0, 1}",
+        )
+        for idx, food in enumerate(cards.ALL_FOODS)
+    )
+
+
+def _choice_habitat_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """3 sub-fields for the habitat one-hot in a choice vector."""
+    return tuple(
+        SubFieldDescriptor(
+            name=f"habitat_{hab.value}",
+            description=f"This choice targets the {hab.value} habitat.",
+            relative_offset=idx,
+            size=1,
+            encoding="one-hot bit",
+            value_range="{0, 1}",
+        )
+        for idx, hab in enumerate(cards.ALL_HABITATS)
+    )
+
+
+def _choice_payment_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """5 sub-fields for the payment-vector stripe in a choice vector."""
+    return tuple(
+        SubFieldDescriptor(
+            name=f"payment_{food.value}",
+            description=f"Units of {food.value} food paid in this choice.",
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, 1]",
+            notes="Normalized ÷ 4.",
+        )
+        for idx, food in enumerate(cards.ALL_FOODS)
+    )
+
+
+def _board_target_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """8 sub-fields for the board-target stripe in a choice vector."""
+    entries: list[tuple[str, str, str, str, str | None]] = [
+        *[
+            (
+                f"habitat_{hab.value}",
+                f"Target slot is in the {hab.value} habitat.",
+                "one-hot bit",
+                "{0, 1}",
+                None,
+            )
+            for hab in cards.ALL_HABITATS
+        ],
+        (
+            "slot_position",
+            "Slot index within the habitat row (0–4).",
+            "scalar",
+            "[0, 1]",
+            "Normalized ÷ 4.",
+        ),
+        (
+            "eggs",
+            "Current egg count on the target bird.",
+            "scalar",
+            "[0, ~1]",
+            "Normalized ÷ 6.",
+        ),
+        (
+            "egg_cap_remaining",
+            "Remaining egg capacity of the target bird.",
+            "scalar",
+            "[0, ~1]",
+            "Normalized ÷ 6.",
+        ),
+        (
+            "total_cached_food",
+            "Total cached food on the target bird.",
+            "scalar",
+            "[0, ~1]",
+            "Normalized ÷ 6.",
+        ),
+        (
+            "tucked_cards",
+            "Tucked cards under the target bird.",
+            "scalar",
+            "[0, ~1]",
+            "Normalized ÷ 6.",
+        ),
+    ]
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding=enc,
+            value_range=vrange,
+            notes=notes,
+        )
+        for idx, (name, desc, enc, vrange, notes) in enumerate(entries)
+    )
+
+
+def _special_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """3 sub-fields for the special-flags stripe in a choice vector."""
+    entries = [
+        (
+            "is_skip",
+            "Set when this choice declines the current decision.",
+            "binary",
+            "{0, 1}",
+            None,
+        ),
+        (
+            "encoded_main_action",
+            "Encoded main-action slot index (÷ 4).",
+            "scalar",
+            "[0, ~1]",
+            "Non-zero for MainAction choices only.",
+        ),
+        (
+            "setup_is_keep",
+            "Set when this is the 'keep' option in a setup pick.",
+            "binary",
+            "{0, 1}",
+            None,
+        ),
+    ]
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding=enc,
+            value_range=vrange,
+            notes=notes,
+        )
+        for idx, (name, desc, enc, vrange, notes) in enumerate(entries)
+    )
+
+
+def _exchange_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """3 sub-fields for the exchange-terms stripe in a choice vector."""
+    entries = [
+        ("eggs_paid", "Number of eggs given up in this exchange.", "Normalized ÷ 3."),
+        (
+            "cards_gained",
+            "Number of cards received in this exchange.",
+            "Normalized ÷ 3.",
+        ),
+        (
+            "tucks_gained",
+            "Number of cards tucked under a bird in this exchange.",
+            "Normalized ÷ 3.",
+        ),
+    ]
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, 1]",
+            notes=notes,
+        )
+        for idx, (name, desc, notes) in enumerate(entries)
+    )
+
+
+def _setup_agg_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """4 sub-fields for the setup-aggregate stripe in a choice vector."""
+    entries = [
+        (
+            "summed_points",
+            "Total point value of the kept setup cards.",
+            "Normalized ÷ 9.",
+        ),
+        (
+            "summed_food_cost",
+            "Total food cost of the kept setup cards.",
+            "Normalized ÷ 7.",
+        ),
+        (
+            "summed_egg_limit",
+            "Total egg capacity of the kept setup cards.",
+            "Normalized ÷ 6.",
+        ),
+        ("kept_count", "Number of cards kept in this setup choice.", "Normalized ÷ 5."),
+    ]
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes=notes,
+        )
+        for idx, (name, desc, notes) in enumerate(entries)
+    )
