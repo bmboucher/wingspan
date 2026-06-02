@@ -38,6 +38,10 @@ SCORE_COMPONENTS: tuple[str, ...] = (
 
 _N_FAMILIES = len(decisions.ALL_DECISION_FAMILIES)
 
+SETUP_FAMILY_IDX: int = decisions.ALL_DECISION_FAMILIES.index(
+    decisions.DecisionFamily.SETUP
+)
+
 
 class ScoreBreakdown(pydantic.BaseModel):
     """A Wingspan score split into its six sources.

@@ -611,6 +611,7 @@ class TrainingLoop:
         self._setup_fit_done = True
         with self.lock:
             self.state.last_setup = stats
+            self.state.record_setup_trained(stats.n_samples)
             self.state.push_event(
                 runstate.EventKind.BEST,
                 f"SETUP fit {stats.n_samples:,} rows · MSE {stats.loss:.4f} · "
@@ -655,6 +656,8 @@ class TrainingLoop:
             return None
         with self.lock:
             self.state.last_setup = stats
+            if setup_phase is collect.SetupPhase.MODEL_DRIVEN:
+                self.state.record_setup_trained(stats.n_samples)
         return stats
 
     def _maybe_resume_setup(self) -> None:

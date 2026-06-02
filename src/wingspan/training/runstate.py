@@ -306,6 +306,10 @@ class RunState(pydantic.BaseModel):
         self.total_games += 1
         self.total_decisions += decisions_seen
 
+    def record_setup_trained(self, n_samples: int) -> None:
+        """Fold trained setup samples into the SETUP slot of cum_family."""
+        self.cum_family.counts[metrics.SETUP_FAMILY_IDX] += n_samples
+
     def push_event(self, kind: EventKind, text: str) -> None:
         """Append a recent-events line stamped with elapsed wall time."""
         self.events.append(
