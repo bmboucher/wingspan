@@ -1,3 +1,6 @@
+# pyright: reportPrivateUsage=false
+# (a few tests reach into ``state_encode`` internals — e.g. ``_bird_attr_vector``,
+# the card encoder's per-card input builder — to isolate attribute encoding.)
 """Tests for the per-choice encoder + POV-aware state encoder.
 
 These cover the four structural changes called out in the RL trainability
@@ -26,6 +29,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state
+from wingspan.encode import state_encode
 
 # ---------------------------------------------------------------------------
 # State encoder
@@ -420,9 +424,9 @@ def test_per_slot_cached_food_by_type_moves_state():
 
 
 def test_tray_contents_encoded_and_order_invariant():
-    """The public bird tray is encoded at full detail: different tray contents
-    move the vector, but reordering the same cards does not (the ``bird_index``
-    sort makes the interchangeable tray slots order-invariant)."""
+    """The public bird tray is encoded by identity (its card-index slots): different
+    tray contents move the vector, but reordering the same cards does not (the
+    ``bird_index`` sort makes the interchangeable tray slots order-invariant)."""
     eng, birds, *_ = engine.Engine.create(seed=34)
     eng.state.tray = [birds[0], birds[1]]
     vec_ab = encode.encode_state(eng.state)
@@ -463,57 +467,48 @@ def test_opponent_bonus_count_changes_pov_state():
 
 
 # ---------------------------------------------------------------------------
-# Board birds carry full card attributes. Each test holds bird identity fixed
-# (``model_copy`` keeps ``id``, so the identity one-hot is unchanged) and varies
-# one attribute, so any state-vector change is attributable to that attribute's
-# encoding rather than to identity.
+# Card attributes ride the card encoder's per-card feature vector, not the state
+# vector (a board/tray slot carries only identity + mutable state). Each test
+# holds bird identity fixed (``model_copy`` keeps ``id``) and varies one
+# attribute, asserting that ``_bird_attr_vector`` — the attribute half of the card
+# encoder's input — changes, so the card table can distinguish that attribute.
 
 
 def test_board_bird_nest_attribute_encoded():
-    """A bird's nest is encoded per slot: a star-nest bird and a bowl-nest bird
-    (same identity) yield different state vectors."""
-    eng, birds, *_ = engine.Engine.create(seed=41)
-    me = eng.state.players[eng.state.current_player]
+    """A bird's nest is encoded in its attribute vector: a star-nest bird and a
+    bowl-nest bird (same identity) yield different ``_bird_attr_vector`` outputs."""
+    _eng, birds, *_ = engine.Engine.create(seed=41)
     star = birds[0].model_copy(update={"nest": cards.NestType.STAR})
     bowl = birds[0].model_copy(update={"nest": cards.NestType.BOWL})
-    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=star)]
-    vec_star = encode.encode_state(eng.state)
-    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=bowl)]
-    vec_bowl = encode.encode_state(eng.state)
-    assert not np.array_equal(vec_star, vec_bowl)
+    assert not np.array_equal(
+        state_encode._bird_attr_vector(star), state_encode._bird_attr_vector(bowl)
+    )
 
 
 def test_board_bird_food_cost_encoded():
-    """A bird's food cost is encoded per slot."""
-    eng, birds, *_ = engine.Engine.create(seed=42)
-    me = eng.state.players[eng.state.current_player]
+    """A bird's food cost is encoded in its attribute vector."""
+    _eng, birds, *_ = engine.Engine.create(seed=42)
     cheap = birds[0].model_copy(
         update={"food_cost": cards.BirdCost.from_specific({cards.Food.SEED: 1})}
     )
     pricey = birds[0].model_copy(
         update={"food_cost": cards.BirdCost.from_specific({cards.Food.FISH: 3}, wild=1)}
     )
-    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=cheap)]
-    vec_cheap = encode.encode_state(eng.state)
-    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=pricey)]
-    vec_pricey = encode.encode_state(eng.state)
-    assert not np.array_equal(vec_cheap, vec_pricey)
+    assert not np.array_equal(
+        state_encode._bird_attr_vector(cheap), state_encode._bird_attr_vector(pricey)
+    )
 
 
 def test_board_bird_bonus_category_test_flags_encoded():
-    """A board bird's static bonus-card qualifications (the "test" flags such as
-    'named after a person') are encoded in its attribute vector. Holding no bonus
-    card isolates the flag from the bonus-progress stripe."""
-    eng, birds, *_ = engine.Engine.create(seed=43)
-    me = eng.state.players[eng.state.current_player]
-    me.bonus_cards = []
+    """A bird's static bonus-card qualifications (the "test" flags such as 'named
+    after a person') are encoded in its attribute vector — the multi-hot the card
+    encoder reads to learn bonus-relevant card value."""
+    _eng, birds, *_ = engine.Engine.create(seed=43)
     plain = birds[0].model_copy(update={"bonus_categories": ()})
     tagged = birds[0].model_copy(update={"bonus_categories": ("Bird Feeder",)})
-    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=plain)]
-    vec_plain = encode.encode_state(eng.state)
-    me.board[cards.Habitat.FOREST] = [state.PlayedBird(bird=tagged)]
-    vec_tagged = encode.encode_state(eng.state)
-    assert not np.array_equal(vec_plain, vec_tagged)
+    assert not np.array_equal(
+        state_encode._bird_attr_vector(plain), state_encode._bird_attr_vector(tagged)
+    )
 
 
 # ---------------------------------------------------------------------------

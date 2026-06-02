@@ -445,9 +445,9 @@ def _render_diagram(view: state.ConfiguratorState, width: int, height: int) -> s
 def _param_report_for(cfg: config.TrainConfig) -> architecture.ParamReport:
     return architecture.count_parameters(
         cfg.arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
         trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
-        embed_rows=encode.HAND_MULTIHOT_DIM + 1,
         num_families=len(cfg.family_order),
     )
 

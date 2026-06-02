@@ -159,15 +159,17 @@ def test_model_has_one_scorer_head_per_family():
 
 
 # ---------------------------------------------------------------------------
-# Shared card embedding
+# Shared card table (the card encoder's per-card output)
 
 
-def test_card_embedding_table_shape():
-    """One shared embedding row per core-set bird plus a padding row (index 0),
-    and the padding row is held at zero."""
+def test_card_table_shape():
+    """The shared card table has one row per core-set bird plus a padding row
+    (index 0), and the padding row is held at zero."""
     net = model.PolicyValueNet(arch=architecture.ModelArchitecture(card_embed_dim=64))
-    assert net.card_embed.weight.shape == (encode.HAND_MULTIHOT_DIM + 1, 64)
-    assert torch.allclose(net.card_embed.weight[0], torch.zeros(64))
+    net.eval()
+    table = net.card_table()
+    assert table.shape == (encode.HAND_MULTIHOT_DIM + 1, 64)
+    assert torch.allclose(table[0], torch.zeros(64))
 
 
 def test_model_forward_with_custom_architecture():
@@ -224,10 +226,11 @@ def test_model_accepts_asymmetric_body_widths():
     assert value.shape == (2,)
 
 
-def test_card_embedding_shared_between_board_and_hand():
-    """The *same* embedding row drives a card whether it sits on the board or in
-    the hand: perturbing that one row moves both the board-state value and the
-    hand-state value — proof the table is shared, not re-learned per position."""
+def test_card_representation_shared_between_board_and_hand():
+    """The *same* per-card representation drives a card whether it sits on the
+    board or in the hand: perturbing that one card's feature row (its input to the
+    shared encoder) moves both the board-state value and the hand-state value —
+    proof the card table is shared, not re-learned per position."""
     eng, birds, *_ = engine.Engine.create(seed=51)
     net = model.PolicyValueNet()
     net.eval()
@@ -252,17 +255,17 @@ def test_card_embedding_shared_between_board_and_hand():
     with torch.no_grad():
         v_board0 = net(board_state, choices, mask, family)[1]
         v_hand0 = net(hand_state, choices, mask, family)[1]
-        net.card_embed.weight[row] += 5.0
+        net.card_features[row] += 5.0
         v_board1 = net(board_state, choices, mask, family)[1]
         v_hand1 = net(hand_state, choices, mask, family)[1]
     assert not torch.allclose(v_board0, v_board1), "board read should use the row"
     assert not torch.allclose(v_hand0, v_hand1), "hand read should use the same row"
 
 
-def test_choice_candidate_uses_shared_card_embedding():
-    """A choice candidate carrying a bird is scored through the same shared table:
-    perturbing that bird's embedding row shifts the candidate's logit (and thus
-    the policy) relative to a skip option."""
+def test_choice_candidate_uses_shared_card_representation():
+    """A choice candidate carrying a bird is scored through the same shared card
+    table: perturbing that bird's feature row shifts the candidate's logit (and
+    thus the policy) relative to a skip option."""
     eng, birds, *_ = engine.Engine.create(seed=52)
     net = model.PolicyValueNet()
     net.eval()
@@ -288,6 +291,6 @@ def test_choice_candidate_uses_shared_card_embedding():
     family = torch.zeros(1, dtype=torch.long)
     with torch.no_grad():
         probs0 = functional.softmax(net(state_vec, choices, mask, family)[0], dim=-1)
-        net.card_embed.weight[row] += 5.0
+        net.card_features[row] += 5.0
         probs1 = functional.softmax(net(state_vec, choices, mask, family)[0], dim=-1)
-    assert not torch.allclose(probs0, probs1), "candidate should read the embedding"
+    assert not torch.allclose(probs0, probs1), "candidate should read the card table"

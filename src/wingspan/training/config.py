@@ -138,9 +138,14 @@ class TrainConfig(pydantic.BaseModel):
     activation: architecture.ActivationName = architecture.ActivationName.RELU
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
     layernorm: bool = False
-    # Width of the shared per-card embedding (one learned vector per core-set
-    # bird, reused for every board / tray / hand / choice card slot).
+    # Width of the shared per-card vector (one representation per core-set bird,
+    # reused for every board / tray / hand / choice card slot) — the card encoder's
+    # output width.
     card_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] = 64
+    # Hidden widths of the card encoder MLP that maps each card's
+    # [static attributes ⊕ identity one-hot] to its card_embed_dim vector. Empty =
+    # a single linear projection; a non-empty stack makes it genuinely nonlinear.
+    card_encoder_layers: architecture.Widths = (128,)
 
     # ---- setup model (TRAINING.md / DECISIONS.md: the start-of-game keep) ----
     # When enabled, the start-of-game setup decision is pulled out of the in-game
@@ -264,6 +269,7 @@ class TrainConfig(pydantic.BaseModel):
             dropout=self.dropout,
             layernorm=self.layernorm,
             card_embed_dim=self.card_embed_dim,
+            card_encoder_layers=self.card_encoder_layers,
         )
 
     @property

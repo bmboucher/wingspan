@@ -195,7 +195,7 @@ def _featurize_bird(
     state: state.GameState,
 ) -> None:
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
-    _fill_bird(feat, choice.bird)
+    _fill_bird_identity(feat, choice.bird)
 
 
 def _featurize_play_bird(
@@ -204,13 +204,13 @@ def _featurize_play_bird(
     choice: decisions.PlayBirdChoice,
     state: state.GameState,
 ) -> None:
-    # A play candidate from ``PlayBirdDecision``: the bird stripe (identity +
-    # attributes) carries the card, and the habitat + payment stripes carry the
-    # bundled habitat / food-payment picks. KIND stays BIRD — it is fundamentally
-    # a bird play — while the extra stripes distinguish the (habitat, payment)
-    # variants of the same bird.
+    # A play candidate from ``PlayBirdDecision``: the bird-identity stripe carries
+    # the card (its attributes ride the shared card table), and the habitat +
+    # payment stripes carry the bundled habitat / food-payment picks. KIND stays
+    # BIRD — it is fundamentally a bird play — while the extra stripes distinguish
+    # the (habitat, payment) variants of the same bird.
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
-    _fill_bird(feat, choice.bird)
+    _fill_bird_identity(feat, choice.bird)
     _fill_habitat(feat, choice.habitat)
     _fill_payment(feat, choice.payment)
 
@@ -223,7 +223,7 @@ def _featurize_played_bird(
 ) -> None:
     pb = choice.played_bird
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
-    _fill_bird(feat, pb.bird)
+    _fill_bird_identity(feat, pb.bird)
     # Surface board-target dynamic state too (eggs/cache/tucked) even
     # though we don't know its row index here.
     feat[layout._OFF_BOARD + 4] = pb.eggs / layout._EGG_COUNT_SCALE
@@ -287,7 +287,7 @@ def _featurize_draw_source(
         and 0 <= choice.tray_index < len(state.tray)
     ):
         feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
-        _fill_bird(feat, state.tray[choice.tray_index])
+        _fill_bird_identity(feat, state.tray[choice.tray_index])
     else:
         feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
 
@@ -329,9 +329,11 @@ def _featurize_setup(
             feat[layout._OFF_PAY + i] = 1.0 / layout._PAYMENT_COUNT_SCALE
     kept = choice.kept_cards
     # Identity multi-hot of the kept birds (the headline §3.1 fix) plus the
-    # aggregate stats that summarise the subset. One pass sets each identity bit
-    # and accumulates all three sums (the setup deal featurizes 504 candidates,
-    # so folding three generator passes into one matters).
+    # SETUP-stripe aggregate stats that summarise the subset. One pass sets each
+    # identity bit and accumulates all three sums (the setup deal featurizes 504
+    # candidates, so folding three generator passes into one matters). The
+    # aggregates live in the dedicated SETUP stripe because they are kept-*subset*
+    # summaries the shared card table cannot reconstruct from the identity multi-hot.
     if kept:
         points = 0.0
         cost = 0.0
@@ -341,16 +343,18 @@ def _featurize_setup(
             points += bird.points
             cost += bird.food_cost.total
             eggs += bird.egg_limit
-        feat[layout._OFF_BIRD + 0] = points / (
+        feat[layout._OFF_SETUP + layout._SETUP_AGG_POINTS] = points / (
             layout._POINTS_SCALE * layout._ROW_SLOTS_SCALE
         )
-        feat[layout._OFF_BIRD + 1] = cost / (
+        feat[layout._OFF_SETUP + layout._SETUP_AGG_COST] = cost / (
             layout._FOOD_COST_SCALE * layout._ROW_SLOTS_SCALE
         )
-        feat[layout._OFF_BIRD + 3] = eggs / (
+        feat[layout._OFF_SETUP + layout._SETUP_AGG_EGGS] = eggs / (
             layout._EGG_LIMIT_SCALE * layout._ROW_SLOTS_SCALE
         )
-    feat[layout._OFF_BIRD + 4] = len(kept) / layout._ROW_SLOTS_SCALE
+    feat[layout._OFF_SETUP + layout._SETUP_KEPT_COUNT] = (
+        len(kept) / layout._ROW_SLOTS_SCALE
+    )
     if choice.bonus_card is not None:
         _fill_bonus_identity(feat, choice.bonus_card)
 
@@ -389,32 +393,11 @@ _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
 #### Stripe fillers ####
 
 
-def _fill_bird(feat: np.ndarray, bird: cards.Bird) -> None:
-    off = layout._OFF_BIRD
-    feat[off + 0] = bird.points / layout._POINTS_SCALE
-    feat[off + 1] = bird.food_cost.total / layout._FOOD_COST_SCALE
-    feat[off + 2] = bird.food_cost.wild / layout._FOOD_COST_SCALE
-    feat[off + 3] = bird.egg_limit / layout._EGG_LIMIT_SCALE
-    feat[off + 4] = bird.wingspan_cm / layout._WINGSPAN_SCALE
-    feat[off + 5] = 1.0 if bird.predator else 0.0
-    feat[off + 6] = 1.0 if bird.flocking else 0.0
-    for i, col in enumerate(layout._COLORS):
-        if bird.color == col:
-            feat[off + 7 + i] = 1.0
-            break
-    for i, nst in enumerate(layout._NESTS):
-        if bird.nest == nst:
-            feat[off + 11 + i] = 1.0
-            break
-    for i in range(cards.N_FOODS):
-        feat[off + 16 + i] = bird.food_cost.counts[i] / layout._PER_FOOD_COST_SCALE
-    _fill_bird_identity(feat, bird)
-
-
 def _fill_bird_identity(feat: np.ndarray, bird: cards.Bird) -> None:
     """Set the bird-identity one-hot bit for ``bird``. Called for every
     bird-carrying choice, and once per card to build a kept-set / hand multi-hot.
-    The first linear layer over this stripe is a learned per-card embedding."""
+    The model maps this stripe through the shared card encoder, so a candidate's
+    static attributes and its learned per-card vector arrive together."""
     feat[layout._OFF_BIRD_ID + cards.bird_index(bird)] = 1.0
 
 

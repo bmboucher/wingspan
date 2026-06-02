@@ -15,6 +15,7 @@ re-exported from ``layout``.
 
 from wingspan.encode.choice_encode import encode_choices, encode_decision
 from wingspan.encode.layout import (
+    CARD_FEATURE_DIM,
     CHOICE_BIRD_ID_DIM,
     CHOICE_BIRD_ID_OFFSET,
     CHOICE_BONUS_ID_OFFSET,
@@ -32,9 +33,10 @@ from wingspan.encode.layout import (
     choice_input_dim,
     trunk_input_dim,
 )
-from wingspan.encode.state_encode import encode_state, state_size
+from wingspan.encode.state_encode import card_feature_matrix, encode_state, state_size
 
 __all__ = [
+    "CARD_FEATURE_DIM",
     "CHOICE_BIRD_ID_DIM",
     "CHOICE_BIRD_ID_OFFSET",
     "CHOICE_BONUS_ID_OFFSET",
@@ -49,6 +51,7 @@ __all__ = [
     "OFF_HAND_MULTIHOT",
     "RUNAWAY_CHOICE_THRESHOLD",
     "SOFT_CHOICE_WARN_THRESHOLD",
+    "card_feature_matrix",
     "choice_input_dim",
     "encode_choices",
     "encode_decision",

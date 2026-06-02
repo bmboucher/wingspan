@@ -42,6 +42,7 @@ type ShapeKey = tuple[
     tuple[int, ...],  # value_layers
     bool,  # layernorm
     int,  # card_embed_dim
+    tuple[int, ...],  # card_encoder_layers
 ]
 
 
@@ -75,6 +76,14 @@ class ModelArchitecture(pydantic.BaseModel):
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
     layernorm: bool = False
     card_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] = 64
+    # Hidden widths of the per-card encoder MLP, which maps each card's
+    # [static attributes ⊕ identity one-hot] to its ``card_embed_dim``-wide vector.
+    # Empty = a single linear projection to ``card_embed_dim``; a non-empty stack
+    # makes the encoder genuinely nonlinear. Its output width is always
+    # ``card_embed_dim`` (the model appends it), so this lists hidden layers only.
+    # The default mirrors ``config.TrainConfig`` so a bare ``ModelArchitecture()``
+    # (e.g. ``PolicyValueNet()``) matches a configured run's shape.
+    card_encoder_layers: Widths = (128,)
 
     @property
     def trunk_embed_width(self) -> int:
@@ -98,6 +107,7 @@ class ModelArchitecture(pydantic.BaseModel):
             self.value_layers,
             self.layernorm,
             self.card_embed_dim,
+            self.card_encoder_layers,
         )
 
 
@@ -163,27 +173,35 @@ class ParamReport(pydantic.BaseModel):
 def count_parameters(
     arch: ModelArchitecture,
     *,
+    card_feat_in: int,
     trunk_in: int,
     choice_in: int,
-    embed_rows: int,
     num_families: int,
 ) -> ParamReport:
     """Analytic per-block parameter accounting for the network ``arch`` describes.
 
     Torch-free — it reproduces the exact layer shapes ``model._build_body`` /
     ``_build_readout`` would create, so the returned counts equal
-    ``sum(p.numel())`` of the built net. The effective post-embedding input widths
-    (``trunk_in`` / ``choice_in``, from ``encode.{trunk,choice}_input_dim``) and the
-    embedding-table row count are passed in to keep this module free of the
-    encoder / torch.
+    ``sum(p.numel())`` of the built net. The card-encoder input width
+    (``card_feat_in``, ``encode.CARD_FEATURE_DIM``) and the effective post-embedding
+    trunk / choice input widths (``trunk_in`` / ``choice_in``, from
+    ``encode.{trunk,choice}_input_dim``) are passed in to keep this module free of
+    the encoder / torch.
     """
     # The trunk ends at width M and the choice encoder at width N; the scorer
     # heads read the M+N concat and the value head reads the trunk's M alone,
-    # mirroring ``model.PolicyValueNet.__init__``.
+    # mirroring ``model.PolicyValueNet.__init__``. The EMBED block is the card
+    # encoder MLP: card_feat_in -> card_encoder_layers -> card_embed_dim, built as
+    # a body block (no final activation, like the choice encoder).
     trunk_m = arch.trunk_embed_width
     scorer_in = arch.trunk_embed_width + arch.choice_embed_width
     return ParamReport(
-        embed=BlockParam(label="EMBED", extra=embed_rows * arch.card_embed_dim),
+        embed=BlockParam(
+            label="EMBED",
+            layers=_body_layers(
+                card_feat_in, arch.card_encoder_layers + (arch.card_embed_dim,), arch
+            ),
+        ),
         trunk=BlockParam(
             label="TRUNK", layers=_body_layers(trunk_in, arch.trunk_layers, arch)
         ),

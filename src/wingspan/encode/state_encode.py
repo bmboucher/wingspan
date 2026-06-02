@@ -33,13 +33,10 @@ def encode_state(
         _summary_food(opp),  # 5
         _board_slots_continuous(
             me
-        ),  # layout._BOARD_CONT_STRIPE_DIM — per-slot attrs+mut
+        ),  # layout._BOARD_CONT_STRIPE_DIM — per-slot mutable state
         _board_slots_continuous(
             opp
         ),  # layout._BOARD_CONT_STRIPE_DIM — opponent (public)
-        _tray_slots_continuous(
-            state
-        ),  # layout._TRAY_CONT_STRIPE_DIM — public tray attrs
         _summary_board(me),  # 18 — kept aggregate
         _summary_board(opp),  # 18 — kept aggregate
         _summary_hand(me),  # 8
@@ -63,9 +60,8 @@ def state_size() -> int:
     return (
         5
         + 5
-        + layout._BOARD_CONT_STRIPE_DIM  # my board (per-slot attrs + mutable)
-        + layout._BOARD_CONT_STRIPE_DIM  # opponent board (per-slot attrs + mutable)
-        + layout._TRAY_CONT_STRIPE_DIM  # public tray (per-slot attrs)
+        + layout._BOARD_CONT_STRIPE_DIM  # my board (per-slot mutable state)
+        + layout._BOARD_CONT_STRIPE_DIM  # opponent board (per-slot mutable state)
         + 18
         + 18
         + 8
@@ -258,12 +254,13 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
 
 def _board_slots_continuous(player: state.Player) -> np.ndarray:
     """The continuous per-slot board stripe for ``player``: one fixed slot per
-    board position (``N_HABITATS x ROW_SLOTS``), each carrying the bird's
-    attribute vector and per-slot mutable state (eggs, egg-capacity remaining,
-    cached food per type, tucked cards, activations). The bird's *identity* is
-    emitted separately in the card-index block. Empty slots stay zero. Slot order
-    is positional (NOT sorted) so a slot's mutable state — and its matching
-    card-index entry — stays bound to the specific bird occupying it."""
+    board position (``N_HABITATS x ROW_SLOTS``), each carrying only the slot's
+    mutable state (eggs, egg-capacity remaining, cached food per type, tucked
+    cards, activations). The bird's *identity* — and, through the shared card
+    table, its static attributes — is emitted separately in the card-index block.
+    Empty slots stay zero. Slot order is positional (NOT sorted) so a slot's
+    mutable state — and its matching card-index entry — stays bound to the specific
+    bird occupying it."""
     vec = np.zeros(layout._BOARD_CONT_STRIPE_DIM, dtype=np.float32)
     for hab_idx, habitat in enumerate(cards.ALL_HABITATS):
         for slot, pb in enumerate(player.board[habitat]):
@@ -276,12 +273,9 @@ def _board_slots_continuous(player: state.Player) -> np.ndarray:
 
 
 def _write_slot_continuous(vec: np.ndarray, base: int, pb: state.PlayedBird) -> None:
-    """Write one occupied board slot's continuous features into
-    ``vec[base : base + layout._SLOT_CONT_DIM]``: attribute vector then per-slot mutable
-    state (no identity — that rides the card-index block)."""
-    attr_at = base + layout._OFF_SLOT_ATTR
-    vec[attr_at : attr_at + layout._BIRD_ATTR_DIM] = _bird_attr_vector(pb.bird)
-
+    """Write one occupied board slot's mutable features into
+    ``vec[base : base + layout._SLOT_CONT_DIM]`` (no identity, no attributes — the
+    identity rides the card-index block and its attributes the shared card table)."""
     mut = base + layout._OFF_SLOT_MUT
     vec[mut + layout._SLOT_MUT_EGGS] = pb.eggs / layout._EGG_COUNT_SCALE
     vec[mut + layout._SLOT_MUT_EGG_CAP] = (
@@ -295,31 +289,35 @@ def _write_slot_continuous(vec: np.ndarray, base: int, pb: state.PlayedBird) -> 
     vec[mut + layout._SLOT_MUT_ACTIVATIONS] = pb.activations / layout._ACTIVATIONS_SCALE
 
 
-def _tray_slots_continuous(game_state: state.GameState) -> np.ndarray:
-    """The public face-up bird tray's continuous features: up to ``TRAY_SIZE``
-    slots, each the bird's attribute vector (no mutable state, no identity — the
-    identity rides the card-index block). The tray slots are interchangeable, so
-    birds are sorted by ``cards.bird_index`` to make the encoding order-invariant;
-    trailing slots stay zero when the tray is short."""
-    vec = np.zeros(layout._TRAY_CONT_STRIPE_DIM, dtype=np.float32)
-    for slot, bird in enumerate(sorted(game_state.tray, key=cards.bird_index)):
-        if slot >= state.TRAY_SIZE:
-            break
-        base = slot * layout._TRAY_CONT_SLOT_DIM
-        vec[base : base + layout._BIRD_ATTR_DIM] = _bird_attr_vector(bird)
-    return vec
+def card_feature_matrix() -> np.ndarray:
+    """The constant ``[HAND_MULTIHOT_DIM + 1, CARD_FEATURE_DIM]`` feature table the
+    model's card encoder consumes.
+
+    Row 0 is all zeros — the padding / empty-slot row (``cards.bird_index + 1`` with
+    0 meaning "no card"). Row ``bird_index + 1`` is that bird's static attribute
+    vector concatenated with its identity one-hot: ``[_bird_attr_vector(bird) (49) ⊕
+    one_hot(bird_index) (180)]``. The encoder maps this fixed matrix to the shared
+    ``[181, card_embed_dim]`` card table every board / tray / hand / choice slot
+    looks up, so a card has exactly one representation, derived from both its
+    attributes and a learned per-card component."""
+    rows = layout.HAND_MULTIHOT_DIM + 1
+    matrix = np.zeros((rows, layout.CARD_FEATURE_DIM), dtype=np.float32)
+    for bird in cards.load_all()[0]:
+        idx = cards.bird_index(bird)
+        matrix[idx + 1, : layout._BIRD_ATTR_DIM] = _bird_attr_vector(bird)
+        matrix[idx + 1, layout._BIRD_ATTR_DIM + idx] = 1.0
+    return matrix
 
 
 def _card_index_block(
     me: state.Player, opp: state.Player, game_state: state.GameState
 ) -> np.ndarray:
     """Contiguous integer card indices the model looks up in its shared card
-    embedding: both boards' positional slots (POV then opponent) followed by the
+    table: both boards' positional slots (POV then opponent) followed by the
     up-to-``TRAY_SIZE`` public tray. Each entry is ``bird_index + 1`` for an
-    occupied slot and 0 for an empty one (the embedding's padding index). Board
-    slots are positional (matching ``_board_slots_continuous``); tray birds are
-    sorted by ``bird_index`` (matching ``_tray_slots_continuous``) so each index
-    lines up with its continuous attribute slot."""
+    occupied slot and 0 for an empty one (the card table's zeroed padding row).
+    Board slots are positional (matching ``_board_slots_continuous``); tray birds
+    are sorted by ``bird_index`` so the tray encoding is order-invariant."""
     vec = np.zeros(layout.N_CARD_INDEX_SLOTS, dtype=np.float32)
     offset = 0
     for player in (me, opp):

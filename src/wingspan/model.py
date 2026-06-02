@@ -65,6 +65,11 @@ class PolicyValueNet(nn.Module):
     outputs are concatenated to ``M+N`` for the scorer heads.
     """
 
+    # Constant buffers registered in __init__ (declared here so the type checker
+    # sees them as tensors rather than nn.Module's generic attribute access).
+    card_features: torch.Tensor
+    card_pad_mask: torch.Tensor
+
     def __init__(
         self,
         *,
@@ -85,15 +90,33 @@ class PolicyValueNet(nn.Module):
         self.card_embed_dim = arch.card_embed_dim
         self.trunk_hidden = arch.trunk_embed_width  # M — kept for external readouts
 
-        # One shared learned vector per core-set bird (row 0 is the padding /
-        # empty-slot vector). nn.Embedding(idx) == one_hot @ W, so this is the
-        # per-position card encoder, weight-shared across every board slot, tray
-        # slot, the hand (mean-pooled), and each choice candidate. A single card
-        # therefore has one learned value used by both the critic-state read and
-        # the actor's candidate scoring (DECISIONS.md card power-ranking goal).
-        self.card_embed = nn.Embedding(
-            encode.HAND_MULTIHOT_DIM + 1, arch.card_embed_dim, padding_idx=0
+        # The shared card encoder. Each card's fixed feature row — its static
+        # attributes concatenated with its identity one-hot — is mapped by this MLP
+        # to a ``card_embed_dim`` vector; stacking all cards' rows yields the
+        # ``[181, card_embed_dim]`` card table (``card_table``) weight-shared across
+        # every board slot, tray slot, the hand (mean-pooled), and each choice
+        # candidate. Because the input is constant per card, the table is a pure
+        # function of identity — a real (optionally nonlinear) model in training,
+        # collapsible to a plain lookup at inference. A single card therefore has
+        # one representation, derived from both its attributes and a learned
+        # per-card component, used by the critic-state read and the actor's
+        # candidate scoring alike (DECISIONS.md card power-ranking goal). The card
+        # feature matrix and the padding-row mask are constant buffers rebuilt from
+        # the catalog (``persistent=False`` keeps them out of the checkpoint).
+        self.card_encoder, _ = _build_body(
+            encode.CARD_FEATURE_DIM,
+            arch.card_encoder_layers + (arch.card_embed_dim,),
+            arch,
+            final_activation=False,
         )
+        self.register_buffer(
+            "card_features",
+            torch.tensor(encode.card_feature_matrix(), dtype=torch.float32),
+            persistent=False,
+        )
+        pad_mask = torch.ones(encode.HAND_MULTIHOT_DIM + 1, 1)
+        pad_mask[0] = 0.0
+        self.register_buffer("card_pad_mask", pad_mask, persistent=False)
 
         # The trunk reads the continuous state features plus the looked-up card
         # embeddings: the index block becomes one embedding per slot (flattened),
@@ -159,16 +182,20 @@ class PolicyValueNet(nn.Module):
             logits: ``(B, K)`` — masked rows are set to ``-inf``
             value:  ``(B,)``
         """
+        # Compute the shared card table once for this forward and thread it into
+        # both the state and choice embeds (one card encoder forward per batch).
+        card_table = self.card_table()  # (181, card_embed_dim)
+
         # State trunk produces both the per-decision context and the value. The
         # flat state's card-identity columns are embedded through the shared
         # table before the trunk sees them.
-        state_ctx = self.state_trunk(self._embed_state(state))  # (B, H)
+        state_ctx = self.state_trunk(self._embed_state(state, card_table))  # (B, H)
         value = self.value_head(state_ctx).squeeze(-1)  # (B,)
 
         # Per-choice MLP. choices is (B, K, F); the Linear layers broadcast across
         # the K dimension naturally. Each candidate's card identity is embedded
         # through the same shared table first.
-        ce = self.choice_encoder(self._embed_choices(choices))  # (B, K, H)
+        ce = self.choice_encoder(self._embed_choices(choices, card_table))  # (B, K, H)
         num_choices = ce.shape[1]
         s_exp = state_ctx.unsqueeze(1).expand(-1, num_choices, -1)  # (B, K, H)
         combined = torch.cat([s_exp, ce], dim=-1)  # (B, K, M+N)
@@ -202,44 +229,62 @@ class PolicyValueNet(nn.Module):
         logits = torch.where(any_legal, logits, torch.zeros_like(logits))
         return logits, value
 
-    def _embed_state(self, state: torch.Tensor) -> torch.Tensor:
+    def card_table(self) -> torch.Tensor:
+        """The shared ``[181, card_embed_dim]`` card table: the constant card-feature
+        matrix mapped through the card encoder, with the padding row (index 0)
+        forced to zero so an empty board slot / padding candidate contributes a zero
+        vector (restoring the old ``padding_idx=0`` contract the encoder's bias would
+        otherwise break).
+
+        Public because it is the model's per-card representation readout: at
+        inference the weights are fixed, so this can be computed once and reused as a
+        plain lookup, and it doubles as the ``[bird_index + 1] -> vector`` table the
+        card-power analysis reads (DECISIONS.md). ``forward`` calls it once per batch
+        and threads the result into both the state and choice embeds."""
+        return self.card_encoder(self.card_features) * self.card_pad_mask
+
+    def _embed_state(
+        self, state: torch.Tensor, card_table: torch.Tensor
+    ) -> torch.Tensor:
         """Turn the flat state ``(B, state_dim)`` into the trunk's input by
-        replacing the card-identity columns with shared embeddings: the index
-        block becomes one embedding per slot (flattened) and the hand multi-hot
-        becomes a single mean-pooled embedding, both concatenated with the
-        continuous features (everything outside the index/hand blocks, including
+        replacing the card-identity columns with shared card vectors: the index
+        block becomes one ``card_table`` row per slot (flattened) and the hand
+        multi-hot becomes a single mean-pooled card vector, both concatenated with
+        the continuous features (everything outside the index/hand blocks, including
         the trailing decision-type stripe)."""
         off_index = encode.OFF_CARD_INDEX
         off_hand = encode.OFF_HAND_MULTIHOT
         off_decision = encode.OFF_DECISION_TYPE
         continuous = torch.cat([state[:, :off_index], state[:, off_decision:]], dim=-1)
 
-        # Card-index block -> per-slot embedding lookups, flattened. The encoder
+        # Card-index block -> per-slot card-table lookups, flattened. The encoder
         # always writes indices in range; the clamp only guards synthetic inputs.
         card_idx = (
             state[:, off_index:off_hand].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
         )
-        slot_emb = self.card_embed(card_idx).reshape(card_idx.shape[0], -1)
+        slot_emb = card_table[card_idx].reshape(card_idx.shape[0], -1)
 
-        # Hand multi-hot -> mean of held cards' embeddings via the same weight.
+        # Hand multi-hot -> mean of held cards' vectors (rows 1.. skip the padding).
         hand_multihot = state[:, off_hand:off_decision]
-        hand_sum = hand_multihot @ self.card_embed.weight[1:]
+        hand_sum = hand_multihot @ card_table[1:]
         hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
         hand_emb = hand_sum / hand_count
 
         return torch.cat([continuous, slot_emb, hand_emb], dim=-1)
 
-    def _embed_choices(self, choices: torch.Tensor) -> torch.Tensor:
+    def _embed_choices(
+        self, choices: torch.Tensor, card_table: torch.Tensor
+    ) -> torch.Tensor:
         """Turn the per-choice features ``(B, K, choice_dim)`` into the choice
-        encoder's input by embedding each candidate's card-identity stripe through
-        the shared table (a single-card one-hot maps to that card's embedding; the
-        setup pick's kept-set multi-hot sums their embeddings) and concatenating
-        the candidate's remaining, non-identity features."""
+        encoder's input by mapping each candidate's card-identity stripe through
+        the shared card table (a single-card one-hot maps to that card's vector; the
+        setup pick's kept-set multi-hot sums their vectors) and concatenating the
+        candidate's remaining, non-identity features."""
         off_bird = encode.CHOICE_BIRD_ID_OFFSET
         end_bird = off_bird + encode.CHOICE_BIRD_ID_DIM
         bird_multihot = choices[..., off_bird:end_bird]
         rest = torch.cat([choices[..., :off_bird], choices[..., end_bird:]], dim=-1)
-        cand_emb = bird_multihot @ self.card_embed.weight[1:]
+        cand_emb = bird_multihot @ card_table[1:]
         return torch.cat([rest, cand_emb], dim=-1)
 
 

@@ -59,7 +59,7 @@ _SCROLL_MORE_DOWN = "  ▼ more"
 
 # Which selected field lights up a whole BOX (gold border + title).
 _BOX_FOCUS_ATTRS: dict[str, set[str]] = {
-    "embed": {"card_embed_dim"},
+    "embed": {"card_embed_dim", "card_encoder_layers"},
     "trunk": {"trunk_layers"},
     "choice": {"choice_layers"},
     "scorer": {"head_layers"},
@@ -209,7 +209,13 @@ def _compact_rows(
     trunk_in = encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim)
     choice_in = encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim)
     rows = [
-        _compact_line("EMBED", f"{encode.HAND_MULTIHOT_DIM + 1}×{cfg.card_embed_dim}"),
+        _compact_line(
+            "EMBED",
+            _chain(
+                encode.CARD_FEATURE_DIM, cfg.card_encoder_layers + (cfg.card_embed_dim,)
+            ),
+            tags,
+        ),
         _compact_line("TRUNK", _chain(trunk_in, cfg.trunk_layers), tags),
         _compact_line("CHOICE", _chain(choice_in, cfg.choice_layers), tags),
         _compact_line("SCORER", f"M+N→1 ×{len(cfg.family_order)}"),
@@ -239,21 +245,22 @@ def _chain(in_dim: int, widths: tuple[int, ...]) -> str:
 
 
 def _embed_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
-    """The shared card-embedding table: ``N birds × D`` and its parameter count."""
-    report = _param_report(view)
-    focused = _box_focused(view, "embed")
-    border = _border_style(focused)
-    n_birds = encode.HAND_MULTIHOT_DIM + 1
-    left = [
-        (f"{n_birds} birds", theme.TEXT_PRIMARY),
-        (f" ×{view.working.card_embed_dim}", theme.TEXT_DIM2),
-    ]
-    right = [(text_helpers.human_count(report.embed.total), theme.TEXT_DIM2)]
-    return [
-        _box_title("EMBED", content_w, focused),
-        _content_row(content_w, border, left, right),
-        _box_bottom(content_w, focused),
-    ]
+    """The shared card encoder MLP: it maps each card's feature row
+    (``CARD_FEATURE_DIM`` = static attributes ⊕ identity one-hot) to its
+    ``card_embed_dim`` vector. Rendered as a body block (final layer no activation,
+    like the choice encoder); its output ``D`` is the per-card vector width."""
+    cfg = view.working
+    return _body_box(
+        view,
+        "embed",
+        "EMBED · card",
+        encode.CARD_FEATURE_DIM,
+        cfg.card_encoder_layers + (cfg.card_embed_dim,),
+        _BlockKind.BODY_CHOICE,
+        _param_report(view).embed,
+        "D",
+        content_w,
+    )
 
 
 def _trunk_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
@@ -625,9 +632,9 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
     cfg = view.working
     return architecture.count_parameters(
         cfg.arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
         trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
-        embed_rows=encode.HAND_MULTIHOT_DIM + 1,
         num_families=len(cfg.family_order),
     )
 

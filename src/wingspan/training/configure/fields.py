@@ -350,8 +350,21 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         step=16,
         impact=ChangeImpact.FRESH,
-        help="Width of the shared per-bird embedding (reused for every board / "
-        "tray / hand / choice card slot). Changes the architecture — fresh run.",
+        help="Width of the shared per-card vector (reused for every board / tray / "
+        "hand / choice card slot) — the card encoder's output width. Changes the "
+        "architecture — fresh run.",
+    ),
+    LayersField(
+        attr="card_encoder_layers",
+        label="card encoder layers",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        help="Card encoder MLP hidden widths (input→output). It maps each card's "
+        "[static attributes ⊕ identity one-hot] to its card-embed-dim vector. Empty "
+        "(←  to 0 layers) = a single linear projection; a stack makes it nonlinear. "
+        "Fresh run.",
     ),
     IntField(
         attr="seed",

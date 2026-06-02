@@ -71,7 +71,6 @@ _GOAL_COUNT_SCALE = 5.0  # round-goal category counts
 # type; the rest stay zero.
 
 _KIND_DIM = 6  # bird, food, habitat, payment, board_target, special
-_BIRD_DIM = 21  # numeric attributes + color/nest one-hots + per-food cost
 _FOOD_DIM = 5  # food one-hot
 _HABITAT_DIM = 3  # habitat one-hot
 _PAYMENT_DIM = 5  # count per food
@@ -79,38 +78,42 @@ _BOARD_TARGET_DIM = 8  # habitat (3), slot, eggs, capacity_remaining, cached, tu
 _SPECIAL_DIM = 3  # is_skip, encoded_slot/4, setup_is_keep
 _EXCHANGE_DIM = 3  # accept-exchange terms: eggs paid, cards gained, tucks gained
 #                    (the food paid, if any, reuses the FOOD stripe)
+_SETUP_DIM = 4  # setup kept-subset aggregates: summed points / cost / eggs, kept count
 # Card-identity stripes: a one-hot over every core-set bird / bonus card, so a
 # specific card — or, for the setup pick and the hand, a *set* of cards as a
-# multi-hot — is encoded by identity alongside its attribute stripe. The first
-# linear layer over this stripe is a learned per-card embedding, exactly the
-# per-card value signal the card-power analysis wants. Sized from the loaded
-# catalog (180 birds / 26 bonus cards in the core set).
+# multi-hot — is encoded by identity. The model maps this stripe through the
+# shared card encoder (the same ``[181, D]`` table the state's board / tray slots
+# use), so a candidate's full static attributes and its learned per-card vector
+# arrive together — the per-card value signal the card-power analysis wants. No
+# separate per-candidate attribute stripe is emitted; the card encoder is the one
+# source of static-attribute signal. Sized from the loaded catalog (180 birds /
+# 26 bonus cards in the core set).
 _BIRD_ID_DIM = cards.n_birds()
 _BONUS_ID_DIM = cards.n_bonus_cards()
 
 CHOICE_FEATURE_DIM = (
     _KIND_DIM
-    + _BIRD_DIM
     + _FOOD_DIM
     + _HABITAT_DIM
     + _PAYMENT_DIM
     + _BOARD_TARGET_DIM
     + _SPECIAL_DIM
     + _EXCHANGE_DIM
+    + _SETUP_DIM
     + _BIRD_ID_DIM
     + _BONUS_ID_DIM
 )
 
 # Stripe offsets (cumulative)
 _OFF_KIND = 0
-_OFF_BIRD = _OFF_KIND + _KIND_DIM
-_OFF_FOOD = _OFF_BIRD + _BIRD_DIM
+_OFF_FOOD = _OFF_KIND + _KIND_DIM
 _OFF_HAB = _OFF_FOOD + _FOOD_DIM
 _OFF_PAY = _OFF_HAB + _HABITAT_DIM
 _OFF_BOARD = _OFF_PAY + _PAYMENT_DIM
 _OFF_SPECIAL = _OFF_BOARD + _BOARD_TARGET_DIM
 _OFF_EXCHANGE = _OFF_SPECIAL + _SPECIAL_DIM
-_OFF_BIRD_ID = _OFF_EXCHANGE + _EXCHANGE_DIM
+_OFF_SETUP = _OFF_EXCHANGE + _EXCHANGE_DIM
+_OFF_BIRD_ID = _OFF_SETUP + _SETUP_DIM
 _OFF_BONUS_ID = _OFF_BIRD_ID + _BIRD_ID_DIM
 
 # Within-KIND indices
@@ -130,6 +133,13 @@ _SPECIAL_IS_KEEP = 2
 _EXCHANGE_PAID_EGGS = 0
 _EXCHANGE_GAINED_CARDS = 1
 _EXCHANGE_GAINED_TUCKS = 2
+
+# Within-SETUP indices (a setup pick's kept-subset aggregate stats — summaries the
+# shared card table cannot reconstruct from the kept-bird identity multi-hot alone).
+_SETUP_AGG_POINTS = 0
+_SETUP_AGG_COST = 1
+_SETUP_AGG_EGGS = 2
+_SETUP_KEPT_COUNT = 3
 
 
 # ---------------------------------------------------------------------------
@@ -184,11 +194,19 @@ _OFF_ATTR_SWIFT = _OFF_ATTR_COLOR + len(_COLORS)
 _OFF_ATTR_BONUS_CATS = _OFF_ATTR_SWIFT + 1
 _BIRD_ATTR_DIM = _OFF_ATTR_BONUS_CATS + _BONUS_ID_DIM  # 49
 
-# Per-board-slot continuous block: attribute vector then mutable state, with NO
-# identity one-hot. The bird's identity is emitted separately as an integer index
-# in the card-index block and looked up by the model's shared card embedding.
-_OFF_SLOT_ATTR = 0
-_OFF_SLOT_MUT = _OFF_SLOT_ATTR + _BIRD_ATTR_DIM
+# The model's card encoder consumes, per card, this attribute vector concatenated
+# with the card's identity one-hot, and outputs the shared ``[181, D]`` card table
+# that every board / tray / hand / choice slot looks up. Defined here beside the
+# attribute layout it builds on, so the encoder-input builder
+# (``state_encode.card_feature_matrix``) and the model read one constant.
+CARD_FEATURE_DIM = _BIRD_ATTR_DIM + _BIRD_ID_DIM  # 49 + 180 = 229
+
+# Per-board-slot continuous block: mutable per-slot state only, with NO identity
+# and NO attribute vector. The bird's identity is emitted separately as an integer
+# index in the card-index block and looked up by the model's shared card table,
+# which already carries the static attributes; only the slot's mutable state lives
+# here.
+_OFF_SLOT_MUT = 0
 # Mutable: eggs, egg-capacity-remaining, cached food per type, tucked, activations.
 _SLOT_MUT_EGGS = 0
 _SLOT_MUT_EGG_CAP = 1
@@ -196,14 +214,14 @@ _SLOT_MUT_CACHED = 2  # start of the N_FOODS cached-by-type block
 _SLOT_MUT_TUCKED = _SLOT_MUT_CACHED + cards.N_FOODS
 _SLOT_MUT_ACTIVATIONS = _SLOT_MUT_TUCKED + 1
 _SLOT_MUT_DIM = _SLOT_MUT_ACTIVATIONS + 1
-_SLOT_CONT_DIM = _BIRD_ATTR_DIM + _SLOT_MUT_DIM
+_SLOT_CONT_DIM = _SLOT_MUT_DIM
 _SLOTS_PER_BOARD = state.N_HABITATS * state.ROW_SLOTS
 _BOARD_CONT_STRIPE_DIM = _SLOTS_PER_BOARD * _SLOT_CONT_DIM
 
-# Per-tray-slot continuous block: attribute vector only (no mutable state, no
-# identity one-hot — the identity rides the card-index block). Order-invariant.
-_TRAY_CONT_SLOT_DIM = _BIRD_ATTR_DIM
-_TRAY_CONT_STRIPE_DIM = state.TRAY_SIZE * _TRAY_CONT_SLOT_DIM
+# The public face-up tray carries no continuous block at all: a tray bird has no
+# mutable per-slot state, and its static attributes ride the shared card table via
+# the card-index block. The stripe is therefore empty.
+_TRAY_CONT_STRIPE_DIM = 0
 
 # Round-goal state stripe: all four rounds, each = category one-hot
 # (MAX_GOAL_CATEGORIES) + my count + opponent count + current placement VP.
