@@ -136,7 +136,7 @@ def test_marker_columns_maps_change_iterations():
     assert convergence.marker_columns([200], 0, 100, cols) == set()
 
 
-def test_winrate_ewma_resets_on_opponent_advance():
+def test_winrate_ewma_snaps_on_opponent_advance():
     history = [
         _iter(0, 50.0, win=0.5, generation=0),
         _iter(1, 50.0, win=0.7, generation=0),
@@ -145,10 +145,13 @@ def test_winrate_ewma_resets_on_opponent_advance():
     points = convergence.winrate_ewma_points(history, alpha=0.5)
     assert points[0] == (0, 50.0)
     assert points[1] == (1, 60.0)  # 0.5*70 + 0.5*50
-    assert points[2] == (2, 40.0)  # generation changed -> reset to raw
+    # Generation changed: a synthetic baseline point drops the line vertically at
+    # the marker (iter 1), then the new challenger's first eval blends in from 50%.
+    assert points[2] == (1, 50.0)  # snap to the 50% baseline at the change marker
+    assert points[3] == (2, 45.0)  # 0.5*40 + 0.5*50
 
 
-def test_margin_ewma_resets_on_opponent_advance():
+def test_margin_ewma_snaps_on_opponent_advance():
     history = [
         _iter(0, 50.0, win=0.5, margin=10.0, generation=0),
         _iter(1, 50.0, win=0.6, margin=20.0, generation=0),
@@ -157,7 +160,8 @@ def test_margin_ewma_resets_on_opponent_advance():
     points = convergence.margin_ewma_points(history, alpha=0.5)
     assert points[0] == (0, 10.0)
     assert points[1] == (1, 15.0)  # 0.5*20 + 0.5*10
-    assert points[2] == (2, 4.0)  # reset on advance
+    assert points[2] == (1, 0.0)  # snap to the 0-margin baseline at the marker
+    assert points[3] == (2, 2.0)  # 0.5*4 + 0.5*0
 
 
 def test_score_ewma_smooths_every_iteration():

@@ -449,6 +449,26 @@ class RunState(pydantic.BaseModel):
                 win = alpha * item.collection_win_rate + (1.0 - alpha) * win
         return win
 
+    def collection_margin_ewma(self) -> float | None:
+        """EWMA-smoothed collection margin (net − random) across the bootstrap
+        phase's iterations — the margin twin of :meth:`collection_win_rate_ewma`.
+
+        Folds the ``avg_margin`` of every iteration that recorded a
+        ``collection_win_rate`` (so only bootstrap rows count) with
+        ``config.eval_ewma_alpha``, so the COLLECT inset can show an EWMA margin
+        beside its EWMA win-rate. None until the first such iteration lands.
+        """
+        alpha = self.config.eval_ewma_alpha
+        margin: float | None = None
+        for item in self.history:
+            if item.collection_win_rate is None:
+                continue
+            if margin is None:
+                margin = item.avg_margin
+            else:
+                margin = alpha * item.avg_margin + (1.0 - alpha) * margin
+        return margin
+
     def produce_stats(self) -> metrics.ProduceStats | None:
         """The PRODUCING band's readouts: a per-iteration EWMA once at least one
         iteration has finished, otherwise the cumulative average folded over the
@@ -476,15 +496,23 @@ class RunState(pydantic.BaseModel):
     def _produce_ewma(self) -> metrics.ProduceStats | None:
         """EWMA of each iteration's outcome aggregates (None until iteration 1).
 
+        Only iterations from the *current* training phase are folded (a bootstrap
+        row is one with a ``collection_win_rate``), so the EWMA restarts fresh at
+        the bootstrap → self-play graduation rather than dragging the vs-random
+        score / margin character slowly into the self-play trend.
+
         The dispersion σ values are the EWMA of each iteration's own per-cycle σ
         (computed over that iteration's games), not a σ re-derived from EWMA'd
         moments — the dashboard then divides by √games_per_iter for its 95% CI.
         """
         alpha = self.config.produce_ewma_alpha
+        in_random_phase = self.training_phase == TrainingPhase.RANDOM_OPPONENT
         breakdown: metrics.ScoreBreakdown | None = None
         winner: metrics.ScoreBreakdown | None = None
         decisions = decisions_std = margin = margin_std = abs_margin = abs_std = 0.0
         for item in self.history:
+            if (item.collection_win_rate is not None) != in_random_phase:
+                continue
             if breakdown is None or winner is None:
                 breakdown, winner = item.avg_breakdown, item.avg_winner_breakdown
                 decisions, decisions_std = item.avg_decisions, item.decisions_std

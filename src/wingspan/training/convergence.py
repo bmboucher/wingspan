@@ -24,6 +24,14 @@ from wingspan.training import metrics
 SCORE_MARGIN_WINDOW = 2000
 WINDOW_PIN = 100
 
+# When the win-rate / margin EWMA crosses into a new challenger regime, the chart
+# snaps to a neutral baseline at the change marker before climbing again — a
+# freshly frozen opponent is an even match, so a new challenger starts at a 50%
+# win-rate and a 0 margin. This makes the line drop vertically at the marker
+# rather than sloping across the eval-gap to the first new-challenger point.
+_WIN_RATE_RESET_PCT = 50.0
+_MARGIN_RESET = 0.0
+
 
 def full_range(history: list[metrics.IterationMetrics]) -> tuple[int, int]:
     """The ``(it_lo, it_hi)`` range spanning the *whole* history — the WIN RATE
@@ -87,24 +95,33 @@ def winrate_ewma_points(
 ) -> list[tuple[int, float]]:
     """The EWMA-smoothed win-rate (percent) per win-rate-bearing iteration: the
     eval win-rate where an eval ran, else the random-opponent bootstrap phase's
-    collection win-rate vs random. The EWMA resets to the raw value whenever the
-    regime changes — each reference opponent advance, and the bootstrap →
-    self-play graduation — so the curve starts a fresh climb after each sawtooth
-    rather than carrying the old regime's saturated rate forward."""
+    collection win-rate vs random. Whenever the regime changes — each reference
+    opponent advance, and the bootstrap → self-play graduation — the EWMA snaps to
+    the neutral baseline (50%) at the change marker, then climbs from there as
+    evals against the new challenger land, so the curve drops vertically at the
+    sawtooth instead of carrying the old regime's saturated rate forward."""
     points: list[tuple[int, float]] = []
     ewma: float | None = None
     regime: tuple[str, int] | None = None
+    prev_iter = 0
     for item in history:
         win_pct = _winrate_pct(item)
         if win_pct is None:
             continue
         item_regime = _regime(item)
-        if ewma is None or item_regime != regime:
+        if ewma is None:
             ewma = win_pct
+            regime = item_regime
+        elif item_regime != regime:
+            # Drop vertically at the change marker (the previous point's
+            # iteration), then re-seed the EWMA at the baseline and climb.
+            points.append((prev_iter, _WIN_RATE_RESET_PCT))
+            ewma = alpha * win_pct + (1.0 - alpha) * _WIN_RATE_RESET_PCT
             regime = item_regime
         else:
             ewma = alpha * win_pct + (1.0 - alpha) * ewma
         points.append((item.iteration, ewma))
+        prev_iter = item.iteration
     return points
 
 
@@ -148,23 +165,31 @@ def margin_ewma_points(
 ) -> list[tuple[int, float]]:
     """The EWMA-smoothed margin per win-rate-bearing iteration: the eval margin
     where an eval ran, else (bootstrap phase) the net's average margin over the
-    random opponent (``avg_margin`` is seat 0 minus seat 1). Reset at each regime
-    change like the win-rate EWMA — the margin belongs to the opponent it was
-    measured against."""
+    random opponent (``avg_margin`` is seat 0 minus seat 1). Snaps to the neutral
+    baseline (0) at each regime change like the win-rate EWMA — the margin belongs
+    to the opponent it was measured against, and a freshly frozen challenger starts
+    even."""
     points: list[tuple[int, float]] = []
     ewma: float | None = None
     regime: tuple[str, int] | None = None
+    prev_iter = 0
     for item in history:
         value = _margin_value(item)
         if value is None:
             continue
         item_regime = _regime(item)
-        if ewma is None or item_regime != regime:
+        if ewma is None:
             ewma = value
+            regime = item_regime
+        elif item_regime != regime:
+            # Drop vertically at the change marker, then re-seed at the baseline.
+            points.append((prev_iter, _MARGIN_RESET))
+            ewma = alpha * value + (1.0 - alpha) * _MARGIN_RESET
             regime = item_regime
         else:
             ewma = alpha * value + (1.0 - alpha) * ewma
         points.append((item.iteration, ewma))
+        prev_iter = item.iteration
     return points
 
 

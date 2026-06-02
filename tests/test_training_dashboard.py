@@ -316,12 +316,18 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
 # Random-opponent bootstrap phase
 
 
-def _bootstrap_iteration(collection_win_rate: float) -> metrics.IterationMetrics:
+def _bootstrap_iteration(
+    collection_win_rate: float, margin: float = 0.0
+) -> metrics.IterationMetrics:
     """A finished-iteration metrics row in the bootstrap shape: a collection
     win-rate vs random and no eval block."""
     breakdown = metrics.ScoreBreakdown(birds=20.0)
     return _sample_iteration(breakdown).model_copy(
-        update={"collection_win_rate": collection_win_rate, "eval": None}
+        update={
+            "collection_win_rate": collection_win_rate,
+            "avg_margin": margin,
+            "eval": None,
+        }
     )
 
 
@@ -362,6 +368,52 @@ def test_collection_win_rate_ewma():
     ewma = state.collection_win_rate_ewma()
     assert ewma is not None
     assert abs(ewma - expected) < 1e-9
+
+
+def test_collection_margin_ewma():
+    state = runstate.new_run_state(
+        config.TrainConfig(device="cpu", eval_ewma_alpha=0.3)
+    )
+    assert state.collection_margin_ewma() is None  # nothing folded yet
+
+    # The margin twin of the win-rate EWMA: self-play rows (no collection win-rate)
+    # are skipped; only the bootstrap rows' ``avg_margin`` folds, in order.
+    state.history.append(_bootstrap_iteration(0.4, margin=10.0))
+    state.history.append(_sample_iteration(metrics.ScoreBreakdown()))  # self-play row
+    state.history.append(_bootstrap_iteration(0.6, margin=20.0))
+    state.history.append(_bootstrap_iteration(0.8, margin=30.0))
+
+    expected = 10.0
+    expected = 0.3 * 20.0 + 0.7 * expected
+    expected = 0.3 * 30.0 + 0.7 * expected
+    ewma = state.collection_margin_ewma()
+    assert ewma is not None
+    assert abs(ewma - expected) < 1e-9
+
+
+def test_produce_ewma_resets_at_self_play_graduation():
+    # IN-GAME PERFORMANCE folds only the current phase's rows, so the EWMA restarts
+    # fresh at graduation instead of dragging the vs-random character forward.
+    state = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    state.history.append(_bootstrap_iteration(0.9, margin=30.0))  # birds=20, margin 30
+    self_play = _sample_iteration(metrics.ScoreBreakdown(eggs=12.0)).model_copy(
+        update={"avg_margin": 0.0}
+    )
+    state.history.append(self_play)  # collection_win_rate is None -> a self-play row
+
+    # A single current-phase row folds to itself exactly (no EWMA arithmetic).
+    state.training_phase = runstate.TrainingPhase.SELF_PLAY
+    self_play_stats = state.produce_stats()
+    assert self_play_stats is not None
+    assert self_play_stats.breakdown.eggs == 12.0
+    assert self_play_stats.breakdown.birds == 0.0  # bootstrap row dropped
+    assert self_play_stats.margin == 0.0
+
+    state.training_phase = runstate.TrainingPhase.RANDOM_OPPONENT
+    boot_stats = state.produce_stats()
+    assert boot_stats is not None
+    assert boot_stats.breakdown.birds == 20.0  # only the bootstrap row
+    assert boot_stats.margin == 30.0
 
 
 def test_training_phase_round_trips_through_progress():

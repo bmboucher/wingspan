@@ -213,6 +213,11 @@ def collect_inset(state: runstate.RunState, height: int) -> list[text.Text]:
             body.append(_inset_blank())
             body.append(_inset_section("EWMA"))
             body.append(_inset_kv("win rate", f"{ewma * 100:.1f}%", theme.WIN_COLOR))
+            margin_ewma = state.collection_margin_ewma()
+            if margin_ewma is not None:
+                body.append(
+                    _inset_kv("margin", f"{margin_ewma:+.1f} pts", theme.MARGIN_COLOR)
+                )
         body.append(_inset_blank())
         body.append(_inset_kv("opponent", "random", theme.TEXT_DIM2))
         body.append(
@@ -246,7 +251,13 @@ def collect_strip(state: runstate.RunState) -> list[text.Text]:
     line.append(f"{last * 100:.1f}%", style=theme.hero_color(last * 100))
     line.append(" vs random", style=theme.TEXT_DIM2)
     if ewma is not None:
-        line.append(f"  ewma {ewma * 100:.1f}%", style=theme.TEXT_DIM2)
+        margin_ewma = state.collection_margin_ewma()
+        suffix = (
+            f"  ewma {ewma * 100:.1f}% / {margin_ewma:+.1f}"
+            if margin_ewma is not None
+            else f"  ewma {ewma * 100:.1f}%"
+        )
+        line.append(suffix, style=theme.TEXT_DIM2)
     return [line]
 
 
