@@ -25,6 +25,13 @@ MODEL_CONFIG_JSON = "model_config.json"  # weight-compatibility descriptor
 PROCESS_PREFIX = "process_"  # session record name stem -> ``process_<stamp>.json``
 PROCESS_GLOB = "process_*.json"  # the dated per-session process records
 
+# Compact monitoring snapshot (``wingspan.cloud.status``): a tiny JSON the cloud
+# runner refreshes frequently and the monitor reads, so a run's progress is
+# legible without torch-loading ``last.pt``. The per-game log's S3 chunks live
+# under this subfolder of the checkpoint dir (mirroring the S3 ``games/`` prefix).
+STATUS_JSON = "status.json"  # one RunStatus snapshot (overwritten each refresh)
+GAMES_SUBDIR = "games"  # immutable per-game-log chunks, grouped by session
+
 # Setup-model artifacts (only written when ``TrainConfig.use_setup_model``): the
 # setup net's resumable checkpoint, its weight-compatibility descriptor, and the
 # append-only log of (setup features, realized margin) samples the one-time
@@ -53,3 +60,15 @@ def final_ckpt_name(iteration: int) -> str:
     immediately legible: ``final_1_000_000.pt`` for iteration 1 000 000.
     """
     return f"final_{iteration:_}.pt"
+
+
+def final_eval_name(iteration: int) -> str:
+    """Return the filename for a target-milestone final-eval result.
+
+    The :class:`~wingspan.training.metrics.FinalEvalStats` JSON written beside
+    the ``final_<n>.pt`` checkpoint, so the large fixed-model evaluation a run
+    lands on is a durable artifact (uploaded to its own S3 object) rather than a
+    dashboard-only readout. Same underscore-separated naming as
+    :func:`final_ckpt_name`: ``final_eval_1_000_000.json``.
+    """
+    return f"final_eval_{iteration:_}.json"

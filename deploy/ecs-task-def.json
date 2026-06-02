@@ -1,0 +1,31 @@
+{
+  "comment": "Fargate task definition for one Wingspan trainer. Replace <ACCOUNT>, <REGION>, and the image/role/bucket placeholders, then: aws ecs register-task-definition --cli-input-json file://ecs-task-def.json. Launch on Spot with: aws ecs run-task --cluster wingspan --task-definition wingspan-trainer --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=1 --network-configuration 'awsvpcConfiguration={subnets=[subnet-xxxx],securityGroups=[sg-xxxx],assignPublicIp=ENABLED}' --overrides '{\"containerOverrides\":[{\"name\":\"trainer\",\"command\":[\"--config\",\"s3://my-wingspan-runs/configs/core2p-lr3e4-h256.yaml\"]}]}'",
+  "family": "wingspan-trainer",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "2048",
+  "memory": "8192",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT>:role/wingspan-task-execution",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT>:role/wingspan-task",
+  "containerDefinitions": [
+    {
+      "name": "trainer",
+      "image": "<ACCOUNT>.dkr.ecr.<REGION>.amazonaws.com/wingspan-trainer:latest",
+      "essential": true,
+      "command": ["--config", "s3://my-wingspan-runs/configs/core2p-lr3e4-h256.yaml"],
+      "stopTimeout": 120,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/wingspan/trainer",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "trainer"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+# Keep the build context lean — only pyproject.toml, README.md, and src/ are
+# needed to build the image (see Dockerfile).
+.git
+.gitignore
+.claude
+.venv
+**/__pycache__
+**/*.pyc
+checkpoints
+checkpoints-old
+checkpoints2
+deploy
+tests
+docs
+*.log
+*.pt
+*.jsonl
+run.yaml
+run.example.yaml

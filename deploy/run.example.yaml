@@ -1,0 +1,48 @@
+# Wingspan cloud training run-file.
+#
+# One self-contained run. Carries NO credentials — the container authenticates to
+# S3 through the standard AWS chain (the Fargate task role in the cloud; your
+# environment / ~/.aws when testing locally).
+#
+# Local:    docker run --rm -v "$PWD/run.example.yaml:/config/run.yaml" wingspan-trainer
+# Fargate:  upload this file to s3://<bucket>/configs/<run>.yaml and point the
+#           container at it with `--config s3://<bucket>/configs/<run>.yaml`.
+
+# Names the run: drives the S3 prefix (s3://<bucket>/<s3.prefix>/<run_name>/...),
+# the local scratch dir, and the run label. Make it unique per experiment.
+run_name: core2p-lr3e4-h256
+
+s3:
+  bucket: my-wingspan-runs
+  prefix: runs               # objects live under s3://my-wingspan-runs/runs/<run_name>/
+  region: us-east-1
+  # endpoint_url: http://localhost:9000   # uncomment for a local MinIO during testing
+
+sync:
+  status_interval_seconds: 30   # how often the tiny status.json is refreshed + uploaded
+  checkpoint_upload_iters: 10   # upload last.pt + logs + descriptors every N iterations
+  games_chunk_iters: 25         # offload the per-game log as an immutable chunk every N iters
+  games_chunk_mb: 8             # ...or sooner once the un-offloaded tail exceeds this size
+  download_on_start: true       # pull prior state from S3 before resuming
+
+# Maps 1:1 onto wingspan.training.config.TrainConfig — every hyperparameter is
+# valid here. run_name / checkpoint_dir are injected from the top-level run_name,
+# so they need not be repeated. Omitted fields use TrainConfig's defaults.
+train:
+  device: cpu
+  games_per_iter: 256
+  # The run trains until target_iterations, runs a large fixed-model eval, writes
+  # final_<n>.pt + final_eval_<n>.json to S3, and exits. Keep target <= max.
+  max_iterations: 5000
+  target_iterations: 5000
+  target_eval_games: 0          # 0 = auto (10 x eval_games)
+  lr: 3.0e-4
+  eval_every: 5
+  eval_games: 128
+  trunk_layers: [128, 128]
+  choice_layers: [128, 128]
+  head_layers: [128]
+  value_layers: []
+  card_embed_dim: 64
+  use_setup_model: true
+  seed: 0

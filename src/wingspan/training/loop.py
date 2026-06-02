@@ -69,8 +69,12 @@ _CPU_INTRAOP_THREADS = 2
 class TrainingLoop:
     """A resumable, stoppable self-play training run feeding a live RunState."""
 
-    def __init__(self, cfg: config.TrainConfig):
+    def __init__(self, cfg: config.TrainConfig, *, pause_at_target: bool = True):
         self.config = cfg
+        # Whether reaching ``target_iterations`` pauses for interactive
+        # [C]ontinue / [E]nd input (the dashboard) or finalizes the milestone and
+        # ends the run (the headless cloud runner passes ``False``).
+        self._pause_at_target = pause_at_target
         self.device = torch.device(cfg.device)
         if self.device.type == "cpu":
             torch.set_num_threads(_CPU_INTRAOP_THREADS)
@@ -981,11 +985,25 @@ class TrainingLoop:
             on_progress=_on_progress,
         )
 
-        # Step 3: pin the eval stats and transition to PAUSED_AT_TARGET.
+        # Persist the final-eval result beside ``final_<n>.pt`` so the large
+        # fixed-model evaluation the run landed on is a durable artifact (the
+        # cloud runner uploads it to its own S3 object) rather than a
+        # dashboard-only readout.
+        eval_name = artifacts.final_eval_name(iteration + 1)
+        _atomic_write_text(final_stats.model_dump_json(), self._ckpt_dir / eval_name)
+        with self.lock:
+            self.state.push_event(runstate.EventKind.CHECKPOINT, f"saved {eval_name}")
+
+        # Step 3: pin the eval stats. The dashboard pauses for [C]ontinue / [E]nd
+        # input; the headless runner instead records an "end" choice so the run
+        # finalizes and exits at this milestone.
         with self.lock:
             self.state.pinned_stats = final_stats
-            self.state.phase = runstate.Phase.PAUSED_AT_TARGET
-            self.state.user_target_choice = None
+            if self._pause_at_target:
+                self.state.phase = runstate.Phase.PAUSED_AT_TARGET
+                self.state.user_target_choice = None
+            else:
+                self.state.user_target_choice = "end"
             self.state.push_event(
                 runstate.EventKind.EVAL,
                 f"final eval {n_eval} games · "
@@ -993,7 +1011,11 @@ class TrainingLoop:
                 f"margin {final_stats.mean_margin:.1f} pts",
             )
 
-        # Step 4: block until the dashboard receives user [C]ontinue or [E]nd.
+        # Step 4: the dashboard blocks until a [C]ontinue / [E]nd keypress, then
+        # resumes or ends. The headless runner has already chosen "end", so it
+        # returns straight to the run loop, which sees the choice and stops.
+        if not self._pause_at_target:
+            return
         self._target_reached_event.wait()
         self._target_reached_event.clear()
 
@@ -1351,6 +1373,15 @@ def _atomic_save(payload: dict[str, object], path: pathlib.Path) -> None:
     crash mid-write never corrupts the destination (TRAINING.md §5.2)."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, tmp)
+    os.replace(tmp, path)
+
+
+def _atomic_write_text(text: str, path: pathlib.Path) -> None:
+    """Write text to a temp file then ``os.replace`` it into place, so a crash
+    mid-write never leaves a partial JSON sidecar (the text twin of
+    :func:`_atomic_save`)."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 
 
