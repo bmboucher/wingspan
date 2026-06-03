@@ -12,7 +12,7 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT"
 
 SLUG="${1:?Usage: bash scripts/create_worktree.sh <feature-slug>}"
-WORKTREE_DIR=".claude/worktrees/$SLUG"
+WORKTREE_DIR="$REPO_ROOT/.claude/worktrees/$SLUG"
 BRANCH="wt/$SLUG"
 LOCK_FILE="$SLUG.lock"
 
