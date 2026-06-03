@@ -260,6 +260,9 @@ def test_card_representation_shared_between_board_and_hand():
         v_board0 = net(board_state, choices, mask, family)[1]
         v_hand0 = net(hand_state, choices, mask, family)[1]
         net.card_features[row] += 5.0
+        # The inference path memoizes the card table (card_features is a constant
+        # buffer in production); refresh the cache after this probe-only mutation.
+        net.eval()
         v_board1 = net(board_state, choices, mask, family)[1]
         v_hand1 = net(hand_state, choices, mask, family)[1]
     assert not torch.allclose(v_board0, v_board1), "board read should use the row"
@@ -296,5 +299,8 @@ def test_choice_candidate_uses_shared_card_representation():
     with torch.no_grad():
         probs0 = functional.softmax(net(state_vec, choices, mask, family)[0], dim=-1)
         net.card_features[row] += 5.0
+        # Refresh the memoized inference card table after this probe-only poke at
+        # the otherwise-constant card_features buffer (see the board/hand test).
+        net.eval()
         probs1 = functional.softmax(net(state_vec, choices, mask, family)[0], dim=-1)
     assert not torch.allclose(probs0, probs1), "candidate should read the card table"

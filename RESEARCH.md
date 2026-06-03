@@ -9,6 +9,9 @@ Main questions:
 1. What is the optimal size/shape for each of the submodels?
 2. Does this answer vary between the different decision heads enough that we need to configure each separately for most runs?
 
+## Project: Impact of RNG
+Let's train some small number of models (3-5) 
+
 # Related to Model Function
 
 ## Project: Does the main action model know "which" card it wants to play?

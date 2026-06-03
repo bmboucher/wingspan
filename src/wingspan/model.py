@@ -80,6 +80,11 @@ class PolicyValueNet(nn.Module):
         spec: encode.EncodingSpec = encode.DEFAULT_SPEC,
     ):
         super().__init__()
+        # Lazily-filled cache of the inference card table (see ``card_table`` /
+        # ``_card_table_for_pass``). ``None`` whenever the encoder weights or the
+        # train/eval mode may have changed; recomputed on the next eval forward.
+        # Set before any buffer registration / ``_apply`` could touch it.
+        self._inference_card_table: torch.Tensor | None = None
         # ``spec`` selects the config-driven encoding shape (whether setup is in
         # the main model). Dims default to that spec's sizes; callers that pass
         # explicit dims (e.g. ``from_model_config``) must pass a matching spec.
@@ -193,9 +198,12 @@ class PolicyValueNet(nn.Module):
             logits: ``(B, K)`` — masked rows are set to ``-inf``
             value:  ``(B,)``
         """
-        # Compute the shared card table once for this forward and thread it into
-        # both the state and choice embeds (one card encoder forward per batch).
-        card_table = self.card_table()  # (181, card_embed_dim)
+        # The shared card table, threaded into both the state and choice embeds.
+        # In training this is recomputed every pass (the encoder weights are
+        # learning and must stay in the autograd graph); at inference the weights
+        # are frozen between loads, so it is computed once and reused as a plain
+        # lookup (``_card_table_for_pass``) instead of once per decision.
+        card_table = self._card_table_for_pass()  # (181, card_embed_dim)
 
         # State trunk produces both the per-decision context and the value. The
         # flat state's card-identity columns are embedded through the shared
@@ -250,9 +258,39 @@ class PolicyValueNet(nn.Module):
         Public because it is the model's per-card representation readout: at
         inference the weights are fixed, so this can be computed once and reused as a
         plain lookup, and it doubles as the ``[bird_index + 1] -> vector`` table the
-        card-power analysis reads (DECISIONS.md). ``forward`` calls it once per batch
-        and threads the result into both the state and choice embeds."""
+        card-power analysis reads (DECISIONS.md). ``forward`` reaches it through
+        ``_card_table_for_pass`` (which caches it during inference)."""
         return self.card_encoder(self.card_features) * self.card_pad_mask
+
+    def train(self, mode: bool = True) -> "PolicyValueNet":
+        """Flip train/eval mode, invalidating the cached inference card table.
+
+        This is the cache's invalidation point. Every way the encoder weights can
+        change is bracketed by a mode flip through here: an optimizer step happens
+        in training (the cache is bypassed there) and is followed by ``eval()``
+        before inference; a weight reload (collection workers ``load_state_dict``,
+        then ``eval()``; the eval harness likewise) is always followed by
+        ``eval()``. ``eval()`` is ``train(False)``, so it routes through here and
+        drops any table cached under the old weights."""
+        self._inference_card_table = None
+        return super().train(mode)
+
+    def _card_table_for_pass(self) -> torch.Tensor:
+        """The card table for one forward pass: recomputed every call in training
+        (the encoder weights are learning, so the table must stay in the autograd
+        graph), but computed once and memoized at inference, where the weights are
+        frozen between loads. The cache is dropped on every train/eval flip
+        (``train``) and rebuilt from the on-device card buffers, so it always
+        lands on the live device. Callers MUST ``eval()`` after loading new
+        weights (every weight-load path in the codebase does) so a stale table is
+        never served."""
+        if self.training:
+            return self.card_table()
+        cached = self._inference_card_table
+        if cached is None:
+            cached = self.card_table().detach()
+            self._inference_card_table = cached
+        return cached
 
     def _embed_state(
         self, state: torch.Tensor, card_table: torch.Tensor
