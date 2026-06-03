@@ -111,11 +111,17 @@ def _state(tmp_path: pathlib.Path) -> runstate.RunState:
 # Pure series + window math
 
 
-def test_score_margin_window_pins_left_edge_to_hundred():
+def test_score_margin_window_pins_right_edge_to_window_pin():
+    # Right edge = ceil(2345 / 250) * 250 = 2500; window is (500, 2500).
     it_lo, it_hi = convergence.score_margin_window([_iter(0, 50.0), _iter(2345, 60.0)])
-    assert it_lo == 300  # floor((2345 - 2000 + 1) / 100) * 100
+    assert it_hi == 2500 and it_lo == 500
     assert it_hi - it_lo == convergence.SCORE_MARGIN_WINDOW == 2000
-    # A short run pins the left edge at 0 and leaves a gap on the right.
+    # As soon as any data exceeds 2000 the window bumps immediately to (250, 2250).
+    bump_lo, bump_hi = convergence.score_margin_window(
+        [_iter(0, 50.0), _iter(2001, 60.0)]
+    )
+    assert bump_lo == 250 and bump_hi == 2250
+    # A short run still starts at 0.
     short_lo, short_hi = convergence.score_margin_window(
         [_iter(0, 50.0), _iter(50, 60.0)]
     )

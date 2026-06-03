@@ -15,14 +15,17 @@ over a list of :class:`wingspan.training.metrics.IterationMetrics`.
 
 from __future__ import annotations
 
+import math
+
 from wingspan.training import metrics
 
 # The FINAL SCORE / MARGIN chart shows the most recent ``SCORE_MARGIN_WINDOW``
-# iterations, with the left edge floored to a multiple of ``WINDOW_PIN`` so the
-# x-axis steps in round jumps (leaving a gap on the right) rather than scrolling
-# every iteration.
+# iterations.  The right edge is pinned to the smallest multiple of
+# ``WINDOW_PIN`` that is >= the latest iteration (and >= SCORE_MARGIN_WINDOW),
+# so the axis steps in 250-iteration jumps and the window always contains the
+# latest data point.
 SCORE_MARGIN_WINDOW = 2000
-WINDOW_PIN = 100
+WINDOW_PIN = 250
 
 # When the win-rate / margin EWMA crosses into a new challenger regime, the chart
 # snaps to a neutral baseline at the change marker before climbing again — a
@@ -45,16 +48,16 @@ def full_range(history: list[metrics.IterationMetrics]) -> tuple[int, int]:
 
 def score_margin_window(history: list[metrics.IterationMetrics]) -> tuple[int, int]:
     """The FINAL SCORE / MARGIN chart's ``(it_lo, it_hi)`` window: the most recent
-    ``SCORE_MARGIN_WINDOW`` iterations, with ``it_lo`` floored to a multiple of
-    ``WINDOW_PIN`` and a *fixed* right edge ``it_lo + SCORE_MARGIN_WINDOW`` so the
-    axis steps in round jumps and leaves a gap on the right rather than scrolling
-    every iteration."""
+    ``SCORE_MARGIN_WINDOW`` iterations.  The right edge is the smallest multiple of
+    ``WINDOW_PIN`` that is >= the latest iteration (and >= SCORE_MARGIN_WINDOW), so
+    the window always contains the latest data point and steps in round jumps rather
+    than scrolling every iteration."""
     if not history:
         return (0, SCORE_MARGIN_WINDOW)
     it_hi_data = history[-1].iteration
-    raw_lo = it_hi_data - SCORE_MARGIN_WINDOW + 1
-    it_lo = max(0, (raw_lo // WINDOW_PIN) * WINDOW_PIN)
-    return (it_lo, it_lo + SCORE_MARGIN_WINDOW)
+    min_hi = max(SCORE_MARGIN_WINDOW, it_hi_data)
+    it_hi = math.ceil(min_hi / WINDOW_PIN) * WINDOW_PIN
+    return (it_hi - SCORE_MARGIN_WINDOW, it_hi)
 
 
 def marker_columns(
