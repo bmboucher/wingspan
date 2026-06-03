@@ -55,6 +55,8 @@ wingspan = ["data/*.json"]
 include = ["src", "tests"]
 extraPaths = ["src"]  # tests import `wingspan` via sys.path insert, no install needed
 typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
 # torch's type stubs under-export runtime names (torch.cat, torch.ones,
 # torch.float32, ...); the resulting reportPrivateImportUsage noise is a stub
 # artifact, not a real error, so silence just that rule.
