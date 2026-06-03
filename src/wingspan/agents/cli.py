@@ -32,7 +32,11 @@ def cli_agent() -> engine_core.Agent:
             # can't propagate that narrowing back onto the bound C — so the
             # SetupChoice return is cast through.
             return typing.cast(
-                C, _cli_resolve_setup_choice(decision, engine.state.tray)
+                C,
+                _cli_resolve_setup_choice(
+                    decision,
+                    [b for b in engine.state.tray if b is not None],
+                ),
             )
         # The main-action prompt — and the play-bird menu it can open — are the
         # natural moments to show the full board: the human needs the resource

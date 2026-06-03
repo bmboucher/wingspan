@@ -329,7 +329,7 @@ def format_board(game_state: state.GameState, player: state.Player) -> str:
     lines.append("")
     lines.extend(_habitat_rows(player))
     lines.append("")
-    lines.extend(_card_list_rows("tray", game_state.tray))
+    lines.extend(_card_list_rows("tray", [b for b in game_state.tray if b is not None]))
     lines.extend(_card_list_rows("hand", player.hand))
     lines.extend(_bonus_rows(player))
     return "\n".join(lines)

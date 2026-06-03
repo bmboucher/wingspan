@@ -31,8 +31,8 @@ def _h_draw_from_tray_all(
     # Brant (generic for N): take every face-up card in the tray, then refill.
     st = engine.state
     bird = pb.bird
-    taken = list(st.tray)
-    st.tray.clear()
+    taken = [card for card in st.tray if card is not None]
+    st.tray = [None] * state.TRAY_SIZE
     player.hand.extend(taken)
     st.refill_tray()
     engine.log(

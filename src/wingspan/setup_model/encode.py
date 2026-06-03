@@ -78,7 +78,7 @@ class SetupContext(pydantic.BaseModel):
         feeder = [game_state.birdfeeder.counts[food] for food in cards.ALL_FOODS]
         feeder.append(game_state.birdfeeder.choice_dice)
         return cls(
-            tray_birds=tuple(game_state.tray),
+            tray_birds=tuple(b for b in game_state.tray if b is not None),
             birdfeeder_counts=tuple(feeder),
             round_goal_categories=tuple(
                 goal.category for goal in game_state.round_goals[:_NUM_SETUP_GOALS]

@@ -309,13 +309,13 @@ def _featurize_draw_source(
     choice: decisions.DrawSourceChoice,
     state: state.GameState,
 ) -> None:
-    if (
-        choice.source == "tray"
-        and choice.tray_index is not None
-        and 0 <= choice.tray_index < len(state.tray)
-    ):
+    tray_bird: cards.Bird | None = None
+    if choice.source == "tray" and choice.tray_index is not None:
+        if 0 <= choice.tray_index < len(state.tray):
+            tray_bird = state.tray[choice.tray_index]
+    if tray_bird is not None:
         feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
-        _fill_bird_identity(feat, state.tray[choice.tray_index])
+        _fill_bird_identity(feat, tray_bird)
     else:
         feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
 

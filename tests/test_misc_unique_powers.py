@@ -119,11 +119,11 @@ def test_draw_from_tray_all_takes_all_three_and_refills():
     player = gs.me()
     player.hand = []
     # Force a deterministic tray of 3 known birds.
-    original_tray_names = [bird.name for bird in gs.tray]
+    original_tray_names = [bird.name for bird in gs.tray if bird is not None]
     deck_before = len(gs.bird_deck)
     powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.WETLAND, "play")
     assert [bird.name for bird in player.hand] == original_tray_names
-    assert len(gs.tray) == 3  # refilled
+    assert all(b is not None for b in gs.tray)  # refilled to full
     # 3 cards moved from deck to tray to refill.
     assert len(gs.bird_deck) == deck_before - 3
 

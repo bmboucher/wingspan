@@ -444,12 +444,14 @@ class GameState(pydantic.BaseModel):
     bonus_discard: list[cards.BonusCard] = pydantic.Field(
         default_factory=_new_bonus_card_list
     )
-    # The face-up bird tray. Holds up to ``TRAY_SIZE`` cards but may carry
-    # fewer mid-turn: a card taken from the tray leaves its slot empty until
-    # ``refill_tray`` runs (at the end of the turn, or when a bird power
-    # explicitly refills). The list is kept compact — an empty slot is simply
-    # an absent entry — so ``len(tray)`` is the number of cards still face-up.
-    tray: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
+    # The face-up bird tray. Always exactly ``TRAY_SIZE`` slots; ``None``
+    # marks an empty slot. A card taken from the tray sets that slot to
+    # ``None`` until ``refill_tray`` runs (at end of turn, or on an explicit
+    # power). Position is meaningful: slot 0 is the left card, slot 2 is the
+    # right card, matching "the middle card in the bird tray" power wording.
+    tray: list[cards.Bird | None] = pydantic.Field(
+        default_factory=lambda: [None] * TRAY_SIZE
+    )
     birdfeeder: Birdfeeder = pydantic.Field(default_factory=Birdfeeder)
     food_supply: FoodPool = pydantic.Field(default_factory=lambda: FoodPool.uniform(99))
     # All 16 goals shuffled — first 4 are the per-round goals for rounds 1..4
@@ -484,16 +486,18 @@ class GameState(pydantic.BaseModel):
         return self.bird_deck.pop()
 
     def refill_tray(self) -> None:
-        """Top the tray back up to ``TRAY_SIZE`` from the deck.
+        """Fill each empty (``None``) tray slot from the deck, left-to-right.
 
         Called at the end of each turn and by powers that explicitly refill
         (e.g. Brant) — never automatically when a card is drawn mid-turn.
-        Stops early if the deck (and discard) run dry, leaving the tray short."""
-        while len(self.tray) < TRAY_SIZE:
-            drawn = self.draw_bird()
-            if drawn is None:
-                break
-            self.tray.append(drawn)
+        Stops early if the deck (and discard) run dry, leaving later slots
+        empty."""
+        for slot_idx in range(TRAY_SIZE):
+            if self.tray[slot_idx] is None:
+                drawn = self.draw_bird()
+                if drawn is None:
+                    break
+                self.tray[slot_idx] = drawn
 
     def reset_tray(self) -> None:
         """Discard all face-up tray cards and replenish with fresh ones.
@@ -501,8 +505,8 @@ class GameState(pydantic.BaseModel):
         Called at the end of each round. The discarded cards enter
         ``bird_discard`` so they can be shuffled back into the deck when it
         runs dry later in the game."""
-        self.bird_discard.extend(self.tray)
-        self.tray = []
+        self.bird_discard.extend(bird for bird in self.tray if bird is not None)
+        self.tray = [None] * TRAY_SIZE
         self.refill_tray()
 
     def reset_turn_state(self) -> None:

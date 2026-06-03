@@ -305,10 +305,10 @@ def _card_index_block(
 ) -> np.ndarray:
     """Contiguous integer card indices the model looks up in its shared card
     table: both boards' positional slots (POV then opponent) followed by the
-    up-to-``TRAY_SIZE`` public tray. Each entry is ``bird_index + 1`` for an
+    ``TRAY_SIZE`` public tray slots. Each entry is ``bird_index + 1`` for an
     occupied slot and 0 for an empty one (the card table's zeroed padding row).
-    Board slots are positional (matching ``_board_slots_continuous``); tray birds
-    are sorted by ``bird_index`` so the tray encoding is order-invariant."""
+    Board and tray slots are both positional: tray slot 0 is the left card,
+    slot 2 is the right card."""
     vec = np.zeros(layout.N_CARD_INDEX_SLOTS, dtype=np.float32)
     offset = 0
     for player in (me, opp):
@@ -320,10 +320,8 @@ def _card_index_block(
                     cards.bird_index(pb.bird) + 1
                 )
         offset += layout._SLOTS_PER_BOARD
-    for slot, bird in enumerate(sorted(game_state.tray, key=cards.bird_index)):
-        if slot >= state.TRAY_SIZE:
-            break
-        vec[offset + slot] = cards.bird_index(bird) + 1
+    for slot, bird in enumerate(game_state.tray):
+        vec[offset + slot] = cards.bird_index(bird) + 1 if bird is not None else 0
     return vec
 
 
@@ -381,7 +379,7 @@ def _summary_misc_scalars(
             opp.action_cubes_left / layout._ACTION_CUBES_SCALE,
             me.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
             opp.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
-            len(state.tray) / layout._TRAY_SIZE_SCALE,
+            sum(1 for bird in state.tray if bird is not None) / layout._TRAY_SIZE_SCALE,
             len(state.bird_deck) / layout._DECK_SIZE_SCALE,
         ],
         dtype=np.float32,

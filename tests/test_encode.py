@@ -105,10 +105,15 @@ def test_card_identity_offsets_align_with_encoder_output():
     # The decision-type stripe is a clean one-hot of exactly the declared width.
     assert decision_block.shape == (encode.DECISION_TYPE_DIM,)
     assert decision_block.sum() == 1.0
-    # The three tray birds occupy the last TRAY_SIZE card-index slots by identity.
+    # The three tray birds occupy the last TRAY_SIZE card-index slots, one per
+    # positional slot (0 = empty, bird_index+1 = occupied).
     tray_slots = card_block[-state.TRAY_SIZE :]
-    expected = sorted(cards.bird_index(bird) + 1 for bird in eng.state.tray)
-    assert sorted(int(round(value)) for value in tray_slots) == expected
+    expected = [
+        cards.bird_index(bird) + 1 for bird in eng.state.tray if bird is not None
+    ]
+    assert sorted(int(round(value)) for value in tray_slots if value > 0) == sorted(
+        expected
+    )
 
 
 def test_state_encoder_decision_type_one_hot_flips():
@@ -428,19 +433,18 @@ def test_per_slot_cached_food_by_type_moves_state():
     assert not np.array_equal(vec_seed, vec_fish)  # only the per-type block differs
 
 
-def test_tray_contents_encoded_and_order_invariant():
-    """The public bird tray is encoded by identity (its card-index slots): different
-    tray contents move the vector, but reordering the same cards does not (the
-    ``bird_index`` sort makes the interchangeable tray slots order-invariant)."""
+def test_tray_contents_encoded_positionally():
+    """The bird tray is encoded per-slot: position matters (swapping birds in the
+    same two slots moves the vector), and different card sets also move it."""
     eng, birds, *_ = engine.Engine.create(seed=34)
-    eng.state.tray = [birds[0], birds[1]]
+    eng.state.tray = [birds[0], birds[1], None]
     vec_ab = encode.encode_state(eng.state)
-    eng.state.tray = [birds[1], birds[0]]
+    eng.state.tray = [birds[1], birds[0], None]
     vec_ba = encode.encode_state(eng.state)
-    eng.state.tray = [birds[2], birds[3]]
+    eng.state.tray = [birds[2], birds[3], None]
     vec_cd = encode.encode_state(eng.state)
-    assert np.array_equal(vec_ab, vec_ba)  # order-invariant
-    assert not np.array_equal(vec_ab, vec_cd)  # different cards move the vector
+    assert not np.array_equal(vec_ab, vec_ba)  # position-sensitive: swap moves vector
+    assert not np.array_equal(vec_ab, vec_cd)  # different cards also move the vector
 
 
 def test_round_goal_stripe_encodes_all_four_rounds():

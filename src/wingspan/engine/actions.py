@@ -427,14 +427,15 @@ def draw_one_card(
     offered draw sources reflect only the cards still face-up."""
     choices: list[decisions.DrawSourceChoice] = []
     for tray_index, bird in enumerate(engine.state.tray):
-        choices.append(
-            decisions.DrawSourceChoice(
-                label=f"tray[{tray_index}]={bird.name}",
-                source="tray",
-                tray_index=tray_index,
-                bird=bird,
+        if bird is not None:
+            choices.append(
+                decisions.DrawSourceChoice(
+                    label=f"tray[{tray_index}]={bird.name}",
+                    source="tray",
+                    tray_index=tray_index,
+                    bird=bird,
+                )
             )
-        )
     if engine.state.bird_deck or engine.state.bird_discard:
         choices.append(decisions.DrawSourceChoice(label="deck", source="deck"))
     if not choices:
@@ -448,7 +449,9 @@ def draw_one_card(
         ),
     )
     if ch.source == "tray" and ch.tray_index is not None:
-        drawn = engine.state.tray.pop(ch.tray_index)
+        drawn = engine.state.tray[ch.tray_index]
+        assert drawn is not None
+        engine.state.tray[ch.tray_index] = None
         player.hand.append(drawn)
     else:
         drawn = engine.state.draw_bird()
@@ -674,5 +677,7 @@ def _has_open_egg_slot(player: state.Player) -> bool:
 def _cards_available_to_draw(engine: "core.Engine") -> bool:
     """True if a card can still be drawn from the tray or (re)stocked deck."""
     return bool(
-        engine.state.tray or engine.state.bird_deck or engine.state.bird_discard
+        any(bird is not None for bird in engine.state.tray)
+        or engine.state.bird_deck
+        or engine.state.bird_discard
     )

@@ -93,8 +93,8 @@ def test_draw_action_does_not_refill_tray_mid_turn():
     sink: list[decisions.Decision[typing.Any]] = []
     actions.do_draw_cards(eng, _tray_picking_agent(sink))
 
-    # Both cards came out of the tray and it was left short, not topped up.
-    assert len(eng.state.tray) == state.TRAY_SIZE - 2
+    # Both slots were vacated (set to None) and the tray was not topped up.
+    assert sum(1 for b in eng.state.tray if b is not None) == state.TRAY_SIZE - 2
     assert len(player.hand) == 2
     # No card was pulled from the deck (no refill happened during the action).
     assert len(eng.state.bird_deck) == deck_before
@@ -105,7 +105,7 @@ def test_draw_options_shrink_as_tray_empties():
     eng.state.current_player = 0
     player = eng.state.me()
     _fill_row(player.board, cards.Habitat.WETLAND, 2, _non_brown_bird())
-    tray_before = [bird.name for bird in eng.state.tray]
+    tray_before = [bird.name for bird in eng.state.tray if bird is not None]
 
     sink: list[decisions.Decision[typing.Any]] = []
     actions.do_draw_cards(eng, _tray_picking_agent(sink))
@@ -145,7 +145,7 @@ def test_empty_tray_draws_from_deck_without_asking():
     eng.state.current_player = 0
     player = eng.state.me()
     # Simulate a turn that has already drained every tray slot.
-    eng.state.tray = []
+    eng.state.tray = [None] * state.TRAY_SIZE
     deck_before = len(eng.state.bird_deck)
 
     sink: list[decisions.Decision[typing.Any]] = []
@@ -183,9 +183,12 @@ def _recording_turn_agent(
         choice = inner(eng, decision)
         if isinstance(decision, decisions.MainActionDecision):
             has_cards = bool(
-                eng.state.tray or eng.state.bird_deck or eng.state.bird_discard
+                any(b is not None for b in eng.state.tray)
+                or eng.state.bird_deck
+                or eng.state.bird_discard
             )
-            main_tray_snaps.append((len(eng.state.tray), has_cards))
+            tray_face_up = sum(1 for b in eng.state.tray if b is not None)
+            main_tray_snaps.append((tray_face_up, has_cards))
         if isinstance(choice, decisions.DrawSourceChoice) and choice.source == "tray":
             tray_draws.append(choice)
         return choice
@@ -224,7 +227,7 @@ def test_reset_tray_discards_and_replenishes():
     """``GameState.reset_tray`` moves all current tray cards to the discard
     pile and then draws fresh ones up to ``TRAY_SIZE``."""
     eng = _make_engine()
-    tray_before = list(eng.state.tray)
+    tray_before = [b for b in eng.state.tray if b is not None]
     discard_before = len(eng.state.bird_discard)
 
     eng.state.reset_tray()
@@ -234,11 +237,11 @@ def test_reset_tray_discards_and_replenishes():
     for bird in tray_before:
         assert bird in eng.state.bird_discard
     # The tray is replenished to full with new cards.
-    assert len(eng.state.tray) == state.TRAY_SIZE
+    assert all(b is not None for b in eng.state.tray)
     # The new tray cards are different from the old ones (barring a
     # vanishingly unlikely collision with a 180-card deck).
     old_names = {bird.name for bird in tray_before}
-    new_names = {bird.name for bird in eng.state.tray}
+    new_names = {bird.name for bird in eng.state.tray if bird is not None}
     assert old_names != new_names
 
 
@@ -251,16 +254,16 @@ def test_reset_tray_with_short_deck():
     To leave the tray genuinely short we must drain deck *and* discard, leaving
     only a single card in the tray so the pool contains exactly 1 card total."""
     eng = _make_engine()
-    # Drain deck and discard entirely; leave exactly 1 card face-up.
+    # Drain deck and discard entirely; leave exactly 1 card face-up (slot 0).
     eng.state.bird_deck = []
     eng.state.bird_discard = []
-    eng.state.tray = eng.state.tray[:1]
+    eng.state.tray = [eng.state.tray[0], None, None]
 
     eng.state.reset_tray()
 
     # That 1 card was discarded then recycled back out of the (now-reshuffled)
     # deck; the tray ends at 1 because the pool is exhausted after that draw.
-    assert len(eng.state.tray) == 1
+    assert sum(1 for b in eng.state.tray if b is not None) == 1
     assert len(eng.state.bird_deck) == 0
     assert len(eng.state.bird_discard) == 0
 
@@ -286,7 +289,10 @@ def _round_boundary_agent(
             round_snapshots.setdefault(round_idx, []).append(
                 "|".join(
                     bird.name
-                    for bird in sorted(eng.state.tray, key=lambda bird: bird.name)
+                    for bird in sorted(
+                        (b for b in eng.state.tray if b is not None),
+                        key=lambda bird: bird.name,
+                    )
                 )
             )
         return choice
@@ -322,3 +328,50 @@ def test_tray_is_replaced_between_rounds():
         assert (
             earlier != later
         ), f"tray was identical across a round boundary: {earlier!r}"
+
+
+# ---------------------------------------------------------------------------
+# Position preservation: drawing a slot leaves its neighbours intact
+
+
+def test_draw_from_middle_preserves_adjacent_slots():
+    """Drawing from a specific tray slot nulls that slot only; the other two
+    slots retain their original birds. After ``refill_tray`` the vacated slot
+    is filled in-place and the neighbours are still the same birds."""
+    eng = _make_engine()
+    birds, _, _ = cards.load_all()
+    # Force a known tray: three distinct birds in positions 0, 1, 2.
+    bird_left = birds[5]
+    bird_mid = birds[6]
+    bird_right = birds[7]
+    eng.state.tray = [bird_left, bird_mid, bird_right]
+
+    # Draw from the middle slot (index 1) directly via draw_one_card.
+    player = eng.state.players[0]
+    player.hand = []
+
+    def _pick_middle[C: decisions.Choice](
+        _eng: engine_core.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        for choice in decision.choices:
+            if (
+                isinstance(choice, decisions.DrawSourceChoice)
+                and choice.tray_index == 1
+            ):
+                return choice
+        return decision.choices[0]
+
+    actions.draw_one_card(eng, _pick_middle, player)
+
+    # Middle slot is now None; left and right are unchanged.
+    assert eng.state.tray[0] is bird_left
+    assert eng.state.tray[1] is None
+    assert eng.state.tray[2] is bird_right
+    assert len(player.hand) == 1
+    assert player.hand[0] is bird_mid
+
+    # After refill, slot 1 is filled in-place; slots 0 and 2 are unchanged.
+    eng.state.refill_tray()
+    assert eng.state.tray[0] is bird_left
+    assert eng.state.tray[1] is not None
+    assert eng.state.tray[2] is bird_right
