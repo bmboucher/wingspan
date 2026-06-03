@@ -379,6 +379,34 @@ def test_fewest_forest_gains_die_refills_empty_feeder():
     assert sum(p0.food.values()) == food_before + 1  # one die was taken
 
 
+def test_fewest_forest_auto_skips_when_active_player_not_fewest():
+    """If the active player has MORE forest birds than the opponent, activating
+    would only give the opponent a free die.  The handler auto-skips without
+    consulting any agent."""
+    eng, pb = _make_engine_with_bird(
+        "Player(s) with the fewest birds in their [forest] gain 1 [die] from birdfeeder.",
+        color=cards.PowerColor.BROWN,
+    )
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1 = gs.players
+    # P0 (active) has 2 forest birds; P1 has 0 — only P1 would qualify.
+    p0.board[cards.Habitat.FOREST].extend(
+        [state.PlayedBird(bird=pb.bird), state.PlayedBird(bird=pb.bird)]
+    )
+    for food in cards.ALL_FOODS:
+        gs.birdfeeder.counts[food] = 0
+    gs.birdfeeder.counts[cards.Food.SEED] = 5
+    food_before_p1 = p1.food.as_dict().copy()
+
+    # No agent should be consulted — use the strict _no_agent stub.
+    eng.agents = [_no_agent, _no_agent]
+    powers.dispatch_power(eng, _no_agent, p0, pb, cards.Habitat.FOREST, "activate")
+
+    # P1 must NOT have received any food.
+    assert p1.food.as_dict() == food_before_p1
+
+
 # ---------------------------------------------------------------------------
 # House Wren — PLAY_ADDITIONAL_BIRD_HERE
 

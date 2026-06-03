@@ -73,24 +73,26 @@ def _h_move_bird_if_rightmost(
     if not targets:
         engine.log(f"  {bird.name}: no other habitat with space; power skipped")
         return
-    if len(targets) == 1:
-        target = targets[0]
-    else:
-        ch = engine.ask(
-            agent,
-            decisions.BirdPowerPickHabitatDecision(
-                player_id=player.id,
-                prompt=f"[{player.name}] move {bird.name} to which habitat?",
-                choices=[
-                    decisions.HabitatChoice(label=candidate.value, habitat=candidate)
-                    for candidate in targets
-                ],
-            ),
-        )
-        target = ch.habitat
+
+    # Include the current habitat as "stay" so the agent can decline the move.
+    all_choices = [
+        decisions.HabitatChoice(label=f"stay in {habitat.value}", habitat=habitat),
+        *(decisions.HabitatChoice(label=c.value, habitat=c) for c in targets),
+    ]
+    ch = engine.ask(
+        agent,
+        decisions.BirdPowerPickHabitatDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] move {bird.name} to which habitat? (or stay)",
+            choices=all_choices,
+        ),
+    )
+    if ch.habitat == habitat:
+        engine.log(f"  {bird.name}: chose to stay in [{habitat.value}]")
+        return
     row.pop()
-    player.board[target].append(pb)
-    engine.log(f"  {bird.name}: moved from [{habitat.value}] to [{target.value}]")
+    player.board[ch.habitat].append(pb)
+    engine.log(f"  {bird.name}: moved from [{habitat.value}] to [{ch.habitat.value}]")
 
 
 @registry.handles(cards.EffectKind.REPEAT_BROWN_POWER)

@@ -139,6 +139,16 @@ def _h_fewest_forest_gains_die(
     bird = pb.bird
     counts = [len(other.board[cards.Habitat.FOREST]) for other in st.players]
     fewest = min(counts)
+
+    # Auto-skip: activating would only benefit the opponent(s) who have fewer
+    # forest birds, not the active player — a rational player never does this.
+    if len(player.board[cards.Habitat.FOREST]) != fewest:
+        engine.log(
+            f"  {bird.name}: [{player.name}] has more forest birds than opponent;"
+            f" power auto-skipped"
+        )
+        return
+
     for other_player, forest_count in zip(st.players, counts):
         if forest_count != fewest:
             continue

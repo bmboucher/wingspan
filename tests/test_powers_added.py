@@ -421,6 +421,64 @@ def test_move_rightmost_skipped_when_not_rightmost():
     assert player.board[cards.Habitat.FOREST][0] is pb
 
 
+def test_move_rightmost_stay_option_skips_move():
+    """Agent can skip the move by selecting the current habitat as destination."""
+    eng, birds = _engine(seed=11)
+    mover = _find(birds, "Bewick's Wren")
+    player = eng.state.me()
+    pb = state.PlayedBird(bird=mover)
+    player.board[cards.Habitat.FOREST].append(pb)
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        assert isinstance(decision, decisions.BirdPowerPickHabitatDecision)
+        stay = next(
+            choice
+            for choice in decision.choices
+            if choice.habitat == cards.Habitat.FOREST
+        )
+        return typing.cast(C, stay)
+
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.FOREST, "activate")
+    assert pb in player.board[cards.Habitat.FOREST]
+    assert not any(
+        pb in player.board[habitat]
+        for habitat in (cards.Habitat.GRASSLAND, cards.Habitat.WETLAND)
+    )
+
+
+def test_move_rightmost_single_target_still_presents_choice():
+    """With exactly one valid target habitat, the decision still includes the
+    'stay' option so the agent is never auto-moved without a chance to decline."""
+    eng, birds = _engine(seed=12)
+    mover = _find(birds, "Bewick's Wren")
+    filler = next(bird for bird in birds if bird.name != mover.name)
+    player = eng.state.me()
+    pb = state.PlayedBird(bird=mover)
+    player.board[cards.Habitat.FOREST].append(pb)
+    # Fill WETLAND to capacity; only GRASSLAND remains as a valid target.
+    for _ in range(state.ROW_SLOTS):
+        player.board[cards.Habitat.WETLAND].append(state.PlayedBird(bird=filler))
+
+    presented: list[decisions.BirdPowerPickHabitatDecision] = []
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        assert isinstance(decision, decisions.BirdPowerPickHabitatDecision)
+        presented.append(decision)
+        # Pick 'stay' so we can inspect the full choices list without moving.
+        return typing.cast(C, decision.choices[0])
+
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.FOREST, "activate")
+    assert len(presented) == 1
+    habitats_offered = {ch.habitat for ch in presented[0].choices}
+    assert cards.Habitat.FOREST in habitats_offered
+    assert cards.Habitat.GRASSLAND in habitats_offered
+    assert len(presented[0].choices) == 2
+
+
 def test_repeat_brown_replays_neighbor_power():
     eng, birds = _engine(seed=10)
     catbird = _find(birds, "Gray Catbird")
