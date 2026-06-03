@@ -65,6 +65,12 @@ header() {
 
 # ---- Preflight ----
 
+# Resolve to absolute path so PYTHON stays valid after cd "$TARGET_DIR".
+TARGET_DIR="$(cd "$TARGET_DIR" 2>/dev/null && pwd)" || {
+    echo "ERROR: Target directory not found: $TARGET_DIR" >&2
+    exit 1
+}
+
 PYTHON="$TARGET_DIR/.venv/Scripts/python.exe"
 
 if [ ! -f "$PYTHON" ]; then
@@ -76,11 +82,6 @@ fi
 
 if ! command -v pyright &> /dev/null; then
     echo "ERROR: pyright not found in PATH (install: npm install -g pyright)" >&2
-    exit 1
-fi
-
-if [ ! -d "$TARGET_DIR" ]; then
-    echo "ERROR: Target directory not found: $TARGET_DIR" >&2
     exit 1
 fi
 
