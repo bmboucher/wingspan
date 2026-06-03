@@ -217,23 +217,12 @@ def summarize_eval(
 
 
 def _greedy_agent(net: model.PolicyValueNet, device: torch.device) -> engine.Agent:
-    """A non-recording agent that plays the argmax of the current policy."""
+    """A non-recording agent that plays the argmax of the current policy.
 
-    def agent[C: decisions.Choice](
-        eng: engine.Engine,
-        decision: decisions.Decision[C],
-    ) -> C:
-        if len(decision.choices) == 1:
-            return decision.choices[0]
-        if not net.include_setup and decisions.is_setup_decision(decision):
-            return decisions.random_choice(decision, eng.state.rng)
-        family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision, net.spec)
-        choice_feats = encode.encode_choices(decision, eng.state, net.spec)
-        idx = policy.greedy_action(net, device, state_vec, choice_feats, family_idx)
-        return decision.choices[idx]
-
-    return agent
+    Delegates to :func:`policy.greedy_agent` (the single source of truth, shared
+    with the tournament); kept as a thin private alias so this module's existing
+    call sites read unchanged."""
+    return policy.greedy_agent(net, device)
 
 
 def _counting_greedy_agent(

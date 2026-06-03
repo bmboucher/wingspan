@@ -13,6 +13,10 @@ differ only in selection rule:
 :func:`policy_probs` exposes the underlying softmax distribution itself, for
 callers that want every option's probability (e.g. the selfplay log annotator)
 rather than just the selected index.
+
+:func:`greedy_agent` wraps a net into an :class:`engine.Agent` that plays the
+argmax at every decision — the strength-play agent shared by the evaluation
+harness and the tournament so both measure strength with identical play.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wingspan import model
+from wingspan import decisions, encode, engine, model
 
 
 def sample_action(
@@ -49,6 +53,35 @@ def greedy_action(
     """Pick the argmax choice index — deterministic strength play."""
     probs = policy_probs(net, device, state_vec, choice_feats, family_idx)
     return int(np.argmax(probs))
+
+
+def greedy_agent(net: model.PolicyValueNet, device: torch.device) -> engine.Agent:
+    """Wrap ``net`` into a non-recording agent that plays the argmax of the
+    current policy.
+
+    Single-option decisions short-circuit (no inference needed), and a
+    setup-excluded net (``include_setup=False``) resolves the combined opening
+    ``SetupDecision`` with a uniform-random legal choice rather than scoring a
+    decision it was never trained to encode. Shared by the eval harness
+    (``evaluate._greedy_agent``) and the tournament so both measure strength with
+    the exact same play.
+    """
+
+    def agent[C: decisions.Choice](
+        eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if len(decision.choices) == 1:
+            return decision.choices[0]
+        if not net.include_setup and decisions.is_setup_decision(decision):
+            return decisions.random_choice(decision, eng.state.rng)
+        family_idx = decisions.family_index_for(type(decision))
+        state_vec = encode.encode_state(eng.state, decision, net.spec)
+        choice_feats = encode.encode_choices(decision, eng.state, net.spec)
+        idx = greedy_action(net, device, state_vec, choice_feats, family_idx)
+        return decision.choices[idx]
+
+    return agent
 
 
 def sample_index_from_probs(

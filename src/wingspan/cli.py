@@ -86,6 +86,16 @@ def main_random(argv: list[str] | None = None) -> int:
     return 0
 
 
+def main_tournament(argv: list[str] | None = None) -> int:
+    """Run a round-robin tournament between trained AIs (``wingspan.tournament``).
+
+    Imported lazily so the lightweight ``manual`` / ``random`` subcommands don't
+    pay the tournament app's torch + rich import cost."""
+    from wingspan.tournament import app as tournament_app
+
+    return tournament_app.main(argv)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "manual":
         sys.exit(main_manual(sys.argv[2:]))
@@ -93,5 +103,7 @@ if __name__ == "__main__":
         sys.exit(main_random(sys.argv[2:]))
     elif len(sys.argv) > 1 and sys.argv[1] == "selfplay":
         sys.exit(selfplay.main_selfplay(sys.argv[2:]))
+    elif len(sys.argv) > 1 and sys.argv[1] == "tournament":
+        sys.exit(main_tournament(sys.argv[2:]))
     else:
         sys.exit(main_random(sys.argv[1:]))

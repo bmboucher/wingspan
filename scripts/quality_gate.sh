@@ -13,6 +13,15 @@ PYTHON="$REPO_ROOT/.venv/Scripts/python.exe"
 # ---- Preflight ----
 
 if [ ! -f "$PYTHON" ]; then
+    # In a worktree the venv lives in the main checkout (it is not copied);
+    # resolve the main repo root through the shared .git common dir.
+    COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+    if [ -n "$COMMON_DIR" ]; then
+        PYTHON="$(dirname "$COMMON_DIR")/.venv/Scripts/python.exe"
+    fi
+fi
+
+if [ ! -f "$PYTHON" ]; then
     echo "ERROR: Python venv not found at $REPO_ROOT/.venv" >&2
     echo "       Run: pip install -e \".[dev]\"" >&2
     exit 1
@@ -45,8 +54,10 @@ FAILED=0
 
 # ---- Step 1: pyright (initial) ----
 
+# pyright resolves the venv from pyproject's venvPath relative to cwd, which
+# misses the shared venv when gating a worktree; --pythonpath pins it instead.
 header "STEP 1/5: pyright (strict type check)"
-if ! pyright; then
+if ! pyright --pythonpath "$PYTHON"; then
     echo
     echo "GATE FAILED at step 1 — fix type errors before formatting."
     exit 1
@@ -65,7 +76,7 @@ header "STEP 3/5: black (format)"
 # ---- Step 4: pyright (post-format) ----
 
 header "STEP 4/5: pyright (post-format verification)"
-if ! pyright; then
+if ! pyright --pythonpath "$PYTHON"; then
     echo
     echo "GATE FAILED at step 4 — formatting introduced a type error."
     FAILED=1
