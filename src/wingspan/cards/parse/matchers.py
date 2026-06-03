@@ -16,6 +16,107 @@ import re
 from wingspan.cards import schema
 from wingspan.cards.parse import registry, tags
 
+# ---------------------------------------------------------------------------
+# Helpers for "Tuck N from hand. If you do, [X]." conditional patterns
+
+# Regex that matches any covered tuck-conditional consequence. Used to suppress
+# the standalone tuck-from-hand matcher when a combined matcher already handles
+# the whole pattern.
+_TUCK_IF_DO_COVERED = re.compile(
+    r"from your hand behind this bird\.\s+If you do,\s+"
+    r"(?:"
+    r"draw\s+(?:\d+|a|an|one|two|three)\s+\[card\]"
+    r"|you may also lay\s+(?:\d+|a|an|one|two|three)\s+\[egg\] on this bird"
+    r"|lay\s+(?:\d+|a|an|one|two|three)\s+\[egg\] on any bird"
+    r"|gain\s+(?:\d+|a|an|one|two|three)\s+\[\w+\]\s+from the supply(?!\s+or)"
+    r")",
+    re.I,
+)
+
+
+def _is_if_you_do_consequence(text: str, match_start: int) -> bool:
+    """True when the matched clause at ``match_start`` is the consequence of an
+    'If you do,' clause that appears earlier in the text."""
+    return re.search(r"if you do,", text[:match_start], re.I) is not None
+
+
+# ---------------------------------------------------------------------------
+# Combined tuck-conditional matchers (registered before the individual-clause
+# matchers they supersede so they get priority in the trial order).
+
+
+@registry.pattern
+def _m_tuck_then_draw(text: str) -> schema.Effect | None:
+    """'Tuck N from hand. If you do, draw N [card].' — tuck first, draw only on success."""
+    match = re.search(
+        r"Tuck\s+(\d+|a|an|one|two|three)\s+\[card\] from your hand behind this bird\."
+        r"\s+If you do, draw\s+(\d+|a|an|one|two|three)\s+\[card\]",
+        text,
+        re.I,
+    )
+    if match:
+        return schema.Effect(
+            kind=schema.EffectKind.TUCK_FROM_HAND_THEN_DRAW,
+            amount=tags.to_int(match.group(1)) or 1,
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
+def _m_tuck_then_lay_on_this(text: str) -> schema.Effect | None:
+    """'Tuck N from hand. If you do, you may also lay N [egg] on this bird.' — optional lay on success."""
+    match = re.search(
+        r"Tuck\s+(?:\d+|a|an|one|two|three)\s+\[card\] from your hand behind this bird\."
+        r"\s+If you do, you may also lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on this bird",
+        text,
+        re.I,
+    )
+    if match:
+        return schema.Effect(
+            kind=schema.EffectKind.TUCK_FROM_HAND_THEN_LAY_ON_THIS,
+            amount=tags.to_int(match.group(1)) or 1,
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
+def _m_tuck_then_lay_any(text: str) -> schema.Effect | None:
+    """'Tuck N from hand. If you do, lay N [egg] on any bird.' — lay any on success."""
+    match = re.search(
+        r"Tuck\s+(?:\d+|a|an|one|two|three)\s+\[card\] from your hand behind this bird\."
+        r"\s+If you do, lay\s+(\d+|a|an|one|two|three)\s+\[egg\] on any bird",
+        text,
+        re.I,
+    )
+    if match:
+        return schema.Effect(
+            kind=schema.EffectKind.TUCK_FROM_HAND_THEN_LAY_ANY,
+            amount=tags.to_int(match.group(1)) or 1,
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
+def _m_tuck_then_gain_food_supply(text: str) -> schema.Effect | None:
+    """'Tuck N from hand. If you do, gain N [food] from the supply.' — food gain on success."""
+    match = re.search(
+        r"Tuck\s+(?:\d+|a|an|one|two|three)\s+\[card\] from your hand behind this bird\."
+        r"\s+If you do, gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply(?!\s+or)",
+        text,
+        re.I,
+    )
+    if match and match.group(2) in tags.FOOD_TAGS:
+        return schema.Effect(
+            kind=schema.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY,
+            amount=tags.to_int(match.group(1)) or 1,
+            food=tags.FOOD_TAGS[match.group(2)],
+            raw_text=match.group(0),
+        )
+    return None
+
 
 @registry.pattern
 def _m_gain_food_supply(text: str) -> schema.Effect | None:
@@ -25,6 +126,8 @@ def _m_gain_food_supply(text: str) -> schema.Effect | None:
         re.I,
     )
     if match and match.group(2) in tags.FOOD_TAGS:
+        if _is_if_you_do_consequence(text, match.start()):
+            return None
         amount = tags.to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.GAIN_FOOD_SUPPLY,
@@ -94,6 +197,8 @@ def _m_lay_egg_on_this(text: str) -> schema.Effect | None:
         re.I,
     )
     if match:
+        if _is_if_you_do_consequence(text, match.start()):
+            return None
         amount = tags.to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.LAY_EGG_ON_THIS,
@@ -111,6 +216,8 @@ def _m_lay_egg_any(text: str) -> schema.Effect | None:
         re.I,
     )
     if match:
+        if _is_if_you_do_consequence(text, match.start()):
+            return None
         amount = tags.to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.LAY_EGG_ANY,
@@ -127,6 +234,8 @@ def _m_draw_cards(text: str) -> schema.Effect | None:
         return None
     match = re.search(r"Draw\s+(\d+|a|an|one|two|three)\s+\[card\]", text, re.I)
     if match:
+        if _is_if_you_do_consequence(text, match.start()):
+            return None
         amount = tags.to_int(match.group(1)) or 1
         return schema.Effect(
             kind=schema.EffectKind.DRAW_CARDS,
@@ -156,6 +265,9 @@ def _m_cache_food(text: str) -> schema.Effect | None:
 
 @registry.pattern
 def _m_tuck_from_hand(text: str) -> schema.Effect | None:
+    # Skip patterns handled by a combined tuck-conditional matcher.
+    if _TUCK_IF_DO_COVERED.search(text):
+        return None
     match = re.search(
         r"Tuck\s+(\d+|a|an|one|two|three)\s+\[card\] from your hand behind this",
         text,

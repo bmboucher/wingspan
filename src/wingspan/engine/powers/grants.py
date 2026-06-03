@@ -218,6 +218,179 @@ def _h_tuck_from_hand(
         engine.log(f"  {bird.name}: tucked {ch.bird.name}")
 
 
+@registry.handles(cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW)
+def _h_tuck_from_hand_then_draw(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    """Tuck 1 from hand (optional); if accepted, draw 1 card."""
+    from wingspan.engine import actions
+
+    bird = pb.bird
+    if not player.hand:
+        return
+    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
+        decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
+    ]
+    choices.append(decisions.SkipChoice(label="skip"))
+    ch = engine.ask(
+        agent,
+        decisions.BirdPowerTuckFromHandDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+            choices=choices,
+        ),
+    )
+    if isinstance(ch, decisions.SkipChoice):
+        return
+    player.hand.remove(ch.bird)
+    pb.tucked_cards += 1
+    engine.log(f"  {bird.name}: tucked {ch.bird.name}")
+    for _ in range(eff.amount):
+        actions.draw_one_card(engine, agent, player)
+
+
+@registry.handles(cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ON_THIS)
+def _h_tuck_from_hand_then_lay_on_this(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    """Tuck 1 from hand (optional); if accepted, optionally lay 1 egg on this bird."""
+    bird = pb.bird
+    if not player.hand:
+        return
+    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
+        decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
+    ]
+    choices.append(decisions.SkipChoice(label="skip"))
+    ch = engine.ask(
+        agent,
+        decisions.BirdPowerTuckFromHandDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+            choices=choices,
+        ),
+    )
+    if isinstance(ch, decisions.SkipChoice):
+        return
+    player.hand.remove(ch.bird)
+    pb.tucked_cards += 1
+    engine.log(f"  {bird.name}: tucked {ch.bird.name}")
+
+    # Offer the optional lay-on-this-bird.
+    cap = bird.egg_limit - pb.eggs
+    if cap <= 0:
+        return
+    row = player.board[habitat]
+    slot = next(idx for idx, slot_pb in enumerate(row) if slot_pb is pb)
+    lay_choices: list[decisions.BoardTargetChoice | decisions.SkipChoice] = [
+        decisions.BoardTargetChoice(
+            label=f"{bird.name}@{habitat.value}[{slot}]({pb.eggs}/{bird.egg_limit})",
+            habitat=habitat,
+            slot=slot,
+        ),
+        decisions.SkipChoice(label="skip"),
+    ]
+    lay_ch = engine.ask(
+        agent,
+        decisions.LayEggDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] optionally lay 1 egg on {bird.name} (or skip)",
+            choices=lay_choices,
+        ),
+    )
+    if isinstance(lay_ch, decisions.SkipChoice):
+        return
+    pb.eggs += 1
+    engine.log(f"  {bird.name}: laid 1 egg on itself")
+
+
+@registry.handles(cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ANY)
+def _h_tuck_from_hand_then_lay_any(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    """Tuck 1 from hand (optional); if accepted, lay N eggs on any bird(s)."""
+    from wingspan.engine import actions
+
+    bird = pb.bird
+    if not player.hand:
+        return
+    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
+        decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
+    ]
+    choices.append(decisions.SkipChoice(label="skip"))
+    ch = engine.ask(
+        agent,
+        decisions.BirdPowerTuckFromHandDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+            choices=choices,
+        ),
+    )
+    if isinstance(ch, decisions.SkipChoice):
+        return
+    player.hand.remove(ch.bird)
+    pb.tucked_cards += 1
+    engine.log(f"  {bird.name}: tucked {ch.bird.name}")
+    for _ in range(eff.amount):
+        actions.lay_one_egg(engine, agent, player)
+
+
+@registry.handles(cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY)
+def _h_tuck_from_hand_then_gain_food_supply(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    """Tuck 1 from hand (optional); if accepted, gain N [food] from supply."""
+    bird = pb.bird
+    if not player.hand:
+        return
+    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
+        decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
+    ]
+    choices.append(decisions.SkipChoice(label="skip"))
+    ch = engine.ask(
+        agent,
+        decisions.BirdPowerTuckFromHandDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+            choices=choices,
+        ),
+    )
+    if isinstance(ch, decisions.SkipChoice):
+        return
+    player.hand.remove(ch.bird)
+    pb.tucked_cards += 1
+    engine.log(f"  {bird.name}: tucked {ch.bird.name}")
+
+    st = engine.state
+    if eff.food and st.food_supply.get(eff.food, 0) >= eff.amount:
+        st.food_supply[eff.food] -= eff.amount
+        player.food[eff.food] += eff.amount
+        engine.log(f"  {bird.name}: +{eff.amount} {eff.food.value} from supply")
+
+
 @registry.handles(cards.EffectKind.PLAY_ADDITIONAL_BIRD)
 def _h_play_additional_bird(
     engine: "core.Engine",

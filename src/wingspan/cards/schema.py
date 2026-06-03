@@ -101,6 +101,12 @@ class EffectKind(enum.StrEnum):
     LAY_EGG_ALL_NEST = "lay_egg_all_nest"
     GAIN_ALL_FOOD_FEEDER = "gain_all_food_feeder"
     TUCK_FROM_DECK_PAID = "tuck_from_deck_paid"
+    # "Tuck 1 [card] from hand. If you do, [X]." — combined atomic effects so
+    # the secondary only fires when the tuck is accepted (not skipped).
+    TUCK_FROM_HAND_THEN_DRAW = "tuck_from_hand_then_draw"
+    TUCK_FROM_HAND_THEN_LAY_ON_THIS = "tuck_from_hand_then_lay_on_this"
+    TUCK_FROM_HAND_THEN_LAY_ANY = "tuck_from_hand_then_lay_any"
+    TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY = "tuck_from_hand_then_gain_food_supply"
     PREDATOR_HUNT = "predator_hunt"
     MOVE_BIRD_IF_RIGHTMOST = "move_bird_if_rightmost"
     REPEAT_BROWN_POWER = "repeat_brown_power"
