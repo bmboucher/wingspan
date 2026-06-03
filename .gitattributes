@@ -1,0 +1,6 @@
+# Shell scripts must use LF line endings so Git Bash on Windows can execute
+# them. With core.autocrlf=true and no override, these get checked out as CRLF,
+# which makes bash emit a spurious "unexpected EOF while looking for matching
+# quote" and exit non-zero even when the script ran fine — which silently broke
+# the worktree merge gate (scripts/merge_worktree.sh -> scripts/quality_gate.sh).
+*.sh text eol=lf
