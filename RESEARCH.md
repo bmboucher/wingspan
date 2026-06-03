@@ -10,7 +10,17 @@ Main questions:
 2. Does this answer vary between the different decision heads enough that we need to configure each separately for most runs?
 
 ## Project: Impact of RNG
-Let's train some small number of models (3-5) 
+Let's train some small number of models (3-5) with different RNG seeds, starting from different random parameter initializations etc, but with exactly the same config otherwise and then put them in a tournament (we'll call a model "trained" when its EWMA average points/game has been above some configurable threshold for some configurable number of iterations). Main questions:
+1. How much does a model's performance vary when the "points scored" metric is similar?
+2. Do multiple models trained on different "paths" arrive at the same endpoint or do they have different "playstyles"?
+3. What is the impact of training a model against a model that is also optimal but significantly different (rather than self-play)? i.e. if we train 2 different models from different RNG seeds to some minimum threshold, and then start training them against each other, do they end up looking similar or different (i.e. playstyles converge or just adapt to each other)?
+4. Does that kind of cross-breeding improve performance? i.e. if I train model A and B, and then I run N more iterations of just A, and just B, and the combined A vs B, do the resulting models look similar or different?
+
+## Project: Impact of Card Embedding dimensions
+Let's train some range of models with the card embedding dimension varying to see the overall impact on training time and performance. In particular, I'm curious to see if we can get meaningful results from a dimensions as low as 3, because I think it would be really interesting to visualize the cards as points in space.
+
+## Project: Extra-Long Training Run
+We should do this only after we have a model that we really like - let's continue the training for some huge amount of time, maybe increase batch sizes and parallelize more to make it more efficient. What we're looking to see is evidence of "grokking" - does the model continue to learn while out-of-sample performancee remains stagnant, and then all of a sudden jump to a new plateau when it "figures something out"?
 
 # Related to Model Function
 
