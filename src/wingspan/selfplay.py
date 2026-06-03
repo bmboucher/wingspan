@@ -27,10 +27,12 @@ import numpy as np
 import torch
 import yaml
 
-from wingspan import agents, decisions, encode, engine, model
+from wingspan import agents, decisions, encode, engine, model, setup_model
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
 from wingspan.training import artifacts, config, policy
+from wingspan.training import setup_net as setup_net_module
+from wingspan.training import setup_runmeta
 
 # Cap and floor on the per-decision annotation: never list more than this many
 # options, and never list one the policy assigns less than this probability to
@@ -207,7 +209,8 @@ def _make_agent(
         return agents.random_agent(rng)
     checkpoint_path = _resolve_checkpoint_path(spec, checkpoint_dir)
     net = _load_policy_net(checkpoint_path, device)
-    return _logged_policy_agent(net, device, rng, greedy)
+    setup_net_instance = _load_setup_net(checkpoint_dir, device)
+    return _logged_policy_agent(net, device, rng, greedy, setup_net=setup_net_instance)
 
 
 def _resolve_checkpoint_path(spec: str, checkpoint_dir: pathlib.Path) -> pathlib.Path:
@@ -273,6 +276,66 @@ def _encoding_key(cfg: config.TrainConfig) -> tuple[int, int, tuple[str, ...]]:
     return (cfg.state_dim, cfg.choice_dim, cfg.family_order)
 
 
+#### Setup model helpers ####
+
+
+def _load_setup_net(
+    checkpoint_dir: pathlib.Path, device: torch.device
+) -> setup_net_module.SetupNet | None:
+    """Try to load the separately-trained ``SetupNet`` from ``checkpoint_dir``.
+
+    Returns ``None`` — silently degrading to random setup picks — when either
+    artifact is absent, the checkpoint is corrupt, or the shape descriptor is
+    unreadable. The main game still runs; setup decisions just won't be logged."""
+    ckpt_path = checkpoint_dir / artifacts.SETUP_CKPT
+    config_path = checkpoint_dir / artifacts.SETUP_CONFIG_JSON
+    if not ckpt_path.exists() or not config_path.exists():
+        return None
+    try:
+        descriptor = setup_runmeta.read_setup_config(str(checkpoint_dir))
+        payload = typing.cast(
+            "dict[str, typing.Any]",
+            torch.load(ckpt_path, map_location=device, weights_only=False),
+        )
+        net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
+        net_instance.load_state_dict(payload["setup_model"])
+        net_instance.eval()
+        return net_instance.to(device)
+    except (
+        Exception
+    ):  # noqa: BLE001 — stale / incompatible checkpoint → silent fallback
+        return None
+
+
+def _compute_setup_probs(
+    net_instance: setup_net_module.SetupNet,
+    decision: decisions.SetupDecision,
+    eng: engine.Engine,
+    device: torch.device,
+) -> np.ndarray:
+    """Score every choice in ``decision`` through the setup net and return a
+    softmax probability distribution aligned to ``decision.choices``."""
+    context = setup_model.SetupContext.from_state(eng.state)
+
+    # Encode each choice using the same candidate → feature-vector path the
+    # training pipeline uses, which guarantees alignment with the saved weights.
+    vecs = np.stack(
+        [
+            setup_model.encode_setup_candidate(
+                setup_model.SetupCandidate.from_setup_choice(choice), context
+            )
+            for choice in decision.choices
+        ]
+    )
+    feats = torch.tensor(vecs, dtype=torch.float32, device=device)
+    with torch.no_grad():
+        margins = net_instance(feats).cpu().numpy()
+
+    shifted = margins - margins.max()
+    weights = np.exp(shifted)
+    return weights / weights.sum()
+
+
 #### The log-annotating policy agent ####
 
 
@@ -281,10 +344,16 @@ def _logged_policy_agent(
     device: torch.device,
     rng: random.Random,
     greedy: bool,
+    setup_net: setup_net_module.SetupNet | None = None,
 ) -> engine.Agent:
     """An AI agent that, for every genuine (multi-option) decision, writes the
     policy's ranked softmax distribution into the game log before picking — by
-    argmax when ``greedy``, else by sampling on-policy."""
+    argmax when ``greedy``, else by sampling on-policy.
+
+    When ``net.include_setup`` is ``False`` (the default) and a ``SetupDecision``
+    is encountered, ``setup_net`` is used instead of the main net to score the
+    504 keep-combinations and log their probability distribution. Falls back to a
+    random pick when ``setup_net`` is ``None`` (e.g. no ``setup.pt`` found)."""
 
     def agent[C: decisions.Choice](
         eng: engine.Engine,
@@ -293,7 +362,22 @@ def _logged_policy_agent(
         if len(decision.choices) == 1:
             return decision.choices[0]
         if not net.include_setup and decisions.is_setup_decision(decision):
-            return decisions.random_choice(decision, eng.state.rng)
+            if setup_net is None:
+                return decisions.random_choice(decision, eng.state.rng)
+            setup_decision = typing.cast(decisions.SetupDecision, decision)
+            probs = _compute_setup_probs(setup_net, setup_decision, eng, device)
+            _log_distribution(eng, decision, probs, greedy)
+            n_choices = len(decision.choices)
+            if greedy:
+                chosen_idx = int(np.argmax(probs))
+            else:
+                chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
+            chosen = decision.choices[chosen_idx]
+            eng.log(
+                f"[AI chose: {chosen.display_label()} "
+                f"({float(probs[chosen_idx]) * 100.0:.1f}%)]"
+            )
+            return chosen
 
         # One forward pass gives the full distribution over the legal options.
         family_idx = decisions.family_index_for(type(decision))
