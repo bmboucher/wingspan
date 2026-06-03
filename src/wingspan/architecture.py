@@ -43,6 +43,7 @@ type ShapeKey = tuple[
     bool,  # layernorm
     int,  # card_embed_dim
     tuple[int, ...],  # card_encoder_layers
+    tuple[tuple[int, ...], ...] | None,  # per_family_head_layers
 ]
 
 
@@ -84,6 +85,11 @@ class ModelArchitecture(pydantic.BaseModel):
     # The default mirrors ``config.TrainConfig`` so a bare ``ModelArchitecture()``
     # (e.g. ``PolicyValueNet()``) matches a configured run's shape.
     card_encoder_layers: Widths = (128,)
+    # Per-family scorer head widths, one entry per active decision family in stable
+    # order. When set, each family's scoring MLP uses its own hidden-layer widths
+    # instead of the shared ``head_layers``; ``head_layers_for(i)`` resolves this.
+    # ``None`` (the default) = all families share ``head_layers`` (uniform mode).
+    per_family_head_layers: tuple[Widths, ...] | None = None
 
     @property
     def trunk_embed_width(self) -> int:
@@ -95,6 +101,15 @@ class ModelArchitecture(pydantic.BaseModel):
         """The choice encoder's output width ``N`` — concatenated with ``M`` for
         scoring."""
         return self.choice_layers[-1]
+
+    def head_layers_for(self, family_index: int) -> Widths:
+        """The scorer head hidden widths for the given family index.
+
+        Returns the family's dedicated width list when ``per_family_head_layers``
+        is set, or the shared ``head_layers`` in uniform mode."""
+        if self.per_family_head_layers is not None:
+            return self.per_family_head_layers[family_index]
+        return self.head_layers
 
     @property
     def shape_key(self) -> ShapeKey:
@@ -108,6 +123,7 @@ class ModelArchitecture(pydantic.BaseModel):
             self.layernorm,
             self.card_embed_dim,
             self.card_encoder_layers,
+            self.per_family_head_layers,
         )
 
 
@@ -208,14 +224,30 @@ def count_parameters(
         choice=BlockParam(
             label="CHOICE", layers=_body_layers(choice_in, arch.choice_layers, arch)
         ),
-        scorer=BlockParam(
-            label="SCORER",
-            layers=readout_layers(scorer_in, arch.head_layers),
-            multiplier=num_families,
-        ),
+        scorer=_scorer_block(arch, scorer_in, num_families),
         value=BlockParam(
             label="VALUE", layers=readout_layers(trunk_m, arch.value_layers)
         ),
+    )
+
+
+def _scorer_block(
+    arch: ModelArchitecture, scorer_in: int, num_families: int
+) -> BlockParam:
+    # Uniform mode: all heads share one shape, expressed with a multiplier so the
+    # arch diagram can show "× N families". Per-family mode: sum each family's
+    # readout params individually into ``extra``; per-layer breakdown is omitted
+    # (the diagram shows a single aggregate total).
+    if arch.per_family_head_layers is not None:
+        total = sum(
+            sum(lp.params for lp in readout_layers(scorer_in, widths))
+            for widths in arch.per_family_head_layers
+        )
+        return BlockParam(label="SCORER", layers=(), multiplier=1, extra=total)
+    return BlockParam(
+        label="SCORER",
+        layers=readout_layers(scorer_in, arch.head_layers),
+        multiplier=num_families,
     )
 
 

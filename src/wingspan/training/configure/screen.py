@@ -15,7 +15,7 @@ from __future__ import annotations
 import rich.console as rich_console
 from rich import align, box, layout, panel, table, text
 
-from wingspan.training import charts, theme
+from wingspan.training import charts, config, theme
 from wingspan.training.configure import arch_diagram, fields, runs, state
 
 _WORDMARK = "🪶 WINGSPAN  FLIGHT PLAN"
@@ -211,7 +211,7 @@ class _FormView:
         selected_row = 0
         for section in fields.SECTION_ORDER:
             rows.append(_section_header(section))
-            for spec in _specs_in(section):
+            for spec in _specs_in(section, self.view.working):
                 if spec.attr == self.view.selected_attr:
                     selected_row = len(rows)
                 rows.append(_field_row(self.view, spec, self.frame))
@@ -618,5 +618,12 @@ def _kv(label: str, value: str) -> text.Text:
     return out
 
 
-def _specs_in(section: fields.ConfigSection) -> list[fields.FieldSpec]:
-    return [spec for spec in fields.FIELD_SPECS if spec.section is section]
+def _specs_in(
+    section: fields.ConfigSection, cfg: config.TrainConfig
+) -> list[fields.FieldSpec]:
+    return [
+        spec
+        for spec in fields.FIELD_SPECS
+        if spec.section is section
+        and (spec.visible_when is None or spec.visible_when(cfg))
+    ]

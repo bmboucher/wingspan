@@ -240,16 +240,24 @@ def _navigate_char(view: state.ConfiguratorState, char: str) -> state.Outcome:
 
 
 def _move_selection(view: state.ConfiguratorState, delta: int) -> state.Outcome:
-    attrs = fields.editable_attrs()
+    attrs = fields.editable_attrs(view.working)
     index = attrs.index(view.selected_attr)
     view.selected_attr = attrs[min(max(index + delta, 0), len(attrs) - 1)]
     return state.Outcome.CONTINUE
 
 
 def _select_end(view: state.ConfiguratorState, first: bool) -> state.Outcome:
-    attrs = fields.editable_attrs()
+    attrs = fields.editable_attrs(view.working)
     view.selected_attr = attrs[0] if first else attrs[-1]
     return state.Outcome.CONTINUE
+
+
+def _snap_if_invisible(view: state.ConfiguratorState) -> None:
+    # After a mutation that may change field visibility (e.g. toggling
+    # head_layers_mode), snap the cursor to the mode toggle if the current
+    # field has been hidden so navigation never lands on an invisible spec.
+    if view.selected_attr not in fields.editable_attrs(view.working):
+        view.selected_attr = "head_layers_mode"
 
 
 def _apply_nudge(view: state.ConfiguratorState, direction: int) -> state.Outcome:
@@ -263,6 +271,7 @@ def _apply_nudge(view: state.ConfiguratorState, direction: int) -> state.Outcome
         return state.Outcome.CONTINUE
     view.working = updated
     view.message = None
+    _snap_if_invisible(view)
     return state.Outcome.CONTINUE
 
 
@@ -315,6 +324,7 @@ def _commit_edit(view: state.ConfiguratorState) -> state.Outcome:
     view.working = updated
     view.mode = state.Mode.NAVIGATE
     view.edit_buffer = ""
+    _snap_if_invisible(view)
     if changed_dir:
         _reinspect(view)
     else:

@@ -149,8 +149,8 @@ class PolicyValueNet(nn.Module):
         # here. ``family_idx`` routes each decision to its head in ``forward``.
         scorer_in_dim = arch.trunk_embed_width + arch.choice_embed_width
         self.scorers = nn.ModuleList(
-            _build_readout(scorer_in_dim, arch.head_layers, arch)
-            for _ in range(num_families)
+            _build_readout(scorer_in_dim, arch.head_layers_for(family_index), arch)
+            for family_index in range(num_families)
         )
         # The value head reads the trunk context (a property of the board, not of
         # the decision asked, so it is shared across families).

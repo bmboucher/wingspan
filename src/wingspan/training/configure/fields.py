@@ -77,12 +77,17 @@ class ChangeImpact(enum.StrEnum):
 class FieldSpec(pydantic.BaseModel):
     """Shared display metadata for one editable ``TrainConfig`` field."""
 
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+
     attr: str
     label: str
     section: ConfigSection
     help: str
     unit: str = ""
     impact: ChangeImpact = ChangeImpact.NONE
+    # When set, the field is shown and navigable only when this predicate returns
+    # True for the current working config. None = always visible.
+    visible_when: typing.Callable[[config.TrainConfig], bool] | None = None
 
 
 class IntField(FieldSpec):
@@ -296,6 +301,16 @@ FIELD_SPECS: list[FieldSpec] = [
         "choice embedding concatenated with M before the scorer heads. Independent "
         "of trunk layers. Fresh run.",
     ),
+    ChoiceField(
+        attr="head_layers_mode",
+        label="scorer head mode",
+        section=ConfigSection.MODEL,
+        choices=["uniform", "per_family"],
+        impact=ChangeImpact.FRESH,
+        help="'uniform' — all decision families share one scorer head shape. "
+        "'per_family' — configure each family's hidden widths independently. "
+        "Fresh run.",
+    ),
     LayersField(
         attr="head_layers",
         label="scorer head layers",
@@ -303,8 +318,149 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "uniform",
         help="Per-family scorer hidden widths between the M+N concat and the final "
         "logit. Empty (←  to 0 layers) = a direct (M+N)→1 readout. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_main_action",
+        label="head: main action",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the main-action family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_draw_bird",
+        label="head: draw bird",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the draw-bird family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_discard_bird",
+        label="head: discard bird",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the discard-bird family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_gain_food",
+        label="head: gain food",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the gain-food family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_spend_food",
+        label="head: spend food",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the spend-food family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_lay_egg",
+        label="head: lay egg",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the lay-egg family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_pay_egg",
+        label="head: pay egg",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the pay-egg family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_commit_to_cost",
+        label="head: commit to cost",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the commit-to-cost family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_choose_bonus",
+        label="head: choose bonus",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the choose-bonus family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_move_habitat",
+        label="head: move habitat",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the move-habitat family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_misc_rare",
+        label="head: misc rare",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the misc-rare family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_play_bird",
+        label="head: play bird",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the play-bird family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_reset_birdfeeder",
+        label="head: reset birdfeeder",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the reset-birdfeeder family. Fresh run.",
+    ),
+    LayersField(
+        attr="head_layers_setup",
+        label="head: setup",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        help="Scorer head hidden widths for the setup family. Fresh run.",
     ),
     LayersField(
         attr="value_layers",
@@ -532,9 +688,20 @@ def spec_for(attr: str) -> FieldSpec:
     return _BY_ATTR[attr]
 
 
-def editable_attrs() -> list[str]:
-    """All editable attribute names, in form display order."""
-    return [spec.attr for spec in FIELD_SPECS]
+def editable_attrs(cfg: config.TrainConfig | None = None) -> list[str]:
+    """Editable attribute names in form display order.
+
+    When ``cfg`` is supplied, fields whose ``visible_when`` predicate returns
+    ``False`` are excluded so callers can navigate only the currently-visible
+    subset. Omit ``cfg`` to get the full list (e.g. for ``_BY_ATTR`` construction).
+    """
+    if cfg is None:
+        return [spec.attr for spec in FIELD_SPECS]
+    return [
+        spec.attr
+        for spec in FIELD_SPECS
+        if spec.visible_when is None or spec.visible_when(cfg)
+    ]
 
 
 def read_field(cfg: config.TrainConfig, spec: FieldSpec) -> FieldValue:

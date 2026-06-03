@@ -135,6 +135,27 @@ class TrainConfig(pydantic.BaseModel):
     ] = (128, 128)
     head_layers: architecture.Widths = (128,)
     value_layers: architecture.Widths = ()
+    # "uniform" uses head_layers for every family; "per_family" uses the
+    # per-family fields below to give each scoring head its own hidden widths.
+    # Fresh run when changed (head shapes differ between the two modes).
+    head_layers_mode: typing.Literal["uniform", "per_family"] = "uniform"
+    # Per-family scorer heads — one entry per DecisionFamily in ALL_DECISION_FAMILIES
+    # order. Active only when head_layers_mode == "per_family"; defaults match
+    # head_layers so switching modes starts from the same network shape.
+    head_layers_main_action: architecture.Widths = (128,)
+    head_layers_draw_bird: architecture.Widths = (128,)
+    head_layers_discard_bird: architecture.Widths = (128,)
+    head_layers_gain_food: architecture.Widths = (128,)
+    head_layers_spend_food: architecture.Widths = (128,)
+    head_layers_lay_egg: architecture.Widths = (128,)
+    head_layers_pay_egg: architecture.Widths = (128,)
+    head_layers_commit_to_cost: architecture.Widths = (128,)
+    head_layers_choose_bonus: architecture.Widths = (128,)
+    head_layers_move_habitat: architecture.Widths = (128,)
+    head_layers_misc_rare: architecture.Widths = (128,)
+    head_layers_play_bird: architecture.Widths = (128,)
+    head_layers_reset_birdfeeder: architecture.Widths = (128,)
+    head_layers_setup: architecture.Widths = (128,)
     activation: architecture.ActivationName = architecture.ActivationName.RELU
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
     layernorm: bool = False
@@ -289,11 +310,28 @@ class TrainConfig(pydantic.BaseModel):
         fields — the single object the model builds from and ``model_config.json``
         serializes. Named ``arch`` (not ``architecture``) so it never shadows the
         imported ``architecture`` module in this class's field annotations."""
+        # In per_family mode, assemble one Widths tuple per active family (the
+        # active set respects use_setup_model, which removes SETUP from the main
+        # net). In uniform mode, per_family_head_layers is None and every head
+        # falls back to head_layers via ModelArchitecture.head_layers_for.
+        per_family: tuple[architecture.Widths, ...] | None = None
+        if self.head_layers_mode == "per_family":
+            active = decisions.active_decision_families(
+                self.encoding_spec.include_setup
+            )
+            per_family = tuple(
+                typing.cast(
+                    architecture.Widths,
+                    getattr(self, f"head_layers_{family.value}"),
+                )
+                for family in active
+            )
         return architecture.ModelArchitecture(
             trunk_layers=self.trunk_layers,
             choice_layers=self.choice_layers,
             head_layers=self.head_layers,
             value_layers=self.value_layers,
+            per_family_head_layers=per_family,
             activation=self.activation,
             dropout=self.dropout,
             layernorm=self.layernorm,
