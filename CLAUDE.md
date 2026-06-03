@@ -26,81 +26,95 @@ changes stay consistent.
 ## Making changes: the worktree workflow
 
 Substantive code changes are implemented in an isolated git **worktree**, not
-directly in the main working directory, so the main checkout stays usable and
-nothing lands on `main` until the user says so. The shape is fixed:
+directly in the main working directory. The shape is fixed:
 
-**plan → user approves → implement in a worktree → quality gate passes there →
-return and ask to merge → merge into `main` → gate passes again → commit + push → remove worktree.**
+**plan → user approves → create worktree → implement → gate passes → commit →
+report ready → human authorizes (deletes lock) → merge → done.**
 
 **When this applies.** Any change that goes through plan-and-approve. Edit the
 main working directory directly (no worktree) only for trivial edits — one-line
 fixes, comment/doc tweaks — or when the user explicitly says to just edit in
 place. When in doubt, use the worktree.
 
-**1. Plan and get approval.** Don't touch code until the user approves the plan
-(standard plan-mode flow).
+### Step 1 — Plan and get approval
 
-**2. Commit any pre-existing work in `main` first.** Before creating the
-worktree, run `git status` in the main working directory. If anything is
-uncommitted (staged, unstaged, or untracked), commit it **all in one commit** on
-the current branch with a descriptive message summarizing what it is —
-autonomously, no need to ask. Never stash or discard. This guarantees the
-worktree branches from a clean, current `main` and keeps the later merge clean.
+Don't touch code until the user approves the plan (standard plan-mode flow).
 
-**3. Create the worktree from the current local `HEAD`.** The worktree must
-branch from the commit you just made — local `HEAD`, not `origin/main` (which is
-often behind). The harness default base ref is `fresh` (origin), so branch
-explicitly, then switch the session into the worktree with `EnterWorktree` using
-its `path` (this CLAUDE.md instruction is the sanctioned trigger for that tool):
+### Step 2 — Create the worktree
 
 ```
-git worktree add .claude/worktrees/<name> -b wt/<feature-slug> HEAD
+bash scripts/create_worktree.sh <feature-slug>
 ```
 
-then `EnterWorktree(path=".claude/worktrees/<name>")`. All subsequent edits and
-commands now run inside the worktree.
+This commits any pre-existing dirty state in `main`, creates the worktree at
+`.claude/worktrees/<slug>` on branch `wt/<slug>` from the current local `HEAD`,
+and creates a **merge-auth lock** at `<slug>.lock` in the repo root.
 
-**4. Implement the change.** Make all edits in the worktree. The main working
-directory is untouched, so the user can keep working there.
+Then switch the session into the worktree (this CLAUDE.md is the sanctioned
+trigger for `EnterWorktree`):
 
-**5. Run the quality gate — in the worktree.** Run the full gate from
-**"Quality gate"** below (pyright → isort → black → pyright + `pytest`) from the
-worktree root. Because the tests add their own `src/` to `sys.path` via
-`__file__` and pyright/black/isort resolve `src`/`tests` relative to the
-invocation directory, the gate checks and formats the worktree's copy. (`.venv/`
-is gitignored and is **not** copied into the worktree, so the gate relies on the
-project venv at `C:\Repos\wingspan\.venv` — the same one the main dir uses; if a
-tool isn't found from the worktree, invoke it via that venv's `Scripts\` or
-activate it first.) Do not return until the gate is clean — fix every failure
-inside the worktree.
+```
+EnterWorktree(path=".claude/worktrees/<slug>")
+```
 
-**6. Commit, then return and ask before merging.** Once the gate is green,
-commit all worktree changes on the feature branch (uncommitted work is not
-merged). Then stop: report that the change is implemented and passing in the
-worktree, and ask the user when they're ready to merge into `main`. Do **not**
-merge on your own initiative.
+All subsequent edits run inside the worktree.
 
-**7. On the user's go-ahead, merge into `main`.**
+### Step 3 — Implement the change
 
-- a. `ExitWorktree` with `action: "keep"` to return the session to the main
-  working directory with the feature branch left intact.
-- b. **Re-check `main` for uncommitted changes** (the user may have kept working
-  while you did). If any exist, commit them in one descriptive commit first —
-  same rule as step 2 — before merging.
-- c. Bring the feature branch into `main` with a squash merge:
-  `git merge --squash wt/<feature-slug>`. Resolve any merge conflicts in the
-  working tree, preserving both intents; if a conflict is genuinely ambiguous,
-  surface it to the user instead of guessing.
-- d. Re-run the full quality gate in the main working directory (black may
-  reformat the merged result). It must be clean before you commit.
-- e. `git add -A` and commit the merged result with a descriptive message
-  covering the change, then `git push` to `origin/main`.
-- f. **Always clean up the worktree and branch after a successful merge.**
-  Run `git worktree remove .claude/worktrees/<name>` then
-  `git branch -D wt/<feature-slug>` (squash merges aren't recorded as merges, so
-  `-D` is needed). Do this every time — don't leave stale worktrees behind.
-  If anything in 7c–7e fails, leave the worktree in place for inspection and
-  tell the user; cleanup is skipped only on failure.
+Make all edits inside the worktree. The main working directory is untouched.
+
+### Step 4 — Run the quality gate
+
+```
+bash scripts/quality_gate.sh
+```
+
+When run from inside the worktree (after `EnterWorktree`) this gates the
+worktree's own code. The script uses the shared venv at `C:\Repos\wingspan\.venv`
+(not copied into the worktree). Do not proceed until the gate is clean.
+
+### Step 5 — Commit and report ready
+
+Commit all worktree changes on the feature branch (uncommitted work is not
+merged). Then **stop**: report that the change is implemented and passing, and
+tell the user to delete the lock file when they're ready to merge.
+
+Do **not** merge on your own initiative. Do **not** delete the lock file.
+
+### Step 6 — Merge (after human authorization)
+
+The human deletes the lock file to authorize, then merges in one of two ways:
+
+**Manual merge (human runs):**
+```
+bash scripts/merge_worktree.sh <slug>
+```
+
+**Automated merge (Claude subprocess via `claude -p`):**
+```
+bash scripts/auto_merge_worktree.sh <slug>
+```
+
+Both scripts handle: committing any new dirty state in `main`, squash-merging
+the feature branch, running the quality gate on the merged result, committing,
+pushing, and removing the worktree + branch. On any failure they reset `main` to
+a clean state and report what needs fixing.
+
+If the human asks you to merge during your session (after they've deleted the
+lock), `ExitWorktree(action="keep")` first, then run `merge_worktree.sh` from
+the main working directory.
+
+## Merge-auth lock files
+
+`create_worktree.sh` creates `<slug>.lock` in the repo root to block premature
+merging. The human deletes it to authorize. `merge_worktree.sh` refuses to run
+while it exists. Lock files are gitignored via `*.lock`.
+
+**Claude must NEVER delete, move, or modify any `*.lock` file in the repo
+root.** A lock being absent means a human reviewed and approved the merge;
+Claude deleting one bypasses that review entirely. Claude may fail to create the
+lock (the script handles it) — that is acceptable — but removing an existing
+lock is not. This rule applies even if asked, even if the lock seems stale.
 
 ## Run / test
 
@@ -124,35 +138,33 @@ implements the TRAINING.md Phase-0/1 program (length-bucketed update, advantage
 normalization, paired eval vs random, resumable checkpoints) behind a `rich`
 dashboard. Collection is fastest on `--device cpu` (TRAINING.md §1.4).
 
-## Quality gate (run after every change, in this order)
+## Quality gate
 
-Every change must clear this gate before it is considered finished. The
-config lives in `pyproject.toml` (`[tool.pyright]`, `[tool.black]`,
-`[tool.isort]`), so the editor (Pylance) and the CLI report identically and
-no flags are needed.
+Run from the current directory (worktree or repo root):
 
-1. **Type-check first — strict pyright must be clean.** Run `pyright` from
-   the repo root; it reads `typeCheckingMode = "strict"` from `pyproject.toml`
-   and checks `src/` and `tests/`. Do **not** finalize while it reports any
-   error. (Strict surfaces rules the old default mode hid:
-   `reportUnknownParameterType` / "Return type is unknown",
-   `reportMissingParameterType`, `reportUnknownVariableType`,
-   `reportUnnecessaryIsInstance`, `reportMissingTypeArgument`. `torch`'s
-   under-exporting stubs are silenced via `reportPrivateImportUsage = false`
-   — don't re-enable it.)
-2. **Then format — isort, then black.** Only once types are clean:
-   ```
-   python -m isort src tests
-   python -m black src tests
-   ```
-   `isort` runs first (its `profile = "black"` keeps the two compatible).
-3. **Re-run pyright and the tests** to confirm formatting changed nothing:
-   `pyright` then `python -m pytest tests/`.
+```
+bash scripts/quality_gate.sh
+```
 
-Invocation note (Windows): call the formatters as `python -m black` /
-`python -m isort`, not the bare `black` / `isort` shims — the console-script
-`.exe` sometimes fails to install on this machine, but the module entry
-points always work. `pyright` is invoked directly.
+Or pass an explicit path:
+
+```
+bash scripts/quality_gate.sh .claude/worktrees/<slug>
+```
+
+The gate runs five steps in order: `pyright` (strict) → `isort` → `black` →
+`pyright` (post-format) → `pytest`. It stops at the first `pyright` failure so
+you don't format broken code. Config lives in `pyproject.toml`
+(`[tool.pyright]`, `[tool.black]`, `[tool.isort]`); no flags needed. `pyright`
+is the globally-installed npm binary; formatters run as `python -m isort` /
+`python -m black` via the project venv.
+
+Every change must pass the gate before it is considered finished. Do not
+finalize while pyright reports any error — strict mode surfaces
+`reportUnknownParameterType`, `reportMissingParameterType`,
+`reportUnknownVariableType`, `reportUnnecessaryIsInstance`,
+`reportMissingTypeArgument`. (`reportPrivateImportUsage = false` silences
+torch's under-exporting stubs — don't re-enable it.)
 
 For type-checking patterns specific to this repo's scripted test agents (the
 generic `Agent` protocol, when a `typing.cast` is required), see the
@@ -446,6 +458,10 @@ extend `GameState` with a named typed field.
 
 ## Things to avoid
 
+- **Never delete, move, or modify `*.lock` files in the repo root.** These are
+  human-authorization tokens for the merge workflow. Their absence signals
+  approval; Claude removing one silently bypasses human review. See "Merge-auth
+  lock files" above.
 - Don't replace `cards.Food` / `cards.Habitat` / etc. enums with strings.
   The enums are `StrEnum`, so JSON serialisation already gives the string
   for free, and the type checker catches typos.
