@@ -583,27 +583,51 @@ def _convert_gain_food(
     engine: "core.Engine", agent: "core.Agent", player: state.Player
 ) -> None:
     """Forest conversion: on a trade space, optionally discard one card from
-    hand to take one extra food die (a single exchange)."""
+    hand to take one extra food die (a single exchange).
+
+    The exchange is split into three separate decisions so each judgment routes
+    to its proper policy head: commit-to-cost (is the trade worth it?),
+    discard-bird (which card can I most afford to lose?), and gain-food (which
+    die do I want?).
+    """
     if not player.board.action_offers_convert(cards.Habitat.FOREST) or not player.hand:
         return
-    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
-        decisions.BirdChoice(label=f"discard {bird.name} -> +1 food", bird=bird)
-        for bird in player.hand
-    ]
-    choices.append(decisions.SkipChoice(label="keep cards"))
-    ch = engine.ask(
+
+    # Step 1 — commit to the exchange or skip.
+    commit_ch = engine.ask(
         agent,
-        decisions.GainExtraFoodDecision(
+        decisions.AcceptExchangeDecision(
             player_id=player.id,
             prompt=f"[{player.name}] discard a card to gain 1 extra food?",
-            choices=choices,
+            choices=[
+                decisions.PayCostChoice(
+                    label="discard 1 card -> +1 food",
+                    paid_card_count=1,
+                    gained_food_count=1,
+                ),
+                decisions.SkipChoice(label="keep cards"),
+            ],
         ),
     )
-    if isinstance(ch, decisions.SkipChoice):
+    if isinstance(commit_ch, decisions.SkipChoice):
         return
-    player.hand.remove(ch.bird)
-    engine.state.bird_discard.append(ch.bird)
-    engine.log(f"  convert: discard {ch.bird.name} for +1 food")
+
+    # Step 2 — pick which card to discard.
+    discard_ch = engine.ask(
+        agent,
+        decisions.DiscardBirdForFoodDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] which card to discard?",
+            choices=[
+                decisions.BirdChoice(label=bird.name, bird=bird) for bird in player.hand
+            ],
+        ),
+    )
+    player.hand.remove(discard_ch.bird)
+    engine.state.bird_discard.append(discard_ch.bird)
+    engine.log(f"  convert: discard {discard_ch.bird.name} for +1 food")
+
+    # Step 3 — pick which food die to take.
     _take_one_die_active(engine, agent, player)
 
 

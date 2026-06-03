@@ -131,9 +131,10 @@ def test_wetland_card_track_matches_rules():
 # The engine offers the trade once, only on a trade space
 
 
-def _convert_decisions_for_gain_food(
+def _commit_decisions_for_gain_food(
     n_birds: int, hand_size: int
-) -> list[decisions.Decision[typing.Any]]:
+) -> list[decisions.AcceptExchangeDecision]:
+    """Run a Gain Food action and return all AcceptExchangeDecisions raised."""
     eng = _make_engine()
     eng.state.current_player = 0
     player = eng.state.players[0]
@@ -146,23 +147,96 @@ def _convert_decisions_for_gain_food(
     return [
         decision
         for decision in sink
-        if isinstance(decision, decisions.GainExtraFoodDecision)
+        if isinstance(decision, decisions.AcceptExchangeDecision)
     ]
 
 
 def test_gain_food_offers_no_trade_on_even_slot():
-    assert _convert_decisions_for_gain_food(n_birds=2, hand_size=3) == []
+    assert _commit_decisions_for_gain_food(n_birds=2, hand_size=3) == []
 
 
 def test_gain_food_offers_trade_exactly_once_on_odd_slot():
     # Three cards in hand: a repeating loop would convert all three. The single
-    # exchange must offer the trade exactly once.
-    convs = _convert_decisions_for_gain_food(n_birds=1, hand_size=3)
+    # exchange must offer the trade (commit step) exactly once.
+    convs = _commit_decisions_for_gain_food(n_birds=1, hand_size=3)
     assert len(convs) == 1
 
 
 def test_gain_food_skips_trade_on_odd_slot_with_empty_hand():
-    assert _convert_decisions_for_gain_food(n_birds=1, hand_size=0) == []
+    assert _commit_decisions_for_gain_food(n_birds=1, hand_size=0) == []
+
+
+def test_gain_food_commit_then_discard_removes_card_from_hand():
+    """Committing to the trade then discarding a card removes it from hand, adds
+    it to the discard pile, and the player gains one extra food.
+
+    Note: ``engine.ask`` auto-resolves single-option decisions without consulting
+    the agent (the forced-move optimisation). With exactly one card in hand the
+    ``DiscardBirdForFoodDecision`` has one choice and is resolved that way; we
+    verify the side effects rather than agent-call counts.
+    """
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.FOREST, 1, _non_brown_bird())
+    the_bird = _non_brown_bird()
+    player.hand = [the_bird]
+    for food in cards.Food:
+        eng.state.birdfeeder.counts[food] = 5
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        # At the commit step: accept the trade.
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            commit = next(
+                ch for ch in decision.choices if isinstance(ch, decisions.PayCostChoice)
+            )
+            return typing.cast(C, commit)
+        # For all other decisions: first choice.
+        return decision.choices[0]
+
+    food_before = player.food.total()
+    actions.do_gain_food(eng, agent)
+
+    assert player.hand == []
+    assert the_bird in eng.state.bird_discard
+    assert player.food.total() > food_before
+
+
+def test_gain_food_skip_at_commit_leaves_hand_unchanged():
+    """Skipping at the commit step leaves the hand intact and raises no
+    DiscardBirdForFoodDecision."""
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.FOREST, 1, _non_brown_bird())
+    player.hand = [_non_brown_bird(), _non_brown_bird()]
+    for food in cards.Food:
+        eng.state.birdfeeder.counts[food] = 5
+
+    discard_decisions: list[decisions.DiscardBirdForFoodDecision] = []
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            skip = next(
+                ch for ch in decision.choices if isinstance(ch, decisions.SkipChoice)
+            )
+            return typing.cast(C, skip)
+        if isinstance(decision, decisions.DiscardBirdForFoodDecision):
+            discard_decisions.append(decision)
+            return typing.cast(C, decision.choices[0])
+        return decision.choices[0]
+
+    hand_before = list(player.hand)
+    actions.do_gain_food(eng, agent)
+
+    assert discard_decisions == []
+    assert player.hand == hand_before
 
 
 def test_lay_eggs_offers_trade_exactly_once_on_odd_slot():

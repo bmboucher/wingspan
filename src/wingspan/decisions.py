@@ -351,13 +351,12 @@ class DrawCardsPickSourceDecision(Decision[DrawSourceChoice]):
     """Pick whether to draw from the deck or from a specific tray slot."""
 
 
-class GainExtraFoodDecision(Decision[BirdChoice | SkipChoice]):
-    """Optional Forest conversion: discard one card from hand to take one
-    extra food die. Each ``BirdChoice`` is a candidate card to discard;
-    ``SkipChoice`` declines. Offered once, only when the cube lands on a trade
-    space (an odd number of birds in the row). The judgment is *which card to
-    give up* — a bird-discard valuation — so it shares the discard head; the
-    resulting extra food die is then a separate ``GainFoodDecision``."""
+class DiscardBirdForFoodDecision(Decision[BirdChoice]):
+    """Forest conversion step 2: mandatory bird discard from hand after the
+    player committed to the exchange via a preceding ``AcceptExchangeDecision``.
+    Each ``BirdChoice`` is a candidate card to discard; no ``SkipChoice`` is
+    offered because the commitment already happened. The food-die pick that
+    follows is a separate ``GainFoodDecision``."""
 
 
 class LayExtraEggsDecision(Decision[FoodChoice | SkipChoice]):
@@ -370,14 +369,14 @@ class LayExtraEggsDecision(Decision[FoodChoice | SkipChoice]):
 class AcceptExchangeDecision(Decision[PayCostChoice | SkipChoice]):
     """Accept a fixed, power-defined exchange — yes/no. Used wherever the terms
     are fully determined and the only judgment is "is this trade worth it given
-    my position and the round goal?": the Wetland egg→card conversion (the bird
-    the egg comes off is a follow-up ``RemoveEggDecision``) and the
-    discard-food-to-tuck powers (Sandhill Crane etc.). The ``PayCostChoice``
-    carries the trade terms as typed fields so the commit-to-cost head can weigh
-    them; ``SkipChoice`` declines. Offered once for the trade-space conversion,
-    only when the cube lands on a trade space (an odd number of birds in the
-    row). (Subsumes the former ``DrawCardsConvertDecision`` and the pay-cost
-    branch of ``BirdPowerPickFoodDecision``.)"""
+    my position and the round goal?": the Forest card→food conversion (step 1;
+    the card to discard is a follow-up ``DiscardBirdForFoodDecision``), the
+    Wetland egg→card conversion (the egg comes off via a follow-up
+    ``RemoveEggDecision``), and the discard-food-to-tuck powers (Sandhill Crane
+    etc.). The ``PayCostChoice`` carries the trade terms as typed fields so the
+    commit-to-cost head can weigh them; ``SkipChoice`` declines. (Subsumes the
+    former ``DrawCardsConvertDecision`` and the pay-cost branch of
+    ``BirdPowerPickFoodDecision``.)"""
 
 
 class BirdPowerPickBirdFromHandDecision(Decision[BirdChoice]):
@@ -450,10 +449,10 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     BirdPowerTuckFromHandDecision,
     BirdPowerPickGainOrderDecision,
     BirdPowerPickHabitatDecision,
-    GainExtraFoodDecision,
     LayExtraEggsDecision,
     AcceptExchangeDecision,
     ResetBirdfeederDecision,
+    DiscardBirdForFoodDecision,
     SetupDecision,
 )
 
@@ -535,7 +534,7 @@ _DECISION_FAMILY: dict[type[Decision[typing.Any]], DecisionFamily] = {
     DrawCardsPickSourceDecision: DecisionFamily.DRAW_BIRD,
     BirdPowerPickBirdFromHandDecision: DecisionFamily.DRAW_BIRD,
     BirdPowerTuckFromHandDecision: DecisionFamily.DISCARD_BIRD,
-    GainExtraFoodDecision: DecisionFamily.DISCARD_BIRD,
+    DiscardBirdForFoodDecision: DecisionFamily.DISCARD_BIRD,
     GainFoodDecision: DecisionFamily.GAIN_FOOD,
     SpendFoodDecision: DecisionFamily.SPEND_FOOD,
     LayExtraEggsDecision: DecisionFamily.SPEND_FOOD,

@@ -215,7 +215,7 @@ The 17 decisions and the 13 families:
 | `MAIN_ACTION` | `MainActionDecision` | which of the four actions this turn |
 | `PLAY_BIRD` | `PlayBirdDecision` | which bird to play, where, paid how |
 | `DRAW_BIRD` | `DrawCardsPickSourceDecision`, `BirdPowerPickBirdFromHandDecision` | which bird to *take* |
-| `DISCARD_BIRD` | `BirdPowerTuckFromHandDecision`, `GainExtraFoodDecision` | which bird to *give up* |
+| `DISCARD_BIRD` | `BirdPowerTuckFromHandDecision`, `DiscardBirdForFoodDecision` | which bird to *give up* |
 | `GAIN_FOOD` | `GainFoodDecision` | which food to gain |
 | `SPEND_FOOD` | `SpendFoodDecision`, `LayExtraEggsDecision` | which food to give up |
 | `LAY_EGG` | `LayEggDecision` | which bird gets the egg |
@@ -324,8 +324,8 @@ heads.
 **Discard** — *given birds I hold, which do I give up?*
 - `BirdPowerTuckFromHandDecision` — give a hand card up to tuck it behind a bird
   (it becomes a point plus progress toward tuck-count goals).
-- `GainExtraFoodDecision` — give a hand card up to gain one extra food (the
-  Forest trade space).
+- `DiscardBirdForFoodDecision` — give a hand card up to gain one extra food (the
+  Forest trade space, step 2 after committing via ``AcceptExchangeDecision``).
 
 **What an expert weighs.** Points, cost versus current food, habitat fit and open
 slots, power synergy with what's already on the board, bonus-card progress —

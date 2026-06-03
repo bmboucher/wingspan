@@ -74,7 +74,7 @@ def test_bird_acquisition_and_discard_are_distinct_families():
         decisions.family_for(cls)
         for cls in (
             decisions.BirdPowerTuckFromHandDecision,
-            decisions.GainExtraFoodDecision,
+            decisions.DiscardBirdForFoodDecision,
         )
     }
     assert acquisition == {decisions.DecisionFamily.DRAW_BIRD}
