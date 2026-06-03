@@ -49,6 +49,20 @@ echo "  Base:   $(git rev-parse --short HEAD) ($(git log -1 --format='%s'))"
 echo
 git worktree add "$WORKTREE_DIR" -b "$BRANCH" HEAD
 
+# ---- Set up fresh venv in worktree ----
+
+echo "==== Installing fresh venv in worktree (this takes ~30-60s) ===="
+MAIN_PYTHON="$REPO_ROOT/.venv/Scripts/python.exe"
+if [ ! -f "$MAIN_PYTHON" ]; then
+    echo "ERROR: Main repo venv not found at $REPO_ROOT/.venv" >&2
+    echo "       Run: pip install -e '.[dev]'  in the repo root first." >&2
+    exit 1
+fi
+"$MAIN_PYTHON" -m venv "$WORKTREE_DIR/.venv"
+(cd "$WORKTREE_DIR" && "$WORKTREE_DIR/.venv/Scripts/pip" install --quiet -e ".[dev]")
+echo "  Venv ready: $WORKTREE_DIR/.venv"
+echo
+
 # ---- Create merge-auth lock ----
 
 cat > "$LOCK_FILE" << EOF

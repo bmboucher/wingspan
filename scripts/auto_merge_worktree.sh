@@ -105,6 +105,10 @@ YOUR TASK:
    - Do NOT edit files in $REPO_ROOT/src/ or $REPO_ROOT/tests/ (those are main — changes there would be overwritten by the merge).
 3. Verify your fix by running the quality gate on the worktree:
      bash scripts/quality_gate.sh "$WORKTREE_DIR"
+   For faster iteration you can run a single step at a time:
+     bash scripts/quality_gate.sh "$WORKTREE_DIR" --only pyright   # type-check only
+     bash scripts/quality_gate.sh "$WORKTREE_DIR" --only pytest    # tests only
+   Always run the full gate (no --only) before committing to confirm everything passes.
 4. Once the gate passes, commit your changes inside the worktree:
      cd "$WORKTREE_DIR" && git add -A && git commit -m "Fix: <describe what you fixed>"
 5. STOP. Do not run scripts/merge_worktree.sh yourself — the calling script will retry it.

@@ -48,7 +48,8 @@ bash scripts/create_worktree.sh <feature-slug>
 
 This commits any pre-existing dirty state in `main`, creates the worktree at
 `.claude/worktrees/<slug>` on branch `wt/<slug>` from the current local `HEAD`,
-and creates a **merge-auth lock** at `<slug>.lock` in the repo root.
+installs a **fresh `.venv`** inside the worktree (wall-clock ~30–60s, zero token
+cost), and creates a **merge-auth lock** at `<slug>.lock` in the repo root.
 
 Then switch the session into the worktree (this CLAUDE.md is the sanctioned
 trigger for `EnterWorktree`):
@@ -70,8 +71,8 @@ bash scripts/quality_gate.sh
 ```
 
 When run from inside the worktree (after `EnterWorktree`) this gates the
-worktree's own code. The script uses the shared venv at `C:\Repos\wingspan\.venv`
-(not copied into the worktree). Do not proceed until the gate is clean.
+worktree's own code using the worktree's own `.venv` (installed by
+`create_worktree.sh`). Do not proceed until the gate is clean.
 
 ### Step 5 — Commit and report ready
 
@@ -157,7 +158,22 @@ The gate runs five steps in order: `pyright` (strict) → `isort` → `black` �
 you don't format broken code. Config lives in `pyproject.toml`
 (`[tool.pyright]`, `[tool.black]`, `[tool.isort]`); no flags needed. `pyright`
 is the globally-installed npm binary; formatters run as `python -m isort` /
-`python -m black` via the project venv.
+`python -m black` via the target directory's own `.venv`.
+
+For faster iteration while fixing a specific problem, use `--only`:
+
+```
+bash scripts/quality_gate.sh --only pyright          # type-check only (one pass)
+bash scripts/quality_gate.sh --only pytest           # tests only
+bash scripts/quality_gate.sh --only format           # isort + black only
+bash scripts/quality_gate.sh --only pyright,pytest   # type-check + tests, skip format
+# (same pattern with an explicit path)
+bash scripts/quality_gate.sh .claude/worktrees/<slug> --only pyright
+```
+
+Always run the full gate (no `--only`) before committing. Do NOT call pyright,
+pytest, isort, or black directly — use this script so the step ordering and
+Python path are always correct.
 
 Every change must pass the gate before it is considered finished. Do not
 finalize while pyright reports any error — strict mode surfaces
