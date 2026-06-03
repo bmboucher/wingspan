@@ -19,6 +19,7 @@ import typing
 import pydantic
 
 from wingspan import architecture, decisions, encode, setup_model
+from wingspan.instrumentation import config as instrumentation_config
 
 
 def _default_family_order() -> tuple[str, ...]:
@@ -219,6 +220,16 @@ class TrainConfig(pydantic.BaseModel):
 
     # ---- in-memory history cap (for the live convergence charts) ----
     history_len: typing.Annotated[int, pydantic.Field(ge=1)] = 1024
+
+    # ---- instrumentation (event-callback recorders attached to this run) ----
+    # Custom handlers fired at game events (see ``wingspan.instrumentation``).
+    # Empty by default — no handlers, no overhead. Deliberately excluded from
+    # ``architecture_key`` / the encoding key: attaching instrumentation never
+    # changes a tensor shape, so it must not invalidate a checkpoint or trigger a
+    # FRESH restart.
+    instrumentation: instrumentation_config.InstrumentationConfig = pydantic.Field(
+        default_factory=instrumentation_config.InstrumentationConfig
+    )
 
     # ---- architecture descriptor (TRAINING.md §5.1) ----
     state_dim: int = pydantic.Field(default_factory=encode.state_size)

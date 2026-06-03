@@ -39,6 +39,9 @@ def score_round_goal(engine: "core.Engine", round_idx: int) -> None:
     engine.state.players[1].round_goal_points += _placement_vp(
         count_1, count_0, first, second
     )
+    engine.instrumentation.round_goal_scored(
+        engine=engine, round_num=round_idx, goal=goal, counts=counts
+    )
 
 
 def round_goal_standing(
@@ -101,6 +104,17 @@ def final_scoring(engine: "core.Engine") -> None:
             f" foodleft={food_left} -> {total}"
         )
         player.final_score = total
+        engine.instrumentation.player_final_scored(
+            engine=engine,
+            player=player,
+            total=total,
+            bird_pts=bird_pts,
+            bonus_pts=bonus_pts,
+            eggs=eggs,
+            tucked=tucked,
+            cached=cached,
+            round_goal=round_goal,
+        )
 
 
 def running_score(player: state.Player) -> int:

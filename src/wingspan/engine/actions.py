@@ -106,6 +106,9 @@ def do_play_bird(
     player.hand.remove(card)
     pb = state.PlayedBird(bird=card)
     player.board[habitat].append(pb)
+    engine.instrumentation.bird_placed(
+        engine=engine, player=player, bird=card, habitat=habitat, played_bird=pb
+    )
     engine.log(
         f"[{player.name}] plays {card.name} into {habitat.value} "
         f"(paid {payment.format()}, {egg_cost} eggs)"
@@ -223,6 +226,9 @@ def do_gain_food(engine: "core.Engine", agent: "core.Agent") -> None:
         if player.food.counts[i] > food_before[i]
     }
     reactors.trigger_pink_gain_food_reactors(engine, player, gained_foods)
+    engine.instrumentation.food_gained(
+        engine=engine, player=player, gained=gained_foods
+    )
 
 
 def offer_birdfeeder_reset(
@@ -357,6 +363,7 @@ def do_lay_eggs(engine: "core.Engine", agent: "core.Agent") -> None:
     _convert_lay_eggs(engine, agent, player)
     activate_row_powers(engine, agent, player, cards.Habitat.GRASSLAND)
     reactors.trigger_pink_lay_eggs_reactors(engine, player)
+    engine.instrumentation.eggs_laid(engine=engine, player=player, count=n_eggs)
 
 
 def lay_one_egg(
@@ -404,6 +411,7 @@ def do_draw_cards(engine: "core.Engine", agent: "core.Agent") -> None:
         draw_one_card(engine, agent, player)
     _convert_draw_cards(engine, agent, player)
     activate_row_powers(engine, agent, player, cards.Habitat.WETLAND)
+    engine.instrumentation.cards_drawn(engine=engine, player=player, count=n_cards)
 
 
 def draw_one_card(

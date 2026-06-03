@@ -25,8 +25,11 @@ import typing
 
 import numpy as np
 import torch
+import yaml
 
 from wingspan import agents, decisions, encode, engine, model
+from wingspan.instrumentation import config as instrumentation_config
+from wingspan.instrumentation import dispatcher
 from wingspan.training import artifacts, config, policy
 
 # Cap and floor on the per-decision annotation: never list more than this many
@@ -71,20 +74,26 @@ def main_selfplay(argv: list[str] | None = None) -> int:
     if not args.quiet:
         print(f"Seed: {seed}  |  P0: {args.p0}  vs  P1: {args.p1}")
 
-    for game_idx in range(args.games):
-        eng, _, _, _ = engine.Engine.create(seed=seed + game_idx)
-        engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
-        scores = [player.final_score for player in eng.state.players]
-        if not args.quiet:
-            print(
-                f"Game {game_idx + 1}: scores={scores}, "
-                f"log lines={len(eng.state.log)}"
+    instrumentation = _open_instrumentation(args, seed)
+    try:
+        for game_idx in range(args.games):
+            eng, _, _, _ = engine.Engine.create(seed=seed + game_idx)
+            engine.Engine.play_one_game(
+                eng.state, (agent_a, agent_b), instrumentation=instrumentation
             )
-        if args.log:
-            log_path = args.log if args.games == 1 else f"{args.log}.{game_idx}"
-            _write_log(log_path, eng.state.log)
+            scores = [player.final_score for player in eng.state.players]
             if not args.quiet:
-                print(f"  log -> {log_path}")
+                print(
+                    f"Game {game_idx + 1}: scores={scores}, "
+                    f"log lines={len(eng.state.log)}"
+                )
+            if args.log:
+                log_path = args.log if args.games == 1 else f"{args.log}.{game_idx}"
+                _write_log(log_path, eng.state.log)
+                if not args.quiet:
+                    print(f"  log -> {log_path}")
+    finally:
+        instrumentation.close()
     return 0
 
 
@@ -128,7 +137,56 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="AI agents pick the argmax option instead of sampling.",
     )
+    parser.add_argument(
+        "--instrument",
+        type=str,
+        default=None,
+        help="Path to an instrumentation config (YAML/JSON): event handlers to "
+        "attach to every game.",
+    )
+    parser.add_argument(
+        "--instrument-out",
+        type=str,
+        default=None,
+        dest="instrument_out",
+        help="Directory the instrumentation handlers write their output under "
+        "(default: current directory).",
+    )
     return parser
+
+
+#### Instrumentation ####
+
+
+def _open_instrumentation(
+    args: argparse.Namespace, seed: int
+) -> dispatcher.Instrumentation:
+    """Build and open the event-callback router from ``--instrument`` — the
+    standalone instrumentation config (same shape as ``TrainConfig.instrumentation``).
+    Returns the no-op ``EMPTY`` router when the flag is absent. The caller must
+    ``close`` whatever this returns when the run ends."""
+    if args.instrument is None:
+        return dispatcher.EMPTY
+    text = pathlib.Path(args.instrument).read_text(encoding="utf-8")
+    cfg = instrumentation_config.InstrumentationConfig.model_validate(
+        yaml.safe_load(text)
+    )
+    out_dir = (
+        pathlib.Path(args.instrument_out)
+        if args.instrument_out is not None
+        else pathlib.Path(".")
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    instrumentation = cfg.build()
+    instrumentation.open(
+        instrumentation_config.RunContext(
+            output_dir=out_dir,
+            run_name="selfplay",
+            seed=seed,
+            matchup=(str(args.p0), str(args.p1)),
+        )
+    )
+    return instrumentation
 
 
 #### Agent construction ####

@@ -27,6 +27,7 @@ import typing
 
 from wingspan import cards, decisions, state
 from wingspan.engine import actions, scoring
+from wingspan.instrumentation import dispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,7 @@ class Engine:
         self,
         gs: state.GameState,
         agents: typing.Sequence[Agent] | None = None,
+        instrumentation: dispatcher.Instrumentation | None = None,
     ):
         self.state = gs
         # ``agents`` is indexed by ``Player.id`` so opponent-prompting power
@@ -99,6 +101,11 @@ class Engine:
                 f"agents count ({len(self.agents)}) does not match players "
                 f"count ({len(gs.players)})"
             )
+        # The event router fired at each instrumented site. Defaults to the
+        # shared no-op ``EMPTY`` so an uninstrumented game pays nothing per event.
+        self.instrumentation: dispatcher.Instrumentation = (
+            instrumentation if instrumentation is not None else dispatcher.EMPTY
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -122,19 +129,25 @@ class Engine:
     def play_one_game(
         gs: state.GameState,
         agents: tuple[Agent, Agent],
+        instrumentation: dispatcher.Instrumentation | None = None,
     ) -> Engine:
         """Construct an Engine on ``gs`` with ``agents``, run a full game,
         and return the engine. The caller's ``gs`` is mutated in place, so
         either the returned engine or any pre-existing reference to ``gs``
-        can be used to inspect the final log and scores."""
-        eng = Engine(gs, agents=agents)
+        can be used to inspect the final log and scores.
+
+        ``instrumentation`` attaches an event router for the duration of the
+        game (default: the no-op ``EMPTY``)."""
+        eng = Engine(gs, agents=agents, instrumentation=instrumentation)
         eng.log("=== Wingspan game start ===")
+        eng.instrumentation.game_start(engine=eng)
         eng._setup_phase(agents)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
         eng.log("=== Wingspan game end ===")
+        eng.instrumentation.game_end(engine=eng)
         return eng
 
     @staticmethod
@@ -142,6 +155,7 @@ class Engine:
         gs: state.GameState,
         agents: tuple[Agent, Agent],
         choose_setups: SetupChooser,
+        instrumentation: dispatcher.Instrumentation | None = None,
     ) -> Engine:
         """Like :meth:`play_one_game`, but the setup phase is resolved by
         ``choose_setups`` (the random generator or the setup model) instead of by
@@ -150,14 +164,16 @@ class Engine:
         The engine still deals the starting hands / bonus / food, so the chooser
         decides over exactly the inputs an agent would have seen; everything after
         setup is identical to ``play_one_game``."""
-        eng = Engine(gs, agents=agents)
+        eng = Engine(gs, agents=agents, instrumentation=instrumentation)
         eng.log("=== Wingspan game start ===")
+        eng.instrumentation.game_start(engine=eng)
         eng._setup_phase_fixed(choose_setups)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
         eng.log("=== Wingspan game end ===")
+        eng.instrumentation.game_end(engine=eng)
         return eng
 
     def agent_for(self, player: state.Player) -> Agent:
@@ -193,12 +209,16 @@ class Engine:
         identical fields still resolves to the corresponding offered slot."""
         if len(decision.choices) == 1:
             return decision.choices[0]
+        self.instrumentation.making_decision(engine=self, decision=decision)
         choice: C = agent(self, decision)
         if choice not in decision.choices:
             raise ValueError(
                 f"agent returned illegal choice {choice.display_label()!r} for "
                 f"{type(decision).__name__}"
             )
+        self.instrumentation.made_decision(
+            engine=self, decision=decision, choice=choice
+        )
         return choice
 
     def log(self, msg: str) -> None:
@@ -220,6 +240,7 @@ class Engine:
         tray instead of an ever-full one."""
         player = self.state.me()
         self.state.reset_turn_state()
+        self.instrumentation.turn_start(engine=self, player=player)
         # Blank separator + combined turn/decision header so each turn is one
         # visually scannable block: `[Pn] turn (X cubes) --> ACTION` followed
         # by the indented action result and any sub-events.
@@ -233,6 +254,7 @@ class Engine:
         self._dispatch_main_action(agent, choice)
         actions.consume_extra_plays(self, player, agent)
         self.state.refill_tray()
+        self.instrumentation.turn_end(engine=self, player=player)
 
     @staticmethod
     def _main_action_label(choice: decisions.MainActionChoice) -> str:
@@ -349,6 +371,7 @@ class Engine:
             f"Round goal: {self.state.round_goals[round_idx].description} "
             f"({self.state.round_goals[round_idx].category})"
         )
+        self.instrumentation.round_start(engine=self, round_num=round_idx)
         # Turn order rotates each round off the randomly-chosen first player;
         # both players hold equal cubes, so a strict alternation drains them
         # evenly. ``current_player`` is set immediately before each turn so the
@@ -367,6 +390,7 @@ class Engine:
         # (restoring any slots emptied during that turn) and those cards are
         # then discarded here before the new cards go face-up.
         self.state.reset_tray()
+        self.instrumentation.round_end(engine=self, round_num=round_idx)
 
     # Power-granted extra plays are resolved by ``actions.consume_extra_plays``
     # (a free function, like the other action logic), called from ``_take_turn``.
@@ -485,6 +509,7 @@ class Engine:
             for bonus in dealt_bonus:
                 if bonus is not sc.bonus_card:
                     self.state.bonus_discard.append(bonus)
+        self.instrumentation.setup_applied(engine=self, player=player, choice=sc)
 
 
 # ---------------------------------------------------------------------------
