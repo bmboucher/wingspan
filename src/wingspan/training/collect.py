@@ -318,9 +318,16 @@ def _recording_agent(
     ) -> C:
         if len(decision.choices) == 1:
             return decision.choices[0]
+        if not net.include_setup and decisions.is_setup_decision(decision):
+            # The net's encoding excludes setup (the opening is the separate setup
+            # model's job); resolve a SetupDecision reached via ``play_game`` with a
+            # random keep rather than scoring it. The setup-model path bypasses the
+            # opening in the engine, so this only fires for a setup-excluded net
+            # collected through the plain (non-setup-model) game path.
+            return decisions.random_choice(decision, eng.state.rng)
         family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision)
-        choice_feats = encode.encode_choices(decision, eng.state)
+        state_vec = encode.encode_state(eng.state, decision, net.spec)
+        choice_feats = encode.encode_choices(decision, eng.state, net.spec)
         chosen_idx = policy.sample_action(
             net, device, state_vec, choice_feats, family_idx, rng
         )

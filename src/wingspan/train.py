@@ -118,6 +118,10 @@ def make_policy_agent(
             # No degrees of freedom — don't record (loss contribution is 0
             # anyway and skipping keeps the buffer smaller).
             return decision.choices[0]
+        if not net.include_setup and decisions.is_setup_decision(decision):
+            # The bare net excludes setup (the default encoding spec); resolve the
+            # opening off-policy rather than scoring it.
+            return decisions.random_choice(decision, eng.state.rng)
 
         family_idx = decisions.family_index_for(type(decision))
         state_vec = encode.encode_state(eng.state, decision)

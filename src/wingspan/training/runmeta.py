@@ -53,6 +53,10 @@ class ModelConfig(pydantic.BaseModel):
     choice_dim: int
     family_order: tuple[str, ...]
     architecture: architecture.ModelArchitecture
+    # Whether the main net carries the opening (``encode.EncodingSpec.include_setup``).
+    # Defaults True so pre-existing ``model_config.json`` files (written before the
+    # setup axis existed) deserialize cleanly and reconstitute a setup-included net.
+    include_setup: bool = True
 
 
 class SessionRecord(pydantic.BaseModel):
@@ -94,6 +98,7 @@ def write_model_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
         choice_dim=cfg.choice_dim,
         family_order=cfg.family_order,
         architecture=cfg.arch,
+        include_setup=cfg.encoding_spec.include_setup,
     )
     path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
     path.write_text(descriptor.model_dump_json(indent=2), encoding="utf-8")
@@ -118,8 +123,8 @@ def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathli
         num_families=len(cfg.family_order),
     )
     inspect_report = InspectReport(
-        state_layout=encode_stripes.state_stripe_layout(),
-        choice_layout=encode_stripes.choice_stripe_layout(),
+        state_layout=encode_stripes.state_stripe_layout(cfg.encoding_spec),
+        choice_layout=encode_stripes.choice_stripe_layout(cfg.encoding_spec),
         param_report=param_report,
         total_params=param_report.total,
     )
@@ -146,8 +151,8 @@ def write_model_summary_html(
         num_families=len(cfg.family_order),
     )
     html_content = report.generate_html_report(
-        encode_stripes.state_stripe_layout(),
-        encode_stripes.choice_stripe_layout(),
+        encode_stripes.state_stripe_layout(cfg.encoding_spec),
+        encode_stripes.choice_stripe_layout(cfg.encoding_spec),
         param_report,
         cfg.arch,
         state_dim=cfg.state_dim,

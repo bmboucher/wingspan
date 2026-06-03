@@ -79,7 +79,9 @@ class TrainingLoop:
         if self.device.type == "cpu":
             torch.set_num_threads(_CPU_INTRAOP_THREADS)
         _seed_everything(cfg.seed)
-        self.net = model.PolicyValueNet(arch=cfg.arch).to(self.device)
+        self.net = model.PolicyValueNet(arch=cfg.arch, spec=cfg.encoding_spec).to(
+            self.device
+        )
         self.optimizer: optim.Optimizer = optim.Adam(self.net.parameters(), lr=cfg.lr)
         self.lock = threading.RLock()
         self.state = runstate.new_run_state(cfg)
@@ -888,6 +890,7 @@ class TrainingLoop:
             state_dim=self.config.state_dim,
             choice_dim=self.config.choice_dim,
             arch=self.config.arch,
+            spec=self.config.encoding_spec,
         ).to(self.device)
         clone.load_state_dict(self.net.state_dict())
         clone.eval()

@@ -86,6 +86,35 @@ def test_take_unavailable_food_raises() -> None:
         feeder.take(cards.Food.FISH)  # a choice die can never yield fish
 
 
+def test_gain_options_lists_plain_and_choice_die_separately() -> None:
+    """When both a plain invertebrate die and a choice die show, gain_options
+    offers taking invertebrate either way (and seed only from the choice die)."""
+    feeder = state.Birdfeeder()
+    feeder.counts[cards.Food.INVERTEBRATE] = 1
+    feeder.choice_dice = 1
+    options = feeder.gain_options()
+    assert (cards.Food.INVERTEBRATE, False) in options  # the plain die
+    assert (cards.Food.INVERTEBRATE, True) in options  # the choice die as inv
+    assert (cards.Food.SEED, True) in options  # the choice die as seed
+    assert (cards.Food.SEED, False) not in options  # no plain seed showing
+
+
+def test_take_from_choice_die_spends_the_choice_die_not_a_plain_face() -> None:
+    feeder = state.Birdfeeder()
+    feeder.counts[cards.Food.INVERTEBRATE] = 1
+    feeder.choice_dice = 1
+    feeder.take(cards.Food.INVERTEBRATE, from_choice_die=True)
+    assert feeder.choice_dice == 0  # the choice die was consumed
+    assert feeder.counts[cards.Food.INVERTEBRATE] == 1  # the plain face is left
+
+
+def test_take_from_choice_die_raises_without_one() -> None:
+    feeder = state.Birdfeeder()
+    feeder.counts[cards.Food.SEED] = 1
+    with pytest.raises(ValueError):
+        feeder.take(cards.Food.SEED, from_choice_die=True)
+
+
 def test_total_and_distinct_faces_include_choice_dice() -> None:
     feeder = state.Birdfeeder()
     feeder.counts[cards.Food.FISH] = 2

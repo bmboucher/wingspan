@@ -144,7 +144,6 @@ def _h_fewest_forest_gains_die(
             continue
         responder = engine.agent_for(other_player)
         actions.offer_birdfeeder_reset(engine, responder, other_player)
-        avail = st.birdfeeder.gainable_foods()
         ch = engine.ask(
             responder,
             decisions.GainFoodDecision(
@@ -152,15 +151,18 @@ def _h_fewest_forest_gains_die(
                 prompt=f"[{other_player.name}] take 1 die from birdfeeder (from {bird.name})",
                 choices=[
                     decisions.FoodChoice(
-                        label=f"{food.value}({st.birdfeeder.gainable_count(food)})",
+                        label=st.birdfeeder.gain_option_label(food, combo),
                         food=food,
+                        from_choice_die=combo,
                     )
-                    for food in avail
+                    for food, combo in st.birdfeeder.gain_options()
                 ],
             ),
         )
         assert isinstance(ch, decisions.FoodChoice)
-        actions.gain_feeder_die(engine, other_player, ch.food)
+        actions.gain_feeder_die(
+            engine, other_player, ch.food, from_choice_die=ch.from_choice_die
+        )
         engine.log(
             f"  {bird.name}: [{other_player.name}] +1 {ch.food.value} from birdfeeder"
         )

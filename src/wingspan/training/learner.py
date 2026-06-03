@@ -28,7 +28,7 @@ import torch
 import torch.nn.functional as F
 from torch import optim
 
-from wingspan import encode, model, train
+from wingspan import model, train
 from wingspan.training import collect, config
 
 # Option-count bucket edges. A step with ``n`` candidates pads up to the
@@ -177,7 +177,7 @@ def _forward_bucket(
     width = max(steps[i].choices.shape[0] for i in bucket)
     batch = len(bucket)
     state_batch = np.stack([steps[i].state for i in bucket])
-    choice_batch = np.zeros((batch, width, encode.CHOICE_FEATURE_DIM), dtype=np.float32)
+    choice_batch = np.zeros((batch, width, net.choice_dim), dtype=np.float32)
     mask_batch = np.zeros((batch, width), dtype=np.float32)
     for row, i in enumerate(bucket):
         count = steps[i].choices.shape[0]

@@ -153,9 +153,13 @@ def test_model_same_family_scores_identically():
 
 
 def test_model_has_one_scorer_head_per_family():
+    # A bare net uses the default encoding spec (setup excluded), so it has one
+    # head per *active* family — the SETUP head is dropped when setup is delegated
+    # to the separate setup model.
     net = model.PolicyValueNet()
-    assert len(net.scorers) == len(decisions.ALL_DECISION_FAMILIES)
-    assert net.num_families == len(decisions.ALL_DECISION_FAMILIES)
+    expected = len(decisions.active_decision_families(net.include_setup))
+    assert len(net.scorers) == expected
+    assert net.num_families == expected
 
 
 # ---------------------------------------------------------------------------

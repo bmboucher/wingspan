@@ -148,13 +148,18 @@ class TrainConfig(pydantic.BaseModel):
     card_encoder_layers: architecture.Widths = (128,)
 
     # ---- setup model (TRAINING.md / DECISIONS.md: the start-of-game keep) ----
-    # When enabled, the start-of-game setup decision is pulled out of the in-game
-    # policy into a separate value-regression bandit (``wingspan.setup_model``):
-    # setups are drawn by the random generator early on, recorded over a window,
-    # the setup net is fit once offline, then it drives setup selection and trains
-    # on-policy. Default OFF so existing checkpoints and behaviour are unchanged —
-    # this knob does not touch the *main* net's ``architecture_key``; the setup net
-    # has its own ``setup_architecture_key`` and its own checkpoint.
+    # When enabled (the default), the start-of-game setup decision is pulled out of
+    # the in-game policy into a separate value-regression bandit
+    # (``wingspan.setup_model``): setups are drawn by the random generator early on,
+    # recorded over a window, the setup net is fit once offline, then it drives
+    # setup selection and trains on-policy. Pulling setup out also removes it from
+    # the *main* net's encoding (``encode.EncodingSpec.include_setup``): the
+    # decision-type one-hot's setup column, the SETUP scoring head, and the
+    # setup_agg choice stripe all disappear. So this knob IS part of the main net's
+    # ``architecture_key`` — ``_sync_encoding_dims`` derives ``state_dim`` /
+    # ``choice_dim`` / ``family_order`` from it, so toggling it is a main-net-FRESH
+    # change that restarts the main net (the setup net additionally has its own
+    # ``setup_architecture_key`` and checkpoint).
     use_setup_model: bool = True
     # The setup net's MLP hidden widths (input-to-output) — a setup-FRESH change
     # (restarts only the setup net, never the main net).
@@ -235,6 +240,30 @@ class TrainConfig(pydantic.BaseModel):
                     f"(got {self.target_iterations} > {self.max_iterations})"
                 )
         return self
+
+    @pydantic.model_validator(mode="after")
+    def _sync_encoding_dims(self) -> "TrainConfig":
+        """Keep the encoding dims and family-head order in lockstep with
+        ``use_setup_model``. The main model's shape is config-driven on that one
+        axis (``encode.EncodingSpec.include_setup`` = ``not use_setup_model``), so
+        ``state_dim`` / ``choice_dim`` / ``family_order`` are *derived*, not free
+        knobs — and because they feed ``architecture_key``, toggling
+        ``use_setup_model`` correctly registers as a main-net-FRESH change."""
+        spec = encode.spec_for(self.use_setup_model)
+        self.state_dim = encode.state_size(spec)
+        self.choice_dim = encode.choice_feature_dim(spec)
+        self.family_order = tuple(
+            family.value
+            for family in decisions.active_decision_families(spec.include_setup)
+        )
+        return self
+
+    @property
+    def encoding_spec(self) -> encode.EncodingSpec:
+        """The state/choice encoding spec implied by ``use_setup_model`` — the one
+        config-driven axis of the main model's shape. Threaded into the encoders
+        (so collected vectors match the net) and recorded in ``model_config.json``."""
+        return encode.spec_for(self.use_setup_model)
 
     @property
     def eval_pairs(self) -> int:

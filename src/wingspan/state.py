@@ -12,6 +12,7 @@ on in-place mutation for turn-by-turn play.
 
 from __future__ import annotations
 
+import collections.abc
 import random
 import typing
 
@@ -354,11 +355,51 @@ class Birdfeeder(pydantic.BaseModel):
         extra = self.choice_dice if food in _CHOICE_FACE_FOODS else 0
         return self.counts[food] + extra
 
-    def take(self, food: cards.Food) -> None:
-        """Consume one die yielding ``food``: spend a matching single face first,
-        and a choice die only when ``food`` is invertebrate/seed and no single
-        face of it is showing. Raises if ``food`` is not currently gainable —
-        callers gate on :meth:`gainable_foods`."""
+    def gain_options(
+        self, allowed: collections.abc.Iterable[cards.Food] | None = None
+    ) -> list[tuple[cards.Food, bool]]:
+        """The distinct ways to take one die right now, as ``(food, from_choice_die)``
+        pairs in canonical order: each single food face showing
+        (``from_choice_die=False``), then — when a choice die is showing —
+        invertebrate and seed taken from the choice die (``from_choice_die=True``).
+
+        Unlike :meth:`gainable_foods`, the plain and choice-die ways to take
+        invertebrate/seed are listed *separately*, because they spend different
+        dice and the model scores them apart. ``allowed`` restricts the foods (a
+        power that grants only specific foods); ``None`` offers every option."""
+        allow = None if allowed is None else set(allowed)
+        options: list[tuple[cards.Food, bool]] = []
+        for food in cards.ALL_FOODS:
+            if self.counts[food] > 0 and (allow is None or food in allow):
+                options.append((food, False))
+        if self.choice_dice > 0:
+            for food in _CHOICE_FACE_FOODS:
+                if allow is None or food in allow:
+                    options.append((food, True))
+        return options
+
+    def gain_option_label(self, food: cards.Food, from_choice_die: bool) -> str:
+        """Human-readable label for one :meth:`gain_options` entry (CLI / log only)."""
+        if from_choice_die:
+            return f"{food.value} (choice die)"
+        return f"{food.value}({self.counts[food]})"
+
+    def take(self, food: cards.Food, *, from_choice_die: bool = False) -> None:
+        """Consume one die yielding ``food``.
+
+        With ``from_choice_die=False`` (the default), spend a matching single
+        face first, falling back to a choice die only when ``food`` is
+        invertebrate/seed and no single face is showing. With
+        ``from_choice_die=True``, consume a choice die specifically (raising if
+        none is showing) — used when the gain was offered as the invertebrate/
+        seed choice-die option. Raises if ``food`` is not gainable the requested
+        way; callers gate on :meth:`gain_options` / :meth:`gainable_foods`."""
+        if from_choice_die:
+            if self.choice_dice > 0 and food in _CHOICE_FACE_FOODS:
+                self.choice_dice -= 1
+            else:
+                raise ValueError(f"{food.value} is not gainable from a choice die")
+            return
         if self.counts[food] > 0:
             self.counts[food] -= 1
         elif self.choice_dice > 0 and food in _CHOICE_FACE_FOODS:

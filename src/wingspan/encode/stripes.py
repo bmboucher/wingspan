@@ -8,6 +8,11 @@ the order they appear in the flat vector, with a short reference name, a human
 description, size, encoding kind, value range, and optional sub-field notes.
 All sizes are derived from the same ``layout`` constants the encoders use, so a
 change to ``layout.py`` automatically flows through to this registry.
+
+Both layouts take an :class:`layout.EncodingSpec`; the config-driven setup pieces
+(the choice ``setup_agg`` stripe and the decision-type one-hot's setup column)
+are present only when ``spec.include_setup``. ``wingspan-inspect`` passes the
+run's spec so the report shows exactly the fields that run encodes.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ class SubFieldDescriptor(pydantic.BaseModel):
 
     Used by :class:`StripeDescriptor` to expose drill-down detail for stripes
     whose elements are semantically distinct from each other (e.g. the 7 scalars
-    in ``misc_scalars``, the 9 mutable features in a board slot, …).  Homogeneous
+    in ``misc_scalars``, the per-slot features in a board slot, …). Homogeneous
     stripes where every element has the same meaning (``hand_multihot``, bonus
     one-hots) do not carry sub-fields — the parent stripe's ``notes`` are
     sufficient there.
@@ -52,7 +57,7 @@ class SubFieldDescriptor(pydantic.BaseModel):
 
     group: str | None = None
     """Optional grouping label used to nest sub-fields in the HTML report
-    (e.g. ``"slot_forest_0"`` groups the 9 per-slot elements together)."""
+    (e.g. ``"slot_forest_0"`` groups a slot's per-slot elements together)."""
 
 
 class StripeDescriptor(pydantic.BaseModel):
@@ -81,7 +86,7 @@ class StripeDescriptor(pydantic.BaseModel):
     """Sub-field layout, normalization constants, or other caveats."""
 
     sub_fields: tuple[SubFieldDescriptor, ...] = ()
-    """Per-element drill-down for semantically distinct stripes.  Empty for
+    """Per-element drill-down for semantically distinct stripes. Empty for
     homogeneous stripes where every element has the same meaning."""
 
 
@@ -89,21 +94,24 @@ class VectorLayout(pydantic.BaseModel):
     """The complete named stripe breakdown of a flat feature vector."""
 
     total_size: int
-    """Total element count (equals ``len(stripes[i].size)`` summed)."""
+    """Total element count (equals ``sum(stripes[i].size)``)."""
 
     stripes: tuple[StripeDescriptor, ...]
 
 
-def state_stripe_layout() -> VectorLayout:
+def state_stripe_layout(
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+) -> VectorLayout:
     """Build the stripe registry for the state vector produced by ``encode_state``.
 
     Stripes are listed in offset order — the same order ``encode_state``
     concatenates them — and sizes are computed from ``layout`` constants so
-    changes to the encoding propagate automatically.
+    changes to the encoding propagate automatically. Only the trailing
+    decision-type one-hot's width depends on ``spec``.
     """
     from wingspan.encode import state_encode
 
-    total = state_encode.state_size()
+    total = state_encode.state_size(spec)
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
     habitat_names = ", ".join(h.value for h in cards.ALL_HABITATS)
 
@@ -220,20 +228,21 @@ def state_stripe_layout() -> VectorLayout:
     stripes.append(
         StripeDescriptor(
             name="hand_summary_me",
-            description="Aggregated statistics about my current hand.",
+            description="Compact summary of my current hand.",
             offset=off,
-            size=8,
+            size=10,
             encoding="vector",
             value_range="[0, ~1]",
             notes=(
-                "8 stats: hand_size (÷10), mean_points (÷9), max_points (÷9), "
-                "mean_food_cost (÷7), min_food_cost (÷7), mean_egg_limit (÷6), "
-                "forest_bird_count (÷10), wetland_bird_count (÷10)."
+                "10 values: hand_size[0] (÷10), per-habitat bird counts[1:4] "
+                f"({habitat_names}; a bird counted once per habitat it lives in, "
+                "÷10), then a food+wild multi-hot[4:10] — 1.0 if any hand bird has "
+                f"that token in its food cost ({food_names}, wild)."
             ),
             sub_fields=_hand_summary_sub_fields(),
         )
     )
-    off += 8
+    off += 10
 
     # ---- bonus progress (POV player only; opponent identity hidden) ----
     bonus_dim = layout._BONUS_ID_DIM  # 26 bonus cards
@@ -347,7 +356,7 @@ def state_stripe_layout() -> VectorLayout:
             encoding="vector",
             value_range="[0, ~1]",
             notes=(
-                "7 values in order: round_index (÷4), my_action_cubes (÷8), "
+                "7 values in order: round_index (÷3, ordinal), my_action_cubes (÷8), "
                 "opp_action_cubes (÷8), my_round_goal_pts (÷10), "
                 "opp_round_goal_pts (÷10), tray_size (÷3), deck_size (÷100)."
             ),
@@ -437,9 +446,10 @@ def state_stripe_layout() -> VectorLayout:
     )
     off += hand_dim
 
-    # ---- decision-type one-hot (always last) ----
-    decision_dim = layout.DECISION_TYPE_DIM
-    decision_names = ", ".join(cls.__name__ for cls in decisions.ALL_DECISION_CLASSES)
+    # ---- decision-type one-hot (always last; setup column present iff include_setup) ----
+    decision_dim = layout.decision_type_dim(spec)
+    active_classes = decisions.active_decision_classes(spec.include_setup)
+    decision_names = ", ".join(cls.__name__ for cls in active_classes)
     stripes.append(
         StripeDescriptor(
             name="decision_type",
@@ -451,42 +461,38 @@ def state_stripe_layout() -> VectorLayout:
             size=decision_dim,
             encoding="one-hot",
             value_range="{0, 1}",
-            notes=f"Indexed by ALL_DECISION_CLASSES order: {decision_names}.",
+            notes=(
+                f"Indexed by active decision classes: {decision_names}. "
+                f"{'Includes' if spec.include_setup else 'Excludes'} the SetupDecision "
+                "column (config-driven by use_setup_model)."
+            ),
         )
     )
     off += decision_dim
 
     assert off == total, (
-        f"stripe offsets sum to {off} but state_size() returns {total} — "
+        f"stripe offsets sum to {off} but state_size(spec) returns {total} — "
         "layout.py and stripes.py are out of sync"
     )
     return VectorLayout(total_size=total, stripes=tuple(stripes))
 
 
-def choice_stripe_layout() -> VectorLayout:
+def choice_stripe_layout(
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+) -> VectorLayout:
     """Build the stripe registry for the choice vector produced by ``encode_choices``.
 
     Each stripe corresponds to a type-specific feature group in the flat
-    ``CHOICE_FEATURE_DIM``-wide vector that every candidate is encoded into.
+    ``choice_feature_dim(spec)``-wide vector that every candidate is encoded into.
+    The trailing ``setup_agg`` stripe is present only when ``spec.include_setup``.
     """
-    total = layout.CHOICE_FEATURE_DIM
+    total = layout.choice_feature_dim(spec)
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
     habitat_names = ", ".join(h.value for h in cards.ALL_HABITATS)
 
     stripes: list[StripeDescriptor] = []
 
-    # Stripe size constants (from layout private constants, stable by convention)
-    kind_dim = layout._KIND_DIM  # 6
-    food_dim = layout._FOOD_DIM  # 5
-    hab_dim = layout._HABITAT_DIM  # 3
-    pay_dim = layout._PAYMENT_DIM  # 5
-    board_dim = layout._BOARD_TARGET_DIM  # 8
-    special_dim = layout._SPECIAL_DIM  # 3
-    exchange_dim = layout._EXCHANGE_DIM  # 3
-    setup_dim = layout._SETUP_DIM  # 4
-    bird_id_dim = layout._BIRD_ID_DIM  # 180
-    bonus_id_dim = layout._BONUS_ID_DIM  # 26
-
+    main_action_names = ", ".join(a.value for a in layout._MAIN_ACTION_ORDER)
     kind_labels = (
         "bird(0), food(1), habitat(2), payment(3), board_target(4), special(5)"
     )
@@ -494,9 +500,9 @@ def choice_stripe_layout() -> VectorLayout:
     stripes.append(
         StripeDescriptor(
             name="kind",
-            description="One-hot encoding of the choice's type.",
+            description="One-hot encoding of the choice's data-shape kind.",
             offset=layout._OFF_KIND,
-            size=kind_dim,
+            size=layout._KIND_DIM,
             encoding="one-hot",
             value_range="{0, 1}",
             notes=f"Indices: {kind_labels}.",
@@ -506,14 +512,18 @@ def choice_stripe_layout() -> VectorLayout:
 
     stripes.append(
         StripeDescriptor(
-            name="food",
-            description="One-hot encoding of a food-type choice.",
-            offset=layout._OFF_FOOD,
-            size=food_dim,
+            name="gain_food",
+            description="Food selection for a gain (and food choice for spend decisions).",
+            offset=layout._OFF_GAIN_FOOD,
+            size=layout._GAIN_FOOD_DIM,
             encoding="one-hot",
             value_range="{0, 1}",
-            notes=f"Food types in order: {food_names}. Zero for non-food choices.",
-            sub_fields=_choice_food_sub_fields(),
+            notes=(
+                f"7 values: the five plain-die foods ({food_names}) then "
+                "take-choice-die-as-invertebrate[5] and take-choice-die-as-seed[6]. "
+                "Zero for non-food choices."
+            ),
+            sub_fields=_gain_food_sub_fields(),
         )
     )
 
@@ -522,7 +532,7 @@ def choice_stripe_layout() -> VectorLayout:
             name="habitat",
             description="One-hot encoding of a habitat choice.",
             offset=layout._OFF_HAB,
-            size=hab_dim,
+            size=layout._HABITAT_DIM,
             encoding="one-hot",
             value_range="{0, 1}",
             notes=f"Habitats in order: {habitat_names}. Zero for non-habitat choices.",
@@ -532,15 +542,15 @@ def choice_stripe_layout() -> VectorLayout:
 
     stripes.append(
         StripeDescriptor(
-            name="payment",
+            name="pay_food",
             description="Food payment vector: normalized count per food type.",
             offset=layout._OFF_PAY,
-            size=pay_dim,
+            size=layout._PAY_FOOD_DIM,
             encoding="vector",
             value_range="[0, 1]",
             notes=(
                 f"One value per food type ({food_names}), normalized ÷ 4. "
-                "Used for FoodPaymentChoice."
+                "Used for a bird play's payment and a PayCostChoice's paid food."
             ),
             sub_fields=_choice_payment_sub_fields(),
         )
@@ -549,17 +559,17 @@ def choice_stripe_layout() -> VectorLayout:
     stripes.append(
         StripeDescriptor(
             name="board_target",
-            description="Features of a board-slot target choice.",
+            description="Per-board-slot features for a board-target (lay/remove egg) choice.",
             offset=layout._OFF_BOARD,
-            size=board_dim,
+            size=layout._BOARD_TARGET_DIM,
             encoding="complex",
-            value_range="[0, 1]",
+            value_range="[0, ~1]",
             notes=(
-                f"{board_dim} values: habitat_one_hot[0:3] ({habitat_names}), "
-                "slot_position (normalized), eggs (normalized ÷ 6), "
-                "egg_cap_remaining (normalized ÷ 6), "
-                "total_cached_food (normalized ÷ 6), tucked_cards (normalized ÷ 6). "
-                "Zero for non-board-target choices."
+                f"{layout._SLOTS_PER_BOARD} board slots × {layout._BT_SLOT_SCALARS} "
+                "scalars each: add_target[0], take_target[1] (set on the targeted slot "
+                "for a lay-egg vs remove-egg decision), cached food per type[2:7] "
+                f"({food_names}, ÷6), tucked[7] (÷6). The occupying bird ids ride the "
+                "parallel board_idx block. Zero for non-board-target choices."
             ),
             sub_fields=_board_target_sub_fields(),
         )
@@ -567,16 +577,28 @@ def choice_stripe_layout() -> VectorLayout:
 
     stripes.append(
         StripeDescriptor(
+            name="main_action",
+            description="One-hot encoding of which top-level action a MainActionChoice picks.",
+            offset=layout._OFF_MAIN_ACTION,
+            size=layout._MAIN_ACTION_DIM,
+            encoding="one-hot",
+            value_range="{0, 1}",
+            notes=f"Actions in order: {main_action_names}. Zero for non-main-action choices.",
+            sub_fields=_main_action_sub_fields(),
+        )
+    )
+
+    stripes.append(
+        StripeDescriptor(
             name="special",
-            description="Special-case flags for skip, main-action, and setup choices.",
+            description="Special-case flags for skip and player-id choices.",
             offset=layout._OFF_SPECIAL,
-            size=special_dim,
-            encoding="vector",
-            value_range="mixed",
+            size=layout._SPECIAL_DIM,
+            encoding="binary",
+            value_range="{0, 1}",
             notes=(
-                f"{special_dim} values: is_skip[0] {{0,1}}, "
-                "encoded_main_action_slot[1] (÷4, for MainAction choices), "
-                "setup_is_keep[2] {0,1} (for SetupChoice)."
+                "2 flags: is_skip[0] (declines the decision), is_me[1] (a "
+                "PlayerIdChoice that targets the deciding player)."
             ),
             sub_fields=_special_sub_fields(),
         )
@@ -587,13 +609,13 @@ def choice_stripe_layout() -> VectorLayout:
             name="exchange",
             description="Accept-exchange trade terms for a PayCostChoice.",
             offset=layout._OFF_EXCHANGE,
-            size=exchange_dim,
+            size=layout._EXCHANGE_DIM,
             encoding="vector",
             value_range="[0, 1]",
             notes=(
-                f"{exchange_dim} values: eggs_paid (÷3), cards_gained (÷3), "
-                "tucks_gained (÷3). "
-                "Food paid reuses the FOOD stripe. Zero for non-exchange choices."
+                f"{layout._EXCHANGE_DIM} values: eggs_paid (÷3), cards_gained (÷3), "
+                "tucks_gained (÷3). Food paid reuses the pay_food stripe. "
+                "Zero for non-exchange choices."
             ),
             sub_fields=_exchange_sub_fields(),
         )
@@ -601,63 +623,84 @@ def choice_stripe_layout() -> VectorLayout:
 
     stripes.append(
         StripeDescriptor(
-            name="setup_agg",
+            name="board_idx",
             description=(
-                "Aggregate statistics of the kept-card subset for a SetupChoice."
+                "Bird indices for the deciding player's 15 board slots — the "
+                "board_target stripe's occupants, looked up in the shared card table."
             ),
-            offset=layout._OFF_SETUP,
-            size=setup_dim,
-            encoding="vector",
-            value_range="[0, ~1]",
+            offset=layout._OFF_BOARD_IDX,
+            size=layout._BOARD_IDX_SLOTS,
+            encoding="integer-index",
+            value_range=f"int 0–{cards.n_birds()}",
             notes=(
-                f"{setup_dim} values: summed_points (÷9), summed_food_cost (÷7), "
-                "summed_egg_limit (÷6), kept_count (÷5). "
-                "Zero for non-setup choices."
+                f"{layout._BOARD_IDX_SLOTS} integer indices (positional, ALL_HABITATS × "
+                "ROW_SLOTS). bird_index + 1; 0 = empty slot. Zero for non-board choices."
             ),
-            sub_fields=_setup_agg_sub_fields(),
         )
     )
 
-    bird_id_off = layout._OFF_BIRD_ID
     stripes.append(
         StripeDescriptor(
             name="bird_id",
             description=(
                 f"Bird identity: one-hot (single bird) or multi-hot (kept set) "
-                f"over all {bird_id_dim} core-set birds."
+                f"over all {layout._BIRD_ID_DIM} core-set birds."
             ),
-            offset=bird_id_off,
-            size=bird_id_dim,
+            offset=layout._OFF_BIRD_ID,
+            size=layout._BIRD_ID_DIM,
             encoding="one-hot / multi-hot",
             value_range="{0, 1}",
             notes=(
-                "Embedded through the shared card table (same weights as state board/tray slots). "
-                "For SetupChoice the kept-set multi-hot is summed through the embedding. "
-                "Zero for non-bird choices."
+                "Embedded through the shared card table (same weights as state "
+                "board/tray slots). For a setup pick the kept-set multi-hot is summed "
+                "through the embedding. Zero for non-bird choices."
             ),
         )
     )
 
-    bonus_id_off = layout._OFF_BONUS_ID
     stripes.append(
         StripeDescriptor(
             name="bonus_id",
             description=(
-                f"Bonus-card identity one-hot over all {bonus_id_dim} core-set bonus cards."
+                f"Bonus-card identity one-hot over all {layout._BONUS_ID_DIM} "
+                "core-set bonus cards."
             ),
-            offset=bonus_id_off,
-            size=bonus_id_dim,
+            offset=layout._OFF_BONUS_ID,
+            size=layout._BONUS_ID_DIM,
             encoding="one-hot",
             value_range="{0, 1}",
-            notes="Used for BonusCardChoice. Zero for non-bonus choices.",
+            notes="Used for BonusCardChoice / a setup pick's kept bonus. Zero otherwise.",
         )
     )
 
-    # Verify offsets cover the full vector
-    assert bonus_id_off + bonus_id_dim == total, (
-        f"choice stripe offsets end at {bonus_id_off + bonus_id_dim} "
-        f"but CHOICE_FEATURE_DIM = {total}"
-    )
+    end = layout._OFF_BONUS_ID + layout._BONUS_ID_DIM
+
+    # ---- setup_agg (trailing; present only when the main model carries setup) ----
+    if spec.include_setup:
+        stripes.append(
+            StripeDescriptor(
+                name="setup_agg",
+                description=(
+                    "Aggregate statistics of the kept-card subset for a SetupChoice."
+                ),
+                offset=layout._OFF_SETUP,
+                size=layout._SETUP_DIM,
+                encoding="vector",
+                value_range="[0, ~1]",
+                notes=(
+                    f"{layout._SETUP_DIM} values: summed_points (÷45), summed_food_cost "
+                    "(÷35), summed_egg_limit (÷30), kept_count (÷5). Present only when "
+                    "use_setup_model is off (the main net scores the opening); zero for "
+                    "non-setup choices."
+                ),
+                sub_fields=_setup_agg_sub_fields(),
+            )
+        )
+        end += layout._SETUP_DIM
+
+    assert (
+        end == total
+    ), f"choice stripe offsets end at {end} but choice_feature_dim(spec) = {total}"
 
     return VectorLayout(total_size=total, stripes=tuple(stripes))
 
@@ -684,15 +727,14 @@ def _food_sub_fields() -> tuple[SubFieldDescriptor, ...]:
 
 
 def _board_slot_sub_fields() -> tuple[SubFieldDescriptor, ...]:
-    """All 135 per-element sub-fields for a board continuous stripe.
+    """All per-element sub-fields for a board continuous stripe.
 
     Iterates all 15 slots (3 habitats × 5 positions) in the same order the
-    encoder writes them.  Each slot contributes 9 elements; the ``group``
-    field names the slot so the HTML report can nest them.
+    encoder writes them. Each slot contributes 9 elements; the ``group`` field
+    names the slot so the HTML report can nest them.
     """
     food_names = [food.value for food in cards.ALL_FOODS]
 
-    # Name / description / notes for each of the 9 per-slot dims in order.
     slot_dim_meta = [
         ("eggs", "Eggs currently on this bird.", "Normalized ÷ 6."),
         (
@@ -789,50 +831,30 @@ def _board_summary_sub_fields() -> tuple[SubFieldDescriptor, ...]:
 
 
 def _hand_summary_sub_fields() -> tuple[SubFieldDescriptor, ...]:
-    """8 sub-fields for the hand-summary stripe."""
-    entries = [
-        ("hand_size", "Total cards currently in hand.", "[0, ~1]", "Normalized ÷ 10."),
+    """10 sub-fields for the hand-summary stripe: size, habitat counts, food multi-hot."""
+    entries: list[tuple[str, str, str]] = [
+        ("hand_size", "Total cards currently in hand.", "Normalized ÷ 10."),
+        *[
+            (
+                f"{habitat.value}_count",
+                f"Number of hand birds that live in {habitat.value} "
+                "(a dual-habitat bird counts in each).",
+                "Normalized ÷ 10.",
+            )
+            for habitat in cards.ALL_HABITATS
+        ],
+        *[
+            (
+                f"has_{food.value}_cost",
+                f"1.0 if any hand bird has {food.value} in its food cost.",
+                "{0, 1}.",
+            )
+            for food in cards.ALL_FOODS
+        ],
         (
-            "mean_points",
-            "Mean point value of cards in hand.",
-            "[0, ~1]",
-            "Normalized ÷ 9.",
-        ),
-        (
-            "max_points",
-            "Highest single-card point value in hand.",
-            "[0, ~1]",
-            "Normalized ÷ 9.",
-        ),
-        (
-            "mean_food_cost",
-            "Mean total food cost of cards in hand.",
-            "[0, ~1]",
-            "Normalized ÷ 7.",
-        ),
-        (
-            "min_food_cost",
-            "Lowest food cost of any card in hand.",
-            "[0, ~1]",
-            "Normalized ÷ 7.",
-        ),
-        (
-            "mean_egg_limit",
-            "Mean egg capacity of cards in hand.",
-            "[0, ~1]",
-            "Normalized ÷ 6.",
-        ),
-        (
-            "forest_bird_count",
-            "Number of forest birds in hand.",
-            "[0, ~1]",
-            "Normalized ÷ 10 (max hand size).",
-        ),
-        (
-            "wetland_bird_count",
-            "Number of wetland birds in hand.",
-            "[0, ~1]",
-            "Normalized ÷ 10 (max hand size).",
+            "has_wild_cost",
+            "1.0 if any hand bird has a wild token in its cost.",
+            "{0, 1}.",
         ),
     ]
     return tuple(
@@ -842,10 +864,10 @@ def _hand_summary_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             relative_offset=idx,
             size=1,
             encoding="scalar",
-            value_range=vrange,
+            value_range="[0, ~1]",
             notes=notes,
         )
-        for idx, (name, desc, vrange, notes) in enumerate(entries)
+        for idx, (name, desc, notes) in enumerate(entries)
     )
 
 
@@ -867,7 +889,7 @@ def _birdfeeder_sub_fields() -> tuple[SubFieldDescriptor, ...]:
     sub_fields.append(
         SubFieldDescriptor(
             name="face_choice_die",
-            description="Dice showing a choice-wild (any food) face in the birdfeeder.",
+            description="Dice showing a choice-wild (invertebrate/seed) face.",
             relative_offset=len(sub_fields),
             size=1,
             encoding="scalar",
@@ -881,7 +903,7 @@ def _birdfeeder_sub_fields() -> tuple[SubFieldDescriptor, ...]:
 def _misc_scalars_sub_fields() -> tuple[SubFieldDescriptor, ...]:
     """7 sub-fields for the misc-scalars stripe."""
     entries = [
-        ("round_index", "Current round number (0–3).", "Normalized ÷ 4."),
+        ("round_index", "Current round number (0–3), ordinal.", "Normalized ÷ 3."),
         ("my_action_cubes", "My remaining action cubes this round.", "Normalized ÷ 8."),
         (
             "opp_action_cubes",
@@ -1003,7 +1025,7 @@ def _kind_sub_fields() -> tuple[SubFieldDescriptor, ...]:
         ("board_target", "This choice targets a specific board slot."),
         (
             "special",
-            "This choice is a special action (skip, main action, or setup pick).",
+            "This choice is a special action (skip, main action, bonus, or setup).",
         ),
     ]
     return tuple(
@@ -1019,18 +1041,29 @@ def _kind_sub_fields() -> tuple[SubFieldDescriptor, ...]:
     )
 
 
-def _choice_food_sub_fields() -> tuple[SubFieldDescriptor, ...]:
-    """5 sub-fields for the food-type one-hot in a choice vector."""
+def _gain_food_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """7 sub-fields for the gain_food stripe: 5 plain foods + 2 choice-die options."""
+    entries: list[tuple[str, str]] = [
+        *[
+            (f"gain_{food.value}", f"Take a plain {food.value} die.")
+            for food in cards.ALL_FOODS
+        ],
+        (
+            "choice_die_invertebrate",
+            "Take the invertebrate/seed choice die as invertebrate.",
+        ),
+        ("choice_die_seed", "Take the invertebrate/seed choice die as seed."),
+    ]
     return tuple(
         SubFieldDescriptor(
-            name=f"food_{food.value}",
-            description=f"This choice selects {food.value} food.",
+            name=name,
+            description=desc,
             relative_offset=idx,
             size=1,
             encoding="one-hot bit",
             value_range="{0, 1}",
         )
-        for idx, food in enumerate(cards.ALL_FOODS)
+        for idx, (name, desc) in enumerate(entries)
     )
 
 
@@ -1050,10 +1083,10 @@ def _choice_habitat_sub_fields() -> tuple[SubFieldDescriptor, ...]:
 
 
 def _choice_payment_sub_fields() -> tuple[SubFieldDescriptor, ...]:
-    """5 sub-fields for the payment-vector stripe in a choice vector."""
+    """5 sub-fields for the pay_food vector stripe in a choice vector."""
     return tuple(
         SubFieldDescriptor(
-            name=f"payment_{food.value}",
+            name=f"pay_{food.value}",
             description=f"Units of {food.value} food paid in this choice.",
             relative_offset=idx,
             size=1,
@@ -1066,92 +1099,60 @@ def _choice_payment_sub_fields() -> tuple[SubFieldDescriptor, ...]:
 
 
 def _board_target_sub_fields() -> tuple[SubFieldDescriptor, ...]:
-    """8 sub-fields for the board-target stripe in a choice vector."""
-    entries: list[tuple[str, str, str, str, str | None]] = [
+    """The per-slot sub-fields for the board_target stripe (15 slots × 8 scalars)."""
+    food_names = [food.value for food in cards.ALL_FOODS]
+    slot_meta: list[tuple[str, str]] = [
+        ("add_target", "Set when this choice would lay an egg on this slot."),
+        ("take_target", "Set when this choice would remove an egg from this slot."),
         *[
-            (
-                f"habitat_{hab.value}",
-                f"Target slot is in the {hab.value} habitat.",
-                "one-hot bit",
-                "{0, 1}",
-                None,
-            )
-            for hab in cards.ALL_HABITATS
+            (f"cached_{food}", f"Cached {food} on the bird in this slot.")
+            for food in food_names
         ],
-        (
-            "slot_position",
-            "Slot index within the habitat row (0–4).",
-            "scalar",
-            "[0, 1]",
-            "Normalized ÷ 4.",
-        ),
-        (
-            "eggs",
-            "Current egg count on the target bird.",
-            "scalar",
-            "[0, ~1]",
-            "Normalized ÷ 6.",
-        ),
-        (
-            "egg_cap_remaining",
-            "Remaining egg capacity of the target bird.",
-            "scalar",
-            "[0, ~1]",
-            "Normalized ÷ 6.",
-        ),
-        (
-            "total_cached_food",
-            "Total cached food on the target bird.",
-            "scalar",
-            "[0, ~1]",
-            "Normalized ÷ 6.",
-        ),
-        (
-            "tucked_cards",
-            "Tucked cards under the target bird.",
-            "scalar",
-            "[0, ~1]",
-            "Normalized ÷ 6.",
-        ),
+        ("tucked", "Tucked cards under the bird in this slot."),
     ]
+    sub_fields: list[SubFieldDescriptor] = []
+    slot_number = 0
+    for habitat in cards.ALL_HABITATS:
+        for position in range(state.ROW_SLOTS):
+            group = f"slot_{habitat.value}_{position}"
+            slot_base = slot_number * layout._BT_SLOT_SCALARS
+            for dim_idx, (dim_name, dim_desc) in enumerate(slot_meta):
+                sub_fields.append(
+                    SubFieldDescriptor(
+                        name=f"{habitat.value}_{position}.{dim_name}",
+                        description=dim_desc,
+                        relative_offset=slot_base + dim_idx,
+                        size=1,
+                        encoding="scalar",
+                        value_range="[0, ~1]",
+                        notes="Cached food / tucked normalized ÷ 6; flags {0, 1}.",
+                        group=group,
+                    )
+                )
+            slot_number += 1
+    return tuple(sub_fields)
+
+
+def _main_action_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """4 sub-fields for the main-action one-hot in a choice vector."""
     return tuple(
         SubFieldDescriptor(
-            name=name,
-            description=desc,
+            name=f"action_{action.value}",
+            description=f"This choice picks the {action.value} main action.",
             relative_offset=idx,
             size=1,
-            encoding=enc,
-            value_range=vrange,
-            notes=notes,
+            encoding="one-hot bit",
+            value_range="{0, 1}",
         )
-        for idx, (name, desc, enc, vrange, notes) in enumerate(entries)
+        for idx, action in enumerate(layout._MAIN_ACTION_ORDER)
     )
 
 
 def _special_sub_fields() -> tuple[SubFieldDescriptor, ...]:
-    """3 sub-fields for the special-flags stripe in a choice vector."""
+    """2 sub-fields for the special-flags stripe in a choice vector."""
     entries = [
-        (
-            "is_skip",
-            "Set when this choice declines the current decision.",
-            "binary",
-            "{0, 1}",
-            None,
-        ),
-        (
-            "encoded_main_action",
-            "Encoded main-action slot index (÷ 4).",
-            "scalar",
-            "[0, ~1]",
-            "Non-zero for MainAction choices only.",
-        ),
-        (
-            "setup_is_keep",
-            "Set when this is the 'keep' option in a setup pick.",
-            "binary",
-            "{0, 1}",
-            None,
-        ),
+        ("is_skip", "Set when this choice declines the current decision."),
+        ("is_me", "Set when a PlayerIdChoice targets the deciding player."),
     ]
     return tuple(
         SubFieldDescriptor(
@@ -1159,11 +1160,10 @@ def _special_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             description=desc,
             relative_offset=idx,
             size=1,
-            encoding=enc,
-            value_range=vrange,
-            notes=notes,
+            encoding="binary",
+            value_range="{0, 1}",
         )
-        for idx, (name, desc, enc, vrange, notes) in enumerate(entries)
+        for idx, (name, desc) in enumerate(entries)
     )
 
 
@@ -1202,17 +1202,17 @@ def _setup_agg_sub_fields() -> tuple[SubFieldDescriptor, ...]:
         (
             "summed_points",
             "Total point value of the kept setup cards.",
-            "Normalized ÷ 9.",
+            "Normalized ÷ 45.",
         ),
         (
             "summed_food_cost",
             "Total food cost of the kept setup cards.",
-            "Normalized ÷ 7.",
+            "Normalized ÷ 35.",
         ),
         (
             "summed_egg_limit",
             "Total egg capacity of the kept setup cards.",
-            "Normalized ÷ 6.",
+            "Normalized ÷ 30.",
         ),
         ("kept_count", "Number of cards kept in this setup choice.", "Normalized ÷ 5."),
     ]

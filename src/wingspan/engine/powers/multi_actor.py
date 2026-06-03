@@ -75,15 +75,18 @@ def _player_gains_dice(
                 prompt=f"[{target_player.name}] take 1 die from birdfeeder ({bird.name})",
                 choices=[
                     decisions.FoodChoice(
-                        label=f"{food.value}" f"({st.birdfeeder.gainable_count(food)})",
+                        label=st.birdfeeder.gain_option_label(food, combo),
                         food=food,
+                        from_choice_die=combo,
                     )
-                    for food in st.birdfeeder.gainable_foods()
+                    for food, combo in st.birdfeeder.gain_options()
                 ],
             ),
         )
         assert isinstance(food_ch, decisions.FoodChoice)
-        actions.gain_feeder_die(engine, target_player, food_ch.food)
+        actions.gain_feeder_die(
+            engine, target_player, food_ch.food, from_choice_die=food_ch.from_choice_die
+        )
         engine.log(f"  [{target_player.name}] +1 {food_ch.food.value} from birdfeeder")
 
 

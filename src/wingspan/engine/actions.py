@@ -273,17 +273,23 @@ def offer_birdfeeder_reset(
 
 
 def gain_feeder_die(
-    engine: "core.Engine", player: state.Player, food: cards.Food
+    engine: "core.Engine",
+    player: state.Player,
+    food: cards.Food,
+    *,
+    from_choice_die: bool = False,
 ) -> None:
     """Move one ``food`` die from the feeder into ``player``'s supply, then apply
     Rule 1: if that emptied the feeder, immediately reroll it.
 
     Every birdfeeder gain routes through here so the "reroll an empty feeder"
     rule lives in one place — the feeder is therefore never observed empty at any
-    decision point. The caller must ensure ``food`` is gainable right now (see
-    ``Birdfeeder.gainable_foods``)."""
+    decision point. ``from_choice_die`` forwards to :meth:`Birdfeeder.take`, so a
+    gain offered as the invertebrate/seed choice-die option spends a choice die
+    rather than a single face. The caller must ensure ``food`` is gainable the
+    requested way (see ``Birdfeeder.gain_options``)."""
     feeder = engine.state.birdfeeder
-    feeder.take(food)
+    feeder.take(food, from_choice_die=from_choice_die)
     player.food[food] += 1
     if feeder.is_empty():
         feeder.reroll(engine.state.rng)
@@ -307,9 +313,12 @@ def take_one_from_feeder(
     ``avail`` from the feeder before calling, so they must invoke
     :func:`offer_birdfeeder_reset` first (before reading the feeder) for any
     reroll to be reflected in ``avail``."""
-    st = engine.state
-    if len(avail) == 1:
-        chosen_food = avail[0]
+    feeder = engine.state.birdfeeder
+    # ``avail`` is the set of foods this gain may take; ``gain_options`` expands it
+    # into the distinct plain / choice-die ways to take each (see Birdfeeder).
+    options = feeder.gain_options(avail)
+    if len(options) == 1:
+        chosen_food, from_choice_die = options[0]
     else:
         ch = engine.ask(
             agent,
@@ -318,16 +327,17 @@ def take_one_from_feeder(
                 prompt=f"[{player.name}] pick 1 from birdfeeder for {pb.bird.name}",
                 choices=[
                     decisions.FoodChoice(
-                        label=f"{food.value}({st.birdfeeder.gainable_count(food)})",
+                        label=feeder.gain_option_label(food, combo),
                         food=food,
+                        from_choice_die=combo,
                     )
-                    for food in avail
+                    for food, combo in options
                 ],
             ),
         )
         assert isinstance(ch, decisions.FoodChoice)
-        chosen_food = ch.food
-    gain_feeder_die(engine, player, chosen_food)
+        chosen_food, from_choice_die = ch.food, ch.from_choice_die
+    gain_feeder_die(engine, player, chosen_food, from_choice_die=from_choice_die)
     engine.log(f"  {pb.bird.name}: +1 {chosen_food.value} from birdfeeder")
 
 
@@ -536,14 +546,16 @@ def _take_one_die_active(
             prompt=f"[{player.name}] take 1 die from birdfeeder",
             choices=[
                 decisions.FoodChoice(
-                    label=f"{food.value}({feeder.gainable_count(food)})", food=food
+                    label=feeder.gain_option_label(food, combo),
+                    food=food,
+                    from_choice_die=combo,
                 )
-                for food in feeder.gainable_foods()
+                for food, combo in feeder.gain_options()
             ],
         ),
     )
     assert isinstance(ch, decisions.FoodChoice)
-    gain_feeder_die(engine, player, ch.food)
+    gain_feeder_die(engine, player, ch.food, from_choice_die=ch.from_choice_die)
     engine.log(f"  +1 {ch.food.value}")
 
 

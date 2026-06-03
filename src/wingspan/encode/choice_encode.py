@@ -2,9 +2,9 @@
 # (this encoder reads the shared, package-private layout constants in
 # ``layout`` -- a deliberate intra-package coupling, not a privacy break)
 """The choice encoder: ``encode_choices`` featurizes every legal choice in a
-decision into a ``(n_choices, CHOICE_FEATURE_DIM)`` matrix, dispatching on the
-concrete ``Choice`` subclass through ``_CHOICE_FEATURIZERS``. The ``_fill_*``
-helpers write the shared per-card / per-food / per-habitat stripes.
+decision into a ``(n_choices, choice_feature_dim(spec))`` matrix, dispatching on
+the concrete ``Choice`` subclass through ``_CHOICE_FEATURIZERS``. The ``_fill_*``
+helpers write the shared per-card / per-food / per-habitat / per-board stripes.
 """
 
 from __future__ import annotations
@@ -26,13 +26,18 @@ _WARNED_WIDE: set[str] = set()
 _WARNED_RUNAWAY: set[str] = set()
 
 
-def encode_choices(decision: layout._AnyDecision, state: state.GameState) -> np.ndarray:
+def encode_choices(
+    decision: layout._AnyDecision,
+    state: state.GameState,
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+) -> np.ndarray:
     """Featurize every choice in ``decision``.
 
-    Returns a float32 array of shape ``(n_choices, layout.CHOICE_FEATURE_DIM)``.
+    Returns a float32 array of shape ``(n_choices, layout.choice_feature_dim(spec))``.
     All returned rows correspond to legal choices — there is no padding or
     truncation, and the action space is implicitly variable across decisions.
-    The caller (training loop) handles batched padding + masking.
+    The caller (training loop) handles batched padding + masking. ``spec`` selects
+    the config-driven row width (only the trailing ``setup_agg`` stripe varies).
     """
     n_choices = len(decision.choices)
     decision_name = type(decision).__name__
@@ -78,9 +83,9 @@ def encode_choices(decision: layout._AnyDecision, state: state.GameState) -> np.
             decision.player_id,
         )
     # Featurize straight into each row view rather than building a throwaway
-    # layout.CHOICE_FEATURE_DIM array per candidate and copying it in — the rows start
-    # zeroed, and the handlers only ever index-assign their own stripes.
-    feats = np.zeros((n_choices, layout.CHOICE_FEATURE_DIM), dtype=np.float32)
+    # array per candidate and copying it in — the rows start zeroed, and the
+    # handlers only ever index-assign their own stripes.
+    feats = np.zeros((n_choices, layout.choice_feature_dim(spec)), dtype=np.float32)
     for i, choice in enumerate(decision.choices):
         _featurize_choice(feats[i], decision, choice, state)
     return feats
@@ -91,10 +96,12 @@ def encode_choices(decision: layout._AnyDecision, state: state.GameState) -> np.
 # different — callers that consumed the old (mask, action_ids) tuple need to
 # be updated.
 def encode_decision(
-    decision: layout._AnyDecision, state: state.GameState
+    decision: layout._AnyDecision,
+    state: state.GameState,
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
 ) -> np.ndarray:
     """Alias for :func:`encode_choices`."""
-    return encode_choices(decision, state)
+    return encode_choices(decision, state, spec)
 
 
 ###### PRIVATE #######
@@ -108,8 +115,8 @@ def _featurize_choice(
     choice: decisions.Choice,
     state: state.GameState,
 ) -> None:
-    """Fill the pre-zeroed layout.CHOICE_FEATURE_DIM row ``feat`` for one
-    (decision, choice) pair, dispatching on the concrete Choice subclass.
+    """Fill the pre-zeroed choice-feature row ``feat`` for one (decision, choice)
+    pair, dispatching on the concrete Choice subclass.
 
     Writes into the caller's row view rather than allocating a fresh vector, so
     ``encode_choices`` builds its ``(n_choices, DIM)`` matrix with no per-row
@@ -159,12 +166,12 @@ def _featurize_pay_cost(
 ) -> None:
     # The 'accept the offered exchange' branch is distinct from skip — the
     # network can learn to prefer or avoid it independently. KIND_SPECIAL marks
-    # it a commit token; the trade terms live in the FOOD stripe (the food paid,
-    # if any) and the EXCHANGE stripe (eggs paid, cards / tucks gained) so the
-    # commit-to-cost head weighs what is gained against what is paid.
+    # it a commit token; the trade terms live in the PAY_FOOD stripe (the food
+    # paid, if any) and the EXCHANGE stripe (eggs paid, cards / tucks gained) so
+    # the commit-to-cost head weighs what is gained against what is paid.
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
     if choice.paid_food is not None:
-        _fill_food(feat, choice.paid_food)
+        _add_pay_food(feat, choice.paid_food)
     feat[layout._OFF_EXCHANGE + layout._EXCHANGE_PAID_EGGS] = (
         choice.paid_egg_count / layout._EXCHANGE_SCALE
     )
@@ -182,10 +189,14 @@ def _featurize_main_action(
     choice: decisions.MainActionChoice,
     state: state.GameState,
 ) -> None:
+    # A one-hot over the four main actions — never an index-as-scalar (the four
+    # actions have no ordinal relationship). KIND stays SPECIAL; the dedicated
+    # main_action stripe distinguishes the four options.
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
-    feat[layout._OFF_SPECIAL + layout._SPECIAL_ENCODED_SLOT] = (
-        _MAIN_ACTION_INDEX[choice.action] / layout._PLAYER_ID_SCALE
-    )
+    for i, action in enumerate(layout._MAIN_ACTION_ORDER):
+        if choice.action == action:
+            feat[layout._OFF_MAIN_ACTION + i] = 1.0
+            break
 
 
 def _featurize_bird(
@@ -221,16 +232,13 @@ def _featurize_played_bird(
     choice: decisions.PlayedBirdChoice,
     state: state.GameState,
 ) -> None:
-    pb = choice.played_bird
+    # A bird already in play, by reference (move-bird / repeat-power, MISC_RARE).
+    # The candidate is identified by its bird-identity stripe (embedded); the
+    # board block is filled for context with no add/take flag (this is not an egg
+    # decision). The bird is on the deciding player's own board in the core set.
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
-    _fill_bird_identity(feat, pb.bird)
-    # Surface board-target dynamic state too (eggs/cache/tucked) even
-    # though we don't know its row index here.
-    feat[layout._OFF_BOARD + 4] = pb.eggs / layout._EGG_COUNT_SCALE
-    cap = max(pb.bird.egg_limit - pb.eggs, 0)
-    feat[layout._OFF_BOARD + 5] = cap / layout._EGG_COUNT_SCALE
-    feat[layout._OFF_BOARD + 6] = pb.cached_food.total() / layout._CACHED_FOOD_SCALE
-    feat[layout._OFF_BOARD + 7] = pb.tucked_cards / layout._TUCKED_SCALE
+    _fill_bird_identity(feat, choice.played_bird.bird)
+    _fill_board_slots(feat, state.players[decision.player_id], None, None, False, False)
 
 
 def _featurize_habitat(
@@ -250,7 +258,7 @@ def _featurize_food(
     state: state.GameState,
 ) -> None:
     feat[layout._OFF_KIND + layout._KIND_FOOD] = 1.0
-    _fill_food(feat, choice.food)
+    _fill_gain_food(feat, choice.food, choice.from_choice_die)
 
 
 def _featurize_board_target(
@@ -259,8 +267,21 @@ def _featurize_board_target(
     choice: decisions.BoardTargetChoice,
     state: state.GameState,
 ) -> None:
+    # A board-slot target: fill the whole 15-slot board block from the deciding
+    # player's board and flag the targeted slot as an egg add (lay-egg decision)
+    # or take (remove-egg decision). The occupying birds ride the parallel
+    # card-index block the model embeds.
     feat[layout._OFF_KIND + layout._KIND_BOARD_TARGET] = 1.0
-    _fill_board_target(feat, choice.habitat, choice.slot, state, decision.player_id)
+    is_add = isinstance(decision, decisions.LayEggDecision)
+    is_take = isinstance(decision, decisions.RemoveEggDecision)
+    _fill_board_slots(
+        feat,
+        state.players[decision.player_id],
+        choice.habitat,
+        choice.slot,
+        is_add,
+        is_take,
+    )
 
 
 def _featurize_bonus_card(
@@ -301,7 +322,7 @@ def _featurize_player_id(
     # Flag whether the choice means "me" so the network can learn
     # self-vs-opponent preference cheaply.
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
-    feat[layout._OFF_SPECIAL + layout._SPECIAL_IS_KEEP] = (
+    feat[layout._OFF_SPECIAL + layout._SPECIAL_IS_ME] = (
         1.0 if choice.player_id == decision.player_id else 0.0
     )
 
@@ -314,26 +335,27 @@ def _featurize_setup(
 ) -> None:
     """Featurize a single combined setup pick.
 
-    The 504 candidates share a state vector, so the network reads the choice
-    features to tell them apart. We surface (a) a multi-hot of the *specific*
-    kept birds in the bird-identity stripe — so the setup head can finally learn
-    card-specific opening synergies (DECISIONS.md §3.1) — alongside (b) aggregate
-    stats of the kept-card subset, (c) a multi-hot of foods spent in the PAYMENT
-    stripe, and (d) the kept bonus card's identity one-hot.
+    Only reached when the main model carries setup (``include_setup``), so the
+    row is wide enough to hold the trailing ``setup_agg`` stripe. The 504
+    candidates share a state vector, so the network reads the choice features to
+    tell them apart: (a) a multi-hot of the *specific* kept birds in the
+    bird-identity stripe, (b) aggregate stats of the kept-card subset in the
+    setup_agg stripe, (c) a multi-hot of foods spent in the PAY_FOOD stripe, and
+    (d) the kept bonus card's identity one-hot.
     """
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
-    # PAY stripe encodes the foods *spent* (complement of kept_foods), so the
+    # PAY_FOOD stripe encodes the foods *spent* (complement of kept_foods), so the
     # network sees the same payment signal as every other paying decision.
     for i, food in enumerate(cards.ALL_FOODS):
         if food not in choice.kept_foods:
             feat[layout._OFF_PAY + i] = 1.0 / layout._PAYMENT_COUNT_SCALE
     kept = choice.kept_cards
-    # Identity multi-hot of the kept birds (the headline §3.1 fix) plus the
-    # SETUP-stripe aggregate stats that summarise the subset. One pass sets each
-    # identity bit and accumulates all three sums (the setup deal featurizes 504
-    # candidates, so folding three generator passes into one matters). The
-    # aggregates live in the dedicated SETUP stripe because they are kept-*subset*
-    # summaries the shared card table cannot reconstruct from the identity multi-hot.
+    # Identity multi-hot of the kept birds plus the setup_agg aggregate stats that
+    # summarise the subset. One pass sets each identity bit and accumulates all
+    # three sums (the setup deal featurizes 504 candidates, so folding three
+    # generator passes into one matters). The aggregates live in the dedicated
+    # SETUP stripe because they are kept-*subset* summaries the shared card table
+    # cannot reconstruct from the identity multi-hot.
     if kept:
         points = 0.0
         cost = 0.0
@@ -359,19 +381,6 @@ def _featurize_setup(
         _fill_bonus_identity(feat, choice.bonus_card)
 
 
-# Index per main-action type, spread across the SPECIAL stripe so the options
-# are distinguishable. ``MainActionDecision`` now scores only the action *type*
-# (including ``PLAY_BIRD``), so all four are featureless type tokens here; the
-# rich bird / habitat / payment features live on the follow-up
-# ``PlayBirdDecision``'s ``PlayBirdChoice`` candidates instead.
-_MAIN_ACTION_INDEX: dict[decisions.MainAction, int] = {
-    decisions.MainAction.GAIN_FOOD: 0,
-    decisions.MainAction.LAY_EGGS: 1,
-    decisions.MainAction.DRAW_CARDS: 2,
-    decisions.MainAction.PLAY_BIRD: 3,
-}
-
-
 _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
     decisions.SkipChoice: _featurize_skip,
     decisions.ResetBirdfeederChoice: _featurize_reset_birdfeeder,
@@ -395,8 +404,8 @@ _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
 
 def _fill_bird_identity(feat: np.ndarray, bird: cards.Bird) -> None:
     """Set the bird-identity one-hot bit for ``bird``. Called for every
-    bird-carrying choice, and once per card to build a kept-set / hand multi-hot.
-    The model maps this stripe through the shared card encoder, so a candidate's
+    bird-carrying choice, and once per card to build a kept-set multi-hot. The
+    model maps this stripe through the shared card encoder, so a candidate's
     static attributes and its learned per-card vector arrive together."""
     feat[layout._OFF_BIRD_ID + cards.bird_index(bird)] = 1.0
 
@@ -406,10 +415,31 @@ def _fill_bonus_identity(feat: np.ndarray, bonus_card: cards.BonusCard) -> None:
     feat[layout._OFF_BONUS_ID + cards.bonus_index(bonus_card)] = 1.0
 
 
-def _fill_food(feat: np.ndarray, food: cards.Food) -> None:
+def _fill_gain_food(feat: np.ndarray, food: cards.Food, from_choice_die: bool) -> None:
+    """Set the gain_food stripe for a food selection. The first ``N_FOODS`` slots
+    are the plain single-food dice; the final two are the invertebrate/seed choice
+    die taken as invertebrate or as seed. ``from_choice_die`` (only ever true for
+    invertebrate/seed at a feeder gain) selects the choice-die slots, so the model
+    scores burning a flexible choice die apart from spending a rigid single face.
+    Also serves spend decisions (which never set ``from_choice_die``)."""
+    if from_choice_die:
+        if food == cards.Food.INVERTEBRATE:
+            feat[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_INV] = 1.0
+        elif food == cards.Food.SEED:
+            feat[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_SEED] = 1.0
+        return
     for i, candidate in enumerate(cards.ALL_FOODS):
         if candidate == food:
-            feat[layout._OFF_FOOD + i] = 1.0
+            feat[layout._OFF_GAIN_FOOD + i] = 1.0
+            break
+
+
+def _add_pay_food(feat: np.ndarray, food: cards.Food) -> None:
+    """Add one unit of ``food`` to the pay_food count stripe (a single-food
+    payment, e.g. a PayCostChoice's ``paid_food``)."""
+    for i, candidate in enumerate(cards.ALL_FOODS):
+        if candidate == food:
+            feat[layout._OFF_PAY + i] += 1.0 / layout._PAYMENT_COUNT_SCALE
             break
 
 
@@ -425,24 +455,42 @@ def _fill_payment(feat: np.ndarray, payment: state.FoodPool) -> None:
         feat[layout._OFF_PAY + i] = payment.counts[i] / layout._PAYMENT_COUNT_SCALE
 
 
-def _fill_board_target(
+def _fill_board_slots(
     feat: np.ndarray,
-    habitat: cards.Habitat,
-    slot: int,
-    state: state.GameState,
-    player_id: int,
+    player: state.Player,
+    target_habitat: cards.Habitat | None,
+    target_slot: int | None,
+    is_add: bool,
+    is_take: bool,
 ) -> None:
-    for i, candidate in enumerate(cards.ALL_HABITATS):
-        if candidate == habitat:
-            feat[layout._OFF_BOARD + i] = 1.0
-            break
-    feat[layout._OFF_BOARD + 3] = slot / layout._ROW_SLOTS_SCALE
-    player = state.players[player_id]
-    row = player.board[habitat]
-    if 0 <= slot < len(row):
-        pb = row[slot]
-        feat[layout._OFF_BOARD + 4] = pb.eggs / layout._EGG_COUNT_SCALE
-        cap = max(pb.bird.egg_limit - pb.eggs, 0)
-        feat[layout._OFF_BOARD + 5] = cap / layout._EGG_COUNT_SCALE
-        feat[layout._OFF_BOARD + 6] = pb.cached_food.total() / layout._CACHED_FOOD_SCALE
-        feat[layout._OFF_BOARD + 7] = pb.tucked_cards / layout._TUCKED_SCALE
+    """Fill the board_target stripe: per board slot, 8 scalars (add_target,
+    take_target, cached food x5 in ALL_FOODS order, tucked) plus a parallel
+    integer card index the model embeds. Slot order is positional
+    (ALL_HABITATS x ROW_SLOTS), matching the state board stripe and card-index
+    block. The targeted slot (``target_habitat``/``target_slot``) is flagged add
+    or take; empty slots and untargeted slots leave their flags zero."""
+    for hab_idx, habitat in enumerate(cards.ALL_HABITATS):
+        row = player.board[habitat]
+        for slot in range(state.ROW_SLOTS):
+            slot_index = hab_idx * state.ROW_SLOTS + slot
+            scalar_base = layout._OFF_BOARD + slot_index * layout._BT_SLOT_SCALARS
+            if (
+                target_habitat is not None
+                and habitat == target_habitat
+                and slot == target_slot
+            ):
+                if is_add:
+                    feat[scalar_base + layout._BT_ADD] = 1.0
+                if is_take:
+                    feat[scalar_base + layout._BT_TAKE] = 1.0
+            if slot >= len(row):
+                continue
+            pb = row[slot]
+            for i, food in enumerate(cards.ALL_FOODS):
+                feat[scalar_base + layout._BT_CACHED + i] = (
+                    pb.cached_food[food] / layout._CACHED_FOOD_SCALE
+                )
+            feat[scalar_base + layout._BT_TUCKED] = (
+                pb.tucked_cards / layout._TUCKED_SCALE
+            )
+            feat[layout._OFF_BOARD_IDX + slot_index] = cards.bird_index(pb.bird) + 1

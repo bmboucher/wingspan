@@ -44,7 +44,7 @@ import numpy as np
 import pydantic
 import torch
 
-from wingspan import agents, architecture, model, setup_model
+from wingspan import agents, architecture, encode, model, setup_model
 from wingspan.training import collect, config, evaluate, metrics, setup_net
 
 # Match batched_collect's per-game sampling salt so a seed maps to the same
@@ -85,6 +85,10 @@ class _WorkerArch(pydantic.BaseModel):
     state_dim: int
     choice_dim: int
     arch: architecture.ModelArchitecture
+    # Whether the main net carries setup (``encode.EncodingSpec.include_setup``);
+    # the worker rebuilds its net with a matching spec so its encoded vectors and
+    # head count line up with the broadcast weights.
+    include_setup: bool = True
     # Setup-model shape + generation knobs a worker needs to build its local
     # setup net and random generator. Absent (``setup_enabled=False``) when the
     # run does not use the setup model.
@@ -157,6 +161,7 @@ class ProcessCollector:
             state_dim=cfg.state_dim,
             choice_dim=cfg.choice_dim,
             arch=cfg.arch,
+            include_setup=cfg.encoding_spec.include_setup,
             setup_enabled=cfg.use_setup_model,
             setup_arch=cfg.setup_arch if cfg.use_setup_model else None,
             setup_feature_dim=setup_model.SETUP_FEATURE_DIM,
@@ -431,6 +436,7 @@ def _worker_init(arch: _WorkerArch) -> None:
         state_dim=arch.state_dim,
         choice_dim=arch.choice_dim,
         arch=arch.arch,
+        spec=encode.EncodingSpec(include_setup=arch.include_setup),
     ).to(_worker_device)
     _worker_net.eval()
     _worker_weights_version = -1
@@ -601,6 +607,7 @@ def _ensure_worker_opponent(
             state_dim=_worker_arch.state_dim,
             choice_dim=_worker_arch.choice_dim,
             arch=_worker_arch.arch,
+            spec=encode.EncodingSpec(include_setup=_worker_arch.include_setup),
         ).to(device)
         _worker_opponent_net.eval()
     if task.opponent_version != _worker_opponent_version:

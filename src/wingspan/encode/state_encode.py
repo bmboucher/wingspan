@@ -16,13 +16,17 @@ from wingspan.encode import layout
 
 
 def encode_state(
-    state: state.GameState, decision: layout._AnyDecision | None = None
+    state: state.GameState,
+    decision: layout._AnyDecision | None = None,
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
 ) -> np.ndarray:
     """Encode the game from the perspective of ``decision.player_id``.
 
     If ``decision`` is ``None`` we fall back to ``state.current_player`` and
     leave the decision-type stripe zero — useful for value-only inference or
-    tests. Returns a float32 array of length ``state_size()``.
+    tests. ``spec`` selects the config-driven shape; only the trailing
+    decision-type one-hot's width varies with it. Returns a float32 array of
+    length ``state_size(spec)``.
     """
     pov = decision.player_id if decision is not None else state.current_player
     me = state.players[pov]
@@ -39,7 +43,7 @@ def encode_state(
         ),  # layout._BOARD_CONT_STRIPE_DIM — opponent (public)
         _summary_board(me),  # 18 — kept aggregate
         _summary_board(opp),  # 18 — kept aggregate
-        _summary_hand(me),  # 8
+        _summary_hand(me),  # 10
         _bonus_progress(
             me
         ),  # 4 * layout._BONUS_ID_DIM — held + count + stepped + linear
@@ -50,31 +54,20 @@ def encode_state(
         _round_goals_all_rounds(state, me, opp),  # layout._ROUND_GOALS_STRIPE_DIM
         _card_index_block(me, opp, state),  # layout.N_CARD_INDEX_SLOTS — board+tray ids
         _hand_identity(me),  # layout.HAND_MULTIHOT_DIM — multi-hot of my hand
-        _encode_decision_type(decision),  # layout.DECISION_TYPE_DIM (stays last)
+        _encode_decision_type(
+            decision, spec
+        ),  # layout.decision_type_dim(spec) (stays last)
     ]
     return np.concatenate(parts).astype(np.float32)
 
 
-def state_size() -> int:
-    """Total length of the vector returned by ``encode_state``."""
-    return (
-        5
-        + 5
-        + layout._BOARD_CONT_STRIPE_DIM  # my board (per-slot mutable state)
-        + layout._BOARD_CONT_STRIPE_DIM  # opponent board (per-slot mutable state)
-        + 18
-        + 18
-        + 8
-        + 4 * layout._BONUS_ID_DIM  # bonus: held + count + stepped + linear
-        + 1  # opponent bonus-card count
-        + 1  # opponent hand size
-        + 6  # birdfeeder: 5 single-food faces + choice-die count
-        + 7
-        + layout._ROUND_GOALS_STRIPE_DIM  # all four round goals
-        + layout.N_CARD_INDEX_SLOTS  # board + tray card-identity indices
-        + layout.HAND_MULTIHOT_DIM  # my hand multi-hot
-        + layout.DECISION_TYPE_DIM
-    )
+def state_size(spec: layout.EncodingSpec = layout.DEFAULT_SPEC) -> int:
+    """Total length of the vector returned by ``encode_state`` for ``spec``.
+
+    Delegates to ``layout.state_feature_dim`` (the single source of truth for the
+    cumulative offset chain); only the trailing decision-type one-hot's width is
+    spec-dependent."""
+    return layout.state_feature_dim(spec)
 
 
 ###### PRIVATE #######
@@ -113,26 +106,24 @@ def _summary_board(player: state.Player) -> np.ndarray:
 
 
 def _summary_hand(player: state.Player) -> np.ndarray:
-    if not player.hand:
-        return np.zeros(8, dtype=np.float32)
-    pts = [bird.points for bird in player.hand]
-    costs = [bird.food_cost.total for bird in player.hand]
-    eggs = [bird.egg_limit for bird in player.hand]
-    return np.array(
-        [
-            len(player.hand) / layout._HAND_SIZE_SCALE,
-            float(np.mean(pts)) / layout._POINTS_SCALE,
-            float(np.max(pts)) / layout._POINTS_SCALE,
-            float(np.mean(costs)) / layout._FOOD_COST_SCALE,
-            float(np.min(costs)) / layout._FOOD_COST_SCALE,
-            float(np.mean(eggs)) / layout._EGG_LIMIT_SCALE,
-            sum(1 for bird in player.hand if cards.Habitat.FOREST in bird.habitats)
-            / layout._HAND_SIZE_SCALE,
-            sum(1 for bird in player.hand if cards.Habitat.WETLAND in bird.habitats)
-            / layout._HAND_SIZE_SCALE,
-        ],
-        dtype=np.float32,
-    )
+    """Compact hand summary (10 dims): hand size, per-habitat bird counts, and a
+    food+wild multi-hot.
+
+    A bird is counted once per habitat it lives in, so a dual-habitat bird adds to
+    two of the three habitat counts. The 6-wide multi-hot flags, for each of the
+    five foods and wild, whether *any* card in hand carries that token in its food
+    cost — a cheap "can my hand pay this kind of cost?" signal. The specific cards
+    held ride the separate hand identity multi-hot (``_hand_identity``)."""
+    vec = np.zeros(10, dtype=np.float32)
+    vec[0] = len(player.hand) / layout._HAND_SIZE_SCALE
+    for bird in player.hand:
+        for i, habitat in enumerate(cards.ALL_HABITATS):
+            if habitat in bird.habitats:
+                vec[1 + i] += 1.0 / layout._HAND_SIZE_SCALE
+        for food_idx in range(layout._FOOD_COST_VEC_DIM):  # 5 foods + wild
+            if bird.food_cost.counts[food_idx] > 0:
+                vec[4 + food_idx] = 1.0
+    return vec
 
 
 def _hand_identity(player: state.Player) -> np.ndarray:
@@ -397,8 +388,10 @@ def _summary_misc_scalars(
     )
 
 
-def _encode_decision_type(decision: layout._AnyDecision | None) -> np.ndarray:
-    out = np.zeros(layout.DECISION_TYPE_DIM, dtype=np.float32)
+def _encode_decision_type(
+    decision: layout._AnyDecision | None, spec: layout.EncodingSpec
+) -> np.ndarray:
+    out = np.zeros(layout.decision_type_dim(spec), dtype=np.float32)
     if decision is not None:
         out[layout._DECISION_TYPE_INDEX[type(decision)]] = 1.0
     return out

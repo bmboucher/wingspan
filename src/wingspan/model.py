@@ -74,15 +74,25 @@ class PolicyValueNet(nn.Module):
         self,
         *,
         state_dim: int | None = None,
-        choice_dim: int = encode.CHOICE_FEATURE_DIM,
-        num_families: int = len(decisions.ALL_DECISION_FAMILIES),
+        choice_dim: int | None = None,
+        num_families: int | None = None,
         arch: architecture.ModelArchitecture | None = None,
+        spec: encode.EncodingSpec = encode.DEFAULT_SPEC,
     ):
         super().__init__()
+        # ``spec`` selects the config-driven encoding shape (whether setup is in
+        # the main model). Dims default to that spec's sizes; callers that pass
+        # explicit dims (e.g. ``from_model_config``) must pass a matching spec.
         if state_dim is None:
-            state_dim = encode.state_size()
+            state_dim = encode.state_size(spec)
+        if choice_dim is None:
+            choice_dim = encode.choice_feature_dim(spec)
+        if num_families is None:
+            num_families = len(decisions.active_decision_families(spec.include_setup))
         if arch is None:
             arch = architecture.ModelArchitecture()
+        self.spec = spec
+        self.include_setup = spec.include_setup
         self.state_dim = state_dim
         self.choice_dim = choice_dim
         self.num_families = num_families
@@ -159,6 +169,7 @@ class PolicyValueNet(nn.Module):
             choice_dim=descriptor.choice_dim,
             num_families=len(descriptor.family_order),
             arch=descriptor.architecture,
+            spec=encode.EncodingSpec(include_setup=descriptor.include_setup),
         )
 
     def forward(
@@ -276,16 +287,27 @@ class PolicyValueNet(nn.Module):
         self, choices: torch.Tensor, card_table: torch.Tensor
     ) -> torch.Tensor:
         """Turn the per-choice features ``(B, K, choice_dim)`` into the choice
-        encoder's input by mapping each candidate's card-identity stripe through
-        the shared card table (a single-card one-hot maps to that card's vector; the
-        setup pick's kept-set multi-hot sums their vectors) and concatenating the
-        candidate's remaining, non-identity features."""
-        off_bird = encode.CHOICE_BIRD_ID_OFFSET
+        encoder's input by mapping the candidate's two card regions through the
+        shared card table and concatenating them with the remaining features.
+
+        The 15-slot board-index block (the board_target stripe's occupant ids)
+        sits immediately before the candidate bird one-hot; the board indices
+        become one ``card_embed_dim`` vector per slot (flattened) and the
+        candidate one-hot becomes a single ``card_embed_dim`` vector (a setup
+        pick's kept-set multi-hot sums their vectors). Everything else — including
+        bonus_id and any trailing setup_agg stripe — passes through. These offsets
+        are spec-invariant, so the slice is config-independent."""
+        off_board = encode.CHOICE_BOARD_IDX_OFFSET
+        off_bird = encode.CHOICE_BIRD_ID_OFFSET  # == off_board + board-index slots
         end_bird = off_bird + encode.CHOICE_BIRD_ID_DIM
+        board_idx = (
+            choices[..., off_board:off_bird].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
+        )
         bird_multihot = choices[..., off_bird:end_bird]
-        rest = torch.cat([choices[..., :off_bird], choices[..., end_bird:]], dim=-1)
+        rest = torch.cat([choices[..., :off_board], choices[..., end_bird:]], dim=-1)
         cand_emb = bird_multihot @ card_table[1:]
-        return torch.cat([rest, cand_emb], dim=-1)
+        board_emb = card_table[board_idx].reshape(*board_idx.shape[:-1], -1)
+        return torch.cat([rest, cand_emb, board_emb], dim=-1)
 
 
 ###### PRIVATE #######

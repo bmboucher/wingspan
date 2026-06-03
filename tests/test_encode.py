@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state
-from wingspan.encode import state_encode
+from wingspan.encode import layout, state_encode
 
 # ---------------------------------------------------------------------------
 # State encoder
@@ -181,13 +181,15 @@ def test_choice_features_food_one_hot_is_set():
 
 
 def test_choice_features_board_target_reflects_dynamic_state():
-    """A LAY_EGG_PICK_BIRD choice surfaces the target bird's current eggs
-    and capacity. Changing the bird's eggs must change its feature row."""
+    """A LayEgg board-target choice fills the 15-slot board block from the
+    deciding player's board: the targeted slot's add flag plus every slot's
+    cached food and tucked count. Changing the bird's tucked count must change
+    its feature row."""
     from wingspan import state
 
     eng, birds, *_ = engine.Engine.create(seed=5)
-    # Plant a single bird on player 0's grassland and inspect feature flip
-    # when eggs change.
+    # Plant a single bird on player 0's grassland and inspect the feature flip
+    # when its (per-slot) tucked count changes.
     eng.state.players[0].board[cards.Habitat.GRASSLAND] = []
 
     pb = state.PlayedBird(bird=birds[0])
@@ -203,12 +205,11 @@ def test_choice_features_board_target_reflects_dynamic_state():
         ],
     )
     f0 = encode.encode_choices(decision, eng.state)[0].copy()
-    pb.eggs = min(1, pb.bird.egg_limit)
+    pb.tucked_cards += 1
     f1 = encode.encode_choices(decision, eng.state)[0].copy()
-    if pb.bird.egg_limit >= 1:
-        assert not np.array_equal(
-            f0, f1
-        ), "board-target features should reflect dynamic egg count"
+    assert not np.array_equal(
+        f0, f1
+    ), "board-target features should reflect the targeted slot's dynamic state"
 
 
 def test_pay_cost_features_distinguish_exchanges():
@@ -316,7 +317,11 @@ def test_setup_kept_set_changes_the_feature_row():
         dealt_cards=[birds[0], birds[1]],
         dealt_bonus=[],
     )
-    feats = encode.encode_choices(decision, eng.state)
+    # Setup choices are scored by the main net only when it carries setup, so
+    # featurize with that spec (the trailing setup_agg stripe is otherwise absent).
+    feats = encode.encode_choices(
+        decision, eng.state, encode.EncodingSpec(include_setup=True)
+    )
     assert not np.array_equal(feats[0], feats[1])
 
 
@@ -548,6 +553,87 @@ def test_encode_choices_does_not_truncate_under_soft_threshold():
     )
     feats = encode.encode_choices(decision, eng.state)
     assert feats.shape == (n_birds, encode.CHOICE_FEATURE_DIM)
+
+
+def test_gain_food_choice_die_uses_distinct_slots():
+    """Taking the invertebrate/seed choice die is encoded in its own gain_food
+    slot, apart from a plain invertebrate die — so the model scores burning the
+    flexible die separately."""
+    eng, *_ = engine.Engine.create(seed=2)
+    decision = decisions.GainFoodDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.FoodChoice(label="inv", food=cards.Food.INVERTEBRATE),
+            decisions.FoodChoice(
+                label="inv*", food=cards.Food.INVERTEBRATE, from_choice_die=True
+            ),
+        ],
+    )
+    plain, combo = encode.encode_choices(decision, eng.state)
+    assert plain[layout._OFF_GAIN_FOOD + 0] == 1.0  # invertebrate plain slot
+    assert combo[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_INV] == 1.0
+    assert combo[layout._OFF_GAIN_FOOD + 0] == 0.0
+    assert not np.array_equal(plain, combo)
+
+
+def test_main_action_choice_is_one_hot_in_stable_order():
+    """A MainActionChoice is a one-hot over the four actions (never an index)."""
+    eng, *_ = engine.Engine.create(seed=3)
+    decision = decisions.MainActionDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.MainActionChoice(label=action.value, action=action)
+            for action in layout._MAIN_ACTION_ORDER
+        ],
+    )
+    feats = encode.encode_choices(decision, eng.state)
+    off, dim = layout._OFF_MAIN_ACTION, layout._MAIN_ACTION_DIM
+    for i, row in enumerate(feats):
+        stripe = row[off : off + dim]
+        assert stripe.sum() == 1.0  # exactly one action bit
+        assert stripe[i] == 1.0  # in the stable MAIN_ACTION order
+    assert len({tuple(row) for row in feats}) == 4  # all four rows distinct
+
+
+def test_hand_summary_is_size_habitat_counts_and_food_multihot():
+    """The 10-dim hand summary: size, per-habitat counts, and a food+wild
+    multi-hot keyed on each card's food cost."""
+    eng, birds, *_ = engine.Engine.create(seed=4)
+    bird = birds[0]
+    eng.state.players[0].hand = [bird]
+    summary = state_encode._summary_hand(eng.state.players[0])
+    assert summary.shape == (10,)
+    assert summary[0] == 1.0 / layout._HAND_SIZE_SCALE  # hand_size = 1
+    assert summary[1:4].sum() > 0.0  # at least one habitat count
+    for i in range(layout._FOOD_COST_VEC_DIM):  # 5 foods + wild
+        expected = 1.0 if bird.food_cost.counts[i] > 0 else 0.0
+        assert summary[4 + i] == expected
+
+
+def test_board_target_add_vs_take_flag_and_card_index():
+    """A lay-egg board target sets add_target on the slot; a remove-egg target
+    sets take_target; both write the occupant into the board-index block."""
+    eng, birds, *_ = engine.Engine.create(seed=5)
+    eng.state.players[0].board[cards.Habitat.GRASSLAND] = [
+        state.PlayedBird(bird=birds[0])
+    ]
+    target = decisions.BoardTargetChoice(
+        label="x", habitat=cards.Habitat.GRASSLAND, slot=0
+    )
+    lay = decisions.LayEggDecision(player_id=0, prompt="x", choices=[target])
+    remove = decisions.RemoveEggDecision(player_id=0, prompt="x", choices=[target])
+    lay_row = encode.encode_choices(lay, eng.state)[0]
+    rem_row = encode.encode_choices(remove, eng.state)[0]
+
+    slot_index = cards.ALL_HABITATS.index(cards.Habitat.GRASSLAND) * state.ROW_SLOTS
+    base = layout._OFF_BOARD + slot_index * layout._BT_SLOT_SCALARS
+    assert lay_row[base + layout._BT_ADD] == 1.0
+    assert lay_row[base + layout._BT_TAKE] == 0.0
+    assert rem_row[base + layout._BT_TAKE] == 1.0
+    assert rem_row[base + layout._BT_ADD] == 0.0
+    assert lay_row[layout._OFF_BOARD_IDX + slot_index] == cards.bird_index(birds[0]) + 1
 
 
 ###### PRIVATE #######

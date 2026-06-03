@@ -131,8 +131,8 @@ def _write_html_report(
         num_families=len(info.family_order),
     )
     html_content = report.generate_html_report(
-        encode_stripes.state_stripe_layout(),
-        encode_stripes.choice_stripe_layout(),
+        encode_stripes.state_stripe_layout(info.spec),
+        encode_stripes.choice_stripe_layout(info.spec),
         param_report,
         info.arch,
         state_dim=info.state_dim,
@@ -174,17 +174,31 @@ class _ArchInfo:
         state_dim: int,
         choice_dim: int,
         family_order: tuple[str, ...],
+        include_setup: bool,
         run_name: str = "(baseline)",
     ):
         self.arch = arch
         self.state_dim = state_dim
         self.choice_dim = choice_dim
         self.family_order = family_order
+        self.include_setup = include_setup
         self.run_name = run_name
+
+    @property
+    def spec(self) -> encode.EncodingSpec:
+        """The encoding spec the run was built under (whether the main net carries
+        setup) — drives which stripes the report shows / hides."""
+        return encode.EncodingSpec(include_setup=self.include_setup)
 
 
 def _default_family_order() -> tuple[str, ...]:
-    return tuple(family.value for family in decisions.ALL_DECISION_FAMILIES)
+    """The baseline family order — matches the default spec (setup excluded)."""
+    return tuple(
+        family.value
+        for family in decisions.active_decision_families(
+            encode.DEFAULT_SPEC.include_setup
+        )
+    )
 
 
 def _load_arch_info(
@@ -197,6 +211,7 @@ def _load_arch_info(
             state_dim=encode.state_size(),
             choice_dim=encode.CHOICE_FEATURE_DIM,
             family_order=_default_family_order(),
+            include_setup=encode.DEFAULT_SPEC.include_setup,
         )
     try:
         descriptor = runmeta.read_model_config(checkpoint_dir)
@@ -210,12 +225,14 @@ def _load_arch_info(
             state_dim=encode.state_size(),
             choice_dim=encode.CHOICE_FEATURE_DIM,
             family_order=_default_family_order(),
+            include_setup=encode.DEFAULT_SPEC.include_setup,
         )
     return _ArchInfo(
         arch=descriptor.architecture,
         state_dim=descriptor.state_dim,
         choice_dim=descriptor.choice_dim,
         family_order=descriptor.family_order,
+        include_setup=descriptor.include_setup,
         run_name=descriptor.run_name,
     )
 
@@ -225,7 +242,7 @@ def _load_arch_info(
 
 def _print_state_section(console: rich_console.Console, info: _ArchInfo) -> None:
     """Print the STATE VECTOR breakdown table."""
-    layout = encode_stripes.state_stripe_layout()
+    layout = encode_stripes.state_stripe_layout(info.spec)
     table = _make_stripe_table(layout, "STATE VECTOR")
     console.print()
     console.print(
@@ -240,7 +257,7 @@ def _print_state_section(console: rich_console.Console, info: _ArchInfo) -> None
 
 def _print_choice_section(console: rich_console.Console, info: _ArchInfo) -> None:
     """Print the CHOICE VECTOR breakdown table."""
-    layout = encode_stripes.choice_stripe_layout()
+    layout = encode_stripes.choice_stripe_layout(info.spec)
     table = _make_stripe_table(layout, "CHOICE VECTOR")
     console.print()
     console.print(

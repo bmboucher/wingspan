@@ -1,8 +1,9 @@
-"""With the setup model off, behaviour is unchanged.
+"""With the setup model off, the main net carries the opening.
 
-Ordinary self-play collection still records the setup decision as a step routed
-to the SETUP judgment-family head (so the main net trains on it exactly as
-before), and produces no separate setup samples.
+When ``use_setup_model=False`` the main net's encoding *includes* setup
+(``EncodingSpec.include_setup=True``): ordinary self-play collection records the
+setup decision as a step routed to the SETUP judgment-family head (so the main
+net trains on it), and produces no separate setup samples.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import torch  # noqa: E402
 
-from wingspan import architecture, decisions, model  # noqa: E402
+from wingspan import architecture, decisions, encode, model  # noqa: E402
 from wingspan.training import collect  # noqa: E402
 
 _SMALL_ARCH = architecture.ModelArchitecture(
@@ -28,7 +29,11 @@ _SMALL_ARCH = architecture.ModelArchitecture(
 
 
 def test_self_play_records_setup_step_for_main_net():
-    net = model.PolicyValueNet(arch=_SMALL_ARCH)
+    # include_setup=True is the setup-off fallback: the main net's encoding keeps
+    # the SetupDecision column + SETUP head, so play_game scores the opening.
+    net = model.PolicyValueNet(
+        arch=_SMALL_ARCH, spec=encode.EncodingSpec(include_setup=True)
+    )
     record = collect.play_game(net, torch.device("cpu"), random.Random(0), seed=7)
     setup_family = decisions.family_index_for(decisions.SetupDecision)
     assert any(step.family_idx == setup_family for step in record.steps)

@@ -152,6 +152,12 @@ class _BatchInferenceServer:
             target=self._serve, name="wingspan-batch-infer", daemon=True
         )
 
+    @property
+    def spec(self) -> encode.EncodingSpec:
+        """The served net's encoding spec, so workers encode states/choices at the
+        shape the net was built for (the setup axis is config-driven)."""
+        return self._net.spec
+
     def start(self) -> None:
         self._thread.start()
 
@@ -289,9 +295,11 @@ def _batched_recording_agent(
     ) -> C:
         if len(decision.choices) == 1:
             return decision.choices[0]
+        if not server.spec.include_setup and decisions.is_setup_decision(decision):
+            return decisions.random_choice(decision, eng.state.rng)
         family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision)
-        choice_feats = encode.encode_choices(decision, eng.state)
+        state_vec = encode.encode_state(eng.state, decision, server.spec)
+        choice_feats = encode.encode_choices(decision, eng.state, server.spec)
         probs = server.infer(state_vec, choice_feats, family_idx)
         chosen_idx = policy.sample_index_from_probs(probs, choice_feats.shape[0], rng)
         record_into.append(

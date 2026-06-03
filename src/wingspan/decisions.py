@@ -30,6 +30,7 @@ sub-dialogs and assemble the answer as a ``SetupChoice``.
 from __future__ import annotations
 
 import enum
+import random
 import typing
 
 import pydantic
@@ -157,7 +158,19 @@ class HabitatChoice(Choice):
 
 
 class FoodChoice(Choice):
+    """Pick a food to gain (or spend).
+
+    ``from_choice_die`` distinguishes the two ways the invertebrate/seed
+    *choice die* (the birdfeeder's combo face) can be taken from an otherwise
+    identical plain-die gain: when ``True`` the food is taken specifically from
+    a choice die rather than a single-food face. It is only ever ``True`` for
+    ``INVERTEBRATE``/``SEED`` at a feeder gain where a choice die is showing, so
+    the model can weigh burning a flexible choice die against spending a rigid
+    single face (e.g. to deny an opponent the flexible die). Every other use of
+    ``FoodChoice`` leaves it ``False``."""
+
     food: cards.Food
+    from_choice_die: bool = False
 
 
 class BoardTargetChoice(Choice):
@@ -395,11 +408,15 @@ class ResetBirdfeederDecision(Decision[ResetBirdfeederChoice | SkipChoice]):
 # Stable iteration order for the encoder's decision-type one-hot stripe.
 # Append to the end when adding new decision subclasses so the existing
 # stripe ordering is preserved for trained checkpoints that care about it.
+#
+# ``SetupDecision`` is kept LAST on purpose: the main model's encoding is
+# config-driven (``encode.EncodingSpec.include_setup``), and excluding setup
+# drops exactly the trailing decision-type column. Keeping it last means every
+# other decision's index is invariant to whether setup is included.
 
 ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     MainActionDecision,
     PlayBirdDecision,
-    SetupDecision,
     RemoveEggDecision,
     GainFoodDecision,
     SpendFoodDecision,
@@ -415,6 +432,7 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     LayExtraEggsDecision,
     AcceptExchangeDecision,
     ResetBirdfeederDecision,
+    SetupDecision,
 )
 
 
@@ -461,7 +479,6 @@ class DecisionFamily(enum.StrEnum):
 
 
 ALL_DECISION_FAMILIES: tuple[DecisionFamily, ...] = (
-    DecisionFamily.SETUP,
     DecisionFamily.MAIN_ACTION,
     DecisionFamily.DRAW_BIRD,
     DecisionFamily.DISCARD_BIRD,
@@ -475,6 +492,10 @@ ALL_DECISION_FAMILIES: tuple[DecisionFamily, ...] = (
     DecisionFamily.MISC_RARE,
     DecisionFamily.PLAY_BIRD,
     DecisionFamily.RESET_BIRDFEEDER,
+    # SETUP is kept LAST so excluding it (the config-driven setup-model path,
+    # ``encode.EncodingSpec.include_setup=False``) drops exactly the trailing
+    # scoring head and leaves every other family's head index unchanged.
+    DecisionFamily.SETUP,
 )
 
 # Per-class assignment. Keyed on the concrete decision class so routing is a
@@ -526,5 +547,61 @@ def family_index_for(decision_class: type[Decision[typing.Any]]) -> int:
     """Return the index of a decision class's family in ``ALL_DECISION_FAMILIES``.
 
     This is the scoring-head index the RL model routes the decision through.
+    Stable across the setup axis: because ``SETUP`` is the *last* family,
+    excluding it (``include_setup=False``) drops only the trailing head, so every
+    other family keeps the same index whether or not setup is in the main model.
     """
     return _DECISION_FAMILY_INDEX[decision_class]
+
+
+# ---------------------------------------------------------------------------
+# Setup axis: which decision classes / families belong solely to the separate
+# setup model. When the main model delegates the opening to that model
+# (``encode.EncodingSpec.include_setup=False``), these are excluded from its
+# decision-type one-hot and its scoring heads. Both are kept LAST in their
+# stable orders, so excluding them is a clean truncation that leaves every other
+# index unchanged (see ``ALL_DECISION_CLASSES`` / ``ALL_DECISION_FAMILIES``).
+
+_SETUP_ONLY_CLASSES: frozenset[type[Decision[typing.Any]]] = frozenset({SetupDecision})
+_SETUP_ONLY_FAMILIES: frozenset[DecisionFamily] = frozenset({DecisionFamily.SETUP})
+
+
+def active_decision_classes(
+    include_setup: bool = True,
+) -> tuple[type[Decision[typing.Any]], ...]:
+    """The decision classes the main model's decision-type one-hot covers, in
+    stable order. Excludes the setup-only classes when ``include_setup`` is
+    ``False`` (the opening is scored by the separate setup model instead)."""
+    if include_setup:
+        return ALL_DECISION_CLASSES
+    return tuple(cls for cls in ALL_DECISION_CLASSES if cls not in _SETUP_ONLY_CLASSES)
+
+
+def active_decision_families(include_setup: bool = True) -> tuple[DecisionFamily, ...]:
+    """The judgment families the main model trains a scoring head for, in stable
+    order. Excludes ``SETUP`` when ``include_setup`` is ``False``."""
+    if include_setup:
+        return ALL_DECISION_FAMILIES
+    return tuple(
+        family for family in ALL_DECISION_FAMILIES if family not in _SETUP_ONLY_FAMILIES
+    )
+
+
+def random_choice[C: Choice](decision: Decision[C], rng: random.Random) -> C:
+    """A uniform-random legal choice, deterministic in ``rng``.
+
+    Used to resolve a decision *off* the main policy — specifically a
+    ``SetupDecision`` for a net whose encoding excludes setup
+    (``EncodingSpec.include_setup=False``): the opening is the separate setup
+    model's responsibility, so eval / legacy self-play just need *a* reproducible
+    opening to play the rest of the game on."""
+    return decision.choices[rng.randrange(len(decision.choices))]
+
+
+def is_setup_decision(decision: Decision[typing.Any]) -> bool:
+    """Whether ``decision`` is the combined opening pick (``SetupDecision``).
+
+    Deliberately a plain ``bool`` predicate rather than a ``TypeGuard``: callers
+    gate on it *without* narrowing the decision's ``Choice`` type, so they can
+    return ``random_choice(decision, rng)`` as the generic ``C`` with no cast."""
+    return isinstance(decision, SetupDecision)

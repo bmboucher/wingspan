@@ -490,7 +490,9 @@ def _choice_encoder_column(
     no activation), fed by the card encoder plus its additional features."""
     cfg = view.working
     choice_in = encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim)
-    extra = cfg.choice_dim - encode.CHOICE_BIRD_ID_DIM
+    # Both card regions (the candidate one-hot and the 15-slot board-index block)
+    # are embedded, so the passthrough "extra" excludes them.
+    extra = cfg.choice_dim - encode.CHOICE_BIRD_ID_DIM - encode.CHOICE_BOARD_IDX_SLOTS
     entries = _block_op_entries(
         view,
         cfg.choice_layers,

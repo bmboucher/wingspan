@@ -200,7 +200,7 @@ def _load_policy_net(
             "It was trained against a different encode.py / decisions.py layout."
         )
 
-    net = model.PolicyValueNet(arch=saved.arch).to(device)
+    net = model.PolicyValueNet(arch=saved.arch, spec=saved.encoding_spec).to(device)
     net.load_state_dict(payload["model"])
     net.eval()
     return net
@@ -233,11 +233,13 @@ def _logged_policy_agent(
     ) -> C:
         if len(decision.choices) == 1:
             return decision.choices[0]
+        if not net.include_setup and decisions.is_setup_decision(decision):
+            return decisions.random_choice(decision, eng.state.rng)
 
         # One forward pass gives the full distribution over the legal options.
         family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision)
-        choice_feats = encode.encode_choices(decision, eng.state)
+        state_vec = encode.encode_state(eng.state, decision, net.spec)
+        choice_feats = encode.encode_choices(decision, eng.state, net.spec)
         probs = policy.policy_probs(net, device, state_vec, choice_feats, family_idx)
 
         _log_distribution(eng, decision, probs, greedy)
