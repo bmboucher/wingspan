@@ -59,7 +59,7 @@ if [ ! -f "$MAIN_PYTHON" ]; then
     exit 1
 fi
 "$MAIN_PYTHON" -m venv "$WORKTREE_DIR/.venv"
-(cd "$WORKTREE_DIR" && "$WORKTREE_DIR/.venv/Scripts/pip" install --quiet -e ".[dev]")
+(cd "$WORKTREE_DIR" && "$WORKTREE_DIR/.venv/Scripts/python.exe" -m pip install --quiet -e ".[dev]")
 echo "  Venv ready: $WORKTREE_DIR/.venv"
 echo
 
