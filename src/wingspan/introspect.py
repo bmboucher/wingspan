@@ -131,8 +131,8 @@ def _write_html_report(
         num_families=len(info.family_order),
     )
     html_content = report.generate_html_report(
-        encode_stripes.state_stripe_layout(info.spec),
-        encode_stripes.choice_stripe_layout(info.spec),
+        encode_stripes.state_stripe_layout(info.spec, info.arch.card_embed_dim),
+        encode_stripes.choice_stripe_layout(info.spec, info.arch.card_embed_dim),
         param_report,
         info.arch,
         state_dim=info.state_dim,
@@ -242,7 +242,7 @@ def _load_arch_info(
 
 def _print_state_section(console: rich_console.Console, info: _ArchInfo) -> None:
     """Print the STATE VECTOR breakdown table."""
-    layout = encode_stripes.state_stripe_layout(info.spec)
+    layout = encode_stripes.state_stripe_layout(info.spec, info.arch.card_embed_dim)
     table = _make_stripe_table(layout, "STATE VECTOR")
     console.print()
     console.print(
@@ -257,7 +257,7 @@ def _print_state_section(console: rich_console.Console, info: _ArchInfo) -> None
 
 def _print_choice_section(console: rich_console.Console, info: _ArchInfo) -> None:
     """Print the CHOICE VECTOR breakdown table."""
-    layout = encode_stripes.choice_stripe_layout(info.spec)
+    layout = encode_stripes.choice_stripe_layout(info.spec, info.arch.card_embed_dim)
     table = _make_stripe_table(layout, "CHOICE VECTOR")
     console.print()
     console.print(

@@ -164,23 +164,30 @@ def _featurize_pay_cost(
     choice: decisions.PayCostChoice,
     state: state.GameState,
 ) -> None:
-    # The 'accept the offered exchange' branch is distinct from skip — the
-    # network can learn to prefer or avoid it independently. KIND_SPECIAL marks
-    # it a commit token; the trade terms live in the PAY_FOOD stripe (the food
-    # paid, if any) and the EXCHANGE stripe (eggs paid, cards / tucks gained) so
-    # the commit-to-cost head weighs what is gained against what is paid.
+    # The 'accept the offered exchange' branch is distinct from skip — the network
+    # can learn to prefer or avoid it independently. KIND_SPECIAL marks it a commit
+    # token; the trade's resource ledger lives in the EXCHANGE stripe (a symmetric
+    # pay->gain block, self then opponent-gain) so the commit-to-cost head weighs
+    # what is gained against what is paid. The food *type* paid, if any, also rides
+    # the PAY_FOOD stripe; in the EXCHANGE stripe food is a magnitude.
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
     if choice.paid_food is not None:
         _add_pay_food(feat, choice.paid_food)
-    feat[layout._OFF_EXCHANGE + layout._EXCHANGE_PAID_EGGS] = (
-        choice.paid_egg_count / layout._EXCHANGE_SCALE
-    )
-    feat[layout._OFF_EXCHANGE + layout._EXCHANGE_GAINED_CARDS] = (
-        choice.gained_card_count / layout._EXCHANGE_SCALE
-    )
-    feat[layout._OFF_EXCHANGE + layout._EXCHANGE_GAINED_TUCKS] = (
-        choice.gained_tuck_count / layout._EXCHANGE_SCALE
-    )
+    exchange_terms = {
+        layout._EXCHANGE_CARDS_TO_DISCARD: choice.paid_card_count,
+        layout._EXCHANGE_FOOD_TO_PAY: 1 if choice.paid_food is not None else 0,
+        layout._EXCHANGE_EGGS_TO_PAY: choice.paid_egg_count,
+        layout._EXCHANGE_FOOD_TO_GAIN: choice.gained_food_count,
+        layout._EXCHANGE_EGGS_TO_GAIN: choice.gained_egg_count,
+        layout._EXCHANGE_CARDS_TO_DRAW: choice.gained_card_count,
+        layout._EXCHANGE_CARDS_TO_TUCK: choice.gained_tuck_count,
+        layout._EXCHANGE_OPP_FOOD_TO_GAIN: choice.opp_gained_food_count,
+        layout._EXCHANGE_OPP_EGGS_TO_GAIN: choice.opp_gained_egg_count,
+        layout._EXCHANGE_OPP_CARDS_TO_DRAW: choice.opp_gained_card_count,
+        layout._EXCHANGE_OPP_CARDS_TO_TUCK: choice.opp_gained_tuck_count,
+    }
+    for index, count in exchange_terms.items():
+        feat[layout._OFF_EXCHANGE + index] = count / layout._EXCHANGE_SCALE
 
 
 def _featurize_main_action(
@@ -268,19 +275,19 @@ def _featurize_board_target(
     state: state.GameState,
 ) -> None:
     # A board-slot target: fill the whole 15-slot board block from the deciding
-    # player's board and flag the targeted slot as an egg add (lay-egg decision)
-    # or take (remove-egg decision). The occupying birds ride the parallel
+    # player's board and flag the targeted slot as laying an egg (lay-egg decision)
+    # or paying an egg (remove-egg decision). The occupying birds ride the parallel
     # card-index block the model embeds.
     feat[layout._OFF_KIND + layout._KIND_BOARD_TARGET] = 1.0
-    is_add = isinstance(decision, decisions.LayEggDecision)
-    is_take = isinstance(decision, decisions.RemoveEggDecision)
+    is_lay = isinstance(decision, decisions.LayEggDecision)
+    is_pay = isinstance(decision, decisions.RemoveEggDecision)
     _fill_board_slots(
         feat,
         state.players[decision.player_id],
         choice.habitat,
         choice.slot,
-        is_add,
-        is_take,
+        is_lay,
+        is_pay,
     )
 
 
@@ -319,10 +326,11 @@ def _featurize_player_id(
     choice: decisions.PlayerIdChoice,
     state: state.GameState,
 ) -> None:
-    # Flag whether the choice means "me" so the network can learn
-    # self-vs-opponent preference cheaply.
+    # Flag whether this player option is the deciding player ("self") so the
+    # network can learn self-vs-opponent preference cheaply (e.g. the Hummingbird
+    # food-gain order pick — going first is usually best).
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
-    feat[layout._OFF_SPECIAL + layout._SPECIAL_IS_ME] = (
+    feat[layout._OFF_SPECIAL + layout._SPECIAL_IS_SELF] = (
         1.0 if choice.player_id == decision.player_id else 0.0
     )
 
@@ -460,15 +468,15 @@ def _fill_board_slots(
     player: state.Player,
     target_habitat: cards.Habitat | None,
     target_slot: int | None,
-    is_add: bool,
-    is_take: bool,
+    is_lay: bool,
+    is_pay: bool,
 ) -> None:
-    """Fill the board_target stripe: per board slot, 8 scalars (add_target,
-    take_target, cached food x5 in ALL_FOODS order, tucked) plus a parallel
+    """Fill the board_target stripe: per board slot, 8 scalars (lay_eggs,
+    pay_eggs, cached food x5 in ALL_FOODS order, tucked) plus a parallel
     integer card index the model embeds. Slot order is positional
     (ALL_HABITATS x ROW_SLOTS), matching the state board stripe and card-index
-    block. The targeted slot (``target_habitat``/``target_slot``) is flagged add
-    or take; empty slots and untargeted slots leave their flags zero."""
+    block. The targeted slot (``target_habitat``/``target_slot``) is flagged
+    lay or pay; empty slots and untargeted slots leave their flags zero."""
     for hab_idx, habitat in enumerate(cards.ALL_HABITATS):
         row = player.board[habitat]
         for slot in range(state.ROW_SLOTS):
@@ -479,10 +487,10 @@ def _fill_board_slots(
                 and habitat == target_habitat
                 and slot == target_slot
             ):
-                if is_add:
-                    feat[scalar_base + layout._BT_ADD] = 1.0
-                if is_take:
-                    feat[scalar_base + layout._BT_TAKE] = 1.0
+                if is_lay:
+                    feat[scalar_base + layout._BT_LAY_EGGS] = 1.0
+                if is_pay:
+                    feat[scalar_base + layout._BT_PAY_EGGS] = 1.0
             if slot >= len(row):
                 continue
             pb = row[slot]

@@ -154,6 +154,6 @@ def test_rare_structural_powers_share_the_misc_head():
         == decisions.DecisionFamily.MISC_RARE
     )
     assert (
-        decisions.family_for(decisions.BirdPowerPickStartingPlayerDecision)
+        decisions.family_for(decisions.BirdPowerPickGainOrderDecision)
         == decisions.DecisionFamily.MISC_RARE
     )

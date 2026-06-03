@@ -33,9 +33,9 @@ def _h_each_player_gains_die_choose_order(
     n_players = len(st.players)
     start_ch = engine.ask(
         agent,
-        decisions.BirdPowerPickStartingPlayerDecision(
+        decisions.BirdPowerPickGainOrderDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] pick the starting player for {bird.name}",
+            prompt=f"[{player.name}] pick who gains food first for {bird.name}",
             choices=[
                 decisions.PlayerIdChoice(
                     label=f"{candidate.name} (P{candidate.id})", player_id=candidate.id

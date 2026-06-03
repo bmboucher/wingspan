@@ -612,9 +612,9 @@ def test_hand_summary_is_size_habitat_counts_and_food_multihot():
         assert summary[4 + i] == expected
 
 
-def test_board_target_add_vs_take_flag_and_card_index():
-    """A lay-egg board target sets add_target on the slot; a remove-egg target
-    sets take_target; both write the occupant into the board-index block."""
+def test_board_target_lay_vs_pay_flag_and_card_index():
+    """A lay-egg board target sets lay_eggs on the slot; a remove-egg target
+    sets pay_eggs; both write the occupant into the board-index block."""
     eng, birds, *_ = engine.Engine.create(seed=5)
     eng.state.players[0].board[cards.Habitat.GRASSLAND] = [
         state.PlayedBird(bird=birds[0])
@@ -629,10 +629,10 @@ def test_board_target_add_vs_take_flag_and_card_index():
 
     slot_index = cards.ALL_HABITATS.index(cards.Habitat.GRASSLAND) * state.ROW_SLOTS
     base = layout._OFF_BOARD + slot_index * layout._BT_SLOT_SCALARS
-    assert lay_row[base + layout._BT_ADD] == 1.0
-    assert lay_row[base + layout._BT_TAKE] == 0.0
-    assert rem_row[base + layout._BT_TAKE] == 1.0
-    assert rem_row[base + layout._BT_ADD] == 0.0
+    assert lay_row[base + layout._BT_LAY_EGGS] == 1.0
+    assert lay_row[base + layout._BT_PAY_EGGS] == 0.0
+    assert rem_row[base + layout._BT_PAY_EGGS] == 1.0
+    assert rem_row[base + layout._BT_LAY_EGGS] == 0.0
     assert lay_row[layout._OFF_BOARD_IDX + slot_index] == cards.bird_index(birds[0]) + 1
 
 

@@ -19,8 +19,12 @@ from __future__ import annotations
 
 import pydantic
 
-from wingspan import cards, decisions, state
+from wingspan import architecture, cards, decisions, state
 from wingspan.encode import layout
+
+# Default card-embedding width for the report's post-embedding view, used when a
+# caller doesn't pass the run's own (a bare ModelArchitecture baseline).
+_DEFAULT_CARD_EMBED_DIM = architecture.ModelArchitecture().card_embed_dim
 
 
 class SubFieldDescriptor(pydantic.BaseModel):
@@ -101,13 +105,18 @@ class VectorLayout(pydantic.BaseModel):
 
 def state_stripe_layout(
     spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+    card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
 ) -> VectorLayout:
-    """Build the stripe registry for the state vector produced by ``encode_state``.
+    """Build the stripe registry for the state trunk's input vector.
 
-    Stripes are listed in offset order — the same order ``encode_state``
-    concatenates them — and sizes are computed from ``layout`` constants so
-    changes to the encoding propagate automatically. Only the trailing
-    decision-type one-hot's width depends on ``spec``.
+    Lists every stripe in offset order with sizes from the ``layout`` constants.
+    The card-index block and hand multi-hot are shown at their *post-embedding*
+    width — each board / tray slot index as one ``card_embed_dim`` vector, the hand
+    as one mean-pooled ``card_embed_dim`` vector — so the breakdown sums to the
+    trunk's first-``Linear`` input (``layout.trunk_input_dim``): what the network
+    actually sees, not the raw encoder output. (The model concatenates those
+    embeddings after the continuous features; here they keep their encoding-order
+    position.) Only the trailing decision-type one-hot's width depends on ``spec``.
     """
     from wingspan.encode import state_encode
 
@@ -474,17 +483,26 @@ def state_stripe_layout(
         f"stripe offsets sum to {off} but state_size(spec) returns {total} — "
         "layout.py and stripes.py are out of sync"
     )
-    return VectorLayout(total_size=total, stripes=tuple(stripes))
+    raw = VectorLayout(total_size=total, stripes=tuple(stripes))
+    return _embed_layout(
+        raw,
+        _state_embed_rules(card_embed_dim),
+        layout.trunk_input_dim(total, card_embed_dim),
+    )
 
 
 def choice_stripe_layout(
     spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+    card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
 ) -> VectorLayout:
-    """Build the stripe registry for the choice vector produced by ``encode_choices``.
+    """Build the stripe registry for the per-choice encoder's input vector.
 
-    Each stripe corresponds to a type-specific feature group in the flat
-    ``choice_feature_dim(spec)``-wide vector that every candidate is encoded into.
-    The trailing ``setup_agg`` stripe is present only when ``spec.include_setup``.
+    Each stripe is a type-specific feature group every candidate is encoded into.
+    The board-index block and bird-identity one-hot are shown at their
+    *post-embedding* width — each board slot as one ``card_embed_dim`` vector, the
+    candidate as one — so the breakdown sums to the choice encoder's first-``Linear``
+    input (``layout.choice_input_dim``), what the network actually sees. The trailing
+    ``setup_agg`` stripe is present only when ``spec.include_setup``.
     """
     total = layout.choice_feature_dim(spec)
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
@@ -566,7 +584,7 @@ def choice_stripe_layout(
             value_range="[0, ~1]",
             notes=(
                 f"{layout._SLOTS_PER_BOARD} board slots × {layout._BT_SLOT_SCALARS} "
-                "scalars each: add_target[0], take_target[1] (set on the targeted slot "
+                "scalars each: lay_eggs[0], pay_eggs[1] (set on the targeted slot "
                 "for a lay-egg vs remove-egg decision), cached food per type[2:7] "
                 f"({food_names}, ÷6), tucked[7] (÷6). The occupying bird ids ride the "
                 "parallel board_idx block. Zero for non-board-target choices."
@@ -597,8 +615,9 @@ def choice_stripe_layout(
             encoding="binary",
             value_range="{0, 1}",
             notes=(
-                "2 flags: is_skip[0] (declines the decision), is_me[1] (a "
-                "PlayerIdChoice that targets the deciding player)."
+                "2 flags: is_skip[0] (declines the decision), is_self[1] (the "
+                "PlayerIdChoice option that is the active player — the Hummingbird "
+                "food-gain order pick)."
             ),
             sub_fields=_special_sub_fields(),
         )
@@ -607,15 +626,17 @@ def choice_stripe_layout(
     stripes.append(
         StripeDescriptor(
             name="exchange",
-            description="Accept-exchange trade terms for a PayCostChoice.",
+            description="Symmetric pay->gain trade terms for a PayCostChoice.",
             offset=layout._OFF_EXCHANGE,
             size=layout._EXCHANGE_DIM,
             encoding="vector",
-            value_range="[0, 1]",
+            value_range="[0, ~1]",
             notes=(
-                f"{layout._EXCHANGE_DIM} values: eggs_paid (÷3), cards_gained (÷3), "
-                "tucks_gained (÷3). Food paid reuses the pay_food stripe. "
-                "Zero for non-exchange choices."
+                f"{layout._EXCHANGE_DIM} resource-flow magnitudes (÷3): a 7-field self "
+                "block (cards/food/eggs paid -> food/eggs/cards-drawn/cards-tucked "
+                "gained) then a 4-field opponent-gain block (food/eggs/cards/tucks a "
+                "shared-benefit power also grants the opponent). The food *type* paid "
+                "rides the pay_food stripe. Zero for non-exchange choices."
             ),
             sub_fields=_exchange_sub_fields(),
         )
@@ -702,10 +723,130 @@ def choice_stripe_layout(
         end == total
     ), f"choice stripe offsets end at {end} but choice_feature_dim(spec) = {total}"
 
-    return VectorLayout(total_size=total, stripes=tuple(stripes))
+    raw = VectorLayout(total_size=total, stripes=tuple(stripes))
+    return _embed_layout(
+        raw,
+        _choice_embed_rules(card_embed_dim),
+        layout.choice_input_dim(total, card_embed_dim),
+    )
 
 
 ###### PRIVATE #######
+
+#### Post-embedding view ####
+
+
+class _EmbedRule(pydantic.BaseModel):
+    """How a raw card-index / identity stripe is shown at its post-embedding width."""
+
+    new_size: int
+    encoding: str
+    value_range: str
+    notes: str
+
+
+def _embed_layout(
+    raw: VectorLayout, rules: dict[str, _EmbedRule], expected_total: int
+) -> VectorLayout:
+    """Rewrite a raw vector layout into the network's post-embedding input view.
+
+    Every card-index / identity stripe named in ``rules`` is replaced by its
+    embedded-width stripe and all offsets are recomputed cumulatively (sizes change,
+    so downstream offsets shift). The result's total must equal ``expected_total`` —
+    the trunk / choice-encoder first-``Linear`` input width.
+    """
+    stripes: list[StripeDescriptor] = []
+    off = 0
+    for stripe in raw.stripes:
+        rule = rules.get(stripe.name)
+        if rule is None:
+            stripes.append(stripe.model_copy(update={"offset": off}))
+            off += stripe.size
+            continue
+        stripes.append(
+            stripe.model_copy(
+                update={
+                    "offset": off,
+                    "size": rule.new_size,
+                    "encoding": rule.encoding,
+                    "value_range": rule.value_range,
+                    "notes": rule.notes,
+                }
+            )
+        )
+        off += rule.new_size
+    assert off == expected_total, (
+        f"embedded stripe offsets sum to {off} but expected {expected_total} — "
+        "stripes.py expansion is out of sync with layout.trunk/choice_input_dim"
+    )
+    return VectorLayout(total_size=expected_total, stripes=tuple(stripes))
+
+
+def _state_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
+    """The card-index / hand stripes of the state vector, at embedded width."""
+    n_board = layout.N_BOARD_INDEX_SLOTS
+    tray = state.TRAY_SIZE
+    hand = layout.HAND_MULTIHOT_DIM
+    return {
+        "card_idx_board": _EmbedRule(
+            new_size=n_board * card_embed_dim,
+            encoding="card-embedding",
+            value_range="learned",
+            notes=(
+                f"{n_board} board slots (15 me + 15 opp) -> one {card_embed_dim}-dim "
+                f"shared card embedding each ({n_board}x{card_embed_dim}). Raw encoding "
+                "stores 30 integer indices (bird_index + 1; 0 = empty)."
+            ),
+        ),
+        "card_idx_tray": _EmbedRule(
+            new_size=tray * card_embed_dim,
+            encoding="card-embedding",
+            value_range="learned",
+            notes=(
+                f"{tray} tray slots -> one {card_embed_dim}-dim shared card embedding "
+                f"each ({tray}x{card_embed_dim}). Raw encoding stores {tray} indices."
+            ),
+        ),
+        "hand_multihot": _EmbedRule(
+            new_size=card_embed_dim,
+            encoding="card-embedding (mean-pooled)",
+            value_range="learned",
+            notes=(
+                f"My hand -> one {card_embed_dim}-dim embedding, mean-pooled over the "
+                f"held cards' shared card vectors. Raw encoding is a {hand}-wide "
+                "multi-hot over all core birds."
+            ),
+        ),
+    }
+
+
+def _choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
+    """The board-index / bird-identity stripes of the choice vector, embedded."""
+    slots = layout.CHOICE_BOARD_IDX_SLOTS
+    birds = layout.CHOICE_BIRD_ID_DIM
+    return {
+        "board_idx": _EmbedRule(
+            new_size=slots * card_embed_dim,
+            encoding="card-embedding",
+            value_range="learned",
+            notes=(
+                f"{slots} board slots -> one {card_embed_dim}-dim shared card embedding "
+                f"each ({slots}x{card_embed_dim}). Raw encoding stores {slots} integer "
+                "indices (bird_index + 1; 0 = empty)."
+            ),
+        ),
+        "bird_id": _EmbedRule(
+            new_size=card_embed_dim,
+            encoding="card-embedding (candidate)",
+            value_range="learned",
+            notes=(
+                f"Candidate bird -> one {card_embed_dim}-dim shared card embedding (a "
+                f"setup pick's kept set sums their vectors). Raw encoding is a {birds}-"
+                "wide one-hot / multi-hot over all core birds."
+            ),
+        ),
+    }
+
 
 #### State sub-field builders ####
 
@@ -1102,8 +1243,8 @@ def _board_target_sub_fields() -> tuple[SubFieldDescriptor, ...]:
     """The per-slot sub-fields for the board_target stripe (15 slots × 8 scalars)."""
     food_names = [food.value for food in cards.ALL_FOODS]
     slot_meta: list[tuple[str, str]] = [
-        ("add_target", "Set when this choice would lay an egg on this slot."),
-        ("take_target", "Set when this choice would remove an egg from this slot."),
+        ("lay_eggs", "Set when this choice would lay an egg on this slot."),
+        ("pay_eggs", "Set when this choice would remove (pay) an egg from this slot."),
         *[
             (f"cached_{food}", f"Cached {food} on the bird in this slot.")
             for food in food_names
@@ -1152,7 +1293,11 @@ def _special_sub_fields() -> tuple[SubFieldDescriptor, ...]:
     """2 sub-fields for the special-flags stripe in a choice vector."""
     entries = [
         ("is_skip", "Set when this choice declines the current decision."),
-        ("is_me", "Set when a PlayerIdChoice targets the deciding player."),
+        (
+            "is_self",
+            "Set on the PlayerIdChoice option that is the active player "
+            "(the Hummingbird food-gain order pick).",
+        ),
     ]
     return tuple(
         SubFieldDescriptor(
@@ -1168,19 +1313,20 @@ def _special_sub_fields() -> tuple[SubFieldDescriptor, ...]:
 
 
 def _exchange_sub_fields() -> tuple[SubFieldDescriptor, ...]:
-    """3 sub-fields for the exchange-terms stripe in a choice vector."""
+    """11 sub-fields for the symmetric exchange stripe: a 7-field self block (what
+    the deciding player pays / gains) then a 4-field opponent-gain block."""
     entries = [
-        ("eggs_paid", "Number of eggs given up in this exchange.", "Normalized ÷ 3."),
-        (
-            "cards_gained",
-            "Number of cards received in this exchange.",
-            "Normalized ÷ 3.",
-        ),
-        (
-            "tucks_gained",
-            "Number of cards tucked under a bird in this exchange.",
-            "Normalized ÷ 3.",
-        ),
+        ("cards_to_discard", "Cards discarded from hand as payment."),
+        ("food_to_pay", "Food paid (magnitude; the type rides the pay_food stripe)."),
+        ("eggs_to_pay", "Eggs removed as payment."),
+        ("food_to_gain", "Food gained from the supply."),
+        ("eggs_to_gain", "Eggs laid."),
+        ("cards_to_draw", "Cards drawn into hand."),
+        ("cards_to_tuck", "Cards tucked under a bird."),
+        ("opp_food_to_gain", "Food the opponent also gains (shared-benefit power)."),
+        ("opp_eggs_to_gain", "Eggs the opponent also lays."),
+        ("opp_cards_to_draw", "Cards the opponent also draws."),
+        ("opp_cards_to_tuck", "Cards the opponent also tucks."),
     ]
     return tuple(
         SubFieldDescriptor(
@@ -1189,10 +1335,10 @@ def _exchange_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             relative_offset=idx,
             size=1,
             encoding="scalar",
-            value_range="[0, 1]",
-            notes=notes,
+            value_range="[0, ~1]",
+            notes="Normalized ÷ 3.",
         )
-        for idx, (name, desc, notes) in enumerate(entries)
+        for idx, (name, desc) in enumerate(entries)
     )
 
 

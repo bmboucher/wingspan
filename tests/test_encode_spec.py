@@ -83,18 +83,22 @@ def test_family_index_is_stable_across_the_setup_axis():
 
 
 def test_stripe_layouts_sum_and_show_setup_only_when_included():
+    card_embed_dim = 8
     for spec in (_INCLUDE, _EXCLUDE):
-        state_layout = stripes.state_stripe_layout(spec)
-        choice_layout = stripes.choice_stripe_layout(spec)
+        state_layout = stripes.state_stripe_layout(spec, card_embed_dim)
+        choice_layout = stripes.choice_stripe_layout(spec, card_embed_dim)
+        # The report shows the post-embedding network input, so the stripe sizes
+        # sum to the trunk / choice-encoder first-Linear width, not the raw encoder
+        # output width.
         assert (
             sum(s.size for s in state_layout.stripes)
             == state_layout.total_size
-            == encode.state_size(spec)
+            == encode.trunk_input_dim(encode.state_size(spec), card_embed_dim)
         )
         assert (
             sum(s.size for s in choice_layout.stripes)
             == choice_layout.total_size
-            == encode.choice_feature_dim(spec)
+            == encode.choice_input_dim(encode.choice_feature_dim(spec), card_embed_dim)
         )
         choice_names = {s.name for s in choice_layout.stripes}
         assert ("setup_agg" in choice_names) == spec.include_setup

@@ -223,7 +223,7 @@ The 17 decisions and the 13 families:
 | `COMMIT_TO_COST` | `AcceptExchangeDecision` | is this fixed trade worth it? |
 | `CHOOSE_BONUS` | `BirdPowerPickBonusCardDecision` | which bonus card fits my plan |
 | `MOVE_HABITAT` | `BirdPowerPickHabitatDecision` | which row benefits most |
-| `MISC_RARE` | `BirdPowerPickPlayedBirdDecision`, `BirdPowerPickStartingPlayerDecision` | rare structural picks |
+| `MISC_RARE` | `BirdPowerPickPlayedBirdDecision`, `BirdPowerPickGainOrderDecision` | rare structural picks |
 
 Two structural facts follow from this split and are worth holding onto:
 
@@ -469,8 +469,8 @@ plenty.
 
 Two decisions fire on only a handful of cards:
 
-- `BirdPowerPickStartingPlayerDecision` — designate who starts an each-player
-  feeder gain (turn-order manipulation).
+- `BirdPowerPickGainOrderDecision` — designate who gains first in an each-player
+  feeder gain (the Anna's / Ruby-throated Hummingbird order pick).
 - `BirdPowerPickPlayedBirdDecision` — choose which adjacent power to *repeat*.
 
 These are pooled into one shared head on purpose. A dedicated head for something
@@ -511,8 +511,9 @@ opening keeps. (Opponent hands stay hidden, as they should — only the size is
 revealed.)
 
 **Trade terms, not blank tokens.** A yes/no exchange (§3.8) carries its terms as
-features — food and eggs paid, cards drawn and tucked — so the commit head weighs
-the actual deal instead of a featureless "accept" button.
+features — a symmetric pay→gain ledger over cards, food, and eggs (what the player
+gives up and receives), plus the gains a shared-benefit power grants the opponent —
+so the commit head weighs the actual deal instead of a featureless "accept" button.
 
 **Uniform candidate features.** Every option is described in one shared feature
 layout with type-specific stripes; a given option fills only the stripes that

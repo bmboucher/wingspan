@@ -119,18 +119,17 @@ _GAIN_FOOD_DIM = 7  # 5 foods + take-choice-die-as-invertebrate + ...-as-seed
 _HABITAT_DIM = 3  # habitat one-hot
 _PAY_FOOD_DIM = 5  # food payment: count per food
 _MAIN_ACTION_DIM = 4  # one-hot over the four main actions
-_SPECIAL_DIM = 2  # is_skip, is_me
-_EXCHANGE_DIM = 3  # accept-exchange terms: eggs paid, cards gained, tucks gained
-#                    (the food paid, if any, reuses the PAY_FOOD stripe)
+_SPECIAL_DIM = 2  # is_skip, is_self
+_EXCHANGE_DIM = 11  # symmetric pay->gain terms: 7 self + 4 opponent-gain (below)
 _SETUP_DIM = 4  # setup kept-subset aggregates (only when include_setup)
 
 # The board_target stripe is a per-board-slot block: 8 scalars repeated over
 # every board slot, paired with a parallel integer card-index block the model
 # embeds through the shared card table (one card vector per slot). Per slot:
-# add_target, take_target, cached food x5 (ALL_FOODS order), tucked.
+# lay_eggs, pay_eggs, cached food x5 (ALL_FOODS order), tucked.
 _BT_SLOT_SCALARS = 8
-_BT_ADD = 0
-_BT_TAKE = 1
+_BT_LAY_EGGS = 0
+_BT_PAY_EGGS = 1
 _BT_CACHED = 2  # start of the N_FOODS cached-by-type block
 _BT_TUCKED = _BT_CACHED + cards.N_FOODS  # 7
 _BOARD_TARGET_DIM = _SLOTS_PER_BOARD * _BT_SLOT_SCALARS  # 15 * 8 = 120
@@ -172,7 +171,7 @@ _KIND_SPECIAL = 5
 
 # Within-SPECIAL indices
 _SPECIAL_IS_SKIP = 0
-_SPECIAL_IS_ME = 1
+_SPECIAL_IS_SELF = 1
 
 # Within-GAIN_FOOD: 0..N_FOODS-1 are the plain ALL_FOODS dice; the final two are
 # the invertebrate/seed choice die taken as invertebrate / as seed.
@@ -187,10 +186,23 @@ _MAIN_ACTION_ORDER = [
     decisions.MainAction.PLAY_BIRD,
 ]
 
-# Within-EXCHANGE indices (an AcceptExchange PayCostChoice's trade terms)
-_EXCHANGE_PAID_EGGS = 0
-_EXCHANGE_GAINED_CARDS = 1
-_EXCHANGE_GAINED_TUCKS = 2
+# Within-EXCHANGE indices: a PayCostChoice's symmetric pay->gain terms, as
+# counts/magnitudes normalized by _EXCHANGE_SCALE. A self block (what the deciding
+# player gives up / receives) then an opponent-gain block (what a shared-benefit
+# power also grants the opponent — reserved until such an *optional* trade is
+# modelled; the mandatory each-player powers keep their own decisions). The food
+# *type* paid still rides the PAY_FOOD stripe; here food is a magnitude.
+_EXCHANGE_CARDS_TO_DISCARD = 0
+_EXCHANGE_FOOD_TO_PAY = 1
+_EXCHANGE_EGGS_TO_PAY = 2
+_EXCHANGE_FOOD_TO_GAIN = 3
+_EXCHANGE_EGGS_TO_GAIN = 4
+_EXCHANGE_CARDS_TO_DRAW = 5
+_EXCHANGE_CARDS_TO_TUCK = 6
+_EXCHANGE_OPP_FOOD_TO_GAIN = 7
+_EXCHANGE_OPP_EGGS_TO_GAIN = 8
+_EXCHANGE_OPP_CARDS_TO_DRAW = 9
+_EXCHANGE_OPP_CARDS_TO_TUCK = 10
 
 # Within-SETUP indices (a setup pick's kept-subset aggregate stats — summaries the
 # shared card table cannot reconstruct from the kept-bird identity multi-hot alone).

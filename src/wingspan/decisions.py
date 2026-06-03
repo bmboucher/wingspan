@@ -97,14 +97,31 @@ class PayCostChoice(Choice):
     instead of scoring a featureless token. A field left at its default means
     "this resource is not part of this exchange".
 
+    The terms form a symmetric ``pay -> gain`` ledger over the three resources
+    (cards, food, eggs). The deciding player's own flows are the ``paid_*`` /
+    ``gained_*`` fields; the ``opp_gained_*`` fields capture what a shared-benefit
+    power additionally grants the *opponent* (e.g. an optional "each player gains
+    food" trade), so the commit-to-cost head can weigh that the trade also helps the
+    opponent. The opponent only ever *receives* in such powers, so there are no
+    opp-pay fields. Most fields are 0 for any given exchange.
+
     Distinct from ``FoodChoice`` because the agent isn't picking *which* food;
     they're confirming the offered exchange. The human-readable ``label`` names
     the specific cost."""
 
+    # Self side — what the deciding player gives up / receives.
     paid_food: cards.Food | None = None  # a specific food token paid, if any
+    paid_card_count: int = 0  # cards discarded from hand as payment
     paid_egg_count: int = 0  # eggs removed as payment
+    gained_food_count: int = 0  # food gained from the supply
+    gained_egg_count: int = 0  # eggs laid
     gained_card_count: int = 0  # cards drawn into hand
     gained_tuck_count: int = 0  # cards tucked behind the bird (VP + tuck count)
+    # Opponent side — what a shared-benefit power also grants the opponent.
+    opp_gained_food_count: int = 0
+    opp_gained_egg_count: int = 0
+    opp_gained_card_count: int = 0
+    opp_gained_tuck_count: int = 0
 
 
 class ResetBirdfeederChoice(Choice):
@@ -382,8 +399,13 @@ class BirdPowerTuckFromHandDecision(Decision[BirdChoice | SkipChoice]):
     bird-*discard* judgment (the card leaves hand to become a tuck)."""
 
 
-class BirdPowerPickStartingPlayerDecision(Decision[PlayerIdChoice]):
-    """Pink/round-start power that designates the next round's starter."""
+class BirdPowerPickGainOrderDecision(Decision[PlayerIdChoice]):
+    """Pick which player takes food first for an "each player gains a die from the
+    birdfeeder, starting with the player of your choice" power (Anna's /
+    Ruby-throated Hummingbird). Resolves on the active player's own turn; each
+    ``PlayerIdChoice`` is a candidate starter and the choice vector's ``is_self``
+    flag marks the option that is the deciding player. (Not the next round's
+    starter — there is no such core-set power.)"""
 
 
 class BirdPowerPickHabitatDecision(Decision[HabitatChoice]):
@@ -426,7 +448,7 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     BirdPowerPickPlayedBirdDecision,
     BirdPowerPickBonusCardDecision,
     BirdPowerTuckFromHandDecision,
-    BirdPowerPickStartingPlayerDecision,
+    BirdPowerPickGainOrderDecision,
     BirdPowerPickHabitatDecision,
     GainExtraFoodDecision,
     LayExtraEggsDecision,
@@ -523,7 +545,7 @@ _DECISION_FAMILY: dict[type[Decision[typing.Any]], DecisionFamily] = {
     BirdPowerPickBonusCardDecision: DecisionFamily.CHOOSE_BONUS,
     BirdPowerPickHabitatDecision: DecisionFamily.MOVE_HABITAT,
     BirdPowerPickPlayedBirdDecision: DecisionFamily.MISC_RARE,
-    BirdPowerPickStartingPlayerDecision: DecisionFamily.MISC_RARE,
+    BirdPowerPickGainOrderDecision: DecisionFamily.MISC_RARE,
     ResetBirdfeederDecision: DecisionFamily.RESET_BIRDFEEDER,
 }
 

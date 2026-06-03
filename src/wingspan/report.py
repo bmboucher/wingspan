@@ -217,8 +217,8 @@ def _vector_section(
     """Build a complete section for a state or choice vector layout."""
     expanded_count = sum(1 for s in layout.stripes if s.sub_fields)
     sub = (
-        f"{layout.total_size} elements · {len(layout.stripes)} stripes · "
-        f"{expanded_count} stripes with drill-down"
+        f"{layout.total_size} elements (post-embedding network input) · "
+        f"{len(layout.stripes)} stripes · {expanded_count} with drill-down"
     )
     return (
         f"<div class='section' id='{section_id}'>"
@@ -315,7 +315,13 @@ def _grouped_sub_fields(
     sub_fields: tuple[encode_stripes.SubFieldDescriptor, ...],
     stripe_offset: int,
 ) -> str:
-    """Render sub-fields using nested <details> per group."""
+    """Render sub-fields using nested <details> per group.
+
+    When every group has an identical shape (same per-member layout, differing only
+    in group label and absolute offset — e.g. the 15 identical board slots), the
+    shape is shown once as a representative "per-slot layout" with a ``×N``
+    annotation instead of being repeated N times.
+    """
     # Collect sub-fields into ordered groups.
     groups: dict[str, list[encode_stripes.SubFieldDescriptor]] = (
         collections.OrderedDict()
@@ -327,36 +333,130 @@ def _grouped_sub_fields(
         else:
             ungrouped.append(sf)
 
+    group_items = list(groups.items())
     parts: list[str] = []
 
-    # Render each named group as a collapsible <details>.
-    for group_name, members in groups.items():
-        count = sum(sf.size for sf in members)
-        first_abs = stripe_offset + members[0].relative_offset
-        summary = (
-            f"<summary class='grp-summary'>"
-            f"{html_lib.escape(group_name)}"
-            f"&nbsp;<span class='dim'>({count} element{'s' if count != 1 else ''},"
-            f" offset {first_abs})</span>"
-            f"</summary>"
-        )
-        table_rows = "".join(_sub_field_row(sf, stripe_offset) for sf in members)
-        table_html = (
-            f"<div class='grp-tbl-wrap'>"
-            f"<table class='sub-tbl'><thead><tr>"
-            f"<th>Name</th><th class='right'>Abs&nbsp;Offset</th>"
-            f"<th class='right'>Size</th><th>Encoding</th>"
-            f"<th>Range</th><th>Description</th>"
-            f"</tr></thead><tbody>{table_rows}</tbody></table>"
-            f"</div>"
-        )
-        parts.append(f"<details class='grp-details'>{summary}{table_html}</details>")
+    # Collapse N structurally-identical groups to one representative; otherwise
+    # render each group as its own collapsible <details>.
+    if len(group_items) > 1 and _groups_identical(group_items):
+        parts.append(_collapsed_repeated_group(group_items, stripe_offset))
+    else:
+        for group_name, members in group_items:
+            parts.append(_render_one_group(group_name, members, stripe_offset))
 
     # Any ungrouped sub-fields go at the end as a flat table.
     if ungrouped:
         parts.append(_flat_sub_table(tuple(ungrouped), stripe_offset))
 
     return "".join(parts)
+
+
+def _render_one_group(
+    group_name: str,
+    members: list[encode_stripes.SubFieldDescriptor],
+    stripe_offset: int,
+) -> str:
+    """One named group as a collapsible <details>, with absolute offsets."""
+    count = sum(sf.size for sf in members)
+    first_abs = stripe_offset + members[0].relative_offset
+    summary = (
+        f"<summary class='grp-summary'>"
+        f"{html_lib.escape(group_name)}"
+        f"&nbsp;<span class='dim'>({count} element{'s' if count != 1 else ''},"
+        f" offset {first_abs})</span>"
+        f"</summary>"
+    )
+    table_rows = "".join(_sub_field_row(sf, stripe_offset) for sf in members)
+    table_html = (
+        f"<div class='grp-tbl-wrap'>"
+        f"<table class='sub-tbl'><thead><tr>"
+        f"<th>Name</th><th class='right'>Abs&nbsp;Offset</th>"
+        f"<th class='right'>Size</th><th>Encoding</th>"
+        f"<th>Range</th><th>Description</th>"
+        f"</tr></thead><tbody>{table_rows}</tbody></table>"
+        f"</div>"
+    )
+    return f"<details class='grp-details'>{summary}{table_html}</details>"
+
+
+def _group_signature(
+    members: list[encode_stripes.SubFieldDescriptor],
+) -> tuple[tuple[str, int, str, str, str, str | None, int], ...]:
+    """A group's shape, ignoring its label and absolute position: per member, the
+    name suffix (after the group prefix), size, encoding, range, description, notes,
+    and offset relative to the group's start."""
+    base = members[0].relative_offset
+    return tuple(
+        (
+            sf.name.split(".", 1)[-1],
+            sf.size,
+            sf.encoding,
+            sf.value_range,
+            sf.description,
+            sf.notes,
+            sf.relative_offset - base,
+        )
+        for sf in members
+    )
+
+
+def _groups_identical(
+    group_items: list[tuple[str, list[encode_stripes.SubFieldDescriptor]]],
+) -> bool:
+    """Whether every group has the same shape (so one representative suffices)."""
+    signatures = [_group_signature(members) for _, members in group_items]
+    return all(sig == signatures[0] for sig in signatures[1:])
+
+
+def _collapsed_repeated_group(
+    group_items: list[tuple[str, list[encode_stripes.SubFieldDescriptor]]],
+    stripe_offset: int,
+) -> str:
+    """Render N identical groups once: the shared per-member layout (with
+    within-group relative offsets) plus a ``×N`` annotation naming the repeats."""
+    group_names = [name for name, _ in group_items]
+    representative = group_items[0][1]
+    base = representative[0].relative_offset
+    stride = sum(sf.size for sf in representative)
+    first_abs = stripe_offset + base
+    span = f"{html_lib.escape(group_names[0])} … {html_lib.escape(group_names[-1])}"
+    summary = (
+        f"<summary class='grp-summary'>per-slot layout "
+        f"<span class='dim'>(×{len(group_items)}: {span}; {stride} element"
+        f"{'s' if stride != 1 else ''} each, stride {stride}, first at "
+        f"offset {first_abs})</span></summary>"
+    )
+    table_rows = "".join(_repeated_member_row(sf, base) for sf in representative)
+    table_html = (
+        f"<div class='grp-tbl-wrap'>"
+        f"<table class='sub-tbl'><thead><tr>"
+        f"<th>Name</th><th class='right'>Slot&nbsp;Offset</th>"
+        f"<th class='right'>Size</th><th>Encoding</th>"
+        f"<th>Range</th><th>Description</th>"
+        f"</tr></thead><tbody>{table_rows}</tbody></table>"
+        f"</div>"
+    )
+    return f"<details class='grp-details' open>{summary}{table_html}</details>"
+
+
+def _repeated_member_row(sf: encode_stripes.SubFieldDescriptor, group_base: int) -> str:
+    """One <tr> for a representative group's member, showing its within-group
+    (relative) offset rather than an absolute one."""
+    rel = sf.relative_offset - group_base
+    name = sf.name.split(".", 1)[-1]
+    desc_html = html_lib.escape(sf.description)
+    if sf.notes:
+        desc_html += f"<div class='notes-text'>{html_lib.escape(sf.notes)}</div>"
+    return (
+        f"<tr>"
+        f"<td class='mono'>{html_lib.escape(name)}</td>"
+        f"<td class='right dim mono'>+{rel}</td>"
+        f"<td class='right dim mono'>{sf.size}</td>"
+        f"<td class='dim'>{html_lib.escape(sf.encoding)}</td>"
+        f"<td class='dim mono'>{html_lib.escape(sf.value_range)}</td>"
+        f"<td>{desc_html}</td>"
+        f"</tr>"
+    )
 
 
 def _sub_field_row(sf: encode_stripes.SubFieldDescriptor, stripe_offset: int) -> str:

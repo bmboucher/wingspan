@@ -81,7 +81,7 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
+        if isinstance(decision, decisions.BirdPowerPickGainOrderDecision):
             assert decision.player_id == p0.id
             for choice in decision.choices:
                 if choice.player_id == p1.id:
@@ -147,7 +147,7 @@ def test_each_player_gains_die_refills_empty_feeder():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
+        if isinstance(decision, decisions.BirdPowerPickGainOrderDecision):
             for choice in decision.choices:
                 if choice.player_id == p0.id:
                     return typing.cast(C, choice)
@@ -205,7 +205,7 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
         decision: decisions.Decision[C],
     ) -> C:
         queried.append(("p0", type(decision), decision.player_id))
-        if isinstance(decision, decisions.BirdPowerPickStartingPlayerDecision):
+        if isinstance(decision, decisions.BirdPowerPickGainOrderDecision):
             for choice in decision.choices:
                 if choice.player_id == p0.id:
                     return typing.cast(C, choice)
@@ -227,7 +227,7 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
     # then p1 picks a die.
     kinds = [(who, dtype) for (who, dtype, _pid) in queried]
     assert kinds == [
-        ("p0", decisions.BirdPowerPickStartingPlayerDecision),
+        ("p0", decisions.BirdPowerPickGainOrderDecision),
         ("p0", decisions.GainFoodDecision),
         ("p1", decisions.GainFoodDecision),
     ]

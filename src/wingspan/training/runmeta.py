@@ -151,8 +151,8 @@ def write_model_summary_html(
         num_families=len(cfg.family_order),
     )
     html_content = report.generate_html_report(
-        encode_stripes.state_stripe_layout(cfg.encoding_spec),
-        encode_stripes.choice_stripe_layout(cfg.encoding_spec),
+        encode_stripes.state_stripe_layout(cfg.encoding_spec, cfg.card_embed_dim),
+        encode_stripes.choice_stripe_layout(cfg.encoding_spec, cfg.card_embed_dim),
         param_report,
         cfg.arch,
         state_dim=cfg.state_dim,
