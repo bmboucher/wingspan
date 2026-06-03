@@ -47,6 +47,7 @@ def evaluate_vs_opponent(
     seed: int,
     opponent_generation: int = 0,
     on_progress: EvalProgress | None = None,
+    split_setup_bonus: bool = False,
 ) -> metrics.EvalResult:
     """Play ``n_pairs`` mirrored deals against the reference opponent and
     summarize. ``opponent_net=None`` plays against the random agent; any other
@@ -56,7 +57,9 @@ def evaluate_vs_opponent(
     its 95% CI half-width, mean score margin over ``2 * n_pairs`` games, and the
     ``opponent_generation`` it was played against. ``on_progress``, if given, is
     called after every game with the running ``(games_done, total_games)`` so
-    the dashboard can track eval progress.
+    the dashboard can track eval progress. ``split_setup_bonus`` mirrors the
+    collection regime — the opening bonus is picked by the in-game greedy head
+    rather than baked into the random opening.
     """
     n_games = 2 * n_pairs
     margins: list[int] = []
@@ -64,7 +67,14 @@ def evaluate_vs_opponent(
         pair_seed = seed + pair * 2
         for net_seat in (0, 1):
             margins.append(
-                play_eval_game(net, opponent_net, device, pair_seed, net_seat)
+                play_eval_game(
+                    net,
+                    opponent_net,
+                    device,
+                    pair_seed,
+                    net_seat,
+                    split_setup_bonus=split_setup_bonus,
+                )
             )
             if on_progress is not None:
                 on_progress(len(margins), n_games)
@@ -77,12 +87,14 @@ def play_eval_game(
     device: torch.device,
     seed: int,
     net_seat: int,
+    split_setup_bonus: bool = False,
 ) -> int:
     """Play one greedy-policy-vs-opponent game on ``seed`` with the policy in
     ``net_seat``; return the policy's score margin (its score − opponent's). The
     opponent is the random agent when ``opponent_net is None``, otherwise that
     net's own greedy policy. Deterministic in ``(seed, net_seat)`` and the
-    weights, so it returns the same margin in any process."""
+    weights, so it returns the same margin in any process. ``split_setup_bonus``
+    defers the opening bonus pick to the in-game ``CHOOSE_BONUS`` head."""
     eng = collect.new_engine(seed)
     net_agent = _greedy_agent(net, device)
     if opponent_net is None:
@@ -93,7 +105,9 @@ def play_eval_game(
         opponent_agent = _greedy_agent(opponent_net, device)
     seats: list[engine.Agent] = [opponent_agent, opponent_agent]
     seats[net_seat] = net_agent
-    engine.Engine.play_one_game(eng.state, (seats[0], seats[1]))
+    engine.Engine.play_one_game(
+        eng.state, (seats[0], seats[1]), split_setup_bonus=split_setup_bonus
+    )
 
     net_score = eng.state.players[net_seat].final_score or 0
     opp_score = eng.state.players[1 - net_seat].final_score or 0
@@ -107,6 +121,7 @@ def run_final_self_play_eval(
     seed: int,
     at_iteration: int,
     on_progress: EvalProgress | None = None,
+    split_setup_bonus: bool = False,
 ) -> metrics.FinalEvalStats:
     """Play ``n_games`` of model-vs-itself (both seats greedy, model fixed).
 
@@ -114,7 +129,8 @@ def run_final_self_play_eval(
     cancelling first-player advantage in the breakdown averages. Returns a
     :class:`metrics.FinalEvalStats` with averaged score breakdowns and game
     stats for the IN-GAME PERFORMANCE pin — no EWMA, a clean snapshot of
-    the model we "landed on".
+    the model we "landed on". ``split_setup_bonus`` defers the opening bonus pick
+    to the in-game greedy ``CHOOSE_BONUS`` head, mirroring the collection regime.
     """
     n_pairs = n_games // 2
     actual_games = 2 * n_pairs
@@ -133,7 +149,9 @@ def run_final_self_play_eval(
             decision_count: list[int] = [0]
             greedy = _counting_greedy_agent(net, device, decision_count)
             eng = collect.new_engine(game_seed)
-            engine.Engine.play_one_game(eng.state, (greedy, greedy))
+            engine.Engine.play_one_game(
+                eng.state, (greedy, greedy), split_setup_bonus=split_setup_bonus
+            )
             bd0 = collect.player_breakdown(eng.state.players[0])
             bd1 = collect.player_breakdown(eng.state.players[1])
             breakdown_sum = breakdown_sum + bd0 + bd1

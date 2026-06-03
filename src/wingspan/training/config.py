@@ -183,6 +183,18 @@ class TrainConfig(pydantic.BaseModel):
     # change that restarts the main net (the setup net additionally has its own
     # ``setup_architecture_key`` and checkpoint).
     use_setup_model: bool = True
+    # Split the opening keep into two judgments (only meaningful when
+    # ``use_setup_model`` is on): the setup net picks cards/food while the bonus
+    # card is deferred to the in-game ``CHOOSE_BONUS`` head, asked as a normal
+    # ``BirdPowerPickBonusCardDecision`` over the dealt bonus cards against a
+    # minimal round-1 opening state. The setup candidates then carry
+    # ``bonus_card=None`` (their bonus feature block is left at zero), and the
+    # CHOOSE_BONUS head gains one extra on-policy sample per net seat per game.
+    # Shape-preserving (the CHOOSE_BONUS head already exists; the setup feature dim
+    # is unchanged), so it is a REGIME/resumable knob — deliberately NOT part of
+    # ``architecture_key`` / ``setup_architecture_key``. Inert when the setup model
+    # is off; gate on ``split_setup_bonus_active``.
+    split_setup_bonus: bool = False
     # The setup net's MLP hidden widths (input-to-output) — a setup-FRESH change
     # (restarts only the setup net, never the main net).
     setup_hidden_layers: typing.Annotated[
@@ -296,6 +308,14 @@ class TrainConfig(pydantic.BaseModel):
         config-driven axis of the main model's shape. Threaded into the encoders
         (so collected vectors match the net) and recorded in ``model_config.json``."""
         return encode.spec_for(self.use_setup_model)
+
+    @property
+    def split_setup_bonus_active(self) -> bool:
+        """Whether the opening's bonus pick is deferred to the in-game
+        ``CHOOSE_BONUS`` head this run. Only takes effect alongside the setup
+        model, so it is gated on ``use_setup_model``; every collection / eval call
+        site reads this rather than the raw ``split_setup_bonus`` flag."""
+        return self.split_setup_bonus and self.use_setup_model
 
     @property
     def eval_pairs(self) -> int:

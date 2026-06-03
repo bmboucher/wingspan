@@ -57,16 +57,29 @@ class SetupCandidate(pydantic.BaseModel):
 
 
 def enumerate_setup_candidates(
-    dealt_cards: list[cards.Bird], dealt_bonus: list[cards.BonusCard]
+    dealt_cards: list[cards.Bird],
+    dealt_bonus: list[cards.BonusCard],
+    *,
+    include_bonus: bool = True,
 ) -> list[SetupCandidate]:
     """Every legal setup keep for a deal, in the engine's ``(kept_mask,
     kept_food_combo, bonus)`` order — 504 for the standard 5-card / 2-bonus deal.
 
     Mirrors ``Engine._build_setup_choices`` exactly so the setup model's softmax
-    runs over the same candidate set the engine offers an agent."""
+    runs over the same candidate set the engine offers an agent.
+
+    ``include_bonus=False`` drops the bonus axis entirely: every candidate carries
+    ``bonus_card=None`` (the ``split_setup_bonus`` regime, where the bonus is
+    instead chosen by the in-game ``CHOOSE_BONUS`` head). That halves the count to
+    the distinct ``(kept_mask, kept_food_combo)`` keeps — 252 for the standard
+    deal — while preserving their order."""
     num_cards = len(dealt_cards)
     all_foods = list(cards.ALL_FOODS)
-    bonuses: list[cards.BonusCard | None] = list(dealt_bonus) if dealt_bonus else [None]
+    bonuses: list[cards.BonusCard | None]
+    if include_bonus:
+        bonuses = list(dealt_bonus) if dealt_bonus else [None]
+    else:
+        bonuses = [None]
     out: list[SetupCandidate] = []
     for mask in range(1 << num_cards):
         kept = tuple(dealt_cards[i] for i in range(num_cards) if mask & (1 << i))

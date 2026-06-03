@@ -130,6 +130,8 @@ class Engine:
         gs: state.GameState,
         agents: tuple[Agent, Agent],
         instrumentation: dispatcher.Instrumentation | None = None,
+        *,
+        split_setup_bonus: bool = False,
     ) -> Engine:
         """Construct an Engine on ``gs`` with ``agents``, run a full game,
         and return the engine. The caller's ``gs`` is mutated in place, so
@@ -137,11 +139,16 @@ class Engine:
         can be used to inspect the final log and scores.
 
         ``instrumentation`` attaches an event router for the duration of the
-        game (default: the no-op ``EMPTY``)."""
+        game (default: the no-op ``EMPTY``).
+
+        ``split_setup_bonus`` defers the opening bonus pick out of the combined
+        ``SetupDecision`` to a follow-up in-game ``CHOOSE_BONUS`` decision (the
+        ``split_setup_bonus`` regime); the dealt cards/food are still the
+        ``SetupDecision``."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
         eng.log("=== Wingspan game start ===")
         eng.instrumentation.game_start(engine=eng)
-        eng._setup_phase(agents)
+        eng._setup_phase(agents, defer_bonus=split_setup_bonus)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
@@ -320,26 +327,39 @@ class Engine:
     # Setup (kept on Engine because it depends heavily on _ask)
     # ------------------------------------------------------------------
 
-    def _setup_phase(self, agents: typing.Sequence[Agent]) -> None:
+    def _setup_phase(
+        self, agents: typing.Sequence[Agent], *, defer_bonus: bool = False
+    ) -> None:
         """Pre-round-1 setup: deal each player a starting hand, prompt the
-        combined keep-cards / discard-food / bonus-card pick, log the result."""
+        combined keep-cards / discard-food / bonus-card pick, log the result.
+
+        ``defer_bonus`` (the ``split_setup_bonus`` regime) drops the bonus from the
+        ``SetupDecision`` and resolves it via a follow-up in-game ``CHOOSE_BONUS``
+        pick instead."""
         for player in self.state.players:
             dealt_cards, dealt_bonus = self._deal_setup_inputs(player)
-            self._resolve_setup_choice(player, agents, dealt_cards, dealt_bonus)
+            self._resolve_setup_choice(
+                player, agents, dealt_cards, dealt_bonus, defer_bonus=defer_bonus
+            )
             self._log_setup_result(player)
 
     def _setup_phase_fixed(self, choose_setups: SetupChooser) -> None:
         """Resolve setup from a chooser callback rather than agent prompts (the
         setup-model path): deal each player's inputs, ask the chooser for both
         seats' keeps over those inputs, then apply them. Skips ``Engine.ask``
-        because both seats' setups are decided together up front."""
+        because both seats' setups are decided together up front.
+
+        A keep whose ``bonus_card`` is ``None`` while bonus cards were dealt has
+        deferred its bonus (the ``split_setup_bonus`` regime): the bonus is then
+        picked via the in-game ``CHOOSE_BONUS`` head over the already-applied
+        cards/food, recorded like any other in-game decision."""
         dealt = tuple(self._deal_setup_inputs(player) for player in self.state.players)
         keeps = choose_setups(self, dealt)
         for player in self.state.players:
             dealt_cards, dealt_bonus = dealt[player.id]
-            self._apply_setup_choice(
-                player, dealt_cards, dealt_bonus, keeps[player.id].to_setup_choice()
-            )
+            sc = keeps[player.id].to_setup_choice()
+            self._apply_setup_choice(player, dealt_cards, dealt_bonus, sc)
+            self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, sc)
             self._log_setup_result(player)
 
     def _log_setup_result(self, player: state.Player) -> None:
@@ -427,6 +447,8 @@ class Engine:
         agents: typing.Sequence[Agent],
         dealt_cards: list[cards.Bird],
         dealt_bonus: list[cards.BonusCard],
+        *,
+        defer_bonus: bool = False,
     ) -> None:
         """Present the combined hand / food / bonus pick as a single Decision over
         the already-dealt inputs.
@@ -434,14 +456,21 @@ class Engine:
         Enumerates every legal ``SetupChoice`` (kept-card subset × retained-food
         subset of matching size × bonus card). For the default 5-card / 2-bonus
         deal that produces 2 * sum_k C(5,k)^2 = 504 choices, which matches the RL
-        action space."""
-        choices = self._build_setup_choices(dealt_cards, dealt_bonus)
+        action space.
+
+        ``defer_bonus`` drops the bonus axis from the enumeration (each
+        ``SetupChoice`` carries ``bonus_card=None``) and resolves the bonus through
+        a follow-up in-game ``CHOOSE_BONUS`` pick — the ``split_setup_bonus``
+        regime."""
+        choices = self._build_setup_choices(
+            dealt_cards, dealt_bonus, include_bonus=not defer_bonus
+        )
         self.state.current_player = player.id
         decision = decisions.SetupDecision(
             player_id=player.id,
             prompt=(
-                f"[{player.name}] choose starting hand (kept cards cost 1 food each) "
-                f"and bonus card"
+                f"[{player.name}] choose starting hand (kept cards cost 1 food each)"
+                f"{'' if defer_bonus else ' and bonus card'}"
             ),
             choices=choices,
             dealt_cards=dealt_cards,
@@ -449,12 +478,16 @@ class Engine:
         )
         chosen = self.ask(agents[player.id], decision)
         self._apply_setup_choice(player, dealt_cards, dealt_bonus, chosen)
-        bonus_name = chosen.bonus_card.name if chosen.bonus_card else "(none)"
+        if defer_bonus and dealt_bonus:
+            bonus_name = "(deferred to in-game pick)"
+        else:
+            bonus_name = chosen.bonus_card.name if chosen.bonus_card else "(none)"
         self.log(
             f"[{player.name}] keeps {len(chosen.kept_cards)} card(s), "
             f"foods [{','.join(food.value for food in chosen.kept_foods) or 'none'}], "
             f"bonus '{bonus_name}'"
         )
+        self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, chosen)
 
     def _deal_starting_bonus(self) -> list[cards.BonusCard]:
         """Pop ``STARTING_BONUS_CARDS_DEAL`` bonus cards from the deck (or as
@@ -469,6 +502,8 @@ class Engine:
     def _build_setup_choices(
         dealt_cards: list[cards.Bird],
         dealt_bonus: list[cards.BonusCard],
+        *,
+        include_bonus: bool = True,
     ) -> list[decisions.SetupChoice]:
         """Enumerate every legal ``SetupChoice``.
 
@@ -478,15 +513,59 @@ class Engine:
         exactly these candidates. Imported lazily to avoid an import cycle (the
         setup-model package transitively imports the engine). Each candidate
         renders to a ``SetupChoice`` whose label is built lazily by
-        ``display_label`` (only the chosen / displayed option ever needs it)."""
+        ``display_label`` (only the chosen / displayed option ever needs it).
+
+        ``include_bonus=False`` (the ``split_setup_bonus`` regime) drops the bonus
+        axis — each ``SetupChoice`` carries ``bonus_card=None`` — so the bonus is
+        instead picked by the in-game ``CHOOSE_BONUS`` head."""
         from wingspan.setup_model import candidates as setup_candidates
 
         return [
             candidate.to_setup_choice()
             for candidate in setup_candidates.enumerate_setup_candidates(
-                dealt_cards, dealt_bonus
+                dealt_cards, dealt_bonus, include_bonus=include_bonus
             )
         ]
+
+    def _maybe_resolve_deferred_setup_bonus(
+        self,
+        player: state.Player,
+        dealt_bonus: list[cards.BonusCard],
+        sc: decisions.SetupChoice,
+    ) -> None:
+        """Pick ``player``'s bonus card via the in-game ``CHOOSE_BONUS`` head when
+        the setup keep deferred it (the ``split_setup_bonus`` regime).
+
+        A keep with ``bonus_card is None`` while bonus cards were dealt is the
+        deferral signal — it never arises in the combined-keep regime, where the
+        enumerator always assigns one of the dealt bonuses. The pick is asked over a
+        minimal "start of round 1" snapshot (round 0, full action cubes; the tray /
+        birdfeeder / round goals were set by ``new_game``) so the in-game head scores
+        the bonus over a faithful opening, and it routes through ``Engine.ask`` so a
+        collecting agent records it like any other in-game decision."""
+        if not dealt_bonus or sc.bonus_card is not None:
+            return
+        # ``_play_round`` resets the cubes again before real play, so pre-loading
+        # them here only shapes the encoded snapshot the bonus pick is scored over.
+        for seat in self.state.players:
+            seat.action_cubes_left = state.ROUND_CUBES[0]
+        self.state.current_player = player.id
+        decision = decisions.BirdPowerPickBonusCardDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] keep a bonus card",
+            choices=[
+                decisions.BonusCardChoice(label=bonus.name, bonus_card=bonus)
+                for bonus in dealt_bonus
+            ],
+        )
+        chosen = self.ask(self.agent_for(player), decision)
+        player.bonus_cards.append(chosen.bonus_card)
+        for bonus in dealt_bonus:
+            if bonus is not chosen.bonus_card:
+                self.state.bonus_discard.append(bonus)
+        self.log(
+            f"  [{player.name}] keeps bonus '{chosen.bonus_card.name}' (setup pick)"
+        )
 
     def _apply_setup_choice(
         self,

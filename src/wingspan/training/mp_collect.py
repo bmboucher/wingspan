@@ -99,6 +99,10 @@ class _WorkerArch(pydantic.BaseModel):
     setup_food_sets: int = 1
     setup_tuples_per_batch: int = 1
     setup_temperature: float = 1.0
+    # Whether the opening bonus pick is deferred to the in-game ``CHOOSE_BONUS``
+    # head (the ``split_setup_bonus`` regime); applied in both the setup-collection
+    # and the eval game paths so workers match the main process.
+    split_setup_bonus: bool = False
 
 
 class _GameTask(pydantic.BaseModel):
@@ -169,6 +173,7 @@ class ProcessCollector:
             setup_food_sets=cfg.setup_food_sets,
             setup_tuples_per_batch=cfg.setup_tuples_per_batch,
             setup_temperature=cfg.setup_policy_temperature,
+            split_setup_bonus=cfg.split_setup_bonus_active,
         )
         self._weights_path = pathlib.Path(cfg.checkpoint_dir) / _WEIGHTS_FILENAME
         self._opponent_path = pathlib.Path(cfg.checkpoint_dir) / _OPPONENT_FILENAME
@@ -487,8 +492,10 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
     net = _worker_net
     device = _worker_device
     generator = _worker_generator
+    arch = _worker_arch
     assert net is not None and device is not None, "worker net not initialized"
     assert generator is not None, "worker setup generator not initialized"
+    assert arch is not None, "worker arch not initialized"
     _maybe_reload_weights(net, device, task.weights_path, task.weights_version)
 
     setup_policy_net: setup_net.SetupNet | None = None
@@ -517,6 +524,7 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             setup_policy_net,
             _worker_setup_temperature,
             opponent,
+            split_setup_bonus=arch.split_setup_bonus,
         )
     )
 
@@ -527,10 +535,19 @@ def _worker_eval(task: _EvalTask) -> int:
     margin the sequential path would for this ``(pair_seed, net_seat)``."""
     net = _worker_net
     device = _worker_device
+    arch = _worker_arch
     assert net is not None and device is not None, "worker net not initialized"
+    assert arch is not None, "worker arch not initialized"
     _maybe_reload_weights(net, device, task.weights_path, task.weights_version)
     opponent = _ensure_worker_opponent(task, device)
-    return evaluate.play_eval_game(net, opponent, device, task.pair_seed, task.net_seat)
+    return evaluate.play_eval_game(
+        net,
+        opponent,
+        device,
+        task.pair_seed,
+        task.net_seat,
+        split_setup_bonus=arch.split_setup_bonus,
+    )
 
 
 def _compact(record: collect.GameRecord) -> collect.GameRecord:

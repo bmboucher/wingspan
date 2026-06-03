@@ -54,6 +54,32 @@ def test_engine_offers_enumerated_candidates_in_order():
             assert choice.bonus_card == candidate.bonus_card
 
 
+def test_enumerate_without_bonus_drops_the_bonus_axis():
+    """``include_bonus=False`` (the split_setup_bonus regime) yields the distinct
+    ``(kept_cards, kept_foods)`` keeps with no bonus — half the count, same order."""
+    birds, bonuses, _ = cards.load_all()
+    dealt_cards = list(birds[:5])
+    dealt_bonus = list(bonuses[:2])
+    with_bonus = candidates.enumerate_setup_candidates(dealt_cards, dealt_bonus)
+    without_bonus = candidates.enumerate_setup_candidates(
+        dealt_cards, dealt_bonus, include_bonus=False
+    )
+    assert len(with_bonus) == 504
+    assert len(without_bonus) == 252  # the ×2 bonus axis is dropped
+    assert all(candidate.bonus_card is None for candidate in without_bonus)
+
+    # The bonus-free candidates are exactly the distinct keeps of the full set,
+    # in first-seen order (each (mask, food_combo) emitted both bonuses adjacently).
+    seen: set[tuple[tuple[cards.Bird, ...], tuple[cards.Food, ...]]] = set()
+    distinct_keeps: list[tuple[tuple[cards.Bird, ...], tuple[cards.Food, ...]]] = []
+    for candidate in with_bonus:
+        key = (candidate.kept_cards, candidate.kept_foods)
+        if key not in seen:
+            seen.add(key)
+            distinct_keeps.append(key)
+    assert [(c.kept_cards, c.kept_foods) for c in without_bonus] == distinct_keeps
+
+
 def test_setup_choice_round_trip():
     birds, bonuses, _ = cards.load_all()
     candidate = candidates.enumerate_setup_candidates(

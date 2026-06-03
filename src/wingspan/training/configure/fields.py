@@ -571,6 +571,17 @@ FIELD_SPECS: list[FieldSpec] = [
         "instead of the in-game policy. Off = unchanged behaviour. Has its own "
         "checkpoint, so toggling it never invalidates the main net's weights.",
     ),
+    ChoiceField(
+        attr="split_setup_bonus",
+        label="split setup bonus",
+        section=ConfigSection.SETUP,
+        choices=["True", "False"],
+        impact=ChangeImpact.REGIME,
+        help="Only with the setup model on: the setup net picks cards/food while "
+        "the bonus card is deferred to the in-game CHOOSE_BONUS head (asked over a "
+        "round-1 opening). Feeds that head more data; shape-preserving, so it never "
+        "invalidates either net's weights.",
+    ),
     LayersField(
         attr="setup_hidden_layers",
         label="setup layers",

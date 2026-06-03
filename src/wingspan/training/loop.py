@@ -539,6 +539,7 @@ class TrainingLoop:
                 setup_policy_net,
                 self.config.setup_policy_temperature,
                 opponent,
+                split_setup_bonus=self.config.split_setup_bonus_active,
             )
             records.append(record)
             self._record_collected_game(record)
@@ -774,6 +775,7 @@ class TrainingLoop:
                 eval_seed,
                 opponent_generation=self.state.opponent_generation,
                 on_progress=self._record_eval_progress,
+                split_setup_bonus=self.config.split_setup_bonus_active,
             )
         return result, time.monotonic() - start
 
@@ -988,6 +990,7 @@ class TrainingLoop:
             seed=self.config.seed + iteration * 1000,
             at_iteration=iteration + 1,
             on_progress=_on_progress,
+            split_setup_bonus=self.config.split_setup_bonus_active,
         )
 
         # Persist the final-eval result beside ``final_<n>.pt`` so the large

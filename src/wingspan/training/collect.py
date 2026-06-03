@@ -188,6 +188,7 @@ def play_game_with_setup(
     setup_policy_net: setup_net.SetupNet | None,
     setup_temperature: float,
     opponent_agent: engine.Agent | None = None,
+    split_setup_bonus: bool = False,
 ) -> GameRecord:
     """Play one game whose setups are chosen externally (the setup-model path).
 
@@ -196,7 +197,12 @@ def play_game_with_setup(
     asked) and resolved by the random generator or the setup net per ``spec``.
     Per net-controlled seat (seat 0 always; seat 1 too in self-play) a
     ``SetupSample`` is recorded in the recording / model-driven phases, with its
-    realized margin filled in once the game's scores are known."""
+    realized margin filled in once the game's scores are known.
+
+    ``split_setup_bonus`` defers each net seat's bonus pick out of the setup keep
+    (its candidate carries ``bonus_card=None``) to the engine's in-game
+    ``CHOOSE_BONUS`` head; a random-opponent seat keeps its generator-chosen
+    bonus. The deferred pick is then a recorded in-game step like any other."""
     eng = new_engine(spec.deal_seed)
     main_rng = random.Random(spec.continuation_seed)
     recorded: list[train.Step] = []
@@ -226,6 +232,7 @@ def play_game_with_setup(
             setup_temperature=setup_temperature,
             setup_rng=setup_rng,
             device=device,
+            defer_bonus=split_setup_bonus,
         )
         if spec.phase.records:
             for seat in net_seats:
@@ -356,6 +363,7 @@ def _choose_setups(
     setup_temperature: float,
     setup_rng: random.Random,
     device: torch.device,
+    defer_bonus: bool = False,
 ) -> list[setup_model.SetupCandidate]:
     """Decide both seats' setups for one game.
 
@@ -363,11 +371,21 @@ def _choose_setups(
     seeds it, so a batch's games share the generated set and ``tuple_index`` picks
     this game's); the model-driven phase scores each net seat's 504 candidates
     with the setup net and samples (softmax over predicted margins), while any
-    random-opponent seat keeps a food-aware random keep."""
+    random-opponent seat keeps a food-aware random keep.
+
+    ``defer_bonus`` (the ``split_setup_bonus`` regime) removes the bonus from each
+    net seat's keep so the engine's in-game ``CHOOSE_BONUS`` head picks it instead:
+    the random generator still produces full 3-tuples (its tuple/games-per-batch
+    counts are unchanged) but a net seat's chosen candidate is bonus-stripped here,
+    and the model-driven path scores bonus-free candidates directly. A
+    random-opponent seat is never touched, so it keeps its generator-chosen bonus."""
     if spec.phase is not SetupPhase.MODEL_DRIVEN:
         joint = generator.generate(setup_rng, (dealt[0], dealt[1]), context)
         chosen = joint[spec.tuple_index % len(joint)]
-        return [chosen[0], chosen[1]]
+        return [
+            _strip_bonus(candidate) if defer_bonus and seat in net_seats else candidate
+            for seat, candidate in enumerate((chosen[0], chosen[1]))
+        ]
 
     assert setup_policy_net is not None, "model-driven setup needs a setup net"
     keeps: list[setup_model.SetupCandidate] = []
@@ -375,7 +393,7 @@ def _choose_setups(
         dealt_cards, dealt_bonus = dealt[seat]
         if seat in net_seats:
             candidates = setup_model.enumerate_setup_candidates(
-                dealt_cards, dealt_bonus
+                dealt_cards, dealt_bonus, include_bonus=not defer_bonus
             )
             features = np.stack(
                 [setup_model.encode_setup_candidate(c, context) for c in candidates]
@@ -388,6 +406,15 @@ def _choose_setups(
                 generator.generate_one(setup_rng, (dealt_cards, dealt_bonus), context)
             )
     return keeps
+
+
+def _strip_bonus(
+    candidate: setup_model.SetupCandidate,
+) -> setup_model.SetupCandidate:
+    """A copy of ``candidate`` with its bonus pick dropped (``bonus_card=None``),
+    so the engine defers it to the in-game ``CHOOSE_BONUS`` head. ``SetupCandidate``
+    is frozen, so this returns a new instance."""
+    return candidate.model_copy(update={"bonus_card": None})
 
 
 def _setup_predict(
