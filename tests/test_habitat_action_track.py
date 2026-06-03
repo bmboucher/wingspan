@@ -251,7 +251,7 @@ def test_lay_eggs_offers_trade_exactly_once_on_odd_slot():
     convs = [
         decision
         for decision in sink
-        if isinstance(decision, decisions.LayExtraEggsDecision)
+        if isinstance(decision, decisions.AcceptExchangeDecision)
     ]
     assert len(convs) == 1
 
@@ -268,7 +268,7 @@ def test_lay_eggs_offers_no_trade_on_even_slot():
     assert [
         decision
         for decision in sink
-        if isinstance(decision, decisions.LayExtraEggsDecision)
+        if isinstance(decision, decisions.AcceptExchangeDecision)
     ] == []
 
 
@@ -302,6 +302,221 @@ def test_draw_cards_offers_no_trade_on_even_slot():
         for decision in sink
         if isinstance(decision, decisions.AcceptExchangeDecision)
     ] == []
+
+
+# ---------------------------------------------------------------------------
+# Forest — 0-bird guard
+
+
+def test_gain_food_no_birds_no_trade():
+    assert _commit_decisions_for_gain_food(n_birds=0, hand_size=3) == []
+
+
+# ---------------------------------------------------------------------------
+# Grassland — 0-bird guard + full flow + skip + no-food guard
+
+
+def test_lay_eggs_no_birds_no_trade():
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.GRASSLAND, 0, _roomy_bird())
+    for food in cards.Food:
+        player.food[food] = 3
+    sink: list[decisions.Decision[typing.Any]] = []
+    actions.do_lay_eggs(eng, _accepting_agent(sink))
+    assert not any(
+        isinstance(decision, decisions.AcceptExchangeDecision) for decision in sink
+    )
+
+
+def test_lay_eggs_commit_then_spend_food_adds_egg():
+    """Committing to the trade then spending a food removes it from the supply
+    and adds one extra egg compared to the base lay.
+
+    With 1 bird in the row the base lay is 2 eggs; accepting the trade adds 1
+    more. _roomy_bird() ensures there are always open egg slots.
+    """
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    roomy = _roomy_bird()
+    _fill_row(player.board, cards.Habitat.GRASSLAND, 1, roomy)
+    # Enough food so the guard passes; only INVERTEBRATE present so the
+    # SpendFoodForEggDecision has exactly one FoodChoice (forced move).
+    for food in cards.Food:
+        player.food[food] = 0
+    player.food[cards.Food.INVERTEBRATE] = 2
+
+    food_before = player.food.total()
+    eggs_before = player.total_eggs
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        # Commit step: accept the exchange.
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            pay = next(
+                ch for ch in decision.choices if isinstance(ch, decisions.PayCostChoice)
+            )
+            return typing.cast(C, pay)
+        # All other decisions: first choice.
+        return decision.choices[0]
+
+    actions.do_lay_eggs(eng, agent)
+
+    assert player.food.total() == food_before - 1
+    assert player.total_eggs > eggs_before
+
+
+def test_lay_eggs_skip_at_commit_leaves_food_unchanged():
+    """Skipping at the commit step keeps the food supply intact and raises no
+    SpendFoodForEggDecision."""
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.GRASSLAND, 1, _roomy_bird())
+    for food in cards.Food:
+        player.food[food] = 2
+
+    spend_decisions: list[decisions.SpendFoodForEggDecision] = []
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            skip = next(
+                ch for ch in decision.choices if isinstance(ch, decisions.SkipChoice)
+            )
+            return typing.cast(C, skip)
+        if isinstance(decision, decisions.SpendFoodForEggDecision):
+            spend_decisions.append(decision)
+            return typing.cast(C, decision.choices[0])
+        return decision.choices[0]
+
+    food_before = player.food.total()
+    actions.do_lay_eggs(eng, agent)
+
+    assert spend_decisions == []
+    assert player.food.total() == food_before
+
+
+def test_lay_eggs_no_trade_with_no_food():
+    """An odd bird-count row with an empty food supply offers no trade."""
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.GRASSLAND, 1, _roomy_bird())
+    for food in cards.Food:
+        player.food[food] = 0
+    sink: list[decisions.Decision[typing.Any]] = []
+    actions.do_lay_eggs(eng, _accepting_agent(sink))
+    assert not any(
+        isinstance(decision, decisions.AcceptExchangeDecision) for decision in sink
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wetland — 0-bird guard + full flow + skip + no-egg guard
+
+
+def test_draw_cards_no_birds_no_trade():
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.WETLAND, 0, _roomy_bird())
+    sink: list[decisions.Decision[typing.Any]] = []
+    actions.do_draw_cards(eng, _accepting_agent(sink))
+    assert not any(
+        isinstance(decision, decisions.AcceptExchangeDecision) for decision in sink
+    )
+
+
+def test_draw_cards_commit_then_pay_egg_draws_card():
+    """Committing to the wetland trade removes one egg and adds one extra card
+    to hand beyond the base draw.
+
+    With 1 bird in the row the base draw is 1 card; accepting the trade adds 1
+    more, for a total of 2 cards drawn.
+
+    Uses _non_brown_bird() so activate_row_powers fires no brown power and egg
+    counts stay predictable.
+    """
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.WETLAND, 1, _non_brown_bird())
+    player.board[cards.Habitat.WETLAND][0].eggs = 1
+    eggs_before = player.total_eggs
+    hand_before = len(player.hand)
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            pay = next(
+                ch for ch in decision.choices if isinstance(ch, decisions.PayCostChoice)
+            )
+            return typing.cast(C, pay)
+        return decision.choices[0]
+
+    actions.do_draw_cards(eng, agent)
+
+    assert player.total_eggs == eggs_before - 1
+    assert len(player.hand) > hand_before
+
+
+def test_draw_cards_skip_at_commit_leaves_eggs_unchanged():
+    """Skipping at the commit step keeps eggs intact and raises no
+    RemoveEggDecision.
+
+    Uses _non_brown_bird() so activate_row_powers fires no brown power and egg
+    counts stay predictable.
+    """
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.WETLAND, 1, _non_brown_bird())
+    player.board[cards.Habitat.WETLAND][0].eggs = 1
+
+    remove_decisions: list[decisions.RemoveEggDecision] = []
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            skip = next(
+                ch for ch in decision.choices if isinstance(ch, decisions.SkipChoice)
+            )
+            return typing.cast(C, skip)
+        if isinstance(decision, decisions.RemoveEggDecision):
+            remove_decisions.append(decision)
+            return typing.cast(C, decision.choices[0])
+        return decision.choices[0]
+
+    eggs_before = player.total_eggs
+    actions.do_draw_cards(eng, agent)
+
+    assert remove_decisions == []
+    assert player.total_eggs == eggs_before
+
+
+def test_draw_cards_no_trade_with_no_eggs():
+    """An odd bird-count row with no eggs offers no trade."""
+    eng = _make_engine()
+    eng.state.current_player = 0
+    player = eng.state.players[0]
+    _fill_row(player.board, cards.Habitat.WETLAND, 1, _roomy_bird())
+    # No eggs on any bird.
+    sink: list[decisions.Decision[typing.Any]] = []
+    actions.do_draw_cards(eng, _accepting_agent(sink))
+    assert not any(
+        isinstance(decision, decisions.AcceptExchangeDecision) for decision in sink
+    )
 
 
 # ---------------------------------------------------------------------------

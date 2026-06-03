@@ -635,28 +635,53 @@ def _convert_lay_eggs(
     engine: "core.Engine", agent: "core.Agent", player: state.Player
 ) -> None:
     """Grassland conversion: on a trade space, optionally spend one food to lay
-    one extra egg (a single exchange)."""
+    one extra egg (a single exchange).
+
+    The exchange is split into three separate decisions so each judgment routes
+    to its proper policy head: commit-to-cost (is the trade worth it?),
+    spend-food (which food can I most afford to lose?), and lay-egg (which
+    bird should get the extra egg?).
+    """
     if not player.board.action_offers_convert(cards.Habitat.GRASSLAND):
         return
     if player.food.total() == 0 or not _has_open_egg_slot(player):
         return
-    choices: list[decisions.FoodChoice | decisions.SkipChoice] = [
-        decisions.FoodChoice(label=f"spend {food.value} -> +1 egg", food=food)
-        for food in player.food.types_with_positive()
-    ]
-    choices.append(decisions.SkipChoice(label="keep food"))
-    ch = engine.ask(
+
+    # Step 1 — commit to the exchange or skip.
+    commit_ch = engine.ask(
         agent,
-        decisions.LayExtraEggsDecision(
+        decisions.AcceptExchangeDecision(
             player_id=player.id,
             prompt=f"[{player.name}] spend 1 food to lay 1 extra egg?",
-            choices=choices,
+            choices=[
+                decisions.PayCostChoice(
+                    label="spend 1 food -> +1 egg",
+                    paid_food_count=1,
+                    gained_egg_count=1,
+                ),
+                decisions.SkipChoice(label="keep food"),
+            ],
         ),
     )
-    if isinstance(ch, decisions.SkipChoice):
+    if isinstance(commit_ch, decisions.SkipChoice):
         return
-    player.food[ch.food] -= 1
-    engine.log(f"  convert: spend {ch.food.value} for +1 egg")
+
+    # Step 2 — pick which food to spend.
+    spend_ch = engine.ask(
+        agent,
+        decisions.SpendFoodForEggDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] which food to spend?",
+            choices=[
+                decisions.FoodChoice(label=f"spend {food.value}", food=food)
+                for food in player.food.types_with_positive()
+            ],
+        ),
+    )
+    player.food[spend_ch.food] -= 1
+    engine.log(f"  convert: spend {spend_ch.food.value} for +1 egg")
+
+    # Step 3 — lay the egg.
     lay_one_egg(engine, agent, player)
 
 

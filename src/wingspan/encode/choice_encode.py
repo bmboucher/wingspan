@@ -175,7 +175,9 @@ def _featurize_pay_cost(
         _add_pay_food(feat, choice.paid_food)
     exchange_terms = {
         layout._EXCHANGE_CARDS_TO_DISCARD: choice.paid_card_count,
-        layout._EXCHANGE_FOOD_TO_PAY: 1 if choice.paid_food is not None else 0,
+        layout._EXCHANGE_FOOD_TO_PAY: (
+            choice.paid_food_count if choice.paid_food is None else 1
+        ),
         layout._EXCHANGE_EGGS_TO_PAY: choice.paid_egg_count,
         layout._EXCHANGE_FOOD_TO_GAIN: choice.gained_food_count,
         layout._EXCHANGE_EGGS_TO_GAIN: choice.gained_egg_count,
