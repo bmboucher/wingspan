@@ -133,13 +133,30 @@ class PolicyValueNet(nn.Module):
         pad_mask[0] = 0.0
         self.register_buffer("card_pad_mask", pad_mask, persistent=False)
 
+        # Optional distinct hand encoder. When enabled it takes the full hand
+        # representation — [multi-hot (180) ⊕ hand-summary (10)] = 190 dims —
+        # and outputs a ``card_embed_dim``-wide hand embedding. The 10-dim
+        # hand-summary is redirected from the trunk's continuous input into this
+        # encoder, so the trunk sees a correspondingly narrower feed.
+        if arch.use_distinct_hand_model:
+            self.hand_encoder, _ = _build_body(
+                encode.HAND_ENCODER_INPUT_DIM,
+                arch.hand_encoder_layers + (arch.card_embed_dim,),
+                arch,
+                final_activation=False,
+            )
+
         # The trunk reads the continuous state features plus the looked-up card
         # embeddings: the index block becomes one embedding per slot (flattened),
-        # the hand multi-hot becomes a single mean-pooled embedding. It keeps an
-        # activation on its final layer (its output is an internal representation,
-        # not a logit); the choice encoder does not (its output is concatenated
-        # with the trunk context before scoring, matching the original shape).
-        trunk_in_dim = encode.trunk_input_dim(state_dim, arch.card_embed_dim)
+        # the hand multi-hot becomes either a mean-pooled card embedding (default)
+        # or a dedicated hand encoder output (when use_distinct_hand_model is on).
+        # It keeps an activation on its final layer (its output is an internal
+        # representation, not a logit); the choice encoder does not.
+        trunk_in_dim = encode.trunk_input_dim(
+            state_dim,
+            arch.card_embed_dim,
+            use_distinct_hand_model=arch.use_distinct_hand_model,
+        )
         self.state_trunk, _ = _build_body(
             trunk_in_dim, arch.trunk_layers, arch, final_activation=True
         )
@@ -297,14 +314,16 @@ class PolicyValueNet(nn.Module):
     ) -> torch.Tensor:
         """Turn the flat state ``(B, state_dim)`` into the trunk's input by
         replacing the card-identity columns with shared card vectors: the index
-        block becomes one ``card_table`` row per slot (flattened) and the hand
-        multi-hot becomes a single mean-pooled card vector, both concatenated with
-        the continuous features (everything outside the index/hand blocks, including
-        the trailing decision-type stripe)."""
+        block becomes one ``card_table`` row per slot (flattened), and the hand
+        multi-hot becomes a hand embedding (mean-pooled or from a dedicated encoder),
+        both concatenated with the continuous features.
+
+        When ``use_distinct_hand_model`` is on the 10-dim hand-summary stripe is
+        removed from the continuous block and redirected into the hand encoder,
+        so the trunk's continuous feed is correspondingly narrower."""
         off_index = encode.OFF_CARD_INDEX
         off_hand = encode.OFF_HAND_MULTIHOT
         off_decision = encode.OFF_DECISION_TYPE
-        continuous = torch.cat([state[:, :off_index], state[:, off_decision:]], dim=-1)
 
         # Card-index block -> per-slot card-table lookups, flattened. The encoder
         # always writes indices in range; the clamp only guards synthetic inputs.
@@ -313,11 +332,34 @@ class PolicyValueNet(nn.Module):
         )
         slot_emb = card_table[card_idx].reshape(card_idx.shape[0], -1)
 
-        # Hand multi-hot -> mean of held cards' vectors (rows 1.. skip the padding).
         hand_multihot = state[:, off_hand:off_decision]
-        hand_sum = hand_multihot @ card_table[1:]
-        hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
-        hand_emb = hand_sum / hand_count
+
+        if self.arch.use_distinct_hand_model:
+            # Strip the 10-dim hand summary from the continuous prefix and feed
+            # it together with the multi-hot into the dedicated hand encoder.
+            hand_sum_off = encode.HAND_SUMMARY_OFFSET
+            hand_sum_end = hand_sum_off + encode.HAND_SUMMARY_DIM
+            prefix = state[:, :off_index]
+            continuous = torch.cat(
+                [
+                    prefix[:, :hand_sum_off],
+                    prefix[:, hand_sum_end:],
+                    state[:, off_decision:],
+                ],
+                dim=-1,
+            )
+            hand_summary = state[:, hand_sum_off:hand_sum_end]
+            hand_emb = self.hand_encoder(
+                torch.cat([hand_multihot, hand_summary], dim=-1)
+            )
+        else:
+            continuous = torch.cat(
+                [state[:, :off_index], state[:, off_decision:]], dim=-1
+            )
+            # Hand multi-hot -> mean of held cards' vectors (rows 1.. skip padding).
+            hand_sum = hand_multihot @ card_table[1:]
+            hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
+            hand_emb = hand_sum / hand_count
 
         return torch.cat([continuous, slot_emb, hand_emb], dim=-1)
 

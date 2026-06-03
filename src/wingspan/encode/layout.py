@@ -102,6 +102,12 @@ _ACTIVATIONS_SCALE = 4.0  # per-bird activations within a round rarely exceed th
 _BONUS_COUNT_SCALE = 5.0  # bonus qualifying-bird count / opponent bonus-card count
 _GOAL_COUNT_SCALE = 5.0  # round-goal category counts
 
+# Dimensions of the hand-summary stripe: hand size + per-habitat bird counts +
+# food-cost multi-hot (see ``state_encode._summary_hand``). Used both as a named
+# constant in ``_CONT_PREFIX_DIM`` and as the second input block to the distinct
+# hand encoder when ``use_distinct_hand_model`` is active.
+HAND_SUMMARY_DIM = 10
+
 # One board's fixed slot count (3 habitats x 5 columns). Defined here because
 # both the choice board_target stripe and the state board stripes size from it.
 _SLOTS_PER_BOARD = state.N_HABITATS * state.ROW_SLOTS  # 15
@@ -317,6 +323,22 @@ N_BOARD_INDEX_SLOTS = 2 * _SLOTS_PER_BOARD  # POV board + opponent board
 N_CARD_INDEX_SLOTS = N_BOARD_INDEX_SLOTS + state.TRAY_SIZE
 HAND_MULTIHOT_DIM = _BIRD_ID_DIM
 
+# Offset of the 10-dim hand-summary stripe within the state vector (= within the
+# continuous prefix, since it precedes the card-index block). Used by the model's
+# ``_embed_state`` when ``use_distinct_hand_model`` is active to split the 10 dims
+# away from the continuous trunk feed and redirect them into the hand encoder.
+HAND_SUMMARY_OFFSET: int = (
+    5
+    + 5  # food inventories (me + opp)
+    + 2 * _BOARD_CONT_STRIPE_DIM  # board continuous (me, opp)
+    + _TRAY_CONT_STRIPE_DIM  # tray continuous
+    + 18
+    + 18  # board summaries (me, opp)
+)
+
+# The raw input width of the hand encoder: multi-hot identity + summary stats.
+HAND_ENCODER_INPUT_DIM = HAND_MULTIHOT_DIM + HAND_SUMMARY_DIM
+
 # Continuous prefix preceding the card-index block, summed over the encode_state
 # parts in order (everything except the index block, hand multi-hot, and the
 # trailing decision-type stripe).
@@ -327,7 +349,7 @@ _CONT_PREFIX_DIM = (
     + _TRAY_CONT_STRIPE_DIM  # tray continuous
     + 18  # my board summary
     + 18  # opponent board summary
-    + 10  # my hand summary
+    + HAND_SUMMARY_DIM  # my hand summary
     + 4 * _BONUS_ID_DIM  # bonus progress (held + count + stepped + linear)
     + 1  # opponent bonus-card count
     + 1  # opponent hand size
@@ -353,20 +375,35 @@ CHOICE_BONUS_ID_OFFSET = _OFF_BONUS_ID
 CHOICE_SETUP_OFFSET = _OFF_SETUP
 
 
-def trunk_input_dim(state_dim: int, card_embed_dim: int) -> int:
+def trunk_input_dim(
+    state_dim: int,
+    card_embed_dim: int,
+    *,
+    use_distinct_hand_model: bool = False,
+) -> int:
     """The state trunk's first-``Linear`` input width: the flat ``state_dim`` with
     the card-index block and the hand multi-hot replaced by their shared-embedding
-    lookups — one ``card_embed_dim`` vector per index slot, plus one mean-pooled
-    hand embedding. The model splits the flat state on exactly this basis, so this
-    is the single source of truth for the post-embedding width (used both by
-    ``model.PolicyValueNet`` and by the configurator's parameter accounting)."""
-    return (
+    lookups — one ``card_embed_dim`` vector per index slot, plus one hand embedding.
+
+    When ``use_distinct_hand_model`` is ``False`` (default) the hand embedding is a
+    mean-pool of the held cards' shared card vectors, and the 10-dim hand-summary
+    stripe in the continuous prefix reaches the trunk as-is.
+
+    When ``True`` a dedicated hand encoder produces the hand embedding from the
+    multi-hot concatenated with the hand-summary; the 10-dim hand-summary stripe is
+    redirected into that encoder instead of passing through to the trunk, so the
+    trunk's continuous input is ``HAND_SUMMARY_DIM`` narrower.
+
+    This is the single source of truth for the post-embedding width (used by both
+    ``model.PolicyValueNet`` and the configurator's parameter accounting)."""
+    base = (
         state_dim
         - N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings
-        - HAND_MULTIHOT_DIM  # hand multi-hot -> one pooled embedding
+        - HAND_MULTIHOT_DIM  # hand multi-hot -> one hand embedding
         + N_CARD_INDEX_SLOTS * card_embed_dim
         + card_embed_dim
     )
+    return base - HAND_SUMMARY_DIM if use_distinct_hand_model else base
 
 
 def choice_input_dim(choice_dim: int, card_embed_dim: int) -> int:

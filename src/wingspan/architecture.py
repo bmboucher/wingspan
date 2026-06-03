@@ -44,6 +44,8 @@ type ShapeKey = tuple[
     int,  # card_embed_dim
     tuple[int, ...],  # card_encoder_layers
     tuple[tuple[int, ...], ...] | None,  # per_family_head_layers
+    bool,  # use_distinct_hand_model
+    tuple[int, ...],  # hand_encoder_layers
 ]
 
 
@@ -90,6 +92,19 @@ class ModelArchitecture(pydantic.BaseModel):
     # instead of the shared ``head_layers``; ``head_layers_for(i)`` resolves this.
     # ``None`` (the default) = all families share ``head_layers`` (uniform mode).
     per_family_head_layers: tuple[Widths, ...] | None = None
+    # When True a dedicated hand encoder MLP replaces the mean-pool hand embedding:
+    # it takes [180-dim multi-hot ⊕ 10-dim hand summary] = 190 dims as input and
+    # outputs a ``card_embed_dim``-wide hand vector. The 10 hand-summary dims are
+    # redirected from the trunk's continuous input into this encoder, so the trunk
+    # sees a correspondingly narrower continuous block. Defaults to False so bare
+    # ``ModelArchitecture()`` / ``PolicyValueNet()`` calls and existing checkpoints
+    # are unaffected.
+    use_distinct_hand_model: bool = False
+    # Hidden widths of the hand encoder MLP (same shape convention as
+    # ``card_encoder_layers``). Output is always ``card_embed_dim`` (the model
+    # appends it), so this lists hidden layers only. Defaults mirror
+    # ``card_encoder_layers`` so the default net shapes match when toggled on.
+    hand_encoder_layers: Widths = (128,)
 
     @property
     def trunk_embed_width(self) -> int:
@@ -124,6 +139,8 @@ class ModelArchitecture(pydantic.BaseModel):
             self.card_embed_dim,
             self.card_encoder_layers,
             self.per_family_head_layers,
+            self.use_distinct_hand_model,
+            self.hand_encoder_layers,
         )
 
 
@@ -174,11 +191,20 @@ class ParamReport(pydantic.BaseModel):
     choice: BlockParam
     scorer: BlockParam
     value: BlockParam
+    # Present only when ``ModelArchitecture.use_distinct_hand_model`` is active;
+    # ``None`` in the default (mean-pool) configuration.
+    hand: BlockParam | None = None
 
     @property
     def blocks(self) -> tuple[BlockParam, ...]:
-        """The five blocks in flow order (embed, trunk, choice, scorer, value)."""
-        return (self.embed, self.trunk, self.choice, self.scorer, self.value)
+        """The network blocks in flow order: embed, hand (if active), trunk, choice,
+        scorer, value."""
+        base = (self.embed, self.trunk, self.choice, self.scorer, self.value)
+        return (
+            (self.embed, self.hand, self.trunk, self.choice, self.scorer, self.value)
+            if self.hand is not None
+            else base
+        )
 
     @property
     def total(self) -> int:
@@ -193,6 +219,7 @@ def count_parameters(
     trunk_in: int,
     choice_in: int,
     num_families: int,
+    hand_feat_in: int = 0,
 ) -> ParamReport:
     """Analytic per-block parameter accounting for the network ``arch`` describes.
 
@@ -202,7 +229,9 @@ def count_parameters(
     (``card_feat_in``, ``encode.CARD_FEATURE_DIM``) and the effective post-embedding
     trunk / choice input widths (``trunk_in`` / ``choice_in``, from
     ``encode.{trunk,choice}_input_dim``) are passed in to keep this module free of
-    the encoder / torch.
+    the encoder / torch. When ``arch.use_distinct_hand_model`` is active,
+    ``hand_feat_in`` (``encode.HAND_ENCODER_INPUT_DIM``) must also be supplied so
+    the HAND block's parameter count is correct.
     """
     # The trunk ends at width M and the choice encoder at width N; the scorer
     # heads read the M+N concat and the value head reads the trunk's M alone,
@@ -211,6 +240,17 @@ def count_parameters(
     # a body block (no final activation, like the choice encoder).
     trunk_m = arch.trunk_embed_width
     scorer_in = arch.trunk_embed_width + arch.choice_embed_width
+
+    # Build the optional HAND block when the distinct hand encoder is active.
+    hand_block: BlockParam | None = None
+    if arch.use_distinct_hand_model:
+        hand_block = BlockParam(
+            label="HAND",
+            layers=_body_layers(
+                hand_feat_in, arch.hand_encoder_layers + (arch.card_embed_dim,), arch
+            ),
+        )
+
     return ParamReport(
         embed=BlockParam(
             label="EMBED",
@@ -228,6 +268,7 @@ def count_parameters(
         value=BlockParam(
             label="VALUE", layers=readout_layers(trunk_m, arch.value_layers)
         ),
+        hand=hand_block,
     )
 
 

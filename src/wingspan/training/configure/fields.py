@@ -522,6 +522,29 @@ FIELD_SPECS: list[FieldSpec] = [
         "(←  to 0 layers) = a single linear projection; a stack makes it nonlinear. "
         "Fresh run.",
     ),
+    ChoiceField(
+        attr="use_distinct_hand_model",
+        label="distinct hand MLP",
+        section=ConfigSection.MODEL,
+        choices=["False", "True"],
+        impact=ChangeImpact.FRESH,
+        help="When on, a dedicated MLP encodes the full hand (180-dim multi-hot ⊕ "
+        "10-dim summary) instead of mean-pooling through the shared card encoder. "
+        "The 10-dim hand summary is redirected from the trunk's continuous input "
+        "into this encoder. Fresh run.",
+    ),
+    LayersField(
+        attr="hand_encoder_layers",
+        label="hand encoder layers",
+        section=ConfigSection.MODEL,
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.use_distinct_hand_model,
+        help="Hand encoder MLP hidden widths (input→output). Active only when "
+        "'distinct hand MLP' is on. Output width is always card-embed-dim (N'=N). "
+        "Empty = a single linear projection. Fresh run.",
+    ),
     IntField(
         attr="seed",
         label="seed",

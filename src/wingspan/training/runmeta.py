@@ -118,9 +118,14 @@ def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathli
     param_report = architecture.count_parameters(
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
+        trunk_in=encode.trunk_input_dim(
+            cfg.state_dim,
+            cfg.card_embed_dim,
+            use_distinct_hand_model=cfg.use_distinct_hand_model,
+        ),
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
         num_families=len(cfg.family_order),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
     inspect_report = InspectReport(
         state_layout=encode_stripes.state_stripe_layout(cfg.encoding_spec),
@@ -146,9 +151,14 @@ def write_model_summary_html(
     param_report = architecture.count_parameters(
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
+        trunk_in=encode.trunk_input_dim(
+            cfg.state_dim,
+            cfg.card_embed_dim,
+            use_distinct_hand_model=cfg.use_distinct_hand_model,
+        ),
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
         num_families=len(cfg.family_order),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
     html_content = report.generate_html_report(
         encode_stripes.state_stripe_layout(cfg.encoding_spec, cfg.card_embed_dim),

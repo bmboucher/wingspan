@@ -168,6 +168,15 @@ class TrainConfig(pydantic.BaseModel):
     # [static attributes ⊕ identity one-hot] to its card_embed_dim vector. Empty =
     # a single linear projection; a non-empty stack makes it genuinely nonlinear.
     card_encoder_layers: architecture.Widths = (128,)
+    # When enabled, a dedicated hand encoder MLP replaces the mean-pool hand
+    # embedding: it takes [180-dim multi-hot ⊕ 10-dim hand summary] and outputs a
+    # card_embed_dim-wide vector, removing the hand summary from the trunk's
+    # continuous feed. Fresh run.
+    use_distinct_hand_model: bool = False
+    # Hidden widths of the hand encoder MLP. Active only when use_distinct_hand_model
+    # is True; defaults match card_encoder_layers so toggling on starts from the same
+    # structure. Fresh run.
+    hand_encoder_layers: architecture.Widths = (128,)
 
     # ---- setup model (TRAINING.md / DECISIONS.md: the start-of-game keep) ----
     # When enabled (the default), the start-of-game setup decision is pulled out of
@@ -368,6 +377,8 @@ class TrainConfig(pydantic.BaseModel):
             layernorm=self.layernorm,
             card_embed_dim=self.card_embed_dim,
             card_encoder_layers=self.card_encoder_layers,
+            use_distinct_hand_model=self.use_distinct_hand_model,
+            hand_encoder_layers=self.hand_encoder_layers,
         )
 
     @property
