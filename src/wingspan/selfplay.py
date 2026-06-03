@@ -39,6 +39,7 @@ from wingspan.training import artifacts, config, policy
 # mass across most of them.
 _MAX_LOGGED_OPTIONS = 30
 _MIN_PROB_PCT = 1.0
+_SMALL_DECISION_THRESHOLD = 5
 
 # The named checkpoint specs ``--p0`` / ``--p1`` accept, mapped to the on-disk
 # artifact filenames inside ``--checkpoint-dir``. Any spec not in this table is
@@ -331,7 +332,7 @@ def _log_distribution[C: decisions.Choice](
     a header line, then one line per shown option (rank, probability, label)."""
     n_choices = len(decision.choices)
     ranked = sorted(range(n_choices), key=lambda idx: float(probs[idx]), reverse=True)
-    min_prob = _MIN_PROB_PCT / 100.0
+    min_prob = 0.0 if n_choices < _SMALL_DECISION_THRESHOLD else _MIN_PROB_PCT / 100.0
     shown = [idx for idx in ranked if float(probs[idx]) >= min_prob][
         :_MAX_LOGGED_OPTIONS
     ]
