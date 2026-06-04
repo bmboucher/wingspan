@@ -381,16 +381,17 @@ class GainFoodDecision(Decision[FoodChoice | SkipChoice]):
     The single "which food advances my plans?" decision, unified across every
     trigger: the main Gain Food action, the each-player feeder gain, and every
     power that grants a food (a named feeder die, any die, fewest-forest, the
-    wild half of discard-egg-for-wild, the gain half of Green Heron's trade).
-    ``SkipChoice`` is offered only where the gain is optional (e.g. Green Heron
-    may decline the trade); mandatory gains offer food choices only. (Formerly
-    ``GainFoodPickDieDecision`` — widened past the feeder die and renamed.)"""
+    wild half of discard-egg-for-wild, step 3 of Green Heron's wild-food trade).
+    ``SkipChoice`` is offered only where the gain is optional; mandatory gains
+    offer food choices only. (Formerly ``GainFoodPickDieDecision`` — widened
+    past the feeder die and renamed.)"""
 
 
 class SpendFoodDecision(Decision[FoodChoice | SkipChoice]):
     """Pick which food to give up — the inverse of ``GainFoodDecision``:
-    "which food can I most afford to part with?" Used by the lose half of Green
-    Heron's trade (discard 1 food back to the supply). ``SkipChoice`` is offered
+    "which food can I most afford to part with?" Used by step 2 of Green
+    Heron's wild-food trade (discard 1 food back to the supply; mandatory after
+    the upstream SKIP_OPTIONAL activation gate). ``SkipChoice`` is offered
     where declining the spend is legal."""
 
 

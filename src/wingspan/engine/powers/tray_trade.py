@@ -51,47 +51,51 @@ def _h_trade_wild_food(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    # Green Heron: swap one food for another, modelled as two atomic decisions —
-    # "gain 1 food from the supply" (GAIN_FOOD head; declining cancels the whole
-    # trade) then "lose 1 food back to the supply" (SPEND_FOOD head). The player
-    # must hold a food to give up for the trade to be live; the lose step is
-    # unconstrained (a rational agent gives up a *different* food, achieving the
-    # swap, but giving up the just-gained food is legal and a harmless no-op).
+    # Green Heron: discard 1 food, then gain 1 food from the supply.
+    # Step 1: SKIP_OPTIONAL activation gate — do you want to trade?
+    # Step 2: SPEND_FOOD — which food to discard (mandatory after activation).
+    # Step 3: GAIN_FOOD — which food to gain from supply (mandatory; post-discard
+    #   supply includes the just-returned food, so trading a food for itself is
+    #   legal but wasteful — the model learns to avoid it).
     st = engine.state
     bird = pb.bird
+
+    # Pre-flight: need a food to give up and something in the supply to take.
     if player.total_food() <= 0:
         engine.log(f"  {bird.name}: no food to trade; power skipped")
         return
-    gain_choices: list[decisions.FoodChoice | decisions.SkipChoice] = [
-        decisions.FoodChoice(label=food.value, food=food)
-        for food in cards.ALL_FOODS
-        if st.food_supply.get(food, 0) > 0
-    ]
-    if not gain_choices:
+    if not any(st.food_supply.get(food, 0) > 0 for food in cards.ALL_FOODS):
         engine.log(f"  {bird.name}: supply empty; power skipped")
         return
-    gain_choices.append(decisions.SkipChoice(label="skip"))
-    gain_ch = engine.ask(
+
+    # Step 1 — activation gate.
+    commit_ch = engine.ask(
         agent,
-        decisions.GainFoodDecision(
+        decisions.AcceptExchangeDecision(
             player_id=player.id,
-            prompt=(
-                f"[{player.name}] gain 1 food from the supply to trade "
-                f"(or skip) from {bird.name}"
-            ),
-            choices=gain_choices,
+            prompt=f"[{player.name}] trade 1 food for another from the supply ({bird.name})?",
+            choices=[
+                decisions.PayCostChoice(
+                    label="trade 1 food -> 1 food (supply)",
+                    paid_food_count=1,
+                    gained_food_count=1,
+                ),
+                decisions.SkipChoice(label="skip"),
+            ],
         ),
     )
-    if isinstance(gain_ch, decisions.SkipChoice):
+    if isinstance(commit_ch, decisions.SkipChoice):
         engine.log(f"  {bird.name}: declined to trade")
         return
-    gain_food = gain_ch.food
-    st.food_supply[gain_food] -= 1
-    player.food[gain_food] += 1
 
+    # Step 2 — mandatory discard.
     lose_food = _trade_discard_step(engine, agent, player, bird)
+
+    # Step 3 — mandatory gain from supply.
+    gain_food = _trade_gain_step(engine, agent, player, bird)
+
     engine.log(
-        f"  {bird.name}: gained 1 {gain_food.value}, discarded 1 {lose_food.value}"
+        f"  {bird.name}: discarded 1 {lose_food.value}, gained 1 {gain_food.value}"
     )
 
 
@@ -121,6 +125,35 @@ def _trade_discard_step(
     player.food[lose_food] -= 1
     st.food_supply[lose_food] = st.food_supply.get(lose_food, 0) + 1
     return lose_food
+
+
+def _trade_gain_step(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    bird: cards.Bird,
+) -> cards.Food:
+    """The 'gain 1 food from the supply' half of a wild-food trade; returns
+    the gained food. Called after the discard step, so the just-returned food
+    is already in the supply."""
+    st = engine.state
+    gain_ch = engine.ask(
+        agent,
+        decisions.GainFoodDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] gain 1 food from the supply ({bird.name})",
+            choices=[
+                decisions.FoodChoice(label=food.value, food=food)
+                for food in cards.ALL_FOODS
+                if st.food_supply.get(food, 0) > 0
+            ],
+        ),
+    )
+    assert isinstance(gain_ch, decisions.FoodChoice)
+    gain_food = gain_ch.food
+    st.food_supply[gain_food] -= 1
+    player.food[gain_food] += 1
+    return gain_food
 
 
 @registry.handles(cards.EffectKind.FEWEST_FOREST_GAINS_DIE)

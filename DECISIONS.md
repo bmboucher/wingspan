@@ -220,9 +220,8 @@ across every trigger:
 - the pink predator reaction: when an opponent's predator hunt succeeds, the
   reacting player's pink bird pulls a die of their choice from the feeder;
 - supply picks: choosing which wild food to take from the supply, e.g. the
-  gain half of the discard-egg-for-wild powers;
-- the gain half of Green Heron's wild-food trade — the one **optional** gain
-  (a skip is offered; declining cancels the whole trade).
+  gain half of the discard-egg-for-wild powers and step 3 of Green Heron's
+  wild-food trade (mandatory — activation gate is upstream in SKIP_OPTIONAL);
 
 Powers that grant a *named* food (from supply or feeder) take it without a
 decision and never reach this head.
@@ -236,10 +235,11 @@ face" (e.g. to deny the opponent the flexible die). Supply picks use the plain
 slots only. What is *in* the feeder rides the state vector.
 
 **Variation within the family.** One decision class, but two sources (feeder
-vs. supply — distinguishable by whether choice-die slots can appear), one
-optional site (Green Heron) against otherwise mandatory picks, and a decider
-who is frequently the non-active player (each-player powers, pink reaction) —
-made uniform by the POV state encoding.
+vs. supply — distinguishable by whether choice-die slots can appear), and a
+decider who is frequently the non-active player (each-player powers, pink
+reaction) — made uniform by the POV state encoding. All picks at this head
+are mandatory; the yes/no for optional effects resolves upstream in
+SKIP_OPTIONAL.
 
 ### 2.5 `SPEND_FOOD` — which food to part with
 
@@ -343,6 +343,9 @@ take-it-or-leave-it offer:
   the matching family;
 - the discard-1-[food]-to-tuck-N-cards-from-deck powers (Sandhill Crane et
   al.), whose terms are fixed by the card (`AcceptExchangeDecision`);
+- Green Heron's wild-food trade (discard 1 food → gain 1 food from supply):
+  step-1 commit; *which* food to discard (SPEND_FOOD) and *which* to gain
+  (GAIN_FOOD) are follow-up mandatory steps;
 - each power-granted **extra bird play** (`AcceptExchangeDecision`): accept
   (opens the `PLAY_BIRD` menu; House Wren's grant restricts it to one habitat)
   or forfeit the credit;

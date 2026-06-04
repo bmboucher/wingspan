@@ -149,13 +149,21 @@ def test_trade_wild_food_swaps_one_food():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        # Green Heron is a gain-then-lose chain: gain FRUIT from the supply
-        # (GainFoodDecision), then give up the SEED (SpendFoodDecision) — a net
-        # swap. Dispatch on decision type so the test is order-independent.
-        if isinstance(decision, decisions.GainFoodDecision):
-            want = cards.Food.FRUIT
+        # New flow: activate (AcceptExchangeDecision) → discard SEED
+        # (SpendFoodDecision) → gain FRUIT (GainFoodDecision) — a net swap.
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            return typing.cast(
+                C,
+                next(
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.PayCostChoice)
+                ),
+            )
         elif isinstance(decision, decisions.SpendFoodDecision):
             want = cards.Food.SEED
+        elif isinstance(decision, decisions.GainFoodDecision):
+            want = cards.Food.FRUIT
         else:
             raise AssertionError(f"unexpected decision: {type(decision).__name__}")
         return typing.cast(
@@ -222,9 +230,10 @@ def test_trade_wild_food_no_food_no_op():
     powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
 
 
-def test_trade_wild_food_is_a_gain_then_lose_chain():
-    """Green Heron decomposes into two atomic decisions, in order: gain a food
-    from the supply (GAIN_FOOD head) then lose one back (SPEND_FOOD head)."""
+def test_trade_wild_food_is_an_activate_then_lose_then_gain_chain():
+    """Green Heron decomposes into three atomic decisions, in order: activate
+    (SKIP_OPTIONAL head), discard a food (SPEND_FOOD head), gain a food
+    (GAIN_FOOD head)."""
     eng, pb = _make_engine_with_bird(
         "Trade 1 [wild] for any other type from the supply.",
         color=cards.PowerColor.BROWN,
@@ -234,7 +243,14 @@ def test_trade_wild_food_is_a_gain_then_lose_chain():
     player = gs.me()
     for food in cards.ALL_FOODS:
         player.food[food] = 0
-    player.food[cards.Food.SEED] = 1  # a food to give up keeps the trade live
+        gs.food_supply[food] = 0
+    # Two hand foods → SpendFoodDecision has >1 choice, so the engine consults
+    # the agent (a single-choice decision is auto-resolved without an agent call).
+    player.food[cards.Food.SEED] = 1
+    player.food[cards.Food.FISH] = 1
+    # Two supply foods → GainFoodDecision likewise has >1 choice.
+    gs.food_supply[cards.Food.FRUIT] = 3
+    gs.food_supply[cards.Food.INVERTEBRATE] = 3
 
     seen: list[type[decisions.Decision[typing.Any]]] = []
 
@@ -243,6 +259,17 @@ def test_trade_wild_food_is_a_gain_then_lose_chain():
         decision: decisions.Decision[C],
     ) -> C:
         seen.append(type(decision))
+        # Accept the activation gate; pick the first FoodChoice for the two
+        # food steps.
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            return typing.cast(
+                C,
+                next(
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.PayCostChoice)
+                ),
+            )
         return typing.cast(
             C,
             next(
@@ -253,14 +280,22 @@ def test_trade_wild_food_is_a_gain_then_lose_chain():
         )
 
     powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
-    assert seen == [decisions.GainFoodDecision, decisions.SpendFoodDecision]
+    assert seen == [
+        decisions.AcceptExchangeDecision,
+        decisions.SpendFoodDecision,
+        decisions.GainFoodDecision,
+    ]
     assert (
-        decisions.family_for(decisions.GainFoodDecision)
-        == decisions.DecisionFamily.GAIN_FOOD
+        decisions.family_for(decisions.AcceptExchangeDecision)
+        == decisions.DecisionFamily.SKIP_OPTIONAL
     )
     assert (
         decisions.family_for(decisions.SpendFoodDecision)
         == decisions.DecisionFamily.SPEND_FOOD
+    )
+    assert (
+        decisions.family_for(decisions.GainFoodDecision)
+        == decisions.DecisionFamily.GAIN_FOOD
     )
 
 
