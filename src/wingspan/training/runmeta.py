@@ -27,7 +27,7 @@ import pathlib
 
 import pydantic
 
-from wingspan import architecture, encode, report
+from wingspan import architecture, encode, report, setup_model
 from wingspan.encode import stripes as encode_stripes
 from wingspan.training import artifacts, config
 
@@ -165,6 +165,9 @@ def write_model_summary_html(
         encode_stripes.choice_stripe_layout(cfg.encoding_spec, cfg.card_embed_dim),
         param_report,
         cfg.arch,
+        setup_layout=setup_model.setup_stripe_layout(),
+        setup_arch=cfg.setup_arch,
+        use_setup_model=cfg.use_setup_model,
         state_dim=cfg.state_dim,
         choice_dim=cfg.choice_dim,
         family_order=cfg.family_order,

@@ -26,9 +26,9 @@ import rich.panel as rich_panel
 import rich.table as rich_table
 from rich import text as rich_text
 
-from wingspan import architecture, decisions, encode, report
+from wingspan import architecture, decisions, encode, report, setup_model
 from wingspan.encode import stripes as encode_stripes
-from wingspan.training import artifacts, runmeta
+from wingspan.training import artifacts, runmeta, setup_runmeta
 from wingspan.training.charts import text_helpers
 from wingspan.training.configure import arch_diagram
 
@@ -135,6 +135,9 @@ def _write_html_report(
         encode_stripes.choice_stripe_layout(info.spec, info.arch.card_embed_dim),
         param_report,
         info.arch,
+        setup_layout=setup_model.setup_stripe_layout(),
+        setup_arch=info.setup_arch,
+        use_setup_model=info.use_setup_model,
         state_dim=info.state_dim,
         choice_dim=info.choice_dim,
         family_order=info.family_order,
@@ -176,6 +179,7 @@ class _ArchInfo:
         family_order: tuple[str, ...],
         include_setup: bool,
         run_name: str = "(baseline)",
+        setup_arch: setup_model.SetupArchitecture | None = None,
     ):
         self.arch = arch
         self.state_dim = state_dim
@@ -183,12 +187,19 @@ class _ArchInfo:
         self.family_order = family_order
         self.include_setup = include_setup
         self.run_name = run_name
+        self.setup_arch = setup_arch or setup_model.SetupArchitecture()
 
     @property
     def spec(self) -> encode.EncodingSpec:
         """The encoding spec the run was built under (whether the main net carries
         setup) — drives which stripes the report shows / hides."""
         return encode.EncodingSpec(include_setup=self.include_setup)
+
+    @property
+    def use_setup_model(self) -> bool:
+        """Whether the separate setup model is active — the inverse of the main
+        net carrying setup (``include_setup``)."""
+        return not self.include_setup
 
 
 def _default_family_order() -> tuple[str, ...]:
@@ -204,7 +215,11 @@ def _default_family_order() -> tuple[str, ...]:
 def _load_arch_info(
     checkpoint_dir: str | None, console: rich_console.Console
 ) -> _ArchInfo:
-    """Load architecture from ``model_config.json`` or fall back to defaults."""
+    """Load architecture from ``model_config.json`` or fall back to defaults.
+
+    The setup net's topology comes from the run's ``setup_config.json`` when
+    present; absent (or with no checkpoint dir at all) the default
+    :class:`~wingspan.setup_model.SetupArchitecture` is used."""
     if checkpoint_dir is None:
         return _ArchInfo(
             arch=architecture.ModelArchitecture(),
@@ -234,7 +249,16 @@ def _load_arch_info(
         family_order=descriptor.family_order,
         include_setup=descriptor.include_setup,
         run_name=descriptor.run_name,
+        setup_arch=_load_setup_arch(checkpoint_dir),
     )
+
+
+def _load_setup_arch(checkpoint_dir: str) -> setup_model.SetupArchitecture:
+    """The run's setup-net topology from ``setup_config.json``, or the default."""
+    try:
+        return setup_runmeta.read_setup_config(checkpoint_dir).setup_arch
+    except FileNotFoundError:
+        return setup_model.SetupArchitecture()
 
 
 #### Vector layout sections ####

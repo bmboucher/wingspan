@@ -2,10 +2,11 @@
 
 Produces a self-contained ``.html`` file (no external assets) documenting
 the full structure of a training run's network: the element-by-element
-breakdown of the state and choice vectors, the network architecture, and the
-per-layer parameter accounting.  The file is meant to be opened in a browser
-and supports drill-down into complex stripes (board slots, round-goal rounds)
-via HTML5 ``<details>``/``<summary>`` elements — no JavaScript required.
+breakdown of the state, choice, and setup vectors, the network architecture
+(including the separately-trained setup model), and the per-layer parameter
+accounting.  The file is meant to be opened in a browser and supports
+drill-down into complex stripes (board slots, round-goal rounds) via HTML5
+``<details>``/``<summary>`` elements — no JavaScript required.
 
 The public entry point is :func:`generate_html_report`.  The training loop
 writes the result alongside the other JSON sidecars at startup; the
@@ -17,15 +18,17 @@ from __future__ import annotations
 import collections
 import html as html_lib
 
-from wingspan import architecture
+from wingspan import architecture, setup_model
 from wingspan.encode import stripes as encode_stripes
 from wingspan.training.charts import text_helpers
 
 # ---------------------------------------------------------------------------
-# Accent colors — one per report section.
+# Accent colors — one per report section (``_ACCENT_SETUP`` also colors the
+# setup block in the SVG diagram).
 
 _ACCENT_STATE = "#3b82f6"
 _ACCENT_CHOICE = "#22c55e"
+_ACCENT_SETUP = "#14b8a6"
 _ACCENT_ARCH = "#a855f7"
 _ACCENT_PARAMS = "#f97316"
 
@@ -170,6 +173,9 @@ def generate_html_report(
     param_report: architecture.ParamReport,
     arch: architecture.ModelArchitecture,
     *,
+    setup_layout: encode_stripes.VectorLayout,
+    setup_arch: setup_model.SetupArchitecture,
+    use_setup_model: bool,
     state_dim: int,
     choice_dim: int,
     family_order: tuple[str, ...],
@@ -179,12 +185,45 @@ def generate_html_report(
 
     All CSS is embedded inline; no external resources are referenced, so the
     file opens correctly when copied anywhere or viewed offline.
+
+    The separately-trained setup model is always documented — its input-vector
+    breakdown (``setup_layout``) and its block in the architecture diagram
+    (``setup_arch``) — even when ``use_setup_model`` is False (the section and
+    block are then annotated as inactive rather than omitted).
     """
+    setup_param = setup_model.count_setup_parameters(
+        setup_arch, feature_dim=setup_layout.total_size
+    )
+    setup_annotation = (
+        ""
+        if use_setup_model
+        else "not active this run — opening keep scored by the in-game policy"
+    )
     body = "\n".join(
         [
             _vector_section(state_layout, "state", "State Vector", _ACCENT_STATE),
             _vector_section(choice_layout, "choice", "Choice Vector", _ACCENT_CHOICE),
-            _arch_section(arch, param_report, state_dim, choice_dim, family_order),
+            _vector_section(
+                setup_layout,
+                "setup",
+                "Setup Vector",
+                _ACCENT_SETUP,
+                input_note=(
+                    "raw network input — multi-hot / one-hot / count blocks, "
+                    "no card embedding"
+                ),
+                annotation=setup_annotation,
+            ),
+            _arch_section(
+                arch,
+                param_report,
+                state_dim,
+                choice_dim,
+                family_order,
+                setup_param=setup_param,
+                setup_arch=setup_arch,
+                use_setup_model=use_setup_model,
+            ),
             _params_section(param_report),
         ]
     )
@@ -219,6 +258,7 @@ def _nav(run_name: str) -> str:
     links = [
         ("#state", "State Vector"),
         ("#choice", "Choice Vector"),
+        ("#setup", "Setup Vector"),
         ("#arch", "Architecture"),
         ("#params", "Parameters"),
     ]
@@ -242,13 +282,24 @@ def _vector_section(
     section_id: str,
     title: str,
     accent: str,
+    *,
+    input_note: str = "post-embedding network input",
+    annotation: str = "",
 ) -> str:
-    """Build a complete section for a state or choice vector layout."""
-    expanded_count = sum(1 for s in layout.stripes if s.sub_fields)
+    """Build a complete section for a state, choice, or setup vector layout.
+
+    ``input_note`` qualifies the element count in the subtitle (the state /
+    choice vectors are shown post-embedding; the setup vector is raw).  A
+    non-empty ``annotation`` is appended to the subtitle — used to flag the
+    setup section when the setup model is not active this run.
+    """
+    expanded_count = sum(1 for stripe in layout.stripes if stripe.sub_fields)
     sub = (
-        f"{layout.total_size} elements (post-embedding network input) · "
+        f"{layout.total_size} elements ({input_note}) · "
         f"{len(layout.stripes)} stripes · {expanded_count} with drill-down"
     )
+    if annotation:
+        sub += f" · {html_lib.escape(annotation)}"
     return (
         f"<div class='section' id='{section_id}'>"
         f"<div class='section-header' style='color:{accent}'>{html_lib.escape(title)}</div>"
@@ -515,13 +566,27 @@ def _arch_section(
     state_dim: int,
     choice_dim: int,
     family_order: tuple[str, ...],
+    *,
+    setup_param: architecture.BlockParam,
+    setup_arch: setup_model.SetupArchitecture,
+    use_setup_model: bool,
 ) -> str:
-    svg = _build_arch_svg(arch, param_report, state_dim, choice_dim, family_order)
+    svg = _build_arch_svg(
+        arch,
+        param_report,
+        state_dim,
+        choice_dim,
+        family_order,
+        setup_param=setup_param,
+        setup_arch=setup_arch,
+        use_setup_model=use_setup_model,
+    )
     return (
         f"<div class='section' id='arch'>"
         f"<div class='section-header' style='color:{_ACCENT_ARCH}'>Architecture</div>"
         f"<div class='section-sub'>"
         f"Network flow — embed → trunk → choice encoder → scorer heads → value head"
+        f" · separate setup net"
         f"</div>"
         f"<div class='arch-svg-wrap'>{svg}</div>"
         f"</div>"
@@ -837,14 +902,27 @@ def _build_arch_svg(
     state_dim: int,
     choice_dim: int,
     family_order: tuple[str, ...],
+    *,
+    setup_param: architecture.BlockParam,
+    setup_arch: setup_model.SetupArchitecture,
+    use_setup_model: bool,
 ) -> str:
-    """Return a self-contained ``<svg>`` string for the architecture diagram."""
+    """Return a self-contained ``<svg>`` string for the architecture diagram.
+
+    The separately-trained setup model is drawn as a full-width block above the
+    main net (no connectors — it is a separate network). It is drawn even when
+    ``use_setup_model`` is False: dashed, with an "off" caption, so the diagram
+    always shows what the setup net would look like.
+    """
     activation = arch.activation.value
     num_families = len(family_order)
 
     # Build layer-row lists for each block.  The trunk uses BODY_TRUNK rules
     # (activation after every layer); all other blocks use BODY_CHOICE / READOUT
     # rules (no activation after the final layer).
+    setup_rows = _layer_rows_svg(
+        setup_param.layers, setup_arch.activation.value, is_trunk=False
+    )
     card_rows = _layer_rows_svg(param_report.embed.layers, activation, is_trunk=False)
     trunk_rows = _layer_rows_svg(param_report.trunk.layers, activation, is_trunk=True)
     choice_rows = _layer_rows_svg(
@@ -858,6 +936,7 @@ def _build_arch_svg(
     )
 
     # Block pixel heights.
+    setup_h = _blk_h(len(setup_rows))
     card_h = _blk_h(len(card_rows))
     trunk_h = _blk_h(len(trunk_rows))
     choice_h = _blk_h(len(choice_rows))
@@ -866,8 +945,11 @@ def _build_arch_svg(
     parallel_h = max(trunk_h, choice_h)
     output_h = max(value_h, decision_h)
 
-    # Vertical layout: hint → card → fan-out → parallel zone → merge → output → total.
-    y_card = 22
+    # Vertical layout: setup (separate) → caption → card → fan-out →
+    # parallel zone → merge → output → total.
+    y_setup = 22
+    y_setup_cap = y_setup + setup_h + 16
+    y_card = y_setup_cap + 22
     y_conn1 = y_card + card_h
     y_parallel = y_conn1 + 46
     y_conn2 = y_parallel + parallel_h
@@ -885,18 +967,22 @@ def _build_arch_svg(
     # SVG root element.
     trunk_m = arch.trunk_embed_width
     choice_n = arch.choice_embed_width
+    setup_status = "active" if use_setup_model else "off"
+    setup_total_str = text_helpers.human_count(setup_param.total)
     parts.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_SVG_W} {svg_h}" '
         f'width="100%" style="display:block;max-width:{_SVG_W}px;" '
         f'role="img" aria-label="PolicyValueNet architecture: shared Card Encoder '
         f"feeding State Trunk (M={trunk_m}) and Choice Encoder (N={choice_n}), "
         f"merging into Value Head and {num_families} Decision Heads, "
-        f'{text_helpers.human_count(param_report.total)} params total">'
+        f"{text_helpers.human_count(param_report.total)} params total; "
+        f'separate Setup Model ({setup_status}, {setup_total_str} params)">'
     )
     parts.append(
         f"<title>PolicyValueNet · "
         f"{text_helpers.human_count(param_report.total)} params total · "
-        f"M={trunk_m} N={choice_n} ×{num_families} heads</title>"
+        f"M={trunk_m} N={choice_n} ×{num_families} heads · "
+        f"setup {setup_total_str} ({setup_status})</title>"
     )
 
     # Canvas background.
@@ -912,13 +998,44 @@ def _build_arch_svg(
         "</defs>"
     )
 
-    # Setup hint line.
-    mono = "'Courier New',monospace"
+    # Setup Model block (full canvas width; a separate network — no connectors
+    # to the main net below).  Drawn even when the setup model is off: dashed,
+    # with the off caption, instead of being omitted.
+    setup_in = setup_param.layers[0].in_features if setup_param.layers else 0
     parts.append(
-        f'<text x="{_SVG_GUTTER}" y="14" font-family="{mono}" '
-        f'font-size="11" fill="{_SVG_TEXT_MUTED}">'
-        f'setup model · <tspan font-style="italic">'
-        f"off (handled by the in-game policy)</tspan></text>"
+        _svg_block(
+            x=_SVG_GUTTER,
+            y=y_setup,
+            width=_SVG_W - 2 * _SVG_GUTTER,
+            height=setup_h,
+            accent=_ACCENT_SETUP,
+            title="SETUP MODEL · keep",
+            subtitle=f"in {setup_in} (multi-hot)",
+            rows=setup_rows,
+            sigma=setup_param.total,
+            out_label="→ margin",
+            out_color=_ACCENT_SETUP,
+            tooltip=(
+                f"Setup Model ({setup_status}) · {setup_total_str} params "
+                f"· {setup_in} → 1 (predicted score margin)"
+            ),
+            dashed=not use_setup_model,
+        )
+    )
+
+    # Caption under the setup block: the separate-model note, or the off
+    # explanation when the in-game policy scores the opening keep instead.
+    mono = "'Courier New',monospace"
+    if use_setup_model:
+        setup_caption = "separate model · trained apart from the main net below"
+        caption_color = _SVG_TEXT_DIM
+    else:
+        setup_caption = "off this run — opening keep handled by the in-game policy"
+        caption_color = _SVG_TEXT_MUTED
+    parts.append(
+        f'<text x="{_SVG_GUTTER}" y="{y_setup_cap}" font-family="{mono}" '
+        f'font-size="11" font-style="italic" fill="{caption_color}">'
+        f"{html_lib.escape(setup_caption)}</text>"
     )
 
     # Card Encoder block (full canvas width).
@@ -1075,13 +1192,17 @@ def _build_arch_svg(
         )
     )
 
-    # Grand total line.
+    # Grand total line (the separate setup net's count is annotated, not
+    # summed in — mirroring the FLIGHT PLAN diagram's total row).
     sans = "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
     total_str = text_helpers.human_count(param_report.total)
+    total_text = f"TOTAL ≈ {total_str} params"
+    if use_setup_model:
+        total_text += f" · setup ≈ {setup_total_str} (separate)"
     parts.append(
         f'<text x="{center_x}" y="{y_total}" font-family="{sans}" '
         f'font-size="13" font-weight="700" fill="{_ACCENT_ARCH}" text-anchor="middle">'
-        f"TOTAL ≈ {total_str} params</text>"
+        f"{total_text}</text>"
     )
 
     parts.append("</svg>")

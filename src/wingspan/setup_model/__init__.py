@@ -31,6 +31,7 @@ from wingspan.setup_model.encode import (
 )
 from wingspan.setup_model.generate import JointSetup, RandomSetupGenerator, SeatDeal
 from wingspan.setup_model.record import SetupDataStore, SetupSample
+from wingspan.setup_model.stripes import setup_stripe_layout
 
 __all__ = [
     "JointSetup",
@@ -48,4 +49,5 @@ __all__ = [
     "encode_setup_candidate",
     "enumerate_setup_candidates",
     "select_by_margins",
+    "setup_stripe_layout",
 ]
