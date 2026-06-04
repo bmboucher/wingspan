@@ -85,6 +85,8 @@ def _h_move_bird_if_rightmost(
             player_id=player.id,
             prompt=f"[{player.name}] move {bird.name} to which habitat? (or stay)",
             choices=all_choices,
+            moving_bird=pb,
+            from_habitat=habitat,
         ),
     )
     if ch.habitat == habitat:

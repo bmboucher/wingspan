@@ -1,8 +1,10 @@
 """Tests for the setup model's per-candidate feature encoder.
 
-Cover the fixed layout (the six blocks sum to ``SETUP_FEATURE_DIM``), the exact
-index placement of each block, the per-round goal one-hots, and that the
-birdfeeder stripe matches the live game state.
+Cover the fixed layout (the eight blocks sum to ``SETUP_FEATURE_DIM``), the
+exact index placement of each block, the per-round goal one-hots, and that the
+birdfeeder stripe matches the live game state. The trailing candidate-pricing
+blocks (kept-bonus value, per-goal kept affinity) have their own dedicated
+file, ``test_setup_encode_pricing.py``.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ def test_feature_dim_is_sum_of_blocks():
         + state.TRAY_SIZE  # tray (positional integer indices)
         + (cards.N_FOODS + 1)  # birdfeeder faces + choice die
         + 4 * encode.MAX_GOAL_CATEGORIES  # four round goals
+        + 4  # kept-bonus pricing (qual / stepped / linear / tray potential)
+        + 4  # per-goal kept-card affinity
     )
     assert setup_encode.SETUP_FEATURE_DIM == expected
     assert setup_encode.SETUP_GOAL_DIM == encode.MAX_GOAL_CATEGORIES

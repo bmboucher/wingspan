@@ -74,8 +74,9 @@ def spec_for(use_setup_model: bool) -> EncodingSpec:
 SOFT_CHOICE_WARN_THRESHOLD = 20
 RUNAWAY_CHOICE_THRESHOLD = 10000
 
-# Goal-category one-hot length (mirrors the round-goal stripe). Sized with a
-# little headroom above the number of distinct core goal categories.
+# Goal-category one-hot length (mirrors the round-goal stripe). Exactly fits
+# the 20 core goal categories in _GOAL_CATEGORIES — growing it is a FRESH
+# (checkpoint-invalidating) change.
 MAX_GOAL_CATEGORIES = 20
 
 # Normalization scales for raw card / board values. Picked so most values
@@ -548,7 +549,12 @@ _GOAL_CATEGORIES = [
     "wingspan_over_65",
     "total_birds",
     "egg_sets_3habitats",
+    "birds_no_eggs",
 ]
+# Append-only: trained weights are aligned to these one-hot indices, and
+# adding a 20th entry consumed the last slot of MAX_GOAL_CATEGORIES headroom —
+# a 21st category must grow MAX_GOAL_CATEGORIES (a FRESH, checkpoint-
+# invalidating change).
 
 # Public alias of the goal-category ordering, re-exported from the package so
 # the (separately-encoded) setup model can build its own round-goal one-hots

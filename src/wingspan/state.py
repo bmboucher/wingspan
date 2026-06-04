@@ -429,6 +429,22 @@ class Birdfeeder(pydantic.BaseModel):
                 self.choice_dice += 1
 
 
+class RoundGoalResult(pydantic.BaseModel):
+    """The frozen outcome of one round goal at the moment it was scored.
+
+    Once a round is scored its goal standings never change, no matter how the
+    boards evolve afterwards — readers of past-round standings (the state
+    encoder, the CLI display) must consult this record rather than recomputing
+    from the live board. Both lists are per-seat, indexed by ``Player.id``."""
+
+    counts: list[int]
+    vp_awarded: list[int]
+
+
+def _new_round_goal_result_list() -> list[RoundGoalResult]:
+    return []
+
+
 class GameState(pydantic.BaseModel):
     """The full game state: players, decks, board, supplies, and the
     cumulative game log."""
@@ -464,6 +480,13 @@ class GameState(pydantic.BaseModel):
     # All 16 goals shuffled — first 4 are the per-round goals for rounds 1..4
     round_goals: list[cards.EndRoundGoal] = pydantic.Field(
         default_factory=_new_round_goal_list
+    )
+    # Frozen per-round goal outcomes, appended by ``scoring.score_round_goal``
+    # the moment each round pays out. Starts empty and grows to 4 entries;
+    # entry ``r`` exists exactly when round ``r`` has been scored, so
+    # ``len(scored_goals)`` is the number of scored rounds.
+    scored_goals: list[RoundGoalResult] = pydantic.Field(
+        default_factory=_new_round_goal_result_list
     )
     game_over: bool = False
     log: list[str] = pydantic.Field(default_factory=list)

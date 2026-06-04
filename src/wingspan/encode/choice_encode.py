@@ -195,6 +195,23 @@ def _featurize_pay_cost(
     }
     for index, count in exchange_terms.items():
         feat[layout._OFF_EXCHANGE + index] = count / layout._EXCHANGE_SCALE
+    # Consequence pricing for the committed terms. Net hand-card flow prices
+    # the hand-counting bonus card (a draw grows the end-game hand, a discard
+    # shrinks it); committed egg terms price an optimistic round-goal bound —
+    # the target picks are follow-up decisions, so the accept row advertises
+    # the best the player could realize (exact deltas land on those rows).
+    player = state.players[decision.player_id]
+    delta_cards = choice.gained_card_count - choice.paid_card_count
+    if delta_cards != 0:
+        _fill_bonus_delta_for_hand(feat, player, delta_cards)
+    if choice.gained_egg_count > 0:
+        _fill_goal_delta_best_case(
+            feat, decision.player_id, choice.gained_egg_count, state
+        )
+    elif choice.paid_egg_count > 0:
+        _fill_goal_delta_best_case(
+            feat, decision.player_id, -choice.paid_egg_count, state
+        )
 
 
 def _featurize_main_action(
@@ -211,6 +228,19 @@ def _featurize_main_action(
         if choice.action == action:
             feat[layout._OFF_MAIN_ACTION + i] = 1.0
             break
+    # Consequence pricing on the *whether* row (the targets, if any, are
+    # follow-up decisions): DRAW_CARDS grows the hand by the wetland track
+    # count, which is what the hand-counting bonus card pays on; LAY_EGGS
+    # advertises the capacity-capped best case the grassland track's eggs
+    # could realize against each unscored goal. GAIN_FOOD and PLAY_BIRD touch
+    # no goal or bonus count directly and stay featureless.
+    player = state.players[decision.player_id]
+    if choice.action == decisions.MainAction.DRAW_CARDS:
+        _fill_bonus_delta_for_hand(feat, player, player.board.draw_cards_count())
+    elif choice.action == decisions.MainAction.LAY_EGGS:
+        _fill_goal_delta_best_case(
+            feat, decision.player_id, player.board.lay_eggs_count(), state
+        )
 
 
 def _featurize_bird(
@@ -246,7 +276,12 @@ def _featurize_play_bird(
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
     _fill_habitat(feat, choice.habitat)
-    _fill_bonus_delta(feat, state.players[decision.player_id], choice.bird)
+    _fill_bonus_delta(
+        feat,
+        state.players[decision.player_id],
+        choice.bird,
+        play_habitat=choice.habitat,
+    )
     _fill_goal_delta(feat, decision.player_id, choice.bird, state)
 
 
@@ -289,8 +324,31 @@ def _featurize_habitat(
     choice: decisions.HabitatChoice,
     state: state.GameState,
 ) -> None:
+    # A plain habitat designation is just its one-hot. When the decision
+    # carries move-bird context (``BirdPowerPickHabitatDecision.moving_bird``),
+    # each destination row also prices relocating that bird — its identity
+    # (through the shared card table) plus the round-goal / bonus consequences
+    # of the move (habitat bird counts, the egg block riding along, the
+    # habitat-spread bonus card). The "stay" option's deltas are naturally
+    # all-zero.
     feat[layout._OFF_KIND + layout._KIND_HABITAT] = 1.0
     _fill_habitat(feat, choice.habitat)
+    if (
+        isinstance(decision, decisions.BirdPowerPickHabitatDecision)
+        and decision.moving_bird is not None
+        and decision.from_habitat is not None
+    ):
+        player = state.players[decision.player_id]
+        _fill_bird_identity(feat, decision.moving_bird.bird)
+        _fill_goal_delta_for_move(
+            feat,
+            decision.player_id,
+            decision.from_habitat,
+            choice.habitat,
+            decision.moving_bird,
+            state,
+        )
+        _fill_bonus_delta_for_move(feat, player, decision.from_habitat, choice.habitat)
 
 
 def _featurize_food(
@@ -316,14 +374,29 @@ def _featurize_board_target(
     feat[layout._OFF_KIND + layout._KIND_BOARD_TARGET] = 1.0
     is_lay = isinstance(decision, decisions.LayEggDecision)
     is_pay = isinstance(decision, decisions.RemoveEggDecision)
+    player = state.players[decision.player_id]
     _fill_board_slots(
         feat,
-        state.players[decision.player_id],
+        player,
         choice.habitat,
         choice.slot,
         is_lay,
         is_pay,
     )
+    # The egg event's consequences for this specific target: every egg
+    # lay / removal in the engine lands on the deciding player's own board, so
+    # the targeted slot fully determines the round-goal and bonus-card deltas
+    # (habitat totals, nest totals, has-eggs crossings, the egg-set minimum,
+    # and the egg-counting dynamic bonus thresholds).
+    if is_lay or is_pay:
+        row = player.board[choice.habitat]
+        if 0 <= choice.slot < len(row):  # the engine only offers occupied slots
+            played_bird = row[choice.slot]
+            delta_eggs = 1 if is_lay else -1
+            _fill_goal_delta_for_egg(
+                feat, decision.player_id, choice.habitat, played_bird, delta_eggs, state
+            )
+            _fill_bonus_delta_for_egg(feat, player, played_bird, delta_eggs)
 
 
 def _featurize_bonus_card(
@@ -361,7 +434,13 @@ def _featurize_draw_source(
         _fill_bonus_delta(feat, state.players[decision.player_id], tray_bird)
         _fill_goal_delta(feat, decision.player_id, tray_bird, state)
     else:
+        # The deck row stays identity-free (a blind draw is the value of
+        # information), but a draw from any source grows the hand by one — so
+        # the hand-counting bonus term filled on the tray rows (via
+        # ``_fill_bonus_delta``) must ride the deck row too, keeping the
+        # within-decision comparison neutral.
         feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
+        _fill_bonus_delta_for_hand(feat, state.players[decision.player_id], 1)
 
 
 def _featurize_player_id(
@@ -479,35 +558,48 @@ def _fill_bonus_identity(feat: np.ndarray, bonus_card: cards.BonusCard) -> None:
     feat[layout._OFF_BONUS_ID + cards.bonus_index(bonus_card)] = 1.0
 
 
-def _fill_bonus_delta(feat: np.ndarray, player: state.Player, bird: cards.Bird) -> None:
-    """Fill the bonus_delta stripe: how much ``bird`` reaching ``player``'s board
-    would advance the bonus cards ``player`` currently holds. Three scalars — the
-    count of held cards the bird qualifies for, and the summed stepped / linear
-    VP gain from the +1 qualifying bird — so the net reads a candidate's bonus
-    contribution directly instead of inferring it from the bonus-progress and
-    card-attribute stripes. All zero when the bird qualifies for no held card."""
+def _fill_bonus_delta(
+    feat: np.ndarray,
+    player: state.Player,
+    bird: cards.Bird,
+    play_habitat: cards.Habitat | None = None,
+) -> None:
+    """Fill the bonus_delta stripe: how much taking ``bird`` would advance the
+    bonus cards ``player`` currently holds. Three scalars — the count of held
+    cards the bird moves, and the summed stepped / linear VP gain — so the net
+    reads a candidate's bonus contribution directly instead of inferring it
+    from the bonus-progress and card-attribute stripes.
+
+    Static cards price the bird's eventual +1 board qualifier (its printed
+    categories). Dynamic cards price by row direction: an acquire row
+    (``play_habitat is None`` — keep / tray-draw picks) grows the hand by one,
+    which the hand-counting card pays on; a play row (``play_habitat`` set)
+    can grow the smallest habitat row, which the habitat-spread card pays on.
+    All zero when no held card is moved."""
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     qual = 0
     stepped = 0.0
     linear = 0.0
     for bonus_card in player.bonus_cards:
-        if bonus_card.name not in bird.bonus_categories:
+        if bonus_card.name in bird.bonus_categories:
+            count_delta = 1
+        elif play_habitat is None:
+            count_delta = scoring.bonus_count_delta_for_hand(bonus_card, 1)
+        else:
+            count_delta = scoring.bonus_count_delta_for_play_habitat(
+                bonus_card, player, play_habitat
+            )
+        if count_delta == 0:
             continue
         qual += 1
         count = scoring.bonus_qualifying_count(player, bonus_card)
-        stepped += scoring.bonus_score_for_count(
-            bonus_card, count + 1
-        ) - scoring.bonus_score_for_count(bonus_card, count)
-        linear += scoring.bonus_linear_value_for_count(
-            bonus_card, count + 1
-        ) - scoring.bonus_linear_value_for_count(bonus_card, count)
-    if qual == 0:
-        return
-    base = layout._OFF_BONUS_DELTA
-    feat[base + layout._BONUS_DELTA_QUAL] = qual / layout._BONUS_COUNT_SCALE
-    feat[base + layout._BONUS_DELTA_STEPPED] = stepped / layout._BONUS_VALUE_SCALE
-    feat[base + layout._BONUS_DELTA_LINEAR] = linear / layout._BONUS_VALUE_SCALE
+        stepped_delta, linear_delta = scoring.bonus_vp_deltas_for_count_change(
+            bonus_card, count, count + count_delta
+        )
+        stepped += stepped_delta
+        linear += linear_delta
+    _write_bonus_delta(feat, qual, stepped, linear)
 
 
 def _fill_goal_delta(
@@ -520,22 +612,209 @@ def _fill_goal_delta(
     playing ``bird`` would change the deciding player's category count and
     placement VP. count_delta is always 0 or 1 (freshly played birds start
     with no eggs or tucks); vp_delta depends on current standings. Both stay
-    zero for goals where the bird has no immediate static effect."""
+    zero for goals where the bird has no immediate static effect, and for
+    goals whose round has already been scored (a scored goal's payout is
+    frozen — no choice can change it)."""
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     player = game_state.players[player_id]
     opp = game_state.players[1 - player_id]
 
     for goal_idx, goal in enumerate(game_state.round_goals):
+        if goal_idx < len(game_state.scored_goals):
+            continue
         payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
         count_delta, vp_delta = scoring.goal_vp_delta_for_bird(
             player, opp, goal, bird, payout
         )
+        _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
+
+
+def _fill_goal_delta_for_egg(
+    feat: np.ndarray,
+    player_id: int,
+    habitat: cards.Habitat,
+    played_bird: state.PlayedBird,
+    delta_eggs: int,
+    game_state: state.GameState,
+) -> None:
+    """Fill the goal_delta stripe for an egg event: per unscored round goal,
+    how laying (``delta_eggs > 0``) or removing (``< 0``) that many eggs on
+    ``played_bird`` at ``habitat`` would move the deciding player's category
+    count and placement VP. The 12 egg-driven core goal categories all price
+    through :func:`scoring.goal_count_delta_for_egg`."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    player = game_state.players[player_id]
+    opp = game_state.players[1 - player_id]
+    for goal_idx, goal in enumerate(game_state.round_goals):
+        if goal_idx < len(game_state.scored_goals):
+            continue
+        payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
+        count_delta, vp_delta = scoring.goal_vp_delta_for_egg(
+            player, opp, goal, habitat, played_bird, payout, delta_eggs
+        )
+        _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
+
+
+def _fill_goal_delta_for_move(
+    feat: np.ndarray,
+    player_id: int,
+    from_habitat: cards.Habitat,
+    to_habitat: cards.Habitat,
+    played_bird: state.PlayedBird,
+    game_state: state.GameState,
+) -> None:
+    """Fill the goal_delta stripe for relocating ``played_bird`` (with its
+    eggs) between habitat rows: per unscored round goal, the count / placement
+    VP swing of the move. A stay (``from == to``) writes nothing."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    player = game_state.players[player_id]
+    opp = game_state.players[1 - player_id]
+    for goal_idx, goal in enumerate(game_state.round_goals):
+        if goal_idx < len(game_state.scored_goals):
+            continue
+        payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
+        count_delta, vp_delta = scoring.goal_vp_delta_for_move(
+            player, opp, goal, from_habitat, to_habitat, played_bird, payout
+        )
+        _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
+
+
+def _fill_goal_delta_best_case(
+    feat: np.ndarray,
+    player_id: int,
+    n_eggs: int,
+    game_state: state.GameState,
+) -> None:
+    """Fill the goal_delta stripe for a *commitment* to lay (``n_eggs > 0``)
+    or remove (``< 0``) eggs whose targets are picked later: per unscored
+    round goal, the capacity-capped optimistic bound from
+    :func:`scoring.goal_best_case_for_eggs`. The follow-up target rows carry
+    the exact per-target deltas."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    player = game_state.players[player_id]
+    opp = game_state.players[1 - player_id]
+    for goal_idx, goal in enumerate(game_state.round_goals):
+        if goal_idx < len(game_state.scored_goals):
+            continue
+        payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
+        count_delta, vp_delta = scoring.goal_best_case_for_eggs(
+            player, opp, goal, payout, n_eggs
+        )
+        _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
+
+
+def _fill_bonus_delta_for_egg(
+    feat: np.ndarray,
+    player: state.Player,
+    played_bird: state.PlayedBird,
+    delta_eggs: int,
+) -> None:
+    """Fill the bonus_delta stripe for an egg event on ``played_bird``: the
+    held egg-counting dynamic bonus cards whose qualifying threshold the event
+    crosses, and the summed stepped / linear VP swing."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    qual = 0
+    stepped = 0.0
+    linear = 0.0
+    for bonus_card in player.bonus_cards:
+        count_delta = scoring.bonus_count_delta_for_egg(
+            bonus_card, played_bird, delta_eggs
+        )
         if count_delta == 0:
             continue
-        base = layout._OFF_GOAL_DELTA + goal_idx * layout._GOAL_DELTA_SLOT_DIM
-        feat[base + layout._GOAL_DELTA_COUNT] = count_delta / layout._GOAL_COUNT_SCALE
-        feat[base + layout._GOAL_DELTA_VP] = vp_delta / layout._ROUND_GOAL_POINTS_SCALE
+        qual += 1
+        count = scoring.bonus_qualifying_count(player, bonus_card)
+        stepped_delta, linear_delta = scoring.bonus_vp_deltas_for_count_change(
+            bonus_card, count, count + count_delta
+        )
+        stepped += stepped_delta
+        linear += linear_delta
+    _write_bonus_delta(feat, qual, stepped, linear)
+
+
+def _fill_bonus_delta_for_hand(
+    feat: np.ndarray, player: state.Player, delta_cards: int
+) -> None:
+    """Fill the bonus_delta stripe for the hand growing or shrinking by
+    ``delta_cards`` — what a committed draw / discard means for the held
+    hand-counting bonus card."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    qual = 0
+    stepped = 0.0
+    linear = 0.0
+    for bonus_card in player.bonus_cards:
+        count_delta = scoring.bonus_count_delta_for_hand(bonus_card, delta_cards)
+        if count_delta == 0:
+            continue
+        qual += 1
+        count = scoring.bonus_qualifying_count(player, bonus_card)
+        stepped_delta, linear_delta = scoring.bonus_vp_deltas_for_count_change(
+            bonus_card, count, count + count_delta
+        )
+        stepped += stepped_delta
+        linear += linear_delta
+    _write_bonus_delta(feat, qual, stepped, linear)
+
+
+def _fill_bonus_delta_for_move(
+    feat: np.ndarray,
+    player: state.Player,
+    from_habitat: cards.Habitat,
+    to_habitat: cards.Habitat,
+) -> None:
+    """Fill the bonus_delta stripe for moving one bird between habitat rows —
+    nonzero only when the held habitat-spread bonus card's minimum row count
+    shifts."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    qual = 0
+    stepped = 0.0
+    linear = 0.0
+    for bonus_card in player.bonus_cards:
+        count_delta = scoring.bonus_count_delta_for_move(
+            bonus_card, player, from_habitat, to_habitat
+        )
+        if count_delta == 0:
+            continue
+        qual += 1
+        count = scoring.bonus_qualifying_count(player, bonus_card)
+        stepped_delta, linear_delta = scoring.bonus_vp_deltas_for_count_change(
+            bonus_card, count, count + count_delta
+        )
+        stepped += stepped_delta
+        linear += linear_delta
+    _write_bonus_delta(feat, qual, stepped, linear)
+
+
+def _write_goal_delta(
+    feat: np.ndarray, goal_idx: int, count_delta: int, vp_delta: int
+) -> None:
+    """Write one goal slot of the goal_delta stripe (normalized); a zero
+    count delta writes nothing (the slot stays zero, the no-effect signal)."""
+    if count_delta == 0:
+        return
+    base = layout._OFF_GOAL_DELTA + goal_idx * layout._GOAL_DELTA_SLOT_DIM
+    feat[base + layout._GOAL_DELTA_COUNT] = count_delta / layout._GOAL_COUNT_SCALE
+    feat[base + layout._GOAL_DELTA_VP] = vp_delta / layout._ROUND_GOAL_POINTS_SCALE
+
+
+def _write_bonus_delta(
+    feat: np.ndarray, qual: int, stepped: float, linear: float
+) -> None:
+    """Write the three bonus_delta scalars (normalized); a zero affected-card
+    count writes nothing (the stripe stays zero, the no-effect signal)."""
+    if qual == 0:
+        return
+    base = layout._OFF_BONUS_DELTA
+    feat[base + layout._BONUS_DELTA_QUAL] = qual / layout._BONUS_COUNT_SCALE
+    feat[base + layout._BONUS_DELTA_STEPPED] = stepped / layout._BONUS_VALUE_SCALE
+    feat[base + layout._BONUS_DELTA_LINEAR] = linear / layout._BONUS_VALUE_SCALE
 
 
 def _fill_bonus_value(
@@ -568,10 +847,15 @@ def _fill_bonus_value(
         / layout._BONUS_VALUE_SCALE
     )
 
-    # Potential: birds not yet in play that pass the card's static test.
-    hand_qual = sum(
-        1 for bird in hand_source if bonus_card.name in bird.bonus_categories
-    )
+    # Potential: birds not yet in play that pass the card's static test. The
+    # hand-counting dynamic card is the exception — every card in the hand
+    # source counts toward it, whatever its printed categories.
+    if scoring.bonus_count_delta_for_hand(bonus_card, 1) > 0:
+        hand_qual = sum(1 for _bird in hand_source)
+    else:
+        hand_qual = sum(
+            1 for bird in hand_source if bonus_card.name in bird.bonus_categories
+        )
     feat[base + layout._BONUS_VALUE_HAND] = hand_qual / layout._BONUS_COUNT_SCALE
     tray_qual = sum(
         1

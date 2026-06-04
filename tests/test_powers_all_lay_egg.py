@@ -315,3 +315,31 @@ def test_egg_limit_respected():
     # P1's cavity bird received exactly 1 egg.
     p1_cavity = gs.players[1].board[cavity.habitats[0]][0]
     assert p1_cavity.eggs == 1
+
+
+def test_star_nest_bird_is_eligible_for_nest_lay():
+    """Star nests are wild: a star-nest bird is a legal target for "lay 1 egg
+    on a [bowl] bird" even though its printed nest is not a bowl."""
+    birds, bonuses, goals = cards.load_all()
+    gs = state.new_game(random.Random(3), birds, bonuses, goals)
+    star = next(
+        bird
+        for bird in birds
+        if bird.nest == cards.NestType.STAR and bird.egg_limit >= 1
+    )
+    pb_star = state.PlayedBird(bird=star)
+    gs.players[0].board[star.habitats[0]].append(pb_star)
+
+    def script_agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        for choice in decision.choices:
+            if not isinstance(choice, decisions.SkipChoice):
+                return choice
+        return decision.choices[0]
+
+    eng = engine.Engine(gs, agents=[script_agent, script_agent])
+    gs.current_player = 0
+    powers.lay_one_egg_on_nest(eng, gs.players[0], cards.NestType.BOWL, label="test")
+    assert pb_star.eggs == 1, "a star-nest bird must count as a [bowl] bird"

@@ -34,7 +34,7 @@ def _h_lay_egg_all_nest(
     count = 0
     for row in player.board.values():
         for pb_t in row:
-            if pb_t.bird.nest != nest:
+            if not cards.nest_matches(pb_t.bird.nest, nest):
                 continue
             cap = pb_t.bird.egg_limit - pb_t.eggs
             add = min(eff.amount, cap)

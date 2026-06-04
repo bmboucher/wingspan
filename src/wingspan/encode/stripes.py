@@ -722,19 +722,23 @@ def choice_stripe_layout(
         StripeDescriptor(
             name="bonus_delta",
             description=(
-                "Per-candidate bonus contribution: how much this bird advances "
-                "the deciding player's held bonus cards."
+                "Per-candidate bonus contribution: how much this choice moves "
+                "the deciding player's held bonus cards (static categories and "
+                "the dynamic egg / hand / habitat-spread cards alike)."
             ),
             offset=layout._OFF_BONUS_DELTA,
             size=layout._BONUS_DELTA_DIM,
             encoding="vector",
-            value_range="[0, ~1]",
+            value_range="[-~1, ~1]",
             notes=(
                 f"{layout._BONUS_DELTA_DIM} values: qual_count (held bonus cards "
-                "this bird qualifies for, ÷5), stepped_delta (summed stepped-VP "
-                "gain from the +1 qualifying bird, ÷7), linear_delta (same, "
-                "piecewise-linear, ÷7). Filled for play / keep-bird / tray "
-                "draw-source candidates; zero otherwise."
+                "this choice moves, ÷5), stepped_delta (summed stepped-VP "
+                "swing, ÷7, signed), linear_delta (same, piecewise-linear, ÷7). "
+                "Filled for play / keep-bird / tray draw-source candidates "
+                "(+1 board or hand qualifier), egg lay / removal board targets "
+                "(egg-threshold crossings), move-bird habitat rows (habitat "
+                "spread), and accept / main-action rows committing a net hand "
+                "change; zero otherwise."
             ),
             sub_fields=_bonus_delta_sub_fields(),
         )
@@ -745,18 +749,23 @@ def choice_stripe_layout(
             name="goal_delta",
             description=(
                 "Per-candidate round-goal contribution: for each of the 4 round "
-                "goals, how much this bird would change the deciding player's "
-                "category count and placement VP."
+                "goals, how much this choice would change the deciding player's "
+                "category count and placement VP. Already-scored rounds stay "
+                "zero — their payouts are frozen."
             ),
             offset=layout._OFF_GOAL_DELTA,
             size=layout._GOAL_DELTA_DIM,
             encoding="vector",
-            value_range="[0, ~1]",
+            value_range="[-~1, ~1]",
             notes=(
                 f"{layout._GOAL_DELTA_DIM} values: 4 goal slots × 2 scalars. "
-                "Per slot: count_delta (÷5, always 0 or 0.2), vp_delta "
-                "(÷10, marginal placement VP swing). Filled for play / keep-bird "
-                "/ tray draw-source candidates; zero otherwise."
+                "Per slot: count_delta (÷5, signed), vp_delta (÷10, marginal "
+                "placement VP swing). Filled for play / keep-bird / tray "
+                "draw-source candidates (exact bird delta), egg lay / removal "
+                "board targets (exact egg delta), move-bird habitat rows "
+                "(exact move delta), and lay/draw commitment rows (accept "
+                "trades, the LAY_EGGS main action: capacity-capped optimistic "
+                "bound); zero otherwise and for scored rounds."
             ),
             sub_fields=_goal_delta_sub_fields(),
         )
@@ -1506,18 +1515,18 @@ def _bonus_delta_sub_fields() -> tuple[SubFieldDescriptor, ...]:
     entries = [
         (
             "qual_count",
-            "Held bonus cards this candidate bird qualifies for.",
+            "Held bonus cards whose qualifying count this choice moves.",
             "Normalized ÷ 5.",
         ),
         (
             "stepped_delta",
-            "Summed stepped-VP gain from the +1 qualifying bird.",
-            "Normalized ÷ 7.",
+            "Summed stepped-VP swing from the qualifying-count change.",
+            "Normalized ÷ 7. Signed.",
         ),
         (
             "linear_delta",
-            "Summed piecewise-linear-VP gain from the +1 qualifying bird.",
-            "Normalized ÷ 7.",
+            "Summed piecewise-linear-VP swing from the qualifying-count change.",
+            "Normalized ÷ 7. Signed.",
         ),
     ]
     return tuple(
@@ -1527,7 +1536,7 @@ def _bonus_delta_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             relative_offset=idx,
             size=1,
             encoding="scalar",
-            value_range="[0, ~1]",
+            value_range="[-~1, ~1]",
             notes=notes,
         )
         for idx, (name, desc, notes) in enumerate(entries)
@@ -1541,15 +1550,15 @@ def _goal_delta_sub_fields() -> tuple[SubFieldDescriptor, ...]:
         entries.append(
             (
                 f"goal_{goal_idx}_count_delta",
-                f"Count change on round-{goal_idx + 1} goal from playing this bird.",
-                "Normalized ÷ 5. Always 0 or 0.2.",
+                f"Count change on the round-{goal_idx + 1} goal from this choice.",
+                "Normalized ÷ 5. Signed; zero once the round is scored.",
             )
         )
         entries.append(
             (
                 f"goal_{goal_idx}_vp_delta",
-                f"Placement VP swing on round-{goal_idx + 1} goal from playing this bird.",
-                "Normalized ÷ 10.",
+                f"Placement VP swing on the round-{goal_idx + 1} goal from this choice.",
+                "Normalized ÷ 10. Signed; zero once the round is scored.",
             )
         )
     return tuple(
@@ -1559,7 +1568,7 @@ def _goal_delta_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             relative_offset=idx,
             size=1,
             encoding="scalar",
-            value_range="[0, ~1]",
+            value_range="[-~1, ~1]",
             notes=notes,
         )
         for idx, (name, desc, notes) in enumerate(entries)

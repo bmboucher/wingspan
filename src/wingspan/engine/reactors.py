@@ -85,7 +85,7 @@ def fire_pink_lay_egg(
         for slot, target in enumerate(row):
             if target is pb:
                 continue  # "another bird"
-            if target.bird.nest != nest:
+            if not cards.nest_matches(target.bird.nest, nest):
                 continue
             if target.eggs >= target.bird.egg_limit:
                 continue

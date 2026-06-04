@@ -71,8 +71,9 @@ def lay_one_egg_on_nest(
     optional: bool = False,
 ) -> None:
     """Ask ``target_player`` to pick one of their birds whose nest matches
-    ``nest`` and whose ``eggs < egg_limit`` and add 1 egg there. No-op if none
-    match. If ``optional`` is True, the player may also choose to skip."""
+    ``nest`` (star nests are wild — ``cards.nest_matches``) and whose
+    ``eggs < egg_limit`` and add 1 egg there. No-op if none match. If
+    ``optional`` is True, the player may also choose to skip."""
     eligible: list[decisions.BoardTargetChoice | decisions.SkipChoice] = [
         decisions.BoardTargetChoice(
             label=f"{pb.bird.name}@{habitat.value}[{slot}]({pb.eggs}/{pb.bird.egg_limit})",
@@ -81,7 +82,7 @@ def lay_one_egg_on_nest(
         )
         for habitat, row in target_player.board.items()
         for slot, pb in enumerate(row)
-        if pb.bird.nest == nest and pb.eggs < pb.bird.egg_limit
+        if cards.nest_matches(pb.bird.nest, nest) and pb.eggs < pb.bird.egg_limit
     ]
     if not eligible:
         engine.log(

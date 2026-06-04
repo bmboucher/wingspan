@@ -51,7 +51,7 @@ def encode_state(
         np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32),
         _summary_birdfeeder(state),  # 7 (5 food faces + choice dice + reset flag)
         _summary_misc_scalars(state, me, opp),  # 7
-        _round_goals_all_rounds(state, me, opp),  # layout._ROUND_GOALS_STRIPE_DIM
+        _round_goals_all_rounds(state, me),  # layout._ROUND_GOALS_STRIPE_DIM
         _card_index_block(me, opp, state),  # layout.N_CARD_INDEX_SLOTS — board+tray ids
         _hand_identity(me),  # layout.HAND_MULTIHOT_DIM — multi-hot of my hand
         _encode_decision_type(
@@ -362,13 +362,15 @@ def _card_index_block(
 
 
 def _round_goals_all_rounds(
-    game_state: state.GameState, me: state.Player, opp: state.Player
+    game_state: state.GameState, me: state.Player
 ) -> np.ndarray:
     """All four round-goal slots from ``me``'s POV: each = the goal's category
     one-hot plus ``me``'s count, the opponent's count, and the placement VP ``me``
     would earn if that round scored now. Encoding every round (not just the
     current one) lets the model plan toward later-round goals it is already
-    accumulating progress on."""
+    accumulating progress on. Already-scored rounds read the frozen
+    at-scoring standings (``GameState.scored_goals``) — their stripes never
+    move again, however the boards evolve."""
     from wingspan.engine import scoring
 
     vec = np.zeros(layout._ROUND_GOALS_STRIPE_DIM, dtype=np.float32)
@@ -384,7 +386,7 @@ def _round_goals_all_rounds(
             standing.count / layout._GOAL_COUNT_SCALE
         )
         vec[base + layout._ROUND_GOAL_OPP_COUNT] = (
-            scoring.eval_goal(opp, goal) / layout._GOAL_COUNT_SCALE
+            standing.opp_count / layout._GOAL_COUNT_SCALE
         )
         vec[base + layout._ROUND_GOAL_VP] = (
             standing.vp / layout._ROUND_GOAL_POINTS_SCALE

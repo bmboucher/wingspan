@@ -24,10 +24,11 @@ from wingspan.setup_model import encode as setup_encode
 def setup_stripe_layout() -> encode_stripes.VectorLayout:
     """Build the stripe registry for the setup net's input vector.
 
-    Lists the six fixed blocks in offset order. Two deliberate contrasts with
-    the in-game encoder are called out in the notes: the birdfeeder block
+    Lists the eight fixed blocks in offset order. Two deliberate contrasts
+    with the in-game encoder are called out in the notes: the birdfeeder block
     carries *raw* die-face counts (the state vector's is normalized ÷ 5), and
-    each round goal is a bare category one-hot (no count / VP scalars).
+    each round goal is a bare category one-hot (no count / VP scalars — though
+    the trailing affinity block prices the keep against each goal).
     """
     food_names = ", ".join(food.value for food in cards.ALL_FOODS)
 
@@ -150,6 +151,54 @@ def setup_stripe_layout() -> encode_stripes.VectorLayout:
     )
     off += setup_encode._GOALS_DIM
 
+    # ---- candidate pricing blocks: the keep valued against bonus and goals ----
+    stripes.append(
+        encode_stripes.StripeDescriptor(
+            name="kept_bonus_value",
+            description=(
+                "The kept bonus card priced against this candidate's keep: "
+                "kept-card qualifiers, the stepped / linear VP they would pay, "
+                "and tray potential."
+            ),
+            offset=off,
+            size=setup_encode._KEPT_BONUS_VALUE_DIM,
+            encoding="vector",
+            value_range="[0, ~1]",
+            notes=(
+                f"{setup_encode._KEPT_BONUS_VALUE_DIM} values: qual_count (kept "
+                "cards passing the bonus test — every kept card for the "
+                "hand-counting dynamic card, ÷5), stepped_vp / linear_vp (what "
+                "the card pays if they all reach the board, ÷7), tray_potential "
+                "(tray birds that could still qualify it, ÷5). All-zero when no "
+                "bonus is kept (split_setup_bonus)."
+            ),
+            sub_fields=_kept_bonus_value_sub_fields(),
+        )
+    )
+    off += setup_encode._KEPT_BONUS_VALUE_DIM
+
+    stripes.append(
+        encode_stripes.StripeDescriptor(
+            name="goal_affinity",
+            description=(
+                "Per round goal, how many kept cards would advance the goal's "
+                "category if played."
+            ),
+            offset=off,
+            size=setup_encode._GOAL_AFFINITY_DIM,
+            encoding="vector",
+            value_range="[0, ~1]",
+            notes=(
+                "One scalar per round (÷5): the summed static category affinity "
+                "of the kept cards (e.g. forest-capable birds toward a "
+                "birds_forest goal). Egg-driven goals are rightly 0 — nothing "
+                "has eggs at setup time."
+            ),
+            sub_fields=_goal_affinity_sub_fields(),
+        )
+    )
+    off += setup_encode._GOAL_AFFINITY_DIM
+
     assert off == setup_encode.SETUP_FEATURE_DIM, (
         f"stripe offsets sum to {off} but SETUP_FEATURE_DIM is "
         f"{setup_encode.SETUP_FEATURE_DIM} — setup_model encode.py and stripes.py "
@@ -205,6 +254,64 @@ def _birdfeeder_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...]:
         )
     )
     return tuple(sub_fields)
+
+
+def _kept_bonus_value_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...]:
+    """4 sub-fields for the kept-bonus pricing block."""
+    entries = [
+        (
+            "qual_count",
+            "Kept cards passing the kept bonus card's test.",
+            "Normalized ÷ 5. Every kept card for the hand-counting dynamic card.",
+        ),
+        (
+            "stepped_vp",
+            "Stepped VP the kept bonus pays at the kept-qualifier count.",
+            "Normalized ÷ 7.",
+        ),
+        (
+            "linear_vp",
+            "Piecewise-linear VP the kept bonus pays at the kept-qualifier count.",
+            "Normalized ÷ 7.",
+        ),
+        (
+            "tray_potential",
+            "Tray birds that could still qualify the kept bonus.",
+            "Normalized ÷ 5.",
+        ),
+    ]
+    return tuple(
+        encode_stripes.SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes=notes,
+        )
+        for idx, (name, desc, notes) in enumerate(entries)
+    )
+
+
+def _goal_affinity_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...]:
+    """One kept-card affinity scalar per round goal."""
+    return tuple(
+        encode_stripes.SubFieldDescriptor(
+            name=f"round_{round_idx}.kept_affinity",
+            description=(
+                f"Kept cards that would advance the round-{round_idx} goal's "
+                "category if played."
+            ),
+            relative_offset=round_idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes="Normalized ÷ 5.",
+            group=f"round_{round_idx}",
+        )
+        for round_idx in range(setup_encode._NUM_SETUP_GOALS)
+    )
 
 
 def _round_goal_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...]:

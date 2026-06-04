@@ -96,8 +96,8 @@ offset order:
 | `board_idx` | 15 | integer card index per board slot, embedded through the shared card table | wherever `board_target` is filled |
 | `bird_id` | 180 | bird identity one-hot (multi-hot for setup keeps), embedded through the shared card table — so the candidate's static attributes *and* its learned per-card vector arrive together | every bird-carrying row |
 | `bonus_id` | 26 | bonus-card identity one-hot | bonus picks, setup keeps |
-| `bonus_delta` | 3 | how this bird advances the decider's **held** bonus cards: qualifying-card count + summed stepped-VP and linear-VP marginals at count+1 | bird keep/play/tray-draw rows |
-| `goal_delta` | 8 | how this bird advances each of the 4 round goals: per goal slot, count delta + marginal placement-VP swing | bird keep/play/tray-draw rows |
+| `bonus_delta` | 3 | how this choice moves the decider's **held** bonus cards (static categories *and* the dynamic egg / hand-size / habitat-spread cards): affected-card count + summed stepped-VP and linear-VP marginals (signed) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; draw-source deck row, accept rows and the DRAW_CARDS main action (net hand change) |
+| `goal_delta` | 8 | how this choice moves each of the 4 round goals: per goal slot, count delta + marginal placement-VP swing (signed; **zero once that round is scored** — payouts freeze) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; lay/remove commitment rows (accept trades, LAY_EGGS main action — capacity-capped optimistic bound) |
 | `bonus_value` | 5 | what this **offered bonus card** is worth to the decider: board qualifying count, the stepped and linear VP that count pays, and qualifying-bird counts in hand (kept subset at setup) and tray | bonus picks; setup keeps carrying a bonus |
 | `setup_agg` | 4 | kept-subset aggregates: Σpoints, Σfood-cost, Σegg-limit, kept count | setup keeps only (`include_setup`) |
 
@@ -121,11 +121,18 @@ only when the player has at least one completable `(bird, habitat)` play right
 now. Choosing Play a Bird opens the follow-up `PLAY_BIRD` menu; the other
 three run their habitat-row action directly.
 
-**What the choice rows carry.** Almost nothing, deliberately: the special-kind
-bit plus the 4-wide `main_action` one-hot. The four options are featureless
-tokens — the value of "lay eggs this turn" is a fact about the *board*, so the
-entire judgment is read from the state context (food, eggs-capacity, hand,
-row counts, cubes left, round goal, opponent posture).
+**What the choice rows carry.** The special-kind bit, the 4-wide
+`main_action` one-hot, and consequence pricing on the two options whose
+commitment has a determinate resource effect: the **Draw Cards** row carries
+the `bonus_delta` of growing the hand by the wetland track count (what the
+hand-counting bonus card pays on), and the **Lay Eggs** row carries a
+`goal_delta` *bound* — per unscored goal, the capacity-capped best case the
+grassland track's eggs could realize (the exact per-target deltas land on the
+follow-up `LAY_EGG` rows; for the `birds_no_eggs` anti-goal the best case is
+the forced overflow past the already-egged birds' spare room, a non-positive
+bound). Gain Food and Play a Bird stay featureless tokens —
+their value is a fact about the *board*, read from the state context (food,
+eggs-capacity, hand, row counts, cubes left, round goal, opponent posture).
 
 **Variation within the family.** Minimal — one decision class, one shape. The
 only structural variation is menu width (3 vs 4 options, depending on whether
@@ -152,11 +159,14 @@ never reach this head.)
 **What the choice rows carry.** A tray card is a full bird-kind row: bird
 identity (→ shared card table: points, costs, nest, habitats, wingspan, color,
 bonus categories, learned vector) plus the `bonus_delta` stripe pricing what
-acquiring it would do for the decider's held bonus cards and the `goal_delta`
-stripe pricing its immediate effect on the four round goals. The **deck option
-is a bare special-kind token** — no identity, no stats — which is exactly the
-value-of-information shape: the head must weigh named cards against the
-expected value of a blind draw.
+acquiring it would do for the decider's held bonus cards (including the
+hand-counting dynamic card — any draw is +1 hand) and the `goal_delta`
+stripe pricing its immediate effect on the unscored round goals. The **deck
+option stays identity-free** — no card, no stats, the value-of-information
+shape: the head must weigh named cards against the expected value of a blind
+draw — but it carries the same +1-hand `bonus_delta` term the tray rows do,
+since a draw from any source grows the hand equally (leaving it off only the
+deck row would distort the within-decision comparison).
 
 **Variation within the family.** The blank deck row vs. fully-featured card
 rows is the biggest intra-row contrast in any family. Only
@@ -190,7 +200,9 @@ skip. `BirdPowerPickBirdFromHandDecision` is retained but currently unused.
 **What the choice rows carry.** Bird-kind rows: identity (→ card table) plus
 `bonus_delta` and `goal_delta`. Note the direction inversion: both stripes
 price what the bird would contribute *if it reached the board* — for a
-discard, that is the value being forfeited. No skip row ever appears: every
+discard, that is the value being forfeited (the hand-counting dynamic card's
++1-hand term rides every bird row under the same convention; the
+decision-type one-hot carries the direction). No skip row ever appears: every
 `DISCARD_BIRD` decision is mandatory once it is reached; the optionality lives
 upstream in `SKIP_OPTIONAL` (`ActivateTuckDecision` for tucks,
 `AcceptExchangeDecision` for the Forest conversion and the Oystercatcher draft).
@@ -312,17 +324,24 @@ identically on every candidate row.
 block from the decider's own board — per slot the cached-food counts (×5
 foods) and tucked-card count, plus the parallel 15 card indices embedding
 every occupant through the shared card table — with exactly one slot flagged
-`lay_eggs = 1`. Candidates differ **only in which slot carries the flag**; the
-rest of the block is identical context. Current egg counts and remaining
-capacity per slot are read from the state vector's board stripes, not the row.
+`lay_eggs = 1`. The flagged target also prices its consequences: the
+`goal_delta` stripe carries the exact per-goal count/VP swing of this egg
+(habitat totals, nest totals, the has-eggs crossing — inverted for the
+`birds_no_eggs` anti-goal — the egg-set minimum; only on unscored goals), and
+the `bonus_delta` stripe the egg-counting dynamic
+bonus thresholds it crosses (Oologist at the first egg, Breeding Manager at
+the fourth). Candidates otherwise differ **only in which slot carries the
+flag**; the rest of the block is identical context. Current egg counts and
+remaining capacity per slot are read from the state vector's board stripes,
+not the row.
 
 **Variation within the family.** One decision class, one row shape. Variation
 is in (a) skip presence — mandatory main-action lays, conditionally optional
 "lay any bird" powers (skip only when `birds_no_eggs` goal is active), and
 always-optional pink / additional lays; (b) the eligible-target filter
 (nest-type restrictions expressed purely by which slots appear as candidates
-— the restriction itself is not a feature); and (c) the decider sometimes
-being the non-active player.
+— the restriction itself is not a feature; star nests count as every nest);
+and (c) the decider sometimes being the non-active player.
 
 ### 2.7 `PAY_EGG` — which egg to lose
 
@@ -339,9 +358,12 @@ being the non-active player.
 
 **What the choice rows carry.** Exactly the `LAY_EGG` data shape — the full
 board block + card indices — but the targeted slot is flagged `pay_eggs = 1`
-instead. The opposite-direction judgment ("more eggs here makes this target
-*better* to tap" vs. "*worse* to lose") lives entirely in the head and the
-flag.
+instead, and its `goal_delta` / `bonus_delta` stripes price the *removal*
+(signed: losing the egg that breaks an egg-set or drops a bird below an
+egg-counting bonus threshold shows up as a negative VP swing). The
+opposite-direction judgment ("more eggs here makes this target *better* to
+tap" vs. "*worse* to lose") lives in the head, the flag, and the signed
+deltas.
 
 **Variation within the family.** All call sites are mandatory — the upstream
 decision (the bird play, the trade commit, or the `AcceptExchangeDecision` for
@@ -392,14 +414,22 @@ follow-up decisions resolve only if the player commits.
 `AcceptExchangeDecision` the accept row is a special-kind token carrying the
 **exchange ledger**: twelve normalized terms — cards/food/eggs to pay;
 food/eggs/cards/tucks/plays to gain; `opp_food`, `opp_egg`, `opp_card`,
-`opp_tuck` — what a shared-benefit power additionally grants the opponent.
-The head does not pre-judge which terms are costs and which are benefits; it
-learns the sign from context. The terms distinguish quantitatively different
-trades (e.g. "1 egg for 1 wild" vs. "1 egg for 2 wild" — both exist). When
-the paid food is a named type it also rides the `pay_food` stripe. For
-`ActivateTuckDecision` the accept row is a special-kind token with the
-`cards_to_tuck` count in the `EXCHANGE.cards_to_tuck` field. In both cases
-the skip row is a special-kind token with `is_skip`.
+`opp_tuck` — what a shared-benefit power additionally grants the opponent
+(the Oystercatcher draft sets `opp_gained_card_count`, the all-players-lay
+powers `opp_gained_egg_count`). The head does not pre-judge which terms are
+costs and which are benefits; it learns the sign from context. The terms
+distinguish quantitatively different trades (e.g. "1 egg for 1 wild" vs.
+"1 egg for 2 wild" — both exist). The ledger is also translated into
+consequences on the same row: a net hand-card flow (cards drawn minus cards
+discarded) fills the `bonus_delta` stripe for the hand-counting bonus card,
+and a committed egg gain / egg payment fills the `goal_delta` stripe with the
+capacity-capped optimistic bound (the exact delta lands on the follow-up
+`LAY_EGG` / `PAY_EGG` target row). When the paid food is a named type it also
+rides the `pay_food` stripe. For `ActivateTuckDecision` the accept row is a
+special-kind token with the `cards_to_tuck` count in the
+`EXCHANGE.cards_to_tuck` field — so the head reads how many cards the player
+is committing to tuck. In both cases the skip row is a special-kind token
+with `is_skip`.
 
 **Variation within the family.** Structurally minimal — two rows every time.
 All variation is in the ledger values. The extra-play accept is the degenerate
@@ -424,9 +454,11 @@ ledger context is available to the head.
 
 **What the choice rows carry.** A special-kind token, the 26-wide bonus
 identity one-hot, and the 5-dim `bonus_value` stripe pricing the candidate
-against the decider's position: the board's current qualifying count, the
-stepped and linear VP the card pays at that count, and the qualifying-bird
-counts still in hand and on the tray. At the opening pick (empty board) the
+against the decider's position: the current qualifying count (live game state
+for the four dynamic cards — eggs on birds, hand size, habitat spread — and
+board tags otherwise), the stepped and linear VP the card pays at that count,
+and the qualifying-bird counts still in hand and on the tray (every hand card
+counts for the hand-size card). At the opening pick (empty board) the
 board trio is zero and the hand/tray potentials are the live signal. The
 card's raw printed terms (thresholds, per-bird rate) still arrive only
 through identity — the row carries the *computed standing value*, not the
@@ -456,7 +488,13 @@ share this head so none starves:
 
 **What the choice rows carry.** Three disjoint shapes:
 
-- habitat picks: the 3-wide habitat one-hot;
+- habitat picks: the 3-wide habitat one-hot; when the decision carries the
+  move-bird context (`BirdPowerPickHabitatDecision.moving_bird` /
+  `from_habitat`), each destination row also carries the moving bird's
+  identity (→ card table) plus `goal_delta` / `bonus_delta` pricing the
+  relocation — habitat bird counts, the egg block riding along (including the
+  egg-set minimum), and the habitat-spread bonus card; the "stay" row's
+  deltas are naturally all-zero;
 - played-bird picks: the candidate's bird identity (→ card table) plus the
   full board block *as context, with no target flag* — and since the board
   block is the decider's whole board, it is identical on every row; the rows
@@ -549,8 +587,12 @@ axis:
   column, `setup_agg` stripe). Its input vector is, in brief: a kept-cards
   multi-hot, a kept-foods multi-hot, and a kept-bonus one-hot, plus per-deal
   context (the three tray card indices, the six birdfeeder face counts, and
-  the four round-goal one-hots) — with the card-identity blocks embedded
-  through frozen copies of the main net's shared card encoders.
+  the four round-goal one-hots), plus two candidate-pricing blocks — the kept
+  bonus valued against the keep (kept qualifiers, the stepped / linear VP
+  they would pay, tray potential) and a per-goal kept-card affinity (how many
+  kept cards would advance each goal's category if played) — with the
+  card-identity blocks embedded through frozen copies of the main net's
+  shared card encoders.
 - **`use_setup_model = False`:** the main net keeps a `SETUP` head and scores
   the same candidates as ordinary choice rows (kept-bird identity multi-hot,
   foods-*spent* on the `pay_food` stripe, the `setup_agg` aggregates, and the

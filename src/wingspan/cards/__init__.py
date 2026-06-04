@@ -42,6 +42,7 @@ from wingspan.cards.schema import (
     Power,
     PowerColor,
     food_index,
+    nest_matches,
 )
 
 __all__ = [
@@ -71,6 +72,7 @@ __all__ = [
     "load_all",
     "n_birds",
     "n_bonus_cards",
+    "nest_matches",
     "parse_power",
     "power_coverage",
 ]

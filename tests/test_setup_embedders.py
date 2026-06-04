@@ -50,8 +50,10 @@ def _loop_config(tmp_path: pathlib.Path) -> config.TrainConfig:
     )
 
 
-def test_setup_feature_dim_is_300_with_positional_tray():
-    assert setup_model.SETUP_FEATURE_DIM == 300
+def test_setup_feature_dim_is_308_with_candidate_pricing():
+    # 180 kept cards + 5 kept foods + 26 kept bonus + 3 tray indices + 6 feeder
+    # counts + 80 goal one-hots + 4 kept-bonus pricing + 4 goal affinities.
+    assert setup_model.SETUP_FEATURE_DIM == 308
 
 
 def test_card_block_frozen_regardless_hand_block_per_main_arch():

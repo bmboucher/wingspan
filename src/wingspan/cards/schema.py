@@ -63,6 +63,20 @@ class NestType(enum.StrEnum):
     NONE = "none"  # birds with no nest icon (rare in core)
 
 
+def nest_matches(bird_nest: NestType, target: NestType) -> bool:
+    """Whether a bird with ``bird_nest`` counts as a ``target``-nest bird.
+
+    The single source of the official wildcard rule: a STAR nest is wild and
+    matches every concrete nest (round goals, bonus conditions, and "lay an
+    egg on a [nest] bird" powers alike); a NONE nest matches nothing; concrete
+    nests match exactly. Every nest-eligibility check in the engine and in the
+    encoders' delta helpers must route through this predicate so the two can
+    never disagree about what a star nest counts for."""
+    if bird_nest == NestType.STAR:
+        return target != NestType.NONE
+    return bird_nest == target
+
+
 class PowerColor(enum.StrEnum):
     BROWN = "brown"  # When activated (column power)
     WHITE = "white"  # When played (one-shot)
