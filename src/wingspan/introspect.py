@@ -123,15 +123,9 @@ def _write_html_report(
     else:
         out_path = pathlib.Path(artifacts.MODEL_SUMMARY_HTML)
 
-    param_report = architecture.count_parameters(
-        info.arch,
-        card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(info.state_dim, info.arch.card_embed_dim),
-        choice_in=encode.choice_input_dim(info.choice_dim, info.arch.card_embed_dim),
-        num_families=len(info.family_order),
-    )
+    param_report = _count_parameters(info)
     html_content = report.generate_html_report(
-        encode_stripes.state_stripe_layout(info.spec, info.arch.card_embed_dim),
+        _state_layout(info),
         encode_stripes.choice_stripe_layout(info.spec, info.arch.card_embed_dim),
         param_report,
         info.arch,
@@ -261,12 +255,43 @@ def _load_setup_arch(checkpoint_dir: str) -> setup_model.SetupArchitecture:
         return setup_model.SetupArchitecture()
 
 
+def _count_parameters(info: _ArchInfo) -> architecture.ParamReport:
+    """The main net's parameter accounting for ``info``, with every embedding
+    knob (distinct hand encoder, hand embed width, tray-set embedding) threaded
+    into the trunk's post-embedding input width."""
+    return architecture.count_parameters(
+        info.arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
+        trunk_in=encode.trunk_input_dim(
+            info.state_dim,
+            info.arch.card_embed_dim,
+            use_distinct_hand_model=info.arch.use_distinct_hand_model,
+            hand_embed_dim=info.arch.hand_embed_dim,
+            tray_set_embedding=info.arch.tray_set_embedding,
+        ),
+        choice_in=encode.choice_input_dim(info.choice_dim, info.arch.card_embed_dim),
+        num_families=len(info.family_order),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
+    )
+
+
+def _state_layout(info: _ArchInfo) -> encode_stripes.VectorLayout:
+    """The post-embedding state stripe registry for ``info``'s architecture."""
+    return encode_stripes.state_stripe_layout(
+        info.spec,
+        info.arch.card_embed_dim,
+        use_distinct_hand_model=info.arch.use_distinct_hand_model,
+        hand_embed_dim=info.arch.hand_embed_dim,
+        tray_set_embedding=info.arch.tray_set_embedding,
+    )
+
+
 #### Vector layout sections ####
 
 
 def _print_state_section(console: rich_console.Console, info: _ArchInfo) -> None:
     """Print the STATE VECTOR breakdown table."""
-    layout = encode_stripes.state_stripe_layout(info.spec, info.arch.card_embed_dim)
+    layout = _state_layout(info)
     table = _make_stripe_table(layout, "STATE VECTOR")
     console.print()
     console.print(
@@ -364,13 +389,7 @@ def _print_arch_section(console: rich_console.Console, info: _ArchInfo) -> None:
 
 def _print_params_section(console: rich_console.Console, info: _ArchInfo) -> None:
     """Print the per-layer / per-block parameter breakdown."""
-    report = architecture.count_parameters(
-        info.arch,
-        card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(info.state_dim, info.arch.card_embed_dim),
-        choice_in=encode.choice_input_dim(info.choice_dim, info.arch.card_embed_dim),
-        num_families=len(info.family_order),
-    )
+    report = _count_parameters(info)
     total = report.total
     table = _build_params_table(report, total)
     console.print()

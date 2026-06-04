@@ -1,4 +1,5 @@
-"""The setup model network: a small MLP value-regressor over a setup candidate.
+"""The setup model network: a value-regressor over a setup candidate, reading
+the main net's card representations.
 
 ``SetupNet`` consumes one
 :func:`wingspan.setup_model.encode.encode_setup_candidate` feature vector and
@@ -7,10 +8,25 @@ emits a single scalar — its predicted end-of-game score margin (normalized by
 margins of all 504 candidate keeps for a dealt hand
 (``setup_model.select_by_margins``).
 
-This is deliberately plain: no shared card embedding (the encoder is multi-hot),
-no per-family heads — just ``Linear → activation → … → Linear(·, 1)`` built from a
-:class:`wingspan.setup_model.SetupArchitecture`, so the whole network is a few
-tens of thousands of parameters and runs comfortably on CPU.
+The card-identity blocks are embedded in-net through copies of the main net's
+two shared embedders, built from the same :func:`wingspan.mlp.build_body` recipe
+so ``load_state_dict`` syncs them weight-for-weight:
+
+* the **card encoder** (single-card ``M``-dim table) embeds the three tray index
+  columns, one card-table row per slot — always frozen and re-synced from the
+  main net each iteration (the main net has a card encoder unconditionally);
+* the **hand encoder** (multi-card ``N``-dim set embedder) embeds the kept-cards
+  set and the tray set, each as ``[multi-hot ⊕ derived 10-dim set summary]`` —
+  frozen + synced when the main architecture has ``use_distinct_hand_model``,
+  otherwise the copy is this net's own trainable block (so default configs
+  remain valid).
+
+Setup is the most data-starved decision (~2 samples/game) while the embedders
+learn from hundreds of in-game decisions per game; freezing the copies lets the
+setup MLP (``arch.hidden_layers`` → 1, built by ``mlp.build_readout``) score
+keeps in the representation most meaningful to the in-game model. The frozen
+inputs shift as the main net trains — the accepted trade-off; the on-policy
+``online_update`` already tracks moving targets each iteration.
 """
 
 from __future__ import annotations
@@ -20,53 +36,188 @@ import typing
 import torch
 from torch import nn
 
-from wingspan import architecture, setup_model
+from wingspan import architecture, encode, hand_model, mlp, setup_model
+from wingspan.setup_model import encode as setup_encode
 
 if typing.TYPE_CHECKING:
     from wingspan.training import setup_runmeta
 
-# The selectable activations, keyed by the descriptor enum (same set the main
-# net offers; kept local so this module needs nothing private from ``model``).
-_ACTIVATIONS: dict[architecture.ActivationName, typing.Callable[[], nn.Module]] = {
-    architecture.ActivationName.RELU: nn.ReLU,
-    architecture.ActivationName.GELU: nn.GELU,
-    architecture.ActivationName.TANH: nn.Tanh,
-    architecture.ActivationName.SILU: nn.SiLU,
-    architecture.ActivationName.LEAKY_RELU: nn.LeakyReLU,
-}
-
 
 class SetupNet(nn.Module):
-    """A scalar-output MLP scoring one setup candidate (see module docstring)."""
+    """A scalar-output net scoring one setup candidate (see module docstring)."""
+
+    # Constant buffers registered in __init__ (declared here so the type checker
+    # sees them as tensors rather than nn.Module's generic attribute access).
+    card_features: torch.Tensor
+    card_pad_mask: torch.Tensor
+    card_summary_matrix: torch.Tensor
 
     def __init__(
         self,
         *,
         feature_dim: int = setup_model.SETUP_FEATURE_DIM,
         arch: setup_model.SetupArchitecture | None = None,
+        main_arch: architecture.ModelArchitecture | None = None,
     ):
         super().__init__()
+        # Lazily-filled cache of the inference card table (the setup twin of
+        # ``model.PolicyValueNet._inference_card_table``). ``None`` whenever the
+        # synced weights or the train/eval mode may have changed; recomputed on
+        # the next eval forward. Set before any buffer registration.
+        self._inference_card_table: torch.Tensor | None = None
         if arch is None:
             arch = setup_model.SetupArchitecture()
+        if main_arch is None:
+            main_arch = architecture.ModelArchitecture()
         self.feature_dim = feature_dim
         self.arch = arch
-        modules: list[nn.Module] = []
-        prev = feature_dim
-        for width in arch.hidden_layers:
-            modules.append(nn.Linear(prev, width))
-            modules.append(_ACTIVATIONS[arch.activation]())
-            if arch.dropout > 0.0:
-                modules.append(nn.Dropout(arch.dropout))
-            prev = width
-        modules.append(nn.Linear(prev, 1))
-        self.mlp = nn.Sequential(*modules)
+        self.main_arch = main_arch
+
+        # The frozen single-card embedder copy: recipe identical to the main
+        # net's card encoder so its state_dict syncs exactly. Frozen always —
+        # the main net trains it; this net only reads its table.
+        self.card_encoder, _ = mlp.build_body(
+            encode.CARD_FEATURE_DIM,
+            main_arch.card_encoder_layers + (main_arch.card_embed_dim,),
+            activation=main_arch.activation,
+            dropout=main_arch.dropout,
+            layernorm=main_arch.layernorm,
+            final_activation=False,
+        )
+        self.card_encoder.requires_grad_(False)
+
+        # The multi-card set embedder copy (the main net's hand encoder). Frozen
+        # + synced when the main architecture actually has one; otherwise this is
+        # the setup net's own trainable set encoder (there is nothing to sync
+        # from), keeping main configs without the distinct hand model valid.
+        self._hand_encoder_frozen = main_arch.use_distinct_hand_model
+        self.hand_encoder, _ = mlp.build_body(
+            encode.HAND_ENCODER_INPUT_DIM,
+            main_arch.hand_encoder_layers + (main_arch.hand_embed_width,),
+            activation=main_arch.activation,
+            dropout=main_arch.dropout,
+            layernorm=main_arch.layernorm,
+            final_activation=False,
+        )
+        if self._hand_encoder_frozen:
+            self.hand_encoder.requires_grad_(False)
+
+        # Constant card tables (``persistent=False`` keeps them out of the
+        # checkpoint / broadcast payloads — they rebuild from the catalog).
+        self.register_buffer(
+            "card_features",
+            torch.tensor(encode.card_feature_matrix(), dtype=torch.float32),
+            persistent=False,
+        )
+        pad_mask = torch.ones(encode.HAND_MULTIHOT_DIM + 1, 1)
+        pad_mask[0] = 0.0
+        self.register_buffer("card_pad_mask", pad_mask, persistent=False)
+        self.register_buffer(
+            "card_summary_matrix",
+            torch.tensor(encode.card_summary_matrix(), dtype=torch.float32),
+            persistent=False,
+        )
+
+        # The trainable readout MLP over the embedded candidate.
+        readout_in = setup_model.setup_readout_input_dim(feature_dim, main_arch)
+        self.mlp = mlp.build_readout(
+            readout_in,
+            arch.hidden_layers,
+            activation=arch.activation,
+            dropout=arch.dropout,
+        )
 
     @classmethod
     def from_setup_config(cls, descriptor: "setup_runmeta.SetupConfig") -> "SetupNet":
         """Rebuild a net matching a saved ``setup_config.json`` descriptor — fresh
         weights in the saved shape, ready for ``load_state_dict``."""
-        return cls(feature_dim=descriptor.setup_feature_dim, arch=descriptor.setup_arch)
+        return cls(
+            feature_dim=descriptor.setup_feature_dim,
+            arch=descriptor.setup_arch,
+            main_arch=descriptor.main_arch,
+        )
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        """Score a batch of setup candidates: ``(B, feature_dim)`` -> ``(B,)``."""
-        return self.mlp(features).squeeze(-1)
+        """Score a batch of setup candidates: ``(B, feature_dim)`` -> ``(B,)``.
+
+        The kept-cards multi-hot becomes one set embedding, the tray index
+        columns become per-slot card-table rows plus one tray-set embedding, and
+        the remaining blocks (foods, bonus, feeder, goals) pass through to the
+        readout MLP in their encoded order."""
+        card_table = self._card_table_for_pass()  # (181, M)
+
+        # Slice the raw vector on the encoder's public block offsets.
+        kept_multihot = features[..., : setup_encode.OFF_KEPT_FOODS]
+        foods_bonus = features[..., setup_encode.OFF_KEPT_FOODS : setup_encode.OFF_TRAY]
+        tray_idx = (
+            features[..., setup_encode.OFF_TRAY : setup_encode.OFF_FEEDER]
+            .long()
+            .clamp_(0, encode.HAND_MULTIHOT_DIM)
+        )
+        feeder_goals = features[..., setup_encode.OFF_FEEDER :]
+
+        # Kept set -> one N-dim embedding (summary derived from the multi-hot).
+        kept_summary = hand_model.set_summary_from_multihot(
+            kept_multihot, self.card_summary_matrix[1:]
+        )
+        kept_emb = hand_model.embed_card_set(
+            self.hand_encoder, kept_multihot, kept_summary
+        )
+
+        # Tray -> 3 M-dim card-table rows + one N-dim set embedding (multi-hot
+        # and summary derived from the index columns; empty slots drop out).
+        tray_slot_emb = card_table[tray_idx].reshape(*tray_idx.shape[:-1], -1)
+        tray_multihot = hand_model.multihot_from_indices(
+            tray_idx, encode.HAND_MULTIHOT_DIM
+        )
+        tray_summary = hand_model.set_summary_from_indices(
+            tray_idx, self.card_summary_matrix
+        )
+        tray_set_emb = hand_model.embed_card_set(
+            self.hand_encoder, tray_multihot, tray_summary
+        )
+
+        readout_input = torch.cat(
+            [kept_emb, foods_bonus, tray_set_emb, tray_slot_emb, feeder_goals],
+            dim=-1,
+        )
+        return self.mlp(readout_input).squeeze(-1)
+
+    def card_table(self) -> torch.Tensor:
+        """The frozen ``[181, M]`` card table: the constant card-feature matrix
+        mapped through the synced card-encoder copy, with the padding row (index
+        0) forced to zero so an empty tray slot contributes a zero vector —
+        identical math to ``model.PolicyValueNet.card_table``."""
+        return self.card_encoder(self.card_features) * self.card_pad_mask
+
+    def train(self, mode: bool = True) -> "SetupNet":
+        """Flip train/eval mode, invalidating the cached inference card table and
+        re-pinning the frozen embedder copies to eval.
+
+        Every way the synced weights can change is bracketed by a mode flip
+        through here: the loop's per-iteration sync helper ends with ``eval()``,
+        and workers ``eval()`` after every broadcast reload — so a stale table is
+        never served. Pinning the frozen submodules to eval keeps a nonzero main
+        ``dropout`` from adding noise to the frozen features during the setup
+        MLP's own training steps."""
+        self._inference_card_table = None
+        super().train(mode)
+        self.card_encoder.eval()
+        if self._hand_encoder_frozen:
+            self.hand_encoder.eval()
+        return self
+
+    ###### PRIVATE #######
+
+    def _card_table_for_pass(self) -> torch.Tensor:
+        """The card table for one forward pass: recomputed per call in training
+        mode, computed once and memoized at inference (the dominant use — scoring
+        504 candidates per deal during collection). The cache is dropped on every
+        train/eval flip (``train``), mirroring the main net's contract."""
+        if self.training:
+            return self.card_table()
+        cached = self._inference_card_table
+        if cached is None:
+            cached = self.card_table().detach()
+            self._inference_card_table = cached
+        return cached

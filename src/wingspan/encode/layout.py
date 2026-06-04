@@ -108,6 +108,14 @@ _GOAL_COUNT_SCALE = 5.0  # round-goal category counts
 # hand encoder when ``use_distinct_hand_model`` is active.
 HAND_SUMMARY_DIM = 10
 
+# How a *set* of cards combines its members' per-card summary rows
+# (``state_encode.card_summary_matrix``): the leading dims (the set-size term and
+# the per-habitat counts) sum over the set; the remaining food-cost flags combine
+# by max (= OR, every entry is >= 0). Shared by the numpy encoder and the
+# torch-side derivation (``wingspan.hand_model``) so the two cannot disagree on
+# the split.
+HAND_SUMMARY_SUM_DIMS = 4
+
 # One board's fixed slot count (3 habitats x 5 columns). Defined here because
 # both the choice board_target stripe and the state board stripes size from it.
 _SLOTS_PER_BOARD = state.N_HABITATS * state.ROW_SLOTS  # 15
@@ -380,30 +388,48 @@ def trunk_input_dim(
     card_embed_dim: int,
     *,
     use_distinct_hand_model: bool = False,
+    hand_embed_dim: int | None = None,
+    tray_set_embedding: bool = False,
 ) -> int:
     """The state trunk's first-``Linear`` input width: the flat ``state_dim`` with
     the card-index block and the hand multi-hot replaced by their shared-embedding
     lookups — one ``card_embed_dim`` vector per index slot, plus one hand embedding.
 
     When ``use_distinct_hand_model`` is ``False`` (default) the hand embedding is a
-    mean-pool of the held cards' shared card vectors, and the 10-dim hand-summary
-    stripe in the continuous prefix reaches the trunk as-is.
+    mean-pool of the held cards' shared card vectors (``card_embed_dim`` wide), and
+    the 10-dim hand-summary stripe in the continuous prefix reaches the trunk as-is.
 
     When ``True`` a dedicated hand encoder produces the hand embedding from the
     multi-hot concatenated with the hand-summary; the 10-dim hand-summary stripe is
     redirected into that encoder instead of passing through to the trunk, so the
-    trunk's continuous input is ``HAND_SUMMARY_DIM`` narrower.
+    trunk's continuous input is ``HAND_SUMMARY_DIM`` narrower. The encoder's output
+    width is ``hand_embed_dim`` (``None`` = match ``card_embed_dim``, mirroring
+    ``architecture.ModelArchitecture.hand_embed_width``).
+
+    ``tray_set_embedding`` (which requires the distinct hand encoder) appends one
+    more ``hand_embed_dim``-wide vector: the tray *set* embedded through the same
+    hand encoder, derived in-model from the three tray index columns — the tray's
+    per-slot card-table lookups are unchanged, giving 3·M + N tray dims in total.
 
     This is the single source of truth for the post-embedding width (used by both
     ``model.PolicyValueNet`` and the configurator's parameter accounting)."""
+    hand_width = (
+        (hand_embed_dim if hand_embed_dim is not None else card_embed_dim)
+        if use_distinct_hand_model
+        else card_embed_dim
+    )
     base = (
         state_dim
         - N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings
         - HAND_MULTIHOT_DIM  # hand multi-hot -> one hand embedding
         + N_CARD_INDEX_SLOTS * card_embed_dim
-        + card_embed_dim
+        + hand_width
     )
-    return base - HAND_SUMMARY_DIM if use_distinct_hand_model else base
+    if use_distinct_hand_model:
+        base -= HAND_SUMMARY_DIM
+    if tray_set_embedding:
+        base += hand_width
+    return base
 
 
 def choice_input_dim(choice_dim: int, card_embed_dim: int) -> int:

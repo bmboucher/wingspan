@@ -6,10 +6,12 @@
 The setup analogue of :mod:`wingspan.encode.stripes`: :func:`setup_stripe_layout`
 returns a :class:`wingspan.encode.stripes.VectorLayout` naming every block of the
 :func:`wingspan.setup_model.encode.encode_setup_candidate` feature vector, with
-offsets and sizes derived from the same constants the encoder uses. Because the
-setup net has no card embedding, the raw encoder output *is* the MLP's
-first-``Linear`` input — the layout's ``total_size`` equals
-``SETUP_FEATURE_DIM`` with no post-embedding rewrite.
+offsets and sizes derived from the same constants the encoder uses. The registry
+documents the *raw* vector — the layout's ``total_size`` equals
+``SETUP_FEATURE_DIM`` — while the in-net embedding rewrite (the kept-cards
+multi-hot through the frozen set encoder, the tray index columns through the
+frozen card table) is noted per stripe rather than expanded, since the setup
+net's readout width also depends on the main net's embed dims.
 """
 
 from __future__ import annotations
@@ -45,8 +47,10 @@ def setup_stripe_layout() -> encode_stripes.VectorLayout:
             encoding="multi-hot",
             value_range="{0, 1}",
             notes=(
-                "Indexed by stable bird order from cards.bird_index(). Fed to the "
-                "MLP raw — no shared card embedding in the setup net."
+                "Indexed by stable bird order from cards.bird_index(). Embedded "
+                "in-net as one card *set* through the frozen copy of the main "
+                "net's multi-card set encoder (multi-hot ⊕ derived 10-dim set "
+                "summary -> one set vector)."
             ),
         )
     )
@@ -91,16 +95,19 @@ def setup_stripe_layout() -> encode_stripes.VectorLayout:
         encode_stripes.StripeDescriptor(
             name="tray",
             description=(
-                f"The face-up tray birds (context), as a multi-hot over all "
-                f"{setup_encode._TRAY_DIM} core-set birds."
+                f"The face-up tray birds (context), as {setup_encode._TRAY_DIM} "
+                "positional integer card indices."
             ),
             offset=off,
             size=setup_encode._TRAY_DIM,
-            encoding="multi-hot",
-            value_range="{0, 1}",
+            encoding="integer-index",
+            value_range=f"int 0–{cards.n_birds()}",
             notes=(
-                "At most three birds set (the tray slots). Indexed by stable bird "
-                "order from cards.bird_index()."
+                f"{setup_encode._TRAY_DIM} slot-order indices (bird_index + 1; "
+                "0 = empty slot), matching the state vector's tray block. Embedded "
+                "in-net through the frozen copy of the main net's card table (one "
+                "card vector per slot) plus one derived tray-*set* embedding "
+                "through the frozen set encoder."
             ),
         )
     )

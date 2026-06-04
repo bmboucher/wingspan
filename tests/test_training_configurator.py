@@ -583,12 +583,17 @@ def test_arch_diagram_param_count_scales_with_embed_dim():
 def test_arch_diagram_setup_param_count_matches_net():
     # The separate setup net's analytic accounting equals sum(p.numel()) of the
     # real SetupNet — the diagram's per-op / Σ source for the unconnected box.
+    # Frozen embedder copies count in numel, so they must count analytically too.
     cfg = config.TrainConfig(device="cpu", setup_hidden_layers=(32, 16))
     block = setup_model.count_setup_parameters(
-        cfg.setup_arch, feature_dim=setup_model.SETUP_FEATURE_DIM
+        cfg.setup_arch,
+        feature_dim=setup_model.SETUP_FEATURE_DIM,
+        main_arch=cfg.arch,
     )
     net = setup_net.SetupNet(
-        feature_dim=setup_model.SETUP_FEATURE_DIM, arch=cfg.setup_arch
+        feature_dim=setup_model.SETUP_FEATURE_DIM,
+        arch=cfg.setup_arch,
+        main_arch=cfg.arch,
     )
     assert block.total == sum(param.numel() for param in net.parameters())
 

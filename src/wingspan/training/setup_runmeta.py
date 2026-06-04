@@ -14,22 +14,27 @@ import pathlib
 
 import pydantic
 
-from wingspan import setup_model
+from wingspan import architecture, setup_model
 from wingspan.training import artifacts, config
 
 
 class SetupConfig(pydantic.BaseModel):
     """The setup network descriptor written to ``setup_config.json``.
 
-    Carries the encoder feature width the net was trained against plus its
-    complete :class:`wingspan.setup_model.SetupArchitecture`, so the file both
-    summarizes the setup network and fully reconstitutes it. The setup
-    weight-compatibility signature ``TrainConfig.setup_architecture_key`` is
-    derived from exactly these fields."""
+    Carries the encoder feature width the net was trained against, its complete
+    :class:`wingspan.setup_model.SetupArchitecture`, and the main
+    :class:`wingspan.architecture.ModelArchitecture` whose embedder copies it
+    reads — so the file both summarizes the setup network and fully
+    reconstitutes it (``SetupNet.from_setup_config``). ``main_arch`` defaults to
+    a bare descriptor so JSON files that predate the shared embedders still
+    deserialize. The setup weight-compatibility signature
+    ``TrainConfig.setup_architecture_key`` is derived from exactly these
+    fields."""
 
     run_name: str
     setup_feature_dim: int
     setup_arch: setup_model.SetupArchitecture
+    main_arch: architecture.ModelArchitecture = architecture.ModelArchitecture()
 
 
 def write_setup_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
@@ -38,6 +43,7 @@ def write_setup_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
         run_name=cfg.run_name,
         setup_feature_dim=setup_model.SETUP_FEATURE_DIM,
         setup_arch=cfg.setup_arch,
+        main_arch=cfg.arch,
     )
     path = pathlib.Path(checkpoint_dir)
     path.mkdir(parents=True, exist_ok=True)

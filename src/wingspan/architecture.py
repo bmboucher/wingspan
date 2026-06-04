@@ -46,6 +46,8 @@ type ShapeKey = tuple[
     tuple[tuple[int, ...], ...] | None,  # per_family_head_layers
     bool,  # use_distinct_hand_model
     tuple[int, ...],  # hand_encoder_layers
+    int,  # hand_embed_width (the *resolved* N, so None == explicit-equal)
+    bool,  # tray_set_embedding
 ]
 
 
@@ -101,15 +103,49 @@ class ModelArchitecture(pydantic.BaseModel):
     # are unaffected.
     use_distinct_hand_model: bool = False
     # Hidden widths of the hand encoder MLP (same shape convention as
-    # ``card_encoder_layers``). Output is always ``card_embed_dim`` (the model
+    # ``card_encoder_layers``). Output is always ``hand_embed_width`` (the model
     # appends it), so this lists hidden layers only. Defaults mirror
     # ``card_encoder_layers`` so the default net shapes match when toggled on.
     hand_encoder_layers: Widths = (128,)
+    # Output width ``N`` of the hand encoder — the multi-card *set* embedding's
+    # width, distinct from the single-card ``card_embed_dim`` (``M``). ``None``
+    # (the default) resolves to ``card_embed_dim``, so saved configs that predate
+    # this field reconstitute their actual old shape. Only meaningful when
+    # ``use_distinct_hand_model`` is on; resolved via ``hand_embed_width``.
+    hand_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] | None = None
+    # When True (requires ``use_distinct_hand_model``) the trunk input gains one
+    # ``hand_embed_width``-wide embedding of the face-up tray *set*, produced by
+    # the shared hand encoder from a tray multi-hot + summary the model derives
+    # from the three tray index columns. The tray's three per-slot card-table
+    # lookups are unchanged, so the tray contributes 3·M + N dims in total.
+    # Defaults to False so existing configs / checkpoints are unaffected.
+    tray_set_embedding: bool = False
+
+    @pydantic.model_validator(mode="after")
+    def _check_tray_set_embedding(self) -> "ModelArchitecture":
+        """The tray-set embedding reuses the hand encoder, so it cannot exist
+        without one — reject the combination as a normal validation error."""
+        if self.tray_set_embedding and not self.use_distinct_hand_model:
+            raise ValueError(
+                "tray_set_embedding requires use_distinct_hand_model "
+                "(the tray set is embedded through the hand encoder)"
+            )
+        return self
 
     @property
     def trunk_embed_width(self) -> int:
         """The trunk's output width ``M`` — what the scorer and value heads consume."""
         return self.trunk_layers[-1]
+
+    @property
+    def hand_embed_width(self) -> int:
+        """The hand encoder's resolved output width ``N`` — ``hand_embed_dim``
+        when set, else ``card_embed_dim`` (the pre-knob behavior)."""
+        return (
+            self.hand_embed_dim
+            if self.hand_embed_dim is not None
+            else self.card_embed_dim
+        )
 
     @property
     def choice_embed_width(self) -> int:
@@ -141,6 +177,8 @@ class ModelArchitecture(pydantic.BaseModel):
             self.per_family_head_layers,
             self.use_distinct_hand_model,
             self.hand_encoder_layers,
+            self.hand_embed_width,
+            self.tray_set_embedding,
         )
 
 
@@ -223,8 +261,8 @@ def count_parameters(
 ) -> ParamReport:
     """Analytic per-block parameter accounting for the network ``arch`` describes.
 
-    Torch-free — it reproduces the exact layer shapes ``model._build_body`` /
-    ``_build_readout`` would create, so the returned counts equal
+    Torch-free — it reproduces the exact layer shapes ``mlp.build_body`` /
+    ``mlp.build_readout`` would create, so the returned counts equal
     ``sum(p.numel())`` of the built net. The card-encoder input width
     (``card_feat_in``, ``encode.CARD_FEATURE_DIM``) and the effective post-embedding
     trunk / choice input widths (``trunk_in`` / ``choice_in``, from
@@ -241,28 +279,29 @@ def count_parameters(
     trunk_m = arch.trunk_embed_width
     scorer_in = arch.trunk_embed_width + arch.choice_embed_width
 
-    # Build the optional HAND block when the distinct hand encoder is active.
+    # Build the optional HAND block when the distinct hand encoder is active. Its
+    # final width is the resolved set-embedding width N, not card_embed_dim.
     hand_block: BlockParam | None = None
     if arch.use_distinct_hand_model:
         hand_block = BlockParam(
             label="HAND",
-            layers=_body_layers(
-                hand_feat_in, arch.hand_encoder_layers + (arch.card_embed_dim,), arch
+            layers=body_layers(
+                hand_feat_in, arch.hand_encoder_layers + (arch.hand_embed_width,), arch
             ),
         )
 
     return ParamReport(
         embed=BlockParam(
             label="EMBED",
-            layers=_body_layers(
+            layers=body_layers(
                 card_feat_in, arch.card_encoder_layers + (arch.card_embed_dim,), arch
             ),
         ),
         trunk=BlockParam(
-            label="TRUNK", layers=_body_layers(trunk_in, arch.trunk_layers, arch)
+            label="TRUNK", layers=body_layers(trunk_in, arch.trunk_layers, arch)
         ),
         choice=BlockParam(
-            label="CHOICE", layers=_body_layers(choice_in, arch.choice_layers, arch)
+            label="CHOICE", layers=body_layers(choice_in, arch.choice_layers, arch)
         ),
         scorer=_scorer_block(arch, scorer_in, num_families),
         value=BlockParam(
@@ -297,12 +336,15 @@ def _linear_params(in_features: int, out_features: int) -> int:
     return in_features * out_features + out_features
 
 
-def _body_layers(
+def body_layers(
     in_dim: int, widths: Widths, arch: ModelArchitecture
 ) -> tuple[LayerParam, ...]:
-    """Per-layer counts for a body block (trunk / choice encoder): each width is a
-    ``Linear`` followed — when ``arch.layernorm`` — by a ``LayerNorm`` on every
-    layer, mirroring ``model._build_body`` (activation / dropout add no params)."""
+    """Per-layer counts for a body block (trunk / choice encoder / card or hand
+    encoder): each width is a ``Linear`` followed — when ``arch.layernorm`` — by a
+    ``LayerNorm`` on every layer, mirroring ``mlp.build_body`` (activation /
+    dropout add no params). Public because the setup net's parameter accounting
+    (``setup_model.count_setup_parameters``) reuses it for the frozen embedder
+    copies the setup net carries."""
     layers: list[LayerParam] = []
     prev = in_dim
     for width in widths:
@@ -321,9 +363,9 @@ def _body_layers(
 
 def readout_layers(in_dim: int, widths: Widths) -> tuple[LayerParam, ...]:
     """Per-layer counts for a readout block (scorer head / value head, and the
-    separate setup net): the hidden ``widths`` as bare ``Linear`` layers (readouts
-    never LayerNorm) then a final ``Linear(prev, 1)``, mirroring
-    ``model._build_readout`` / ``setup_net.SetupNet``."""
+    separate setup net's MLP): the hidden ``widths`` as bare ``Linear`` layers
+    (readouts never LayerNorm) then a final ``Linear(prev, 1)``, mirroring
+    ``mlp.build_readout``."""
     layers: list[LayerParam] = []
     prev = in_dim
     for width in widths:

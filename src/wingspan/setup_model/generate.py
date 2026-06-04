@@ -52,7 +52,7 @@ class RandomSetupGenerator:
         context: encode.SetupContext,
     ) -> list[JointSetup]:
         """Sample up to ``tuples_per_batch`` joint setups over a fixed deal."""
-        tray = list(context.tray_birds)
+        tray = [bird for bird in context.tray_birds if bird is not None]
         joint: list[JointSetup] = []
         for _ in range(self.hand_combos):
             cands_0 = self._seat_candidates(rng, dealt[0], tray)
@@ -73,7 +73,11 @@ class RandomSetupGenerator:
         """One food-aware random keep for a single seat — the setup the random
         opponent uses once the AI seats have switched to the setup model."""
         return rng.choice(
-            self._seat_candidates(rng, seat_deal, list(context.tray_birds))
+            self._seat_candidates(
+                rng,
+                seat_deal,
+                [bird for bird in context.tray_birds if bird is not None],
+            )
         )
 
     ###### PRIVATE #######

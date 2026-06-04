@@ -118,18 +118,16 @@ def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathli
     param_report = architecture.count_parameters(
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(
-            cfg.state_dim,
-            cfg.card_embed_dim,
-            use_distinct_hand_model=cfg.use_distinct_hand_model,
-        ),
+        trunk_in=_trunk_input_dim(cfg),
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
     inspect_report = InspectReport(
-        state_layout=encode_stripes.state_stripe_layout(cfg.encoding_spec),
-        choice_layout=encode_stripes.choice_stripe_layout(cfg.encoding_spec),
+        state_layout=_state_layout(cfg),
+        choice_layout=encode_stripes.choice_stripe_layout(
+            cfg.encoding_spec, cfg.card_embed_dim
+        ),
         param_report=param_report,
         total_params=param_report.total,
     )
@@ -151,17 +149,13 @@ def write_model_summary_html(
     param_report = architecture.count_parameters(
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(
-            cfg.state_dim,
-            cfg.card_embed_dim,
-            use_distinct_hand_model=cfg.use_distinct_hand_model,
-        ),
+        trunk_in=_trunk_input_dim(cfg),
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
     html_content = report.generate_html_report(
-        encode_stripes.state_stripe_layout(cfg.encoding_spec, cfg.card_embed_dim),
+        _state_layout(cfg),
         encode_stripes.choice_stripe_layout(cfg.encoding_spec, cfg.card_embed_dim),
         param_report,
         cfg.arch,
@@ -215,6 +209,30 @@ def write_session_record(
 
 
 ###### PRIVATE #######
+
+
+def _trunk_input_dim(cfg: config.TrainConfig) -> int:
+    """The run's post-embedding trunk input width, with every embedding knob
+    (distinct hand encoder, hand embed width, tray-set embedding) threaded."""
+    return encode.trunk_input_dim(
+        cfg.state_dim,
+        cfg.card_embed_dim,
+        use_distinct_hand_model=cfg.use_distinct_hand_model,
+        hand_embed_dim=cfg.hand_embed_dim,
+        tray_set_embedding=cfg.tray_set_embedding,
+    )
+
+
+def _state_layout(cfg: config.TrainConfig) -> encode_stripes.VectorLayout:
+    """The run's post-embedding state stripe registry, embedding knobs threaded
+    (the choice layout takes none of them, so it is built inline)."""
+    return encode_stripes.state_stripe_layout(
+        cfg.encoding_spec,
+        cfg.card_embed_dim,
+        use_distinct_hand_model=cfg.use_distinct_hand_model,
+        hand_embed_dim=cfg.hand_embed_dim,
+        tray_set_embedding=cfg.tray_set_embedding,
+    )
 
 
 def _ensure_dir(checkpoint_dir: str) -> pathlib.Path:

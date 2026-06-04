@@ -105,10 +105,7 @@ class TrainingLoop:
         self._setup_store: setup_model.SetupDataStore | None = None
         self._setup_fit_done = False
         if cfg.use_setup_model:
-            self._setup_net = setup_net.SetupNet(arch=cfg.setup_arch).to(self.device)
-            self._setup_optimizer = optim.Adam(
-                self._setup_net.parameters(), lr=cfg.setup_lr
-            )
+            self._setup_net, self._setup_optimizer = self._build_setup_net()
             self._setup_store = setup_model.SetupDataStore(
                 self._ckpt_dir / artifacts.SETUP_DATA_LOG
             )
@@ -120,6 +117,9 @@ class TrainingLoop:
         self._target_reached_event = threading.Event()
         self._maybe_resume()
         self._maybe_resume_setup()
+        # The setup net's frozen embedder copies must reflect the (possibly just
+        # resumed) main net before any collection or checkpointing happens.
+        self._sync_setup_embedders()
         self._init_training_phase()
         self._init_target_if_fresh()
         self._reset_history_logs_if_fresh()
@@ -419,6 +419,11 @@ class TrainingLoop:
                 f"entropy {stats.entropy:.3f} · |grad| {stats.grad_norm:.2f}",
             )
 
+        # Re-sync the setup net's frozen embedder copies to the just-updated main
+        # net before the setup update / checkpoint / next broadcast, so setup.pt
+        # and the worker weights always carry this iteration's representations.
+        self._sync_setup_embedders()
+
         # Setup-model update: record this iteration's samples (random-record
         # phase) or run one on-policy MSE step (model-driven phase).
         setup_stats = (
@@ -669,12 +674,45 @@ class TrainingLoop:
                 self.state.record_setup_trained(stats.n_samples)
         return stats
 
+    def _build_setup_net(self) -> tuple[setup_net.SetupNet, optim.Optimizer]:
+        """A fresh setup net (its frozen embedder copies shaped by the main
+        architecture) and its optimizer over the *trainable* parameters only —
+        the frozen embedders are synced from the main net, never stepped."""
+        net = setup_net.SetupNet(
+            arch=self.config.setup_arch, main_arch=self.config.arch
+        ).to(self.device)
+        optimizer = optim.Adam(
+            [param for param in net.parameters() if param.requires_grad],
+            lr=self.config.setup_lr,
+        )
+        return net, optimizer
+
+    def _sync_setup_embedders(self) -> None:
+        """Copy the main net's shared embedder weights into the setup net's
+        frozen copies — the card encoder always, the hand encoder when the main
+        architecture actually has one — then drop the setup net to ``eval()``
+        (the cache-invalidation contract, so its memoized card table is rebuilt
+        from the freshly synced weights). Called once after resume and once per
+        iteration right after the main update, so ``setup.pt`` and the worker
+        broadcast automatically carry the synced copies. No-op when the setup
+        model is off."""
+        if self._setup_net is None:
+            return
+        self._setup_net.card_encoder.load_state_dict(self.net.card_encoder.state_dict())
+        if self.config.use_distinct_hand_model:
+            self._setup_net.hand_encoder.load_state_dict(
+                self.net.hand_encoder.state_dict()
+            )
+        self._setup_net.eval()
+
     def _maybe_resume_setup(self) -> None:
         """Restore the setup net, its optimizer, and the offline-fit-done flag from
         ``setup.pt`` so a resumed run continues the setup model where it left off.
         No-ops when the feature is off, resuming is disabled, or there is no setup
-        checkpoint; a mismatched / unreadable one starts the setup net fresh with
-        an alarm (the main net resumes independently)."""
+        checkpoint; a mismatched / unreadable / unloadable one starts the setup
+        net fresh with an alarm — and clears the recorded sample store, whose
+        rows belong to the incompatible layout (the main net resumes
+        independently)."""
         if self._setup_net is None or self._setup_optimizer is None:
             return
         if not self.config.resume:
@@ -694,13 +732,28 @@ class TrainingLoop:
             )
             return
         if not self._setup_architecture_matches(payload):
+            self._reset_setup_store()
             self.state.push_event(
                 runstate.EventKind.ALARM,
-                f"{artifacts.SETUP_CKPT} architecture differs — setup net fresh",
+                f"{artifacts.SETUP_CKPT} architecture differs — setup net fresh "
+                "(recorded setup samples cleared)",
             )
             return
-        self._setup_net.load_state_dict(payload["setup_model"])
-        self._setup_optimizer.load_state_dict(payload["setup_optimizer"])
+        # Belt-and-suspenders: any load failure the key comparison did not
+        # foresee rebuilds the setup net fresh rather than crashing the run (a
+        # partially-applied load is not trusted).
+        try:
+            self._setup_net.load_state_dict(payload["setup_model"])
+            self._setup_optimizer.load_state_dict(payload["setup_optimizer"])
+        except Exception:  # noqa: BLE001 — incompatible weights start fresh
+            self._setup_net, self._setup_optimizer = self._build_setup_net()
+            self._reset_setup_store()
+            self.state.push_event(
+                runstate.EventKind.ALARM,
+                f"{artifacts.SETUP_CKPT} weights incompatible — setup net fresh "
+                "(recorded setup samples cleared)",
+            )
+            return
         for group in self._setup_optimizer.param_groups:
             group["lr"] = self.config.setup_lr
         self._setup_fit_done = bool(payload.get("setup_fit_done", False))
@@ -713,7 +766,15 @@ class TrainingLoop:
     def _setup_architecture_matches(self, payload: dict[str, typing.Any]) -> bool:
         """Whether a ``setup.pt`` payload's setup-net shape matches this run's, so
         its weights load without mis-shaping (the setup-net twin of
-        ``_architecture_matches``)."""
+        ``_architecture_matches``).
+
+        The persisted ``setup_feature_dim`` is the encoding-layout discriminator:
+        the config-derived key alone cannot see a layout change (both sides
+        recompute it from *current* code), so the payload records the width it
+        actually trained against. Payloads that predate the field fail the
+        comparison — their features used the old layout."""
+        if payload.get("setup_feature_dim") != setup_model.SETUP_FEATURE_DIM:
+            return False
         raw_config = payload.get("setup_config")
         if raw_config is None:
             return True
@@ -723,12 +784,22 @@ class TrainingLoop:
             return False
         return saved.setup_architecture_key == self.config.setup_architecture_key
 
+    def _reset_setup_store(self) -> None:
+        """Truncate the recorded setup samples — called whenever the setup net
+        starts fresh against an existing history, whose rows' feature layout can
+        no longer be trusted to match what the net consumes."""
+        if self._setup_store is not None:
+            self._setup_store.clear()
+
     def _save_setup_checkpoint(self) -> None:
-        """Persist the setup net + optimizer + offline-fit flag to ``setup.pt``."""
+        """Persist the setup net + optimizer + offline-fit flag to ``setup.pt``,
+        stamped with the encoder feature width the weights were trained against
+        (the resume gate's layout discriminator)."""
         if self._setup_net is None or self._setup_optimizer is None:
             return
         payload: dict[str, object] = {
             "setup_config": self.config.model_dump(),
+            "setup_feature_dim": setup_model.SETUP_FEATURE_DIM,
             "setup_model": self._setup_net.state_dict(),
             "setup_optimizer": self._setup_optimizer.state_dict(),
             "setup_fit_done": self._setup_fit_done,

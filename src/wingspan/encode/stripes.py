@@ -106,17 +106,26 @@ class VectorLayout(pydantic.BaseModel):
 def state_stripe_layout(
     spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
     card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
+    *,
+    use_distinct_hand_model: bool = False,
+    hand_embed_dim: int | None = None,
+    tray_set_embedding: bool = False,
 ) -> VectorLayout:
     """Build the stripe registry for the state trunk's input vector.
 
     Lists every stripe in offset order with sizes from the ``layout`` constants.
     The card-index block and hand multi-hot are shown at their *post-embedding*
-    width — each board / tray slot index as one ``card_embed_dim`` vector, the hand
-    as one mean-pooled ``card_embed_dim`` vector — so the breakdown sums to the
-    trunk's first-``Linear`` input (``layout.trunk_input_dim``): what the network
-    actually sees, not the raw encoder output. (The model concatenates those
-    embeddings after the continuous features; here they keep their encoding-order
-    position.) Only the trailing decision-type one-hot's width depends on ``spec``.
+    width — each board / tray slot index as one ``card_embed_dim`` vector, the
+    hand as one embedding (mean-pooled at ``card_embed_dim``, or the dedicated
+    hand encoder's resolved ``hand_embed_dim`` under
+    ``use_distinct_hand_model``, which also folds the 10-dim hand-summary stripe
+    into the encoder's input) — so the breakdown sums to the trunk's
+    first-``Linear`` input (``layout.trunk_input_dim``): what the network
+    actually sees, not the raw encoder output. ``tray_set_embedding`` widens the
+    tray stripe by one derived set embedding (3·M + N). (The model concatenates
+    the embeddings after the continuous features; here they keep their
+    encoding-order position.) Only the trailing decision-type one-hot's width
+    depends on ``spec``.
     """
     from wingspan.encode import state_encode
 
@@ -486,8 +495,19 @@ def state_stripe_layout(
     raw = VectorLayout(total_size=total, stripes=tuple(stripes))
     return _embed_layout(
         raw,
-        _state_embed_rules(card_embed_dim),
-        layout.trunk_input_dim(total, card_embed_dim),
+        _state_embed_rules(
+            card_embed_dim,
+            use_distinct_hand_model=use_distinct_hand_model,
+            hand_embed_dim=hand_embed_dim,
+            tray_set_embedding=tray_set_embedding,
+        ),
+        layout.trunk_input_dim(
+            total,
+            card_embed_dim,
+            use_distinct_hand_model=use_distinct_hand_model,
+            hand_embed_dim=hand_embed_dim,
+            tray_set_embedding=tray_set_embedding,
+        ),
     )
 
 
@@ -752,8 +772,10 @@ def _embed_layout(
 
     Every card-index / identity stripe named in ``rules`` is replaced by its
     embedded-width stripe and all offsets are recomputed cumulatively (sizes change,
-    so downstream offsets shift). The result's total must equal ``expected_total`` —
-    the trunk / choice-encoder first-``Linear`` input width.
+    so downstream offsets shift). A rule with ``new_size == 0`` *removes* its
+    stripe — the raw dims were folded into another block (the hand summary
+    redirected into the hand encoder). The result's total must equal
+    ``expected_total`` — the trunk / choice-encoder first-``Linear`` input width.
     """
     stripes: list[StripeDescriptor] = []
     off = 0
@@ -762,6 +784,8 @@ def _embed_layout(
         if rule is None:
             stripes.append(stripe.model_copy(update={"offset": off}))
             off += stripe.size
+            continue
+        if rule.new_size == 0:
             continue
         stripes.append(
             stripe.model_copy(
@@ -782,12 +806,23 @@ def _embed_layout(
     return VectorLayout(total_size=expected_total, stripes=tuple(stripes))
 
 
-def _state_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
+def _state_embed_rules(
+    card_embed_dim: int,
+    *,
+    use_distinct_hand_model: bool = False,
+    hand_embed_dim: int | None = None,
+    tray_set_embedding: bool = False,
+) -> dict[str, _EmbedRule]:
     """The card-index / hand stripes of the state vector, at embedded width."""
     n_board = layout.N_BOARD_INDEX_SLOTS
     tray = state.TRAY_SIZE
     hand = layout.HAND_MULTIHOT_DIM
-    return {
+    hand_width = (
+        (hand_embed_dim if hand_embed_dim is not None else card_embed_dim)
+        if use_distinct_hand_model
+        else card_embed_dim
+    )
+    rules = {
         "card_idx_board": _EmbedRule(
             new_size=n_board * card_embed_dim,
             encoding="card-embedding",
@@ -818,6 +853,44 @@ def _state_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
             ),
         ),
     }
+    if use_distinct_hand_model:
+        # The dedicated hand encoder consumes [multi-hot ⊕ hand summary]: the
+        # hand stripe becomes the encoder's N-wide output and the 10-dim
+        # hand-summary stripe folds into its input (dropped from the trunk view).
+        rules["hand_multihot"] = _EmbedRule(
+            new_size=hand_width,
+            encoding="card-set-embedding (hand encoder)",
+            value_range="learned",
+            notes=(
+                f"My hand -> one {hand_width}-dim set embedding from the dedicated "
+                f"hand encoder over [multi-hot ({hand}) ⊕ the redirected 10-dim "
+                "hand summary]. Raw encoding is the multi-hot plus the (separate) "
+                "hand_summary_me stripe."
+            ),
+        )
+        rules["hand_summary_me"] = _EmbedRule(
+            new_size=0,
+            encoding="folded",
+            value_range="-",
+            notes=(
+                "Redirected into the hand encoder's input (see hand_multihot); "
+                "no longer a direct trunk input."
+            ),
+        )
+    if tray_set_embedding:
+        rules["card_idx_tray"] = _EmbedRule(
+            new_size=tray * card_embed_dim + hand_width,
+            encoding="card-embedding + card-set-embedding",
+            value_range="learned",
+            notes=(
+                f"{tray} tray slots -> one {card_embed_dim}-dim shared card embedding "
+                f"each ({tray}x{card_embed_dim}) plus one {hand_width}-dim tray-*set* "
+                "embedding from the hand encoder (multi-hot + summary derived "
+                f"in-model from the index columns). Raw encoding stores {tray} "
+                "indices."
+            ),
+        )
+    return rules
 
 
 def _choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:

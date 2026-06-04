@@ -446,10 +446,14 @@ def _worker_init(arch: _WorkerArch) -> None:
     _worker_net.eval()
     _worker_weights_version = -1
     # Build the setup net + random generator once (only when the run uses the
-    # setup model), so each game just reloads weights and plays.
+    # setup model), so each game just reloads weights and plays. The full main
+    # architecture shapes its frozen embedder copies, so the broadcast setup
+    # state_dict (which carries the synced embedder weights) strict-loads.
     if arch.setup_enabled and arch.setup_arch is not None:
         _worker_setup_net = setup_net.SetupNet(
-            feature_dim=arch.setup_feature_dim, arch=arch.setup_arch
+            feature_dim=arch.setup_feature_dim,
+            arch=arch.setup_arch,
+            main_arch=arch.arch,
         ).to(_worker_device)
         _worker_setup_net.eval()
         _worker_setup_version = -1

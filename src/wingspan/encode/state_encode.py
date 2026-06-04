@@ -113,17 +113,35 @@ def _summary_hand(player: state.Player) -> np.ndarray:
     two of the three habitat counts. The 6-wide multi-hot flags, for each of the
     five foods and wild, whether *any* card in hand carries that token in its food
     cost — a cheap "can my hand pay this kind of cost?" signal. The specific cards
-    held ride the separate hand identity multi-hot (``_hand_identity``)."""
-    vec = np.zeros(10, dtype=np.float32)
-    vec[0] = len(player.hand) / layout._HAND_SIZE_SCALE
+    held ride the separate hand identity multi-hot (``_hand_identity``).
+
+    Built by combining each card's :func:`_hand_summary_row` — the leading
+    ``HAND_SUMMARY_SUM_DIMS`` dims by summation, the food flags by max (OR) — the
+    same reduction the model applies to ``card_summary_matrix`` rows, so the
+    encoder and the in-model set-summary derivation cannot drift apart."""
+    vec = np.zeros(layout.HAND_SUMMARY_DIM, dtype=np.float32)
+    sum_dims = layout.HAND_SUMMARY_SUM_DIMS
     for bird in player.hand:
-        for i, habitat in enumerate(cards.ALL_HABITATS):
-            if habitat in bird.habitats:
-                vec[1 + i] += 1.0 / layout._HAND_SIZE_SCALE
-        for food_idx in range(layout._FOOD_COST_VEC_DIM):  # 5 foods + wild
-            if bird.food_cost.counts[food_idx] > 0:
-                vec[4 + food_idx] = 1.0
+        row = _hand_summary_row(bird)
+        vec[:sum_dims] += row[:sum_dims]
+        vec[sum_dims:] = np.maximum(vec[sum_dims:], row[sum_dims:])
     return vec
+
+
+def _hand_summary_row(bird: cards.Bird) -> np.ndarray:
+    """One card's contribution to the 10-dim hand/set summary: the 1/scale
+    set-size increment, the per-habitat 1/scale increments, then the food-cost
+    flags (5 foods + wild). A set of cards combines these rows by summing the
+    leading ``HAND_SUMMARY_SUM_DIMS`` dims and max-ing (OR) the flags."""
+    row = np.zeros(layout.HAND_SUMMARY_DIM, dtype=np.float32)
+    row[0] = 1.0 / layout._HAND_SIZE_SCALE
+    for i, habitat in enumerate(cards.ALL_HABITATS):
+        if habitat in bird.habitats:
+            row[1 + i] = 1.0 / layout._HAND_SIZE_SCALE
+    for food_idx in range(layout._FOOD_COST_VEC_DIM):  # 5 foods + wild
+        if bird.food_cost.counts[food_idx] > 0:
+            row[layout.HAND_SUMMARY_SUM_DIMS + food_idx] = 1.0
+    return row
 
 
 def _hand_identity(player: state.Player) -> np.ndarray:
@@ -297,6 +315,24 @@ def card_feature_matrix() -> np.ndarray:
         idx = cards.bird_index(bird)
         matrix[idx + 1, : layout._BIRD_ATTR_DIM] = _bird_attr_vector(bird)
         matrix[idx + 1, layout._BIRD_ATTR_DIM + idx] = 1.0
+    return matrix
+
+
+def card_summary_matrix() -> np.ndarray:
+    """The constant ``[HAND_MULTIHOT_DIM + 1, HAND_SUMMARY_DIM]`` per-card summary
+    table for deriving a card *set*'s 10-dim summary in-model.
+
+    Row 0 is all zeros — the padding / empty-slot row (``cards.bird_index + 1``
+    with 0 meaning "no card"), so an empty slot adds nothing to the set summary.
+    Row ``bird_index + 1`` is that bird's :func:`_hand_summary_row`. Reducing the
+    selected rows — sum over the leading ``layout.HAND_SUMMARY_SUM_DIMS`` dims,
+    max (OR) over the food flags — reproduces ``_summary_hand`` for the same set
+    of cards, which is what lets the model feed the shared hand encoder a tray /
+    kept-set summary it derives from index columns or a multi-hot alone."""
+    rows = layout.HAND_MULTIHOT_DIM + 1
+    matrix = np.zeros((rows, layout.HAND_SUMMARY_DIM), dtype=np.float32)
+    for bird in cards.load_all()[0]:
+        matrix[cards.bird_index(bird) + 1] = _hand_summary_row(bird)
     return matrix
 
 

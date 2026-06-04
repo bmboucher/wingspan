@@ -192,7 +192,7 @@ def generate_html_report(
     block are then annotated as inactive rather than omitted).
     """
     setup_param = setup_model.count_setup_parameters(
-        setup_arch, feature_dim=setup_layout.total_size
+        setup_arch, feature_dim=setup_layout.total_size, main_arch=arch
     )
     setup_annotation = (
         ""

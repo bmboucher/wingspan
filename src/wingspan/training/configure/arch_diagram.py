@@ -46,6 +46,7 @@ from wingspan.training import theme
 from wingspan.training.charts import text_helpers
 
 if typing.TYPE_CHECKING:
+    from wingspan.training import config
     from wingspan.training.configure import state
 
 # Below this inner width the two-column box diagram cannot fit, so the renderable
@@ -276,11 +277,11 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
     if cfg.dropout > 0.0:
         extras.append(f"+d{_fmt_dropout(cfg.dropout)}")
     tags = ("  " + " ".join(extras)) if extras else ""
-    trunk_in = encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim)
+    trunk_in = _trunk_in(cfg)
     choice_in = encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim)
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
     setup_chain = (
-        _chain(setup_model.SETUP_FEATURE_DIM, (*cfg.setup_hidden_layers, 1))
+        _chain(_setup_readout_in(cfg), (*cfg.setup_hidden_layers, 1))
         if cfg.use_setup_model
         else "off"
     )
@@ -339,7 +340,13 @@ def _setup_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]
         dropout=cfg.setup_dropout,
         layernorm=False,
     )
-    caption = [(f"in {setup_model.SETUP_FEATURE_DIM} (multi-hot)", theme.TEXT_DIM2)]
+    caption = [
+        (
+            f"in {_setup_readout_in(cfg)} "
+            f"(embedded {setup_model.SETUP_FEATURE_DIM}-dim candidate)",
+            theme.TEXT_DIM2,
+        )
+    ]
     return _model_block(
         view,
         section="setup",
@@ -456,7 +463,7 @@ def _state_trunk_column(
     """The state trunk box (a body block keeping an activation on its final layer),
     fed by the card encoder plus its additional non-card features."""
     cfg = view.working
-    trunk_in = encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim)
+    trunk_in = _trunk_in(cfg)
     extra = cfg.state_dim - encode.N_CARD_INDEX_SLOTS - encode.HAND_MULTIHOT_DIM
     entries = _block_op_entries(
         view,
@@ -975,16 +982,38 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
     return architecture.count_parameters(
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
+        trunk_in=_trunk_in(cfg),
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
         num_families=len(cfg.family_order),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
 
 
+def _trunk_in(cfg: config.TrainConfig) -> int:
+    """The working config's post-embedding trunk input width, every embedding
+    knob threaded."""
+    return encode.trunk_input_dim(
+        cfg.state_dim,
+        cfg.card_embed_dim,
+        use_distinct_hand_model=cfg.use_distinct_hand_model,
+        hand_embed_dim=cfg.hand_embed_dim,
+        tray_set_embedding=cfg.tray_set_embedding,
+    )
+
+
+def _setup_readout_in(cfg: config.TrainConfig) -> int:
+    """The setup net's readout-MLP input width under the working main
+    architecture (whose embedder copies size the embedded candidate)."""
+    return setup_model.setup_readout_input_dim(setup_model.SETUP_FEATURE_DIM, cfg.arch)
+
+
 def _setup_block(view: state.ConfiguratorState) -> architecture.BlockParam:
-    """The separate setup net's parameter accounting."""
+    """The separate setup net's parameter accounting (the frozen embedder copies
+    are shaped by the working main architecture)."""
     return setup_model.count_setup_parameters(
-        view.working.setup_arch, feature_dim=setup_model.SETUP_FEATURE_DIM
+        view.working.setup_arch,
+        feature_dim=setup_model.SETUP_FEATURE_DIM,
+        main_arch=view.working.arch,
     )
 
 

@@ -31,9 +31,10 @@ from wingspan.training import config
 # ``bool`` is intentionally excluded (the only bools, ``resume`` and the
 # choice-rendered ``layernorm``, are handled as an action / a choice) so the
 # union never has to disambiguate ``bool`` from ``int`` under isinstance. The
-# trailing ``tuple[int, ...]`` is the per-layer width list edited by a
-# :class:`LayersField`.
-type FieldValue = int | float | str | tuple[int, ...]
+# ``tuple[int, ...]`` is the per-layer width list edited by a
+# :class:`LayersField`; ``None`` is an :class:`OptionalIntField`'s unset state
+# (the field tracks its fallback).
+type FieldValue = int | float | str | tuple[int, ...] | None
 
 
 class ConfigSection(enum.StrEnum):
@@ -94,6 +95,18 @@ class IntField(FieldSpec):
     """An integer field; ``step`` is the +/- nudge increment."""
 
     step: int = 1
+
+
+class OptionalIntField(FieldSpec):
+    """An integer field whose ``None`` means "match another field" (e.g. the hand
+    embed width tracking the card embed width). ``None`` displays as
+    ``none_label``; typing a number sets an explicit value and typing ``none``
+    (or clearing) resets the tracking default. LEFT/RIGHT nudges step from the
+    resolved ``fallback_attr`` value when currently unset."""
+
+    step: int = 1
+    none_label: str
+    fallback_attr: str
 
 
 class FloatField(FieldSpec):
@@ -542,8 +555,33 @@ FIELD_SPECS: list[FieldSpec] = [
         impact=ChangeImpact.FRESH,
         visible_when=lambda cfg: cfg.use_distinct_hand_model,
         help="Hand encoder MLP hidden widths (input→output). Active only when "
-        "'distinct hand MLP' is on. Output width is always card-embed-dim (N'=N). "
+        "'distinct hand MLP' is on. Output width is the hand embed dim below. "
         "Empty = a single linear projection. Fresh run.",
+    ),
+    OptionalIntField(
+        attr="hand_embed_dim",
+        label="hand embed dim",
+        section=ConfigSection.MODEL,
+        unit="units",
+        step=16,
+        none_label="= card embed",
+        fallback_attr="card_embed_dim",
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.use_distinct_hand_model,
+        help="Output width N of the hand encoder — the multi-card *set* embedding "
+        "(the hand, and every other card set embedded through it). Type 'none' to "
+        "track card embed dim (M). Fresh run.",
+    ),
+    ChoiceField(
+        attr="tray_set_embedding",
+        label="tray set embedding",
+        section=ConfigSection.MODEL,
+        choices=["False", "True"],
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.use_distinct_hand_model,
+        help="Feed the trunk one hand-encoder embedding of the face-up tray *set* "
+        "beside the three per-slot card lookups (3·M + N tray dims). Requires the "
+        "distinct hand MLP. Fresh run.",
     ),
     IntField(
         attr="seed",
@@ -748,6 +786,8 @@ def read_field(cfg: config.TrainConfig, spec: FieldSpec) -> FieldValue:
 def format_value(cfg: config.TrainConfig, spec: FieldSpec) -> str:
     """The display string for ``spec``'s current value."""
     value = read_field(cfg, spec)
+    if isinstance(spec, OptionalIntField) and value is None:
+        return spec.none_label
     if isinstance(spec, FloatField):
         if spec.scientific:
             return f"{value:.0e}"
@@ -777,10 +817,12 @@ def commit(
     cfg: config.TrainConfig, spec: FieldSpec, raw: str
 ) -> tuple[config.TrainConfig, str | None]:
     """Parse ``raw`` per ``spec``'s kind and return ``(new_cfg, None)`` on
-    success, or ``(cfg, error)`` if it cannot parse or the model rejects it."""
+    success, or ``(cfg, error)`` if it cannot parse or the model rejects it.
+    Failure is signalled by the error string — ``None`` is a *valid* parse for
+    an :class:`OptionalIntField` (its tracking-default state)."""
     parsed, parse_error = _parse(spec, raw)
-    if parsed is None:
-        return cfg, parse_error or "invalid value"
+    if parse_error is not None:
+        return cfg, parse_error
     return _validated_update(cfg, spec, parsed)
 
 
@@ -795,6 +837,12 @@ def nudge(
     """
     if isinstance(spec, ChoiceField):
         return _cycle_choice(cfg, spec, direction), None
+    if isinstance(spec, OptionalIntField):
+        # Step from the resolved fallback when unset, so the first nudge lands
+        # one step away from the value the None currently tracks.
+        value = read_field(cfg, spec)
+        base = value if isinstance(value, int) else _read_fallback_int(cfg, spec)
+        return _validated_update(cfg, spec, base + direction * spec.step)
     if isinstance(spec, LayersField):
         widths = _read_layers(cfg, spec)
         if direction > 0:
@@ -821,9 +869,19 @@ def nudge(
 ###### PRIVATE #######
 
 
-def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue | None, str | None]:
-    """Parse an edit-buffer string into the field's Python type, or an error."""
+def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue, str | None]:
+    """Parse an edit-buffer string into the field's Python type, or an error.
+
+    Success/failure is carried by the error slot (not a ``None`` value): an
+    :class:`OptionalIntField` legitimately parses to ``None``."""
     text = raw.strip()
+    if isinstance(spec, OptionalIntField):
+        if not text or text.lower() == "none":
+            return None, None
+        try:
+            return int(text), None
+        except ValueError:
+            return None, f"{spec.label}: expects a whole number or 'none'"
     if isinstance(spec, IntField):
         try:
             return int(text), None
@@ -890,6 +948,12 @@ def _read_int(cfg: config.TrainConfig, spec: FieldSpec) -> int:
 def _read_float(cfg: config.TrainConfig, spec: FieldSpec) -> float:
     value = read_field(cfg, spec)
     return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _read_fallback_int(cfg: config.TrainConfig, spec: OptionalIntField) -> int:
+    """The integer value an unset :class:`OptionalIntField` currently tracks."""
+    fallback = typing.cast("int | None", getattr(cfg, spec.fallback_attr))
+    return fallback if isinstance(fallback, int) else 0
 
 
 def _read_layers(cfg: config.TrainConfig, spec: FieldSpec) -> tuple[int, ...]:

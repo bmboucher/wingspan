@@ -23,7 +23,7 @@ def test_feature_dim_is_sum_of_blocks():
         cards.n_birds()  # kept cards
         + cards.N_FOODS  # kept foods
         + cards.n_bonus_cards()  # kept bonus
-        + cards.n_birds()  # tray
+        + state.TRAY_SIZE  # tray (positional integer indices)
         + (cards.N_FOODS + 1)  # birdfeeder faces + choice die
         + 4 * encode.MAX_GOAL_CATEGORIES  # four round goals
     )
@@ -66,6 +66,25 @@ def test_kept_card_and_bonus_indices_are_set():
     assert vec[bonus_base + cards.bonus_index(dealt_bonus[0])] == 1.0
 
 
+def test_tray_block_is_positional_card_indices():
+    """The tray block carries one ``bird_index + 1`` integer per slot, in slot
+    order, with 0 for an empty slot — matching the state vector's tray block."""
+    birds, bonuses, goals = cards.load_all()
+    game_state = state.new_game(random.Random(7), birds, bonuses, goals)
+    game_state.tray = [birds[10], None, birds[30]]
+    context = setup_encode.SetupContext.from_state(game_state)
+    assert context.tray_birds == (birds[10], None, birds[30])
+
+    candidate = candidates.enumerate_setup_candidates(
+        list(birds[:5]), list(bonuses[:2])
+    )[0]
+    vec = setup_encode.encode_setup_candidate(candidate, context)
+    tray_base = cards.n_birds() + cards.N_FOODS + cards.n_bonus_cards()
+    assert vec[tray_base + 0] == cards.bird_index(birds[10]) + 1
+    assert vec[tray_base + 1] == 0.0
+    assert vec[tray_base + 2] == cards.bird_index(birds[30]) + 1
+
+
 def test_birdfeeder_block_matches_state():
     seed = 11
     birds, bonuses, goals = cards.load_all()
@@ -75,7 +94,9 @@ def test_birdfeeder_block_matches_state():
         list(birds[:5]), list(bonuses[:2])
     )[0]
     vec = setup_encode.encode_setup_candidate(candidate, context)
-    feeder_base = 2 * cards.n_birds() + cards.N_FOODS + cards.n_bonus_cards()
+    feeder_base = (
+        cards.n_birds() + cards.N_FOODS + cards.n_bonus_cards() + state.TRAY_SIZE
+    )
     for offset, food in enumerate(cards.ALL_FOODS):
         assert vec[feeder_base + offset] == game_state.birdfeeder.counts[food]
     assert vec[feeder_base + cards.N_FOODS] == game_state.birdfeeder.choice_dice
@@ -86,7 +107,12 @@ def test_round_goal_one_hots_are_per_round():
     candidate = candidates.enumerate_setup_candidates(dealt_cards, dealt_bonus)[0]
     vec = setup_encode.encode_setup_candidate(candidate, context)
     goals_base = (
-        2 * cards.n_birds() + cards.N_FOODS + cards.n_bonus_cards() + cards.N_FOODS + 1
+        cards.n_birds()
+        + cards.N_FOODS
+        + cards.n_bonus_cards()
+        + state.TRAY_SIZE
+        + cards.N_FOODS
+        + 1
     )
     for round_idx, category in enumerate(context.round_goal_categories):
         start = goals_base + round_idx * setup_encode.SETUP_GOAL_DIM

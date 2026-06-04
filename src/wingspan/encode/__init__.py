@@ -34,7 +34,9 @@ from wingspan.encode.layout import (
     HAND_MULTIHOT_DIM,
     HAND_SUMMARY_DIM,
     HAND_SUMMARY_OFFSET,
+    HAND_SUMMARY_SUM_DIMS,
     MAX_GOAL_CATEGORIES,
+    N_BOARD_INDEX_SLOTS,
     N_CARD_INDEX_SLOTS,
     OFF_CARD_INDEX,
     OFF_DECISION_TYPE,
@@ -50,7 +52,12 @@ from wingspan.encode.layout import (
     state_feature_dim,
     trunk_input_dim,
 )
-from wingspan.encode.state_encode import card_feature_matrix, encode_state, state_size
+from wingspan.encode.state_encode import (
+    card_feature_matrix,
+    card_summary_matrix,
+    encode_state,
+    state_size,
+)
 
 __all__ = [
     "CARD_FEATURE_DIM",
@@ -69,7 +76,9 @@ __all__ = [
     "HAND_MULTIHOT_DIM",
     "HAND_SUMMARY_DIM",
     "HAND_SUMMARY_OFFSET",
+    "HAND_SUMMARY_SUM_DIMS",
     "MAX_GOAL_CATEGORIES",
+    "N_BOARD_INDEX_SLOTS",
     "N_CARD_INDEX_SLOTS",
     "OFF_CARD_INDEX",
     "OFF_DECISION_TYPE",
@@ -77,6 +86,7 @@ __all__ = [
     "RUNAWAY_CHOICE_THRESHOLD",
     "SOFT_CHOICE_WARN_THRESHOLD",
     "card_feature_matrix",
+    "card_summary_matrix",
     "choice_feature_dim",
     "choice_input_dim",
     "decision_type_dim",

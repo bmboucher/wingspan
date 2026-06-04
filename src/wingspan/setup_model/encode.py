@@ -2,9 +2,12 @@
 
 The setup model scores one setup candidate (a *keep* of cards / food / bonus) in
 the context of the deal, and the policy is a softmax over the scores of all 504
-candidates for a dealt hand. Its input is deliberately far simpler than the
-in-game encoder (:mod:`wingspan.encode`): plain multi-hot / one-hot / count
-blocks straight into an MLP, with no shared card embedding.
+candidates for a dealt hand. Its input is a flat vector of multi-hot / one-hot /
+count / index blocks; the card-identity blocks are embedded *inside*
+:class:`wingspan.training.setup_net.SetupNet` through frozen copies of the main
+net's shared embedders (the kept-cards multi-hot through the multi-card set
+encoder, the tray index columns through the single-card table), so the setup MLP
+evaluates candidates in the same representation the in-game model learns.
 
 :func:`encode_setup_candidate` builds one fixed-length vector from a
 :class:`wingspan.setup_model.candidates.SetupCandidate` (the candidate-specific
@@ -14,7 +17,8 @@ in order, are:
 1. multi-hot over every core-set bird — the cards kept
 2. multi-hot over the five foods — the food kept
 3. one-hot over every bonus card — the bonus card kept (all-zero if none)
-4. multi-hot over every core-set bird — the cards in the tray (context)
+4. three positional integer card indices — the tray slots (context);
+   ``bird_index + 1`` per occupied slot, 0 for an empty one
 5. a six-vector of birdfeeder die-face counts (the five foods + the choice die)
 6. four one-hots — the four rounds' end-of-round goals (context)
 
@@ -38,22 +42,24 @@ _NUM_SETUP_GOALS = len(state.ROUND_GOAL_PAYOUTS_2P)
 # Birdfeeder block: one count per food plus the invertebrate/seed choice die.
 _FEEDER_DIM = cards.N_FOODS + 1
 
-# Block sizes and cumulative offsets — the contract the SetupNet's input width is
-# derived from; nothing here may be reordered without invalidating saved weights.
+# Block sizes and cumulative offsets — the contract the SetupNet's slicing and
+# input width are derived from; nothing here may be reordered without
+# invalidating saved weights. The offsets are public because the network (in
+# ``wingspan.training``) splits the raw vector on them.
 _KEPT_CARDS_DIM = cards.n_birds()
 _KEPT_FOODS_DIM = cards.N_FOODS
 _BONUS_DIM = cards.n_bonus_cards()
-_TRAY_DIM = cards.n_birds()
+_TRAY_DIM = state.TRAY_SIZE
 _GOALS_DIM = _NUM_SETUP_GOALS * SETUP_GOAL_DIM
 
-_OFF_KEPT_CARDS = 0
-_OFF_KEPT_FOODS = _OFF_KEPT_CARDS + _KEPT_CARDS_DIM
-_OFF_BONUS = _OFF_KEPT_FOODS + _KEPT_FOODS_DIM
-_OFF_TRAY = _OFF_BONUS + _BONUS_DIM
-_OFF_FEEDER = _OFF_TRAY + _TRAY_DIM
-_OFF_GOALS = _OFF_FEEDER + _FEEDER_DIM
+OFF_KEPT_CARDS = 0
+OFF_KEPT_FOODS = OFF_KEPT_CARDS + _KEPT_CARDS_DIM
+OFF_BONUS = OFF_KEPT_FOODS + _KEPT_FOODS_DIM
+OFF_TRAY = OFF_BONUS + _BONUS_DIM
+OFF_FEEDER = OFF_TRAY + _TRAY_DIM
+OFF_GOALS = OFF_FEEDER + _FEEDER_DIM
 
-SETUP_FEATURE_DIM = _OFF_GOALS + _GOALS_DIM
+SETUP_FEATURE_DIM = OFF_GOALS + _GOALS_DIM
 
 
 class SetupContext(pydantic.BaseModel):
@@ -65,7 +71,9 @@ class SetupContext(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    tray_birds: tuple[cards.Bird, ...]
+    # The face-up tray in slot order (``None`` = an empty slot), so the encoding
+    # is positional like the in-game state's tray index block.
+    tray_birds: tuple[cards.Bird | None, ...]
     # One count per food (``cards.ALL_FOODS`` order) then the choice-die count.
     birdfeeder_counts: tuple[int, ...]
     # The four rounds' goal categories (a tag in ``encode.GOAL_CATEGORIES``).
@@ -78,7 +86,7 @@ class SetupContext(pydantic.BaseModel):
         feeder = [game_state.birdfeeder.counts[food] for food in cards.ALL_FOODS]
         feeder.append(game_state.birdfeeder.choice_dice)
         return cls(
-            tray_birds=tuple(b for b in game_state.tray if b is not None),
+            tray_birds=tuple(game_state.tray),
             birdfeeder_counts=tuple(feeder),
             round_goal_categories=tuple(
                 goal.category for goal in game_state.round_goals[:_NUM_SETUP_GOALS]
@@ -94,23 +102,25 @@ def encode_setup_candidate(
 
     # 1-3. Candidate-specific blocks: kept cards / kept foods / kept bonus.
     for bird in candidate.kept_cards:
-        vec[_OFF_KEPT_CARDS + cards.bird_index(bird)] = 1.0
+        vec[OFF_KEPT_CARDS + cards.bird_index(bird)] = 1.0
     for food in candidate.kept_foods:
-        vec[_OFF_KEPT_FOODS + cards.food_index(food)] = 1.0
+        vec[OFF_KEPT_FOODS + cards.food_index(food)] = 1.0
     if candidate.bonus_card is not None:
-        vec[_OFF_BONUS + cards.bonus_index(candidate.bonus_card)] = 1.0
+        vec[OFF_BONUS + cards.bonus_index(candidate.bonus_card)] = 1.0
 
-    # 4-5. Context blocks: tray identities and birdfeeder die-face counts.
-    for bird in context.tray_birds:
-        vec[_OFF_TRAY + cards.bird_index(bird)] = 1.0
+    # 4-5. Context blocks: positional tray card indices (0 = empty slot, the card
+    # table's zeroed padding row) and birdfeeder die-face counts.
+    for slot, bird in enumerate(context.tray_birds[:_TRAY_DIM]):
+        if bird is not None:
+            vec[OFF_TRAY + slot] = cards.bird_index(bird) + 1
     for offset, count in enumerate(context.birdfeeder_counts[:_FEEDER_DIM]):
-        vec[_OFF_FEEDER + offset] = float(count)
+        vec[OFF_FEEDER + offset] = float(count)
 
     # 6. Context block: one one-hot per round goal in the shared category order.
     for round_idx, category in enumerate(context.round_goal_categories):
         if round_idx >= _NUM_SETUP_GOALS or category not in encode.GOAL_CATEGORIES:
             continue
-        base = _OFF_GOALS + round_idx * SETUP_GOAL_DIM
+        base = OFF_GOALS + round_idx * SETUP_GOAL_DIM
         vec[base + encode.GOAL_CATEGORIES.index(category)] = 1.0
 
     return vec

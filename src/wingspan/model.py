@@ -32,20 +32,10 @@ import typing
 import torch
 from torch import nn
 
-from wingspan import architecture, decisions, encode
+from wingspan import architecture, decisions, encode, hand_model, mlp
 
 if typing.TYPE_CHECKING:
     from wingspan.training import runmeta
-
-# The selectable activation functions, keyed by their descriptor enum. Each maps
-# to a zero-argument ``nn.Module`` factory.
-_ACTIVATIONS: dict[architecture.ActivationName, typing.Callable[[], nn.Module]] = {
-    architecture.ActivationName.RELU: nn.ReLU,
-    architecture.ActivationName.GELU: nn.GELU,
-    architecture.ActivationName.TANH: nn.Tanh,
-    architecture.ActivationName.SILU: nn.SiLU,
-    architecture.ActivationName.LEAKY_RELU: nn.LeakyReLU,
-}
 
 
 class PolicyValueNet(nn.Module):
@@ -67,8 +57,10 @@ class PolicyValueNet(nn.Module):
 
     # Constant buffers registered in __init__ (declared here so the type checker
     # sees them as tensors rather than nn.Module's generic attribute access).
+    # ``card_summary_matrix`` is registered only under ``tray_set_embedding``.
     card_features: torch.Tensor
     card_pad_mask: torch.Tensor
+    card_summary_matrix: torch.Tensor
 
     def __init__(
         self,
@@ -118,10 +110,12 @@ class PolicyValueNet(nn.Module):
         # candidate scoring alike (DECISIONS.md card power-ranking goal). The card
         # feature matrix and the padding-row mask are constant buffers rebuilt from
         # the catalog (``persistent=False`` keeps them out of the checkpoint).
-        self.card_encoder, _ = _build_body(
+        self.card_encoder, _ = mlp.build_body(
             encode.CARD_FEATURE_DIM,
             arch.card_encoder_layers + (arch.card_embed_dim,),
-            arch,
+            activation=arch.activation,
+            dropout=arch.dropout,
+            layernorm=arch.layernorm,
             final_activation=False,
         )
         self.register_buffer(
@@ -133,51 +127,84 @@ class PolicyValueNet(nn.Module):
         pad_mask[0] = 0.0
         self.register_buffer("card_pad_mask", pad_mask, persistent=False)
 
-        # Optional distinct hand encoder. When enabled it takes the full hand
-        # representation — [multi-hot (180) ⊕ hand-summary (10)] = 190 dims —
-        # and outputs a ``card_embed_dim``-wide hand embedding. The 10-dim
-        # hand-summary is redirected from the trunk's continuous input into this
-        # encoder, so the trunk sees a correspondingly narrower feed.
+        # Optional distinct hand encoder. When enabled it takes a card *set*'s
+        # representation — [multi-hot (180) ⊕ set-summary (10)] = 190 dims — and
+        # outputs a ``hand_embed_width``-wide set embedding. For the hand itself
+        # the 10-dim hand-summary is redirected from the trunk's continuous input
+        # into this encoder, so the trunk sees a correspondingly narrower feed.
         if arch.use_distinct_hand_model:
-            self.hand_encoder, _ = _build_body(
+            self.hand_encoder, _ = mlp.build_body(
                 encode.HAND_ENCODER_INPUT_DIM,
-                arch.hand_encoder_layers + (arch.card_embed_dim,),
-                arch,
+                arch.hand_encoder_layers + (arch.hand_embed_width,),
+                activation=arch.activation,
+                dropout=arch.dropout,
+                layernorm=arch.layernorm,
                 final_activation=False,
+            )
+        # Under ``tray_set_embedding`` the hand encoder also embeds the face-up
+        # tray as a set; the per-card summary table lets ``_embed_state`` derive
+        # the tray's multi-hot + summary from its three index columns
+        # (``persistent=False`` keeps the constant out of the checkpoint).
+        if arch.tray_set_embedding:
+            self.register_buffer(
+                "card_summary_matrix",
+                torch.tensor(encode.card_summary_matrix(), dtype=torch.float32),
+                persistent=False,
             )
 
         # The trunk reads the continuous state features plus the looked-up card
         # embeddings: the index block becomes one embedding per slot (flattened),
         # the hand multi-hot becomes either a mean-pooled card embedding (default)
-        # or a dedicated hand encoder output (when use_distinct_hand_model is on).
+        # or a dedicated hand encoder output (when use_distinct_hand_model is on),
+        # and ``tray_set_embedding`` appends one tray-set embedding.
         # It keeps an activation on its final layer (its output is an internal
         # representation, not a logit); the choice encoder does not.
         trunk_in_dim = encode.trunk_input_dim(
             state_dim,
             arch.card_embed_dim,
             use_distinct_hand_model=arch.use_distinct_hand_model,
+            hand_embed_dim=arch.hand_embed_dim,
+            tray_set_embedding=arch.tray_set_embedding,
         )
-        self.state_trunk, _ = _build_body(
-            trunk_in_dim, arch.trunk_layers, arch, final_activation=True
+        self.state_trunk, _ = mlp.build_body(
+            trunk_in_dim,
+            arch.trunk_layers,
+            activation=arch.activation,
+            dropout=arch.dropout,
+            layernorm=arch.layernorm,
+            final_activation=True,
         )
         # The per-choice encoder reads the candidate's non-identity features plus
         # its card identity embedded through the same shared table.
         choice_in_dim = encode.choice_input_dim(choice_dim, arch.card_embed_dim)
-        self.choice_encoder, _ = _build_body(
-            choice_in_dim, arch.choice_layers, arch, final_activation=False
+        self.choice_encoder, _ = mlp.build_body(
+            choice_in_dim,
+            arch.choice_layers,
+            activation=arch.activation,
+            dropout=arch.dropout,
+            layernorm=arch.layernorm,
+            final_activation=False,
         )
         # One scoring head per judgment family, each a readout MLP over the M+N
         # concat. The trunk + choice-encoder are shared; specialization lives
         # here. ``family_idx`` routes each decision to its head in ``forward``.
         scorer_in_dim = arch.trunk_embed_width + arch.choice_embed_width
         self.scorers = nn.ModuleList(
-            _build_readout(scorer_in_dim, arch.head_layers_for(family_index), arch)
+            mlp.build_readout(
+                scorer_in_dim,
+                arch.head_layers_for(family_index),
+                activation=arch.activation,
+                dropout=arch.dropout,
+            )
             for family_index in range(num_families)
         )
         # The value head reads the trunk context (a property of the board, not of
         # the decision asked, so it is shared across families).
-        self.value_head = _build_readout(
-            arch.trunk_embed_width, arch.value_layers, arch
+        self.value_head = mlp.build_readout(
+            arch.trunk_embed_width,
+            arch.value_layers,
+            activation=arch.activation,
+            dropout=arch.dropout,
         )
 
     @classmethod
@@ -320,7 +347,11 @@ class PolicyValueNet(nn.Module):
 
         When ``use_distinct_hand_model`` is on the 10-dim hand-summary stripe is
         removed from the continuous block and redirected into the hand encoder,
-        so the trunk's continuous feed is correspondingly narrower."""
+        so the trunk's continuous feed is correspondingly narrower. When
+        ``tray_set_embedding`` is also on, one tray-*set* embedding is appended:
+        the three tray index columns are turned into a derived multi-hot + set
+        summary and passed through the same hand encoder (the tray's three
+        per-slot ``card_table`` rows in ``slot_emb`` are untouched)."""
         off_index = encode.OFF_CARD_INDEX
         off_hand = encode.OFF_HAND_MULTIHOT
         off_decision = encode.OFF_DECISION_TYPE
@@ -349,8 +380,8 @@ class PolicyValueNet(nn.Module):
                 dim=-1,
             )
             hand_summary = state[:, hand_sum_off:hand_sum_end]
-            hand_emb = self.hand_encoder(
-                torch.cat([hand_multihot, hand_summary], dim=-1)
+            hand_emb = hand_model.embed_card_set(
+                self.hand_encoder, hand_multihot, hand_summary
             )
         else:
             continuous = torch.cat(
@@ -361,7 +392,23 @@ class PolicyValueNet(nn.Module):
             hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
             hand_emb = hand_sum / hand_count
 
-        return torch.cat([continuous, slot_emb, hand_emb], dim=-1)
+        if not self.arch.tray_set_embedding:
+            return torch.cat([continuous, slot_emb, hand_emb], dim=-1)
+
+        # Tray-set embedding: the trailing TRAY_SIZE index columns become a
+        # derived multi-hot + set summary, embedded through the shared hand
+        # encoder as one more set vector beside the per-slot lookups.
+        tray_idx = card_idx[:, encode.N_BOARD_INDEX_SLOTS :]
+        tray_multihot = hand_model.multihot_from_indices(
+            tray_idx, encode.HAND_MULTIHOT_DIM
+        )
+        tray_summary = hand_model.set_summary_from_indices(
+            tray_idx, self.card_summary_matrix
+        )
+        tray_set_emb = hand_model.embed_card_set(
+            self.hand_encoder, tray_multihot, tray_summary
+        )
+        return torch.cat([continuous, slot_emb, tray_set_emb, hand_emb], dim=-1)
 
     def _embed_choices(
         self, choices: torch.Tensor, card_table: torch.Tensor
@@ -388,62 +435,3 @@ class PolicyValueNet(nn.Module):
         cand_emb = bird_multihot @ card_table[1:]
         board_emb = card_table[board_idx].reshape(*board_idx.shape[:-1], -1)
         return torch.cat([rest, cand_emb, board_emb], dim=-1)
-
-
-###### PRIVATE #######
-
-
-def _activation_module(name: architecture.ActivationName) -> nn.Module:
-    """A fresh activation module for the descriptor's chosen function."""
-    return _ACTIVATIONS[name]()
-
-
-def _build_body(
-    in_dim: int,
-    widths: architecture.Widths,
-    arch: architecture.ModelArchitecture,
-    *,
-    final_activation: bool,
-) -> tuple[nn.Sequential, int]:
-    """Build a body MLP — the trunk or the choice encoder — and return it with
-    its output width. Each layer is ``Linear`` → (optional) ``LayerNorm`` →
-    activation → (optional) ``Dropout``; the activation + dropout on the final
-    layer are emitted only when ``final_activation`` (the trunk keeps a trailing
-    activation, the choice encoder does not). LayerNorm — when enabled on the
-    architecture — is applied to these body blocks; the readout heads omit it."""
-    modules: list[nn.Module] = []
-    prev = in_dim
-    last_index = len(widths) - 1
-    for index, width in enumerate(widths):
-        modules.append(nn.Linear(prev, width))
-        if arch.layernorm:
-            modules.append(nn.LayerNorm(width))
-        if final_activation or index != last_index:
-            modules.append(_activation_module(arch.activation))
-            if arch.dropout > 0.0:
-                modules.append(nn.Dropout(arch.dropout))
-        prev = width
-    return nn.Sequential(*modules), prev
-
-
-def _build_readout(
-    in_dim: int,
-    widths: architecture.Widths,
-    arch: architecture.ModelArchitecture,
-) -> nn.Sequential:
-    """Build a scalar-readout MLP (a scorer head or the value head): the hidden
-    ``widths`` as ``Linear`` → activation → (optional) ``Dropout`` blocks, then a
-    final ``Linear(·, 1)`` with no activation. Empty ``widths`` collapses to a
-    single ``Linear(in_dim, 1)`` — the original head shapes (scorer ``(M+N)→…→1``
-    over the trunk/choice concat, value head ``M→1`` over the trunk) when the
-    defaults are used."""
-    modules: list[nn.Module] = []
-    prev = in_dim
-    for width in widths:
-        modules.append(nn.Linear(prev, width))
-        modules.append(_activation_module(arch.activation))
-        if arch.dropout > 0.0:
-            modules.append(nn.Dropout(arch.dropout))
-        prev = width
-    modules.append(nn.Linear(prev, 1))
-    return nn.Sequential(*modules)

@@ -177,6 +177,15 @@ class TrainConfig(pydantic.BaseModel):
     # is True; defaults match card_encoder_layers so toggling on starts from the same
     # structure. Fresh run.
     hand_encoder_layers: architecture.Widths = (128,)
+    # Output width N of the hand encoder — the multi-card *set* embedding's width,
+    # its own knob beside the single-card card_embed_dim (M). None = match
+    # card_embed_dim (the pre-knob shape). Active only when use_distinct_hand_model
+    # is on. Fresh run.
+    hand_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] | None = None
+    # Append one hand-encoder embedding of the face-up tray *set* to the trunk
+    # input (the tray's three per-slot card-table lookups are unchanged, giving
+    # 3·M + N tray dims). Requires use_distinct_hand_model. Fresh run.
+    tray_set_embedding: bool = False
 
     # ---- setup model (TRAINING.md / DECISIONS.md: the start-of-game keep) ----
     # When enabled (the default), the start-of-game setup decision is pulled out of
@@ -379,6 +388,8 @@ class TrainConfig(pydantic.BaseModel):
             card_encoder_layers=self.card_encoder_layers,
             use_distinct_hand_model=self.use_distinct_hand_model,
             hand_encoder_layers=self.hand_encoder_layers,
+            hand_embed_dim=self.hand_embed_dim,
+            tray_set_embedding=self.tray_set_embedding,
         )
 
     @property
@@ -394,12 +405,33 @@ class TrainConfig(pydantic.BaseModel):
         )
 
     @property
-    def setup_architecture_key(self) -> tuple[int, setup_model.SetupShapeKey]:
+    def setup_architecture_key(
+        self,
+    ) -> tuple[
+        int,
+        setup_model.SetupShapeKey,
+        tuple[tuple[int, ...], int, bool, bool, tuple[int, ...], int],
+    ]:
         """The setup-net shape signature a ``setup.pt`` must match to be resumed:
-        the encoder's feature width and the MLP's hidden shape. Independent of the
-        main net's ``architecture_key`` — toggling the setup model never
-        invalidates the main net's weights."""
-        return (setup_model.SETUP_FEATURE_DIM, self.setup_arch.shape_key)
+        the encoder's feature width, the readout MLP's hidden shape, and the
+        frozen embedder copies' shape components from the main architecture
+        (their widths size the setup net's tensors too). Independent of the main
+        net's ``architecture_key`` — toggling the setup model never invalidates
+        the main net's weights, though reshaping the shared embedders restarts
+        both nets (each via its own key)."""
+        arch = self.arch
+        return (
+            setup_model.SETUP_FEATURE_DIM,
+            self.setup_arch.shape_key,
+            (
+                arch.card_encoder_layers,
+                arch.card_embed_dim,
+                arch.layernorm,
+                arch.use_distinct_hand_model,
+                arch.hand_encoder_layers,
+                arch.hand_embed_width,
+            ),
+        )
 
     @property
     def trunk_hidden(self) -> int:
