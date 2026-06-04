@@ -6,11 +6,11 @@ training checkpoint, so the three modes random/random, random/AI and AI/AI all
 run through one command.
 
 When a seat is AI-driven, the agent annotates the game log at every genuine
-decision with the policy's softmax distribution over the legal options — sorted
-best-first, filtered to the top ``_MAX_LOGGED_OPTIONS`` options at or above
-``_MIN_PROB_PCT`` — turning the log into a readable move-by-move analysis of what
-the network was thinking. Forced moves (a single legal option) are not annotated,
-matching the engine's rule that they are not real decisions.
+decision with the policy's top-``_MAX_LOGGED_OPTIONS`` options sorted best-first,
+each showing its raw pre-softmax score and softmax probability. Forced moves (a
+single legal option) are not annotated. When running with temperature sampling
+(not ``--greedy``) an ``[AI chose: ...]`` line follows the ranked list to record
+which option was actually sampled.
 
 Usage: ``python -m wingspan.cli selfplay --help`` or ``wingspan-selfplay --help``.
 """
@@ -39,7 +39,7 @@ from wingspan.training import setup_runmeta
 # (a percent). Together they keep the log readable when a decision has hundreds
 # of legal options (e.g. the setup deal) while the policy spreads only a little
 # mass across most of them.
-_MAX_LOGGED_OPTIONS = 30
+_MAX_LOGGED_OPTIONS = 5
 _MIN_PROB_PCT = 1.0
 _SMALL_DECISION_THRESHOLD = 5
 
@@ -307,14 +307,17 @@ def _load_setup_net(
         return None
 
 
-def _compute_setup_probs(
+def _compute_setup_scores_and_probs(
     net_instance: setup_net_module.SetupNet,
     decision: decisions.SetupDecision,
     eng: engine.Engine,
     device: torch.device,
-) -> np.ndarray:
-    """Score every choice in ``decision`` through the setup net and return a
-    softmax probability distribution aligned to ``decision.choices``."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Score every choice in ``decision`` through the setup net.
+
+    Returns ``(margins, probs)`` where ``margins`` is the raw per-choice score
+    vector and ``probs`` is the softmax distribution, both aligned to
+    ``decision.choices``."""
     context = setup_model.SetupContext.from_state(eng.state)
 
     # Encode each choice using the same candidate → feature-vector path the
@@ -333,7 +336,7 @@ def _compute_setup_probs(
 
     shifted = margins - margins.max()
     weights = np.exp(shifted)
-    return weights / weights.sum()
+    return margins, weights / weights.sum()
 
 
 #### The log-annotating policy agent ####
@@ -365,27 +368,32 @@ def _logged_policy_agent(
             if setup_net is None:
                 return decisions.random_choice(decision, eng.state.rng)
             setup_decision = typing.cast(decisions.SetupDecision, decision)
-            probs = _compute_setup_probs(setup_net, setup_decision, eng, device)
-            _log_distribution(eng, decision, probs, greedy)
+            scores, probs = _compute_setup_scores_and_probs(
+                setup_net, setup_decision, eng, device
+            )
+            _log_distribution(eng, decision, probs, greedy, scores=scores)
             n_choices = len(decision.choices)
             if greedy:
                 chosen_idx = int(np.argmax(probs))
             else:
                 chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
             chosen = decision.choices[chosen_idx]
-            eng.log(
-                f"[AI chose: {chosen.display_label()} "
-                f"({float(probs[chosen_idx]) * 100.0:.1f}%)]"
-            )
+            if not greedy:
+                eng.log(
+                    f"[AI chose: {chosen.display_label()} "
+                    f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
+                )
             return chosen
 
         # One forward pass gives the full distribution over the legal options.
         family_idx = decisions.family_index_for(type(decision))
         state_vec = encode.encode_state(eng.state, decision, net.spec)
         choice_feats = encode.encode_choices(decision, eng.state, net.spec)
-        probs = policy.policy_probs(net, device, state_vec, choice_feats, family_idx)
+        logits, probs = policy.policy_logits_and_probs(
+            net, device, state_vec, choice_feats, family_idx
+        )
 
-        _log_distribution(eng, decision, probs, greedy)
+        _log_distribution(eng, decision, probs, greedy, scores=logits)
 
         # Pick from the same probs already in hand: argmax for greedy strength
         # play, otherwise the on-policy sampling rule. Calling np.argmax directly
@@ -397,10 +405,11 @@ def _logged_policy_agent(
             chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
 
         chosen = decision.choices[chosen_idx]
-        eng.log(
-            f"[AI chose: {chosen.display_label()} "
-            f"({float(probs[chosen_idx]) * 100.0:.1f}%)]"
-        )
+        if not greedy:
+            eng.log(
+                f"[AI chose: {chosen.display_label()} "
+                f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
+            )
         return chosen
 
     return agent
@@ -411,9 +420,12 @@ def _log_distribution[C: decisions.Choice](
     decision: decisions.Decision[C],
     probs: np.ndarray,
     greedy: bool,
+    scores: np.ndarray | None = None,
 ) -> None:
-    """Append the ranked, filtered option list for one decision to the game log:
-    a header line, then one line per shown option (rank, probability, label)."""
+    """Append the ranked option list for one decision to the game log: a header
+    line, then one line per shown option (rank, softmax probability, optional raw
+    score, label). At most ``_MAX_LOGGED_OPTIONS`` options are shown; options below
+    ``_MIN_PROB_PCT`` are suppressed for large decisions."""
     n_choices = len(decision.choices)
     ranked = sorted(range(n_choices), key=lambda idx: float(probs[idx]), reverse=True)
     min_prob = 0.0 if n_choices < _SMALL_DECISION_THRESHOLD else _MIN_PROB_PCT / 100.0
@@ -425,8 +437,11 @@ def _log_distribution[C: decisions.Choice](
     eng.log(f"[AI: {type(decision).__name__} | {n_choices} choices{mode}]")
     for rank, option_idx in enumerate(shown, start=1):
         prob_pct = float(probs[option_idx]) * 100.0
+        score_str = (
+            f"  ({float(scores[option_idx]):+6.2f})" if scores is not None else ""
+        )
         label = decision.choices[option_idx].display_label()
-        eng.log(f"  {rank:2d}. {prob_pct:5.1f}%  {label}")
+        eng.log(f"  {rank:2d}.  {prob_pct:6.3f}%{score_str}  {label}")
 
 
 #### Log file output ####
