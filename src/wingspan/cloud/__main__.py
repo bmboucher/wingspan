@@ -73,7 +73,7 @@ def _configure_logging() -> None:
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="wingspan-cloud",
+        prog="wingspan cloud",
         description="Run one Wingspan training run headless, persisting to S3.",
     )
     parser.add_argument(

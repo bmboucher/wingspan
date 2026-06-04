@@ -30,14 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-wingspan-play = "wingspan.cli:main_manual"
-wingspan-random = "wingspan.cli:main_random"
-wingspan-selfplay = "wingspan.selfplay:main_selfplay"
-wingspan-dashboard = "wingspan.training.app:main"
-wingspan-tournament = "wingspan.tournament.app:main"
-wingspan-cloud = "wingspan.cloud.__main__:main"
-wingspan-monitor = "wingspan.cloud.monitor:main"
-wingspan-inspect = "wingspan.introspect:main_inspect"
+wingspan = "wingspan.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

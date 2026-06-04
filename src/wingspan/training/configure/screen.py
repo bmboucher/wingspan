@@ -1,5 +1,5 @@
-"""Assembles the configurator screen — the "FLIGHT PLAN" that precedes FLYWAY
-CONTROL — from a :class:`state.ConfiguratorState` snapshot.
+"""Assembles the FLIGHT PLAN configurator screen from a
+:class:`state.ConfiguratorState` snapshot.
 
 :func:`build` returns a fresh renderable each frame (rebuilt rather than region-
 patched, so the modal confirmation can replace the whole body — a rich

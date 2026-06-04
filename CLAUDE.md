@@ -13,7 +13,7 @@ changes stay consistent.
 - The long-term goal is to run enough self-play training to answer
   analytical questions about the game — card power rankings, bonus-card
   value, food / habitat economy, opening-hand selection, etc. The current
-  surface (manual CLI, configurable self-play matchups, the FLYWAY CONTROL
+  surface (manual CLI, configurable self-play matchups, the FLIGHT PLAN
   training dashboard, round-robin tournaments between trained runs, cloud
   runs) is the starting point, not the destination; design for scaling up
   training (more episodes, smarter algorithms, richer introspection) rather
@@ -194,26 +194,26 @@ Never do any of the following to get past a failing script:
 
 ```
 pip install -e ".[dev]"                               # runtime + pyright/black/isort/pytest
-python -m wingspan.cli manual                         # human vs random
-python -m wingspan.cli random --log game.log          # watch a random game
-python -m wingspan.cli selfplay --p0 best --p1 random # trained-checkpoint matchups (wingspan-selfplay)
-python -m wingspan.training --device cpu              # live training dashboard ("FLYWAY CONTROL")
-python -m wingspan.training --config                  # interactive configurator ("FLIGHT PLAN")
-python -m wingspan.cli tournament                     # round-robin between trained runs (wingspan-tournament)
-wingspan-inspect --checkpoint-dir checkpoints         # model introspection report
+wingspan play                                         # human vs random
+wingspan random --log game.log                        # watch a random game
+wingspan selfplay --p0 best --p1 random               # trained-checkpoint matchups
+wingspan dashboard --device cpu                       # FLIGHT PLAN (config → training)
+wingspan tournament                                   # round-robin between trained AIs
+wingspan inspect --checkpoint-dir checkpoints         # model introspection report
+wingspan cloud --config run.yaml                      # headless S3-persisted training
+wingspan monitor --bucket <bucket> --prefix runs      # FLOCK WATCH roster
 python -m pytest tests/
 ```
 
 Training is CPU-only — collection fans out across worker processes and the
 gradient update is small, so no GPU is required (CUDA still works for one-off
 experiments but is not the supported path).
-`python -m wingspan.training` (the `wingspan.training` package, console script
-`wingspan-dashboard`) is the `top`-style live training + monitoring app that
-implements the TRAINING.md Phase-0/1 program (length-bucketed update, advantage
-normalization, paired eval vs random, resumable checkpoints) behind a `rich`
-dashboard. Collection is fastest on `--device cpu` (TRAINING.md §1.4).
-Containerized S3-persisted runs go through `wingspan-cloud` (see `deploy/`);
-`wingspan-monitor` is the read-only FLOCK WATCH roster of cloud runs.
+`wingspan dashboard` (or `python -m wingspan.training`) opens the FLIGHT PLAN
+screen first — tune any hyperparameters, then start or resume a run, which
+transitions into the live training display. Collection is fastest on
+`--device cpu` (TRAINING.md §1.4). Containerized S3-persisted runs go through
+`wingspan cloud` (see `deploy/`); `wingspan monitor` is the read-only FLOCK
+WATCH roster of cloud runs.
 
 ## Quality gate
 

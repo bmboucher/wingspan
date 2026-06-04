@@ -135,7 +135,7 @@ def _eta_cell(eta_seconds: float | None) -> str:
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="wingspan-monitor",
+        prog="wingspan monitor",
         description="Watch all Wingspan cloud runs from their S3 status snapshots.",
     )
     parser.add_argument("--bucket", required=True, help="the S3 bucket holding runs")

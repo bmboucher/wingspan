@@ -12,7 +12,8 @@ from wingspan import agents, cards, engine, selfplay
 
 def main_manual(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Play a Wingspan game manually against a random opponent."
+        prog="wingspan play",
+        description="Play a Wingspan game manually against a random opponent.",
     )
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
@@ -54,7 +55,8 @@ def main_manual(argv: list[str] | None = None) -> int:
 
 def main_random(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run a random-vs-random Wingspan game."
+        prog="wingspan random",
+        description="Run a random-vs-random Wingspan game.",
     )
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(

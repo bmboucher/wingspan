@@ -6,8 +6,8 @@ configures a run; the same file relaunched resumes it.
 
 ## How it works
 
-`wingspan.cloud` wraps the existing `TrainingLoop` (the FLYWAY CONTROL worker)
-with an S3 sync sidecar and runs it headless:
+`wingspan.cloud` wraps the existing `TrainingLoop` (the FLIGHT PLAN training
+worker) with an S3 sync sidecar and runs it headless:
 
 - **One run-file** (`run.example.yaml`) holds everything: `run_name`, the `s3`
   target (bucket/prefix/region — **no credentials**), the `sync` cadences, and a
@@ -74,7 +74,7 @@ not to use Terraform.
 ## Monitor all runs
 
 ```
-wingspan-monitor --bucket <bucket> --prefix runs --region <region>
+wingspan monitor --bucket <bucket> --prefix runs --region <region>
 ```
 
 A live roster reading each run's `status.json`: an in-flight LED (fresh heartbeat

@@ -1,4 +1,4 @@
-"""The configurator's input loop — the worker side of the FLIGHT PLAN screen.
+"""The FLIGHT PLAN input loop — the worker side of the configurator screen.
 
 :func:`run_configurator` opens a ``rich`` ``Live`` on the alternate screen, polls
 keys without blocking (so the screen reflows on resize and the edit caret

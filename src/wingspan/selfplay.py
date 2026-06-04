@@ -18,7 +18,7 @@ under the ``split_setup_bonus`` regime gets a bonus-free ``SetupDecision`` with
 the bonus deferred to the in-game ``CHOOSE_BONUS`` pick, exactly as in training.
 Config-free (random-only) matchups keep the engine's combined default.
 
-Usage: ``python -m wingspan.cli selfplay --help`` or ``wingspan-selfplay --help``.
+Usage: ``wingspan selfplay --help`` or ``python -m wingspan.cli selfplay --help``.
 """
 
 from __future__ import annotations
@@ -128,7 +128,8 @@ def _build_parser() -> argparse.ArgumentParser:
     spec: ``random``, a named checkpoint (``last`` / ``best`` / ``opponent``),
     or a direct path to a ``.pt`` file."""
     parser = argparse.ArgumentParser(
-        description="Run Wingspan selfplay games with configurable agent matchups."
+        prog="wingspan selfplay",
+        description="Run Wingspan selfplay games with configurable agent matchups.",
     )
     spec_help = (
         "Agent for player %s: 'random', a named checkpoint "

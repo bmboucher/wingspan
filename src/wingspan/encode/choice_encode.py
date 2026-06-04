@@ -68,7 +68,7 @@ def encode_choices(
     # such decision floods the log and adds per-call overhead in the hot path —
     # dedupe by class name so it fires once per class per process. Logged at INFO
     # (it is informational, not a fault): it still reaches the dashboard's file
-    # log but never the console, so it can't flicker the live "FLYWAY CONTROL"
+    # log but never the console, so it can't flicker the live FLIGHT PLAN
     # display the way a WARNING surfaced by a stray stderr handler would.
     if (
         n_choices > layout.SOFT_CHOICE_WARN_THRESHOLD

@@ -1,4 +1,4 @@
-"""Custom Rich renderables for the FLYWAY CONTROL dashboard.
+"""Custom Rich renderables for the FLIGHT PLAN training dashboard.
 
 The convergence chart, the decision-family histogram, and the small bar /
 sparkline helpers the rest of the dashboard reuses. Each chart is a real

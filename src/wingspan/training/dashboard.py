@@ -1,6 +1,6 @@
 """Assembles the live dashboard: the Layout tree and the per-region renderers.
 
-``build_layout`` creates the four-band "FLYWAY CONTROL" skeleton once;
+``build_layout`` creates the four-band FLIGHT PLAN training skeleton once;
 ``render`` repaints it from a :class:`runstate.RunState` snapshot each frame.
 The bands, top to bottom, read as a guided narrative: WHERE AM I (header) ->
 IN-GAME PERFORMANCE / DECISION MODELS (middle) -> TRAINING IMPROVEMENT (the
@@ -20,7 +20,7 @@ from rich import box, layout, panel, table, text
 
 from wingspan.training import charts, metrics, runstate, theme
 
-_WORDMARK = "🪶 WINGSPAN  FLYWAY CONTROL"
+_WORDMARK = "🪶 WINGSPAN  FLIGHT PLAN"
 _SPARK_CELLS = 8
 # RECENT EVENTS lines that fill the footer band: its ``size=8`` minus the
 # panel's top and bottom border rows leaves six content rows.

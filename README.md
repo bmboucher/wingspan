@@ -30,10 +30,10 @@ CPU is the supported path.)
 ## Play a game interactively
 
 ```
-python -m wingspan.cli manual                 # you are player 0 vs a random opponent
-python -m wingspan.cli manual --you 1         # control player 1 instead
-python -m wingspan.cli manual --both-human    # two humans, hotseat on one keyboard
-python -m wingspan.cli manual --seed 42       # reproducible deal
+wingspan play                 # you are player 0 vs a random opponent
+wingspan play --you 1         # control player 1 instead
+wingspan play --both-human    # two humans, hotseat on one keyboard
+wingspan play --seed 42       # reproducible deal
 ```
 
 The game presents a numbered menu for every choice the rules require — pick a
@@ -46,10 +46,10 @@ For quick games with no prompts — useful for logs, debugging, or sanity checks
 two **random** agents can play to completion:
 
 ```
-python -m wingspan.cli random                            # one game, prints the result
-python -m wingspan.cli random --games 5                  # five games back to back
-python -m wingspan.cli random --log game.log             # write the full action-by-action log
-python -m wingspan.cli random --games 5 --log games.log  # writes games.log.0 .. games.log.4
+wingspan random                            # one game, prints the result
+wingspan random --games 5                  # five games back to back
+wingspan random --log game.log             # write the full action-by-action log
+wingspan random --games 5 --log games.log  # writes games.log.0 .. games.log.4
 ```
 
 To pit a *trained* network against itself, a frozen past self, or the random
@@ -64,10 +64,10 @@ go through one command. Set each seat with `--p0` / `--p1`; the value is
 `--checkpoint-dir`), or a path to a `.pt` file:
 
 ```
-python -m wingspan.cli selfplay --p0 best                            # trained "best" vs random
-python -m wingspan.cli selfplay --p0 best --p1 opponent --games 10   # best vs the frozen ladder rung
-python -m wingspan.cli selfplay --p0 best --p1 best --greedy --log ai.log  # best vs itself, argmax play
-python -m wingspan.cli selfplay --p0 runs/exp/last.pt --p1 random    # a checkpoint by path
+wingspan selfplay --p0 best                            # trained "best" vs random
+wingspan selfplay --p0 best --p1 opponent --games 10   # best vs the frozen ladder rung
+wingspan selfplay --p0 best --p1 best --greedy --log ai.log  # best vs itself, argmax play
+wingspan selfplay --p0 runs/exp/last.pt --p1 random    # a checkpoint by path
 ```
 
 When a seat is AI-driven, every genuine decision is annotated in the game log
@@ -78,43 +78,23 @@ the log into a move-by-move readout of what the network was "thinking".
 
 ## Train an agent
 
-The main training app is a live, `top`-style dashboard ("FLYWAY CONTROL") that
-runs self-play, learns from it, evaluates against a random opponent, and
-checkpoints as it goes:
+The training app is **FLIGHT PLAN** — a full-screen TUI that opens on a
+configuration screen first, then transitions to a live `top`-style dashboard
+once a run is started or resumed:
 
 ```
-python -m wingspan.training                    # CPU self-play (the supported path)
-python -m wingspan.training --games-per-iter 256 --eval-every 5 --eval-games 128
+wingspan dashboard                    # open FLIGHT PLAN (always starts in config)
+wingspan dashboard --device cpu       # force CPU (the supported path)
+wingspan dashboard --games-per-iter 256 --eval-every 5 --eval-games 128
 ```
 
-It runs until you press **Ctrl+C**, which asks it to finish the current game,
-save a final checkpoint, and print a summary. As strength improves the
-evaluation opponent advances from the random agent to frozen past selves (a
-self-play ladder). Checkpoints (`last.pt`, `best.pt`, the frozen `opponent.pt`),
-a per-iteration `metrics.jsonl`, and a per-game `games.jsonl` are written to the
-checkpoint directory (`checkpoints/` by default; change it with
-`--checkpoint-dir`), and runs are resumable. Pass `--iterations N` to stop
-automatically after N rounds instead.
-
-You can also set a **target-iteration** milestone (in the configurator below):
-the run pauses there, runs a large fixed-model self-play evaluation, and waits
-for you to **[C]ontinue** — optionally entering a new target — or **[E]nd** the
-run and return to the configurator.
-
-### Configure a run
-
-```
-python -m wingspan.training --config            # interactive "FLIGHT PLAN" configurator
-```
-
-`--config` opens a full-screen pre-flight screen for tuning every
-hyperparameter (learning rate, games/iteration, evaluation cadence,
-target-iteration milestone, network width, …) and managing the runs already in
-the checkpoint directory. Arrow keys move between fields, ←/→ nudge a value (or
-cycle a choice), and Enter edits one directly; every value is validated as you
-type. The screen shows whether the directory holds a resumable run and flags
-which edits would force a fresh start (changing the network width can't reuse old
-weights). From there:
+The config screen lets you tune every hyperparameter (learning rate,
+games/iteration, evaluation cadence, target-iteration milestone, network
+width, …) and manage the runs already in the checkpoint directory. Arrow keys
+move between fields, ←/→ nudge a value (or cycle a choice), and Enter edits
+one directly; every value is validated as you type. The screen shows whether
+the directory holds a resumable run and flags which edits would force a fresh
+start (changing the network width can't reuse old weights). From there:
 
 - **Start** resumes a compatible run, or starts a fresh one in an empty
   directory.
@@ -123,25 +103,41 @@ weights). From there:
   its checkpoints, metrics, and log — before the new run begins, so a long
   training run is never silently overwritten.
 
-Starting or resuming transitions straight into the FLYWAY CONTROL dashboard.
+Once started, the dashboard runs until you press **Ctrl+C**, which asks it to
+finish the current game, save a final checkpoint, and print a summary. As
+strength improves the evaluation opponent advances from the random agent to
+frozen past selves (a self-play ladder). Checkpoints (`last.pt`, `best.pt`, the
+frozen `opponent.pt`), a per-iteration `metrics.jsonl`, and a per-game
+`games.jsonl` are written to the checkpoint directory (`checkpoints/` by
+default; change with `--checkpoint-dir`), and runs are resumable. Pass
+`--iterations N` to stop automatically after N rounds instead.
+
+You can also set a **target-iteration** milestone (in the config screen):
+the run pauses there, runs a large fixed-model self-play evaluation, and waits
+for you to **[C]ontinue** — optionally entering a new target — or **[E]nd** the
+run and return to the config screen.
 
 See [TRAINING.md](TRAINING.md) for the training program and
 [DECISIONS.md](DECISIONS.md) for the per-decision modelling direction.
 
 ## Installed commands
 
-After `pip install -e .` the same entry points are available as plain commands:
+After `pip install -e .` all tools are available through a single `wingspan`
+command with subcommands:
 
-| Command               | Equivalent to                       |
-| --------------------- | ----------------------------------- |
-| `wingspan-play`       | `python -m wingspan.cli manual`     |
-| `wingspan-random`     | `python -m wingspan.cli random`     |
-| `wingspan-selfplay`   | `python -m wingspan.cli selfplay`   |
-| `wingspan-dashboard`  | `python -m wingspan.training`       |
-| `wingspan-tournament` | `python -m wingspan.cli tournament` |
-| `wingspan-inspect`    | `python -m wingspan.introspect`     |
-| `wingspan-cloud`      | `python -m wingspan.cloud`          |
-| `wingspan-monitor`    | `python -m wingspan.cloud.monitor`  |
+| Command                 | What it does                                            |
+| ----------------------- | ------------------------------------------------------- |
+| `wingspan play`         | Interactive game against a random opponent              |
+| `wingspan random`       | Random-vs-random automated games                        |
+| `wingspan selfplay`     | Configurable per-seat agent matchups (random or AI)     |
+| `wingspan dashboard`    | FLIGHT PLAN: config screen → live training dashboard    |
+| `wingspan tournament`   | Round-robin tournament between trained AIs              |
+| `wingspan inspect`      | Model introspection report (vectors, architecture, params) |
+| `wingspan cloud`        | Headless S3-persisted training (container use)          |
+| `wingspan monitor`      | FLOCK WATCH: live roster of cloud runs                  |
+
+Run `wingspan --help` for the full list, or `wingspan <command> --help` for
+per-command usage.
 
 ## Tests
 

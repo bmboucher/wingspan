@@ -41,11 +41,11 @@ _STOP_GRACE_SECONDS = 30.0
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for ``python -m wingspan.training`` / ``wingspan-dashboard``.
+    """Entry point for ``wingspan dashboard`` / ``python -m wingspan.training``.
 
-    With ``--config`` the interactive FLIGHT PLAN configurator runs first; the
-    config it returns (or the parsed flags otherwise) is then trained + monitored
-    on the FLYWAY CONTROL dashboard.
+    The FLIGHT PLAN configurator always opens first — tune any hyperparameters,
+    then start or resume a run, which transitions into the live training display.
+    Quitting the configurator without launching exits the process cleanly.
 
     When the training loop ends with the user choosing ``[E]nd run`` at a target
     milestone, the run is archived and the configurator is reopened so the user
@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     cfg = _config_from_namespace(args)
     term = console.Console()
-    show_config = args.config
+    show_config = True
     while True:
         if show_config:
             result = configure.run_configurator(cfg, term, torch.cuda.is_available())
@@ -210,7 +210,7 @@ def _handle_pause_key(
 def _print_summary(term: console.Console, state: runstate.RunState) -> None:
     """Plain-text recap printed to the restored terminal after the Live exits."""
     avg = state.avg_breakdown()
-    term.rule("[bold]WINGSPAN // FLYWAY CONTROL — run summary[/bold]")
+    term.rule("[bold]WINGSPAN // FLIGHT PLAN — run summary[/bold]")
     term.print(
         f"  phase            : {state.phase.value}\n"
         f"  iterations       : {state.iteration + 1 if state.last_iter else 0}\n"
@@ -248,13 +248,8 @@ def _print_summary(term: console.Console, state: runstate.RunState) -> None:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     default_device = "cuda" if torch.cuda.is_available() else "cpu"
     parser = argparse.ArgumentParser(
-        prog="wingspan-dashboard",
+        prog="wingspan dashboard",
         description="Run and live-monitor Wingspan self-play training (TRAINING.md Phase 1).",
-    )
-    parser.add_argument(
-        "--config",
-        action="store_true",
-        help="open the interactive FLIGHT PLAN configurator before training",
     )
     parser.add_argument("--device", default=default_device, help="cpu or cuda")
     parser.add_argument("--games-per-iter", type=int, default=256)

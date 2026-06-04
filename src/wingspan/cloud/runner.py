@@ -1,7 +1,7 @@
 """The headless supervisor: run the training loop unattended with S3 persistence.
 
-``HeadlessRunner`` is the FLYWAY CONTROL worker with the dashboard replaced by an
-S3 sync sidecar. It pulls any prior run state down from S3, runs the same
+``HeadlessRunner`` is the FLIGHT PLAN training worker with the dashboard replaced
+by an S3 sync sidecar. It pulls any prior run state down from S3, runs the same
 :class:`~wingspan.training.loop.TrainingLoop` on a worker thread, and on the main
 thread periodically publishes a tiny status snapshot, uploads the checkpoint set,
 and offloads the per-game log in chunks. ``SIGTERM`` / ``SIGINT`` (a Spot

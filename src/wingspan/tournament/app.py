@@ -277,7 +277,7 @@ def _resolve_device(device: str) -> str:
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="wingspan-tournament",
+        prog="wingspan tournament",
         description="Run a round-robin tournament between trained Wingspan AIs.",
     )
     parser.add_argument(

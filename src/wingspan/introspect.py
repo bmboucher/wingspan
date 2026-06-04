@@ -1,6 +1,6 @@
 """Model introspection CLI: state/choice vector layout, architecture, and parameters.
 
-Entry point: ``wingspan-inspect`` (or ``python -m wingspan.introspect``).
+Entry point: ``wingspan inspect`` (or ``python -m wingspan.introspect``).
 Prints four sections:
 
 1. **STATE VECTOR** — every stripe in the ``encode_state`` output, named,
@@ -36,10 +36,11 @@ from wingspan.training.configure import arch_diagram
 def main_inspect(argv: list[str] | None = None) -> int:
     """CLI entry point: print the model introspection report."""
     parser = argparse.ArgumentParser(
+        prog="wingspan inspect",
         description=(
             "Inspect the Wingspan model: state/choice vector layout, "
             "architecture, and parameter breakdown."
-        )
+        ),
     )
     parser.add_argument(
         "--checkpoint-dir",
