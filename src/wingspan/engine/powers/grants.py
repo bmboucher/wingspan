@@ -198,6 +198,7 @@ def _h_tuck_from_hand(
     bird = pb.bird
     for _ in range(eff.amount):
         if not player.hand:
+            engine.log_skipped_decision(player.id, "no choices")
             break
         choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
             decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
@@ -233,6 +234,7 @@ def _h_tuck_from_hand_then_draw(
 
     bird = pb.bird
     if not player.hand:
+        engine.log_skipped_decision(player.id, "no choices")
         return
     choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
         decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
@@ -268,6 +270,7 @@ def _h_tuck_from_hand_then_lay_on_this(
     """Tuck 1 from hand (optional); if accepted, optionally lay 1 egg on this bird."""
     bird = pb.bird
     if not player.hand:
+        engine.log_skipped_decision(player.id, "no choices")
         return
     choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
         decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
@@ -290,6 +293,7 @@ def _h_tuck_from_hand_then_lay_on_this(
     # Offer the optional lay-on-this-bird.
     cap = bird.egg_limit - pb.eggs
     if cap <= 0:
+        engine.log_skipped_decision(player.id, "no choices")
         return
     row = player.board[habitat]
     slot = next(idx for idx, slot_pb in enumerate(row) if slot_pb is pb)
@@ -330,6 +334,7 @@ def _h_tuck_from_hand_then_lay_any(
 
     bird = pb.bird
     if not player.hand:
+        engine.log_skipped_decision(player.id, "no choices")
         return
     choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
         decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
@@ -365,6 +370,7 @@ def _h_tuck_from_hand_then_gain_food_supply(
     """Tuck 1 from hand (optional); if accepted, gain N [food] from supply."""
     bird = pb.bird
     if not player.hand:
+        engine.log_skipped_decision(player.id, "no choices")
         return
     choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
         decisions.BirdChoice(label=card.name, bird=card) for card in player.hand

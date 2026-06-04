@@ -124,21 +124,20 @@ def _h_repeat_brown_power(
     if not others:
         engine.log(f"  {bird.name}: no other brown bird here to repeat; skipped")
         return
-    if len(others) == 1:
-        target_pb = others[0]
-    else:
-        ch = engine.ask(
-            agent,
-            decisions.BirdPowerPickPlayedBirdDecision(
-                player_id=player.id,
-                prompt=f"[{player.name}] repeat which bird's brown power?",
-                choices=[
-                    decisions.PlayedBirdChoice(label=other.bird.name, played_bird=other)
-                    for other in others
-                ],
-            ),
-        )
-        target_pb = ch.played_bird
+    # ``ask``'s single-choice guard auto-resolves (and logs) the forced pick
+    # when only one repeatable bird is present.
+    ch = engine.ask(
+        agent,
+        decisions.BirdPowerPickPlayedBirdDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] repeat which bird's brown power?",
+            choices=[
+                decisions.PlayedBirdChoice(label=other.bird.name, played_bird=other)
+                for other in others
+            ],
+        ),
+    )
+    target_pb = ch.played_bird
     engine.log(f"  {bird.name}: repeats {target_pb.bird.name}'s power")
     for sub in target_pb.bird.power.effects:
         if sub.kind in (
@@ -175,21 +174,20 @@ def _h_repeat_predator_power(
     if not others:
         engine.log(f"  {bird.name}: no other predator here to repeat; skipped")
         return
-    if len(others) == 1:
-        target_pb = others[0]
-    else:
-        ch = engine.ask(
-            agent,
-            decisions.BirdPowerPickPlayedBirdDecision(
-                player_id=player.id,
-                prompt=f"[{player.name}] repeat which predator's power?",
-                choices=[
-                    decisions.PlayedBirdChoice(label=other.bird.name, played_bird=other)
-                    for other in others
-                ],
-            ),
-        )
-        target_pb = ch.played_bird
+    # ``ask``'s single-choice guard auto-resolves (and logs) the forced pick
+    # when only one repeatable predator is present.
+    ch = engine.ask(
+        agent,
+        decisions.BirdPowerPickPlayedBirdDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] repeat which predator's power?",
+            choices=[
+                decisions.PlayedBirdChoice(label=other.bird.name, played_bird=other)
+                for other in others
+            ],
+        ),
+    )
+    target_pb = ch.played_bird
     engine.log(f"  {bird.name}: repeats {target_pb.bird.name}'s predator power")
     for sub in target_pb.bird.power.effects:
         if sub.kind == cards.EffectKind.PREDATOR_HUNT:

@@ -204,7 +204,8 @@ class Engine:
 
         A decision offering a single legal choice is *forced* — there is
         nothing to decide — so it is resolved here without consulting the
-        agent at all. This keeps every front-end consistent: the interactive
+        agent at all (the game log records the auto-pick so forced moves stay
+        visible). This keeps every front-end consistent: the interactive
         CLI never prompts a human to "pick" the only option, and the RL
         collector only ever sees genuine forks, so no zero-signal steps are
         recorded (DECISIONS.md §1.4) and a forced move costs no forward pass
@@ -215,6 +216,10 @@ class Engine:
         field equality, so an agent that constructs its own Choice with
         identical fields still resolves to the corresponding offered slot."""
         if len(decision.choices) == 1:
+            self.log_skipped_decision(
+                decision.player_id,
+                f"only 1 choice: {decision.choices[0].display_label()}",
+            )
             return decision.choices[0]
         self.instrumentation.making_decision(engine=self, decision=decision)
         choice: C = agent(self, decision)
@@ -230,6 +235,12 @@ class Engine:
 
     def log(self, msg: str) -> None:
         self.state.log.append(msg)
+
+    def log_skipped_decision(self, player_id: int, reason: str) -> None:
+        """Log that a decision point resolved without consulting the agent —
+        either auto-picked (``ask``'s single-choice guard) or never built
+        because no legal choice existed (handlers' empty-choices guards)."""
+        self.log(f"[{self.state.players[player_id].name}] skipping decision, {reason}")
 
     # ------------------------------------------------------------------
     # Decision plumbing

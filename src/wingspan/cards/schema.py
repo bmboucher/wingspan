@@ -16,6 +16,7 @@ public API of this module is:
 from __future__ import annotations
 
 import enum
+import re
 
 import pydantic
 
@@ -238,6 +239,13 @@ class Bird(pydantic.BaseModel):
     @property
     def primary_habitat(self) -> Habitat:
         return self.habitats[0]
+
+    @property
+    def plain_power_text(self) -> str:
+        """The printed power text with inline icon tags rendered to plain words
+        (``[card]`` -> ``card``); every tag's bracket content is already the
+        word (see ``cards.parse.tags``). Used by the game log."""
+        return re.sub(r"\[([^\]]+)\]", r"\1", self.raw_power_text)
 
 
 class BonusCard(pydantic.BaseModel):

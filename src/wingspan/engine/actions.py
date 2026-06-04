@@ -156,6 +156,7 @@ def discard_an_egg(
                     )
                 )
     if not choices:
+        engine.log_skipped_decision(player.id, "no choices")
         return
     ch = engine.ask(
         agent,
@@ -310,10 +311,10 @@ def take_one_from_feeder(
     avail: list[cards.Food],
     reason: str,
 ) -> None:
-    """Pull one die from the birdfeeder into ``player``'s food. If only one food
-    type is offered the choice is auto-resolved; otherwise the agent picks.
-    ``avail`` must be non-empty and every entry must have a non-zero count
-    in the birdfeeder.
+    """Pull one die from the birdfeeder into ``player``'s food. The pick routes
+    through ``engine.ask``, whose single-choice guard auto-resolves (and logs) a
+    one-option gain without consulting the agent. ``avail`` must be non-empty
+    and every entry must have a non-zero count in the birdfeeder.
 
     The optional single-face reset is *not* offered here: callers compute
     ``avail`` from the feeder before calling, so they must invoke
@@ -323,28 +324,24 @@ def take_one_from_feeder(
     # ``avail`` is the set of foods this gain may take; ``gain_options`` expands it
     # into the distinct plain / choice-die ways to take each (see Birdfeeder).
     options = feeder.gain_options(avail)
-    if len(options) == 1:
-        chosen_food, from_choice_die = options[0]
-    else:
-        ch = engine.ask(
-            agent,
-            decisions.GainFoodDecision(
-                player_id=player.id,
-                prompt=f"[{player.name}] pick 1 from birdfeeder for {pb.bird.name}",
-                choices=[
-                    decisions.FoodChoice(
-                        label=feeder.gain_option_label(food, combo),
-                        food=food,
-                        from_choice_die=combo,
-                    )
-                    for food, combo in options
-                ],
-            ),
-        )
-        assert isinstance(ch, decisions.FoodChoice)
-        chosen_food, from_choice_die = ch.food, ch.from_choice_die
-    gain_feeder_die(engine, player, chosen_food, from_choice_die=from_choice_die)
-    engine.log(f"  {pb.bird.name}: +1 {chosen_food.value} from birdfeeder")
+    ch = engine.ask(
+        agent,
+        decisions.GainFoodDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] pick 1 from birdfeeder for {pb.bird.name}",
+            choices=[
+                decisions.FoodChoice(
+                    label=feeder.gain_option_label(food, combo),
+                    food=food,
+                    from_choice_die=combo,
+                )
+                for food, combo in options
+            ],
+        ),
+    )
+    assert isinstance(ch, decisions.FoodChoice)
+    gain_feeder_die(engine, player, ch.food, from_choice_die=ch.from_choice_die)
+    engine.log(f"  {pb.bird.name}: +1 {ch.food.value} from birdfeeder")
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +381,7 @@ def lay_one_egg(
         if pb.eggs < pb.bird.egg_limit
     ]
     if not choices:
+        engine.log_skipped_decision(player.id, "no choices")
         return
     ch = engine.ask(
         agent,
@@ -439,6 +437,7 @@ def draw_one_card(
     if engine.state.bird_deck or engine.state.bird_discard:
         choices.append(decisions.DrawSourceChoice(label="deck", source="deck"))
     if not choices:
+        engine.log_skipped_decision(player.id, "no choices")
         return
     ch = engine.ask(
         agent,
@@ -469,10 +468,16 @@ def activate_row_powers(
     player: state.Player,
     habitat: cards.Habitat,
 ) -> None:
-    """Trigger BROWN powers right-to-left in the activated row."""
+    """Trigger BROWN powers right-to-left in the activated row.
+
+    Every bird in the row gets a log header as it is visited — its power text
+    for a brown power, a "no brown power" note otherwise — so the detailed game
+    log accounts for the whole row even when a power fizzles or is declined."""
     for pb in reversed(player.board[habitat]):
         if pb.bird.color != cards.PowerColor.BROWN:
+            engine.log(f"[{player.name}] @ {pb.bird.name} - no brown power")
             continue
+        engine.log(f'[{player.name}] @ {pb.bird.name} - "{pb.bird.plain_power_text}"')
         pb.activations += 1
         powers.dispatch_power(engine, agent, player, pb, habitat, "activate")
 
