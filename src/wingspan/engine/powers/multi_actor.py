@@ -87,17 +87,42 @@ def _h_all_players_lay_egg_on_nest(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    # "All players lay 1 [egg] on any 1 [<nest>] bird." Wingspan's
-    # "All players" effects resolve starting with the active player and
-    # proceeding clockwise. The optional second sentence ("You may lay 1
-    # [egg] on 1 additional [<nest>] bird.") is encoded as ``eff.amount``
-    # extra optional layings the active player gets after every other
-    # player has resolved.
+    # "All players lay 1 [egg] on any 1 [<nest>] bird." The optional second
+    # sentence ("You may lay 1 [egg] on 1 additional [<nest>] bird.") is
+    # encoded as ``eff.amount`` extra optional layings the active player gets
+    # after the main round.
+    #
+    # Sequence:
+    #   1. P0 AcceptExchangeDecision — veto the whole power (exchange ledger
+    #      shows what P0 gains and what eligible opponents gain).
+    #   2. Non-active players, in turn order: if the active round goal rewards
+    #      birds-without-eggs, each gets their own AcceptExchangeDecision;
+    #      otherwise auto-yes and straight to LayEggDecision.
+    #   3. P0's mandatory base LayEggDecision.
+    #   4. P0's optional extra layings (existing ``eff.amount`` logic).
     st = engine.state
     bird = pb.bird
     assert eff.nest is not None, "ALL_PLAYERS_LAY_EGG_ON_NEST requires nest"
     nest = eff.nest
     extra_for_self = eff.amount
+    n_players = len(st.players)
+    active_idx = player.id
+
+    # Eligibility check — who has a matching bird with room?
+    p0_eligible = _has_eligible_bird_on_nest(player, nest)
+    opp_eligible_count = sum(
+        1
+        for offset in range(1, n_players)
+        if _has_eligible_bird_on_nest(
+            st.players[(active_idx + offset) % n_players], nest
+        )
+    )
+    if not p0_eligible and opp_eligible_count == 0:
+        engine.log(
+            f"  {bird.name}: no player has a [{nest.value}] bird with room; skipped"
+        )
+        return
+
     engine.log(
         f"  {bird.name}: all players lay 1 egg on a [{nest.value}] bird"
         + (
@@ -106,12 +131,71 @@ def _h_all_players_lay_egg_on_nest(
             else ""
         )
     )
-    n_players = len(st.players)
-    active_idx = player.id
-    for offset in range(n_players):
+
+    # Step 1: P0 veto — they commit to activating or cancel for everyone.
+    p0_commit = engine.ask(
+        agent,
+        decisions.AcceptExchangeDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] activate {bird.name}? (all players lay on [{nest.value}])",
+            choices=[
+                decisions.PayCostChoice(
+                    label="activate",
+                    gained_egg_count=1 if p0_eligible else 0,
+                    opp_gained_egg_count=opp_eligible_count,
+                ),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(p0_commit, decisions.SkipChoice):
+        engine.log(f"  {bird.name}: [{player.name}] skipped activation")
+        return
+
+    # Step 2: non-active players, in turn order from P0+1.
+    anti_egg_goal = st.round_goals[st.round_idx].category == "birds_no_eggs"
+    for offset in range(1, n_players):
         other_player = st.players[(active_idx + offset) % n_players]
+        if not _has_eligible_bird_on_nest(other_player, nest):
+            engine.log(
+                f"  {bird.name}: [{other_player.name}] has no [{nest.value}] bird with room; skipped"
+            )
+            continue
+        if anti_egg_goal:
+            opp_responder = engine.agent_for(other_player)
+            opp_ch = engine.ask(
+                opp_responder,
+                decisions.AcceptExchangeDecision(
+                    player_id=other_player.id,
+                    prompt=(
+                        f"[{other_player.name}] lay 1 egg on a [{nest.value}] bird? "
+                        f"(or skip) ({bird.name})"
+                    ),
+                    choices=[
+                        decisions.PayCostChoice(label="accept", gained_egg_count=1),
+                        decisions.SkipChoice(label="skip"),
+                    ],
+                ),
+            )
+            if isinstance(opp_ch, decisions.SkipChoice):
+                engine.log(f"  {bird.name}: [{other_player.name}] skipped optional egg")
+                continue
         dispatch.lay_one_egg_on_nest(engine, other_player, nest, label=bird.name)
+
+    # Step 3: P0's mandatory base egg.
+    dispatch.lay_one_egg_on_nest(engine, player, nest, label=bird.name)
+
+    # Step 4: P0's optional extra eggs.
     for _ in range(extra_for_self):
         dispatch.lay_one_egg_on_nest(
             engine, player, nest, label=bird.name, optional=True
         )
+
+
+def _has_eligible_bird_on_nest(player: state.Player, nest: cards.NestType) -> bool:
+    """Whether ``player`` has at least one bird of ``nest`` type with room for an egg."""
+    return any(
+        pb.bird.nest == nest and pb.eggs < pb.bird.egg_limit
+        for row in player.board.values()
+        for pb in row
+    )

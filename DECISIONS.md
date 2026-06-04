@@ -86,13 +86,13 @@ offset order:
 | Stripe | Width | Contents | Filled for |
 |---|---|---|---|
 | `kind` | 6 | one-hot: bird / food / habitat / payment / board_target / special | every row |
-| `gain_food` | 7 | 5 plain food faces + choice-die-as-invertebrate + choice-die-as-seed | food picks (gains *and* single-token spends) |
+| `gain_food` | 7 | 5 plain food faces + choice-die-as-invertebrate + choice-die-as-seed | food-type identifier: die gains, supply gains, and single-token spends — the *type* of the token, not the direction of flow |
 | `habitat` | 3 | habitat one-hot | play-bird rows, habitat picks, payment context |
 | `pay_food` | 5 | per-food payment counts (÷4) | payment multisets, named exchange costs, setup foods-spent |
 | `board_target` | 120 | 15 slots × 8 scalars: lay-flag, pay-flag, cached food ×5, tucked | egg add/remove targets; played-bird picks (context, no flag) |
 | `main_action` | 4 | one-hot over Gain Food / Lay Eggs / Draw Cards / Play Bird | main-action rows |
 | `special` | 2 | `is_skip`, `is_self` | skip rows; player-id rows |
-| `exchange` | 12 | pay→gain ledger (÷3): cards/food/eggs paid; food/eggs/cards/tucks/plays gained; 4 reserved opponent-gain terms | accept-exchange rows |
+| `exchange` | 12 | pay→gain ledger (÷3): cards/food/eggs paid; food/eggs/cards/tucks/plays gained; opponent-gain terms: `opp_food`, `opp_egg`, `opp_card`, `opp_tuck` — what a shared-benefit power additionally grants the opponent | accept-exchange rows |
 | `board_idx` | 15 | integer card index per board slot, embedded through the shared card table | wherever `board_target` is filled |
 | `bird_id` | 180 | bird identity one-hot (multi-hot for setup keeps), embedded through the shared card table — so the candidate's static attributes *and* its learned per-card vector arrive together | every bird-carrying row |
 | `bonus_id` | 26 | bonus-card identity one-hot | bonus picks, setup keeps |
@@ -259,23 +259,27 @@ SKIP_OPTIONAL.
 All three are mandatory; the yes/no, where one exists, lives upstream in
 `SKIP_OPTIONAL`.
 
-**What the choice rows carry.** Two genuinely different shapes:
+**What the choice rows carry.** Two genuinely different shapes, visible in the
+`kind` one-hot:
 
-- **Payment rows** (payment-kind): the candidate multiset's per-food counts on
+- **Payment rows** (`payment`-kind): the candidate multiset's per-food counts on
   the `pay_food` stripe, *plus decision-level context shared by every row* —
   the committed bird's identity (→ card table) and the destination habitat —
   so the head sees what the tokens are buying, not just the tokens leaving.
-- **Single-token rows** (food-kind): a one-hot on the `gain_food` stripe — the
-  *same* stripe gains use; nothing marks the row as a spend except the
-  decision-type one-hot and the head itself.
+- **Single-token rows** (`food`-kind): a one-hot on the `gain_food` stripe —
+  the same stripe used for food gains, because `gain_food` is a food-type
+  identifier, not a "gains" stripe. For a spend decision, the hot slot marks
+  *which token is being given up*; the direction (spend vs. gain) is encoded
+  by the decision-type one-hot, not by the row itself.
 
-**Variation within the family.** The starkest structural split of any family:
-payment rows and single-token rows populate disjoint stripes (`pay_food` +
-bird + habitat vs. `gain_food`), and payment rows are the only place in the
-game where identical context features ride along on every candidate. A head
-serving this family is really learning two sub-skills — "which multiset
-preserves my flexibility" and "which loose token do I miss least" — tied
-together by the shared notion of food value.
+**Variation within the family.** Two row shapes inside one head: payment-kind
+rows (multisets on `pay_food` + committed bird + habitat) and food-kind rows
+(a single food type on `gain_food`, no bird/habitat context). The model is
+effectively learning two sub-skills — "which multiset preserves my
+flexibility?" and "which loose token do I value least?" — tied together by
+the shared notion of food value. Payment rows are the only place in the game
+where decision-level context (the committed bird's identity and habitat) rides
+identically on every candidate row.
 
 ### 2.6 `LAY_EGG` — which bird gets the egg
 
@@ -284,10 +288,19 @@ together by the shared notion of food value.
 - each egg of the main Lay Eggs action (mandatory — the egg must go
   somewhere);
 - the extra egg after the Grassland conversion;
-- "lay an egg on any bird" powers (mandatory);
-- "all players lay an egg on a [nest-type] bird" powers: every seat answers
-  over its matching birds (mandatory); the active player's optional
-  *additional* egg(s) carry a skip;
+- "lay an egg on any bird" powers — conditionally optional: when the active
+  round goal is `birds_no_eggs` (rewards birds-without-eggs), an
+  `AcceptExchangeDecision` precedes each lay so the player can skip rather
+  than reduce their no-egg count; otherwise mandatory;
+- "all players lay an egg on a [nest-type] bird" powers — four-step sequence:
+  (1) active player P0 gets `AcceptExchangeDecision` to veto the whole power
+  (exchange ledger carries `gained_egg_count` for P0 and `opp_gained_egg_count`
+  for eligible non-active players); if P0 skips, the power does nothing for
+  anyone; (2) non-active players, in turn order: if `birds_no_eggs` goal is
+  active they each get their own `AcceptExchangeDecision` (otherwise auto-yes);
+  eligible accepting players then answer `LayEggDecision`; (3) P0's mandatory
+  `LayEggDecision` for their base egg; (4) P0's optional additional egg(s) from
+  the power's second sentence, one `LayEggDecision` with skip each;
 - the lay halves of tuck-then-lay powers: lay-on-this-bird (a single target
   plus skip — usually auto-resolved away once one side is forced... it is a
   genuine 2-option fork: target or skip) and lay-on-any (mandatory);
@@ -304,10 +317,12 @@ rest of the block is identical context. Current egg counts and remaining
 capacity per slot are read from the state vector's board stripes, not the row.
 
 **Variation within the family.** One decision class, one row shape. Variation
-is in (a) skip presence (mandatory main-action lays vs. optional pink /
-additional lays), (b) the eligible-target filter (nest-type restrictions are
-expressed purely by which slots appear as candidates — the restriction itself
-is not a feature), and (c) the decider sometimes being the non-active player.
+is in (a) skip presence — mandatory main-action lays, conditionally optional
+"lay any bird" powers (skip only when `birds_no_eggs` goal is active), and
+always-optional pink / additional lays; (b) the eligible-target filter
+(nest-type restrictions expressed purely by which slots appear as candidates
+— the restriction itself is not a feature); and (c) the decider sometimes
+being the non-active player.
 
 ### 2.7 `PAY_EGG` — which egg to lose
 
@@ -316,8 +331,11 @@ is not a feature), and (c) the decider sometimes being the non-active player.
 - the play-bird egg cost — one decision per egg owed by the destination
   column (mandatory);
 - the Wetland conversion's egg discard, after the upstream commit (mandatory);
-- the discard-an-egg-from-**another**-bird-for-wild-food powers (optional,
-  with skip; the power's own bird is excluded from the targets).
+- the discard-an-egg-from-**another**-bird-for-wild-food powers — mandatory
+  (the power's own bird is excluded from targets); the yes/no trade decision
+  lives upstream in an `AcceptExchangeDecision` routed to `SKIP_OPTIONAL`; by
+  the time this head runs, the commitment is settled and the question is only
+  which egg.
 
 **What the choice rows carry.** Exactly the `LAY_EGG` data shape — the full
 board block + card indices — but the targeted slot is flagged `pay_eggs = 1`
@@ -325,16 +343,19 @@ instead. The opposite-direction judgment ("more eggs here makes this target
 *better* to tap" vs. "*worse* to lose") lives entirely in the head and the
 flag.
 
-**Variation within the family.** Mandatory (costs, where the commitment was
-the upstream play/trade pick) vs. optional (the wild-food power). The *reason*
-the egg is being spent is deliberately not encoded — by the time this head
-runs, the commitment is settled, and "which egg do I miss least?" is the same
-question regardless.
+**Variation within the family.** All call sites are mandatory — the upstream
+decision (the bird play, the trade commit, or the `AcceptExchangeDecision` for
+the wild-food power) already settled the commitment. The *reason* the egg is
+being spent is deliberately not encoded: "which egg do I miss least?" is the
+same question regardless of what the egg is buying.
 
-### 2.8 `SKIP_OPTIONAL` — is this fixed exchange worth taking?
+### 2.8 `SKIP_OPTIONAL` — should I do this optional thing, or skip it?
 
-**Where the engine asks it.** Every fully-determined, optional,
-take-it-or-leave-it offer:
+**Where the engine asks it.** Every optional action where the player must
+decide "should I commit to this, given these costs and benefits?" The
+downstream details — *which* food to spend, *which* egg to give up, *which*
+bird to play — are not yet resolved; the head's job is the commit/skip, and
+follow-up decisions resolve only if the player commits.
 
 - the three player-mat trade spaces, whenever the action cube lands on a
   conversion column: Forest (discard 1 card → +1 die), Grassland (spend 1
@@ -354,24 +375,39 @@ take-it-or-leave-it offer:
   `BirdPowerTuckFromHandDecision` — both white/brown on-play tuck powers and
   Horned Lark's pink reaction ("when another player plays a bird in their
   [grassland], tuck a card"). Accepting leads to the `DISCARD_BIRD` card
-  selection; declining skips the tuck entirely.
+  selection; declining skips the tuck entirely;
+- the **discard-1-egg-for-N-wild-food** powers (`AcceptExchangeDecision`):
+  accept commits to the trade; *which* egg is the follow-up `PAY_EGG`
+  decision (mandatory once committed);
+- the **"all players lay an egg on a [nest-type] bird"** powers: P0's
+  activation veto (`AcceptExchangeDecision`) — accepting fires the power for
+  everyone; skipping cancels it entirely; the exchange ledger includes
+  `opp_gained_egg_count` for eligible opponents;
+- (conditional on `birds_no_eggs` round goal) each non-active player's per-seat
+  accept/skip for the above "all players lay" power (`AcceptExchangeDecision`);
+- (conditional on `birds_no_eggs` round goal) each "lay an egg on any bird"
+  power, per egg (`AcceptExchangeDecision`).
 
 **What the choice rows carry.** Always exactly two rows. For
 `AcceptExchangeDecision` the accept row is a special-kind token carrying the
-**exchange ledger**: twelve normalized terms — cards/food/eggs to pay,
-food/eggs/cards/tucks/plays to gain, plus four reserved opponent-gain terms
-(currently always zero). When the paid food is a named type it also rides the
-`pay_food` stripe. For `ActivateTuckDecision` the accept row is a special-kind
-token with the `cards_to_tuck` count in the `EXCHANGE.cards_to_tuck` field —
-so the head reads how many cards the player is committing to tuck. In both
-cases the skip row is a special-kind token with `is_skip`.
+**exchange ledger**: twelve normalized terms — cards/food/eggs to pay;
+food/eggs/cards/tucks/plays to gain; `opp_food`, `opp_egg`, `opp_card`,
+`opp_tuck` — what a shared-benefit power additionally grants the opponent.
+The head does not pre-judge which terms are costs and which are benefits; it
+learns the sign from context. The terms distinguish quantitatively different
+trades (e.g. "1 egg for 1 wild" vs. "1 egg for 2 wild" — both exist). When
+the paid food is a named type it also rides the `pay_food` stripe. For
+`ActivateTuckDecision` the accept row is a special-kind token with the
+`cards_to_tuck` count in the `EXCHANGE.cards_to_tuck` field. In both cases
+the skip row is a special-kind token with `is_skip`.
 
-**Variation within the family.** Structurally none — two rows every time.
-All variation is in the ledger values (`AcceptExchangeDecision`) or the tuck
-count (`ActivateTuckDecision`): the extra-play accept is the degenerate
-all-gain point (`gained_play_count = 1`, nothing paid up front, the play's own
-costs resolving downstream), while the conversions and tuck trades each light
-different pay/gain cells.
+**Variation within the family.** Structurally minimal — two rows every time.
+All variation is in the ledger values. The extra-play accept is the degenerate
+all-gain case (`gained_play_count = 1`, nothing paid). The trade-space commits
+and tuck trades each light different pay/gain cells. The shared-benefit powers
+also populate `opp_gained_egg_count`. The conditional call sites (only when
+`birds_no_eggs` goal is active) appear rarely, but when they do the full
+ledger context is available to the head.
 
 ### 2.9 `CHOOSE_BONUS` — which bonus card fits the plan
 

@@ -29,10 +29,12 @@ def _h_discard_egg_for_wild(
     trigger: str,
 ) -> None:
     # "Discard 1 [egg] from any of your other birds to gain N [wild] from the
-    # supply." Optional: skip if there are no eligible eggs or the player
-    # would rather not spend one.
+    # supply." Two-step: first an AcceptExchangeDecision (is the trade worth
+    # it?), then a mandatory RemoveEggDecision (which egg to give up?). The
+    # skip lives entirely in the first step; by the time the second step runs
+    # the commitment is settled.
     bird = pb.bird
-    egg_choices: list[decisions.BoardTargetChoice | decisions.SkipChoice] = [
+    egg_targets: list[decisions.BoardTargetChoice | decisions.SkipChoice] = [
         decisions.BoardTargetChoice(
             label=f"{pb_other.bird.name}@{egg_habitat.value}[{slot}]",
             habitat=egg_habitat,
@@ -42,25 +44,44 @@ def _h_discard_egg_for_wild(
         for slot, pb_other in enumerate(row)
         if pb_other is not pb and pb_other.eggs > 0
     ]
-    if not egg_choices:
+    if not egg_targets:
         engine.log(f"  {bird.name}: no other bird has an egg; power skipped")
         return
-    egg_choices.append(decisions.SkipChoice(label="skip"))
-    ch = engine.ask(
+
+    # Step 1: should I make this trade at all?
+    commit_ch = engine.ask(
+        agent,
+        decisions.AcceptExchangeDecision(
+            player_id=player.id,
+            prompt=(
+                f"[{player.name}] discard 1 egg from another bird to gain "
+                f"{eff.amount} [wild]? (or skip)"
+            ),
+            choices=[
+                decisions.PayCostChoice(
+                    label=f"discard 1 egg for {eff.amount} [wild]",
+                    paid_egg_count=1,
+                    gained_food_count=eff.amount,
+                ),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(commit_ch, decisions.SkipChoice):
+        engine.log(f"  {bird.name}: declined to discard an egg")
+        return
+
+    # Step 2: which egg to give up? (mandatory — commitment settled above)
+    egg_ch = engine.ask(
         agent,
         decisions.RemoveEggDecision(
             player_id=player.id,
-            prompt=(
-                f"[{player.name}] discard an egg from another bird to gain "
-                f"{eff.amount} [wild] (or skip)"
-            ),
-            choices=egg_choices,
+            prompt=f"[{player.name}] discard an egg from another bird ({bird.name})",
+            choices=egg_targets,
         ),
     )
-    if isinstance(ch, decisions.SkipChoice):
-        engine.log(f"  {bird.name}: declined to discard an egg")
-        return
-    source = player.board[ch.habitat][ch.slot]
+    assert isinstance(egg_ch, decisions.BoardTargetChoice)
+    source = player.board[egg_ch.habitat][egg_ch.slot]
     source.eggs -= 1
     engine.log(f"  {bird.name}: discarded 1 egg from {source.bird.name}")
     _gain_wild_from_supply(engine, agent, player, bird, eff.amount)

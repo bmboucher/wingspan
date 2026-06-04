@@ -150,6 +150,7 @@ _GOAL_CATEGORIES: dict[str, str] = {
     "[platform] [bird] with [egg]": "platform_birds_with_eggs",
     "total [bird]": "total_birds",
     "sets of [egg][egg][egg] in [wetland][grassland][forest]": "egg_sets_3habitats",
+    "[bird] with no [egg]": "birds_no_eggs",
 }
 
 

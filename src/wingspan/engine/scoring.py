@@ -326,6 +326,10 @@ def _count_egg_sets_three_habitats(player: state.Player) -> int:
     )
 
 
+def _count_birds_no_eggs(player: state.Player) -> int:
+    return sum(1 for row in player.board.values() for pb in row if pb.eggs == 0)
+
+
 _CATEGORY_COUNTERS: dict[str, typing.Callable[[state.Player], int]] = {
     "birds_forest": _count_birds_in(cards.Habitat.FOREST),
     "birds_grassland": _count_birds_in(cards.Habitat.GRASSLAND),
@@ -346,4 +350,5 @@ _CATEGORY_COUNTERS: dict[str, typing.Callable[[state.Player], int]] = {
     "wingspan_over_65": _count_wingspan_over_65,
     "total_birds": _count_total_birds,
     "egg_sets_3habitats": _count_egg_sets_three_habitats,
+    "birds_no_eggs": _count_birds_no_eggs,
 }

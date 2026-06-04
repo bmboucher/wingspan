@@ -140,7 +140,28 @@ def _h_lay_egg_any(
 ) -> None:
     from wingspan.engine import actions
 
+    # When the active round goal rewards birds-without-eggs, laying is no longer
+    # automatically beneficial — offer an AcceptExchangeDecision before each egg
+    # so the SKIP_OPTIONAL head can decide. Outside that goal, mandatory.
+    st = engine.state
+    anti_egg_goal = st.round_goals[st.round_idx].category == "birds_no_eggs"
+
     for _ in range(eff.amount):
+        if anti_egg_goal:
+            commit_ch = engine.ask(
+                agent,
+                decisions.AcceptExchangeDecision(
+                    player_id=player.id,
+                    prompt=f"[{player.name}] lay 1 egg on any bird ({pb.bird.name})? (or skip)",
+                    choices=[
+                        decisions.PayCostChoice(label="lay 1 egg", gained_egg_count=1),
+                        decisions.SkipChoice(label="skip"),
+                    ],
+                ),
+            )
+            if isinstance(commit_ch, decisions.SkipChoice):
+                engine.log(f"  {pb.bird.name}: [{player.name}] skipped optional egg")
+                continue
         actions.lay_one_egg(engine, agent, player)
 
 

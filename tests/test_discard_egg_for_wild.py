@@ -67,14 +67,24 @@ def test_discard_egg_for_wild_decrements_egg_and_grants_food():
     for food in eng.state.food_supply:
         eng.state.food_supply[food] = 5
 
-    # Scripted agent: pay with the FOREST slot-0 egg, then take the two wild
-    # foods in order (SEED first, then FRUIT).
+    # Scripted agent: accept the exchange, pay with FOREST slot-0 egg, then
+    # take the two wild foods in order (SEED first, then FRUIT).
     food_order = iter([cards.Food.SEED, cards.Food.FRUIT])
 
     def agent[C: decisions.Choice](
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            # Accept the trade.
+            return typing.cast(
+                C,
+                next(
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.PayCostChoice)
+                ),
+            )
         if isinstance(decision, decisions.RemoveEggDecision):
             return typing.cast(
                 C,

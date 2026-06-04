@@ -502,6 +502,18 @@ When adding a new decision point: define the Choice subclass first (or
 reuse an existing one), then the `Decision[C]` subclass, then add it to
 `ALL_DECISION_CLASSES`, then teach `encode/choice_encode.py` how to featurize it.
 
+**Optional-then-commit pattern.** Any effect a player may decline must flow
+through `AcceptExchangeDecision` (SKIP_OPTIONAL family) before any follow-up
+decisions. The accept row is a `PayCostChoice` carrying the full exchange
+ledger (`paid_*` / `gained_*` and `opp_gained_*` for shared-benefit powers
+that also help the opponent); the skip row is a `SkipChoice`. Follow-up
+decisions — *which* egg to give up, *which* food to spend, *where* to lay —
+are then presented without a skip: the commitment is settled. Conditionally-
+optional effects (those that only matter when a specific round goal is active,
+e.g. `birds_no_eggs`) should offer `AcceptExchangeDecision` only under that
+condition; outside it, execute the effect as mandatory so the SKIP_OPTIONAL
+head is not trained on trivially-obvious non-decisions.
+
 **Keep `DECISIONS.md` in sync.** `DECISIONS.md` is the per-family modelling
 report (engine call sites, choice-vector contents, and intra-family variation
 for every scoring head). Any change to the decision/choice taxonomy, the
