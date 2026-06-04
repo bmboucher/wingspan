@@ -2,7 +2,9 @@
 
 These spawn a small worker pool, so they exercise the real Windows-spawn path:
 picklable worker entry points, on-disk weight broadcast, and GameRecords pickled
-back. Kept tiny (2 workers, a few games) so the spawn cost stays modest.
+back. Kept tiny (2 workers, a few games, a small net) so the spawn cost stays
+modest — the tests assert spawn/broadcast/parity mechanics, not model capacity,
+and the small net keeps every per-decision forward pass cheap.
 """
 
 from __future__ import annotations
@@ -17,12 +19,35 @@ import torch
 from wingspan import model
 from wingspan.training import collect, config, evaluate, mp_collect
 
+# The workers rebuild their local net from ``cfg.arch`` and strict-load the
+# broadcast weights, so the main-process net must be built from the same config
+# (``_small_net``) for the shapes to agree.
+_SMALL_LAYERS = (32, 32)
+_SMALL_CARD_EMBED_DIM = 16
+_SMALL_CARD_ENCODER_LAYERS = (32,)
+
+
+def _small_config(tmp_path: pathlib.Path) -> config.TrainConfig:
+    return config.TrainConfig(
+        device="cpu",
+        checkpoint_dir=str(tmp_path),
+        trunk_layers=_SMALL_LAYERS,
+        choice_layers=_SMALL_LAYERS,
+        card_embed_dim=_SMALL_CARD_EMBED_DIM,
+        card_encoder_layers=_SMALL_CARD_ENCODER_LAYERS,
+    )
+
+
+def _small_net(cfg: config.TrainConfig) -> model.PolicyValueNet:
+    net = model.PolicyValueNet(arch=cfg.arch, spec=cfg.encoding_spec)
+    net.eval()
+    return net
+
 
 def test_process_collector_plays_games(tmp_path: pathlib.Path) -> None:
     device = torch.device("cpu")
-    net = model.PolicyValueNet()
-    net.eval()
-    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    cfg = _small_config(tmp_path)
+    net = _small_net(cfg)
     collector = mp_collect.ProcessCollector(cfg, num_workers=2)
 
     seeds = [101, 102, 103, 104]
@@ -46,9 +71,8 @@ def test_process_collector_same_seed_is_deterministic(tmp_path: pathlib.Path) ->
     """The same seed yields the same game (identical decision sequence) no matter
     which worker plays it — collection stays reproducible per seed."""
     device = torch.device("cpu")
-    net = model.PolicyValueNet()
-    net.eval()
-    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    cfg = _small_config(tmp_path)
+    net = _small_net(cfg)
     collector = mp_collect.ProcessCollector(cfg, num_workers=2)
     try:
         records = collector.collect_games(net, device, [7, 7, 7])
@@ -61,13 +85,10 @@ def test_process_collector_same_seed_is_deterministic(tmp_path: pathlib.Path) ->
 
 def test_process_collector_empty_seeds(tmp_path: pathlib.Path) -> None:
     """No seeds returns immediately and never spawns the pool."""
-    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    cfg = _small_config(tmp_path)
     collector = mp_collect.ProcessCollector(cfg, num_workers=2)
     try:
-        assert (
-            collector.collect_games(model.PolicyValueNet(), torch.device("cpu"), [])
-            == []
-        )
+        assert collector.collect_games(_small_net(cfg), torch.device("cpu"), []) == []
     finally:
         collector.close()
 
@@ -78,9 +99,8 @@ def test_eval_matches_sequential_vs_random(tmp_path: pathlib.Path) -> None:
     stats. ``set_num_threads(1)`` makes the main process match the single-thread
     workers so the greedy argmax cannot diverge on a float-reduction tie."""
     torch.set_num_threads(1)
-    net = model.PolicyValueNet()
-    net.eval()
-    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    cfg = _small_config(tmp_path)
+    net = _small_net(cfg)
     sequential = evaluate.evaluate_vs_opponent(
         net, None, torch.device("cpu"), n_pairs=4, seed=123, opponent_generation=0
     )
@@ -101,11 +121,9 @@ def test_eval_matches_sequential_vs_frozen_opponent(tmp_path: pathlib.Path) -> N
     """Process-parallel eval vs a frozen opponent net matches the sequential
     path; the opponent weights are broadcast to the workers."""
     torch.set_num_threads(1)
-    net = model.PolicyValueNet()
-    net.eval()
-    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
-    opponent = model.PolicyValueNet()
-    opponent.eval()
+    cfg = _small_config(tmp_path)
+    net = _small_net(cfg)
+    opponent = _small_net(cfg)
     sequential = evaluate.evaluate_vs_opponent(
         net, opponent, torch.device("cpu"), n_pairs=4, seed=7, opponent_generation=1
     )
@@ -123,9 +141,8 @@ def test_eval_matches_sequential_vs_frozen_opponent(tmp_path: pathlib.Path) -> N
 
 def test_eval_empty_is_noop(tmp_path: pathlib.Path) -> None:
     """Zero pairs returns an empty result and never spawns the pool."""
-    net = model.PolicyValueNet()
-    net.eval()
-    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    cfg = _small_config(tmp_path)
+    net = _small_net(cfg)
     collector = mp_collect.ProcessCollector(cfg, num_workers=2)
     try:
         result = collector.evaluate_games(

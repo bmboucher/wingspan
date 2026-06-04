@@ -2,11 +2,14 @@
 
 ``load_all`` reads the three bundled JSON files, validates each core-set row
 into an input record, and converts each via ``record.load()`` into its parsed
-card model.
+card model. The parse runs once per process (the card models are immutable, so
+the cached instances are shared); each ``load_all`` call returns fresh outer
+lists so callers may reorder or consume them freely.
 """
 
 from __future__ import annotations
 
+import functools
 import json
 from importlib import resources
 from importlib.resources import abc
@@ -25,23 +28,14 @@ def load_all() -> (
     tuple[list[schema.Bird], list[schema.BonusCard], list[schema.EndRoundGoal]]
 ):
     """Read every core-set bird, bonus card, and end-of-round goal from the
-    bundled JSON data. Returns three parallel lists in source order."""
-    base = resources.files("wingspan.data")
-    bird_records = _load_core_records(base / "master.json", schema.BirdRecord)
-    bonus_records = [
-        bonus_record
-        for bonus_record in _load_core_records(base / "bonus.json", schema.BonusRecord)
-        if not bonus_record.bonus_card.startswith(_FAN_MADE_PREFIX)
-    ]
-    goal_records = _load_core_records(base / "goals.json", schema.GoalRecord)
-    birds = [
-        bird
-        for bird in (record.load(bonus_records) for record in bird_records)
-        if bird is not None
-    ]
-    bonuses = [bonus_record.load() for bonus_record in bonus_records]
-    goals = [goal_record.load() for goal_record in goal_records]
-    return birds, bonuses, goals
+    bundled JSON data. Returns three parallel lists in source order.
+
+    The underlying parse is cached per process; the returned lists are fresh
+    copies sharing the immutable (frozen) card models, so mutating a list —
+    e.g. ``state.new_game`` shuffling a deck copy — never leaks between
+    callers."""
+    birds, bonuses, goals = _load_all_cached()
+    return list(birds), list(bonuses), list(goals)
 
 
 def power_coverage(birds: list[schema.Bird]) -> tuple[int, int]:
@@ -56,6 +50,32 @@ def power_coverage(birds: list[schema.Bird]) -> tuple[int, int]:
         )
     )
     return impl, len(birds)
+
+
+@functools.cache
+def _load_all_cached() -> tuple[
+    tuple[schema.Bird, ...],
+    tuple[schema.BonusCard, ...],
+    tuple[schema.EndRoundGoal, ...],
+]:
+    """One-time parse of the bundled JSON into immutable card tuples (the
+    shared instances behind every ``load_all`` call's list copies)."""
+    base = resources.files("wingspan.data")
+    bird_records = _load_core_records(base / "master.json", schema.BirdRecord)
+    bonus_records = [
+        bonus_record
+        for bonus_record in _load_core_records(base / "bonus.json", schema.BonusRecord)
+        if not bonus_record.bonus_card.startswith(_FAN_MADE_PREFIX)
+    ]
+    goal_records = _load_core_records(base / "goals.json", schema.GoalRecord)
+    birds = tuple(
+        bird
+        for bird in (record.load(bonus_records) for record in bird_records)
+        if bird is not None
+    )
+    bonuses = tuple(bonus_record.load() for bonus_record in bonus_records)
+    goals = tuple(goal_record.load() for goal_record in goal_records)
+    return birds, bonuses, goals
 
 
 def _load_core_records[R: pydantic.BaseModel](

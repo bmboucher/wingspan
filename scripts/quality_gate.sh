@@ -17,7 +17,12 @@
 #
 #   --pyright [args...]   pyright       (default: no args — pyproject.toml config)
 #   --format  [paths...]  isort + black (default paths: src tests)
-#   --pytest  [args...]   pytest        (default args: tests/)
+#   --pytest  [args...]   pytest        (default args: tests/ -n $WINGSPAN_PYTEST_WORKERS
+#                                        --dist load — parallel via pytest-xdist.
+#                                        Explicit args replace the default entirely,
+#                                        so targeted runs stay serial. Override the
+#                                        worker count with WINGSPAN_PYTEST_WORKERS;
+#                                        0 = serial.)
 #
 # Examples:
 #   bash scripts/quality_gate.sh                                # full gate
@@ -40,6 +45,12 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 EXIT_CHECK_FAILED=1
 EXIT_INFRA=2
+
+# pytest-xdist worker count for the *default* full-suite pytest run (full gate,
+# or a bare --pytest). Sized for the suite's shape: wall-clock is bounded by a
+# few unsplittable multi-second tests, and each worker pays a one-time torch
+# import, so more workers than this buys little. 0 = run serial.
+WINGSPAN_PYTEST_WORKERS="${WINGSPAN_PYTEST_WORKERS:-8}"
 
 # Report an environment/script problem (as opposed to a genuine check failure)
 # and exit with the dedicated infrastructure code.
@@ -97,9 +108,20 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# Default args for sections that were requested bare.
+# Default args for sections that were requested bare. A bare pytest section
+# runs the whole suite in parallel; explicit args replace the default entirely
+# (targeted runs stay serial unless the caller passes -n themselves).
 if [ ${#FORMAT_ARGS[@]} -eq 0 ]; then FORMAT_ARGS=(src tests); fi
-if [ ${#PYTEST_ARGS[@]} -eq 0 ]; then PYTEST_ARGS=(tests/); fi
+if [ ${#PYTEST_ARGS[@]} -eq 0 ]; then
+    if ! [[ "$WINGSPAN_PYTEST_WORKERS" =~ ^[0-9]+$ ]]; then
+        infra_error "WINGSPAN_PYTEST_WORKERS must be a non-negative integer (got: $WINGSPAN_PYTEST_WORKERS)"
+    fi
+    if [ "$WINGSPAN_PYTEST_WORKERS" -gt 0 ]; then
+        PYTEST_ARGS=(tests/ -n "$WINGSPAN_PYTEST_WORKERS" --dist load)
+    else
+        PYTEST_ARGS=(tests/)
+    fi
+fi
 
 # No section flags at all -> full gate.
 FULL_GATE=false

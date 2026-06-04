@@ -257,10 +257,14 @@ bash scripts/quality_gate.sh --pyright --pytest                 # types + tests,
 bash scripts/quality_gate.sh .claude/worktrees/<slug> --pytest tests/test_smoke.py
 ```
 
-Defaults when a section gets no arguments: `--pytest` → `tests/`, `--format` →
-`src tests`, `--pyright` → the `pyproject.toml` config. Steps always execute in
-the canonical gate order regardless of flag order; requesting both `--pyright`
-and `--format` also runs the post-format pyright pass.
+Defaults when a section gets no arguments: `--pytest` → `tests/ -n 8 --dist
+load` (parallel across 8 pytest-xdist worker processes; override the count with
+the `WINGSPAN_PYTEST_WORKERS` env var, `0` = serial), `--format` → `src tests`,
+`--pyright` → the `pyproject.toml` config. Explicit pytest arguments replace
+the default entirely, so a targeted run like `--pytest tests/test_smoke.py`
+stays serial and never pays the multi-worker torch-import startup. Steps always
+execute in the canonical gate order regardless of flag order; requesting both
+`--pyright` and `--format` also runs the post-format pyright pass.
 
 Exit codes:
 
@@ -274,6 +278,24 @@ Exit codes:
 Always run the full gate (no section flags) before committing. Do NOT call
 pyright, pytest, isort, or black directly — use this script so the step
 ordering and Python path are always correct.
+
+### Coverage (on-demand, not in the gate)
+
+Coverage is fully configured (`[tool.coverage.*]` in `pyproject.toml`) but
+deliberately **not** part of the gate — plain gate runs pay zero coverage
+overhead. When you want a report, run it through the pytest pass-through:
+
+```
+bash scripts/quality_gate.sh --pytest tests/ --cov --cov-report=term-missing --cov-report=html
+```
+
+`source_pkgs = ["wingspan"]` keys measurement on the import package (works in
+worktrees and without an install), and `concurrency = ["multiprocessing",
+"thread"]` + `parallel = true` capture the mp_collect pool workers' lines too;
+pytest-cov combines the per-process data files at session end. The HTML report
+lands in `htmlcov/`; all coverage artifacts (`htmlcov/`, `.coverage*`,
+`coverage.xml`) are gitignored. Branch coverage is on, so a coverage run is
+noticeably slower than a plain run.
 
 Every change must pass the gate before it is considered finished. Do not
 finalize while pyright reports any error — strict mode surfaces

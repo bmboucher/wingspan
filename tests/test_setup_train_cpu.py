@@ -23,7 +23,10 @@ def _config() -> config.TrainConfig:
         use_setup_model=True,
         setup_hidden_layers=(32, 16),
         setup_lr=1e-2,
-        setup_offline_epochs=80,
+        # Regressing a constant target converges long before 40 epochs at this
+        # lr; 40 keeps the learns-the-margin assertion comfortable at half the
+        # original 80-epoch runtime.
+        setup_offline_epochs=40,
         setup_offline_batch_size=32,
         score_norm=50.0,
         seed=0,

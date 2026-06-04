@@ -209,6 +209,16 @@ def test_dashboard_header_gauges():
     assert len(_render(state)) > 1000  # colored path renders without error
 
 
+def _run_to_completion(training: loop.TrainingLoop) -> None:
+    """Run the loop synchronously and surface any swallowed crash.
+
+    ``TrainingLoop.run`` never raises — a failure lands in ``state.phase =
+    ERROR`` with the traceback in ``state.error`` — so without this check a
+    crashed run shows up only as inexplicably missing iterations."""
+    training.run()
+    assert training.state.phase is not runstate.Phase.ERROR, training.state.error
+
+
 def test_training_loop_one_iteration(tmp_path: pathlib.Path):
     cfg = config.TrainConfig(
         device="cpu",
@@ -224,7 +234,7 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
         initial_vs_random=False,
     )
     training = loop.TrainingLoop(cfg)
-    training.run()  # synchronous (no worker thread) for a deterministic test
+    _run_to_completion(training)  # synchronous (no worker thread), deterministic
 
     state = training.state
     assert state.phase is runstate.Phase.DONE
@@ -275,7 +285,7 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
         initial_vs_random=False,
     )
     first = loop.TrainingLoop(cfg)
-    first.run()
+    _run_to_completion(first)
     games = first.state.total_games
     last_iter = first.state.iteration
     best = first.state.best_win_rate
@@ -296,7 +306,7 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     assert any("run started" in line.text for line in resumed.state.events)
     assert any("resumed" in line.text for line in resumed.state.events)
 
-    resumed.run()  # one more iteration continues the counts from the checkpoint
+    _run_to_completion(resumed)  # one more iteration continues the checkpoint counts
     assert resumed.state.total_games == games + cfg.games_per_iter
     assert resumed.state.iteration == last_iter + 1
 
@@ -445,7 +455,7 @@ def test_training_loop_bootstrap_collects_vs_random(tmp_path: pathlib.Path):
     assert training.state.training_phase is runstate.TrainingPhase.RANDOM_OPPONENT
     assert training.state.opponent_generation == 0
 
-    training.run()
+    _run_to_completion(training)
 
     last = training.state.last_iter
     assert last is not None
@@ -468,7 +478,7 @@ def test_bootstrap_graduates_to_self_play(tmp_path: pathlib.Path):
     # ordinary commit path.
     for _ in range(5):
         training.state.history.append(_bootstrap_iteration(1.0))
-    training.run()
+    _run_to_completion(training)
 
     assert training.state.training_phase is runstate.TrainingPhase.SELF_PLAY
     assert training.state.opponent_generation == 1  # froze self·gen1
@@ -488,7 +498,7 @@ def test_bootstrap_stays_below_graduation_threshold(tmp_path: pathlib.Path):
     # 0.3·win + 0.7·0.0 <= 0.3): the run must remain in the bootstrap phase.
     for _ in range(5):
         training.state.history.append(_bootstrap_iteration(0.0))
-    training.run()
+    _run_to_completion(training)
 
     assert training.state.training_phase is runstate.TrainingPhase.RANDOM_OPPONENT
     assert training.state.opponent_generation == 0
