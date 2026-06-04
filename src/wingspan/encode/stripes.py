@@ -714,7 +714,29 @@ def choice_stripe_layout(
         )
     )
 
-    end = layout._OFF_BONUS_ID + layout._BONUS_ID_DIM
+    stripes.append(
+        StripeDescriptor(
+            name="bonus_delta",
+            description=(
+                "Per-candidate bonus contribution: how much this bird advances "
+                "the deciding player's held bonus cards."
+            ),
+            offset=layout._OFF_BONUS_DELTA,
+            size=layout._BONUS_DELTA_DIM,
+            encoding="vector",
+            value_range="[0, ~1]",
+            notes=(
+                f"{layout._BONUS_DELTA_DIM} values: qual_count (held bonus cards "
+                "this bird qualifies for, ÷5), stepped_delta (summed stepped-VP "
+                "gain from the +1 qualifying bird, ÷7), linear_delta (same, "
+                "piecewise-linear, ÷7). Filled for play / keep-bird / tray "
+                "draw-source candidates; zero otherwise."
+            ),
+            sub_fields=_bonus_delta_sub_fields(),
+        )
+    )
+
+    end = layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_DIM
 
     # ---- setup_agg (trailing; present only when the main model carries setup) ----
     if spec.include_setup:
@@ -1412,6 +1434,39 @@ def _exchange_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             notes="Normalized ÷ 3.",
         )
         for idx, (name, desc) in enumerate(entries)
+    )
+
+
+def _bonus_delta_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """3 sub-fields for the per-candidate bonus-contribution stripe."""
+    entries = [
+        (
+            "qual_count",
+            "Held bonus cards this candidate bird qualifies for.",
+            "Normalized ÷ 5.",
+        ),
+        (
+            "stepped_delta",
+            "Summed stepped-VP gain from the +1 qualifying bird.",
+            "Normalized ÷ 7.",
+        ),
+        (
+            "linear_delta",
+            "Summed piecewise-linear-VP gain from the +1 qualifying bird.",
+            "Normalized ÷ 7.",
+        ),
+    ]
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes=notes,
+        )
+        for idx, (name, desc, notes) in enumerate(entries)
     )
 
 

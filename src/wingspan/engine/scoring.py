@@ -147,13 +147,12 @@ def bonus_qualifying_count(player: state.Player, bc: cards.BonusCard) -> int:
     )
 
 
-def bonus_score(player: state.Player, bc: cards.BonusCard) -> int:
-    """VP ``player`` scores from bonus card ``bc`` (stepped payout).
-
-    Counts the qualifying birds in play, then applies ``bc``'s payout: a
-    per-bird card pays ``per_bird_vp`` for each, a tiered card pays the highest
-    threshold met."""
-    count = bonus_qualifying_count(player, bc)
+def bonus_score_for_count(bc: cards.BonusCard, count: int) -> int:
+    """Stepped VP bonus card ``bc`` pays for exactly ``count`` qualifying birds:
+    a per-bird card pays ``per_bird_vp`` for each, a tiered card pays the
+    highest threshold met. Pure in ``count`` so callers can price a
+    hypothetical board (e.g. ``count + 1`` for a play candidate) without a
+    :class:`state.Player`."""
     if bc.per_bird_vp is not None:
         return bc.per_bird_vp * count
     best = 0
@@ -163,17 +162,13 @@ def bonus_score(player: state.Player, bc: cards.BonusCard) -> int:
     return best
 
 
-def bonus_linear_value(player: state.Player, bc: cards.BonusCard) -> float:
-    """Dense piecewise-linear payoff estimate for bonus card ``bc``.
-
-    Where :func:`bonus_score` jumps in steps at each threshold, this
-    interpolates linearly between ``(0, 0)`` and each ``(count, vp)`` threshold
-    (ascending), holding flat at the final VP past the last threshold. It gives
-    the RL encoder a gradient that rewards incremental progress toward the next
-    plateau instead of the step function's flat regions. Per-bird cards are
-    already linear in the qualifying count, so they return
-    ``per_bird_vp * count``."""
-    count = bonus_qualifying_count(player, bc)
+def bonus_linear_value_for_count(bc: cards.BonusCard, count: int) -> float:
+    """Dense piecewise-linear payoff of bonus card ``bc`` at ``count``
+    qualifying birds — the gradient-friendly form of
+    :func:`bonus_score_for_count`. Interpolates linearly between ``(0, 0)`` and
+    each ``(count, vp)`` threshold (ascending), holding flat at the final VP
+    past the last threshold; per-bird cards are already linear and return
+    ``per_bird_vp * count``. Pure in ``count``."""
     if bc.per_bird_vp is not None:
         return float(bc.per_bird_vp * count)
     if not bc.thresholds:
@@ -190,6 +185,23 @@ def bonus_linear_value(player: state.Player, bc: cards.BonusCard) -> float:
             frac = (count - lo_count) / span
             return lo_vp + frac * (hi_vp - lo_vp)
     return float(last_vp)  # unreachable; satisfies strict pyright
+
+
+def bonus_score(player: state.Player, bc: cards.BonusCard) -> int:
+    """VP ``player`` scores from bonus card ``bc`` (stepped payout).
+
+    Counts the qualifying birds in play, then applies ``bc``'s payout via
+    :func:`bonus_score_for_count`."""
+    return bonus_score_for_count(bc, bonus_qualifying_count(player, bc))
+
+
+def bonus_linear_value(player: state.Player, bc: cards.BonusCard) -> float:
+    """Dense piecewise-linear payoff estimate for bonus card ``bc``.
+
+    Where :func:`bonus_score` jumps in steps at each threshold, this rewards
+    incremental progress toward the next plateau — the qualifying count in play
+    priced via :func:`bonus_linear_value_for_count`."""
+    return bonus_linear_value_for_count(bc, bonus_qualifying_count(player, bc))
 
 
 ###### PRIVATE #######

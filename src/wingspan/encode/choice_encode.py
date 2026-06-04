@@ -202,8 +202,13 @@ def _featurize_bird(
     choice: decisions.BirdChoice,
     state: state.GameState,
 ) -> None:
+    # A candidate bird from a hand / drawn pile (keep, tuck, or discard picks).
+    # The bonus_delta stripe prices what acquiring — or for tuck/discard, giving
+    # up — this bird means for the held bonus cards; the decision-type stripe in
+    # the state vector tells the net which direction applies.
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
+    _fill_bonus_delta(feat, state.players[decision.player_id], choice.bird)
 
 
 def _featurize_play_bird(
@@ -217,10 +222,12 @@ def _featurize_play_bird(
     # carries the bundled habitat pick. KIND stays BIRD — it is fundamentally a
     # bird play — while the habitat stripe distinguishes the per-habitat variants
     # of the same bird. The costs are follow-up decisions (RemoveEggDecision /
-    # PayBirdFoodDecision), so no payment stripe is filled here.
+    # PayBirdFoodDecision), so no payment stripe is filled here; the bonus_delta
+    # stripe prices the play's contribution to the held bonus cards.
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
     _fill_habitat(feat, choice.habitat)
+    _fill_bonus_delta(feat, state.players[decision.player_id], choice.bird)
 
 
 def _featurize_food_payment(
@@ -324,6 +331,7 @@ def _featurize_draw_source(
     if tray_bird is not None:
         feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
         _fill_bird_identity(feat, tray_bird)
+        _fill_bonus_delta(feat, state.players[decision.player_id], tray_bird)
     else:
         feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
 
@@ -430,6 +438,37 @@ def _fill_bird_identity(feat: np.ndarray, bird: cards.Bird) -> None:
 def _fill_bonus_identity(feat: np.ndarray, bonus_card: cards.BonusCard) -> None:
     """Set the bonus-card identity one-hot bit for ``bonus_card``."""
     feat[layout._OFF_BONUS_ID + cards.bonus_index(bonus_card)] = 1.0
+
+
+def _fill_bonus_delta(feat: np.ndarray, player: state.Player, bird: cards.Bird) -> None:
+    """Fill the bonus_delta stripe: how much ``bird`` reaching ``player``'s board
+    would advance the bonus cards ``player`` currently holds. Three scalars — the
+    count of held cards the bird qualifies for, and the summed stepped / linear
+    VP gain from the +1 qualifying bird — so the net reads a candidate's bonus
+    contribution directly instead of inferring it from the bonus-progress and
+    card-attribute stripes. All zero when the bird qualifies for no held card."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    qual = 0
+    stepped = 0.0
+    linear = 0.0
+    for bonus_card in player.bonus_cards:
+        if bonus_card.name not in bird.bonus_categories:
+            continue
+        qual += 1
+        count = scoring.bonus_qualifying_count(player, bonus_card)
+        stepped += scoring.bonus_score_for_count(
+            bonus_card, count + 1
+        ) - scoring.bonus_score_for_count(bonus_card, count)
+        linear += scoring.bonus_linear_value_for_count(
+            bonus_card, count + 1
+        ) - scoring.bonus_linear_value_for_count(bonus_card, count)
+    if qual == 0:
+        return
+    base = layout._OFF_BONUS_DELTA
+    feat[base + layout._BONUS_DELTA_QUAL] = qual / layout._BONUS_COUNT_SCALE
+    feat[base + layout._BONUS_DELTA_STEPPED] = stepped / layout._BONUS_VALUE_SCALE
+    feat[base + layout._BONUS_DELTA_LINEAR] = linear / layout._BONUS_VALUE_SCALE
 
 
 def _fill_gain_food(feat: np.ndarray, food: cards.Food, from_choice_die: bool) -> None:

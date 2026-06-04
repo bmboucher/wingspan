@@ -72,3 +72,39 @@ def test_linear_value_flat_tail_holds_max():
     assert len(seed) == 12
     player = _player_with_board(bird_feeder, seed)
     assert math.isclose(scoring.bonus_linear_value(player, bird_feeder), 7.0)
+
+
+def test_bonus_value_for_count_matches_player_form():
+    """The count-parameterized forms agree with the player-based forms across a
+    tiered and a per-bird card (locks the delegation refactor)."""
+    birds, bonuses, _ = cards.load_all()
+    cases = {"Bird Feeder": (0, 1, 4, 6, 9), "Bird Counter": (0, 1, 3, 4)}
+    for name, counts in cases.items():
+        bonus = _bonus(bonuses, name)
+        seed = [bird for bird in birds if name in bird.bonus_categories]
+        for count in counts:
+            assert len(seed) >= count
+            player = _player_with_board(bonus, seed[:count])
+            assert scoring.bonus_score_for_count(bonus, count) == scoring.bonus_score(
+                player, bonus
+            )
+            assert math.isclose(
+                scoring.bonus_linear_value_for_count(bonus, count),
+                scoring.bonus_linear_value(player, bonus),
+            )
+
+
+def test_bonus_value_for_count_monotone_and_flat_tail():
+    """Both count forms never decrease with count, and both hold the final VP
+    past the last threshold (Bird Feeder: 7 from count 8 on)."""
+    _, bonuses, _ = cards.load_all()
+    bird_feeder = _bonus(bonuses, "Bird Feeder")
+    for count in range(12):
+        assert scoring.bonus_score_for_count(
+            bird_feeder, count + 1
+        ) >= scoring.bonus_score_for_count(bird_feeder, count)
+        assert scoring.bonus_linear_value_for_count(
+            bird_feeder, count + 1
+        ) >= scoring.bonus_linear_value_for_count(bird_feeder, count)
+    assert scoring.bonus_score_for_count(bird_feeder, 8) == 7
+    assert math.isclose(scoring.bonus_linear_value_for_count(bird_feeder, 11), 7.0)

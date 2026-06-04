@@ -21,7 +21,7 @@ import typing
 import pydantic
 import torch
 
-from wingspan import agents, engine, model
+from wingspan import agents, decisions, encode, engine, model
 from wingspan.training import artifacts, policy, runmeta
 from wingspan.training.configure import runs
 
@@ -167,18 +167,69 @@ def load_player(
 def _reconstruct_net(checkpoint_dir: str) -> model.PolicyValueNet:
     """Rebuild the (fresh-weight) net in a run's saved shape, ready for
     ``load_state_dict``, from the run's ``model_config.json`` descriptor (every
-    run dir carries one; a run without it is not seatable)."""
+    run dir carries one; a run without it is not seatable). Raises ``ValueError``
+    when the saved encoding no longer matches the live encoder — freshly-encoded
+    states could not feed the net — so an explicitly-named stale run fails at
+    seating with a clear message instead of a mid-game tensor-shape error."""
     descriptor = runmeta.read_model_config(checkpoint_dir)
+    saved = _descriptor_encoding_key(descriptor)
+    live = _live_encoding_key(
+        encode.EncodingSpec(include_setup=descriptor.include_setup)
+    )
+    if saved != live:
+        raise ValueError(
+            f"Run {checkpoint_dir!r} was trained against an encoding layout "
+            "incompatible with the current code:\n"
+            f"  saved: {saved}\n"
+            f"  live:  {live}\n"
+            "It cannot consume freshly-encoded states and is not seatable."
+        )
     return model.PolicyValueNet.from_model_config(descriptor)
 
 
 def _loadable(checkpoint_dir: str, summary: runs.RunSummary) -> bool:
-    """Whether a run dir can be played: a readable ``last.pt`` plus the
+    """Whether a run dir can be played: a readable ``last.pt``, the
     ``model_config.json`` descriptor :func:`_reconstruct_net` rebuilds the net
-    from."""
+    from, and a saved encoding matching the live encoder (a stale-dim run
+    cannot consume freshly-encoded states, so it is not offered)."""
     if not (summary.exists and summary.readable):
         return False
-    return (pathlib.Path(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON).exists()
+    return _encoding_compatible(checkpoint_dir)
+
+
+def _encoding_compatible(checkpoint_dir: str) -> bool:
+    """Whether the run's saved encoding descriptor matches the live encoder,
+    mirroring ``selfplay._encoding_key``: the ``(state_dim, choice_dim,
+    family_order)`` triple must agree for freshly-encoded inputs to feed the
+    run's net. The descriptor's own ``include_setup`` selects which spec the
+    live dims are computed for. A missing or unparseable descriptor returns
+    ``False`` (the run is simply not seatable); never raises."""
+    try:
+        descriptor = runmeta.read_model_config(checkpoint_dir)
+    except (OSError, pydantic.ValidationError):
+        return False
+    return _descriptor_encoding_key(descriptor) == _live_encoding_key(
+        encode.EncodingSpec(include_setup=descriptor.include_setup)
+    )
+
+
+def _descriptor_encoding_key(
+    descriptor: runmeta.ModelConfig,
+) -> tuple[int, int, tuple[str, ...]]:
+    """The encoding-compatibility signature a run was trained against."""
+    return (descriptor.state_dim, descriptor.choice_dim, descriptor.family_order)
+
+
+def _live_encoding_key(
+    spec: encode.EncodingSpec,
+) -> tuple[int, int, tuple[str, ...]]:
+    """The live encoder's encoding-compatibility signature for ``spec``, built
+    exactly the way ``config.TrainConfig._sync_encoding_dims`` derives it."""
+    family_order = tuple(
+        family.value
+        for family in decisions.active_decision_families(spec.include_setup)
+    )
+    return (encode.state_size(spec), encode.choice_feature_dim(spec), family_order)
 
 
 def _option_from_summary(

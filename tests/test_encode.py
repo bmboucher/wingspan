@@ -640,7 +640,199 @@ def test_board_target_lay_vs_pay_flag_and_card_index():
     assert lay_row[layout._OFF_BOARD_IDX + slot_index] == cards.bird_index(birds[0]) + 1
 
 
+# ---------------------------------------------------------------------------
+# Choice encoder: the bonus_delta stripe (candidate's contribution to the
+# deciding player's held bonus cards)
+
+
+def test_bonus_delta_zero_for_non_qualifying_candidate():
+    """A candidate that qualifies for no held bonus card leaves the stripe
+    all-zero; a qualifying candidate fills the qual_count slot."""
+    eng, *_ = engine.Engine.create(seed=3)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")
+    me = eng.state.players[0]
+    me.bonus_cards = [bird_feeder]
+
+    qualifying = next(bird for bird in birds if "Bird Feeder" in bird.bonus_categories)
+    non_qualifying = next(
+        bird for bird in birds if "Bird Feeder" not in bird.bonus_categories
+    )
+    decision = decisions.PlayBirdDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            _play_choice(qualifying),
+            _play_choice(non_qualifying),
+        ],
+    )
+    feats = encode.encode_choices(decision, eng.state)
+    assert (
+        feats[0][layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_QUAL]
+        == 1.0 / layout._BONUS_COUNT_SCALE
+    )
+    assert np.all(_bonus_delta_slice(feats[1]) == 0.0)
+
+
+def test_bonus_delta_per_bird_card():
+    """A held per-bird card pays exactly ``per_bird_vp`` for the +1 qualifying
+    bird, so stepped and linear deltas agree at ``per_bird_vp / scale``."""
+    eng, *_ = engine.Engine.create(seed=4)
+    birds, bonuses, _ = cards.load_all()
+    bird_counter = _named_bonus(bonuses, "Bird Counter")
+    assert bird_counter.per_bird_vp is not None
+    me = eng.state.players[0]
+    me.bonus_cards = [bird_counter]
+
+    candidate = next(bird for bird in birds if "Bird Counter" in bird.bonus_categories)
+    decision = decisions.PlayBirdDecision(
+        player_id=0, prompt="x", choices=[_play_choice(candidate)]
+    )
+    row = encode.encode_choices(decision, eng.state)[0]
+    expected = bird_counter.per_bird_vp / layout._BONUS_VALUE_SCALE
+    assert np.isclose(
+        row[layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_STEPPED], expected
+    )
+    assert np.isclose(
+        row[layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_LINEAR], expected
+    )
+
+
+def test_bonus_delta_threshold_step_vs_slope():
+    """A tiered card prices the +1 differently per channel: between thresholds
+    the stepped delta is zero while the linear slope is positive; one bird
+    below a threshold the stepped delta jumps by the step's VP."""
+    eng, *_ = engine.Engine.create(seed=6)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")  # anchors (5, 3), (8, 7)
+    seed_birds = [bird for bird in birds if "Bird Feeder" in bird.bonus_categories]
+    assert len(seed_birds) >= 7
+    me = eng.state.players[0]
+    me.bonus_cards = [bird_feeder]
+    candidate = seed_birds[6]
+    decision = decisions.PlayBirdDecision(
+        player_id=0, prompt="x", choices=[_play_choice(candidate)]
+    )
+
+    # Count 5 sits on the 3-VP plateau (next step at 8): the +1 crosses no
+    # threshold, so stepped is zero while the linear slope toward 8 is positive.
+    me.board[cards.Habitat.FOREST] = [
+        state.PlayedBird(bird=board_bird) for board_bird in seed_birds[:5]
+    ]
+    row = encode.encode_choices(decision, eng.state)[0]
+    assert row[layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_STEPPED] == 0.0
+    assert row[layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_LINEAR] > 0.0
+
+    # Count 4 is one bird below the (5, 3) threshold: the +1 crosses the step.
+    me.board[cards.Habitat.FOREST] = [
+        state.PlayedBird(bird=board_bird) for board_bird in seed_birds[:4]
+    ]
+    row = encode.encode_choices(decision, eng.state)[0]
+    assert np.isclose(
+        row[layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_STEPPED],
+        3.0 / layout._BONUS_VALUE_SCALE,
+    )
+
+
+def test_bonus_delta_zero_for_played_bird_and_skip():
+    """Birds already in play (and skip rows) never fill the stripe — their
+    qualifying contribution is already counted on the board."""
+    eng, *_ = engine.Engine.create(seed=8)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")
+    qualifying = next(bird for bird in birds if "Bird Feeder" in bird.bonus_categories)
+    me = eng.state.players[0]
+    me.bonus_cards = [bird_feeder]
+    pb = state.PlayedBird(bird=qualifying)
+    me.board[cards.Habitat.FOREST] = [pb]
+
+    played = decisions.BirdPowerPickPlayedBirdDecision(
+        player_id=0,
+        prompt="x",
+        choices=[decisions.PlayedBirdChoice(label="x", played_bird=pb)],
+    )
+    skip = decisions.BirdPowerTuckFromHandDecision(
+        player_id=0, prompt="x", choices=[decisions.SkipChoice(label="s")]
+    )
+    assert np.all(
+        _bonus_delta_slice(encode.encode_choices(played, eng.state)[0]) == 0.0
+    )
+    assert np.all(_bonus_delta_slice(encode.encode_choices(skip, eng.state)[0]) == 0.0)
+
+
+def test_bonus_delta_filled_for_draw_source_tray_bird():
+    """A tray draw-source candidate carries its bonus contribution; the blind
+    deck draw leaves the stripe zero."""
+    eng, *_ = engine.Engine.create(seed=9)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")
+    qualifying = next(bird for bird in birds if "Bird Feeder" in bird.bonus_categories)
+    me = eng.state.players[0]
+    me.bonus_cards = [bird_feeder]
+    eng.state.tray[0] = qualifying
+
+    decision = decisions.DrawCardsPickSourceDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.DrawSourceChoice(
+                label="t", source="tray", tray_index=0, bird=qualifying
+            ),
+            decisions.DrawSourceChoice(label="d", source="deck"),
+        ],
+    )
+    tray_row, deck_row = encode.encode_choices(decision, eng.state)
+    assert tray_row[layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_QUAL] > 0.0
+    assert np.all(_bonus_delta_slice(deck_row) == 0.0)
+
+
+def test_bonus_delta_reflects_currently_held_cards():
+    """The stripe reads the held bonus cards at decision time, so a card drawn
+    mid-game (DRAW_BONUS powers) raises a matching candidate's qual_count."""
+    eng, *_ = engine.Engine.create(seed=11)
+    birds, bonuses, _ = cards.load_all()
+    by_name = {bonus.name: bonus for bonus in bonuses}
+    candidate = next(
+        bird
+        for bird in birds
+        if len([name for name in bird.bonus_categories if name in by_name]) >= 2
+    )
+    matching = [name for name in candidate.bonus_categories if name in by_name]
+    me = eng.state.players[0]
+    decision = decisions.PlayBirdDecision(
+        player_id=0, prompt="x", choices=[_play_choice(candidate)]
+    )
+
+    me.bonus_cards = [by_name[matching[0]]]
+    first = encode.encode_choices(decision, eng.state)[0]
+    me.bonus_cards.append(by_name[matching[1]])
+    second = encode.encode_choices(decision, eng.state)[0]
+
+    qual = layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_QUAL
+    assert np.isclose(first[qual], 1.0 / layout._BONUS_COUNT_SCALE)
+    assert np.isclose(second[qual], 2.0 / layout._BONUS_COUNT_SCALE)
+
+
 ###### PRIVATE #######
+
+
+def _named_bonus(bonuses: list[cards.BonusCard], name: str) -> cards.BonusCard:
+    """The bonus card with printed ``name`` from the loaded catalog."""
+    return next(bonus for bonus in bonuses if bonus.name == name)
+
+
+def _play_choice(bird: cards.Bird) -> decisions.PlayBirdChoice:
+    """A play candidate for ``bird`` in one of its printed habitats."""
+    return decisions.PlayBirdChoice(
+        label=bird.name, bird=bird, habitat=next(iter(bird.habitats))
+    )
+
+
+def _bonus_delta_slice(row: np.ndarray) -> np.ndarray:
+    """The bonus_delta stripe of one encoded choice row."""
+    return row[
+        layout._OFF_BONUS_DELTA : layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_DIM
+    ]
 
 
 def _two_distinct_birds(birds: list[cards.Bird]) -> tuple[cards.Bird, cards.Bird]:
