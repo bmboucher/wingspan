@@ -1,589 +1,551 @@
-# DECISIONS.md
+# DECISIONS.md — the decision-model families
 
-How the Wingspan simulator turns a game of Wingspan into a set of *decisions*,
-and how the model we plan to train mirrors the structure of those decisions.
+A reference report on each judgment family the RL model trains a scoring head
+for: where in the game engine each family's decisions arise, what the choice
+vector carries when the model scores them, and how much the decisions inside a
+family vary. It is written against the code as of June 2026 and is meant to be
+kept in sync with it — see the final section, **Maintaining this document**,
+for the update protocol.
 
-Wingspan is a game about a relatively small number of repeated judgments —
-*which bird is worth playing? which food do I want? where does this egg go? is
-this trade worth it?* — applied over and over in different situations. A good
-player isn't someone who has memorized a separate rule for every card; it's
-someone who has gotten good at each of those underlying judgments and knows
-which one a given moment is asking for.
+Source-of-truth files this report describes:
 
-This document explains how the codebase encodes that idea. It is written for a
-reader who understands Wingspan and the broad strokes of machine learning, but
-not necessarily this code. It proceeds in three steps:
-
-1. **The model architecture** — the shape of the network we train, and why it
-   has the shape it does.
-2. **The three vocabularies** — *choices*, *decisions*, and *judgment
-   families* — and a full catalog of each.
-3. **A tour of the judgments** — what an expert weighs at each kind of
-   decision, and how the design captures that.
-
-The same decision taxonomy drives the human CLI, the engine's turn loop, and
-the RL pipeline, so this doubles as a map of where the game branches.
+| Topic | File |
+|---|---|
+| Decision / Choice classes, family mapping | `src/wingspan/decisions.py` |
+| Choice-vector stripe layout & offsets | `src/wingspan/encode/layout.py` |
+| Per-choice featurizers | `src/wingspan/encode/choice_encode.py` |
+| Engine call sites | `src/wingspan/engine/` (core, actions, powers/, reactors) |
+| Per-family heads | `src/wingspan/model.py` |
+| Setup model | `src/wingspan/setup_model/`, `src/wingspan/training/setup_net.py` |
+| Setup / bonus config axes | `src/wingspan/training/config.py` |
 
 ---
 
-## 1. The model architecture
+## 0. How a decision reaches a head
 
-### 1.1 The core idea: score candidates, don't enumerate actions
+Every decision point in the engine is one `Engine.ask(agent, decision)` call.
+The decision carries the deciding player, a prompt, and a non-empty list of
+typed `Choice` objects. For the model the flow is:
 
-Most board-game RL networks emit a fixed-size policy vector — one output per
-possible action. That is awkward for Wingspan, where the number of legal
-actions swings wildly from turn to turn: you might have two legal bird plays or
-twenty, three foods to choose from or one, 504 opening hands to weigh at setup.
-A fixed output vector would have to reserve a slot for every action that could
-*ever* be legal and mask out the rest.
+1. `encode_state` builds the state vector from the **deciding player's point of
+   view** (their food/board/hand are "mine" even when an opponent is prompted
+   mid-power), ending in a one-hot over the concrete `Decision` class
+   (`ALL_DECISION_CLASSES` order).
+2. `encode_choices` builds one feature row per legal choice — a shared layout
+   of type-specific stripes; each `Choice` subclass's featurizer fills only the
+   stripes that apply to it (everything else stays zero).
+3. The trunk reads the state into an M-wide context; the choice encoder reads
+   each row into an N-wide embedding; the concatenation is scored by **the one
+   head belonging to this decision's judgment family**
+   (`decisions.family_index_for`, `ALL_DECISION_FAMILIES` order), and a softmax
+   over the scores is the policy.
 
-Instead the network is a **pointer-style** policy. At every decision it is
-handed the current game state plus *a list of the legal options, each described
-by its own feature vector*, and it produces **one score per option**. A softmax
-over those scores is the policy. Nothing about the network's shape depends on
-how many options there are — two or two hundred, the machinery is identical.
-This is the natural fit for a game whose branching factor is so uneven.
+Two standing facts shape everything below:
 
-### 1.2 Shared body, specialized heads
+- **Forced moves never reach a head.** `Engine.ask` auto-resolves any decision
+  with exactly one legal choice, and the collector records only genuine forks.
+  So every data point a head trains on has ≥ 2 real options.
+- **The decision-type one-hot lives on the *state* vector, not the choice
+  rows.** Inside a family that serves more than one decision class, that
+  one-hot is the only signal telling the head *which* of its call-site shapes
+  it is currently scoring.
 
-The deeper design choice is *what gets shared and what gets specialized*.
+One config axis changes the shapes: `EncodingSpec.include_setup`
+(= `not TrainConfig.use_setup_model`). When the separate setup model owns the
+opening (the default), the main net drops the `SETUP` head, the
+`SetupDecision` decision-type column, and the trailing `setup_agg` choice
+stripe. All three are kept *last* in their stable orders so the exclusion is a
+clean truncation.
 
-Two things are true at once in Wingspan. First, almost every decision is made
-by **reading the same board**: your food, your birds and their eggs, the round
-goal, the feeder, what the opponent is doing. That "read the position" skill is
-common to everything. Second, the *judgments themselves are different skills*:
-deciding which food to grab is nothing like deciding which egg to give up,
-which is nothing like deciding whether a one-for-one trade is worth taking.
+The family → decision-class map (head order = `ALL_DECISION_FAMILIES`):
 
-So the network is built as **a shared body with specialized heads**:
-
-- A **state trunk** reads the board once and produces a context vector. Shared
-  by everything.
-- A **per-choice encoder** reads each candidate option's features into an
-  embedding. Shared by everything.
-- A **bank of scoring heads**, one per *judgment family* (see §2.3). The
-  context vector and a candidate's embedding are concatenated and passed
-  through **the head for whatever judgment this decision exercises**. Only this
-  final scorer is specialized.
-- A single **value head** (the critic) hangs off the trunk and estimates how
-  good the current position is.
-
-The phrase to keep in mind is **one model per *kind* of choice**. We do not
-train a separate network for the Belted Kingfisher and another for the Common
-Loon; we train one *food-gain* judgment, one *egg-placement* judgment, one
-*is-this-trade-worth-it* judgment, and so on, each as a head that sees every
-situation in the game that exercises that skill — regardless of which card or
-rule triggered it.
-
-### 1.3 The box diagram
-
-```
-        Game state (from the deciding                Each legal option, as its own
-        player's point of view)                      feature vector  (K of them)
-                    │                                          │
-                    ▼                                          ▼
-          ┌───────────────────┐                    ┌───────────────────────┐
-          │    State trunk     │                    │   Per-choice encoder   │
-          │   (2-layer MLP)    │   shared           │     (2-layer MLP)      │  shared
-          └─────────┬─────────┘                    └───────────┬───────────┘
-                    │ state context                            │ one embedding
-        ┌───────────┴───────────┐                              │ per candidate
-        ▼                        ▼                             │
- ┌──────────────┐      concat(state context, ◄─────────────────┘
- │  Value head  │             candidate embedding)
- │  (shared     │                    │
- │   critic)    │                    ▼
- └──────┬───────┘     ┌───────────────────────────────────────┐
-        │             │   Scoring head for THIS decision's     │   ← chosen by
-        ▼             │   judgment family                      │     judgment
-  position value      │   (1 of K specialized heads)           │     family
-                      └────────────────────┬───────────────────┘
-                                           ▼
-                                  one score per candidate
-                                           │
-                                           ▼
-                            softmax over the legal candidates
-                                  = the policy for this decision
-```
-
-Read left to right: the board is read once into a shared context; each option
-is read into a shared embedding; the two are joined and scored by the *one* head
-that matches the judgment being asked; the scores become a probability
-distribution over the legal options. The critic reads only the board, so it is
-shared no matter how the policy heads are organized.
-
-### 1.4 How a single decision flows through the engine
-
-The engine never asks an agent for "an action number." Every decision point is
-one call of the form `Engine.ask(agent, decision)`, where the `decision`
-carries:
-
-- whose decision it is (the point-of-view player),
-- a human-readable prompt (used by the CLI and the game log), and
-- a **non-empty list of legal choices**, each a typed object.
-
-The agent returns one of the offered choices, and `ask` verifies it was
-actually on the menu. For the model, the flow is: encode the state from the
-deciding player's point of view, encode each choice into a feature row, look up
-which judgment family this decision belongs to, score the candidates with that
-family's head, and sample.
-
-**Forced moves are not really decisions.** When only one option is legal, the
-engine usually resolves it without consulting the policy, and the training agent
-declines to record single-option decisions. The trainable surface is therefore
-just the moments with a genuine fork — two or more real options.
-
-### 1.5 Why this middle ground
-
-There is a spectrum here. At one extreme, a single monolithic scorer handles
-every decision and has to learn to behave completely differently depending on a
-"what kind of decision is this?" flag — different judgments fight over the same
-weights, and the rare ones get drowned out. At the other extreme, a fully
-separate network per decision gives the cleanest specialization but throws away
-the shared "read the board" skill, multiplies the parameter count, and starves
-the infrequent decisions of data.
-
-The shared-trunk / per-family-head design is the productive middle: it keeps the
-one expensive thing worth sharing (a learned representation of the position) and
-specializes the one thing worth specializing (the judgment). It also keeps a
-single value head, which is correct on principle — *how good is my position* is
-a property of the board, not of which question you happen to be answering right
-now.
-
-The two genuinely singular decisions — the **opening draft** and the
-**top-of-turn action pick** — are good candidates to eventually promote to fully
-separate networks, because they have a unique cadence and unusually high stakes.
-That is a possible future refinement, not a present limitation; today they are
-heads on the shared trunk like the rest.
-
----
-
-## 2. The three vocabularies
-
-The code separates three ideas that are easy to conflate. Keeping them distinct
-is what makes the taxonomy clean.
-
-### 2.1 Choices — the *shape of the data* an option carries
-
-A `Choice` is one selectable option, and each subclass exists to model one
-**data shape**. There is no generic "payload"; every option exposes its data
-through named, typed fields. The full set:
-
-| Choice class | Carries | Used for |
+| # | Family (head) | Decision class(es) routed to it |
 |---|---|---|
-| `SkipChoice` | (nothing) | declining an optional decision |
-| `MainActionChoice` | the action type | picking Gain / Lay / Draw / Play Bird |
-| `BirdChoice` | a bird | picking a bird from a hand or drawn pile |
-| `PlayBirdChoice` | bird + habitat | a committed bird play (its costs are follow-ups) |
-| `FoodPaymentChoice` | a complete payment multiset | paying a committed play's printed food cost |
-| `PlayedBirdChoice` | a bird already in play | powers that target a bird on the board |
-| `HabitatChoice` | a habitat | designating a row |
-| `FoodChoice` | a food token | gaining or spending one food |
-| `BoardTargetChoice` | a (habitat, slot) cell | adding/removing an egg on one of your birds |
-| `BonusCardChoice` | a bonus card | keeping one of several bonus cards |
-| `DrawSourceChoice` | tray slot *or* deck | where to draw a card from |
-| `PlayerIdChoice` | a player | turn-order powers |
-| `SetupChoice` | kept birds + kept foods + bonus | one whole opening keep |
-| `PayCostChoice` | the terms of a fixed trade | taking a yes/no optional exchange |
-| `ResetBirdfeederChoice` | (nothing) | affirming the optional feeder reroll |
-
-The same data shape is deliberately reused across unrelated situations:
-`BoardTargetChoice` describes a bird-with-eggs whether you are *placing* an egg
-or *removing* one. The two situations look identical as data — what differs is
-the *judgment*, and that difference lives in the scoring head, not the choice.
-
-### 2.2 Decisions — *a specific fork* in the game
-
-A `Decision` is a single branch point: a prompt plus a list of choices of one
-shape. It is generic over the choice type it offers, so a decision that may be
-declined offers, say, `BoardTargetChoice | SkipChoice` and the consumer can tell
-the two apart by type. There are **19** decision classes — one per genuinely
-distinct fork the engine can present.
-
-### 2.3 Judgment families — *the skill* a decision exercises
-
-A `DecisionFamily` is the underlying skill a decision tests, and it is the unit
-the model specializes on: **one scoring head per family**. Several decision
-classes collapse onto one family when they ask the same question for different
-reasons. There are **13** families. The mapping from a decision class to its
-family is a pure function of the class — a decision always routes to the same
-head.
-
-The 19 decisions and the 13 families:
-
-| Family (one scoring head) | Decision class(es) that route to it | The skill |
-|---|---|---|
-| `SETUP` | `SetupDecision` | choosing a whole opening |
-| `MAIN_ACTION` | `MainActionDecision` | which of the four actions this turn |
-| `PLAY_BIRD` | `PlayBirdDecision` | which bird to play, and where |
-| `DRAW_BIRD` | `DrawCardsPickSourceDecision`, `BirdPowerPickBirdFromHandDecision` | which bird to *take* |
-| `DISCARD_BIRD` | `BirdPowerTuckFromHandDecision`, `DiscardBirdForFoodDecision` | which bird to *give up* |
-| `GAIN_FOOD` | `GainFoodDecision` | which food to gain |
-| `SPEND_FOOD` | `SpendFoodDecision`, `SpendFoodForEggDecision`, `PayBirdFoodDecision` | which food to give up |
-| `LAY_EGG` | `LayEggDecision` | which bird gets the egg |
-| `PAY_EGG` | `RemoveEggDecision` | which bird loses an egg |
-| `SKIP_OPTIONAL` | `AcceptExchangeDecision` | is taking this optional exchange worth it? |
-| `CHOOSE_BONUS` | `BirdPowerPickBonusCardDecision` | which bonus card fits my plan |
-| `MISC_RARE` | `BirdPowerPickPlayedBirdDecision`, `BirdPowerPickGainOrderDecision`, `BirdPowerPickHabitatDecision` | rare structural picks |
-| `RESET_BIRDFEEDER` | `ResetBirdfeederDecision` | is a fresh feeder roll worth more than what's showing? |
-
-Two structural facts follow from this split and are worth holding onto:
-
-- **One data shape can serve opposite skills, and the head is what tells them
-  apart.** Placing an egg and removing an egg both present a `BoardTargetChoice`
-  with identical features (habitat, slot, current eggs, capacity remaining,
-  cached food, tucked cards). What makes "more eggs already here" *attractive*
-  for placement but *costly* for removal is that the two route to different
-  heads — `LAY_EGG` versus `PAY_EGG`.
-- **"Can I decline?" is a property of the moment, not the decision type.** The
-  main Lay Eggs action forces you to place the egg somewhere; a pink between-turn
-  power lets you decline the very same kind of placement. So a `SkipChoice` is
-  present or absent depending on the call site, and a head reads "am I allowed to
-  pass?" from whether a skip option is on the menu.
-
-The decision-type identity is *also* fed to the network as a small one-hot
-appended to the state. With the judgment now carried by the head, that one-hot
-does a narrower job: it gives a head that serves more than one decision class
-(e.g. `DRAW_BIRD`, which sees both the draw-source pick and the
-Oystercatcher draft) enough context to tell its own call sites apart.
+| 1 | `MAIN_ACTION` | `MainActionDecision` |
+| 2 | `DRAW_BIRD` | `DrawCardsPickSourceDecision`, `BirdPowerPickBirdFromHandDecision` |
+| 3 | `DISCARD_BIRD` | `BirdPowerTuckFromHandDecision`, `DiscardBirdForFoodDecision` |
+| 4 | `GAIN_FOOD` | `GainFoodDecision` |
+| 5 | `SPEND_FOOD` | `SpendFoodDecision`, `SpendFoodForEggDecision`, `PayBirdFoodDecision` |
+| 6 | `LAY_EGG` | `LayEggDecision` |
+| 7 | `PAY_EGG` | `RemoveEggDecision` |
+| 8 | `SKIP_OPTIONAL` | `AcceptExchangeDecision` |
+| 9 | `CHOOSE_BONUS` | `BirdPowerPickBonusCardDecision` |
+| 10 | `MISC_RARE` | `BirdPowerPickHabitatDecision`, `BirdPowerPickPlayedBirdDecision`, `BirdPowerPickGainOrderDecision` |
+| 11 | `PLAY_BIRD` | `PlayBirdDecision` |
+| 12 | `RESET_BIRDFEEDER` | `ResetBirdfeederDecision` |
+| 13 | `SETUP` (last; config-excluded) | `SetupDecision` |
 
 ---
 
-## 3. A tour of the judgments
+## 1. The choice vector at a glance
 
-This section walks the 13 families in roughly the order a turn encounters them,
-explaining what an expert actually weighs and how the design lets the model
-learn it. The throughline: each family is *one skill*, exercised wherever the
-game asks for it.
+One uniform row per candidate (`encode/layout.py`); base width 383, plus the
+trailing 4-dim `setup_agg` stripe when `include_setup` (387). The stripes, in
+offset order:
 
-### 3.1 `SETUP` — the opening draft
+| Stripe | Width | Contents | Filled for |
+|---|---|---|---|
+| `kind` | 6 | one-hot: bird / food / habitat / payment / board_target / special | every row |
+| `gain_food` | 7 | 5 plain food faces + choice-die-as-invertebrate + choice-die-as-seed | food picks (gains *and* single-token spends) |
+| `habitat` | 3 | habitat one-hot | play-bird rows, habitat picks, payment context |
+| `pay_food` | 5 | per-food payment counts (÷4) | payment multisets, named exchange costs, setup foods-spent |
+| `board_target` | 120 | 15 slots × 8 scalars: lay-flag, pay-flag, cached food ×5, tucked | egg add/remove targets; played-bird picks (context, no flag) |
+| `main_action` | 4 | one-hot over Gain Food / Lay Eggs / Draw Cards / Play Bird | main-action rows |
+| `special` | 2 | `is_skip`, `is_self` | skip rows; player-id rows |
+| `exchange` | 12 | pay→gain ledger (÷3): cards/food/eggs paid; food/eggs/cards/tucks/plays gained; 4 reserved opponent-gain terms | accept-exchange rows |
+| `board_idx` | 15 | integer card index per board slot, embedded through the shared card table | wherever `board_target` is filled |
+| `bird_id` | 180 | bird identity one-hot (multi-hot for setup keeps), embedded through the shared card table — so the candidate's static attributes *and* its learned per-card vector arrive together | every bird-carrying row |
+| `bonus_id` | 26 | bonus-card identity one-hot | bonus picks, setup keeps |
+| `bonus_delta` | 3 | how this bird advances the decider's **held** bonus cards: qualifying-card count + summed stepped-VP and linear-VP marginals at count+1 | bird keep/play/tray-draw rows |
+| `setup_agg` | 4 | kept-subset aggregates: Σpoints, Σfood-cost, Σegg-limit, kept count | setup keeps only (`include_setup`) |
 
-**What happens.** Once per player before round 1: you are dealt 5 birds and 2
-bonus cards, and you start with one food of each type. You keep some subset of
-the birds (each kept bird costs one of your starting foods), keep the foods you
-didn't spend, and keep exactly one bonus card. The engine presents this as a
-*single* decision enumerating every legal combination — 504 of them for the
-standard deal — so the model faces one clean, fixed-shape choice rather than a
-sequence of interacting sub-picks.
-
-**What an expert weighs.** This is a joint optimization: the value of a food
-depends on which birds you kept (can you actually afford to play them early?),
-and the value of a bonus card depends on both. You're balancing an affordable
-opening curve, habitat spread, engine pieces (brown "when activated" powers),
-and bonus-card alignment all at once. Bundling everything into one combined
-choice is exactly right, because these pieces cannot be valued independently.
-
-**Why its own head.** The opening has a unique cadence (once per game), a unique
-shape (a fixed combinatorial menu, not a board operation), and no board to read
-yet. It is the single cleanest candidate in the game for a fully separate
-network later. Crucially, each candidate exposes *which specific birds* it keeps
-(see §4 on card identity), so this head can learn genuine card-by-card opening
-synergies — which is precisely the kind of question ("what makes a good opening
-hand?") the whole project is trying to answer.
-
-### 3.2 `MAIN_ACTION` + `PLAY_BIRD` — the strategic spine, in two steps
-
-**What happens.** At the top of each turn you choose *which* of four actions to
-take: Gain Food, Lay Eggs, Draw Cards, or Play a Bird. This is the
-`MAIN_ACTION` decision, and it picks the action *type* only. Play-a-bird is
-offered only when you actually have a legal play. If you choose to play a bird,
-a *follow-up* `PLAY_BIRD` decision picks which bird and in which habitat — one
-candidate per legal (bird, habitat) pair, offered only when the pair's costs
-are completable. The costs themselves then resolve as further follow-ups, eggs
-then food (§3.7 and §3.5).
-
-**What an expert weighs.** Engine-building versus immediate points; the
-action-reward track (more birds in a habitat row makes that action stronger, so
-where you build matters beyond this turn); tempo and the shrinking cube budget
-(8 → 7 → 6 → 5 actions across the rounds); the current round goal; the food/egg/
-card economy; and denying the opponent.
-
-**Why two heads.** "Which action is worth a cube this turn?" and "which bird is
-worth playing, where?" are different questions, so they get different heads.
-This is the well-known *action-type-then-arguments* factorization, and it
-buys a clean, legible signal: the `MAIN_ACTION` head's scores read directly as
-"how often is playing a bird worth more than an engine action?" The four
-action-type options are intentionally featureless tokens — their value lives in
-the *board state*, not in the option itself — while the (bird, habitat) detail
-lives on the `PLAY_BIRD` candidates. The same `PLAY_BIRD` head also handles the
-extra plays some powers grant, because "which bird is worth playing?" is the
-same skill whether it's your main action or a bonus — though an extra play,
-being optional, first passes through a `SKIP_OPTIONAL` accept (§3.8).
-
-Both portions of a bird's cost are handled as follow-ups rather than folded
-into the play candidate, resolving in the printed order: the egg cost via
-`RemoveEggDecision` (§3.7), then the food payment via `PayBirdFoodDecision`
-(§3.5). The strategic pick — *this bird is worth a cube, here* — is thereby
-kept separate from the spend logistics of paying for it, and each cost trains
-the generic judgment it actually exercises ("which egg / which tokens can I
-most afford to lose?") alongside every other egg and food spend in the game.
-
-### 3.3 `DRAW_BIRD` vs `DISCARD_BIRD` — valuing birds, in both directions
-
-"How valuable is this bird?" is really two opposite skills, and they get two
-heads.
-
-**Acquisition** — *given birds I don't yet hold, which do I take?*
-- `DrawCardsPickSourceDecision` — take a *named* face-up tray bird, or draw
-  blind from the deck. (This one carries a value-of-information wrinkle the
-  others don't: the deck option is unseen.)
-- `BirdPowerPickBirdFromHandDecision` — keep one of several freshly drawn birds
-  (the American Oystercatcher draft).
-
-**Discard** — *given birds I hold, which do I give up?*
-- `BirdPowerTuckFromHandDecision` — give a hand card up to tuck it behind a bird
-  (it becomes a point plus progress toward tuck-count goals).
-- `DiscardBirdForFoodDecision` — give a hand card up to gain one extra food (the
-  Forest trade space, step 2 after committing via ``AcceptExchangeDecision``).
-
-**What an expert weighs.** Points, cost versus current food, habitat fit and open
-slots, power synergy with what's already on the board, bonus-card progress —
-and, on the discard side, whether a card is worth more held than spent.
-
-**Why split by direction.** A bird's features are encoded identically wherever it
-appears, so each head specializes purely in *direction*. Acquisition and discard
-pull in opposite directions on the very same features — a card you'd eagerly
-draft is a card you'd be reluctant to toss — which is exactly why a single
-"bird value" head would be the wrong grain. Note that choosing which hand bird
-to *play* is not in this group; that lives in `PLAY_BIRD` (§3.2), because a play
-is also a question of habitat and timing, not just card value.
-
-### 3.4 `GAIN_FOOD` — acquiring food
-
-**The skill.** "Which food advances my plans?" — choosing a die face from the
-birdfeeder, or a token from the supply.
-
-**What an expert weighs.** The food costs of the birds you intend to play; the
-flexibility of wild food; the scarcity of a face still showing in the feeder;
-the shape of your future curve.
-
-**Why unified.** Gaining food is *one* judgment no matter what triggered it, so
-every food gain in the game routes through this single family: the main Gain Food
-action, the each-player feeder gains, and every bird power that hands you a food
-(a specific die, any die, a predator's feeder grab, the fewest-forest gain, the
-wild half of a discard-for-wild power, and so on). A skip option appears only
-when the gain is genuinely optional. Unifying these means the model sees a large,
-varied stream of "pick a food" situations and gets good at the skill, instead of
-re-learning it separately for each card.
-
-### 3.5 `SPEND_FOOD` — giving food up
-
-**The skill.** The inverse of §3.4: "which food can I most afford to part with,
-and which payment keeps me most flexible?"
-
-- `PayBirdFoodDecision` — pay a committed bird play's printed cost, choosing
-  among the legal payment multisets (1-for-1 matching, 2-for-1 substitution,
-  wild fills). This is the dominant food-spending event in the game and the
-  bulk of this head's data.
-- `SpendFoodDecision` — hand a food back to the supply (e.g. the lose-half of a
-  trade-a-wild power).
-- `SpendFoodForEggDecision` — spend a food to lay one extra egg (the Grassland
-  trade space, step 2 after committing via `AcceptExchangeDecision`).
-
-**What an expert weighs.** Hold wild food for flexible future costs; don't strand
-a bird you mean to play by spending the food it needs; weigh the marginal egg or
-trade against what you give up.
-
-**Why separate from gaining.** Gaining and spending food are opposite skills, so
-they get opposite heads. A power like the wild-food trade is modeled as a
-*chain* — gain a food (a `GAIN_FOOD` step), then give one back (a `SPEND_FOOD`
-step) — so the two opposite judgments never share weights. The bird food cost
-follows the same logic from the other side: *whether* the bird is worth playing
-is the `PLAY_BIRD` pick, while *how to pay* is settled here afterwards, so the
-payment judgment trains on every food spend in the game rather than being
-locked inside the play candidates. When only one payment is legal there is
-nothing to decide and the engine resolves it without consulting the policy.
-
-### 3.6 `LAY_EGG` — where the egg goes
-
-**The skill.** "Which of my birds gets this egg?" Used everywhere an egg is
-*added*: the main Lay Eggs action, the Grassland conversion, lay-any-egg powers,
-the all-players and lay-on-a-nest-type powers, and the pink between-turn
-reactors. It is the most heavily reused placement skill in the game.
-
-**What an expert weighs.** Round-goal nests and habitats; bonus cards keyed on
-eggs; favoring high-capacity birds (more room for future eggs) unless a goal
-rewards spreading; favoring birds you'll keep to game end; and how much capacity
-each bird has left.
-
-**Why one head.** The judgment really is the same across every trigger, so the
-heavy reuse is correct — and concentrating all egg-placement experience into one
-head is what lets it get good.
-
-### 3.7 `PAY_EGG` — which egg to spend
-
-**The skill.** "Which egg can I best afford to lose?" Used wherever an egg is
-*removed*: paying a bird's egg cost, the Wetland egg-for-card conversion, and the
-discard-egg-for-wild power.
-
-This is a clean illustration of the whole design philosophy. The *which egg*
-question is the same skill regardless of why you're spending the egg, so all
-three contexts route to one head with one consistent feature shape.
-
-And, importantly, **the reason for spending the egg is deliberately not shown to
-this head — because it doesn't matter.** Whether to pay at all, and how many eggs
-it costs, is settled *upstream* by a different decision (the `SKIP_OPTIONAL`
-head for the trades, or the `PLAY_BIRD` pick for a bird's cost). By the time this
-head runs, that commitment is already made; "which of my birds gives up the egg?"
-is then orthogonal to why — you take it off your least-valuable spot either way.
-So this head correctly sees only the egg-source options. Whether you're allowed
-to decline varies by context (mandatory for a bird's cost, optional for some
-trades), surfaced as the presence or absence of a skip option.
-
-### 3.8 `SKIP_OPTIONAL` — is this optional exchange worth taking?
-
-**The skill.** "Is taking this worth it, given my position and the round goal?"
-— the yes/no half of any fully-determined optional offer, independent of *which*
-resource gets used (that's a separate decision). This is the natural partner to
-§3.7: the *decision to commit* is its own skill, separate from *which resource
-to pay with*. (Formerly named `COMMIT_TO_COST`; renamed when the cost-free
-extra-play accept joined the family — the common thread is skipping or taking
-an optional offer, not necessarily paying.)
-
-It handles the fully-determined offers: the Wetland egg-for-card conversion
-(the bird the egg comes off is the separate `PAY_EGG` follow-up), the
-discard-food-to-tuck powers (where the food and the number of tucks are fixed by
-the card), and the power-granted extra bird play (accept opens the `PLAY_BIRD`
-menu; skip forfeits the credit). The accept option carries the **terms of the
-offer as typed fields** — food paid, eggs paid, cards gained, cards tucked, bird
-plays unlocked — so the head can literally weigh what's gained against what's
-paid, rather than scoring a blank "accept" token.
-
-Two cases are intentionally *not* routed here, both for good reason:
-
-- **When the yes/no is inseparable from a resource pick**, it stays with that
-  pick. The Forest (card-for-food) and Grassland (food-for-egg) trade spaces fold
-  "should I?" into the same decision as "which card/food?" via a skip option,
-  because you decide whether to trade *as* you decide which resource to give up.
-- **When there's no real yes/no**, there's no commit decision. Once you've
-  chosen a bird to play, paying its egg and food costs is mandatory — so that
-  "decision" is already part of the action pick (§3.2), and the follow-ups only
-  choose *which* egg and *which* tokens.
-
-### 3.9 `CHOOSE_BONUS` — which bonus card fits the plan
-
-**The skill.** "Which bonus card matches the board I'm building?" — how many
-qualifying birds you have or can still get, and whether a VP threshold is in
-reach. This judgment appears in two homes: bundled into the opening keep
-(§3.1) and, mid-game, the keep-one-of-several bonus power.
-
-Each bonus card is identified to the network individually (§4), so the head can
-learn a per-card value — a direct line to the project's "how valuable is each
-bonus card?" question. A natural future enrichment is to *also* hand the head the
-bonus card's structured terms (its category, its VP thresholds, your current
-qualifying-bird count), so it can generalize across bonus cards rather than
-learning each one in isolation. The per-card identity is the backbone that makes
-that learnable.
-
-### 3.10 `MISC_RARE` — the rare structural picks
-
-Three decisions fire on only a handful of cards:
-
-- `BirdPowerPickGainOrderDecision` — designate who gains first in an each-player
-  feeder gain (the Anna's / Ruby-throated Hummingbird order pick).
-- `BirdPowerPickPlayedBirdDecision` — choose which adjacent power to *repeat*.
-- `BirdPowerPickHabitatDecision` — designate the destination row for a *moved*
-  bird (the move-if-rightmost powers). Choosing a habitat for a two-habitat
-  bird you're *playing* is part of the `PLAY_BIRD` candidate (§3.2), so this
-  covers only the move powers. (This briefly had its own `MOVE_HABITAT` family;
-  it fires far too rarely to feed a dedicated head and was folded in here.)
-
-These are pooled into one shared head on purpose. A dedicated head for something
-that fires a few times a game would be perpetually starved of training data;
-pooling keeps it learning from a steady (if small) stream. Repeat-a-power is
-genuinely a high-value judgment — "which power is best to copy?" — but it's far
-too rare to isolate; a richer future treatment could score it *through* the head
-of whatever power it copies.
-
-### 3.11 `RESET_BIRDFEEDER` — is a fresh roll worth more?
-
-**The skill.** Wingspan lets a player reroll the whole feeder before gaining
-food whenever every die shows the same face. The judgment — "is a fresh roll
-worth more than what's showing?" — is offered at every feeder gain, so it gets
-its own small head rather than riding along with the food pick itself.
+Worth remembering when reading the family sections: per-slot **egg counts and
+remaining capacity are not in the choice rows** — they ride the state vector's
+board stripes, as do the birdfeeder contents, the round goals, bonus progress,
+and the hand. A choice row carries only what distinguishes *this* candidate.
 
 ---
 
-## 4. How the board and the cards are represented
+## 2. The families
 
-The policy is only as good as what it can see. A few representation choices do a
-lot of the work.
+Sections mirror the head order above.
 
-**Point of view.** The state is always encoded from the perspective of the player
-who is about to decide — including when an opponent is prompted mid-power. So
-"my food," "my board," "my eggs" always mean the decider's. This is what lets a
-single network play both seats in self-play: symmetry comes for free from the
-POV encoding plus per-player returns.
+### 2.1 `MAIN_ACTION` — which action gets this turn's cube
 
-**Card identity, not just card stats.** Every bird-carrying option includes a
-one-hot over all 180 core-set birds, concatenated with its numeric attributes
-(points, costs, egg limit, wingspan, color, nest, per-food cost). Bonus cards get
-their own one-hot over the 26 bonus cards. The deciding player's *hand* is
-encoded as a multi-hot over birds, and the *opening keep* exposes its kept birds
-as a multi-hot too. The first layer over these identity stripes is, in effect, a
-**learned per-card embedding** — and that embedding *is* the card-power signal
-the project ultimately wants to read out. (As built there are actually *two* such
-tables — the hand / opening multi-hot is read by the state trunk while a
-candidate's one-hot is read by the choice encoder — so a card has two learned
-vectors today; unifying them into one shared `nn.Embedding` is the TRAINING.md
-§6.3 refinement, and is what would make the readout a single per-card table.)
-Two birds with identical printed stats
-are still distinguishable, and the setup head can see exactly which cards an
-opening keeps. (Opponent hands stay hidden, as they should — only the size is
-revealed.)
+**Where the engine asks it.** Exactly once at the top of every turn, before
+anything else: Gain Food, Lay Eggs, and Draw Cards are always offered (even
+when the row is empty and the action would be weak), and Play a Bird is added
+only when the player has at least one completable `(bird, habitat)` play right
+now. Choosing Play a Bird opens the follow-up `PLAY_BIRD` menu; the other
+three run their habitat-row action directly.
 
-**Trade terms, not blank tokens.** A yes/no exchange (§3.8) carries its terms as
-features — a symmetric pay→gain ledger over cards, food, eggs, and bird plays
-(what the player gives up and receives), plus the gains a shared-benefit power
-grants the opponent — so the skip-optional head weighs the actual deal instead of
-a featureless "accept" button.
+**What the choice rows carry.** Almost nothing, deliberately: the special-kind
+bit plus the 4-wide `main_action` one-hot. The four options are featureless
+tokens — the value of "lay eggs this turn" is a fact about the *board*, so the
+entire judgment is read from the state context (food, eggs-capacity, hand,
+row counts, cubes left, round goal, opponent posture).
 
-**Uniform candidate features.** Every option is described in one shared feature
-layout with type-specific stripes; a given option fills only the stripes that
-apply to it. This is what lets the single per-choice encoder read any candidate
-from any decision, and the per-family head specialize on top.
+**Variation within the family.** Minimal — one decision class, one shape. The
+only structural variation is menu width (3 vs 4 options, depending on whether
+a bird play is legal). This is the most homogeneous family.
+
+### 2.2 `DRAW_BIRD` — which bird to take
+
+**Where the engine asks it.**
+
+- *Every single-card draw* (`DrawCardsPickSourceDecision`): each card of the
+  main Draw Cards action; the extra card from the Wetland trade-space
+  conversion; every "draw a card / draw N cards" bird power, including the
+  all-players-draw powers (each seat picks its own source) and the draw step
+  of tuck-then-draw powers. Each draw is a separate decision over the current
+  face-up tray plus the deck; tray slots emptied mid-turn stay empty until the
+  end-of-turn refill, so consecutive draws see a shrinking tray.
+- *The draft pick* (`BirdPowerPickBirdFromHandDecision`): after the active
+  player plays American Oystercatcher (draw players+1 cards), each
+  **non-active** player picks one drawn card to keep; the active player keeps
+  the remainder without a decision.
+
+(Brant's take-the-whole-tray and predator tuck-from-deck involve no pick and
+never reach this head.)
+
+**What the choice rows carry.** A tray card or drafted card is a full
+bird-kind row: bird identity (→ shared card table: points, costs, nest,
+habitats, wingspan, color, bonus categories, learned vector) plus the
+`bonus_delta` stripe pricing what acquiring it would do for the decider's held
+bonus cards. The **deck option is a bare special-kind token** — no identity,
+no stats — which is exactly the value-of-information shape: the head must
+weigh named cards against the expected value of a blind draw.
+
+**Variation within the family.** The blank deck row vs. fully-featured card
+rows is the biggest intra-row contrast in any family. Across the two decision
+classes the card rows are byte-identical in shape; only the state's
+decision-type one-hot tells the head whether this is a tray-vs-deck pick
+(deck row possible, opponent context normal) or an Oystercatcher draft (no
+deck option, and the decider is reacting to an opponent's power). Neither
+class ever offers a skip.
+
+### 2.3 `DISCARD_BIRD` — which bird to give up
+
+**Where the engine asks it.**
+
+- *Tuck-from-hand powers* (`BirdPowerTuckFromHandDecision`): every "tuck a
+  card from your hand behind this bird" power — the plain tuck, tuck-then-draw,
+  tuck-then-lay-on-this, tuck-then-lay-any, and tuck-then-gain-food variants —
+  one ask per tucked card, always with a skip (the tuck is optional).
+- *The pink tuck reaction* (same class): Horned Lark's "when another player
+  plays a bird in your habitat, tuck a card" — fires between turns for the
+  reacting player and is **mandatory** while a card is in hand (no skip).
+- *The Forest conversion discard* (`DiscardBirdForFoodDecision`): step 2 of
+  the Forest trade space — which hand card to discard for the extra food die,
+  after the trade was committed via a `SKIP_OPTIONAL` accept. Mandatory; the
+  yes/no already happened upstream.
+
+**What the choice rows carry.** Bird-kind rows: identity (→ card table) plus
+`bonus_delta`. Note the direction inversion: `bonus_delta` prices what the
+bird would contribute *if it reached the board* — for a discard, that is the
+value being forfeited. The skip row, where present, is a special-kind token
+with `is_skip`.
+
+**Variation within the family.** The card rows are identical in shape across
+all sites; what differs is (a) whether a skip is on the menu (optional tucks
+vs. the mandatory pink reaction and forest discard), and (b) what the give-up
+buys — a tuck point, a draw, an egg, a food — which is **not** in the rows at
+all. The head reads the compensation only from the decision-type one-hot plus
+state context, which is the main representational thinness of this family.
+
+### 2.4 `GAIN_FOOD` — which food advances the plan
+
+**Where the engine asks it.** The single most-exercised food judgment, unified
+across every trigger:
+
+- each die taken during the main Gain Food action;
+- the extra die after the Forest conversion (commit and discard settled
+  upstream);
+- bird powers that pull a die of the player's choice from the feeder: "gain a
+  die of your choice from the birdfeeder", and "gain [A] or [B] from the
+  birdfeeder" (menu limited to whichever of the two named faces is showing);
+- each-player feeder gains: the Anna's / Ruby-throated Hummingbird power
+  (every seat, in the chosen order, picks its own die — so the opponent
+  answers this too), and "the player(s) with the fewest forest birds gains a
+  die" (auto-skipped entirely when activating would only feed the opponent);
+- the pink predator reaction: when an opponent's predator hunt succeeds, the
+  reacting player's pink bird pulls a die of their choice from the feeder;
+- supply picks: choosing which wild food to take from the supply, e.g. the
+  gain half of the discard-egg-for-wild powers;
+- the gain half of Green Heron's wild-food trade — the one **optional** gain
+  (a skip is offered; declining cancels the whole trade).
+
+Powers that grant a *named* food (from supply or feeder) take it without a
+decision and never reach this head.
+
+**What the choice rows carry.** Food-kind rows filling the 7-slot `gain_food`
+stripe: the five plain die faces, plus two dedicated slots for taking the
+invertebrate/seed *choice die* as invertebrate or as seed. The choice-die
+slots only light up at feeder gains where the combo face is showing — so the
+head scores "burn the flexible die" separately from "spend a rigid single
+face" (e.g. to deny the opponent the flexible die). Supply picks use the plain
+slots only. What is *in* the feeder rides the state vector.
+
+**Variation within the family.** One decision class, but two sources (feeder
+vs. supply — distinguishable by whether choice-die slots can appear), one
+optional site (Green Heron) against otherwise mandatory picks, and a decider
+who is frequently the non-active player (each-player powers, pink reaction) —
+made uniform by the POV state encoding.
+
+### 2.5 `SPEND_FOOD` — which food to part with
+
+**Where the engine asks it.**
+
+- *The bird-play food payment* (`PayBirdFoodDecision`): after a play is
+  committed and its egg cost paid, choose among the legal payment multisets
+  for the bird's printed cost (1-for-1 matching, 2-for-1 substitution, wild
+  fills). The dominant food-spending event and the bulk of this head's data;
+  auto-resolved when only one payment is legal.
+- *The Grassland conversion spend* (`SpendFoodForEggDecision`): step 2 of the
+  Grassland trade space — which single food to spend for the extra egg, after
+  the upstream commit.
+- *The trade give-back* (`SpendFoodDecision`): the lose half of Green Heron's
+  trade — which food goes back to the supply.
+
+All three are mandatory; the yes/no, where one exists, lives upstream in
+`SKIP_OPTIONAL`.
+
+**What the choice rows carry.** Two genuinely different shapes:
+
+- **Payment rows** (payment-kind): the candidate multiset's per-food counts on
+  the `pay_food` stripe, *plus decision-level context shared by every row* —
+  the committed bird's identity (→ card table) and the destination habitat —
+  so the head sees what the tokens are buying, not just the tokens leaving.
+- **Single-token rows** (food-kind): a one-hot on the `gain_food` stripe — the
+  *same* stripe gains use; nothing marks the row as a spend except the
+  decision-type one-hot and the head itself.
+
+**Variation within the family.** The starkest structural split of any family:
+payment rows and single-token rows populate disjoint stripes (`pay_food` +
+bird + habitat vs. `gain_food`), and payment rows are the only place in the
+game where identical context features ride along on every candidate. A head
+serving this family is really learning two sub-skills — "which multiset
+preserves my flexibility" and "which loose token do I miss least" — tied
+together by the shared notion of food value.
+
+### 2.6 `LAY_EGG` — which bird gets the egg
+
+**Where the engine asks it.** Everywhere an egg is *added*, one ask per egg:
+
+- each egg of the main Lay Eggs action (mandatory — the egg must go
+  somewhere);
+- the extra egg after the Grassland conversion;
+- "lay an egg on any bird" powers (mandatory);
+- "all players lay an egg on a [nest-type] bird" powers: every seat answers
+  over its matching birds (mandatory); the active player's optional
+  *additional* egg(s) carry a skip;
+- the lay halves of tuck-then-lay powers: lay-on-this-bird (a single target
+  plus skip — usually auto-resolved away once one side is forced... it is a
+  genuine 2-option fork: target or skip) and lay-on-any (mandatory);
+- the pink lay reaction: "when another player takes Lay Eggs, lay an egg on a
+  [nest] bird" — optional, with skip, answered between turns by the reacting
+  player.
+
+**What the choice rows carry.** Board-target rows: the full 15-slot board
+block from the decider's own board — per slot the cached-food counts (×5
+foods) and tucked-card count, plus the parallel 15 card indices embedding
+every occupant through the shared card table — with exactly one slot flagged
+`lay_eggs = 1`. Candidates differ **only in which slot carries the flag**; the
+rest of the block is identical context. Current egg counts and remaining
+capacity per slot are read from the state vector's board stripes, not the row.
+
+**Variation within the family.** One decision class, one row shape. Variation
+is in (a) skip presence (mandatory main-action lays vs. optional pink /
+additional lays), (b) the eligible-target filter (nest-type restrictions are
+expressed purely by which slots appear as candidates — the restriction itself
+is not a feature), and (c) the decider sometimes being the non-active player.
+
+### 2.7 `PAY_EGG` — which egg to lose
+
+**Where the engine asks it.** Everywhere an egg is *removed*:
+
+- the play-bird egg cost — one decision per egg owed by the destination
+  column (mandatory);
+- the Wetland conversion's egg discard, after the upstream commit (mandatory);
+- the discard-an-egg-from-**another**-bird-for-wild-food powers (optional,
+  with skip; the power's own bird is excluded from the targets).
+
+**What the choice rows carry.** Exactly the `LAY_EGG` data shape — the full
+board block + card indices — but the targeted slot is flagged `pay_eggs = 1`
+instead. The opposite-direction judgment ("more eggs here makes this target
+*better* to tap" vs. "*worse* to lose") lives entirely in the head and the
+flag.
+
+**Variation within the family.** Mandatory (costs, where the commitment was
+the upstream play/trade pick) vs. optional (the wild-food power). The *reason*
+the egg is being spent is deliberately not encoded — by the time this head
+runs, the commitment is settled, and "which egg do I miss least?" is the same
+question regardless.
+
+### 2.8 `SKIP_OPTIONAL` — is this fixed exchange worth taking?
+
+**Where the engine asks it.** Every fully-determined, optional,
+take-it-or-leave-it offer:
+
+- the three player-mat trade spaces, whenever the action cube lands on a
+  conversion column: Forest (discard 1 card → +1 die), Grassland (spend 1
+  food → +1 egg), Wetland (discard 1 egg → +1 card). Each is the step-1
+  commit; *which* card/food/egg is a follow-up in the matching family;
+- the discard-1-[food]-to-tuck-N-cards-from-deck powers (Sandhill Crane et
+  al.), whose terms are fixed by the card;
+- each power-granted **extra bird play**: accept (opens the `PLAY_BIRD` menu;
+  House Wren's grant restricts it to one habitat) or forfeit the credit.
+
+**What the choice rows carry.** Always exactly two rows. The accept row is a
+special-kind token carrying the **exchange ledger**: twelve normalized terms —
+cards/food/eggs to pay, food/eggs/cards/tucks/plays to gain, plus four
+reserved opponent-gain terms (currently always zero; reserved for a future
+optional shared-benefit trade). When the paid food is a named type it also
+rides the `pay_food` stripe. The skip row is a special-kind token with
+`is_skip`. So the head literally weighs what's gained against what's paid
+rather than scoring a blank "yes" button.
+
+**Variation within the family.** Structurally none — two rows every time.
+All variation is in the ledger values: the extra-play accept is the degenerate
+all-gain point (`gained_play_count = 1`, nothing paid up front, the play's own
+costs resolving downstream), while the conversions and tuck trades each light
+different pay/gain cells.
+
+### 2.9 `CHOOSE_BONUS` — which bonus card fits the plan
+
+**Where the engine asks it.**
+
+- the "draw N bonus cards, keep K" powers — one decision per kept card, over
+  the shrinking drawn pile;
+- under the `split_setup_bonus` regime (see §2.13): the **opening bonus
+  pick** — asked immediately after the setup keep is applied, over the two
+  dealt bonus cards, against a minimal start-of-round-1 snapshot (empty board,
+  full cubes, real tray/feeder/goals). It routes through `Engine.ask` like any
+  in-game decision, so it adds one on-policy `CHOOSE_BONUS` sample per net
+  seat per game.
+
+**What the choice rows carry.** A special-kind token plus the 26-wide bonus
+identity one-hot. There are no structured terms on the row (no VP thresholds,
+no current qualifying-bird count) — the value must be learned per card, read
+against the state's bonus-progress stripes, hand multi-hot, and board.
+Feeding the head the bonus card's structured terms is a known future
+enrichment.
+
+**Variation within the family.** The mid-game power pick and the opening pick
+share the decision class, so even the decision-type one-hot cannot tell them
+apart — the distinguishing signal is the state itself (an empty round-1 board
+vs. a developed one). Row shape is otherwise constant; no skip ever.
+
+### 2.10 `MISC_RARE` — the pooled rare structural picks
+
+**Where the engine asks it.** Three unrelated, individually-rare judgments
+share this head so none starves:
+
+- *which habitat to move a bird into*
+  (`BirdPowerPickHabitatDecision`): the "if this bird is to the right of all
+  other birds in its habitat, move it to another habitat" powers — staying put
+  is offered as a choice, so declining the move is just picking the current
+  habitat;
+- *which bird's power to repeat* (`BirdPowerPickPlayedBirdDecision`): the
+  repeat-a-brown-power and repeat-a-predator-power birds, choosing among the
+  eligible neighbours in the activated row;
+- *who gains food first* (`BirdPowerPickGainOrderDecision`): the Anna's /
+  Ruby-throated Hummingbird "each player gains a die, starting with the player
+  of your choice" order pick.
+
+**What the choice rows carry.** Three disjoint shapes:
+
+- habitat picks: the 3-wide habitat one-hot;
+- played-bird picks: the candidate's bird identity (→ card table) plus the
+  full board block *as context, with no target flag* — and since the board
+  block is the decider's whole board, it is identical on every row; the rows
+  differ only by candidate identity;
+- gain-order picks: a special-kind token whose `is_self` flag marks the row
+  that is the deciding player (going first is usually right, and this makes
+  that learnable trivially).
+
+**Variation within the family.** Maximal — by construction. The three classes
+populate entirely different stripes, and the state's decision-type one-hot is
+the only thing telling the head which sub-judgment it is scoring. This family
+is the deliberate trade of specialization for data volume; "repeat which
+power?" in particular is a high-value judgment scored through a deliberately
+coarse shared head.
+
+### 2.11 `PLAY_BIRD` — which bird, into which habitat
+
+**Where the engine asks it.**
+
+- after `MAIN_ACTION` resolves to Play a Bird: one `PlayBirdChoice` per legal
+  `(bird, habitat)` pair the player can complete right now (legal = open
+  slot + affordable egg cost + at least one legal food payment);
+- for each power-granted **extra play**, after the player accepts it via the
+  `SKIP_OPTIONAL` gate — the same menu, filtered to the granting power's
+  habitat when one applies (House Wren).
+
+The chosen play's costs are follow-ups in other families, eggs then food:
+`PAY_EGG` per egg owed, then `SPEND_FOOD` for the payment multiset. The
+strategic pick is kept clean of spend logistics.
+
+**What the choice rows carry.** Bird-kind rows: the bird's identity (→ card
+table), the destination habitat one-hot, and the `bonus_delta` stripe pricing
+the play's marginal contribution to the held bonus cards. No cost features —
+costs resolve downstream, and only completable pairs are offered.
+
+**Variation within the family.** One class, one shape. A bird playable in two
+habitats produces two rows differing only in the habitat stripe — that is the
+intra-decision texture this head specializes in. Notably, a main-action play
+and an extra play are **completely indistinguishable** to the model: same
+decision class (so the same decision-type one-hot), same row shape, and no
+extra-play-credit scalar in the state vector. The model cannot currently
+condition on "this is a bonus play"; whether that matters is an open
+modelling question.
+
+### 2.12 `RESET_BIRDFEEDER` — is a fresh roll worth more than what's showing?
+
+**Where the engine asks it.** Offered immediately before a feeder gain
+whenever every die in the feeder shows the same face (all one food, or all on
+the invertebrate/seed choice face):
+
+- before each die of the main Gain Food action, and before the Forest
+  conversion's extra die;
+- before the feeder-pulling powers: the named-food feeder gains, the
+  either-of-two-foods picks, the any-die picks, the gain-all-of-a-food powers,
+  each seat's turn in the each-player gains, and the fewest-forest gain.
+
+The *empty*-feeder reroll is automatic and never a decision. One gap to be
+aware of: the pink predator-success reaction currently pulls its die without
+passing through the reset offer.
+
+**What the choice rows carry.** Nearly nothing, by design: the affirmative
+("reroll everything") is a bare special-kind token; the decline is the same
+plus `is_skip`. The entire judgment — what is showing, how many dice remain,
+what the player needs — is read from the state vector (the 6-dim feeder
+stripe: five face counts plus the choice-die count) through the trunk.
+
+**Variation within the family.** None structurally; the same two rows every
+time. The contexts (main action vs. the various powers, active vs. reacting
+seat) differ only through the state.
+
+### 2.13 `SETUP` — the opening keep, and where the bonus pick lives
+
+The opening (keep some of 5 dealt birds, retain the complementary foods, take
+a bonus card) is scored by one of two owners, on the `use_setup_model` config
+axis:
+
+- **`use_setup_model = True` (default):** a separate value-regression bandit
+  (`wingspan.setup_model` + `training.setup_net`) scores the enumerated
+  candidates and the main net drops everything setup-shaped (head, decision
+  column, `setup_agg` stripe). Its input vector is, in brief: a kept-cards
+  multi-hot, a kept-foods multi-hot, and a kept-bonus one-hot, plus per-deal
+  context (the three tray card indices, the six birdfeeder face counts, and
+  the four round-goal one-hots) — with the card-identity blocks embedded
+  through frozen copies of the main net's shared card encoders.
+- **`use_setup_model = False`:** the main net keeps a `SETUP` head and scores
+  the same candidates as ordinary choice rows (kept-bird identity multi-hot,
+  foods-*spent* on the `pay_food` stripe, the `setup_agg` aggregates, and the
+  kept bonus identity).
+
+**Whether the bonus pick is folded in is itself a config choice.**
+`TrainConfig.split_setup_bonus` (effective only alongside the setup model —
+the gate is `split_setup_bonus_active = split_setup_bonus and
+use_setup_model`):
+
+- **Off (folded, the default):** the bonus is one axis of the combined keep —
+  candidates are every (kept-cards × kept-foods × dealt-bonus) combination,
+  504 for the standard 5-card / 2-bonus deal — so whichever model owns setup
+  implicitly owns the opening-bonus judgment too, jointly with the cards and
+  food (which is the argument *for* folding: the three cannot be valued
+  independently).
+- **On (split):** the candidate set drops the bonus axis (every candidate
+  carries `bonus_card = None`; 252 keeps; the setup encoder's bonus block
+  stays all-zero) and the opening bonus is instead asked as a normal in-game
+  `CHOOSE_BONUS` decision right after the keep is applied (§2.9). The
+  argument *for* splitting: the bonus judgment then trains on the in-game
+  head with on-policy credit, concentrating all bonus-valuation experience in
+  one place. This knob is shape-preserving (REGIME, resumable), whereas
+  `use_setup_model` changes tensor shapes (FRESH).
 
 ---
 
-## 5. The critic, and how training closes the loop
+## 3. Maintaining this document
 
-There is exactly one value head, and it reads only the board (from the deciding
-player's POV). That's deliberate: *how good is my position* is a fact about the
-board, not about which question is being asked. So no matter how the policy heads
-are organized, one shared critic is correct — and keeping it shared means it
-trains on every step in the game rather than being split thin.
+*Instructions for Claude (or any maintainer): this file is a report on live
+code and goes stale silently. Update it in the same change as the modelling
+edit it describes.*
 
-Training is self-play with a straightforward REINFORCE-with-baseline update.
-Both seats are driven by the same network; each recorded decision is tagged with
-the family head it used and the player who made it. At game's end, every step is
-credited with that player's final score margin (so the two seats receive
-opposite-signed signals in a decisive game), the shared critic provides the
-baseline, and a small entropy bonus keeps exploration alive. The infrastructure
-is intentionally minimal but scales cleanly toward stronger algorithms later.
+**When to update — and what to touch:**
 
----
+| Change in the code | Sections to update here |
+|---|---|
+| New `Decision` / `Choice` subclass, or a change to `_DECISION_FAMILY` in `decisions.py` | the §0 mapping table + the affected family section(s); a new *family* gets a new section appended in `ALL_DECISION_FAMILIES` order (keep `SETUP` last) |
+| New or changed stripe / offset / scale in `encode/layout.py` | the §1 stripe table (widths, totals) + each family section whose rows use the stripe |
+| A featurizer in `encode/choice_encode.py` fills different stripes (or fills them differently) | the "What the choice rows carry" paragraph of every family that uses that `Choice` class |
+| A new engine call site asks an existing decision (new power handler, new reactor, new conversion) | the "Where the engine asks it" list of the matching family |
+| A change to `EncodingSpec`, `use_setup_model`, `split_setup_bonus`, or the setup candidate enumeration | §0 (the config-axis paragraph) and §2.13 |
+| New state-vector signal that materially changes what a head can see (e.g. an extra-play scalar) | the family section(s) that called out the gap — §2.11 currently documents the extra-play blind spot |
 
-## 6. Why this mirrors the game
+**How to verify rather than trust memory:**
 
-Step back and the design is a fairly literal model of how the game is actually
-played:
+- Enumerate a decision class's call sites with
+  `grep -rn "decisions.<ClassName>(" src/wingspan/` — every constructor call
+  is an ask site (plus `Engine.ask`'s single-choice auto-resolve caveat).
+- Re-derive the §1 table from the `_OFF_*` chain and `_*_DIM` constants in
+  `encode/layout.py`; re-derive the row contents from the `_featurize_*`
+  functions and `_CHOICE_FEATURIZERS` in `encode/choice_encode.py`.
+- Re-derive the §0 mapping table from `_DECISION_FAMILY` and
+  `ALL_DECISION_FAMILIES` in `decisions.py`. `tests/test_decision_families.py`
+  pins the invariants.
 
-- A skilled player has a handful of **transferable judgments** — value a bird,
-  value a food, place an egg, weigh a trade — that they apply across many
-  different cards and situations. The model has exactly those judgments, one per
-  head, each trained on every situation that exercises it.
-- The same player **reads one board** and reuses that read for whatever they're
-  deciding. The model shares one trunk and one critic for exactly that reason.
-- Big, structurally distinct moments — **the opening** and **the choice of
-  action each turn** — feel different from the moment-to-moment picks, and the
-  design singles them out (their own heads now, candidates for their own networks
-  later).
-- The questions the project most wants to answer — *which cards are strong, which
-  bonus cards are worth it, what makes a good opening* — map directly onto things
-  the model is built to learn: per-card embeddings under the relevant heads, a
-  setup head that sees specific cards, and a clean action-type head whose scores
-  read as the value of playing birds versus building the engine.
+**Conventions to preserve:**
 
-The result is a network whose internal structure is a map of the game's decision
-structure — which is what makes it not just a player, but something you can
-interrogate.
+- Family sections stay in `ALL_DECISION_FAMILIES` order (append-only, `SETUP`
+  last) — mirroring the checkpoint-stable head order makes drift easy to spot.
+- Call-site lists use natural language ("after playing House Wren", "when the
+  cube lands on a trade column"), naming specific birds where the code does.
+- Keep noting what is *not* in the choice rows when it is the judgment's key
+  signal (feeder contents, egg counts, the discard's compensation) — those
+  absences are modelling decisions and future-work candidates.
+- Code and docs elsewhere cite this file by section number (`decisions.py`,
+  `model.py`, `engine/core.py`, `TRAINING.md`, tests). If you renumber or
+  retitle sections, grep for `DECISIONS.md` across the repo and refresh the
+  citations in the same change.

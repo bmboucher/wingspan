@@ -502,6 +502,15 @@ When adding a new decision point: define the Choice subclass first (or
 reuse an existing one), then the `Decision[C]` subclass, then add it to
 `ALL_DECISION_CLASSES`, then teach `encode/choice_encode.py` how to featurize it.
 
+**Keep `DECISIONS.md` in sync.** `DECISIONS.md` is the per-family modelling
+report (engine call sites, choice-vector contents, and intra-family variation
+for every scoring head). Any change to the decision/choice taxonomy, the
+`_DECISION_FAMILY` mapping, the choice-vector stripes or featurizers, the
+engine's decision call sites (new power handlers / reactors / conversions), or
+the setup / `split_setup_bonus` config axes must update `DECISIONS.md` in the
+same change — its closing "Maintaining this document" section maps each kind of
+code change to the sections to refresh.
+
 ### Configurable network topology
 
 The network shape is data-driven, not hard-coded. `architecture.ModelArchitecture`
