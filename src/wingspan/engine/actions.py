@@ -4,8 +4,9 @@ Each public function takes the live ``Engine`` as its first argument and
 mutates the underlying ``GameState`` through it. The Engine's turn loop calls
 ``do_play_bird_action`` / ``do_gain_food`` / ``do_lay_eggs`` / ``do_draw_cards``
 directly as free functions — there are no ``_do_*`` wrapper methods on Engine.
-``do_play_bird`` is the lower-level executor (given a fully-specified play) that
-``do_play_bird_action`` and the extra-play loop both call.
+``do_play_bird`` is the lower-level executor (given a committed
+``(bird, habitat)`` pick; it resolves the egg and food costs as follow-up
+decisions) that ``do_play_bird_action`` and the extra-play loop both call.
 """
 
 from __future__ import annotations
@@ -26,24 +27,23 @@ if typing.TYPE_CHECKING:
 def playable_bird_plays(
     player: state.Player,
     habitat_filter: cards.Habitat | None,
-) -> list[tuple[cards.Bird, cards.Habitat, state.FoodPool]]:
-    """Every fully-specified play ``player`` can make right now: one entry per
-    legal ``(bird, habitat, food payment)`` combination.
+) -> list[tuple[cards.Bird, cards.Habitat]]:
+    """Every play ``player`` can complete right now: one entry per legal
+    ``(bird, habitat)`` pair.
 
-    Each entry is one playable bird × each permitted habitat × each distinct
-    food payment, so the play menu (``PlayBirdDecision``) — reached both from
+    A pair is legal when the habitat has an open slot, the egg cost is
+    affordable, and at least one food payment covers the bird's printed cost
+    (``helpers.any_payment_exists``). The costs themselves are not enumerated
+    here — they resolve as follow-up decisions when the play executes
+    (``RemoveEggDecision`` then ``PayBirdFoodDecision`` inside
+    ``do_play_bird``). The play menu (``PlayBirdDecision``) — reached both from
     the main action's ``PLAY_BIRD`` branch and each power-granted extra play —
-    can offer the habitat / payment picks inline as one ``PlayBirdChoice``.
-    ``MainActionDecision`` also calls this to decide whether to offer
-    ``PLAY_BIRD`` at all. ``habitat_filter`` restricts to a single habitat (House Wren's
-    "play in this habitat" extra play). The egg cost is checked (a play whose
-    egg cost can't be paid is excluded) but not enumerated; it is still resolved
-    separately when the play is executed. An empty result means ``player`` has
-    no legal play right now."""
-    out: list[tuple[cards.Bird, cards.Habitat, state.FoodPool]] = []
+    offers one ``PlayBirdChoice`` per pair. ``habitat_filter`` restricts to a
+    single habitat (House Wren's "play in this habitat" extra play). An empty
+    result means ``player`` has no legal play right now."""
+    out: list[tuple[cards.Bird, cards.Habitat]] = []
     for bird in player.hand:
-        payments = helpers.enumerate_payments(player.food, bird.food_cost)
-        if not payments:
+        if not helpers.any_payment_exists(player.food, bird.food_cost):
             continue
         for habitat in bird.habitats:
             if habitat_filter is not None and habitat != habitat_filter:
@@ -52,8 +52,7 @@ def playable_bird_plays(
                 habitat
             ) or player.total_eggs < player.board.next_egg_cost(habitat):
                 continue
-            for payment in payments:
-                out.append((bird, habitat, payment))
+            out.append((bird, habitat))
     return out
 
 
@@ -84,22 +83,24 @@ def do_play_bird(
     agent: "core.Agent",
     card: cards.Bird,
     habitat: cards.Habitat,
-    payment: state.FoodPool,
 ) -> None:
-    """Run a Play Bird action for the current player, given a fully-specified
-    play.
+    """Run a Play Bird action for the current player, given a committed
+    ``(bird, habitat)`` pick from the ``PlayBirdDecision`` menu (the main
+    action's ``PLAY_BIRD`` branch or an extra play).
 
-    The caller resolves the bird, habitat, and food payment up front (via the
-    ``PlayBirdDecision`` menu, for both the main action and extra plays), so
-    only the egg cost is asked for here.
-
-    Pay egg then food costs in that order (matching the printed action
-    sequence); the egg cost is resolved via ``RemoveEggDecision``. Then place
-    the bird and fire its WHITE 'when played' power."""
+    The costs resolve here as follow-up decisions, eggs then food (matching
+    the printed action sequence): the egg cost via ``RemoveEggDecision``
+    (one ask per egg), then the food payment via ``PayBirdFoodDecision``
+    (one ask, choosing among the legal payment multisets — forced and
+    auto-resolved when only one is legal). Paying eggs never changes the
+    player's food, so the payments enumerated here match what made the pair
+    legal at menu time. Then place the bird and fire its WHITE 'when played'
+    power."""
     player = engine.state.me()
     egg_cost = player.board.next_egg_cost(habitat)
     for _ in range(egg_cost):
         discard_an_egg(engine, agent, player, reason=f"play {card.name}")
+    payment = _ask_bird_food_payment(engine, agent, player, card, habitat).payment
     for food, amount in payment.items():
         player.food[food] -= amount
 
@@ -123,8 +124,8 @@ def do_play_bird(
 
 def do_play_bird_action(engine: "core.Engine", agent: "core.Agent") -> None:
     """Run the 'play a bird' main action: offer the play menu (one
-    ``PlayBirdChoice`` per legal ``(bird, habitat, payment)``) via
-    ``PlayBirdDecision`` and run the chosen play.
+    ``PlayBirdChoice`` per legal ``(bird, habitat)``) via ``PlayBirdDecision``
+    and run the chosen play (its costs resolve inside ``do_play_bird``).
 
     Only reached when at least one legal play exists — ``MainActionDecision``
     gates the ``PLAY_BIRD`` option on that — so the menu is normally non-empty;
@@ -135,7 +136,7 @@ def do_play_bird_action(engine: "core.Engine", agent: "core.Agent") -> None:
         engine.log(f"[{player.name}] has no playable bird; action wasted")
         return
     choice = _ask_play_bird(engine, agent, player, plays, extra=False)
-    do_play_bird(engine, agent, choice.bird, choice.habitat, choice.payment)
+    do_play_bird(engine, agent, choice.bird, choice.habitat)
 
 
 def discard_an_egg(
@@ -175,11 +176,14 @@ def consume_extra_plays(
 ) -> None:
     """Resolve any +extra-play credits ``player`` accrued during the turn.
 
-    Each extra play is offered as a ``PlayBirdDecision`` — the same
-    ``(bird, habitat, payment)`` ``PlayBirdChoice`` menu the main action's
-    ``PLAY_BIRD`` branch uses, routed to the play-bird head — restricted to the
-    granting power's habitat when one is set (House Wren). With no legal play the
-    credit (and any remaining credits) is wasted. Called from
+    An extra play is optional ("you may play another bird"), so each credit
+    with a legal play opens with an ``AcceptExchangeDecision`` — take the play
+    or forfeit the credit — routed to the skip-optional head. On accept, the
+    play is offered as a ``PlayBirdDecision`` — the same ``(bird, habitat)``
+    ``PlayBirdChoice`` menu the main action's ``PLAY_BIRD`` branch uses, routed
+    to the play-bird head — restricted to the granting power's habitat when one
+    is set (House Wren). With no legal play the credit (and any remaining
+    credits) is wasted without consulting the agent. Called from
     ``Engine._take_turn`` after the main action resolves."""
     while engine.state.turn_extra_plays > 0:
         engine.state.turn_extra_plays -= 1
@@ -189,6 +193,10 @@ def consume_extra_plays(
             _log_wasted_extra_play(engine, player, habitat_filter)
             engine.state.turn_extra_play_habitat = None
             break
+        if not _accept_extra_play(engine, agent, player, habitat_filter):
+            engine.log(f"[{player.name}] declines the extra play")
+            engine.state.turn_extra_play_habitat = None
+            continue
         if habitat_filter is not None:
             engine.log(
                 f"[{player.name}] takes an EXTRA play in [{habitat_filter.value}]"
@@ -196,7 +204,7 @@ def consume_extra_plays(
         else:
             engine.log(f"[{player.name}] takes an EXTRA play")
         choice = _ask_play_bird(engine, agent, player, plays, extra=True)
-        do_play_bird(engine, agent, choice.bird, choice.habitat, choice.payment)
+        do_play_bird(engine, agent, choice.bird, choice.habitat)
         # Habitat lock applies to a single extra play only.
         engine.state.turn_extra_play_habitat = None
 
@@ -491,24 +499,24 @@ def _ask_play_bird(
     engine: "core.Engine",
     agent: "core.Agent",
     player: state.Player,
-    plays: list[tuple[cards.Bird, cards.Habitat, state.FoodPool]],
+    plays: list[tuple[cards.Bird, cards.Habitat]],
     *,
     extra: bool,
 ) -> decisions.PlayBirdChoice:
     """Offer the play menu — one ``PlayBirdChoice`` per legal
-    ``(bird, habitat, payment)`` — as a ``PlayBirdDecision`` and return the
-    chosen play. Shared by the main action's ``PLAY_BIRD`` branch
-    (``extra=False``) and each power-granted extra play (``extra=True``); only
-    the prompt wording differs, so the play-bird head sees the same candidate
-    shape in both contexts."""
+    ``(bird, habitat)`` pair — as a ``PlayBirdDecision`` and return the chosen
+    play. Shared by the main action's ``PLAY_BIRD`` branch (``extra=False``)
+    and each power-granted extra play (``extra=True``); only the prompt wording
+    differs, so the play-bird head sees the same candidate shape in both
+    contexts. The chosen play's costs resolve afterwards inside
+    ``do_play_bird``."""
     choices = [
         decisions.PlayBirdChoice(
-            label=f"play {bird.name} in {habitat.value} for {payment.format()}",
+            label=f"play {bird.name} in {habitat.value}",
             bird=bird,
             habitat=habitat,
-            payment=payment,
         )
-        for bird, habitat, payment in plays
+        for bird, habitat in plays
     ]
     prompt = (
         f"[{player.name}] choose a bird to play (extra play)"
@@ -523,6 +531,67 @@ def _ask_play_bird(
             choices=choices,
         ),
     )
+
+
+def _ask_bird_food_payment(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    card: cards.Bird,
+    habitat: cards.Habitat,
+) -> decisions.FoodPaymentChoice:
+    """Ask how to pay ``card``'s printed food cost — one ``FoodPaymentChoice``
+    per legal payment multiset — as a ``PayBirdFoodDecision`` and return the
+    chosen payment.
+
+    Mandatory (no skip): the play was committed upstream, and
+    ``playable_bird_plays`` only offered pairs with at least one legal payment,
+    so the menu is never empty. With exactly one legal payment the decision is
+    forced and ``Engine.ask`` auto-resolves it without consulting the agent."""
+    choices = [
+        decisions.FoodPaymentChoice(label=f"pay {payment.format()}", payment=payment)
+        for payment in helpers.enumerate_payments(player.food, card.food_cost)
+    ]
+    return engine.ask(
+        agent,
+        decisions.PayBirdFoodDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] pay for {card.name} in {habitat.value}",
+            choices=choices,
+            bird=card,
+            habitat=habitat,
+        ),
+    )
+
+
+def _accept_extra_play(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    habitat_filter: cards.Habitat | None,
+) -> bool:
+    """Ask whether ``player`` takes a power-granted extra play or forfeits the
+    credit — an ``AcceptExchangeDecision`` whose accept option carries
+    ``gained_play_count=1`` (the only term of this "trade": nothing is paid up
+    front; the play's own costs resolve in the follow-ups). Routed to the
+    skip-optional head like every other take-it-or-leave-it offer. Only asked
+    when a legal play exists."""
+    where = f" in {habitat_filter.value}" if habitat_filter is not None else ""
+    ch = engine.ask(
+        agent,
+        decisions.AcceptExchangeDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] play another bird{where}?",
+            choices=[
+                decisions.PayCostChoice(
+                    label=f"play a bird{where}",
+                    gained_play_count=1,
+                ),
+                decisions.SkipChoice(label="forfeit the extra play"),
+            ],
+        ),
+    )
+    return isinstance(ch, decisions.PayCostChoice)
 
 
 def _log_wasted_extra_play(

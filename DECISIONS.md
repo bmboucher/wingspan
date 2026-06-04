@@ -174,7 +174,8 @@ through named, typed fields. The full set:
 | `SkipChoice` | (nothing) | declining an optional decision |
 | `MainActionChoice` | the action type | picking Gain / Lay / Draw / Play Bird |
 | `BirdChoice` | a bird | picking a bird from a hand or drawn pile |
-| `PlayBirdChoice` | bird + habitat + food payment | a fully-specified bird play |
+| `PlayBirdChoice` | bird + habitat | a committed bird play (its costs are follow-ups) |
+| `FoodPaymentChoice` | a complete payment multiset | paying a committed play's printed food cost |
 | `PlayedBirdChoice` | a bird already in play | powers that target a bird on the board |
 | `HabitatChoice` | a habitat | designating a row |
 | `FoodChoice` | a food token | gaining or spending one food |
@@ -183,7 +184,8 @@ through named, typed fields. The full set:
 | `DrawSourceChoice` | tray slot *or* deck | where to draw a card from |
 | `PlayerIdChoice` | a player | turn-order powers |
 | `SetupChoice` | kept birds + kept foods + bonus | one whole opening keep |
-| `PayCostChoice` | the terms of a fixed trade | accepting a yes/no exchange |
+| `PayCostChoice` | the terms of a fixed trade | taking a yes/no optional exchange |
+| `ResetBirdfeederChoice` | (nothing) | affirming the optional feeder reroll |
 
 The same data shape is deliberately reused across unrelated situations:
 `BoardTargetChoice` describes a bird-with-eggs whether you are *placing* an egg
@@ -195,7 +197,7 @@ the *judgment*, and that difference lives in the scoring head, not the choice.
 A `Decision` is a single branch point: a prompt plus a list of choices of one
 shape. It is generic over the choice type it offers, so a decision that may be
 declined offers, say, `BoardTargetChoice | SkipChoice` and the consumer can tell
-the two apart by type. There are **17** decision classes — one per genuinely
+the two apart by type. There are **19** decision classes — one per genuinely
 distinct fork the engine can present.
 
 ### 2.3 Judgment families — *the skill* a decision exercises
@@ -207,23 +209,23 @@ reasons. There are **13** families. The mapping from a decision class to its
 family is a pure function of the class — a decision always routes to the same
 head.
 
-The 17 decisions and the 13 families:
+The 19 decisions and the 13 families:
 
 | Family (one scoring head) | Decision class(es) that route to it | The skill |
 |---|---|---|
 | `SETUP` | `SetupDecision` | choosing a whole opening |
 | `MAIN_ACTION` | `MainActionDecision` | which of the four actions this turn |
-| `PLAY_BIRD` | `PlayBirdDecision` | which bird to play, where, paid how |
+| `PLAY_BIRD` | `PlayBirdDecision` | which bird to play, and where |
 | `DRAW_BIRD` | `DrawCardsPickSourceDecision`, `BirdPowerPickBirdFromHandDecision` | which bird to *take* |
 | `DISCARD_BIRD` | `BirdPowerTuckFromHandDecision`, `DiscardBirdForFoodDecision` | which bird to *give up* |
 | `GAIN_FOOD` | `GainFoodDecision` | which food to gain |
-| `SPEND_FOOD` | `SpendFoodDecision`, `LayExtraEggsDecision` | which food to give up |
+| `SPEND_FOOD` | `SpendFoodDecision`, `SpendFoodForEggDecision`, `PayBirdFoodDecision` | which food to give up |
 | `LAY_EGG` | `LayEggDecision` | which bird gets the egg |
 | `PAY_EGG` | `RemoveEggDecision` | which bird loses an egg |
-| `COMMIT_TO_COST` | `AcceptExchangeDecision` | is this fixed trade worth it? |
+| `SKIP_OPTIONAL` | `AcceptExchangeDecision` | is taking this optional exchange worth it? |
 | `CHOOSE_BONUS` | `BirdPowerPickBonusCardDecision` | which bonus card fits my plan |
-| `MOVE_HABITAT` | `BirdPowerPickHabitatDecision` | which row benefits most |
-| `MISC_RARE` | `BirdPowerPickPlayedBirdDecision`, `BirdPowerPickGainOrderDecision` | rare structural picks |
+| `MISC_RARE` | `BirdPowerPickPlayedBirdDecision`, `BirdPowerPickGainOrderDecision`, `BirdPowerPickHabitatDecision` | rare structural picks |
+| `RESET_BIRDFEEDER` | `ResetBirdfeederDecision` | is a fresh feeder roll worth more than what's showing? |
 
 Two structural facts follow from this split and are worth holding onto:
 
@@ -285,8 +287,10 @@ hand?") the whole project is trying to answer.
 take: Gain Food, Lay Eggs, Draw Cards, or Play a Bird. This is the
 `MAIN_ACTION` decision, and it picks the action *type* only. Play-a-bird is
 offered only when you actually have a legal play. If you choose to play a bird,
-a *follow-up* `PLAY_BIRD` decision picks which bird, in which habitat, for which
-food payment — one candidate per legal combination.
+a *follow-up* `PLAY_BIRD` decision picks which bird and in which habitat — one
+candidate per legal (bird, habitat) pair, offered only when the pair's costs
+are completable. The costs themselves then resolve as further follow-ups, eggs
+then food (§3.7 and §3.5).
 
 **What an expert weighs.** Engine-building versus immediate points; the
 action-reward track (more birds in a habitat row makes that action stronger, so
@@ -295,19 +299,24 @@ where you build matters beyond this turn); tempo and the shrinking cube budget
 card economy; and denying the opponent.
 
 **Why two heads.** "Which action is worth a cube this turn?" and "which bird is
-worth playing, where, paid how?" are different questions, so they get different
-heads. This is the well-known *action-type-then-arguments* factorization, and it
+worth playing, where?" are different questions, so they get different heads.
+This is the well-known *action-type-then-arguments* factorization, and it
 buys a clean, legible signal: the `MAIN_ACTION` head's scores read directly as
 "how often is playing a bird worth more than an engine action?" The four
 action-type options are intentionally featureless tokens — their value lives in
-the *board state*, not in the option itself — while the rich (bird, habitat,
-payment) detail lives on the `PLAY_BIRD` candidates. The same `PLAY_BIRD` head
-also handles the extra plays some powers grant, because "which bird is worth
-playing?" is the same skill whether it's your main action or a bonus.
+the *board state*, not in the option itself — while the (bird, habitat) detail
+lives on the `PLAY_BIRD` candidates. The same `PLAY_BIRD` head also handles the
+extra plays some powers grant, because "which bird is worth playing?" is the
+same skill whether it's your main action or a bonus — though an extra play,
+being optional, first passes through a `SKIP_OPTIONAL` accept (§3.8).
 
-The egg portion of a bird's cost is handled as a small follow-up (§3.7) rather
-than folded into the play candidate, keeping "which bird, paid in food" separate
-from "which of my birds gives up the egg."
+Both portions of a bird's cost are handled as follow-ups rather than folded
+into the play candidate, resolving in the printed order: the egg cost via
+`RemoveEggDecision` (§3.7), then the food payment via `PayBirdFoodDecision`
+(§3.5). The strategic pick — *this bird is worth a cube, here* — is thereby
+kept separate from the spend logistics of paying for it, and each cost trains
+the generic judgment it actually exercises ("which egg / which tokens can I
+most afford to lose?") alongside every other egg and food spend in the game.
 
 ### 3.3 `DRAW_BIRD` vs `DISCARD_BIRD` — valuing birds, in both directions
 
@@ -337,7 +346,7 @@ pull in opposite directions on the very same features — a card you'd eagerly
 draft is a card you'd be reluctant to toss — which is exactly why a single
 "bird value" head would be the wrong grain. Note that choosing which hand bird
 to *play* is not in this group; that lives in `PLAY_BIRD` (§3.2), because a play
-is also a question of habitat and payment, not just card value.
+is also a question of habitat and timing, not just card value.
 
 ### 3.4 `GAIN_FOOD` — acquiring food
 
@@ -362,10 +371,14 @@ re-learning it separately for each card.
 **The skill.** The inverse of §3.4: "which food can I most afford to part with,
 and which payment keeps me most flexible?"
 
+- `PayBirdFoodDecision` — pay a committed bird play's printed cost, choosing
+  among the legal payment multisets (1-for-1 matching, 2-for-1 substitution,
+  wild fills). This is the dominant food-spending event in the game and the
+  bulk of this head's data.
 - `SpendFoodDecision` — hand a food back to the supply (e.g. the lose-half of a
   trade-a-wild power).
-- `LayExtraEggsDecision` — spend a food to lay one extra egg (the Grassland
-  trade space).
+- `SpendFoodForEggDecision` — spend a food to lay one extra egg (the Grassland
+  trade space, step 2 after committing via `AcceptExchangeDecision`).
 
 **What an expert weighs.** Hold wild food for flexible future costs; don't strand
 a bird you mean to play by spending the food it needs; weigh the marginal egg or
@@ -374,9 +387,12 @@ trade against what you give up.
 **Why separate from gaining.** Gaining and spending food are opposite skills, so
 they get opposite heads. A power like the wild-food trade is modeled as a
 *chain* — gain a food (a `GAIN_FOOD` step), then give one back (a `SPEND_FOOD`
-step) — so the two opposite judgments never share weights. (Paying a bird's food
-cost is not here; it is part of the `PLAY_BIRD` candidate, because "how to pay
-for this bird" is part of deciding to play it.)
+step) — so the two opposite judgments never share weights. The bird food cost
+follows the same logic from the other side: *whether* the bird is worth playing
+is the `PLAY_BIRD` pick, while *how to pay* is settled here afterwards, so the
+payment judgment trains on every food spend in the game rather than being
+locked inside the play candidates. When only one payment is legal there is
+nothing to decide and the engine resolves it without consulting the policy.
 
 ### 3.6 `LAY_EGG` — where the egg goes
 
@@ -406,7 +422,7 @@ three contexts route to one head with one consistent feature shape.
 
 And, importantly, **the reason for spending the egg is deliberately not shown to
 this head — because it doesn't matter.** Whether to pay at all, and how many eggs
-it costs, is settled *upstream* by a different decision (the `COMMIT_TO_COST`
+it costs, is settled *upstream* by a different decision (the `SKIP_OPTIONAL`
 head for the trades, or the `PLAY_BIRD` pick for a bird's cost). By the time this
 head runs, that commitment is already made; "which of my birds gives up the egg?"
 is then orthogonal to why — you take it off your least-valuable spot either way.
@@ -414,19 +430,24 @@ So this head correctly sees only the egg-source options. Whether you're allowed
 to decline varies by context (mandatory for a bird's cost, optional for some
 trades), surfaced as the presence or absence of a skip option.
 
-### 3.8 `COMMIT_TO_COST` — is this fixed trade worth it?
+### 3.8 `SKIP_OPTIONAL` — is this optional exchange worth taking?
 
-**The skill.** "Is this exchange worth it, given my position and the round goal?"
-— the yes/no half of a trade, independent of *which* resource gets used (that's a
-separate decision). This is the natural partner to §3.7: the *decision to pay* is
-its own skill, separate from *which resource to pay with*.
+**The skill.** "Is taking this worth it, given my position and the round goal?"
+— the yes/no half of any fully-determined optional offer, independent of *which*
+resource gets used (that's a separate decision). This is the natural partner to
+§3.7: the *decision to commit* is its own skill, separate from *which resource
+to pay with*. (Formerly named `COMMIT_TO_COST`; renamed when the cost-free
+extra-play accept joined the family — the common thread is skipping or taking
+an optional offer, not necessarily paying.)
 
-It handles the fully-determined exchanges: the Wetland egg-for-card conversion
-(the bird the egg comes off is the separate `PAY_EGG` follow-up) and the
+It handles the fully-determined offers: the Wetland egg-for-card conversion
+(the bird the egg comes off is the separate `PAY_EGG` follow-up), the
 discard-food-to-tuck powers (where the food and the number of tucks are fixed by
-the card). The accept option carries the **terms of the trade as typed fields** —
-food paid, eggs paid, cards gained, cards tucked — so the head can literally weigh
-what's gained against what's paid, rather than scoring a blank "accept" token.
+the card), and the power-granted extra bird play (accept opens the `PLAY_BIRD`
+menu; skip forfeits the credit). The accept option carries the **terms of the
+offer as typed fields** — food paid, eggs paid, cards gained, cards tucked, bird
+plays unlocked — so the head can literally weigh what's gained against what's
+paid, rather than scoring a blank "accept" token.
 
 Two cases are intentionally *not* routed here, both for good reason:
 
@@ -435,8 +456,9 @@ Two cases are intentionally *not* routed here, both for good reason:
   "should I?" into the same decision as "which card/food?" via a skip option,
   because you decide whether to trade *as* you decide which resource to give up.
 - **When there's no real yes/no**, there's no commit decision. Once you've
-  chosen a bird to play, paying its egg cost is mandatory — so that "decision" is
-  already part of the action pick (§3.2).
+  chosen a bird to play, paying its egg and food costs is mandatory — so that
+  "decision" is already part of the action pick (§3.2), and the follow-ups only
+  choose *which* egg and *which* tokens.
 
 ### 3.9 `CHOOSE_BONUS` — which bonus card fits the plan
 
@@ -453,25 +475,18 @@ qualifying-bird count), so it can generalize across bonus cards rather than
 learning each one in isolation. The per-card identity is the backbone that makes
 that learnable.
 
-### 3.10 `MOVE_HABITAT` — which row benefits most
+### 3.10 `MISC_RARE` — the rare structural picks
 
-**The skill.** "Which row benefits most?" — now specifically the destination for
-a *moved* bird (the move-if-rightmost powers). Choosing a habitat for a
-two-habitat bird you're *playing* is part of the `PLAY_BIRD` candidate (§3.2), so
-this standalone family covers only the move powers.
-
-**What an expert weighs.** Which action track you want to strengthen (tempo); the
-egg-cost ladder (a row's cost-to-lay depends on how full it is); row-power
-synergy; the round goal's habitat. It's low-frequency, so a single small head is
-plenty.
-
-### 3.11 `MISC_RARE` — the rare structural picks
-
-Two decisions fire on only a handful of cards:
+Three decisions fire on only a handful of cards:
 
 - `BirdPowerPickGainOrderDecision` — designate who gains first in an each-player
   feeder gain (the Anna's / Ruby-throated Hummingbird order pick).
 - `BirdPowerPickPlayedBirdDecision` — choose which adjacent power to *repeat*.
+- `BirdPowerPickHabitatDecision` — designate the destination row for a *moved*
+  bird (the move-if-rightmost powers). Choosing a habitat for a two-habitat
+  bird you're *playing* is part of the `PLAY_BIRD` candidate (§3.2), so this
+  covers only the move powers. (This briefly had its own `MOVE_HABITAT` family;
+  it fires far too rarely to feed a dedicated head and was folded in here.)
 
 These are pooled into one shared head on purpose. A dedicated head for something
 that fires a few times a game would be perpetually starved of training data;
@@ -479,6 +494,13 @@ pooling keeps it learning from a steady (if small) stream. Repeat-a-power is
 genuinely a high-value judgment — "which power is best to copy?" — but it's far
 too rare to isolate; a richer future treatment could score it *through* the head
 of whatever power it copies.
+
+### 3.11 `RESET_BIRDFEEDER` — is a fresh roll worth more?
+
+**The skill.** Wingspan lets a player reroll the whole feeder before gaining
+food whenever every die shows the same face. The judgment — "is a fresh roll
+worth more than what's showing?" — is offered at every feeder gain, so it gets
+its own small head rather than riding along with the food pick itself.
 
 ---
 
@@ -511,9 +533,10 @@ opening keeps. (Opponent hands stay hidden, as they should — only the size is
 revealed.)
 
 **Trade terms, not blank tokens.** A yes/no exchange (§3.8) carries its terms as
-features — a symmetric pay→gain ledger over cards, food, and eggs (what the player
-gives up and receives), plus the gains a shared-benefit power grants the opponent —
-so the commit head weighs the actual deal instead of a featureless "accept" button.
+features — a symmetric pay→gain ledger over cards, food, eggs, and bird plays
+(what the player gives up and receives), plus the gains a shared-benefit power
+grants the opponent — so the skip-optional head weighs the actual deal instead of
+a featureless "accept" button.
 
 **Uniform candidate features.** Every option is described in one shared feature
 layout with type-specific stripes; a given option fills only the stripes that

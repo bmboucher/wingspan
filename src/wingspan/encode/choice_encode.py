@@ -64,7 +64,7 @@ def encode_choices(
         )
     # The soft-threshold notice is a one-off-per-decision-class signal that a
     # decision ballooned wider than typical. SetupDecision (504) and a food-rich
-    # PlayBirdDecision routinely and legitimately exceed it, so logging on every
+    # PayBirdFoodDecision routinely and legitimately exceed it, so logging on every
     # such decision floods the log and adds per-call overhead in the hot path —
     # dedupe by class name so it fires once per class per process. Logged at INFO
     # (it is informational, not a fault): it still reaches the dashboard's file
@@ -167,7 +167,7 @@ def _featurize_pay_cost(
     # The 'accept the offered exchange' branch is distinct from skip — the network
     # can learn to prefer or avoid it independently. KIND_SPECIAL marks it a commit
     # token; the trade's resource ledger lives in the EXCHANGE stripe (a symmetric
-    # pay->gain block, self then opponent-gain) so the commit-to-cost head weighs
+    # pay->gain block, self then opponent-gain) so the skip-optional head weighs
     # what is gained against what is paid. The food *type* paid, if any, also rides
     # the PAY_FOOD stripe; in the EXCHANGE stripe food is a magnitude.
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
@@ -183,6 +183,7 @@ def _featurize_pay_cost(
         layout._EXCHANGE_EGGS_TO_GAIN: choice.gained_egg_count,
         layout._EXCHANGE_CARDS_TO_DRAW: choice.gained_card_count,
         layout._EXCHANGE_CARDS_TO_TUCK: choice.gained_tuck_count,
+        layout._EXCHANGE_PLAYS_TO_GAIN: choice.gained_play_count,
         layout._EXCHANGE_OPP_FOOD_TO_GAIN: choice.opp_gained_food_count,
         layout._EXCHANGE_OPP_EGGS_TO_GAIN: choice.opp_gained_egg_count,
         layout._EXCHANGE_OPP_CARDS_TO_DRAW: choice.opp_gained_card_count,
@@ -225,14 +226,32 @@ def _featurize_play_bird(
     state: state.GameState,
 ) -> None:
     # A play candidate from ``PlayBirdDecision``: the bird-identity stripe carries
-    # the card (its attributes ride the shared card table), and the habitat +
-    # payment stripes carry the bundled habitat / food-payment picks. KIND stays
-    # BIRD — it is fundamentally a bird play — while the extra stripes distinguish
-    # the (habitat, payment) variants of the same bird.
+    # the card (its attributes ride the shared card table), and the habitat stripe
+    # carries the bundled habitat pick. KIND stays BIRD — it is fundamentally a
+    # bird play — while the habitat stripe distinguishes the per-habitat variants
+    # of the same bird. The costs are follow-up decisions (RemoveEggDecision /
+    # PayBirdFoodDecision), so no payment stripe is filled here.
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
     _fill_habitat(feat, choice.habitat)
+
+
+def _featurize_food_payment(
+    feat: np.ndarray,
+    decision: layout._AnyDecision,
+    choice: decisions.FoodPaymentChoice,
+    state: state.GameState,
+) -> None:
+    # A complete payment multiset for a committed bird play (PayBirdFoodDecision).
+    # KIND_PAYMENT marks the row a whole-payment pick; the PAY stripe carries the
+    # candidate's per-food counts, and the committed play rides along as context —
+    # bird identity (embedded through the shared card table) plus habitat — so the
+    # spend-food head sees *what* the payment is for, not just the tokens leaving.
+    feat[layout._OFF_KIND + layout._KIND_PAYMENT] = 1.0
     _fill_payment(feat, choice.payment)
+    if isinstance(decision, decisions.PayBirdFoodDecision):
+        _fill_bird_identity(feat, decision.bird)
+        _fill_habitat(feat, decision.habitat)
 
 
 def _featurize_played_bird(
@@ -398,6 +417,7 @@ _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
     decisions.MainActionChoice: _featurize_main_action,
     decisions.BirdChoice: _featurize_bird,
     decisions.PlayBirdChoice: _featurize_play_bird,
+    decisions.FoodPaymentChoice: _featurize_food_payment,
     decisions.PlayedBirdChoice: _featurize_played_bird,
     decisions.HabitatChoice: _featurize_habitat,
     decisions.FoodChoice: _featurize_food,

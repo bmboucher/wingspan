@@ -112,6 +112,20 @@ def test_gain_food_and_spend_food_are_distinct_families():
     assert decisions.DecisionFamily.GAIN_FOOD != decisions.DecisionFamily.SPEND_FOOD
 
 
+def test_bird_food_payment_routes_to_spend_food():
+    """Paying a committed bird play's food cost is spend logistics, not part of
+    the play pick: ``PayBirdFoodDecision`` routes to the ``SPEND_FOOD`` head —
+    the dominant data stream that head trains on — and is distinct from the
+    strategic ``PLAY_BIRD`` head."""
+    assert (
+        decisions.family_for(decisions.PayBirdFoodDecision)
+        == decisions.DecisionFamily.SPEND_FOOD
+    )
+    assert decisions.family_for(decisions.PayBirdFoodDecision) != (
+        decisions.family_for(decisions.PlayBirdDecision)
+    )
+
+
 def test_egg_placement_and_removal_are_distinct_families():
     """Placement and removal use the same ``BoardTargetChoice`` shape but
     opposite judgments, so they must route to different heads (review point 6
@@ -123,12 +137,13 @@ def test_egg_placement_and_removal_are_distinct_families():
     assert placement != removal
 
 
-def test_accept_exchange_is_commit_to_cost():
-    """The unified yes/no "accept exchange?" decision routes to the
-    commit-to-cost head (review point 7)."""
+def test_accept_exchange_is_skip_optional():
+    """The unified yes/no "take this optional exchange?" decision routes to the
+    skip-optional head (review point 7; renamed from commit-to-cost when the
+    extra-play accept joined the family)."""
     assert (
         decisions.family_for(decisions.AcceptExchangeDecision)
-        == decisions.DecisionFamily.COMMIT_TO_COST
+        == decisions.DecisionFamily.SKIP_OPTIONAL
     )
 
 
@@ -138,22 +153,20 @@ def test_setup_has_its_own_family():
     )
 
 
-def test_habitat_placement_head():
-    assert (
-        decisions.family_for(decisions.BirdPowerPickHabitatDecision)
-        == decisions.DecisionFamily.MOVE_HABITAT
-    )
-
-
 def test_rare_structural_powers_share_the_misc_head():
-    """Repeat-a-power (#12) and pick-starting-player (#15) are too rare to give
-    their own heads, so they stay pooled in the misc/rare head (review point
-    8 / DECISIONS.md §3.11)."""
+    """Repeat-a-power, pick-starting-player, and the habitat designation for a
+    moved bird are all too rare to give their own heads, so they stay pooled in
+    the misc/rare head (DECISIONS.md §3.11; the former ``MOVE_HABITAT`` family
+    folded in here for lack of data)."""
     assert (
         decisions.family_for(decisions.BirdPowerPickPlayedBirdDecision)
         == decisions.DecisionFamily.MISC_RARE
     )
     assert (
         decisions.family_for(decisions.BirdPowerPickGainOrderDecision)
+        == decisions.DecisionFamily.MISC_RARE
+    )
+    assert (
+        decisions.family_for(decisions.BirdPowerPickHabitatDecision)
         == decisions.DecisionFamily.MISC_RARE
     )

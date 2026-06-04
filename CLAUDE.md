@@ -442,7 +442,8 @@ Agents resolve decisions, not raw action ints. The shape is fixed:
   that need extra context add typed fields directly
   (`SetupDecision.dealt_cards`, `SetupDecision.dealt_bonus`).
 - `ALL_DECISION_CLASSES` is the stable iteration order for the encoder's
-  decision-class one-hot stripe. Append new subclasses to the end so
+  decision-class one-hot stripe. Append new subclasses at the end — but
+  keep `SetupDecision` last (the `include_setup` truncation contract) — so
   existing trained checkpoints stay aligned.
 
 When adding a new decision point: define the Choice subclass first (or

@@ -134,7 +134,7 @@ _HABITAT_DIM = 3  # habitat one-hot
 _PAY_FOOD_DIM = 5  # food payment: count per food
 _MAIN_ACTION_DIM = 4  # one-hot over the four main actions
 _SPECIAL_DIM = 2  # is_skip, is_self
-_EXCHANGE_DIM = 11  # symmetric pay->gain terms: 7 self + 4 opponent-gain (below)
+_EXCHANGE_DIM = 12  # symmetric pay->gain terms: 8 self + 4 opponent-gain (below)
 _SETUP_DIM = 4  # setup kept-subset aggregates (only when include_setup)
 
 # The board_target stripe is a per-board-slot block: 8 scalars repeated over
@@ -217,6 +217,9 @@ _EXCHANGE_OPP_FOOD_TO_GAIN = 7
 _EXCHANGE_OPP_EGGS_TO_GAIN = 8
 _EXCHANGE_OPP_CARDS_TO_DRAW = 9
 _EXCHANGE_OPP_CARDS_TO_TUCK = 10
+# Appended after the opponent-gain block (offsets above are checkpoint-aligned):
+# extra bird plays the accept unlocks (the extra-play commit's gained_play_count).
+_EXCHANGE_PLAYS_TO_GAIN = 11
 
 # Within-SETUP indices (a setup pick's kept-subset aggregate stats — summaries the
 # shared card table cannot reconstruct from the kept-bird identity multi-hot alone).

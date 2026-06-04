@@ -277,7 +277,7 @@ def test_tuck_from_deck_paid_spends_food_and_tucks():
 
 def test_tuck_from_deck_paid_uses_accept_exchange_with_trade_terms():
     """The discard-food-to-tuck commit is a unified ``AcceptExchangeDecision``
-    (commit-to-cost head) whose ``PayCostChoice`` carries the trade terms."""
+    (skip-optional head) whose ``PayCostChoice`` carries the trade terms."""
     eng, birds = _engine(seed=14)
     bird = _find(birds, "Sandhill Crane")  # discard 1 seed -> tuck 2
     player = eng.state.me()
@@ -316,7 +316,7 @@ def test_tuck_from_deck_paid_uses_accept_exchange_with_trade_terms():
     assert pay.paid_egg_count == 0
     assert (
         decisions.family_for(decisions.AcceptExchangeDecision)
-        == decisions.DecisionFamily.COMMIT_TO_COST
+        == decisions.DecisionFamily.SKIP_OPTIONAL
     )
 
 

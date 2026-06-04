@@ -141,8 +141,24 @@ def test_choosing_play_bird_opens_a_play_menu_with_valid_plays():
     assert play_decisions, "expected choosing PLAY_BIRD to open a play menu"
     for decision in play_decisions:
         for choice in decision.choices:
-            # The habitat must be one the bird can live in, and the bundled
-            # payment must be a legal (exact, allowing 2-for-1 substitution)
-            # cover of the printed cost.
+            # The habitat must be one the bird can live in. The food payment is
+            # no longer bundled into the candidate — it resolves as a follow-up
+            # PayBirdFoodDecision, asserted in test_play_bird_payment.py.
             assert choice.habitat in choice.bird.habitats
-            assert helpers.cost_meets(choice.bird.food_cost, choice.payment)
+
+
+def test_play_menu_followed_by_a_cost_meeting_payment_menu():
+    """Every captured ``PayBirdFoodDecision`` pays for the play just picked:
+    its bird/habitat context matches, and every offered payment multiset
+    legally covers the bird's printed cost (1-for-1, 2-for-1 substitution,
+    wild fills)."""
+    sink = _play_and_capture(_play_bird_preferring_agent)
+    pay_decisions = [
+        decision
+        for decision in sink
+        if isinstance(decision, decisions.PayBirdFoodDecision)
+    ]
+    for decision in pay_decisions:
+        assert decision.habitat in decision.bird.habitats
+        for choice in decision.choices:
+            assert helpers.cost_meets(decision.bird.food_cost, choice.payment)

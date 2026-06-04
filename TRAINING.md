@@ -502,6 +502,12 @@ the first multi-thousand-game run. Optionally, also bound the payment
 enumeration so a single decision cannot generate a pathological number of
 near-duplicate wild-payment candidates.
 
+*(Update: the play-bird cost split shrank `PlayBirdDecision` to one candidate
+per `(bird, habitat)` pair — bounded by hand size × 3. The payment enumeration
+moved to the follow-up `PayBirdFoodDecision`, whose width is the payment count
+for a single bird; the food-rich wild-payment blow-up concern now applies
+there, not to the play menu.)*
+
 ### 4.4 Headroom for later
 
 These matter once the model is bigger (§6); they are noise at 0.5 M params, but

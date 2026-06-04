@@ -97,11 +97,12 @@ def _format_choice_line(
     if isinstance(choice, decisions.PlayBirdChoice):
         # The board (printed in full above the main-action prompt) already
         # shows every hand card's stats and power, so a play option only needs
-        # the bird name, target habitat, and the specific payment.
-        return (
-            f"  [{idx}] play {choice.bird.name} in {choice.habitat.value} "
-            f"for {display.format_food_pool(choice.payment)}"
-        )
+        # the bird name and target habitat; the costs are follow-up prompts.
+        return f"  [{idx}] play {choice.bird.name} in {choice.habitat.value}"
+    if isinstance(choice, decisions.FoodPaymentChoice):
+        # One complete payment for the committed play; the parent decision's
+        # prompt already names the bird being paid for.
+        return f"  [{idx}] pay {display.format_food_pool(choice.payment)}"
     if isinstance(choice, decisions.BirdChoice):
         return f"  [{idx}] {display.format_bird_full(choice.bird)}"
     if isinstance(choice, decisions.BonusCardChoice):

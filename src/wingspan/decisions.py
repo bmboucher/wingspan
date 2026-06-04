@@ -41,10 +41,11 @@ from wingspan import cards, state
 # Main-action enum (the four top-level cube-spend options)
 #
 # Playing a bird *is* one of these now (``PLAY_BIRD``). ``MainActionDecision``
-# picks only the action *type*; choosing which bird to play, in which habitat,
-# for which payment is a separate follow-up ``PlayBirdDecision``, so "which
-# action?" and "which bird to play?" are scored by different heads. ``PLAY_BIRD``
-# is offered only when the player has at least one legal play.
+# picks only the action *type*; choosing which bird to play and in which habitat
+# is a separate follow-up ``PlayBirdDecision``, so "which action?" and "which
+# bird to play?" are scored by different heads. The costs are further follow-ups
+# (``RemoveEggDecision`` then ``PayBirdFoodDecision``). ``PLAY_BIRD`` is offered
+# only when the player has at least one legal play.
 
 
 class MainAction(enum.StrEnum):
@@ -89,21 +90,23 @@ class PayCostChoice(Choice):
     """Accept a fixed, power-defined exchange — pay X to get Y.
 
     Used for the yes/no "accept exchange?" decisions (``AcceptExchangeDecision``):
-    discard 1 egg to draw a card (Wetland trade), or discard 1 food to tuck N
-    cards from the deck (Sandhill Crane etc.). Both sides of the trade are
-    fully determined by the power/action, so the agent's only decision is
-    accept vs. skip — but the trade's *terms* are surfaced as typed fields so
-    the commit-to-cost head can weigh what is gained against what is paid
-    instead of scoring a featureless token. A field left at its default means
-    "this resource is not part of this exchange".
+    discard 1 egg to draw a card (Wetland trade), discard 1 food to tuck N
+    cards from the deck (Sandhill Crane etc.), or use a power-granted extra
+    bird play. Both sides of the trade are fully determined by the
+    power/action, so the agent's only decision is accept vs. skip — but the
+    trade's *terms* are surfaced as typed fields so the skip-optional head can
+    weigh what is gained against what is paid instead of scoring a featureless
+    token. A field left at its default means "this resource is not part of
+    this exchange".
 
-    The terms form a symmetric ``pay -> gain`` ledger over the three resources
-    (cards, food, eggs). The deciding player's own flows are the ``paid_*`` /
-    ``gained_*`` fields; the ``opp_gained_*`` fields capture what a shared-benefit
-    power additionally grants the *opponent* (e.g. an optional "each player gains
-    food" trade), so the commit-to-cost head can weigh that the trade also helps the
-    opponent. The opponent only ever *receives* in such powers, so there are no
-    opp-pay fields. Most fields are 0 for any given exchange.
+    The terms form a symmetric ``pay -> gain`` ledger over the game's
+    resources (cards, food, eggs, bird plays). The deciding player's own flows
+    are the ``paid_*`` / ``gained_*`` fields; the ``opp_gained_*`` fields capture
+    what a shared-benefit power additionally grants the *opponent* (e.g. an
+    optional "each player gains food" trade), so the skip-optional head can weigh
+    that the trade also helps the opponent. The opponent only ever *receives* in
+    such powers, so there are no opp-pay fields. Most fields are 0 for any given
+    exchange.
 
     Distinct from ``FoodChoice`` because the agent isn't picking *which* food;
     they're confirming the offered exchange. The human-readable ``label`` names
@@ -118,6 +121,7 @@ class PayCostChoice(Choice):
     gained_egg_count: int = 0  # eggs laid
     gained_card_count: int = 0  # cards drawn into hand
     gained_tuck_count: int = 0  # cards tucked behind the bird (VP + tuck count)
+    gained_play_count: int = 0  # extra bird plays unlocked (the extra-play accept)
     # Opponent side — what a shared-benefit power also grants the opponent.
     opp_gained_food_count: int = 0
     opp_gained_egg_count: int = 0
@@ -145,21 +149,33 @@ class BirdChoice(Choice):
 
 
 class PlayBirdChoice(Choice):
-    """Play a specific bird in a specific habitat for a specific food payment.
+    """Play a specific bird in a specific habitat.
 
     Offered by ``PlayBirdDecision`` — the menu reached both when the main
-    action is ``PLAY_BIRD`` and for each power-granted extra play. A single
-    ``PlayBirdChoice`` bundles the bird, the target habitat, and one fully
-    specified food payment, so the habitat and food-payment picks are made in
-    one step rather than as separate follow-up decisions. A bird playable in
-    two habitats, or payable two ways, yields one ``PlayBirdChoice`` per legal
-    ``(habitat, payment)`` combination.
+    action is ``PLAY_BIRD`` and for each power-granted extra play. A bird
+    playable in two habitats yields one ``PlayBirdChoice`` per legal habitat.
 
-    The egg cost is deliberately *not* folded in — it stays a separate
-    follow-up decision (``RemoveEggDecision``)."""
+    The costs are deliberately *not* folded in: once the play is committed,
+    the egg cost resolves via ``RemoveEggDecision`` and the food payment via
+    ``PayBirdFoodDecision``, in that order. Only (bird, habitat) pairs with at
+    least one legal payment and an affordable egg cost are offered, so a
+    chosen play is always completable."""
 
     bird: cards.Bird
     habitat: cards.Habitat
+
+
+class FoodPaymentChoice(Choice):
+    """One complete food payment — a multiset of tokens covering a bird's
+    printed cost.
+
+    Offered by ``PayBirdFoodDecision`` after a play is committed: one choice
+    per distinct legal payment from ``helpers.enumerate_payments`` (1-for-1
+    matching, 2-for-1 substitution, and 1-of-any wild fills). Distinct from
+    ``FoodChoice`` (a single token) because a payment is chosen as a whole —
+    "pay fish+fish" vs "pay fish and 2 fruit for the fish slot" are competing
+    complete payments, not independent token picks."""
+
     payment: state.FoodPool
 
 
@@ -304,15 +320,17 @@ class SetupDecision(Decision[SetupChoice]):
 
 
 class PlayBirdDecision(Decision[PlayBirdChoice]):
-    """Pick which bird to play, where, and paid how — one ``PlayBirdChoice`` per
-    legal ``(bird, habitat, food payment)`` the player can make right now.
+    """Pick which bird to play and where — one ``PlayBirdChoice`` per legal
+    ``(bird, habitat)`` pair the player can complete right now.
 
     Reached in two contexts: when the turn's main action is ``PLAY_BIRD`` (the
     follow-up to ``MainActionDecision``), and for each power-granted extra play
     (filtered to the granting power's habitat, if any). Both are the same
-    judgment — "which bird is worth playing, where, paid how?" — so both route
-    to the ``PLAY_BIRD`` head; the egg cost stays a follow-up
-    (``RemoveEggDecision``)."""
+    judgment — "which bird is worth playing, and where?" — so both route to the
+    ``PLAY_BIRD`` head. The costs are follow-ups, eggs then food:
+    ``RemoveEggDecision`` (the ``PAY_EGG`` head) then ``PayBirdFoodDecision``
+    (the ``SPEND_FOOD`` head), keeping the strategic pick separate from the
+    logistics of paying for it."""
 
 
 class RemoveEggDecision(Decision[BoardTargetChoice | SkipChoice]):
@@ -322,6 +340,26 @@ class RemoveEggDecision(Decision[BoardTargetChoice | SkipChoice]):
     optional. (Formerly ``PlayBirdPickEggToPayDecision`` — renamed because the
     judgment "which egg can I best afford to lose?" is the same across every
     caller, not specific to playing a bird.)"""
+
+
+class PayBirdFoodDecision(Decision[FoodPaymentChoice]):
+    """Pick how to pay a committed bird play's printed food cost — one
+    ``FoodPaymentChoice`` per distinct legal payment multiset.
+
+    The final play-bird follow-up (after the egg cost's ``RemoveEggDecision``):
+    the bird and habitat are already settled, so this is pure spend logistics —
+    "which tokens can I most afford to part with?" — and routes to the
+    ``SPEND_FOOD`` head. Mandatory: no ``SkipChoice``, because the commitment
+    happened upstream (``MainActionDecision``'s ``PLAY_BIRD`` pick or the
+    extra-play accept). When only one payment is legal the decision is forced
+    and ``Engine.ask`` auto-resolves it without consulting the agent.
+
+    ``bird`` and ``habitat`` carry the committed play as typed context (every
+    choice pays for the same play), so the encoder and an interactive UI can
+    show what is being paid for without re-deriving it."""
+
+    bird: cards.Bird
+    habitat: cards.Habitat
 
 
 class GainFoodDecision(Decision[FoodChoice | SkipChoice]):
@@ -360,12 +398,6 @@ class DiscardBirdForFoodDecision(Decision[BirdChoice]):
     follows is a separate ``GainFoodDecision``."""
 
 
-class LayExtraEggsDecision(Decision[FoodChoice | SkipChoice]):
-    """Deprecated: superseded by the AcceptExchangeDecision + SpendFoodForEggDecision
-    two-step pattern. Retained in ALL_DECISION_CLASSES as a ghost entry so the
-    decision-type one-hot stripe indices of later entries remain stable."""
-
-
 class SpendFoodForEggDecision(Decision[FoodChoice]):
     """Grassland conversion step 2: mandatory food spend after the player
     committed to the exchange via a preceding ``AcceptExchangeDecision``.
@@ -375,15 +407,17 @@ class SpendFoodForEggDecision(Decision[FoodChoice]):
 
 
 class AcceptExchangeDecision(Decision[PayCostChoice | SkipChoice]):
-    """Accept a fixed, power-defined exchange — yes/no. Used wherever the terms
-    are fully determined and the only judgment is "is this trade worth it given
-    my position and the round goal?": the Forest card→food conversion (step 1;
-    the card to discard is a follow-up ``DiscardBirdForFoodDecision``), the
-    Grassland food→egg conversion (step 1; the food to spend is a follow-up
-    ``SpendFoodForEggDecision``), the Wetland egg→card conversion (the egg
-    comes off via a follow-up ``RemoveEggDecision``), and the
-    discard-food-to-tuck powers (Sandhill Crane etc.). The ``PayCostChoice``
-    carries the trade terms as typed fields so the commit-to-cost head can
+    """Take a fixed, fully-determined optional exchange — yes/no. Used wherever
+    the terms are settled up front and the only judgment is "is taking this
+    worth it given my position and the round goal?": the Forest card→food
+    conversion (step 1; the card to discard is a follow-up
+    ``DiscardBirdForFoodDecision``), the Grassland food→egg conversion (step 1;
+    the food to spend is a follow-up ``SpendFoodForEggDecision``), the Wetland
+    egg→card conversion (the egg comes off via a follow-up
+    ``RemoveEggDecision``), the discard-food-to-tuck powers (Sandhill Crane
+    etc.), and the power-granted extra bird play (accept commits to the
+    ``PlayBirdDecision`` menu; skip forfeits the credit). The ``PayCostChoice``
+    carries the trade terms as typed fields so the skip-optional head can
     weigh them; ``SkipChoice`` declines. (Subsumes the former
     ``DrawCardsConvertDecision`` and the pay-cost branch of
     ``BirdPowerPickFoodDecision``.)"""
@@ -459,11 +493,11 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     BirdPowerTuckFromHandDecision,
     BirdPowerPickGainOrderDecision,
     BirdPowerPickHabitatDecision,
-    LayExtraEggsDecision,
     AcceptExchangeDecision,
     ResetBirdfeederDecision,
     DiscardBirdForFoodDecision,
     SpendFoodForEggDecision,
+    PayBirdFoodDecision,
     SetupDecision,
 )
 
@@ -502,9 +536,8 @@ class DecisionFamily(enum.StrEnum):
     SPEND_FOOD = "spend_food"
     LAY_EGG = "lay_egg"
     PAY_EGG = "pay_egg"
-    COMMIT_TO_COST = "commit_to_cost"
+    SKIP_OPTIONAL = "skip_optional"
     CHOOSE_BONUS = "choose_bonus"
-    MOVE_HABITAT = "move_habitat"
     MISC_RARE = "misc_rare"
     PLAY_BIRD = "play_bird"
     RESET_BIRDFEEDER = "reset_birdfeeder"
@@ -518,9 +551,8 @@ ALL_DECISION_FAMILIES: tuple[DecisionFamily, ...] = (
     DecisionFamily.SPEND_FOOD,
     DecisionFamily.LAY_EGG,
     DecisionFamily.PAY_EGG,
-    DecisionFamily.COMMIT_TO_COST,
+    DecisionFamily.SKIP_OPTIONAL,
     DecisionFamily.CHOOSE_BONUS,
-    DecisionFamily.MOVE_HABITAT,
     DecisionFamily.MISC_RARE,
     DecisionFamily.PLAY_BIRD,
     DecisionFamily.RESET_BIRDFEEDER,
@@ -535,9 +567,12 @@ ALL_DECISION_FAMILIES: tuple[DecisionFamily, ...] = (
 # §3.3): *acquiring* a bird ("which do I take?") and *giving one up* ("which do
 # I lose?") are opposite judgments and route to separate heads. Choosing the
 # turn's action *type* (``MainActionDecision`` -> ``MAIN_ACTION``) is split from
-# choosing *which bird to play* (``PlayBirdDecision`` -> ``PLAY_BIRD``); the
-# latter serves both the main-action PLAY_BIRD branch and power-granted extra
-# plays, since "which bird, where, paid how?" is one judgment in both.
+# choosing *which bird to play, where* (``PlayBirdDecision`` -> ``PLAY_BIRD``);
+# the latter serves both the main-action PLAY_BIRD branch and power-granted
+# extra plays. The play's costs route to the generic spend heads —
+# ``RemoveEggDecision`` -> ``PAY_EGG``, ``PayBirdFoodDecision`` ->
+# ``SPEND_FOOD`` — so paying for a bird trains the same judgments as every
+# other egg / food spend.
 _DECISION_FAMILY: dict[type[Decision[typing.Any]], DecisionFamily] = {
     SetupDecision: DecisionFamily.SETUP,
     MainActionDecision: DecisionFamily.MAIN_ACTION,
@@ -548,13 +583,13 @@ _DECISION_FAMILY: dict[type[Decision[typing.Any]], DecisionFamily] = {
     DiscardBirdForFoodDecision: DecisionFamily.DISCARD_BIRD,
     GainFoodDecision: DecisionFamily.GAIN_FOOD,
     SpendFoodDecision: DecisionFamily.SPEND_FOOD,
-    LayExtraEggsDecision: DecisionFamily.SPEND_FOOD,
     SpendFoodForEggDecision: DecisionFamily.SPEND_FOOD,
+    PayBirdFoodDecision: DecisionFamily.SPEND_FOOD,
     LayEggDecision: DecisionFamily.LAY_EGG,
     RemoveEggDecision: DecisionFamily.PAY_EGG,
-    AcceptExchangeDecision: DecisionFamily.COMMIT_TO_COST,
+    AcceptExchangeDecision: DecisionFamily.SKIP_OPTIONAL,
     BirdPowerPickBonusCardDecision: DecisionFamily.CHOOSE_BONUS,
-    BirdPowerPickHabitatDecision: DecisionFamily.MOVE_HABITAT,
+    BirdPowerPickHabitatDecision: DecisionFamily.MISC_RARE,
     BirdPowerPickPlayedBirdDecision: DecisionFamily.MISC_RARE,
     BirdPowerPickGainOrderDecision: DecisionFamily.MISC_RARE,
     ResetBirdfeederDecision: DecisionFamily.RESET_BIRDFEEDER,

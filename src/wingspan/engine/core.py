@@ -277,8 +277,8 @@ class Engine:
     @staticmethod
     def _main_action_label(choice: decisions.MainActionChoice) -> str:
         """Log-header text for the chosen main-action type. For ``PLAY_BIRD`` the
-        specific bird / habitat / payment is logged later by ``do_play_bird``
-        once the follow-up ``PlayBirdDecision`` resolves."""
+        specific bird / habitat / costs are logged later by ``do_play_bird``
+        once the follow-up decisions resolve."""
         return choice.action.value.upper()
 
     def _dispatch_main_action(
@@ -287,8 +287,9 @@ class Engine:
         choice: decisions.MainActionChoice,
     ) -> None:
         """Run the chosen main action. ``PLAY_BIRD`` opens the follow-up
-        ``PlayBirdDecision`` (which bird, where, paid how) and plays it; the
-        other three run their habitat-row action."""
+        ``PlayBirdDecision`` (which bird, where; the costs are further
+        follow-ups) and plays it; the other three run their habitat-row
+        action."""
         if choice.action == decisions.MainAction.PLAY_BIRD:
             actions.do_play_bird_action(self, agent)
         elif choice.action == decisions.MainAction.GAIN_FOOD:
@@ -306,7 +307,7 @@ class Engine:
         The three habitat-row actions are always offered (just inefficient if
         the row is empty); ``PLAY_BIRD`` is offered only when ``player`` has at
         least one legal play right now. Choosing ``PLAY_BIRD`` opens a follow-up
-        ``PlayBirdDecision`` for the specific bird / habitat / payment."""
+        ``PlayBirdDecision`` for the specific bird / habitat."""
         choices: list[decisions.MainActionChoice] = [
             decisions.MainActionChoice(
                 label="gain food (forest)",
