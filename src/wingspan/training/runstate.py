@@ -51,8 +51,8 @@ class TrainingPhase(enum.StrEnum):
     both seats are the net and evaluation runs against the frozen reference
     opponent. A fresh run starts in whichever phase ``config.initial_vs_random``
     selects and graduates to ``SELF_PLAY`` once the smoothed collection win-rate
-    clears ``config.random_phase_win_rate``; the default is ``SELF_PLAY`` so
-    checkpoints written before this phase existed resume unchanged.
+    clears ``config.random_phase_win_rate``. ``SELF_PLAY`` is the default — the
+    steady-state regime every run graduates into.
     """
 
     RANDOM_OPPONENT = "random_opponent"
@@ -97,8 +97,10 @@ class RunProgress(pydantic.BaseModel):
     so a restarted run continues its counters, cumulative aggregates, and
     convergence charts instead of starting from zero.
 
-    Every field defaults, so an older checkpoint that stored only a couple of
-    counters still loads — the rest simply start empty.
+    Every field defaults to its fresh-run value, so ``RunProgress()`` is the
+    empty snapshot. Fields added to this model later must also default (with a
+    comment naming why), so checkpoints already written by current-era runs keep
+    resuming — see CLAUDE.md "Checkpoint compatibility policy".
     """
 
     iteration: int = 0
@@ -141,8 +143,7 @@ class RunProgress(pydantic.BaseModel):
     opponent_change_iterations: list[int] = pydantic.Field(
         default_factory=_new_int_list
     )
-    # Which opponent regime the run is in. Defaults to SELF_PLAY so a checkpoint
-    # written before the bootstrap phase existed resumes into the old behavior.
+    # Which opponent regime the run is in (SELF_PLAY is the steady state).
     training_phase: TrainingPhase = TrainingPhase.SELF_PLAY
     last_iter: metrics.IterationMetrics | None = None
     history: list[metrics.IterationMetrics] = pydantic.Field(

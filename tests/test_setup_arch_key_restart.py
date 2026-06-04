@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 torch = pytest.importorskip("torch")
 
 from wingspan import setup_model  # noqa: E402
-from wingspan.training import artifacts, config, loop  # noqa: E402
+from wingspan.training import artifacts, config, loop, runstate  # noqa: E402
 
 _OLD_FEATURE_DIM = 477  # the pre-shared-embedder layout's width
 
@@ -78,12 +78,12 @@ def _write_main_checkpoint(tmp_path: pathlib.Path, cfg: config.TrainConfig) -> N
     """A loadable ``last.pt`` so the main net genuinely resumes (the setup gate
     must act independently of the main resume)."""
     source = loop.TrainingLoop(cfg)
+    progress = runstate.RunProgress(iteration=3, total_games=12)
     payload: dict[str, object] = {
         "config": cfg.model_dump(),
         "model": source.net.state_dict(),
         "optimizer": source.optimizer.state_dict(),
-        "iteration": 3,
-        "total_games": 12,
+        "progress": progress.model_dump(),
         "git_sha": None,
     }
     torch.save(payload, tmp_path / artifacts.LAST_CKPT)

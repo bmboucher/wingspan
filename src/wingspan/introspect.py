@@ -80,7 +80,14 @@ def main_inspect(argv: list[str] | None = None) -> int:
     # in the arch diagram are not encodable in cp1252 (the Windows default).
     stdout = _utf8_stdout()
     console = rich_console.Console(file=stdout, width=args.width, legacy_windows=False)
-    info = _load_arch_info(args.checkpoint_dir, console)
+    try:
+        info = _load_arch_info(args.checkpoint_dir)
+    except FileNotFoundError:
+        console.print(
+            f"[red]Error:[/red] no {artifacts.MODEL_CONFIG_JSON} in "
+            f"{args.checkpoint_dir!r} — not a run directory."
+        )
+        return 1
 
     # --html: write the HTML report, then optionally also print terminal output.
     if args.html is not None:
@@ -206,13 +213,14 @@ def _default_family_order() -> tuple[str, ...]:
     )
 
 
-def _load_arch_info(
-    checkpoint_dir: str | None, console: rich_console.Console
-) -> _ArchInfo:
-    """Load architecture from ``model_config.json`` or fall back to defaults.
+def _load_arch_info(checkpoint_dir: str | None) -> _ArchInfo:
+    """Load architecture from a run's ``model_config.json``; with no checkpoint
+    dir at all, describe the baseline (default-config) network instead.
 
-    The setup net's topology comes from the run's ``setup_config.json`` when
-    present; absent (or with no checkpoint dir at all) the default
+    A checkpoint dir without a ``model_config.json`` raises ``FileNotFoundError``
+    — every run directory carries the descriptor, so its absence means the path
+    is not a run directory. The setup net's topology comes from the run's
+    ``setup_config.json`` when present; absent, the default
     :class:`~wingspan.setup_model.SetupArchitecture` is used."""
     if checkpoint_dir is None:
         return _ArchInfo(
@@ -222,20 +230,7 @@ def _load_arch_info(
             family_order=_default_family_order(),
             include_setup=encode.DEFAULT_SPEC.include_setup,
         )
-    try:
-        descriptor = runmeta.read_model_config(checkpoint_dir)
-    except FileNotFoundError:
-        console.print(
-            f"[yellow]Warning:[/yellow] no model_config.json in {checkpoint_dir!r}; "
-            "using baseline architecture."
-        )
-        return _ArchInfo(
-            arch=architecture.ModelArchitecture(),
-            state_dim=encode.state_size(),
-            choice_dim=encode.CHOICE_FEATURE_DIM,
-            family_order=_default_family_order(),
-            include_setup=encode.DEFAULT_SPEC.include_setup,
-        )
+    descriptor = runmeta.read_model_config(checkpoint_dir)
     return _ArchInfo(
         arch=descriptor.architecture,
         state_dim=descriptor.state_dim,

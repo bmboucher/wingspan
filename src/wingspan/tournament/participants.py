@@ -22,9 +22,7 @@ import pydantic
 import torch
 
 from wingspan import agents, engine, model
-from wingspan.training import artifacts
-from wingspan.training import config as train_config
-from wingspan.training import policy, runmeta
+from wingspan.training import artifacts, policy, runmeta
 from wingspan.training.configure import runs
 
 
@@ -156,7 +154,7 @@ def load_player(
             weights_only=False,
         ),
     )
-    net = _reconstruct_net(spec.checkpoint_dir, payload)
+    net = _reconstruct_net(spec.checkpoint_dir)
     state_dict = typing.cast("dict[str, torch.Tensor]", payload["model"])
     net.load_state_dict(state_dict)
     net.to(device).eval()
@@ -166,40 +164,21 @@ def load_player(
 ###### PRIVATE #######
 
 
-def _reconstruct_net(
-    checkpoint_dir: str, payload: dict[str, typing.Any]
-) -> model.PolicyValueNet:
+def _reconstruct_net(checkpoint_dir: str) -> model.PolicyValueNet:
     """Rebuild the (fresh-weight) net in a run's saved shape, ready for
-    ``load_state_dict``.
-
-    Prefers the ``model_config.json`` descriptor; falls back to the full
-    :class:`TrainConfig` embedded in the checkpoint when the descriptor is absent
-    or predates a field (older runs), mirroring the training resume path so even
-    pre-descriptor checkpoints play."""
-    try:
-        descriptor = runmeta.read_model_config(checkpoint_dir)
-        return model.PolicyValueNet.from_model_config(descriptor)
-    except (FileNotFoundError, pydantic.ValidationError):
-        cfg = train_config.TrainConfig.model_validate(payload["config"])
-        return model.PolicyValueNet(
-            state_dim=cfg.state_dim,
-            choice_dim=cfg.choice_dim,
-            num_families=len(cfg.family_order),
-            arch=cfg.arch,
-            spec=cfg.encoding_spec,
-        )
+    ``load_state_dict``, from the run's ``model_config.json`` descriptor (every
+    run dir carries one; a run without it is not seatable)."""
+    descriptor = runmeta.read_model_config(checkpoint_dir)
+    return model.PolicyValueNet.from_model_config(descriptor)
 
 
 def _loadable(checkpoint_dir: str, summary: runs.RunSummary) -> bool:
-    """Whether a run dir can be played: a readable ``last.pt`` plus either a
-    ``model_config.json`` descriptor or the embedded :class:`TrainConfig` that
-    :func:`_reconstruct_net` rebuilds the net from."""
+    """Whether a run dir can be played: a readable ``last.pt`` plus the
+    ``model_config.json`` descriptor :func:`_reconstruct_net` rebuilds the net
+    from."""
     if not (summary.exists and summary.readable):
         return False
-    has_descriptor = (
-        pathlib.Path(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
-    ).exists()
-    return has_descriptor or summary.train_config is not None
+    return (pathlib.Path(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON).exists()
 
 
 def _option_from_summary(

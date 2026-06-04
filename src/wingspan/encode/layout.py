@@ -14,8 +14,9 @@ spec-dependent totals are therefore exposed as functions
 ``DECISION_TYPE_DIM`` are the default-spec (setup-included) values.
 
 The ``_OFF_*`` chain is evaluated top-to-bottom; the ``encode_state`` stripe
-order and these offsets are what trained checkpoints are aligned to, so nothing
-here may be reordered or renumbered.
+order and these offsets are part of the checkpoint format — reordering or
+renumbering anything here is a FRESH (checkpoint-invalidating) change. See
+CLAUDE.md "Checkpoint compatibility policy".
 """
 
 from __future__ import annotations

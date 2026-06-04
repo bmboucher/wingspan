@@ -125,16 +125,6 @@ weights). From there:
 
 Starting or resuming transitions straight into the FLYWAY CONTROL dashboard.
 
-A legacy one-shot cycle (`python -m wingspan.train`) also exists — it plays a
-batch of self-play games, runs a single REINFORCE update from random weights,
-and saves one checkpoint. It predates the dashboard pipeline (it still uses
-epsilon-greedy exploration and saves only at the end), so prefer
-`python -m wingspan.training` for real runs:
-
-```
-python -m wingspan.train --episodes 32
-```
-
 See [TRAINING.md](TRAINING.md) for the training program and
 [DECISIONS.md](DECISIONS.md) for the per-decision modelling direction.
 
@@ -142,13 +132,16 @@ See [TRAINING.md](TRAINING.md) for the training program and
 
 After `pip install -e .` the same entry points are available as plain commands:
 
-| Command              | Equivalent to                     |
-| -------------------- | --------------------------------- |
-| `wingspan-play`      | `python -m wingspan.cli manual`   |
-| `wingspan-random`    | `python -m wingspan.cli random`   |
-| `wingspan-selfplay`  | `python -m wingspan.cli selfplay` |
-| `wingspan-dashboard` | `python -m wingspan.training`     |
-| `wingspan-train`     | `python -m wingspan.train`        |
+| Command               | Equivalent to                       |
+| --------------------- | ----------------------------------- |
+| `wingspan-play`       | `python -m wingspan.cli manual`     |
+| `wingspan-random`     | `python -m wingspan.cli random`     |
+| `wingspan-selfplay`   | `python -m wingspan.cli selfplay`   |
+| `wingspan-dashboard`  | `python -m wingspan.training`       |
+| `wingspan-tournament` | `python -m wingspan.cli tournament` |
+| `wingspan-inspect`    | `python -m wingspan.introspect`     |
+| `wingspan-cloud`      | `python -m wingspan.cloud`          |
+| `wingspan-monitor`    | `python -m wingspan.cloud.monitor`  |
 
 ## Tests
 
@@ -181,8 +174,8 @@ state change through them.
 - `src/wingspan/encode/`, `model.py`, `architecture.py` — the RL feature encoder
   (state + per-choice), the policy/value network, and its torch-free topology
   descriptor.
-- `src/wingspan/train.py`, `selfplay.py` — the legacy one-shot REINFORCE cycle
-  and the configurable-matchup self-play runner.
+- `src/wingspan/selfplay.py` — the configurable-matchup self-play runner
+  (trained checkpoints and/or the random agent in any seat).
 - `src/wingspan/training/` — the live training-and-monitoring dashboard
   (self-play, learning, evaluation, checkpointing) and its interactive
   configurator.

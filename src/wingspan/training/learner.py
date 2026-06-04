@@ -28,8 +28,8 @@ import torch
 import torch.nn.functional as F
 from torch import optim
 
-from wingspan import model, train
-from wingspan.training import collect, config
+from wingspan import model
+from wingspan.training import collect, config, steps
 
 # Option-count bucket edges. A step with ``n`` candidates pads up to the
 # smallest edge ``>= n``; the 89.5% of decisions with <=4 options pad to 4 (not
@@ -60,8 +60,8 @@ def update(
     device: torch.device,
 ) -> UpdateStats:
     """Run one length-bucketed REINFORCE update over ``records``' steps."""
-    steps, returns = _flatten(records, cfg.score_norm)
-    if not steps:
+    flat_steps, returns = _flatten(records, cfg.score_norm)
+    if not flat_steps:
         return UpdateStats(
             loss=0.0,
             policy_loss=0.0,
@@ -79,8 +79,8 @@ def update(
     values: list[torch.Tensor] = []
     entropies: list[torch.Tensor] = []
     returns_parts: list[torch.Tensor] = []
-    for bucket in _bucketize(steps):
-        logp, value, entropy = _forward_bucket(net, device, steps, bucket)
+    for bucket in _bucketize(flat_steps):
+        logp, value, entropy = _forward_bucket(net, device, flat_steps, bucket)
         chosen_logps.append(logp)
         values.append(value)
         entropies.append(entropy)
@@ -122,7 +122,7 @@ def update(
         grad_norm=float(grad_norm),
         advantage_mean=float(adv_mean.detach()),
         advantage_std=float(adv_std.detach()),
-        n_steps=len(steps),
+        n_steps=len(flat_steps),
     )
 
 
@@ -131,12 +131,12 @@ def update(
 
 def _flatten(
     records: list[collect.GameRecord], score_norm: float
-) -> tuple[list[train.Step], list[float]]:
+) -> tuple[list[steps.Step], list[float]]:
     """Flatten every game's steps and pair each with its REINFORCE return —
     the terminal score margin from that step's player POV, scaled by
     ``score_norm`` (so player 0 and player 1 get opposite signs in a decisive
     game; DECISIONS.md §5)."""
-    steps: list[train.Step] = []
+    flat_steps: list[steps.Step] = []
     returns: list[float] = []
     for record in records:
         score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
@@ -145,15 +145,15 @@ def _flatten(
             (score_1 - score_0) / score_norm,
         )
         for step in record.steps:
-            steps.append(step)
+            flat_steps.append(step)
             returns.append(per_pov[step.player_id])
-    return steps, returns
+    return flat_steps, returns
 
 
-def _bucketize(steps: list[train.Step]) -> list[list[int]]:
+def _bucketize(flat_steps: list[steps.Step]) -> list[list[int]]:
     """Group step indices by option-count bucket (smallest edge >= n_choices)."""
     by_edge: dict[int, list[int]] = {}
-    for i, step in enumerate(steps):
+    for i, step in enumerate(flat_steps):
         edge = _bucket_edge(step.choices.shape[0])
         by_edge.setdefault(edge, []).append(i)
     return [by_edge[edge] for edge in sorted(by_edge)]
@@ -169,29 +169,29 @@ def _bucket_edge(n_choices: int) -> int:
 def _forward_bucket(
     net: model.PolicyValueNet,
     device: torch.device,
-    steps: list[train.Step],
+    flat_steps: list[steps.Step],
     bucket: list[int],
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Forward one bucket (padded to its own width) and return per-step
     ``(chosen_logp, value, entropy)`` tensors with grad attached."""
-    width = max(steps[i].choices.shape[0] for i in bucket)
+    width = max(flat_steps[i].choices.shape[0] for i in bucket)
     batch = len(bucket)
-    state_batch = np.stack([steps[i].state for i in bucket])
+    state_batch = np.stack([flat_steps[i].state for i in bucket])
     choice_batch = np.zeros((batch, width, net.choice_dim), dtype=np.float32)
     mask_batch = np.zeros((batch, width), dtype=np.float32)
     for row, i in enumerate(bucket):
-        count = steps[i].choices.shape[0]
-        choice_batch[row, :count] = steps[i].choices
+        count = flat_steps[i].choices.shape[0]
+        choice_batch[row, :count] = flat_steps[i].choices
         mask_batch[row, :count] = 1.0
 
     state_t = torch.tensor(state_batch, dtype=torch.float32, device=device)
     choice_t = torch.tensor(choice_batch, dtype=torch.float32, device=device)
     mask_t = torch.tensor(mask_batch, dtype=torch.float32, device=device)
     idx_t = torch.tensor(
-        [steps[i].chosen_idx for i in bucket], dtype=torch.long, device=device
+        [flat_steps[i].chosen_idx for i in bucket], dtype=torch.long, device=device
     )
     family_t = torch.tensor(
-        [steps[i].family_idx for i in bucket], dtype=torch.long, device=device
+        [flat_steps[i].family_idx for i in bucket], dtype=torch.long, device=device
     )
 
     logits, value = net(state_t, choice_t, mask_t, family_t)

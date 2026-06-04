@@ -2,9 +2,8 @@
 
 :func:`inspect_run` reads the metadata a configurator screen shows (iteration,
 games, best win-rate, opponent generation, the saved hyperparameters) straight
-out of ``last.pt`` — which already embeds the full ``TrainConfig`` and a
-``RunProgress`` snapshot — so it works on pre-existing checkpoints with no extra
-sidecar. :func:`architecture_compatible` is the single resume gate, shared with
+out of ``last.pt``, which embeds the full ``TrainConfig`` and a ``RunProgress``
+snapshot. :func:`architecture_compatible` is the single resume gate, shared with
 ``loop`` through ``TrainConfig.architecture_key``. :func:`archive_run` relocates
 a finished run's artifacts into ``<checkpoint_dir>/archive/<label>/`` (preserving
 them) and :func:`clear_run` deletes them (the destructive overwrite path); both
@@ -92,10 +91,11 @@ class RunSummary(pydantic.BaseModel):
     # ``config`` so the field does not shadow the ``config`` module in its own
     # annotation at class-definition time).
     train_config: config.TrainConfig | None = None
-    # The checkpoint carried a config that no longer validates (e.g. a value
-    # since constrained out of bounds). The payload still loaded, but the run is
-    # treated as not-resumable so Start routes through the fresh-run prompt
-    # instead of handing the loop a config it would reject mid-resume.
+    # The checkpoint carried no embedded config, or one that no longer validates
+    # (e.g. a value since constrained out of bounds). The payload still loaded,
+    # but the run is treated as not-resumable so Start routes through the
+    # fresh-run prompt instead of handing the loop a config it would reject
+    # mid-resume.
     config_invalid: bool = False
     iteration: int | None = None
     total_games: int | None = None
@@ -141,10 +141,10 @@ def inspect_run(checkpoint_dir: str) -> RunSummary:
 def architecture_compatible(
     saved: config.TrainConfig | None, current: config.TrainConfig
 ) -> bool:
-    """Whether ``current`` can resume a run saved with ``saved``. A pre-descriptor
-    checkpoint (``saved is None``) is assumed compatible, matching
-    ``loop._architecture_matches``."""
-    return saved is None or saved.architecture_key == current.architecture_key
+    """Whether ``current`` can resume a run saved with ``saved``. Checkpoints are
+    self-describing: one with no readable embedded config (``saved is None``) is
+    never resumable, matching ``loop._architecture_matches``."""
+    return saved is not None and saved.architecture_key == current.architecture_key
 
 
 def resolve_status(summary: RunSummary, working: config.TrainConfig) -> RunStatus:
@@ -240,7 +240,10 @@ def _load_payload(path: pathlib.Path) -> dict[str, typing.Any] | None:
 def _fill_from_payload(summary: RunSummary, payload: dict[str, typing.Any]) -> None:
     """Populate ``summary`` from a parsed checkpoint payload."""
     raw_config = payload.get("config")
-    if raw_config is not None:
+    if raw_config is None:
+        summary.config_invalid = True
+        summary.note = "checkpoint has no embedded config"
+    else:
         try:
             summary.train_config = config.TrainConfig.model_validate(raw_config)
         except pydantic.ValidationError:
@@ -256,18 +259,15 @@ def _fill_from_payload(summary: RunSummary, payload: dict[str, typing.Any]) -> N
 
 
 def _progress_from_payload(payload: dict[str, typing.Any]) -> runstate.RunProgress:
-    """The resumable progress in a checkpoint — the full snapshot when present,
-    otherwise the top-level counters older checkpoints stored."""
+    """The resumable progress snapshot in a checkpoint; zeroed counters when the
+    snapshot is missing or malformed (``inspect_run`` never raises)."""
     raw = payload.get("progress")
-    if raw is not None:
-        try:
-            return runstate.RunProgress.model_validate(raw)
-        except pydantic.ValidationError:
-            pass
-    return runstate.RunProgress(
-        iteration=_as_int(payload.get("iteration")),
-        total_games=_as_int(payload.get("total_games")),
-    )
+    if raw is None:
+        return runstate.RunProgress()
+    try:
+        return runstate.RunProgress.model_validate(raw)
+    except pydantic.ValidationError:
+        return runstate.RunProgress()
 
 
 def _archive_sources(path: pathlib.Path) -> list[pathlib.Path]:
@@ -311,7 +311,3 @@ def _sanitize(name: str) -> str:
 
 def _os_error_text(error: OSError) -> str:
     return error.strerror or str(error)
-
-
-def _as_int(value: object, default: int = 0) -> int:
-    return value if isinstance(value, int) else default

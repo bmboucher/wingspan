@@ -17,7 +17,7 @@ public names below (read by ``model.py`` and the training pipeline) are
 re-exported from ``layout`` / ``state_encode``.
 """
 
-from wingspan.encode.choice_encode import encode_choices, encode_decision
+from wingspan.encode.choice_encode import encode_choices
 from wingspan.encode.layout import (
     CARD_FEATURE_DIM,
     CHOICE_BIRD_ID_DIM,
@@ -91,7 +91,6 @@ __all__ = [
     "choice_input_dim",
     "decision_type_dim",
     "encode_choices",
-    "encode_decision",
     "encode_state",
     "num_families",
     "spec_for",

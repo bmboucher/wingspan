@@ -91,19 +91,6 @@ def encode_choices(
     return feats
 
 
-# Back-compat shim: legacy callers expect ``encode_decision``. The semantics
-# changed (per-choice features instead of a global mask), so the return is
-# different — callers that consumed the old (mask, action_ids) tuple need to
-# be updated.
-def encode_decision(
-    decision: layout._AnyDecision,
-    state: state.GameState,
-    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
-) -> np.ndarray:
-    """Alias for :func:`encode_choices`."""
-    return encode_choices(decision, state, spec)
-
-
 ###### PRIVATE #######
 
 #### Per-choice featurization ####

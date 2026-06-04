@@ -1,7 +1,7 @@
 """Self-play data collection.
 
 Plays one full self-play game where both seats consult the same network, and
-records every multi-option decision as a :class:`wingspan.train.Step` (state
+records every multi-option decision as a :class:`wingspan.training.steps.Step` (state
 features, candidate features, chosen index, player id, judgment-family head
 index). After the game it reads each player's final board into a
 :class:`metrics.ScoreBreakdown`, so the loop can both train on the trajectory
@@ -33,9 +33,13 @@ import numpy as np
 import pydantic
 import torch
 
-from wingspan import cards, decisions, encode, engine, model, setup_model, state, train
+from wingspan import cards, decisions, encode, engine, model, setup_model, state
 from wingspan.engine import scoring
+
+# ``steps`` is aliased because ``GameRecord.steps`` (and the local recording
+# lists) would shadow the bare module name (the ``core as engine_core`` rule).
 from wingspan.training import config, metrics, policy, setup_net
+from wingspan.training import steps as training_steps
 
 # Distinct salt for the setup-selection RNG (random generator + setup-net sampling),
 # kept separate from the in-game sampling and opponent salts so a seed reproduces
@@ -59,7 +63,7 @@ class GameRecord(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
-    steps: list[train.Step]
+    steps: list[training_steps.Step]
     breakdowns: tuple[metrics.ScoreBreakdown, metrics.ScoreBreakdown]
     winner: int
     seed: int
@@ -162,7 +166,7 @@ def play_game(
     recorded, since the opponent's off-policy moves are not trained on.
     """
     eng = new_engine(seed)
-    recorded: list[train.Step] = []
+    recorded: list[training_steps.Step] = []
     net_agent = _recording_agent(net, device, rng, recorded)
     agent_a, agent_b = (
         (net_agent, net_agent)
@@ -205,7 +209,7 @@ def play_game_with_setup(
     bonus. The deferred pick is then a recorded in-game step like any other."""
     eng = new_engine(spec.deal_seed)
     main_rng = random.Random(spec.continuation_seed)
-    recorded: list[train.Step] = []
+    recorded: list[training_steps.Step] = []
     net_agent = _recording_agent(net, device, main_rng, recorded)
     if opponent_agent is None:
         agent_a, agent_b = net_agent, net_agent
@@ -313,7 +317,7 @@ def _recording_agent(
     net: model.PolicyValueNet,
     device: torch.device,
     rng: random.Random,
-    record_into: list[train.Step],
+    record_into: list[training_steps.Step],
 ) -> engine.Agent:
     """An agent that samples from the policy and appends every multi-option
     decision it makes to ``record_into`` (both seats share the buffer, tagged
@@ -339,7 +343,7 @@ def _recording_agent(
             net, device, state_vec, choice_feats, family_idx, rng
         )
         record_into.append(
-            train.Step(
+            training_steps.Step(
                 state=state_vec,
                 choices=choice_feats,
                 chosen_idx=chosen_idx,

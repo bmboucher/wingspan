@@ -130,6 +130,11 @@ def _sample_iteration(breakdown: metrics.ScoreBreakdown) -> metrics.IterationMet
         avg_margin=0.0,
         avg_breakdown=breakdown,
         avg_decisions=140.0,
+        avg_winner_breakdown=metrics.ScoreBreakdown(),
+        avg_abs_margin=0.0,
+        margin_std=0.0,
+        abs_margin_std=0.0,
+        decisions_std=0.0,
         family_counts=family,
         collect_seconds=1.0,
         update_seconds=0.5,
@@ -418,7 +423,7 @@ def test_produce_ewma_resets_at_self_play_graduation():
 
 def test_training_phase_round_trips_through_progress():
     cfg = config.TrainConfig(device="cpu")
-    # A checkpoint written before the phase existed defaults to SELF_PLAY.
+    # The empty snapshot defaults to the steady-state regime.
     assert runstate.RunProgress().training_phase is runstate.TrainingPhase.SELF_PLAY
 
     state = runstate.new_run_state(cfg)

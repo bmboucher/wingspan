@@ -124,7 +124,7 @@ We can already play fixed-model games fast, but `GameOutcome` records **no per-c
 - [ ] **An offline-analysis package** (e.g. `wingspan.analysis`) that loads a checkpoint via `from_model_config` and hosts the counterfactual scorer (P2), the decision-predicate capture/replay (P3), the setup sampler (P4), and the stats aggregators (P4–P6) on the existing primitives.
 - [ ] **A games-log reader/aggregator** that consumes `games.jsonl` locally **and** the S3 `games/<session>/chunk_*.jsonl` chunks (P5, P6) — a small extension of `cloud.s3sync` (list + download many shard objects).
 - [ ] **A state-replay/perturbation utility** keyed off `seed` (reach decision *k*, snapshot/perturb the `GameState`, re-encode) — reused by P2 and P3.
-- [ ] **Per-card / per-decision-context logging schema** as Pydantic models alongside `metrics.GameOutcome` (P3, P5), kept append-only so existing logs stay loadable.
+- [ ] **Per-card / per-decision-context logging schema** as Pydantic models alongside `metrics.GameOutcome` (P3, P5); once shipped, new fields default so logs from current-era runs keep loading (CLAUDE.md "Checkpoint compatibility policy").
 
 ## Offloading to AWS (reusing the cloud stack)
 

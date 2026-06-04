@@ -45,8 +45,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wingspan import agents, decisions, encode, engine, model, train
-from wingspan.training import collect, policy
+from wingspan import agents, decisions, encode, engine, model
+from wingspan.training import collect, policy, steps
 
 # Distinct salt for the bootstrap phase's random opponent, kept separate from
 # the policy-sampling stream (mirrors ``mp_collect._OPPONENT_RNG_SALT``).
@@ -259,7 +259,7 @@ def _play_one_game(
     inference path: self-play by default, or — when ``vs_random`` — the net's
     recording agent at seat 0 against an off-server random agent at seat 1."""
     eng = collect.new_engine(seed)
-    recorded: list[train.Step] = []
+    recorded: list[steps.Step] = []
     sample_rng = random.Random(seed ^ _SAMPLE_RNG_SALT)
     net_agent = _batched_recording_agent(server, sample_rng, recorded)
     agent_a, agent_b = (
@@ -283,7 +283,7 @@ def _play_one_game(
 def _batched_recording_agent(
     server: _BatchInferenceServer,
     rng: random.Random,
-    record_into: list[train.Step],
+    record_into: list[steps.Step],
 ) -> engine.Agent:
     """An agent that routes every multi-option decision's forward pass through
     ``server`` and records the chosen step — the batched twin of
@@ -303,7 +303,7 @@ def _batched_recording_agent(
         probs = server.infer(state_vec, choice_feats, family_idx)
         chosen_idx = policy.sample_index_from_probs(probs, choice_feats.shape[0], rng)
         record_into.append(
-            train.Step(
+            steps.Step(
                 state=state_vec,
                 choices=choice_feats,
                 chosen_idx=chosen_idx,

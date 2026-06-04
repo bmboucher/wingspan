@@ -1,17 +1,13 @@
-"""End-to-end smoke tests.
+"""End-to-end smoke test: a full game with random agents completes, produces
+final scores, and leaves a substantive game log.
 
-These confirm the three completion criteria all run without raising:
-
-1. A full game with random agents completes and produces final scores.
-2. The detailed game log is non-empty.
-3. One epoch of self-play + a training step completes (CPU-only here).
+The training-cycle smoke coverage lives in ``test_model_and_self_play.py``,
+which runs the production collect → update path end-to-end on CPU.
 """
 
 from __future__ import annotations
 
 import random
-
-import pytest
 
 
 def test_random_game_completes():
@@ -31,28 +27,3 @@ def test_random_game_completes():
         assert hasattr(player, "final_score")
         assert isinstance(player.final_score, int)
     assert len(eng.state.log) > 50, "expected a substantive log"
-
-
-def test_train_one_epoch_cpu():
-    import os
-    import sys
-
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-    pytest.importorskip("torch")
-    from wingspan import train
-
-    rc = train.main(
-        [
-            "--episodes",
-            "4",
-            "--epochs",
-            "1",
-            "--device",
-            "cpu",
-            "--seed",
-            "0",
-            "--checkpoint",
-            "checkpoints/_test.pt",
-        ]
-    )
-    assert rc == 0

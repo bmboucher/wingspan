@@ -54,9 +54,7 @@ class ModelConfig(pydantic.BaseModel):
     family_order: tuple[str, ...]
     architecture: architecture.ModelArchitecture
     # Whether the main net carries the opening (``encode.EncodingSpec.include_setup``).
-    # Defaults True so pre-existing ``model_config.json`` files (written before the
-    # setup axis existed) deserialize cleanly and reconstitute a setup-included net.
-    include_setup: bool = True
+    include_setup: bool
 
 
 class SessionRecord(pydantic.BaseModel):

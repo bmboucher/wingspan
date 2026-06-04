@@ -13,10 +13,11 @@ changes stay consistent.
 - The long-term goal is to run enough self-play training to answer
   analytical questions about the game — card power rankings, bonus-card
   value, food / habitat economy, opening-hand selection, etc. The current
-  surface (manual CLI, random self-play with logs, REINFORCE training
-  entry point) is the starting point, not the destination; design for
-  scaling up training (more episodes, smarter algorithms, richer
-  introspection) rather than for the minimum that runs today.
+  surface (manual CLI, configurable self-play matchups, the FLYWAY CONTROL
+  training dashboard, round-robin tournaments between trained runs, cloud
+  runs) is the starting point, not the destination; design for scaling up
+  training (more episodes, smarter algorithms, richer introspection) rather
+  than for the minimum that runs today.
 - Bird powers are modelled by a small library of generic `EffectKind`
   patterns. All 180 core-set birds are currently modelled; the parser also
   defines an `UNIMPLEMENTED` fallback effect (no-op at runtime, surfaced in
@@ -195,21 +196,24 @@ Never do any of the following to get past a failing script:
 pip install -e ".[dev]"                               # runtime + pyright/black/isort/pytest
 python -m wingspan.cli manual                         # human vs random
 python -m wingspan.cli random --log game.log          # watch a random game
-python -m wingspan.train --episodes 32                # one (legacy) training cycle
+python -m wingspan.cli selfplay --p0 best --p1 random # trained-checkpoint matchups (wingspan-selfplay)
 python -m wingspan.training --device cpu              # live training dashboard ("FLYWAY CONTROL")
 python -m wingspan.training --config                  # interactive configurator ("FLIGHT PLAN")
+python -m wingspan.cli tournament                     # round-robin between trained runs (wingspan-tournament)
+wingspan-inspect --checkpoint-dir checkpoints         # model introspection report
 python -m pytest tests/
 ```
 
 Training is CPU-only — collection fans out across worker processes and the
 gradient update is small, so no GPU is required (CUDA still works for one-off
 experiments but is not the supported path).
-`python -m wingspan.train` is the original minimal REINFORCE cycle;
 `python -m wingspan.training` (the `wingspan.training` package, console script
 `wingspan-dashboard`) is the `top`-style live training + monitoring app that
 implements the TRAINING.md Phase-0/1 program (length-bucketed update, advantage
 normalization, paired eval vs random, resumable checkpoints) behind a `rich`
 dashboard. Collection is fastest on `--device cpu` (TRAINING.md §1.4).
+Containerized S3-persisted runs go through `wingspan-cloud` (see `deploy/`);
+`wingspan-monitor` is the read-only FLOCK WATCH roster of cloud runs.
 
 ## Quality gate
 
@@ -285,17 +289,23 @@ generic `Agent` protocol, when a `typing.cast` is required), see the
 ```
 src/wingspan/
   __init__.py            # version only
-  cli.py                 # argparse entry points (main_manual, main_random)
+  cli.py                 # argparse entry points (manual / random / selfplay / tournament dispatch)
   state.py               # GameState, Player, Board, FoodPool, PlayedBird, Birdfeeder, new_game
-  decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction
-  encode/                # state/choice tensor encoders for RL (package)
-    layout.py            # feature dims, stripe offsets, normalization scales (the chain)
-    state_encode.py      # encode_state / state_size + per-aspect state summaries
-    choice_encode.py     # encode_choices + per-Choice featurizers + stripe fillers
+  decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction + judgment families
   architecture.py        # ModelArchitecture + ActivationName (torch-free network topology descriptor)
   model.py               # PyTorch PolicyValueNet (built from a ModelArchitecture)
-  train.py               # self-play + REINFORCE
+  mlp.py                 # shared MLP body/readout builders (policy net + setup net build identical stacks)
+  hand_model.py          # stateless multi-card set-embedder helpers (hand / tray / setup kept-set)
+  selfplay.py            # selfplay CLI: per-seat agent matchups over trained checkpoints
+  introspect.py          # model introspection CLI (vector layout, architecture, parameters)
+  report.py              # standalone HTML model-summary report generator
   data/*.json            # wingsearch card data (bundled)
+
+  encode/                # state/choice tensor encoders for RL (package)
+    layout.py            # feature dims, stripe offsets, normalization scales (the chain)
+    stripes.py           # programmatic stripe registry for the state/choice vectors
+    state_encode.py      # encode_state / state_size + per-aspect state summaries
+    choice_encode.py     # encode_choices + per-Choice featurizers + stripe fillers
 
   cards/                 # immutable card definitions
     __init__.py          # re-exports the public surface (Bird, Food, parse_power, load_all, ...)
@@ -327,6 +337,23 @@ src/wingspan/
     __init__.py          # re-exports random_agent, cli_agent, mixed_agents
     base.py              # random_agent
     cli.py               # cli_agent + mixed_agents (hotseat helper)
+    display.py           # human-readable formatters for cards and game state
+    interactive.py       # terminal selection-form widget for the interactive CLI
+
+  setup_model/           # the separately-trained setup model (value-regression bandit)
+    architecture.py      # SetupArchitecture topology descriptor (+ its shape_key)
+    candidates.py        # the keep options the setup model scores + selection
+    encode.py            # per-candidate feature encoder
+    stripes.py           # programmatic stripe registry for the setup input vector
+    generate.py          # random-setup generation (the pre-model training phase)
+    record.py            # the setup training sample + its on-disk store
+
+  instrumentation/       # general-purpose event-callback instrumentation for games
+    config.py            # serializable instrumentation config + per-run context
+    dispatcher.py        # the live event router an Engine holds
+    events.py            # event taxonomy + per-shape handler base classes
+    registry.py          # config-class-name <-> handler bijection
+    handlers/            # card_visits (per-bird play tallies), decision_logger (JSONL rows)
 
   training/              # live training + monitoring dashboard ("FLYWAY CONTROL")
     __main__.py / app.py # entry point: argparse (+ --config) -> worker thread + rich.Live loop
@@ -334,11 +361,20 @@ src/wingspan/
     artifacts.py         # shared on-disk filenames (LAST/BEST/OPPONENT ckpt, metrics+games logs, model_config/process json)
     runmeta.py           # model_config.json (full topology, reconstitutable) + dated process_<stamp>.json sidecars (torch-free); read_model_config reader
     metrics.py           # ScoreBreakdown / FamilyCounts / EvalResult / IterationMetrics / GameOutcome (games.jsonl row)
-    runstate.py          # RunState: the shared live snapshot the dashboard reads
+    metrics_log.py       # cached reader for the append-only metrics.jsonl history
+    runstate.py          # RunState: the shared live snapshot the dashboard reads (+ RunProgress)
+    steps.py             # Step: the recorded self-play transition the learner consumes
     policy.py            # single-decision sample (collect) + greedy (eval)
-    collect.py           # self-play game -> recorded steps + score breakdown
+    collect.py           # baseline single-game collector -> recorded steps + score breakdown
+    mp_collect.py        # process-parallel collection (the CPU path; see COLLECTORS.md)
+    batched_collect.py   # batched-forward collection (the CUDA path; see COLLECTORS.md)
     learner.py           # length-bucketed REINFORCE + advantage norm (§3.3, §4.2a)
-    evaluate.py          # paired-game strength vs random + 95% CI (§7)
+    setup_net.py         # SetupNet: the setup model's MLP value-regressor
+    setup_learner.py     # setup-model updates: offline fit + on-policy MSE
+    setup_runmeta.py     # setup_config.json descriptor sidecar
+    evaluate.py          # paired-game strength vs the reference opponent + 95% CI (§7)
+    convergence.py       # series + axis-window math for the convergence charts
+    sysmon.py            # host telemetry sampling for the SYSTEM band
     loop.py              # TrainingLoop orchestrator (collect/update/eval/checkpoint)
     theme.py             # palette + glyph constants ("wetland dawn")
     charts/              # custom rich renderables (package)
@@ -356,6 +392,21 @@ src/wingspan/
       keys.py            # cross-platform raw single-key reader (msvcrt / termios), non-blocking
       screen.py          # the rich Layout + per-region renderers + the modal
       controller.py      # run_configurator Live loop + console-free build_initial_state / dispatch
+      arch_diagram.py    # the live ARCHITECTURE diagram
+
+  tournament/            # round-robin tournament between trained AIs (wingspan-tournament)
+    app.py               # entry point: pick competitors, play live, write the report
+    participants.py      # competitor specs, on-disk run discovery, agent loading
+    schedule.py          # the round-robin game schedule
+    runner.py            # plays the scheduled games (process-parallel, sequential fallback)
+    elo.py results.py state.py dashboard.py picker.py config.py
+
+  cloud/                 # containerized, S3-persisted training runs + monitor
+    runner.py            # headless supervisor (wingspan-cloud)
+    runfile.py           # the single YAML run-file configuring one cloud run
+    s3sync.py            # the S3 persistence sidecar around the loop
+    status.py            # the compact monitoring snapshot of a run
+    monitor.py           # "FLOCK WATCH" read-only roster of cloud runs (wingspan-monitor)
 
 tests/                   # pytest; tests prepend src/ to sys.path themselves
 ```
@@ -438,13 +489,14 @@ Agents resolve decisions, not raw action ints. The shape is fixed:
   `SkipChoice` (e.g. `Decision[BoardTargetChoice | SkipChoice]`); consumers
   branch via `isinstance`.
 - Every decision point is a concrete `Decision` subclass
-  (`PlayBirdPickCardDecision`, `GainFoodPickDieDecision`, ...). Decisions
+  (`PlayBirdDecision`, `GainFoodDecision`, `PayBirdFoodDecision`, ...). Decisions
   that need extra context add typed fields directly
   (`SetupDecision.dealt_cards`, `SetupDecision.dealt_bonus`).
 - `ALL_DECISION_CLASSES` is the stable iteration order for the encoder's
   decision-class one-hot stripe. Append new subclasses at the end — but
-  keep `SetupDecision` last (the `include_setup` truncation contract) — so
-  existing trained checkpoints stay aligned.
+  keep `SetupDecision` last (the `include_setup` truncation contract) —
+  reordering or removing entries shifts the stripe indices, a FRESH
+  (checkpoint-invalidating) change. See "Checkpoint compatibility policy".
 
 When adding a new decision point: define the Choice subclass first (or
 reuse an existing one), then the `Decision[C]` subclass, then add it to
@@ -454,20 +506,25 @@ reuse an existing one), then the `Decision[C]` subclass, then add it to
 
 The network shape is data-driven, not hard-coded. `architecture.ModelArchitecture`
 (top-level, torch-free) is the single descriptor of the topology: per-block
-hidden-width lists for the four blocks (`trunk_layers`, `choice_layers`,
-`head_layers`, `value_layers`) plus the `activation`, `dropout`, `layernorm`, and
-`card_embed_dim` handles. `PolicyValueNet` builds every block from it
-(`_build_body` / `_build_readout`), `TrainConfig` mirrors the same fields flat
+hidden-width lists (`trunk_layers`, `choice_layers`, `head_layers`,
+`value_layers`, `card_encoder_layers`, `hand_encoder_layers`, and the optional
+per-family override `per_family_head_layers`, resolved via `head_layers_for`)
+plus the `activation`, `dropout`, `layernorm`, `card_embed_dim`,
+`use_distinct_hand_model`, `hand_embed_dim` (resolved via `hand_embed_width`;
+`None` means "match `card_embed_dim`"), and `tray_set_embedding` handles.
+`PolicyValueNet` builds every block from it via the shared `mlp.build_body` /
+`mlp.build_readout` recipes (factored into `mlp.py` so the setup net builds
+byte-identical stacks), `TrainConfig` mirrors the same fields flat
 (so the configurator edits each independently) and assembles them via its `arch`
 property, and `runmeta.write_model_config` / `read_model_config` serialize the
 full descriptor to `model_config.json` so a run's network reads at a glance and
 reconstitutes via `PolicyValueNet.from_model_config`.
 
-Invariants to preserve when extending it: the trunk and choice encoder must end
-at the same width `H` (the cross-field rule on `ModelArchitecture`, since their
-outputs are concatenated to `2H` for the scorers); `ShapeKey` /
-`architecture_key` must include any new field that changes a tensor shape (a
-FRESH change — old checkpoints then restart cleanly via
+Invariants to preserve when extending it: the trunk ends at width `M`
+(`trunk_embed_width`) and the choice encoder at width `N` (`choice_embed_width`)
+— they are independent, and their outputs are concatenated to `M+N` for the
+scorers; `ShapeKey` / `architecture_key` must include any new field that changes
+a tensor shape (a FRESH change — mismatched checkpoints then restart cleanly via
 `loop._architecture_matches`), while shape-preserving knobs like `activation` /
 `dropout` stay out of it (REGIME, resumable). In the configurator, a per-layer
 width list is a `LayersField` (type widths to set sizes, ←/→ to add/remove a
@@ -556,6 +613,41 @@ Wren) lives on `GameState` as explicit fields (`turn_extra_plays`,
 at the start of every turn. Don't introduce parallel scratch dicts —
 extend `GameState` with a named typed field.
 
+## Checkpoint compatibility policy
+
+The June 2026 compatibility cutoff: loaders tolerate **no** artifact written
+before it. From that point on, compatibility with everything the *current* code
+writes is strict and deliberate. The rules:
+
+- **Every artifact is self-describing, and loaders refuse what isn't.** Every
+  checkpoint embeds its `config` (`setup.pt` embeds `setup_config`); every run
+  directory carries `model_config.json` (+ `setup_config.json` when the setup
+  model is on). A payload with no embedded config is UNREADABLE in the
+  configurator and starts fresh (with an alarm) at the resume gate; a run dir
+  with no descriptor cannot be seated in tournaments or introspected. Never add
+  an "assume compatible" branch, a missing-key fallback, a second on-disk
+  location for the same datum, or a ghost entry kept only for index stability.
+- **FRESH vs REGIME is the gate.** `architecture_key` / `ShapeKey` (and the
+  setup twins) cover everything that changes a tensor shape; a mismatch refuses
+  the weights and restarts cleanly (FRESH). Shape-preserving knobs
+  (`activation`, `dropout`, learning rates, cadences) stay out of the key and
+  resume freely (REGIME). Any new field that changes a tensor shape must be
+  added to the key.
+- **The stable orders are part of the checkpoint format.** `ALL_DECISION_CLASSES`,
+  `ALL_DECISION_FAMILIES`, the `encode/layout.py` offset chain, and the
+  `cards.parse.catalog` card-index maps are what trained weights are aligned
+  to. Append-only; reordering, renumbering, or removing an entry is a FRESH
+  break for every checkpoint and must be a deliberate, called-out decision.
+- **New fields on persisted models default — that is the one sanctioned
+  back-compat mechanism.** When adding a field to a model that is persisted in
+  checkpoints or logs (`RunProgress`, `IterationMetrics`, `ModelConfig`,
+  `GameOutcome`, ...), give it a default so artifacts already written by
+  current-era runs keep loading, and comment the field with why the default
+  exists. Required fields stay required.
+- Crash-survivability tolerance is fine and stays (e.g. `metrics_log` skipping
+  a truncated final line, archiving a partial run dir): that guards the
+  *current* format against interruption, not an old format against age.
+
 ## Test conventions
 
 - Tests prepend `src/` to `sys.path` themselves (see `test_smoke.py`); new
@@ -563,9 +655,8 @@ extend `GameState` with a named typed field.
   install.
 - One file per power (`tests/test_powers_*.py`); the cross-power smoke
   test is `test_smoke.py`. Encoder and food-payment helpers each have
-  their own dedicated test file.
-- The training-cycle smoke test (`test_train_one_epoch_cpu`) writes to
-  `checkpoints/_test.pt`; don't add other tests that race for that path.
+  their own dedicated test file. The training-cycle smoke coverage is the
+  collect → update pair in `test_model_and_self_play.py`.
 
 ## Things to avoid
 
@@ -578,6 +669,9 @@ extend `GameState` with a named typed field.
   stop and ask the user — do not fall back to running pyright / pytest / isort
   / black directly, hand-rolling git worktree or merge commands, or patching
   the scripts mid-feature. See "Script failures: stop, don't circumvent".
+- Don't add tolerant-parse fallbacks, "assume compatible" branches, or ghost
+  entries for old artifact formats. Loaders refuse what the current code
+  doesn't write — see "Checkpoint compatibility policy".
 - Don't replace `cards.Food` / `cards.Habitat` / etc. enums with strings.
   The enums are `StrEnum`, so JSON serialisation already gives the string
   for free, and the type checker catches typos.

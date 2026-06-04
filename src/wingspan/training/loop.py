@@ -236,7 +236,7 @@ class TrainingLoop:
         self.net.load_state_dict(payload["model"])
         self.optimizer.load_state_dict(payload["optimizer"])
         self._reset_optimizer_lr()  # honor this run's --lr over the saved one
-        progress = _progress_from_payload(payload)
+        progress = runstate.RunProgress.model_validate(payload["progress"])
         self.state.restore_progress(progress)
         self._start_iteration = progress.iteration + 1
         if self.state.opponent_generation > 0:
@@ -321,13 +321,14 @@ class TrainingLoop:
         """Whether ``payload``'s saved network shape matches this run's, so its
         weights can be loaded without misrouting heads (TRAINING.md §5.1).
 
-        A saved config that no longer validates (e.g. a value since constrained
-        out of bounds) is treated as a mismatch so the run starts fresh with an
-        alarm rather than crashing ``__init__`` — preserving the non-fatal
-        contract a corrupt/incompatible checkpoint has everywhere else."""
+        Checkpoints are self-describing: a payload with no embedded ``config``,
+        or one that no longer validates (e.g. a value since constrained out of
+        bounds), is treated as a mismatch so the run starts fresh with an alarm
+        rather than crashing ``__init__`` — preserving the non-fatal contract a
+        corrupt/incompatible checkpoint has everywhere else."""
         raw_config = payload.get("config")
         if raw_config is None:
-            return True  # pre-descriptor checkpoint — assume compatible
+            return False  # not a self-describing checkpoint — refuse
         try:
             saved = config.TrainConfig.model_validate(raw_config)
         except pydantic.ValidationError:
@@ -777,7 +778,7 @@ class TrainingLoop:
             return False
         raw_config = payload.get("setup_config")
         if raw_config is None:
-            return True
+            return False  # not a self-describing setup checkpoint — refuse
         try:
             saved = config.TrainConfig.model_validate(raw_config)
         except pydantic.ValidationError:
@@ -1035,8 +1036,6 @@ class TrainingLoop:
             "config": self.config.model_dump(),
             "model": self.net.state_dict(),
             "optimizer": self.optimizer.state_dict(),
-            "iteration": iteration,
-            "total_games": self.state.total_games,
             "progress": progress.model_dump(),
             "git_sha": _git_sha(),
         }
@@ -1202,8 +1201,6 @@ class TrainingLoop:
             "config": self.config.model_dump(),
             "model": self.net.state_dict(),
             "optimizer": self.optimizer.state_dict(),
-            "iteration": iter_metrics.iteration,
-            "total_games": self.state.total_games,
             "metrics": iter_metrics.model_dump(),
             "progress": progress.model_dump(),
             "git_sha": _git_sha(),
@@ -1415,19 +1412,6 @@ def _mean_setup_margin(samples: list[setup_model.SetupSample]) -> float:
     if not samples:
         return 0.0
     return sum(sample.margin for sample in samples) / len(samples)
-
-
-def _progress_from_payload(payload: dict[str, typing.Any]) -> runstate.RunProgress:
-    """The resumable progress stored in a checkpoint. New checkpoints carry a
-    full ``progress`` snapshot; older ones only carry the iteration / total-games
-    counters, which still suffice to retain the run's place."""
-    raw_progress = payload.get("progress")
-    if raw_progress is not None:
-        return runstate.RunProgress.model_validate(raw_progress)
-    return runstate.RunProgress(
-        iteration=int(payload.get("iteration", 0)),
-        total_games=int(payload.get("total_games", 0)),
-    )
 
 
 #### Seeding ####

@@ -471,8 +471,9 @@ class ResetBirdfeederDecision(Decision[ResetBirdfeederChoice | SkipChoice]):
 
 # ---------------------------------------------------------------------------
 # Stable iteration order for the encoder's decision-type one-hot stripe.
-# Append to the end when adding new decision subclasses so the existing
-# stripe ordering is preserved for trained checkpoints that care about it.
+# Append to the end when adding new decision subclasses — reordering or removing
+# entries shifts the stripe indices, which is a FRESH (checkpoint-invalidating)
+# change. See CLAUDE.md "Checkpoint compatibility policy".
 #
 # ``SetupDecision`` is kept LAST on purpose: the main model's encoding is
 # config-driven (``encode.EncodingSpec.include_setup``), and excluding setup
@@ -514,9 +515,10 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
 #
 # The family of a decision is a pure function of its class
 # (``family_for`` / ``family_index_for``). ``ALL_DECISION_FAMILIES`` pins the
-# stable head order — append, never reorder, when adding a family, so existing
-# trained checkpoints keep their head→family alignment (mirrors the
-# ``ALL_DECISION_CLASSES`` contract for the decision-type one-hot).
+# stable head order — append, never reorder, when adding a family: the
+# head→family alignment is part of the checkpoint format (mirrors the
+# ``ALL_DECISION_CLASSES`` contract for the decision-type one-hot, and the same
+# FRESH-change rule applies).
 
 
 class DecisionFamily(enum.StrEnum):
@@ -661,7 +663,7 @@ def random_choice[C: Choice](decision: Decision[C], rng: random.Random) -> C:
     Used to resolve a decision *off* the main policy — specifically a
     ``SetupDecision`` for a net whose encoding excludes setup
     (``EncodingSpec.include_setup=False``): the opening is the separate setup
-    model's responsibility, so eval / legacy self-play just need *a* reproducible
+    model's responsibility, so eval / self-play just need *a* reproducible
     opening to play the rest of the game on."""
     return decision.choices[rng.randrange(len(decision.choices))]
 

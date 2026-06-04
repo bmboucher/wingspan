@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 torch = pytest.importorskip("torch")
 functional = pytest.importorskip("torch.nn.functional")
 
-from wingspan import architecture, cards, decisions, encode, engine, model, state, train
+from wingspan import architecture, cards, decisions, encode, engine, model, state
+from wingspan.training import collect, config, learner
 
 
 def test_model_forward_shapes_and_mask():
@@ -69,27 +70,26 @@ def test_self_play_records_steps_for_both_players():
     net = model.PolicyValueNet()
     device = torch.device("cpu")
     rng = random.Random(0)
-    traj = train.collect_episode(net, device, rng, epsilon=0.0, seed=42)
-    assert traj.steps, "expected at least one recorded step"
-    seen_ids = {step.player_id for step in traj.steps}
+    record = collect.play_game(net, device, rng, seed=42)
+    assert record.steps, "expected at least one recorded step"
+    seen_ids = {step.player_id for step in record.steps}
     assert seen_ids == {0, 1}, f"expected both player_ids, got {seen_ids}"
     # Every recorded step carries a valid judgment-family head index.
     num_families = len(decisions.ALL_DECISION_FAMILIES)
-    assert all(0 <= step.family_idx < num_families for step in traj.steps)
+    assert all(0 <= step.family_idx < num_families for step in record.steps)
 
 
-def test_train_step_runs_on_self_play_trajectories():
-    """A full mini-cycle: collect a couple of self-play episodes, run a
-    REINFORCE update, and confirm no shape errors / NaNs."""
+def test_update_runs_on_self_play_records():
+    """A full mini-cycle through the production path: collect a couple of
+    self-play games, run one length-bucketed REINFORCE update (learner.update),
+    and confirm no shape errors / NaNs."""
     net = model.PolicyValueNet()
     device = torch.device("cpu")
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
-    trajs = [
-        train.collect_episode(net, device, rng, epsilon=0.0, seed=seed)
-        for seed in (1001, 1002)
-    ]
-    stats = train.train_step(net, optimizer, trajs, device)
+    cfg = config.TrainConfig(device="cpu")
+    records = [collect.play_game(net, device, rng, seed=seed) for seed in (1001, 1002)]
+    stats = learner.update(net, optimizer, records, cfg, device)
     assert stats.n_steps > 0
     for name, val in (
         ("loss", stats.loss),

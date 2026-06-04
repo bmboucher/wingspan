@@ -209,8 +209,6 @@ def _write_checkpoint(
     )
     payload = {
         "config": cfg.model_dump(),
-        "iteration": iteration,
-        "total_games": total_games,
         "progress": progress.model_dump(),
         "git_sha": "abc1234",
     }
@@ -244,7 +242,8 @@ def test_inspect_run_empty_dir(tmp_path: pathlib.Path):
 
 def test_architecture_compatible_and_status(tmp_path: pathlib.Path):
     cfg = config.TrainConfig(device="cpu")
-    assert runs.architecture_compatible(None, cfg)  # pre-descriptor -> compatible
+    # No readable embedded config -> never resumable (self-describing contract).
+    assert not runs.architecture_compatible(None, cfg)
     assert runs.architecture_compatible(cfg, cfg)
     wider = cfg.model_copy(
         update={"trunk_layers": (256, 256), "choice_layers": (256, 256)}
@@ -783,6 +782,37 @@ def test_inspect_run_invalid_config_is_unreadable(tmp_path: pathlib.Path):
     assert summary.train_config is None
     # Start must route through the fresh-run prompt, never offer resume.
     assert runs.resolve_status(summary, cfg) is runs.RunStatus.UNREADABLE
+
+
+def test_inspect_run_missing_config_is_unreadable(tmp_path: pathlib.Path):
+    """A checkpoint with no embedded config at all is not self-describing and
+    must never be offered for resume (the post-cutoff refusal contract)."""
+    cfg = config.TrainConfig(device="cpu")
+    payload = {
+        "progress": runstate.RunProgress(iteration=3, total_games=12).model_dump(),
+    }
+    torch.save(payload, tmp_path / artifacts.LAST_CKPT)
+    summary = runs.inspect_run(str(tmp_path))
+    assert summary.exists and summary.config_invalid
+    assert summary.train_config is None
+    assert runs.resolve_status(summary, cfg) is runs.RunStatus.UNREADABLE
+
+
+def test_loop_starts_fresh_on_missing_saved_config(tmp_path: pathlib.Path):
+    """The resume gate refuses a config-less checkpoint (starts fresh with an
+    alarm) rather than assuming compatibility."""
+    cfg = config.TrainConfig(
+        device="cpu",
+        trunk_layers=(32, 32),
+        choice_layers=(32, 32),
+        checkpoint_dir=str(tmp_path),
+    )
+    payload = {
+        "progress": runstate.RunProgress(iteration=4, total_games=8).model_dump(),
+    }
+    torch.save(payload, tmp_path / artifacts.LAST_CKPT)
+    training = loop.TrainingLoop(cfg)  # must not raise on the config-less payload
+    assert training.state.total_games == 0  # started fresh rather than resuming
 
 
 def test_loop_starts_fresh_on_invalid_saved_config(tmp_path: pathlib.Path):

@@ -286,8 +286,8 @@ def _load_policy_net(
     )
     if "config" not in payload:
         raise ValueError(
-            f"Checkpoint at {checkpoint_path} has no 'config' — it predates the "
-            "self-describing checkpoint format and cannot be loaded here."
+            f"Checkpoint at {checkpoint_path} has no embedded 'config' — it is "
+            "not a valid self-describing training checkpoint."
         )
 
     # The net is rebuilt from the checkpoint's own topology, so its layer widths
@@ -325,29 +325,25 @@ def _encoding_key(cfg: config.TrainConfig) -> tuple[int, int, tuple[str, ...]]:
 def _load_setup_net(
     checkpoint_dir: pathlib.Path, device: torch.device
 ) -> setup_net_module.SetupNet | None:
-    """Try to load the separately-trained ``SetupNet`` from ``checkpoint_dir``.
+    """Load the separately-trained ``SetupNet`` from ``checkpoint_dir``.
 
-    Returns ``None`` — silently degrading to random setup picks — when either
-    artifact is absent, the checkpoint is corrupt, or the shape descriptor is
-    unreadable. The main game still runs; setup decisions just won't be logged."""
+    Returns ``None`` — degrading to random setup picks — only when the setup
+    artifacts are absent (the run trained without a setup model). Artifacts that
+    exist but fail to load raise: a present-but-broken ``setup.pt`` is an error,
+    not something to silently paper over."""
     ckpt_path = checkpoint_dir / artifacts.SETUP_CKPT
     config_path = checkpoint_dir / artifacts.SETUP_CONFIG_JSON
     if not ckpt_path.exists() or not config_path.exists():
         return None
-    try:
-        descriptor = setup_runmeta.read_setup_config(str(checkpoint_dir))
-        payload = typing.cast(
-            "dict[str, typing.Any]",
-            torch.load(ckpt_path, map_location=device, weights_only=False),
-        )
-        net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
-        net_instance.load_state_dict(payload["setup_model"])
-        net_instance.eval()
-        return net_instance.to(device)
-    except (
-        Exception
-    ):  # noqa: BLE001 — stale / incompatible checkpoint → silent fallback
-        return None
+    descriptor = setup_runmeta.read_setup_config(str(checkpoint_dir))
+    payload = typing.cast(
+        "dict[str, typing.Any]",
+        torch.load(ckpt_path, map_location=device, weights_only=False),
+    )
+    net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
+    net_instance.load_state_dict(payload["setup_model"])
+    net_instance.eval()
+    return net_instance.to(device)
 
 
 def _compute_setup_scores_and_probs(

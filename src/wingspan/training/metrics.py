@@ -213,18 +213,16 @@ class IterationMetrics(pydantic.BaseModel):
     avg_breakdown: ScoreBreakdown
     avg_decisions: float  # mean trainable decisions per game
 
-    # Winner-conditioned + dispersion outcomes (default for backward-compatible
-    # loading of pre-existing metrics rows / checkpoints).
-    avg_winner_breakdown: ScoreBreakdown = pydantic.Field(
-        default_factory=ScoreBreakdown
-    )  # mean score split of the winning seat, over decided (non-tie) games
-    avg_abs_margin: float = 0.0  # mean |player0 − player1| (winning margin)
+    # Winner-conditioned + dispersion outcomes.
+    # Mean score split of the winning seat, over decided (non-tie) games:
+    avg_winner_breakdown: ScoreBreakdown
+    avg_abs_margin: float  # mean |player0 − player1| (winning margin)
     # Per-cycle dispersion: the population σ over this iteration's games
     # (n = games_this_iter). The dashboard EWMA-folds these and divides by
     # √games_per_iter for the 95% CI it shows on the IN-GAME PERFORMANCE stats.
-    margin_std: float = 0.0  # σ of the signed margin (player0 − player1)
-    abs_margin_std: float = 0.0  # σ of the winning margin |player0 − player1|
-    decisions_std: float = 0.0  # σ of trainable decisions per game
+    margin_std: float  # σ of the signed margin (player0 − player1)
+    abs_margin_std: float  # σ of the winning margin |player0 − player1|
+    decisions_std: float  # σ of trainable decisions per game
 
     family_counts: FamilyCounts  # decisions seen this iteration, per family
 
@@ -243,10 +241,9 @@ class IterationMetrics(pydantic.BaseModel):
     # meaningless) and strength is read from ``eval`` instead.
     collection_win_rate: float | None = None
 
-    # Setup-model readouts (all None unless ``use_setup_model``; default so
-    # pre-existing metrics rows / checkpoints still validate). ``setup_phase`` is
-    # the regime this iteration ran under; the loss / margin / sample fields carry
-    # the iteration's offline-fit or on-policy setup update.
+    # Setup-model readouts (all None unless ``use_setup_model``). ``setup_phase``
+    # is the regime this iteration ran under; the loss / margin / sample fields
+    # carry the iteration's offline-fit or on-policy setup update.
     setup_phase: str | None = None
     setup_loss: float | None = None
     setup_pred_margin_mean: float | None = None
