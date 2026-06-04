@@ -85,6 +85,48 @@ def eval_goal(player: state.Player, goal: cards.EndRoundGoal) -> int:
     return counter(player)
 
 
+def goal_count_delta_for_bird(bird: cards.Bird, category: str) -> int:
+    """Marginal change in category count from playing ``bird``.
+
+    Returns 0 for egg / tuck categories (a freshly played bird starts with no
+    eggs or tucked cards, so those counts are unaffected at play time)."""
+    match category:
+        case "birds_forest":
+            return 1 if cards.Habitat.FOREST in bird.habitats else 0
+        case "birds_grassland":
+            return 1 if cards.Habitat.GRASSLAND in bird.habitats else 0
+        case "birds_wetland":
+            return 1 if cards.Habitat.WETLAND in bird.habitats else 0
+        case "total_birds":
+            return 1
+        case "wingspan_under_30":
+            # wingspan_cm == 0 means "no data" (mirrors _count_wingspan_under_30)
+            return 1 if bird.wingspan_cm and bird.wingspan_cm < 30 else 0
+        case "wingspan_over_65":
+            return 1 if bird.wingspan_cm > 65 else 0
+        case _:
+            return 0
+
+
+def goal_vp_delta_for_bird(
+    player: state.Player,
+    opp: state.Player,
+    goal: cards.EndRoundGoal,
+    bird: cards.Bird,
+    payout: tuple[int, int],
+) -> tuple[int, int]:
+    """Return ``(count_delta, vp_delta)`` for playing ``bird`` against ``goal``.
+
+    ``vp_delta`` is the change in 2P placement VP at current standings.
+    Both values are 0 when the bird cannot affect this goal category."""
+    count_delta = goal_count_delta_for_bird(bird, goal.category)
+    before_count = eval_goal(player, goal)
+    opp_count = eval_goal(opp, goal)
+    old_vp = _placement_vp(before_count, opp_count, payout[0], payout[1])
+    new_vp = _placement_vp(before_count + count_delta, opp_count, payout[0], payout[1])
+    return count_delta, new_vp - old_vp
+
+
 def final_scoring(engine: "core.Engine") -> None:
     """Compute each player's final score = birds + bonus + eggs + tucked
     + cached + round-goal points. Result is written to ``Player.final_score``

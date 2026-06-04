@@ -813,6 +813,62 @@ def test_bonus_delta_reflects_currently_held_cards():
     assert np.isclose(second[qual], 2.0 / layout._BONUS_COUNT_SCALE)
 
 
+def test_goal_delta_nonzero_for_advancing_bird():
+    """A bird that advances a round goal gets a non-zero goal_delta stripe;
+    one that cannot affect the goal stays all-zero for those slots."""
+    eng, *_ = engine.Engine.create(seed=1)
+    _, _, all_goals = cards.load_all()
+
+    # Install a birds_forest goal as round 0 and a total_birds goal as round 1.
+    forest_goal = next(g for g in all_goals if g.category == "birds_forest")
+    total_goal = next(g for g in all_goals if g.category == "total_birds")
+    orig_goals = eng.state.round_goals
+    eng.state.round_goals = [forest_goal, total_goal, orig_goals[2], orig_goals[3]]
+
+    # Find a forest bird and a wetland-only bird for contrast.
+    all_birds, *_ = cards.load_all()
+    forest_bird = next(
+        bird for bird in all_birds if cards.Habitat.FOREST in bird.habitats
+    )
+    wetland_only_bird = next(
+        bird for bird in all_birds if bird.habitats == (cards.Habitat.WETLAND,)
+    )
+
+    decision_forest = decisions.PlayBirdDecision(
+        player_id=0, prompt="x", choices=[_play_choice(forest_bird)]
+    )
+    forest_row = encode.encode_choices(decision_forest, eng.state)[0]
+
+    decision_wetland = decisions.PlayBirdDecision(
+        player_id=0, prompt="x", choices=[_play_choice(wetland_only_bird)]
+    )
+    wetland_row = encode.encode_choices(decision_wetland, eng.state)[0]
+
+    # Forest bird should have count_delta > 0 for goal slot 0 (birds_forest).
+    slot0_count = (
+        layout._OFF_GOAL_DELTA
+        + 0 * layout._GOAL_DELTA_SLOT_DIM
+        + layout._GOAL_DELTA_COUNT
+    )
+    assert forest_row[slot0_count] > 0.0, "forest bird should advance birds_forest goal"
+
+    # Wetland-only bird should be zero for goal slot 0 (birds_forest).
+    assert (
+        wetland_row[slot0_count] == 0.0
+    ), "wetland-only bird should not advance birds_forest goal"
+
+    # Both birds advance total_birds (goal slot 1): count_delta should be nonzero.
+    slot1_count = (
+        layout._OFF_GOAL_DELTA
+        + 1 * layout._GOAL_DELTA_SLOT_DIM
+        + layout._GOAL_DELTA_COUNT
+    )
+    assert forest_row[slot1_count] > 0.0, "forest bird should advance total_birds goal"
+    assert (
+        wetland_row[slot1_count] > 0.0
+    ), "wetland-only bird should also advance total_birds goal"
+
+
 ###### PRIVATE #######
 
 

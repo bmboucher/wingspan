@@ -137,6 +137,10 @@ _MAIN_ACTION_DIM = 4  # one-hot over the four main actions
 _SPECIAL_DIM = 2  # is_skip, is_self
 _EXCHANGE_DIM = 12  # symmetric pay->gain terms: 8 self + 4 opponent-gain (below)
 _BONUS_DELTA_DIM = 3  # candidate bird's contribution to held bonus cards (below)
+_GOAL_DELTA_SLOT_DIM = 2  # count_delta + vp_delta per round-goal slot
+_GOAL_DELTA_DIM = 4 * _GOAL_DELTA_SLOT_DIM  # 8 (4 round goals × 2 scalars)
+_GOAL_DELTA_COUNT = 0  # within-slot: count change (÷ _GOAL_COUNT_SCALE)
+_GOAL_DELTA_VP = 1  # within-slot: VP delta (÷ _ROUND_GOAL_POINTS_SCALE)
 _SETUP_DIM = 4  # setup kept-subset aggregates (only when include_setup)
 
 # The board_target stripe is a per-board-slot block: 8 scalars repeated over
@@ -161,9 +165,9 @@ _BONUS_ID_DIM = cards.n_bonus_cards()
 
 # Stripe offsets (cumulative). The board-index block and bird-identity one-hot
 # (the two card regions the model embeds) sit together just before bonus_id;
-# bonus_id is followed by the per-candidate bonus_delta scalars, and the
-# conditional setup_agg stripe trails everything — so the card-region offsets
-# the model slices on stay invariant to ``include_setup``.
+# bonus_id is followed by bonus_delta then goal_delta (per-candidate contribution
+# scalars), and the conditional setup_agg stripe trails everything — so the
+# card-region offsets the model slices on stay invariant to ``include_setup``.
 _OFF_KIND = 0
 _OFF_GAIN_FOOD = _OFF_KIND + _KIND_DIM
 _OFF_HAB = _OFF_GAIN_FOOD + _GAIN_FOOD_DIM
@@ -176,7 +180,8 @@ _OFF_BOARD_IDX = _OFF_EXCHANGE + _EXCHANGE_DIM
 _OFF_BIRD_ID = _OFF_BOARD_IDX + _BOARD_IDX_SLOTS
 _OFF_BONUS_ID = _OFF_BIRD_ID + _BIRD_ID_DIM
 _OFF_BONUS_DELTA = _OFF_BONUS_ID + _BONUS_ID_DIM
-_OFF_SETUP = _OFF_BONUS_DELTA + _BONUS_DELTA_DIM  # trailing; present iff include_setup
+_OFF_GOAL_DELTA = _OFF_BONUS_DELTA + _BONUS_DELTA_DIM
+_OFF_SETUP = _OFF_GOAL_DELTA + _GOAL_DELTA_DIM  # trailing; present iff include_setup
 _CHOICE_BASE_DIM = _OFF_SETUP  # row width without setup_agg (include_setup=False)
 
 # Within-KIND indices

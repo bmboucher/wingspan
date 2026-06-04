@@ -209,6 +209,7 @@ def _featurize_bird(
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
     _fill_bonus_delta(feat, state.players[decision.player_id], choice.bird)
+    _fill_goal_delta(feat, decision.player_id, choice.bird, state)
 
 
 def _featurize_play_bird(
@@ -223,11 +224,13 @@ def _featurize_play_bird(
     # bird play — while the habitat stripe distinguishes the per-habitat variants
     # of the same bird. The costs are follow-up decisions (RemoveEggDecision /
     # PayBirdFoodDecision), so no payment stripe is filled here; the bonus_delta
-    # stripe prices the play's contribution to the held bonus cards.
+    # and goal_delta stripes price the play's contribution to held bonus cards and
+    # round-goal standings.
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
     _fill_habitat(feat, choice.habitat)
     _fill_bonus_delta(feat, state.players[decision.player_id], choice.bird)
+    _fill_goal_delta(feat, decision.player_id, choice.bird, state)
 
 
 def _featurize_food_payment(
@@ -332,6 +335,7 @@ def _featurize_draw_source(
         feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
         _fill_bird_identity(feat, tray_bird)
         _fill_bonus_delta(feat, state.players[decision.player_id], tray_bird)
+        _fill_goal_delta(feat, decision.player_id, tray_bird, state)
     else:
         feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
 
@@ -469,6 +473,34 @@ def _fill_bonus_delta(feat: np.ndarray, player: state.Player, bird: cards.Bird) 
     feat[base + layout._BONUS_DELTA_QUAL] = qual / layout._BONUS_COUNT_SCALE
     feat[base + layout._BONUS_DELTA_STEPPED] = stepped / layout._BONUS_VALUE_SCALE
     feat[base + layout._BONUS_DELTA_LINEAR] = linear / layout._BONUS_VALUE_SCALE
+
+
+def _fill_goal_delta(
+    feat: np.ndarray,
+    player_id: int,
+    bird: cards.Bird,
+    game_state: state.GameState,
+) -> None:
+    """Fill the goal_delta stripe: for each of the 4 round goals, how much
+    playing ``bird`` would change the deciding player's category count and
+    placement VP. count_delta is always 0 or 1 (freshly played birds start
+    with no eggs or tucks); vp_delta depends on current standings. Both stay
+    zero for goals where the bird has no immediate static effect."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    player = game_state.players[player_id]
+    opp = game_state.players[1 - player_id]
+
+    for goal_idx, goal in enumerate(game_state.round_goals):
+        payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
+        count_delta, vp_delta = scoring.goal_vp_delta_for_bird(
+            player, opp, goal, bird, payout
+        )
+        if count_delta == 0:
+            continue
+        base = layout._OFF_GOAL_DELTA + goal_idx * layout._GOAL_DELTA_SLOT_DIM
+        feat[base + layout._GOAL_DELTA_COUNT] = count_delta / layout._GOAL_COUNT_SCALE
+        feat[base + layout._GOAL_DELTA_VP] = vp_delta / layout._ROUND_GOAL_POINTS_SCALE
 
 
 def _fill_gain_food(feat: np.ndarray, food: cards.Food, from_choice_die: bool) -> None:

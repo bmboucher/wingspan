@@ -736,7 +736,29 @@ def choice_stripe_layout(
         )
     )
 
-    end = layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_DIM
+    stripes.append(
+        StripeDescriptor(
+            name="goal_delta",
+            description=(
+                "Per-candidate round-goal contribution: for each of the 4 round "
+                "goals, how much this bird would change the deciding player's "
+                "category count and placement VP."
+            ),
+            offset=layout._OFF_GOAL_DELTA,
+            size=layout._GOAL_DELTA_DIM,
+            encoding="vector",
+            value_range="[0, ~1]",
+            notes=(
+                f"{layout._GOAL_DELTA_DIM} values: 4 goal slots × 2 scalars. "
+                "Per slot: count_delta (÷5, always 0 or 0.2), vp_delta "
+                "(÷10, marginal placement VP swing). Filled for play / keep-bird "
+                "/ tray draw-source candidates; zero otherwise."
+            ),
+            sub_fields=_goal_delta_sub_fields(),
+        )
+    )
+
+    end = layout._OFF_GOAL_DELTA + layout._GOAL_DELTA_DIM
 
     # ---- setup_agg (trailing; present only when the main model carries setup) ----
     if spec.include_setup:
@@ -1456,6 +1478,38 @@ def _bonus_delta_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             "Normalized ÷ 7.",
         ),
     ]
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes=notes,
+        )
+        for idx, (name, desc, notes) in enumerate(entries)
+    )
+
+
+def _goal_delta_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """8 sub-fields for the per-candidate round-goal delta stripe (4 slots × 2)."""
+    entries: list[tuple[str, str, str]] = []
+    for goal_idx in range(4):
+        entries.append(
+            (
+                f"goal_{goal_idx}_count_delta",
+                f"Count change on round-{goal_idx + 1} goal from playing this bird.",
+                "Normalized ÷ 5. Always 0 or 0.2.",
+            )
+        )
+        entries.append(
+            (
+                f"goal_{goal_idx}_vp_delta",
+                f"Placement VP swing on round-{goal_idx + 1} goal from playing this bird.",
+                "Normalized ÷ 10.",
+            )
+        )
     return tuple(
         SubFieldDescriptor(
             name=name,
