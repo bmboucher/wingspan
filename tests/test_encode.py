@@ -245,20 +245,21 @@ def test_pay_cost_features_distinguish_exchanges():
 
 
 def test_choice_features_skip_flag_for_skip_choice():
-    eng, birds, *_ = engine.Engine.create(seed=6)
+    eng, *_ = engine.Engine.create(seed=6)
 
-    decision = decisions.BirdPowerTuckFromHandDecision(
+    # ActivateTuckDecision is the canonical [activate | skip] decision — the
+    # activate row (TuckActivateChoice) and skip row must encode differently.
+    decision = decisions.ActivateTuckDecision(
         player_id=0,
         prompt="x",
         choices=[
-            decisions.BirdChoice(label="tuck", bird=birds[0]),
+            decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
             decisions.SkipChoice(label="skip"),
         ],
     )
     feats = encode.encode_choices(decision, eng.state)
-    # Bird choice should set the bird kind; skip should set the special-skip
-    # flag. We don't tie this to a specific column index so the test is
-    # robust to layout edits, but distinct feature rows are required.
+    # Activate choice should set the exchange stripe; skip should set the
+    # special-skip flag. Rows must be distinct.
     assert not np.array_equal(feats[0], feats[1])
 
 
@@ -752,7 +753,7 @@ def test_bonus_delta_zero_for_played_bird_and_skip():
         prompt="x",
         choices=[decisions.PlayedBirdChoice(label="x", played_bird=pb)],
     )
-    skip = decisions.BirdPowerTuckFromHandDecision(
+    skip = decisions.ActivateTuckDecision(
         player_id=0, prompt="x", choices=[decisions.SkipChoice(label="s")]
     )
     assert np.all(
@@ -1023,7 +1024,7 @@ def test_bonus_value_zero_for_non_bonus_choice_kinds():
     play = decisions.PlayBirdDecision(
         player_id=0, prompt="x", choices=[_play_choice(qualifying)]
     )
-    skip = decisions.BirdPowerTuckFromHandDecision(
+    skip = decisions.ActivateTuckDecision(
         player_id=0, prompt="x", choices=[decisions.SkipChoice(label="s")]
     )
     play_row = encode.encode_choices(play, eng.state)[0]

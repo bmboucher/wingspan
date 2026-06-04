@@ -280,12 +280,15 @@ def test_choice_candidate_uses_shared_card_representation():
     row = cards.bird_index(card) + 1
     me = eng.state.players[eng.state.current_player]
 
+    # BirdPowerTuckFromHandDecision is now mandatory (no skip); use a second bird
+    # as the contrasting choice — both read the card table, so perturbing one
+    # card's row will still shift its logit relative to the other.
     decision = decisions.BirdPowerTuckFromHandDecision(
         player_id=me.id,
         prompt="x",
         choices=[
             decisions.BirdChoice(label=card.name, bird=card),
-            decisions.SkipChoice(label="skip"),
+            decisions.BirdChoice(label=birds[1].name, bird=birds[1]),
         ],
     )
     choices = torch.tensor(

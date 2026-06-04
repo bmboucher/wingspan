@@ -146,6 +146,22 @@ def _featurize_reset_birdfeeder(
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
 
 
+def _featurize_tuck_activate(
+    feat: np.ndarray,
+    decision: layout._AnyDecision,
+    choice: decisions.TuckActivateChoice,
+    state: state.GameState,
+) -> None:
+    # The "yes, tuck" commit token — analogous to PayCostChoice but simpler:
+    # KIND_SPECIAL marks it as a non-bird commit; the EXCHANGE stripe's
+    # cards_to_tuck slot carries how many cards the player is committing to
+    # tuck so the SKIP_OPTIONAL head can weigh the tuck's value.
+    feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
+    feat[layout._OFF_EXCHANGE + layout._EXCHANGE_CARDS_TO_TUCK] = (
+        choice.cards_to_tuck / layout._EXCHANGE_SCALE
+    )
+
+
 def _featurize_pay_cost(
     feat: np.ndarray,
     decision: layout._AnyDecision,
@@ -429,6 +445,7 @@ def _featurize_setup(
 
 _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
     decisions.SkipChoice: _featurize_skip,
+    decisions.TuckActivateChoice: _featurize_tuck_activate,
     decisions.ResetBirdfeederChoice: _featurize_reset_birdfeeder,
     decisions.PayCostChoice: _featurize_pay_cost,
     decisions.MainActionChoice: _featurize_main_action,

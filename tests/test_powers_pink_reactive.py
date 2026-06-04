@@ -19,8 +19,11 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from wingspan import agents, cards, engine, state  # noqa: E402
-from wingspan.engine import reactors  # noqa: E402
+import typing  # noqa: E402
+
+from wingspan import agents, cards, decisions, engine, state  # noqa: E402
+from wingspan.engine import core as engine_core  # noqa: E402
+from wingspan.engine import reactors
 
 
 def _engine() -> engine.Engine:
@@ -30,6 +33,34 @@ def _engine() -> engine.Engine:
         agents.random_agent(random.Random(2)),
     ]
     return eng
+
+
+def _always_activate_agent() -> engine_core.Agent:
+    """Scripted agent that always picks the first non-skip choice."""
+
+    def _agent[C: decisions.Choice](
+        eng: engine_core.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        for choice in decision.choices:
+            if not isinstance(choice, decisions.SkipChoice):
+                return choice
+        return decision.choices[0]
+
+    return typing.cast(engine_core.Agent, _agent)
+
+
+def _always_skip_agent() -> engine_core.Agent:
+    """Scripted agent that always picks skip when available, else first choice."""
+
+    def _agent[C: decisions.Choice](
+        eng: engine_core.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        for choice in decision.choices:
+            if isinstance(choice, decisions.SkipChoice):
+                return choice
+        return decision.choices[0]
+
+    return typing.cast(engine_core.Agent, _agent)
 
 
 def _bird_named(name: str) -> cards.Bird:
@@ -76,6 +107,7 @@ def test_kingfisher_does_not_fire_on_its_own_owners_play() -> None:
 
 def test_horned_lark_tucks_a_card_when_opponent_plays_in_grassland() -> None:
     eng = _engine()
+    eng.agents[1] = _always_activate_agent()
     lark = state.PlayedBird(bird=_bird_named("Horned Lark"))
     eng.state.players[1].board[cards.Habitat.GRASSLAND] = [lark]
     eng.state.players[1].hand = [_bird_named("Belted Kingfisher")]
@@ -84,6 +116,31 @@ def test_horned_lark_tucks_a_card_when_opponent_plays_in_grassland() -> None:
     )
     assert lark.tucked_cards == 1
     assert eng.state.players[1].hand == []
+
+
+def test_horned_lark_skip_leaves_hand_unchanged() -> None:
+    eng = _engine()
+    eng.agents[1] = _always_skip_agent()
+    lark = state.PlayedBird(bird=_bird_named("Horned Lark"))
+    eng.state.players[1].board[cards.Habitat.GRASSLAND] = [lark]
+    eng.state.players[1].hand = [_bird_named("Belted Kingfisher")]
+    reactors.trigger_pink_play_bird_reactors(
+        eng, eng.state.players[0], cards.Habitat.GRASSLAND
+    )
+    assert lark.tucked_cards == 0
+    assert len(eng.state.players[1].hand) == 1
+
+
+def test_horned_lark_silent_when_hand_empty() -> None:
+    eng = _engine()
+    eng.agents[1] = _always_activate_agent()
+    lark = state.PlayedBird(bird=_bird_named("Horned Lark"))
+    eng.state.players[1].board[cards.Habitat.GRASSLAND] = [lark]
+    eng.state.players[1].hand = []
+    reactors.trigger_pink_play_bird_reactors(
+        eng, eng.state.players[0], cards.Habitat.GRASSLAND
+    )
+    assert lark.tucked_cards == 0
 
 
 def test_loggerhead_shrike_caches_rodent_when_opponent_gains_rodent() -> None:

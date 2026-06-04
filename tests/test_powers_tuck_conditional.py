@@ -158,16 +158,19 @@ def test_tuck_then_draw_tuck_accepted_order_and_state():
         _eng: engine.Engine, decision: decisions.Decision[C]
     ) -> C:
         decision_types.append(type(decision))
-        if isinstance(decision, decisions.BirdPowerTuckFromHandDecision):
-            # Pick the first bird in hand to tuck.
+        if isinstance(decision, decisions.ActivateTuckDecision):
+            # Accept the tuck gate.
             return typing.cast(
                 C,
                 next(
                     ch
                     for ch in decision.choices
-                    if isinstance(ch, decisions.BirdChoice)
+                    if isinstance(ch, decisions.TuckActivateChoice)
                 ),
             )
+        if isinstance(decision, decisions.BirdPowerTuckFromHandDecision):
+            # Mandatory card selection — all choices are BirdChoice; pick the first.
+            return typing.cast(C, decision.choices[0])
         if isinstance(decision, decisions.DrawCardsPickSourceDecision):
             # Draw from the deck.
             return typing.cast(
@@ -179,8 +182,9 @@ def test_tuck_then_draw_tuck_accepted_order_and_state():
     hand_before = len(player.hand)
     powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
 
-    # Tuck decision must come before draw decision.
+    # Gate, then tuck selection, then draw — in that order.
     assert decision_types == [
+        decisions.ActivateTuckDecision,
         decisions.BirdPowerTuckFromHandDecision,
         decisions.DrawCardsPickSourceDecision,
     ], f"wrong decision order: {[t.__name__ for t in decision_types]}"
@@ -264,15 +268,18 @@ def test_tuck_then_lay_on_this_tuck_accepted_lay_accepted():
     def agent[C: decisions.Choice](
         _eng: engine.Engine, decision: decisions.Decision[C]
     ) -> C:
-        if isinstance(decision, decisions.BirdPowerTuckFromHandDecision):
+        if isinstance(decision, decisions.ActivateTuckDecision):
             return typing.cast(
                 C,
                 next(
                     ch
                     for ch in decision.choices
-                    if isinstance(ch, decisions.BirdChoice)
+                    if isinstance(ch, decisions.TuckActivateChoice)
                 ),
             )
+        if isinstance(decision, decisions.BirdPowerTuckFromHandDecision):
+            # Mandatory card selection — pick the first (and only) BirdChoice.
+            return typing.cast(C, decision.choices[0])
         if isinstance(decision, decisions.LayEggDecision):
             # Accept the optional lay.
             return typing.cast(
@@ -357,15 +364,18 @@ def test_tuck_then_gain_food_tuck_accepted_gains_food():
     def agent[C: decisions.Choice](
         _eng: engine.Engine, decision: decisions.Decision[C]
     ) -> C:
-        if isinstance(decision, decisions.BirdPowerTuckFromHandDecision):
+        if isinstance(decision, decisions.ActivateTuckDecision):
             return typing.cast(
                 C,
                 next(
                     ch
                     for ch in decision.choices
-                    if isinstance(ch, decisions.BirdChoice)
+                    if isinstance(ch, decisions.TuckActivateChoice)
                 ),
             )
+        if isinstance(decision, decisions.BirdPowerTuckFromHandDecision):
+            # Mandatory card selection — pick the first BirdChoice.
+            return typing.cast(C, decision.choices[0])
         raise AssertionError(f"unexpected decision: {type(decision).__name__}")
 
     powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")

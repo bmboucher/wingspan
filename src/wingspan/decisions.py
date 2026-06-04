@@ -129,6 +129,19 @@ class PayCostChoice(Choice):
     opp_gained_tuck_count: int = 0
 
 
+class TuckActivateChoice(Choice):
+    """Commit to tucking ``cards_to_tuck`` card(s) from hand.
+
+    The "yes" half of an ``ActivateTuckDecision`` gate — precedes the card
+    selection (``BirdPowerTuckFromHandDecision``) so the skip/activate judgment
+    is scored separately from the "which card?" judgment. ``cards_to_tuck``
+    carries how many cards the player is committing to tuck (almost always 1)
+    so the skip-optional head can weigh the tuck's value without inspecting the
+    follow-up decision."""
+
+    cards_to_tuck: int = 1
+
+
 class ResetBirdfeederChoice(Choice):
     """Affirm the optional birdfeeder reset — "yes, reroll all the dice".
 
@@ -439,9 +452,22 @@ class BirdPowerPickBonusCardDecision(Decision[BonusCardChoice]):
     """Power asks the player to keep one of several drawn bonus cards."""
 
 
-class BirdPowerTuckFromHandDecision(Decision[BirdChoice | SkipChoice]):
-    """Power asks the player to tuck a card from hand (or skip) — a
-    bird-*discard* judgment (the card leaves hand to become a tuck)."""
+class ActivateTuckDecision(Decision[TuckActivateChoice | SkipChoice]):
+    """Gate before ``BirdPowerTuckFromHandDecision``: does the player want to tuck?
+
+    The "yes" option is a ``TuckActivateChoice``; the "no" option is a
+    ``SkipChoice``. By separating the activate/skip judgment from the card
+    selection, the ``SKIP_OPTIONAL`` head scores whether tucking is worthwhile
+    at all, while the ``DISCARD_BIRD`` head scores which card to give up.
+    Offered before every tuck power — both white/brown and pink (Horned Lark)."""
+
+
+class BirdPowerTuckFromHandDecision(Decision[BirdChoice]):
+    """Mandatory card selection after ``ActivateTuckDecision`` accepted.
+
+    Choices are the candidate cards from hand — no ``SkipChoice``, because the
+    activate/skip judgment already happened upstream. The card that is chosen
+    leaves hand to become a tucked card under the triggering bird."""
 
 
 class BirdPowerDiscardFromHandDecision(Decision[BirdChoice]):
@@ -514,6 +540,7 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     SpendFoodForEggDecision,
     PayBirdFoodDecision,
     BirdPowerDiscardFromHandDecision,
+    ActivateTuckDecision,  # FRESH: appended after BirdPowerDiscardFromHandDecision, before SetupDecision
     SetupDecision,
 )
 
@@ -606,6 +633,7 @@ _DECISION_FAMILY: dict[type[Decision[typing.Any]], DecisionFamily] = {
     LayEggDecision: DecisionFamily.LAY_EGG,
     RemoveEggDecision: DecisionFamily.PAY_EGG,
     AcceptExchangeDecision: DecisionFamily.SKIP_OPTIONAL,
+    ActivateTuckDecision: DecisionFamily.SKIP_OPTIONAL,
     BirdPowerPickBonusCardDecision: DecisionFamily.CHOOSE_BONUS,
     BirdPowerPickHabitatDecision: DecisionFamily.MISC_RARE,
     BirdPowerPickPlayedBirdDecision: DecisionFamily.MISC_RARE,

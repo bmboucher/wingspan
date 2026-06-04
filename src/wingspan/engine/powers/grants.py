@@ -200,20 +200,30 @@ def _h_tuck_from_hand(
         if not player.hand:
             engine.log_skipped_decision(player.id, "no choices")
             break
-        choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
+        gate_ch = engine.ask(
+            agent,
+            decisions.ActivateTuckDecision(
+                player_id=player.id,
+                prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
+                choices=[
+                    decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                    decisions.SkipChoice(label="skip"),
+                ],
+            ),
+        )
+        if isinstance(gate_ch, decisions.SkipChoice):
+            break
+        choices = [
             decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
         ]
-        choices.append(decisions.SkipChoice(label="skip"))
         ch = engine.ask(
             agent,
             decisions.BirdPowerTuckFromHandDecision(
                 player_id=player.id,
-                prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+                prompt=f"[{player.name}] tuck 1 card behind {bird.name}",
                 choices=choices,
             ),
         )
-        if isinstance(ch, decisions.SkipChoice):
-            break
         player.hand.remove(ch.bird)
         pb.tucked_cards += 1
         engine.log(f"  {bird.name}: tucked {ch.bird.name}")
@@ -236,20 +246,28 @@ def _h_tuck_from_hand_then_draw(
     if not player.hand:
         engine.log_skipped_decision(player.id, "no choices")
         return
-    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
-        decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
-    ]
-    choices.append(decisions.SkipChoice(label="skip"))
+    gate_ch = engine.ask(
+        agent,
+        decisions.ActivateTuckDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
+            choices=[
+                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(gate_ch, decisions.SkipChoice):
+        return
+    choices = [decisions.BirdChoice(label=card.name, bird=card) for card in player.hand]
     ch = engine.ask(
         agent,
         decisions.BirdPowerTuckFromHandDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}",
             choices=choices,
         ),
     )
-    if isinstance(ch, decisions.SkipChoice):
-        return
     player.hand.remove(ch.bird)
     pb.tucked_cards += 1
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
@@ -272,20 +290,28 @@ def _h_tuck_from_hand_then_lay_on_this(
     if not player.hand:
         engine.log_skipped_decision(player.id, "no choices")
         return
-    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
-        decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
-    ]
-    choices.append(decisions.SkipChoice(label="skip"))
+    gate_ch = engine.ask(
+        agent,
+        decisions.ActivateTuckDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
+            choices=[
+                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(gate_ch, decisions.SkipChoice):
+        return
+    choices = [decisions.BirdChoice(label=card.name, bird=card) for card in player.hand]
     ch = engine.ask(
         agent,
         decisions.BirdPowerTuckFromHandDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}",
             choices=choices,
         ),
     )
-    if isinstance(ch, decisions.SkipChoice):
-        return
     player.hand.remove(ch.bird)
     pb.tucked_cards += 1
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
@@ -336,20 +362,28 @@ def _h_tuck_from_hand_then_lay_any(
     if not player.hand:
         engine.log_skipped_decision(player.id, "no choices")
         return
-    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
-        decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
-    ]
-    choices.append(decisions.SkipChoice(label="skip"))
+    gate_ch = engine.ask(
+        agent,
+        decisions.ActivateTuckDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
+            choices=[
+                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(gate_ch, decisions.SkipChoice):
+        return
+    choices = [decisions.BirdChoice(label=card.name, bird=card) for card in player.hand]
     ch = engine.ask(
         agent,
         decisions.BirdPowerTuckFromHandDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}",
             choices=choices,
         ),
     )
-    if isinstance(ch, decisions.SkipChoice):
-        return
     player.hand.remove(ch.bird)
     pb.tucked_cards += 1
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
@@ -372,20 +406,28 @@ def _h_tuck_from_hand_then_gain_food_supply(
     if not player.hand:
         engine.log_skipped_decision(player.id, "no choices")
         return
-    choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
-        decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
-    ]
-    choices.append(decisions.SkipChoice(label="skip"))
+    gate_ch = engine.ask(
+        agent,
+        decisions.ActivateTuckDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
+            choices=[
+                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(gate_ch, decisions.SkipChoice):
+        return
+    choices = [decisions.BirdChoice(label=card.name, bird=card) for card in player.hand]
     ch = engine.ask(
         agent,
         decisions.BirdPowerTuckFromHandDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] tuck 1 card behind {bird.name} (or skip)",
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}",
             choices=choices,
         ),
     )
-    if isinstance(ch, decisions.SkipChoice):
-        return
     player.hand.remove(ch.bird)
     pb.tucked_cards += 1
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")

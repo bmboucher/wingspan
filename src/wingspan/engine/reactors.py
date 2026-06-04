@@ -214,13 +214,35 @@ def _react_tuck_from_hand(
     pb: state.PlayedBird,
     eff: cards.Effect,
 ) -> None:
-    """The reacting player tucks ``eff.amount`` card(s) from hand behind ``pb``;
-    they choose which card. Mandatory while a card is available (no skip), and a
-    no-op once the hand is empty."""
+    """The reacting player may tuck ``eff.amount`` card(s) from hand behind ``pb``.
+    A gate ask is offered for each card; the player may decline at any point.
+    No-op once the hand is empty."""
+    trigger_habitat = eff.habitat.value if eff.habitat else "?"
     for _ in range(eff.amount):
         if not other_player.hand:
             return
-        choices: list[decisions.BirdChoice | decisions.SkipChoice] = [
+
+        # Gate: does the reacting player want to activate the tuck?
+        gate_ch = engine.ask(
+            engine.agent_for(other_player),
+            decisions.ActivateTuckDecision(
+                player_id=other_player.id,
+                prompt=(
+                    f"[{other_player.name}] tuck 1 card behind {pb.bird.name}? "
+                    f"(reacting to bird played in [{trigger_habitat}]) (or skip)"
+                ),
+                choices=[
+                    decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                    decisions.SkipChoice(label="skip"),
+                ],
+            ),
+        )
+        if isinstance(gate_ch, decisions.SkipChoice):
+            engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
+            return
+
+        # Card selection: mandatory once activated.
+        choices = [
             decisions.BirdChoice(label=card.name, bird=card)
             for card in other_player.hand
         ]
@@ -230,13 +252,11 @@ def _react_tuck_from_hand(
                 player_id=other_player.id,
                 prompt=(
                     f"[{other_player.name}] tuck 1 card behind {pb.bird.name} "
-                    f"(reacting to a bird played in [{eff.habitat.value if eff.habitat else '?'}])"
+                    f"(reacting to bird played in [{trigger_habitat}])"
                 ),
                 choices=choices,
             ),
         )
-        if isinstance(ch, decisions.SkipChoice):
-            return
         other_player.hand.remove(ch.bird)
         pb.tucked_cards += 1
         engine.log(

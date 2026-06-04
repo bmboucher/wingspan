@@ -68,7 +68,7 @@ The family → decision-class map (head order = `ALL_DECISION_FAMILIES`):
 | 5 | `SPEND_FOOD` | `SpendFoodDecision`, `SpendFoodForEggDecision`, `PayBirdFoodDecision` |
 | 6 | `LAY_EGG` | `LayEggDecision` |
 | 7 | `PAY_EGG` | `RemoveEggDecision` |
-| 8 | `SKIP_OPTIONAL` | `AcceptExchangeDecision` |
+| 8 | `SKIP_OPTIONAL` | `AcceptExchangeDecision`, `ActivateTuckDecision` |
 | 9 | `CHOOSE_BONUS` | `BirdPowerPickBonusCardDecision` |
 | 10 | `MISC_RARE` | `BirdPowerPickHabitatDecision`, `BirdPowerPickPlayedBirdDecision`, `BirdPowerPickGainOrderDecision` |
 | 11 | `PLAY_BIRD` | `PlayBirdDecision` |
@@ -170,10 +170,12 @@ skip. `BirdPowerPickBirdFromHandDecision` is retained but currently unused.
 - *Tuck-from-hand powers* (`BirdPowerTuckFromHandDecision`): every "tuck a
   card from your hand behind this bird" power — the plain tuck, tuck-then-draw,
   tuck-then-lay-on-this, tuck-then-lay-any, and tuck-then-gain-food variants —
-  one ask per tucked card, always with a skip (the tuck is optional).
+  one ask per tucked card. **Mandatory once reached**: the activate/skip
+  judgment happens in the preceding `ActivateTuckDecision` (see §2.8).
 - *The pink tuck reaction* (same class): Horned Lark's "when another player
-  plays a bird in your habitat, tuck a card" — fires between turns for the
-  reacting player and is **mandatory** while a card is in hand (no skip).
+  plays a bird in **their** [grassland], tuck a card" — fires between turns for
+  the reacting player, gated by an `ActivateTuckDecision` (optional; the player
+  may decline). If activated, the card selection is mandatory.
 - *The Forest conversion discard* (`DiscardBirdForFoodDecision`): step 2 of
   the Forest trade space — which hand card to discard for the extra food die,
   after the trade was committed via a `SKIP_OPTIONAL` accept. Mandatory; the
@@ -188,17 +190,17 @@ skip. `BirdPowerPickBirdFromHandDecision` is retained but currently unused.
 **What the choice rows carry.** Bird-kind rows: identity (→ card table) plus
 `bonus_delta` and `goal_delta`. Note the direction inversion: both stripes
 price what the bird would contribute *if it reached the board* — for a
-discard, that is the value being forfeited. The skip row, where present, is a
-special-kind token with `is_skip`.
+discard, that is the value being forfeited. No skip row ever appears: every
+`DISCARD_BIRD` decision is mandatory once it is reached; the optionality lives
+upstream in `SKIP_OPTIONAL` (`ActivateTuckDecision` for tucks,
+`AcceptExchangeDecision` for the Forest conversion and the Oystercatcher draft).
 
 **Variation within the family.** The card rows are identical in shape across
-all sites; what differs is (a) whether a skip is on the menu (optional tucks
-vs. the mandatory pink reaction, forest discard, and Oystercatcher passes),
-and (b) what the give-up buys — a tuck point, a draw, an egg, a food, or
-information about which cards the opponent values — which is **not** in the
-rows at all. The head reads the compensation only from the decision-type
-one-hot plus state context, which is the main representational thinness of
-this family.
+all sites; what differs is what the give-up buys — a tuck point, a draw, an
+egg, a food, or information about which cards the opponent values
+(Oystercatcher) — which is **not** in the rows at all. The head reads the
+compensation only from the decision-type one-hot plus state context, which is
+the main representational thinness of this family.
 
 ### 2.4 `GAIN_FOOD` — which food advances the plan
 
@@ -337,23 +339,33 @@ take-it-or-leave-it offer:
 - the three player-mat trade spaces, whenever the action cube lands on a
   conversion column: Forest (discard 1 card → +1 die), Grassland (spend 1
   food → +1 egg), Wetland (discard 1 egg → +1 card). Each is the step-1
-  commit; *which* card/food/egg is a follow-up in the matching family;
+  commit (`AcceptExchangeDecision`); *which* card/food/egg is a follow-up in
+  the matching family;
 - the discard-1-[food]-to-tuck-N-cards-from-deck powers (Sandhill Crane et
-  al.), whose terms are fixed by the card;
-- each power-granted **extra bird play**: accept (opens the `PLAY_BIRD` menu;
-  House Wren's grant restricts it to one habitat) or forfeit the credit.
+  al.), whose terms are fixed by the card (`AcceptExchangeDecision`);
+- each power-granted **extra bird play** (`AcceptExchangeDecision`): accept
+  (opens the `PLAY_BIRD` menu; House Wren's grant restricts it to one habitat)
+  or forfeit the credit;
+- every **tuck-from-hand activation** (`ActivateTuckDecision`): does the
+  player want to tuck a card from hand right now? Offered before every
+  `BirdPowerTuckFromHandDecision` — both white/brown on-play tuck powers and
+  Horned Lark's pink reaction ("when another player plays a bird in their
+  [grassland], tuck a card"). Accepting leads to the `DISCARD_BIRD` card
+  selection; declining skips the tuck entirely.
 
-**What the choice rows carry.** Always exactly two rows. The accept row is a
-special-kind token carrying the **exchange ledger**: twelve normalized terms —
-cards/food/eggs to pay, food/eggs/cards/tucks/plays to gain, plus four
-reserved opponent-gain terms (currently always zero; reserved for a future
-optional shared-benefit trade). When the paid food is a named type it also
-rides the `pay_food` stripe. The skip row is a special-kind token with
-`is_skip`. So the head literally weighs what's gained against what's paid
-rather than scoring a blank "yes" button.
+**What the choice rows carry.** Always exactly two rows. For
+`AcceptExchangeDecision` the accept row is a special-kind token carrying the
+**exchange ledger**: twelve normalized terms — cards/food/eggs to pay,
+food/eggs/cards/tucks/plays to gain, plus four reserved opponent-gain terms
+(currently always zero). When the paid food is a named type it also rides the
+`pay_food` stripe. For `ActivateTuckDecision` the accept row is a special-kind
+token with the `cards_to_tuck` count in the `EXCHANGE.cards_to_tuck` field —
+so the head reads how many cards the player is committing to tuck. In both
+cases the skip row is a special-kind token with `is_skip`.
 
 **Variation within the family.** Structurally none — two rows every time.
-All variation is in the ledger values: the extra-play accept is the degenerate
+All variation is in the ledger values (`AcceptExchangeDecision`) or the tuck
+count (`ActivateTuckDecision`): the extra-play accept is the degenerate
 all-gain point (`gained_play_count = 1`, nothing paid up front, the play's own
 costs resolving downstream), while the conversions and tuck trades each light
 different pay/gain cells.
