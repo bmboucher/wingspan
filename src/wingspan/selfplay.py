@@ -12,6 +12,12 @@ single legal option) are not annotated. When running with temperature sampling
 (not ``--greedy``) an ``[AI chose: ...]`` line follows the ranked list to record
 which option was actually sampled.
 
+The opening-bonus regime is auto-derived from the ``TrainConfig`` stored in each
+loaded checkpoint so games mirror how the nets were trained: a checkpoint trained
+under the ``split_setup_bonus`` regime gets a bonus-free ``SetupDecision`` with
+the bonus deferred to the in-game ``CHOOSE_BONUS`` pick, exactly as in training.
+Config-free (random-only) matchups keep the engine's combined default.
+
 Usage: ``python -m wingspan.cli selfplay --help`` or ``wingspan-selfplay --help``.
 """
 
@@ -37,8 +43,9 @@ from wingspan.training import setup_runmeta
 # Cap and floor on the per-decision annotation: never list more than this many
 # options, and never list one the policy assigns less than this probability to
 # (a percent). Together they keep the log readable when a decision has hundreds
-# of legal options (e.g. the setup deal) while the policy spreads only a little
-# mass across most of them.
+# of legal options while the policy spreads only a little mass across most of
+# them. The ``SetupDecision`` is exempt from the floor (its near-uniform opening
+# distribution would otherwise print nothing) and always shows its top picks.
 _MAX_LOGGED_OPTIONS = 5
 _MIN_PROB_PCT = 1.0
 _SMALL_DECISION_THRESHOLD = 5
@@ -65,24 +72,34 @@ def main_selfplay(argv: list[str] | None = None) -> int:
     checkpoint_dir = pathlib.Path(args.checkpoint_dir)
     device = torch.device(args.device)
 
-    # Resolve both agents up front so a bad checkpoint fails before any game
-    # runs, with a clean message rather than a mid-game traceback.
+    # Resolve both agents up front so a bad checkpoint (or a regime mismatch
+    # between two checkpoints) fails before any game runs, with a clean message
+    # rather than a mid-game traceback.
     try:
-        agent_a = _make_agent(args.p0, checkpoint_dir, device, rng, args.greedy)
-        agent_b = _make_agent(args.p1, checkpoint_dir, device, rng, args.greedy)
+        agent_a, config_a = _make_agent(
+            args.p0, checkpoint_dir, device, rng, args.greedy
+        )
+        agent_b, config_b = _make_agent(
+            args.p1, checkpoint_dir, device, rng, args.greedy
+        )
+        split_setup_bonus = _resolve_split_setup_bonus((config_a, config_b))
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error loading agent: {exc}", file=sys.stderr)
         return 1
 
     if not args.quiet:
-        print(f"Seed: {seed}  |  P0: {args.p0}  vs  P1: {args.p1}")
+        regime = "  |  opening bonus: split (CHOOSE_BONUS)" if split_setup_bonus else ""
+        print(f"Seed: {seed}  |  P0: {args.p0}  vs  P1: {args.p1}{regime}")
 
     instrumentation = _open_instrumentation(args, seed)
     try:
         for game_idx in range(args.games):
             eng, _, _, _ = engine.Engine.create(seed=seed + game_idx)
             engine.Engine.play_one_game(
-                eng.state, (agent_a, agent_b), instrumentation=instrumentation
+                eng.state,
+                (agent_a, agent_b),
+                instrumentation=instrumentation,
+                split_setup_bonus=split_setup_bonus,
             )
             scores = [player.final_score for player in eng.state.players]
             if not args.quiet:
@@ -201,16 +218,41 @@ def _make_agent(
     device: torch.device,
     rng: random.Random,
     greedy: bool,
-) -> engine.Agent:
-    """Resolve an agent spec to a callable Agent. ``random`` yields the uniform
-    agent (``greedy`` is irrelevant and ignored); any other spec loads the named
-    or path checkpoint and wraps it in the log-annotating policy agent."""
+) -> tuple[engine.Agent, config.TrainConfig | None]:
+    """Resolve an agent spec to a callable Agent plus the ``TrainConfig`` its
+    checkpoint was trained under (``None`` for the config-free ``random`` agent,
+    so regime flags like ``split_setup_bonus`` can mirror the training run).
+    ``random`` yields the uniform agent (``greedy`` is irrelevant and ignored);
+    any other spec loads the named or path checkpoint and wraps it in the
+    log-annotating policy agent."""
     if spec == "random":
-        return agents.random_agent(rng)
+        return agents.random_agent(rng), None
     checkpoint_path = _resolve_checkpoint_path(spec, checkpoint_dir)
-    net = _load_policy_net(checkpoint_path, device)
+    net, train_config = _load_policy_net(checkpoint_path, device)
     setup_net_instance = _load_setup_net(checkpoint_dir, device)
-    return _logged_policy_agent(net, device, rng, greedy, setup_net=setup_net_instance)
+    agent = _logged_policy_agent(net, device, rng, greedy, setup_net=setup_net_instance)
+    return agent, train_config
+
+
+def _resolve_split_setup_bonus(
+    configs: typing.Sequence[config.TrainConfig | None],
+) -> bool:
+    """Whether the games should run the ``split_setup_bonus`` regime (the opening
+    bonus deferred out of the ``SetupDecision`` to the in-game ``CHOOSE_BONUS``
+    pick), derived from the loaded checkpoints' configs so selfplay mirrors how
+    the nets were trained. Config-free (random) seats express no preference; with
+    no AI seat at all the engine's combined default applies. Two checkpoints
+    trained under different regimes cannot share a faithful game, so a
+    disagreement raises rather than silently mis-modelling one seat's opening."""
+    flags = {cfg.split_setup_bonus_active for cfg in configs if cfg is not None}
+    if len(flags) > 1:
+        raise ValueError(
+            "Checkpoints disagree on the split_setup_bonus regime: one was "
+            "trained with the opening bonus deferred to the in-game CHOOSE_BONUS "
+            "pick, the other with it baked into the setup keep. Selfplay cannot "
+            "mirror both in one game — pick checkpoints from the same regime."
+        )
+    return next(iter(flags), False)
 
 
 def _resolve_checkpoint_path(spec: str, checkpoint_dir: pathlib.Path) -> pathlib.Path:
@@ -223,12 +265,13 @@ def _resolve_checkpoint_path(spec: str, checkpoint_dir: pathlib.Path) -> pathlib
 
 def _load_policy_net(
     checkpoint_path: pathlib.Path, device: torch.device
-) -> model.PolicyValueNet:
+) -> tuple[model.PolicyValueNet, config.TrainConfig]:
     """Load a ``PolicyValueNet`` from a training checkpoint, rebuilding it from
     the ``TrainConfig`` stored alongside the weights so the caller need not know
-    the network's layer widths. Raises with a clear message when
-    the file is missing, lacks a config, or was trained against an incompatible
-    encoding layout."""
+    the network's layer widths; the parsed config is returned with the net so
+    regime flags (e.g. ``split_setup_bonus``) can mirror the training run. Raises
+    with a clear message when the file is missing, lacks a config, or was trained
+    against an incompatible encoding layout."""
     if not checkpoint_path.exists():
         raise FileNotFoundError(
             f"Checkpoint not found: {checkpoint_path}. Train a model with "
@@ -265,7 +308,7 @@ def _load_policy_net(
     net = model.PolicyValueNet(arch=saved.arch, spec=saved.encoding_spec).to(device)
     net.load_state_dict(payload["model"])
     net.eval()
-    return net
+    return net, saved
 
 
 def _encoding_key(cfg: config.TrainConfig) -> tuple[int, int, tuple[str, ...]]:
@@ -425,10 +468,16 @@ def _log_distribution[C: decisions.Choice](
     """Append the ranked option list for one decision to the game log: a header
     line, then one line per shown option (rank, softmax probability, optional raw
     score, label). At most ``_MAX_LOGGED_OPTIONS`` options are shown; options below
-    ``_MIN_PROB_PCT`` are suppressed for large decisions."""
+    ``_MIN_PROB_PCT`` are suppressed for large decisions — except the
+    ``SetupDecision``, whose distribution over hundreds of keeps is near-uniform
+    early in training, so the floor would print nothing; its top picks are always
+    documented."""
     n_choices = len(decision.choices)
     ranked = sorted(range(n_choices), key=lambda idx: float(probs[idx]), reverse=True)
-    min_prob = 0.0 if n_choices < _SMALL_DECISION_THRESHOLD else _MIN_PROB_PCT / 100.0
+    floor_exempt = n_choices < _SMALL_DECISION_THRESHOLD or decisions.is_setup_decision(
+        decision
+    )
+    min_prob = 0.0 if floor_exempt else _MIN_PROB_PCT / 100.0
     shown = [idx for idx in ranked if float(probs[idx]) >= min_prob][
         :_MAX_LOGGED_OPTIONS
     ]
