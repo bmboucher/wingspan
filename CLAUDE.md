@@ -74,6 +74,15 @@ When run from inside the worktree (after `EnterWorktree`) this gates the
 worktree's own code using the worktree's own `.venv` (installed by
 `create_worktree.sh`). Do not proceed until the gate is clean.
 
+While iterating, run individual sections with arguments passed through to the
+underlying tool — e.g. `bash scripts/quality_gate.sh --pytest
+tests/test_smoke.py` for a single test file. See "Quality gate" below for the
+full argument reference. Always finish with the full gate (no section flags).
+
+If the gate exits `2`, or any workflow script itself malfunctions, that is an
+infrastructure problem, not a code problem — **stop and ask the user to fix
+it** (see "Script failures: stop, don't circumvent" below).
+
 ### Step 5 — Commit and report ready
 
 Commit all worktree changes on the feature branch (uncommitted work is not
@@ -105,6 +114,41 @@ If the human asks you to merge during your session (after they've deleted the
 lock), `ExitWorktree(action="keep")` first, then run `merge_worktree.sh` from
 the main working directory.
 
+### Workflow script reference
+
+**`bash scripts/create_worktree.sh <feature-slug>`** — run from the repo root.
+Takes exactly one argument, the feature slug. Commits any dirty state in
+`main`, creates `.claude/worktrees/<slug>` on branch `wt/<slug>` from local
+`HEAD`, installs a fresh `.venv` inside the worktree, and writes the merge-auth
+lock `<slug>.lock` in the repo root. Fails without touching anything if the
+worktree directory or branch already exists.
+
+**`bash scripts/quality_gate.sh [target-dir] [--pyright [args…]]
+[--format [paths…]] [--pytest [args…]]`** — the only sanctioned way to run
+pyright / isort / black / pytest. Full reference in "Quality gate" below.
+
+**`bash scripts/merge_worktree.sh <feature-slug>`** — run from the main working
+directory (`ExitWorktree(action="keep")` first if the session is inside the
+worktree), and only after the human has deleted `<slug>.lock`. Squash-merges
+`wt/<slug>` into `main`, runs the full gate on the merged result, commits,
+pushes, and removes the worktree + branch; on any failure it resets `main`
+clean. Exit codes:
+
+| Exit | Meaning | What Claude does |
+|------|---------|------------------|
+| 0 | merged, pushed, cleaned up | report done |
+| 1 | merge-auth lock still present | stop — human authorization missing |
+| 2 | merge conflicts | fix in the worktree, commit there, retry |
+| 3 | gate failed on the merged result | fix in the worktree, commit there, retry |
+| 4 | preflight failure (worktree/branch missing, or worktree has uncommitted changes) | commit the worktree work if that is the cause; otherwise stop and report |
+| 5 | gate could not run (infrastructure failure) | **stop — ask the user to fix the environment** |
+
+**`bash scripts/auto_merge_worktree.sh <feature-slug>`** — fully automated
+variant the *human* runs: loops `merge_worktree.sh`, spawning `claude -p`
+subprocesses to fix conflicts / gate failures, up to 5 attempts. Requires the
+lock to be already deleted and `claude` on PATH. Stops immediately (no
+subprocess) on exit 1 (lock present) or exit 5 (infrastructure failure).
+
 ## Merge-auth lock files
 
 `create_worktree.sh` creates `<slug>.lock` in the repo root to block premature
@@ -116,6 +160,34 @@ root.** A lock being absent means a human reviewed and approved the merge;
 Claude deleting one bypasses that review entirely. Claude may fail to create the
 lock (the script handles it) — that is acceptable — but removing an existing
 lock is not. This rule applies even if asked, even if the lock seems stale.
+
+## Script failures: stop, don't circumvent
+
+The workflow scripts above are the **only** sanctioned interface to the build
+tools and the merge process. Distinguish two kinds of failure:
+
+- **Genuine check failures** (gate exit `1`: pyright type errors, failing
+  tests) are normal feature work. Fix the code, rerun the gate.
+- **Infrastructure failures** (gate exit `2`; merge exit `5`; a script crashing
+  with a bash error; the venv install failing; `pyright` or `claude` missing
+  from PATH; CRLF-mangled scripts) mean the tooling itself is broken. **Stop
+  working immediately, show the user the failing output verbatim, and ask them
+  to fix the script or environment.** Do not continue toward a merge until
+  they have.
+
+Never do any of the following to get past a failing script:
+
+- Run `pyright`, `pytest`, `isort`, or `black` directly instead of through
+  `quality_gate.sh`. Its section flags and pass-through arguments cover every
+  invocation needed — a single test file, a `-k` filter, a one-module
+  type-check (see "Quality gate" below).
+- Hand-roll the scripts' jobs with raw `git worktree add` /
+  `git merge --squash` / `pip install` commands.
+- Edit the workflow scripts mid-feature to make an error go away. Changing the
+  scripts is a legitimate change, but it is its own plan-and-approve feature —
+  never a workaround embedded in another one.
+- Declare a change finished "except for the gate" because the gate wouldn't
+  run.
 
 ## Run / test
 
@@ -153,27 +225,49 @@ Or pass an explicit path:
 bash scripts/quality_gate.sh .claude/worktrees/<slug>
 ```
 
-The gate runs five steps in order: `pyright` (strict) → `isort` → `black` →
-`pyright` (post-format) → `pytest`. It stops at the first `pyright` failure so
-you don't format broken code. Config lives in `pyproject.toml`
+The full gate runs five steps in order: `pyright` (strict) → `isort` → `black`
+→ `pyright` (post-format) → `pytest`. It stops at the first `pyright` failure
+so you don't format broken code. Config lives in `pyproject.toml`
 (`[tool.pyright]`, `[tool.black]`, `[tool.isort]`); no flags needed. `pyright`
 is the globally-installed npm binary; formatters run as `python -m isort` /
 `python -m black` via the target directory's own `.venv`.
 
-For faster iteration while fixing a specific problem, use `--only`:
+For faster iteration while fixing a specific problem, run individual sections.
+Everything after a section flag (up to the next section flag) is passed
+verbatim to the underlying tool — so the gate covers single-file, single-test,
+and keyword-filtered runs, and there is never a reason to invoke the tools
+directly:
 
 ```
-bash scripts/quality_gate.sh --only pyright          # type-check only (one pass)
-bash scripts/quality_gate.sh --only pytest           # tests only
-bash scripts/quality_gate.sh --only format           # isort + black only
-bash scripts/quality_gate.sh --only pyright,pytest   # type-check + tests, skip format
-# (same pattern with an explicit path)
-bash scripts/quality_gate.sh .claude/worktrees/<slug> --only pyright
+bash scripts/quality_gate.sh --pyright                          # type-check only (one pass)
+bash scripts/quality_gate.sh --pytest                           # full test suite only
+bash scripts/quality_gate.sh --pytest tests/test_smoke.py       # a single test file
+bash scripts/quality_gate.sh --pytest tests/test_encode.py -k state   # filter tests by name
+bash scripts/quality_gate.sh --pytest -x -q                     # any pytest flags pass through
+bash scripts/quality_gate.sh --pyright src/wingspan/state.py    # type-check one file
+bash scripts/quality_gate.sh --format                           # isort + black only
+bash scripts/quality_gate.sh --pyright --pytest                 # types + tests, skip format
+# (same pattern with an explicit path; target-dir goes before the first flag)
+bash scripts/quality_gate.sh .claude/worktrees/<slug> --pytest tests/test_smoke.py
 ```
 
-Always run the full gate (no `--only`) before committing. Do NOT call pyright,
-pytest, isort, or black directly — use this script so the step ordering and
-Python path are always correct.
+Defaults when a section gets no arguments: `--pytest` → `tests/`, `--format` →
+`src tests`, `--pyright` → the `pyproject.toml` config. Steps always execute in
+the canonical gate order regardless of flag order; requesting both `--pyright`
+and `--format` also runs the post-format pyright pass.
+
+Exit codes:
+
+- `0` — gate passed.
+- `1` — genuine check failure (pyright errors or failing tests). Normal
+  feature work: fix the code and rerun.
+- `2` — infrastructure/usage failure (missing venv, `pyright` not on PATH, bad
+  target dir, invalid arguments). **Not a code problem — stop and ask the user
+  to fix it** (see "Script failures: stop, don't circumvent").
+
+Always run the full gate (no section flags) before committing. Do NOT call
+pyright, pytest, isort, or black directly — use this script so the step
+ordering and Python path are always correct.
 
 Every change must pass the gate before it is considered finished. Do not
 finalize while pyright reports any error — strict mode surfaces
@@ -478,6 +572,11 @@ extend `GameState` with a named typed field.
   human-authorization tokens for the merge workflow. Their absence signals
   approval; Claude removing one silently bypasses human review. See "Merge-auth
   lock files" above.
+- **Never circumvent the workflow scripts.** If `quality_gate.sh` exits `2`,
+  `merge_worktree.sh` exits `5`, or any workflow script itself malfunctions,
+  stop and ask the user — do not fall back to running pyright / pytest / isort
+  / black directly, hand-rolling git worktree or merge commands, or patching
+  the scripts mid-feature. See "Script failures: stop, don't circumvent".
 - Don't replace `cards.Food` / `cards.Habitat` / etc. enums with strings.
   The enums are `StrEnum`, so JSON serialisation already gives the string
   for free, and the type checker catches typos.

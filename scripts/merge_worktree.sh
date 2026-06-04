@@ -8,6 +8,9 @@
 #   2  — git conflicts during squash merge (fix in worktree, retry)
 #   3  — quality gate failed after merge (fix in worktree, retry)
 #   4  — worktree or branch not found / other preflight failure
+#   5  — quality gate could not run (infrastructure failure, e.g. missing venv
+#        or pyright not on PATH) — a human must fix the environment; do NOT
+#        attempt to work around the gate
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -84,7 +87,18 @@ fi
 
 echo
 echo "==== Running quality gate on merged result ===="
-if ! bash "$SCRIPT_DIR/quality_gate.sh"; then
+bash "$SCRIPT_DIR/quality_gate.sh"
+GATE_STATUS=$?
+if [ "$GATE_STATUS" -eq 2 ]; then
+    echo
+    echo "QUALITY GATE COULD NOT RUN (infrastructure failure). Rolling back squash merge."
+    git reset --hard HEAD
+    echo
+    echo "This is an environment/script problem, not a code problem. A human must"
+    echo "fix the environment (see the gate output above), then retry the merge."
+    echo "Do NOT attempt to work around the gate."
+    exit 5
+elif [ "$GATE_STATUS" -ne 0 ]; then
     echo
     echo "Quality gate failed. Rolling back squash merge."
     git reset --hard HEAD

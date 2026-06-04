@@ -91,6 +91,8 @@ echo "  Lock:     $LOCK_FILE  (delete to authorize merge)"
 echo
 echo "Implement your changes in $WORKTREE_DIR, run the quality gate:"
 echo "  bash scripts/quality_gate.sh $WORKTREE_DIR"
+echo "  (sections: --pyright / --format / --pytest; args after a flag pass through"
+echo "   to the tool, e.g. --pytest tests/test_smoke.py)"
 echo
 echo "When the gate passes, commit inside the worktree and report ready."
 echo "Do NOT merge until the human deletes the lock file."

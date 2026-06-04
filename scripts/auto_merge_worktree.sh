@@ -62,6 +62,14 @@ for attempt in $(seq 1 "$MAX_RETRIES"); do
         exit 1
     fi
 
+    # Gate infrastructure failure — Claude cannot fix the environment; a human must.
+    if [ "$MERGE_STATUS" -eq 5 ]; then
+        echo
+        echo "BLOCKED: The quality gate could not run (infrastructure failure)."
+        echo "A human must fix the environment before the merge can proceed."
+        exit 1
+    fi
+
     if [ "$attempt" -ge "$MAX_RETRIES" ]; then
         echo
         echo "==== MAX RETRIES REACHED ($MAX_RETRIES). Manual intervention required. ===="
@@ -105,10 +113,13 @@ YOUR TASK:
    - Do NOT edit files in $REPO_ROOT/src/ or $REPO_ROOT/tests/ (those are main — changes there would be overwritten by the merge).
 3. Verify your fix by running the quality gate on the worktree:
      bash scripts/quality_gate.sh "$WORKTREE_DIR"
-   For faster iteration you can run a single step at a time:
-     bash scripts/quality_gate.sh "$WORKTREE_DIR" --only pyright   # type-check only
-     bash scripts/quality_gate.sh "$WORKTREE_DIR" --only pytest    # tests only
-   Always run the full gate (no --only) before committing to confirm everything passes.
+   For faster iteration you can run a single section, passing args to the tool:
+     bash scripts/quality_gate.sh "$WORKTREE_DIR" --pyright                      # type-check only
+     bash scripts/quality_gate.sh "$WORKTREE_DIR" --pytest                       # all tests
+     bash scripts/quality_gate.sh "$WORKTREE_DIR" --pytest tests/test_smoke.py   # one test file
+   Always run the full gate (no section flags) before committing to confirm everything passes.
+   If the gate itself cannot run (exit 2: missing venv, pyright not on PATH), STOP —
+   that is an environment problem a human must fix. Do not run the tools directly.
 4. Once the gate passes, commit your changes inside the worktree:
      cd "$WORKTREE_DIR" && git add -A && git commit -m "Fix: <describe what you fixed>"
 5. STOP. Do not run scripts/merge_worktree.sh yourself — the calling script will retry it.
