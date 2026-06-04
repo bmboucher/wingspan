@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Squash-merge a worktree into main, run the quality gate, commit + push, clean up.
+# Squash-merge a worktree into main, refresh main's venv if the merge changed
+# pyproject.toml, run the quality gate, commit + push, clean up.
 # Usage: bash scripts/merge_worktree.sh <feature-slug>
 #
 # Exit codes:
@@ -8,9 +9,9 @@
 #   2  — git conflicts during squash merge (fix in worktree, retry)
 #   3  — quality gate failed after merge (fix in worktree, retry)
 #   4  — worktree or branch not found / other preflight failure
-#   5  — quality gate could not run (infrastructure failure, e.g. missing venv
-#        or pyright not on PATH) — a human must fix the environment; do NOT
-#        attempt to work around the gate
+#   5  — quality gate or venv update could not run (infrastructure failure,
+#        e.g. missing venv, pyright not on PATH, or pip install failing) — a
+#        human must fix the environment; do NOT attempt to work around the gate
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -83,7 +84,29 @@ if ! git merge --squash "$BRANCH" 2>&1; then
     exit 2
 fi
 
-# ---- Step 5: Quality gate ----
+# ---- Step 5: Sync main's venv with the merged dependency set ----
+
+# The squash merge stages its changes, so a staged pyproject.toml means the
+# dependency set (or project metadata) may have changed. The gate below runs
+# with main's .venv — refresh it first, or a feature that adds a dev
+# dependency could never pass the merge gate.
+if ! git diff --cached --quiet -- pyproject.toml; then
+    echo
+    echo "==== pyproject.toml changed; updating main's venv ===="
+    MAIN_PYTHON="$REPO_ROOT/.venv/Scripts/python.exe"
+    if [ ! -f "$MAIN_PYTHON" ] || ! "$MAIN_PYTHON" -m pip install --quiet -e ".[dev]"; then
+        echo
+        echo "VENV UPDATE FAILED (infrastructure failure). Rolling back squash merge."
+        git reset --hard HEAD
+        echo
+        echo "Main's .venv may be partially updated. A human must fix the environment"
+        echo "(e.g. run: pip install -e '.[dev]' in the repo root), then retry the merge."
+        echo "Do NOT attempt to work around the gate."
+        exit 5
+    fi
+fi
+
+# ---- Step 6: Quality gate ----
 
 echo
 echo "==== Running quality gate on merged result ===="
@@ -107,7 +130,7 @@ elif [ "$GATE_STATUS" -ne 0 ]; then
     exit 3
 fi
 
-# ---- Step 6: Commit, push ----
+# ---- Step 7: Commit, push ----
 
 echo
 echo "==== Committing merge ===="
@@ -122,7 +145,7 @@ EOF
 echo "==== Pushing to origin/main ===="
 git push origin main
 
-# ---- Step 7: Clean up worktree and branch ----
+# ---- Step 8: Clean up worktree and branch ----
 
 echo "==== Cleaning up worktree and branch ===="
 git worktree remove "$WORKTREE_DIR"

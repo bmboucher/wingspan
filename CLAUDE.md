@@ -107,9 +107,10 @@ bash scripts/auto_merge_worktree.sh <slug>
 ```
 
 Both scripts handle: committing any new dirty state in `main`, squash-merging
-the feature branch, running the quality gate on the merged result, committing,
-pushing, and removing the worktree + branch. On any failure they reset `main` to
-a clean state and report what needs fixing.
+the feature branch, refreshing main's `.venv` (`pip install -e ".[dev]"`) when
+the merge changed `pyproject.toml`, running the quality gate on the merged
+result, committing, pushing, and removing the worktree + branch. On any failure
+they reset `main` to a clean state and report what needs fixing.
 
 If the human asks you to merge during your session (after they've deleted the
 lock), `ExitWorktree(action="keep")` first, then run `merge_worktree.sh` from
@@ -131,9 +132,10 @@ pyright / isort / black / pytest. Full reference in "Quality gate" below.
 **`bash scripts/merge_worktree.sh <feature-slug>`** — run from the main working
 directory (`ExitWorktree(action="keep")` first if the session is inside the
 worktree), and only after the human has deleted `<slug>.lock`. Squash-merges
-`wt/<slug>` into `main`, runs the full gate on the merged result, commits,
-pushes, and removes the worktree + branch; on any failure it resets `main`
-clean. Exit codes:
+`wt/<slug>` into `main`, refreshes main's `.venv` if the merge changed
+`pyproject.toml`, runs the full gate on the merged result, commits, pushes, and
+removes the worktree + branch; on any failure it resets `main` clean. Exit
+codes:
 
 | Exit | Meaning | What Claude does |
 |------|---------|------------------|
@@ -142,7 +144,7 @@ clean. Exit codes:
 | 2 | merge conflicts | fix in the worktree, commit there, retry |
 | 3 | gate failed on the merged result | fix in the worktree, commit there, retry |
 | 4 | preflight failure (worktree/branch missing, or worktree has uncommitted changes) | commit the worktree work if that is the cause; otherwise stop and report |
-| 5 | gate could not run (infrastructure failure) | **stop — ask the user to fix the environment** |
+| 5 | gate or venv refresh could not run (infrastructure failure) | **stop — ask the user to fix the environment** |
 
 **`bash scripts/auto_merge_worktree.sh <feature-slug>`** — fully automated
 variant the *human* runs: loops `merge_worktree.sh`, spawning `claude -p`
