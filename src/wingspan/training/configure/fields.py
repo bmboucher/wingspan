@@ -86,6 +86,9 @@ class FieldSpec(pydantic.BaseModel):
     help: str
     unit: str = ""
     impact: ChangeImpact = ChangeImpact.NONE
+    # Optional subgroup within the section (rendered as an indented header row).
+    # None = the field appears directly under the section header, ungrouped.
+    group: str | None = None
     # When set, the field is shown and navigable only when this predicate returns
     # True for the current working config. None = always visible.
     visible_when: typing.Callable[[config.TrainConfig], bool] | None = None
@@ -215,6 +218,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="eval_every",
         label="eval every",
         section=ConfigSection.EVAL,
+        group="cadence",
         unit="iters",
         step=1,
         help="Run a paired eval block every N iterations; 0 disables evaluation "
@@ -224,6 +228,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="eval_games",
         label="eval games",
         section=ConfigSection.EVAL,
+        group="cadence",
         unit="games",
         step=8,
         help="Held-out games per eval, played as mirrored pairs to cancel the "
@@ -233,15 +238,27 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="eval_ewma_alpha",
         label="eval ewma α",
         section=ConfigSection.EVAL,
+        group="cadence",
         step=0.05,
         impact=ChangeImpact.REGIME,
         help="Smoothing for the eval win-rate / margin trend (higher = more "
         "responsive). Re-smooths the restored history on resume.",
     ),
+    IntField(
+        attr="target_eval_games",
+        label="target eval games",
+        section=ConfigSection.EVAL,
+        group="cadence",
+        unit="games",
+        step=100,
+        help="Self-play games (model fixed, greedy) run at the target milestone. "
+        "0 = auto: 10 × eval games.",
+    ),
     FloatField(
         attr="opponent_reset_win_rate",
         label="opp. advance @",
         section=ConfigSection.EVAL,
+        group="opponent",
         step=0.05,
         impact=ChangeImpact.REGIME,
         help="Freeze the current policy as the new opponent once smoothed win-rate "
@@ -252,16 +269,27 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="opponent_max_iterations",
         label="opp. max iters",
         section=ConfigSection.EVAL,
+        group="opponent",
         step=50,
         impact=ChangeImpact.REGIME,
         help="Force-advance the opponent after this many iterations even if the "
         "win-rate threshold is not yet met (0 disables). Only applies during "
         "self-play; the random-phase bootstrap uses its own graduation logic.",
     ),
+    FloatField(
+        attr="produce_ewma_alpha",
+        label="produce ewma α",
+        section=ConfigSection.EVAL,
+        group="opponent",
+        step=0.05,
+        impact=ChangeImpact.REGIME,
+        help="Smoothing for the PRODUCING band's score / margin readouts.",
+    ),
     ChoiceField(
         attr="initial_vs_random",
         label="bootstrap vs random",
         section=ConfigSection.EVAL,
+        group="bootstrap",
         choices=["True", "False"],
         help="Fresh runs only: start by collecting against the random agent "
         "(net at seat 0, eval paused) before switching to self-play. A resumed "
@@ -271,33 +299,18 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="random_phase_win_rate",
         label="graduate @",
         section=ConfigSection.EVAL,
+        group="bootstrap",
         step=0.05,
         impact=ChangeImpact.REGIME,
         help="Smoothed collection win-rate (vs random) at which the bootstrap "
         "phase freezes self·gen1 and switches to self-play. Lowering it below "
         "the current win-rate graduates immediately.",
     ),
-    FloatField(
-        attr="produce_ewma_alpha",
-        label="produce ewma α",
-        section=ConfigSection.EVAL,
-        step=0.05,
-        impact=ChangeImpact.REGIME,
-        help="Smoothing for the PRODUCING band's score / margin readouts.",
-    ),
-    IntField(
-        attr="target_eval_games",
-        label="target eval games",
-        section=ConfigSection.EVAL,
-        unit="games",
-        step=100,
-        help="Self-play games (model fixed, greedy) run at the target milestone. "
-        "0 = auto: 10 × eval games.",
-    ),
     LayersField(
         attr="trunk_layers",
         label="trunk layers",
         section=ConfigSection.MODEL,
+        group="encoders",
         unit="units",
         impact=ChangeImpact.FRESH,
         help="State-trunk hidden widths (input→output), e.g. 256,128. Type to set "
@@ -308,6 +321,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="choice_layers",
         label="choice layers",
         section=ConfigSection.MODEL,
+        group="encoders",
         unit="units",
         impact=ChangeImpact.FRESH,
         help="Per-choice encoder widths (input→output). Its last width is N, the "
@@ -318,6 +332,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_mode",
         label="scorer head mode",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         choices=["uniform", "per_family"],
         impact=ChangeImpact.FRESH,
         help="'uniform' — all decision families share one scorer head shape. "
@@ -328,6 +343,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers",
         label="scorer head layers",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -339,6 +355,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_main_action",
         label="head: main action",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -349,6 +366,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_draw_bird",
         label="head: draw bird",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -359,6 +377,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_discard_bird",
         label="head: discard bird",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -369,6 +388,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_gain_food",
         label="head: gain food",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -379,6 +399,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_spend_food",
         label="head: spend food",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -389,6 +410,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_lay_egg",
         label="head: lay egg",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -399,6 +421,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_pay_egg",
         label="head: pay egg",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -409,6 +432,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_skip_optional",
         label="head: skip optional",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -419,6 +443,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_choose_bonus",
         label="head: choose bonus",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -429,6 +454,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_misc_rare",
         label="head: misc rare",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -439,6 +465,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_play_bird",
         label="head: play bird",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -449,6 +476,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_reset_birdfeeder",
         label="head: reset birdfeeder",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -459,6 +487,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="head_layers_setup",
         label="head: setup",
         section=ConfigSection.MODEL,
+        group="scorer heads",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -469,6 +498,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="value_layers",
         label="value head layers",
         section=ConfigSection.MODEL,
+        group="value head",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -479,6 +509,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="activation",
         label="activation",
         section=ConfigSection.MODEL,
+        group="regularization",
         choices=[name.value for name in architecture.ActivationName],
         impact=ChangeImpact.REGIME,
         help="Activation for every MLP block. Resumable (it doesn't change tensor "
@@ -488,6 +519,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="dropout",
         label="dropout",
         section=ConfigSection.MODEL,
+        group="regularization",
         step=0.05,
         impact=ChangeImpact.REGIME,
         help="Dropout after each activation, active only in the learner's update "
@@ -497,6 +529,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="layernorm",
         label="layernorm",
         section=ConfigSection.MODEL,
+        group="regularization",
         choices=["True", "False"],
         impact=ChangeImpact.FRESH,
         help="Apply LayerNorm in the trunk / choice-encoder body blocks. Adds "
@@ -506,6 +539,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="card_embed_dim",
         label="card embed dim",
         section=ConfigSection.MODEL,
+        group="card embeddings",
         unit="units",
         step=16,
         impact=ChangeImpact.FRESH,
@@ -517,6 +551,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="card_encoder_layers",
         label="card encoder layers",
         section=ConfigSection.MODEL,
+        group="card embeddings",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -529,6 +564,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="use_distinct_hand_model",
         label="distinct hand MLP",
         section=ConfigSection.MODEL,
+        group="hand model",
         choices=["False", "True"],
         impact=ChangeImpact.FRESH,
         help="When on, a dedicated MLP encodes the full hand (180-dim multi-hot ⊕ "
@@ -540,6 +576,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="hand_encoder_layers",
         label="hand encoder layers",
         section=ConfigSection.MODEL,
+        group="hand model",
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
@@ -552,6 +589,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="hand_embed_dim",
         label="hand embed dim",
         section=ConfigSection.MODEL,
+        group="hand model",
         unit="units",
         step=16,
         none_label="= card embed",
@@ -566,6 +604,7 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="tray_set_embedding",
         label="tray set embedding",
         section=ConfigSection.MODEL,
+        group="hand model",
         choices=["False", "True"],
         impact=ChangeImpact.FRESH,
         visible_when=lambda cfg: cfg.use_distinct_hand_model,
@@ -628,6 +667,7 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.SETUP,
         choices=["True", "False"],
         impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Only with the setup model on: the setup net picks cards/food while "
         "the bonus card is deferred to the in-game CHOOSE_BONUS head (asked over a "
         "round-1 opening). Feeds that head more data; shape-preserving, so it never "
@@ -637,8 +677,10 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_hidden_layers",
         label="setup layers",
         section=ConfigSection.SETUP,
+        group="network",
         unit="units",
         impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Setup-net MLP hidden widths (input→output). Type to set sizes; ←/→ "
         "adds/removes a layer. Changing it restarts ONLY the setup net (the main "
         "run resumes); the setup net then refits from its recorded samples.",
@@ -647,8 +689,10 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_activation",
         label="setup activation",
         section=ConfigSection.SETUP,
+        group="network",
         choices=[name.value for name in architecture.ActivationName],
         impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Activation for the setup net's MLP blocks (resumable for the main "
         "run; reinterprets the setup net).",
     ),
@@ -656,23 +700,29 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_dropout",
         label="setup dropout",
         section=ConfigSection.SETUP,
+        group="network",
         step=0.05,
         impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Dropout after each setup-net activation (training only). 0 disables.",
     ),
     FloatField(
         attr="setup_lr",
         label="setup lr",
         section=ConfigSection.SETUP,
+        group="network",
         step=1e-4,
         scientific=True,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Adam step size for the setup net's MSE updates (its own optimizer).",
     ),
     FloatField(
         attr="setup_policy_temperature",
         label="setup temperature",
         section=ConfigSection.SETUP,
+        group="network",
         step=0.05,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Softmax temperature over the 504 candidates' predicted margins when "
         "sampling a setup during collection (eval takes the argmax).",
     ),
@@ -680,9 +730,11 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_record_start_iter",
         label="record start @",
         section=ConfigSection.SETUP,
+        group="schedule",
         unit="iters",
         step=100,
         impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Iteration at which to start recording (setup, margin) samples — "
         "below it setups are random and unrecorded (skips early bad data).",
     ),
@@ -690,9 +742,11 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_train_iter",
         label="train @",
         section=ConfigSection.SETUP,
+        group="schedule",
         unit="iters",
         step=100,
         impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Iteration at which the setup net is fit once offline on the recorded "
         "window and then drives selection + trains on-policy. Must exceed record "
         "start.",
@@ -701,7 +755,9 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_hand_combos",
         label="hand combos",
         section=ConfigSection.SETUP,
+        group="sample generation",
         step=1,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Random generator: joint (P0,P1) keep-combos sampled per shared-deal "
         "batch.",
     ),
@@ -709,7 +765,9 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_food_sets",
         label="food sets",
         section=ConfigSection.SETUP,
+        group="sample generation",
         step=1,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Random generator: food keeps sampled per kept hand (softmax-biased "
         "toward food that pays for more hand/tray birds).",
     ),
@@ -717,7 +775,9 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_tuples_per_batch",
         label="tuples / batch",
         section=ConfigSection.SETUP,
+        group="sample generation",
         step=1,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Random generator: joint setups sampled per batch = games sharing one "
         "deal (should divide games/iter).",
     ),
@@ -725,15 +785,19 @@ FIELD_SPECS: list[FieldSpec] = [
         attr="setup_offline_epochs",
         label="offline epochs",
         section=ConfigSection.SETUP,
+        group="sample generation",
         step=5,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Epochs over the recorded window in the one-time offline fit.",
     ),
     IntField(
         attr="setup_offline_batch_size",
         label="setup batch size",
         section=ConfigSection.SETUP,
+        group="sample generation",
         unit="samples",
         step=64,
+        visible_when=lambda cfg: cfg.use_setup_model,
         help="Minibatch size for the setup net's offline fit and on-policy steps.",
     ),
 ]
@@ -751,19 +815,36 @@ def spec_for(attr: str) -> FieldSpec:
 
 
 def editable_attrs(cfg: config.TrainConfig | None = None) -> list[str]:
-    """Editable attribute names in form display order.
+    """Editable attribute names in form display order (section order, then FIELD_SPECS
+    order within each section).
 
     When ``cfg`` is supplied, fields whose ``visible_when`` predicate returns
     ``False`` are excluded so callers can navigate only the currently-visible
     subset. Omit ``cfg`` to get the full list (e.g. for ``_BY_ATTR`` construction).
     """
-    if cfg is None:
-        return [spec.attr for spec in FIELD_SPECS]
     return [
         spec.attr
+        for section in SECTION_ORDER
         for spec in FIELD_SPECS
-        if spec.visible_when is None or spec.visible_when(cfg)
+        if spec.section is section
+        and (cfg is None or spec.visible_when is None or spec.visible_when(cfg))
     ]
+
+
+def reset_hidden_fields(cfg: config.TrainConfig) -> config.TrainConfig:
+    """Reset any field that is currently hidden (``visible_when`` returns False) to
+    its factory default. Called after every config mutation so hidden state never
+    lingers when the user re-enables a feature group."""
+    defaults = _DEFAULTS
+    updates: dict[str, object] = {}
+    for spec in FIELD_SPECS:
+        if spec.visible_when is not None and not spec.visible_when(cfg):
+            default_val = getattr(defaults, spec.attr)
+            if getattr(cfg, spec.attr) != default_val:
+                updates[spec.attr] = default_val
+    if not updates:
+        return cfg
+    return config.TrainConfig.model_validate({**cfg.model_dump(), **updates})
 
 
 def read_field(cfg: config.TrainConfig, spec: FieldSpec) -> FieldValue:

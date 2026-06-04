@@ -253,11 +253,20 @@ def _select_end(view: state.ConfiguratorState, first: bool) -> state.Outcome:
 
 
 def _snap_if_invisible(view: state.ConfiguratorState) -> None:
-    # After a mutation that may change field visibility (e.g. toggling
-    # head_layers_mode), snap the cursor to the mode toggle if the current
-    # field has been hidden so navigation never lands on an invisible spec.
-    if view.selected_attr not in fields.editable_attrs(view.working):
-        view.selected_attr = "head_layers_mode"
+    # After a mutation that may change field visibility, snap the cursor to the
+    # nearest visible field above the current position so navigation never lands
+    # on a hidden spec. Works for any visibility toggle, not just head_layers_mode.
+    attrs = fields.editable_attrs(view.working)
+    if view.selected_attr in attrs:
+        return
+    all_attrs = fields.editable_attrs()
+    pos = all_attrs.index(view.selected_attr)
+    for attr in reversed(all_attrs[:pos]):
+        if attr in attrs:
+            view.selected_attr = attr
+            return
+    if attrs:
+        view.selected_attr = attrs[0]
 
 
 def _apply_nudge(view: state.ConfiguratorState, direction: int) -> state.Outcome:
@@ -269,7 +278,7 @@ def _apply_nudge(view: state.ConfiguratorState, direction: int) -> state.Outcome
     if error is not None:
         view.notify(state.MessageKind.WARN, error)
         return state.Outcome.CONTINUE
-    view.working = updated
+    view.working = fields.reset_hidden_fields(updated)
     view.message = None
     _snap_if_invisible(view)
     return state.Outcome.CONTINUE
@@ -321,7 +330,7 @@ def _commit_edit(view: state.ConfiguratorState) -> state.Outcome:
         view.notify(state.MessageKind.ERROR, error)
         return state.Outcome.CONTINUE
     changed_dir = updated.checkpoint_dir != view.working.checkpoint_dir
-    view.working = updated
+    view.working = fields.reset_hidden_fields(updated)
     view.mode = state.Mode.NAVIGATE
     view.edit_buffer = ""
     _snap_if_invisible(view)

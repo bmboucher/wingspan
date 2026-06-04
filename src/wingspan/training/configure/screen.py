@@ -210,8 +210,21 @@ class _FormView:
         rows: list[text.Text] = []
         selected_row = 0
         for section in fields.SECTION_ORDER:
+            visible_specs = _specs_in(section, self.view.working)
+            if not visible_specs:
+                continue
             rows.append(_section_header(section))
-            for spec in _specs_in(section, self.view.working):
+
+            # Emit group headers as non-navigable separator rows when the
+            # group name changes; suppress if the group is None (ungrouped).
+            current_group: str | None = None
+            first_in_section = True
+            for spec in visible_specs:
+                if first_in_section or spec.group != current_group:
+                    first_in_section = False
+                    current_group = spec.group
+                    if current_group is not None:
+                        rows.append(_group_header(current_group))
                 if spec.attr == self.view.selected_attr:
                     selected_row = len(rows)
                 rows.append(_field_row(self.view, spec, self.frame))
@@ -221,6 +234,12 @@ class _FormView:
 def _section_header(section: fields.ConfigSection) -> text.Text:
     out = text.Text(no_wrap=True, end="")
     out.append(f"{section.value.upper()}", style=f"bold {theme.TEXT_MUTED}")
+    return out
+
+
+def _group_header(group: str) -> text.Text:
+    out = text.Text(no_wrap=True, end="")
+    out.append(f"  · {group}", style=theme.TEXT_DIM2)
     return out
 
 
