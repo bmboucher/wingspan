@@ -79,8 +79,8 @@ The family → decision-class map (head order = `ALL_DECISION_FAMILIES`):
 
 ## 1. The choice vector at a glance
 
-One uniform row per candidate (`encode/layout.py`); base width 383, plus the
-trailing 4-dim `setup_agg` stripe when `include_setup` (387). The stripes, in
+One uniform row per candidate (`encode/layout.py`); base width 396, plus the
+trailing 4-dim `setup_agg` stripe when `include_setup` (400). The stripes, in
 offset order:
 
 | Stripe | Width | Contents | Filled for |
@@ -97,6 +97,8 @@ offset order:
 | `bird_id` | 180 | bird identity one-hot (multi-hot for setup keeps), embedded through the shared card table — so the candidate's static attributes *and* its learned per-card vector arrive together | every bird-carrying row |
 | `bonus_id` | 26 | bonus-card identity one-hot | bonus picks, setup keeps |
 | `bonus_delta` | 3 | how this bird advances the decider's **held** bonus cards: qualifying-card count + summed stepped-VP and linear-VP marginals at count+1 | bird keep/play/tray-draw rows |
+| `goal_delta` | 8 | how this bird advances each of the 4 round goals: per goal slot, count delta + marginal placement-VP swing | bird keep/play/tray-draw rows |
+| `bonus_value` | 5 | what this **offered bonus card** is worth to the decider: board qualifying count, the stepped and linear VP that count pays, and qualifying-bird counts in hand (kept subset at setup) and tray | bonus picks; setup keeps carrying a bonus |
 | `setup_agg` | 4 | kept-subset aggregates: Σpoints, Σfood-cost, Σegg-limit, kept count | setup keeps only (`include_setup`) |
 
 Worth remembering when reading the family sections: per-slot **egg counts and
@@ -152,7 +154,8 @@ never reach this head.)
 bird-kind row: bird identity (→ shared card table: points, costs, nest,
 habitats, wingspan, color, bonus categories, learned vector) plus the
 `bonus_delta` stripe pricing what acquiring it would do for the decider's held
-bonus cards. The **deck option is a bare special-kind token** — no identity,
+bonus cards and the `goal_delta` stripe pricing its immediate effect on the
+four round goals. The **deck option is a bare special-kind token** — no identity,
 no stats — which is exactly the value-of-information shape: the head must
 weigh named cards against the expected value of a blind draw.
 
@@ -181,9 +184,9 @@ class ever offers a skip.
   yes/no already happened upstream.
 
 **What the choice rows carry.** Bird-kind rows: identity (→ card table) plus
-`bonus_delta`. Note the direction inversion: `bonus_delta` prices what the
-bird would contribute *if it reached the board* — for a discard, that is the
-value being forfeited. The skip row, where present, is a special-kind token
+`bonus_delta` and `goal_delta`. Note the direction inversion: both stripes
+price what the bird would contribute *if it reached the board* — for a
+discard, that is the value being forfeited. The skip row, where present, is a special-kind token
 with `is_skip`.
 
 **Variation within the family.** The card rows are identical in shape across
@@ -364,12 +367,15 @@ different pay/gain cells.
   in-game decision, so it adds one on-policy `CHOOSE_BONUS` sample per net
   seat per game.
 
-**What the choice rows carry.** A special-kind token plus the 26-wide bonus
-identity one-hot. There are no structured terms on the row (no VP thresholds,
-no current qualifying-bird count) — the value must be learned per card, read
-against the state's bonus-progress stripes, hand multi-hot, and board.
-Feeding the head the bonus card's structured terms is a known future
-enrichment.
+**What the choice rows carry.** A special-kind token, the 26-wide bonus
+identity one-hot, and the 5-dim `bonus_value` stripe pricing the candidate
+against the decider's position: the board's current qualifying count, the
+stepped and linear VP the card pays at that count, and the qualifying-bird
+counts still in hand and on the tray. At the opening pick (empty board) the
+board trio is zero and the hand/tray potentials are the live signal. The
+card's raw printed terms (thresholds, per-bird rate) still arrive only
+through identity — the row carries the *computed standing value*, not the
+formula.
 
 **Variation within the family.** The mid-game power pick and the opening pick
 share the decision class, so even the decision-type one-hot cannot tell them
@@ -427,9 +433,11 @@ The chosen play's costs are follow-ups in other families, eggs then food:
 strategic pick is kept clean of spend logistics.
 
 **What the choice rows carry.** Bird-kind rows: the bird's identity (→ card
-table), the destination habitat one-hot, and the `bonus_delta` stripe pricing
-the play's marginal contribution to the held bonus cards. No cost features —
-costs resolve downstream, and only completable pairs are offered.
+table), the destination habitat one-hot, the `bonus_delta` stripe pricing
+the play's marginal contribution to the held bonus cards, and the
+`goal_delta` stripe pricing its marginal count/VP swing on each of the four
+round goals. No cost features — costs resolve downstream, and only
+completable pairs are offered.
 
 **Variation within the family.** One class, one shape. A bird playable in two
 habitats produces two rows differing only in the habitat stripe — that is the
@@ -483,7 +491,9 @@ axis:
 - **`use_setup_model = False`:** the main net keeps a `SETUP` head and scores
   the same candidates as ordinary choice rows (kept-bird identity multi-hot,
   foods-*spent* on the `pay_food` stripe, the `setup_agg` aggregates, and the
-  kept bonus identity).
+  kept bonus identity — plus, when the candidate carries a bonus, the
+  `bonus_value` stripe with its hand potential counted over the **kept**
+  subset, not the full dealt hand).
 
 **Whether the bonus pick is folded in is itself a config choice.**
 `TrainConfig.split_setup_bonus` (effective only alongside the setup model —

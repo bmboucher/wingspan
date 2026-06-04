@@ -758,7 +758,30 @@ def choice_stripe_layout(
         )
     )
 
-    end = layout._OFF_GOAL_DELTA + layout._GOAL_DELTA_DIM
+    stripes.append(
+        StripeDescriptor(
+            name="bonus_value",
+            description=(
+                "Per-candidate bonus-CARD value: what the offered bonus card is "
+                "worth to the deciding player, now and in potential."
+            ),
+            offset=layout._OFF_BONUS_VALUE,
+            size=layout._BONUS_VALUE_DIM,
+            encoding="vector",
+            value_range="[0, ~1]",
+            notes=(
+                f"{layout._BONUS_VALUE_DIM} values: qual_count (board birds "
+                "qualifying for this bonus, ÷5), stepped_vp (VP the card pays at "
+                "that count, ÷7), linear_vp (same, piecewise-linear, ÷7), "
+                "hand_potential (hand/kept birds qualifying, ÷5), tray_potential "
+                "(tray birds qualifying, ÷5). Filled for BonusCardChoice and a "
+                "setup pick's kept bonus; zero otherwise."
+            ),
+            sub_fields=_bonus_value_sub_fields(),
+        )
+    )
+
+    end = layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_DIM
 
     # ---- setup_agg (trailing; present only when the main model carries setup) ----
     if spec.include_setup:
@@ -1510,6 +1533,49 @@ def _goal_delta_sub_fields() -> tuple[SubFieldDescriptor, ...]:
                 "Normalized ÷ 10.",
             )
         )
+    return tuple(
+        SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes=notes,
+        )
+        for idx, (name, desc, notes) in enumerate(entries)
+    )
+
+
+def _bonus_value_sub_fields() -> tuple[SubFieldDescriptor, ...]:
+    """5 sub-fields for the per-candidate bonus-card-value stripe."""
+    entries = [
+        (
+            "qual_count",
+            "Board birds qualifying for this candidate bonus card.",
+            "Normalized ÷ 5.",
+        ),
+        (
+            "stepped_vp",
+            "Stepped VP the candidate bonus pays at the current board count.",
+            "Normalized ÷ 7.",
+        ),
+        (
+            "linear_vp",
+            "Piecewise-linear VP of the candidate bonus at the current board count.",
+            "Normalized ÷ 7.",
+        ),
+        (
+            "hand_potential",
+            "Hand (or setup kept-subset) birds qualifying for the candidate bonus.",
+            "Normalized ÷ 5.",
+        ),
+        (
+            "tray_potential",
+            "Face-up tray birds qualifying for the candidate bonus.",
+            "Normalized ÷ 5.",
+        ),
+    ]
     return tuple(
         SubFieldDescriptor(
             name=name,

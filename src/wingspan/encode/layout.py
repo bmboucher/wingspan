@@ -141,6 +141,7 @@ _GOAL_DELTA_SLOT_DIM = 2  # count_delta + vp_delta per round-goal slot
 _GOAL_DELTA_DIM = 4 * _GOAL_DELTA_SLOT_DIM  # 8 (4 round goals × 2 scalars)
 _GOAL_DELTA_COUNT = 0  # within-slot: count change (÷ _GOAL_COUNT_SCALE)
 _GOAL_DELTA_VP = 1  # within-slot: VP delta (÷ _ROUND_GOAL_POINTS_SCALE)
+_BONUS_VALUE_DIM = 5  # candidate bonus card's value to the deciding player (below)
 _SETUP_DIM = 4  # setup kept-subset aggregates (only when include_setup)
 
 # The board_target stripe is a per-board-slot block: 8 scalars repeated over
@@ -165,9 +166,10 @@ _BONUS_ID_DIM = cards.n_bonus_cards()
 
 # Stripe offsets (cumulative). The board-index block and bird-identity one-hot
 # (the two card regions the model embeds) sit together just before bonus_id;
-# bonus_id is followed by bonus_delta then goal_delta (per-candidate contribution
-# scalars), and the conditional setup_agg stripe trails everything — so the
-# card-region offsets the model slices on stay invariant to ``include_setup``.
+# bonus_id is followed by bonus_delta, goal_delta, then bonus_value (the
+# per-candidate contribution / pricing scalars), and the conditional setup_agg
+# stripe trails everything — so the card-region offsets the model slices on
+# stay invariant to ``include_setup``.
 _OFF_KIND = 0
 _OFF_GAIN_FOOD = _OFF_KIND + _KIND_DIM
 _OFF_HAB = _OFF_GAIN_FOOD + _GAIN_FOOD_DIM
@@ -181,7 +183,8 @@ _OFF_BIRD_ID = _OFF_BOARD_IDX + _BOARD_IDX_SLOTS
 _OFF_BONUS_ID = _OFF_BIRD_ID + _BIRD_ID_DIM
 _OFF_BONUS_DELTA = _OFF_BONUS_ID + _BONUS_ID_DIM
 _OFF_GOAL_DELTA = _OFF_BONUS_DELTA + _BONUS_DELTA_DIM
-_OFF_SETUP = _OFF_GOAL_DELTA + _GOAL_DELTA_DIM  # trailing; present iff include_setup
+_OFF_BONUS_VALUE = _OFF_GOAL_DELTA + _GOAL_DELTA_DIM
+_OFF_SETUP = _OFF_BONUS_VALUE + _BONUS_VALUE_DIM  # trailing; present iff include_setup
 _CHOICE_BASE_DIM = _OFF_SETUP  # row width without setup_agg (include_setup=False)
 
 # Within-KIND indices
@@ -237,6 +240,18 @@ _EXCHANGE_PLAYS_TO_GAIN = 11
 _BONUS_DELTA_QUAL = 0  # held bonus cards this bird qualifies for (÷ _BONUS_COUNT_SCALE)
 _BONUS_DELTA_STEPPED = 1  # summed stepped-VP delta at count+1 (÷ _BONUS_VALUE_SCALE)
 _BONUS_DELTA_LINEAR = 2  # summed linear-VP delta at count+1 (÷ _BONUS_VALUE_SCALE)
+
+# Within-BONUS_VALUE indices: the candidate bonus CARD's value to the deciding
+# player — it prices the offered card itself, not a bird (filled for
+# BonusCardChoice rows and a setup pick's kept bonus — see
+# ``choice_encode._fill_bonus_value``). Where bonus_delta is marginal (the +1
+# bird against held cards), these are standing values: what the card pays on the
+# current board, plus how many hand/kept and tray birds could still qualify it.
+_BONUS_VALUE_QUAL = 0  # board birds qualifying for this bonus (÷ _BONUS_COUNT_SCALE)
+_BONUS_VALUE_STEPPED = 1  # stepped VP at that count (÷ _BONUS_VALUE_SCALE)
+_BONUS_VALUE_LINEAR = 2  # linear VP at that count (÷ _BONUS_VALUE_SCALE)
+_BONUS_VALUE_HAND = 3  # hand/kept birds qualifying (÷ _BONUS_COUNT_SCALE)
+_BONUS_VALUE_TRAY = 4  # tray birds qualifying (÷ _BONUS_COUNT_SCALE)
 
 # Within-SETUP indices (a setup pick's kept-subset aggregate stats — summaries the
 # shared card table cannot reconstruct from the kept-bird identity multi-hot alone).

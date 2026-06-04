@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state
 from wingspan.encode import layout, state_encode
+from wingspan.engine import scoring
 
 # ---------------------------------------------------------------------------
 # State encoder
@@ -869,6 +870,168 @@ def test_goal_delta_nonzero_for_advancing_bird():
     ), "wetland-only bird should also advance total_birds goal"
 
 
+# ---------------------------------------------------------------------------
+# Choice encoder: the bonus_value stripe (the candidate bonus CARD's value to
+# the deciding player — board standing plus hand/tray potential)
+
+
+def test_bonus_value_board_trio_prices_the_candidate_card():
+    """A candidate bonus card's row carries its standing board value: the
+    qualifying count in play and the stepped / linear VP that count pays,
+    matching the scoring functions exactly."""
+    eng, *_ = engine.Engine.create(seed=21)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")
+    seed_birds = [bird for bird in birds if "Bird Feeder" in bird.bonus_categories]
+    assert len(seed_birds) >= 6
+    me = eng.state.players[0]
+    me.board[cards.Habitat.FOREST] = [
+        state.PlayedBird(bird=board_bird) for board_bird in seed_birds[:5]
+    ]
+    me.board[cards.Habitat.GRASSLAND] = [state.PlayedBird(bird=seed_birds[5])]
+
+    row = encode.encode_choices(_pick_bonus_decision(bird_feeder), eng.state)[0]
+    count = scoring.bonus_qualifying_count(me, bird_feeder)
+    assert count == 6
+    base = layout._OFF_BONUS_VALUE
+    assert np.isclose(
+        row[base + layout._BONUS_VALUE_QUAL], count / layout._BONUS_COUNT_SCALE
+    )
+    assert np.isclose(
+        row[base + layout._BONUS_VALUE_STEPPED],
+        scoring.bonus_score_for_count(bird_feeder, count) / layout._BONUS_VALUE_SCALE,
+    )
+    assert np.isclose(
+        row[base + layout._BONUS_VALUE_LINEAR],
+        scoring.bonus_linear_value_for_count(bird_feeder, count)
+        / layout._BONUS_VALUE_SCALE,
+    )
+
+
+def test_bonus_value_stepped_vs_linear_on_tiered_card():
+    """Between a tiered card's thresholds the stepped channel sits on the lower
+    plateau while the linear channel is strictly between the two payouts."""
+    eng, *_ = engine.Engine.create(seed=22)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")  # anchors (5, 3), (8, 7)
+    seed_birds = [bird for bird in birds if "Bird Feeder" in bird.bonus_categories]
+    me = eng.state.players[0]
+    # Count 6 sits between the (5, 3) and (8, 7) anchors.
+    me.board[cards.Habitat.FOREST] = [
+        state.PlayedBird(bird=board_bird) for board_bird in seed_birds[:5]
+    ]
+    me.board[cards.Habitat.GRASSLAND] = [state.PlayedBird(bird=seed_birds[5])]
+
+    row = encode.encode_choices(_pick_bonus_decision(bird_feeder), eng.state)[0]
+    base = layout._OFF_BONUS_VALUE
+    plateau = 3.0 / layout._BONUS_VALUE_SCALE
+    ceiling = 7.0 / layout._BONUS_VALUE_SCALE
+    assert np.isclose(row[base + layout._BONUS_VALUE_STEPPED], plateau)
+    assert plateau < row[base + layout._BONUS_VALUE_LINEAR] < ceiling
+
+
+def test_bonus_value_hand_potential_counts_hand_birds_midgame():
+    """An in-game pick (BirdPowerPickBonusCardDecision) counts the qualifying
+    birds currently in hand; with an empty board the trio stays zero."""
+    eng, *_ = engine.Engine.create(seed=23)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")
+    seed_birds = [bird for bird in birds if "Bird Feeder" in bird.bonus_categories]
+    non_qualifying = next(
+        bird for bird in birds if "Bird Feeder" not in bird.bonus_categories
+    )
+    me = eng.state.players[0]
+    me.hand = [*seed_birds[:3], non_qualifying]
+
+    row = encode.encode_choices(_pick_bonus_decision(bird_feeder), eng.state)[0]
+    base = layout._OFF_BONUS_VALUE
+    assert np.isclose(
+        row[base + layout._BONUS_VALUE_HAND], 3.0 / layout._BONUS_COUNT_SCALE
+    )
+    assert row[base + layout._BONUS_VALUE_QUAL] == 0.0
+    assert row[base + layout._BONUS_VALUE_STEPPED] == 0.0
+    assert row[base + layout._BONUS_VALUE_LINEAR] == 0.0
+
+
+def test_bonus_value_setup_choice_uses_kept_cards():
+    """A setup pick's hand potential counts the candidate's kept subset, NOT the
+    full dealt hand — at the setup ask the hand still holds every dealt card,
+    so counting it would credit birds this pick discards."""
+    eng, *_ = engine.Engine.create(seed=24)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")
+    seed_birds = [bird for bird in birds if "Bird Feeder" in bird.bonus_categories]
+    non_qualifying = next(
+        bird for bird in birds if "Bird Feeder" not in bird.bonus_categories
+    )
+    dealt = [*seed_birds[:4], non_qualifying]  # 4 qualifying birds dealt...
+    me = eng.state.players[0]
+    me.hand = list(dealt)
+
+    decision = decisions.SetupDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.SetupChoice(
+                kept_cards=(seed_birds[0], seed_birds[1]),  # ...but only 2 kept
+                kept_foods=tuple(cards.ALL_FOODS[:3]),
+                bonus_card=bird_feeder,
+            )
+        ],
+        dealt_cards=dealt,
+        dealt_bonus=[bird_feeder],
+    )
+    row = encode.encode_choices(
+        decision, eng.state, encode.EncodingSpec(include_setup=True)
+    )[0]
+    base = layout._OFF_BONUS_VALUE
+    assert np.isclose(
+        row[base + layout._BONUS_VALUE_HAND], 2.0 / layout._BONUS_COUNT_SCALE
+    )
+    assert row[base + layout._BONUS_VALUE_QUAL] == 0.0  # setup board is empty
+
+
+def test_bonus_value_tray_potential_counts_qualifying_tray_birds():
+    """The tray potential counts qualifying face-up tray birds only — empty
+    slots and non-qualifying birds add nothing."""
+    eng, *_ = engine.Engine.create(seed=25)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")
+    seed_birds = [bird for bird in birds if "Bird Feeder" in bird.bonus_categories]
+    non_qualifying = next(
+        bird for bird in birds if "Bird Feeder" not in bird.bonus_categories
+    )
+    eng.state.tray = [seed_birds[0], non_qualifying, None]
+
+    row = encode.encode_choices(_pick_bonus_decision(bird_feeder), eng.state)[0]
+    assert np.isclose(
+        row[layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_TRAY],
+        1.0 / layout._BONUS_COUNT_SCALE,
+    )
+
+
+def test_bonus_value_zero_for_non_bonus_choice_kinds():
+    """Bird-candidate and skip rows never fill the stripe — it prices offered
+    bonus CARDS only (bird candidates carry bonus_delta instead)."""
+    eng, *_ = engine.Engine.create(seed=26)
+    birds, bonuses, _ = cards.load_all()
+    bird_feeder = _named_bonus(bonuses, "Bird Feeder")
+    qualifying = next(bird for bird in birds if "Bird Feeder" in bird.bonus_categories)
+    me = eng.state.players[0]
+    me.bonus_cards = [bird_feeder]  # bonus_delta WILL fill; bonus_value must not
+
+    play = decisions.PlayBirdDecision(
+        player_id=0, prompt="x", choices=[_play_choice(qualifying)]
+    )
+    skip = decisions.BirdPowerTuckFromHandDecision(
+        player_id=0, prompt="x", choices=[decisions.SkipChoice(label="s")]
+    )
+    play_row = encode.encode_choices(play, eng.state)[0]
+    assert np.any(_bonus_delta_slice(play_row) != 0.0)
+    assert np.all(_bonus_value_slice(play_row) == 0.0)
+    assert np.all(_bonus_value_slice(encode.encode_choices(skip, eng.state)[0]) == 0.0)
+
+
 ###### PRIVATE #######
 
 
@@ -889,6 +1052,26 @@ def _bonus_delta_slice(row: np.ndarray) -> np.ndarray:
     return row[
         layout._OFF_BONUS_DELTA : layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_DIM
     ]
+
+
+def _bonus_value_slice(row: np.ndarray) -> np.ndarray:
+    """The bonus_value stripe of one encoded choice row."""
+    return row[
+        layout._OFF_BONUS_VALUE : layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_DIM
+    ]
+
+
+def _pick_bonus_decision(
+    bonus_card: cards.BonusCard,
+) -> decisions.BirdPowerPickBonusCardDecision:
+    """A one-candidate in-game bonus pick offering ``bonus_card``."""
+    return decisions.BirdPowerPickBonusCardDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.BonusCardChoice(label=bonus_card.name, bonus_card=bonus_card)
+        ],
+    )
 
 
 def _two_distinct_birds(birds: list[cards.Bird]) -> tuple[cards.Bird, cards.Bird]:

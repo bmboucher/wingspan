@@ -10,6 +10,7 @@ helpers write the shared per-card / per-food / per-habitat / per-board stripes.
 from __future__ import annotations
 
 import logging
+import typing
 
 import numpy as np
 
@@ -317,8 +318,15 @@ def _featurize_bonus_card(
 ) -> None:
     # Identity via the bonus one-hot stripe (a learned per-bonus embedding),
     # replacing the old id-hash so distinct bonus cards are fully distinguished.
+    # The bonus_value stripe prices the candidate card itself — its standing VP on
+    # the current board plus the hand/tray birds that could still qualify it — so
+    # the net reads what the offered card is worth instead of inferring it from
+    # identity alone (the candidate is not yet held, so the state-side
+    # bonus-progress stripes carry nothing for it).
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
     _fill_bonus_identity(feat, choice.bonus_card)
+    player = state.players[decision.player_id]
+    _fill_bonus_value(feat, player, choice.bonus_card, player.hand, state.tray)
 
 
 def _featurize_draw_source(
@@ -405,8 +413,18 @@ def _featurize_setup(
     feat[layout._OFF_SETUP + layout._SETUP_KEPT_COUNT] = (
         len(kept) / layout._ROW_SLOTS_SCALE
     )
+    # The kept bonus rides identity + the bonus_value stripe. The hand source is
+    # the kept subset, NOT ``player.hand`` — at the setup ask the hand still holds
+    # all dealt cards, so counting it would credit birds this pick discards.
     if choice.bonus_card is not None:
         _fill_bonus_identity(feat, choice.bonus_card)
+        _fill_bonus_value(
+            feat,
+            state.players[decision.player_id],
+            choice.bonus_card,
+            kept,
+            state.tray,
+        )
 
 
 _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
@@ -501,6 +519,49 @@ def _fill_goal_delta(
         base = layout._OFF_GOAL_DELTA + goal_idx * layout._GOAL_DELTA_SLOT_DIM
         feat[base + layout._GOAL_DELTA_COUNT] = count_delta / layout._GOAL_COUNT_SCALE
         feat[base + layout._GOAL_DELTA_VP] = vp_delta / layout._ROUND_GOAL_POINTS_SCALE
+
+
+def _fill_bonus_value(
+    feat: np.ndarray,
+    player: state.Player,
+    bonus_card: cards.BonusCard,
+    hand_source: typing.Iterable[cards.Bird],
+    tray: typing.Sequence[cards.Bird | None],
+) -> None:
+    """Fill the bonus_value stripe: the value of the candidate ``bonus_card``
+    itself to ``player`` — the board birds qualifying now, the stepped / linear
+    VP that count pays, and how many hand and tray birds could still qualify it.
+    Where ``_fill_bonus_delta`` prices a bird against the held bonuses, this
+    prices an offered bonus card against the player's position. ``hand_source``
+    is the bird set counted for hand potential: ``player.hand`` for an in-game
+    pick, the kept-card subset for a setup pick (where the kept birds are not
+    yet in hand). All five scalars are always written — at zero board qualifiers
+    the trio is simply 0, which IS the candidate's standing value."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    # The board trio: qualifiers in play and the VP the card pays at that count.
+    count = scoring.bonus_qualifying_count(player, bonus_card)
+    base = layout._OFF_BONUS_VALUE
+    feat[base + layout._BONUS_VALUE_QUAL] = count / layout._BONUS_COUNT_SCALE
+    feat[base + layout._BONUS_VALUE_STEPPED] = (
+        scoring.bonus_score_for_count(bonus_card, count) / layout._BONUS_VALUE_SCALE
+    )
+    feat[base + layout._BONUS_VALUE_LINEAR] = (
+        scoring.bonus_linear_value_for_count(bonus_card, count)
+        / layout._BONUS_VALUE_SCALE
+    )
+
+    # Potential: birds not yet in play that pass the card's static test.
+    hand_qual = sum(
+        1 for bird in hand_source if bonus_card.name in bird.bonus_categories
+    )
+    feat[base + layout._BONUS_VALUE_HAND] = hand_qual / layout._BONUS_COUNT_SCALE
+    tray_qual = sum(
+        1
+        for tray_bird in tray
+        if tray_bird is not None and bonus_card.name in tray_bird.bonus_categories
+    )
+    feat[base + layout._BONUS_VALUE_TRAY] = tray_qual / layout._BONUS_COUNT_SCALE
 
 
 def _fill_gain_food(feat: np.ndarray, food: cards.Food, from_choice_die: bool) -> None:
