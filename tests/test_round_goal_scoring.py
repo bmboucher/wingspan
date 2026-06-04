@@ -23,7 +23,7 @@ def _game_with_forest_counts(count_0: int, count_1: int) -> state.GameState:
     birds, bonuses, goals = cards.load_all()
     game_state = state.new_game(rng, birds, bonuses, goals)
     forest_goal = cards.EndRoundGoal(
-        id=0, description="[bird] in [forest]", category="birds_forest"
+        id=0, description="[bird] in [forest]", category="birds_forest", tile_id=0
     )
     game_state.round_goals = [forest_goal] * 4
     any_bird = birds[0]

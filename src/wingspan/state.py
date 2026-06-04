@@ -532,9 +532,7 @@ def new_game(
     rng.shuffle(deck)
     bonus_deck = list(bonuses)
     rng.shuffle(bonus_deck)
-    goal_pool = list(goals)
-    rng.shuffle(goal_pool)
-    round_goals = goal_pool[:4]
+    round_goals = _select_round_goals(rng, goals)
 
     players = [Player(id=i, name=player_names[i]) for i in range(2)]
     start_player = rng.randint(0, len(players) - 1)
@@ -554,6 +552,28 @@ def new_game(
 
 
 ###### PRIVATE #######
+
+
+_N_ROUND_GOALS = 4
+
+
+def _select_round_goals(
+    rng: random.Random, goals: list[cards.EndRoundGoal]
+) -> list[cards.EndRoundGoal]:
+    """Pick four goals that come from four distinct physical tiles.
+
+    Goals are grouped by ``tile_id``; four tile groups are chosen without
+    replacement, then one side (goal) is chosen at random from each group."""
+    # Group goals by tile_id, preserving only tiles with at least one goal.
+    tiles: dict[int, list[cards.EndRoundGoal]] = {}
+    for goal in goals:
+        tiles.setdefault(goal.tile_id, []).append(goal)
+
+    available_tile_ids = list(tiles.keys())
+    rng.shuffle(available_tile_ids)
+    chosen_tile_ids = available_tile_ids[:_N_ROUND_GOALS]
+
+    return [rng.choice(tiles[tile_id]) for tile_id in chosen_tile_ids]
 
 
 def _track_count(num_birds: int, track: tuple[int, ...]) -> int:

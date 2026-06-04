@@ -10,6 +10,7 @@ previously unscored.
 from __future__ import annotations
 
 import pathlib
+import random
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
@@ -51,7 +52,19 @@ def _player_with(
 
 
 def _goal(category: str) -> cards.EndRoundGoal:
-    return cards.EndRoundGoal(id=1, description=category, category=category)
+    return cards.EndRoundGoal(id=1, description=category, category=category, tile_id=0)
+
+
+def test_new_game_goals_come_from_distinct_tiles() -> None:
+    """The four round goals in any game must come from four different tiles."""
+    birds, bonuses, goals = cards.load_all()
+    core_goals = [goal for goal in goals if goal.category not in ("unknown",)]
+    for seed in range(50):
+        game_state = state.new_game(random.Random(seed), birds, bonuses, core_goals)
+        tile_ids = [goal.tile_id for goal in game_state.round_goals]
+        assert (
+            len(set(tile_ids)) == 4
+        ), f"seed {seed}: round goals share a tile — tile_ids {tile_ids}"
 
 
 def test_no_core_goal_is_unknown() -> None:

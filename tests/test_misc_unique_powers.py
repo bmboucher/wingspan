@@ -279,10 +279,12 @@ def test_fewest_forest_gains_die_only_min_player_gets_food():
     p0, p1 = gs.players
     # Give P0 zero forest birds, P1 one forest bird (so P0 is "fewest").
     p1.board[cards.Habitat.FOREST].append(state.PlayedBird(bird=pb.bird))
-    # Ensure birdfeeder has a known food.
+    # Explicitly set feeder to 3 SEED dice (and nothing else) — single face,
+    # so the engine will offer the optional reset before the gain.
     for food in cards.ALL_FOODS:
         gs.birdfeeder.counts[food] = 0
     gs.birdfeeder.counts[cards.Food.SEED] = 3
+    gs.birdfeeder.choice_dice = 0
     food_before = {
         other_player.id: other_player.food.as_dict() for other_player in gs.players
     }
@@ -291,6 +293,16 @@ def test_fewest_forest_gains_die_only_min_player_gets_food():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
+        # Single-face rule: skip the optional reset and take the seed as-is.
+        if isinstance(decision, decisions.ResetBirdfeederDecision):
+            return typing.cast(
+                C,
+                next(
+                    ch
+                    for ch in decision.choices
+                    if isinstance(ch, decisions.SkipChoice)
+                ),
+            )
         return typing.cast(
             C,
             next(
@@ -317,9 +329,11 @@ def test_fewest_forest_gains_die_ties_each_gets_one():
     gs.current_player = 0
     p0, p1 = gs.players
     # Both have zero forest birds -> tie -> both gain a die.
+    # Explicitly single-face feeder so the optional reset is offered before each gain.
     for food in cards.ALL_FOODS:
         gs.birdfeeder.counts[food] = 0
     gs.birdfeeder.counts[cards.Food.SEED] = 5
+    gs.birdfeeder.choice_dice = 0
     food_before = {
         other_player.id: other_player.food.as_dict() for other_player in gs.players
     }
@@ -328,6 +342,16 @@ def test_fewest_forest_gains_die_ties_each_gets_one():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
+        # Single-face rule: skip the optional reset and take the seed as-is.
+        if isinstance(decision, decisions.ResetBirdfeederDecision):
+            return typing.cast(
+                C,
+                next(
+                    ch
+                    for ch in decision.choices
+                    if isinstance(ch, decisions.SkipChoice)
+                ),
+            )
         return typing.cast(
             C,
             next(

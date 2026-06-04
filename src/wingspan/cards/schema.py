@@ -281,7 +281,9 @@ class EndRoundGoal(pydantic.BaseModel):
     """One of the 16 end-of-round goals.
 
     ``category`` is a short tag the scoring engine dispatches on (set by the
-    loader). The placement payout is intentionally not stored here: it depends
+    loader). ``tile_id`` identifies which physical double-sided tile this goal
+    appears on; the two goals sharing a ``tile_id`` are the two sides of the
+    same tile. The placement payout is intentionally not stored here: it depends
     on which round the goal is scored in, not on the goal card itself — see
     ``state.ROUND_GOAL_PAYOUTS_2P`` and ``engine.scoring.score_round_goal``."""
 
@@ -291,6 +293,8 @@ class EndRoundGoal(pydantic.BaseModel):
     description: str  # e.g. "[bird] in [forest]"
     # canonical category enum-string for easy dispatch
     category: str
+    # physical tile this goal appears on (two goals per tile, one per side)
+    tile_id: int
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +414,7 @@ class GoalRecord(pydantic.BaseModel):
     id: int
     card_set: str = pydantic.Field(alias="Set")
     goal: str | None = pydantic.Field(default=None, alias="Goal")
+    tile_id: int
 
     def load(self) -> EndRoundGoal:
         """Build the parsed :class:`EndRoundGoal` from this raw record."""
@@ -420,4 +425,5 @@ class GoalRecord(pydantic.BaseModel):
             id=self.id,
             description=desc,
             category=parse.goal_category(desc),
+            tile_id=self.tile_id,
         )
