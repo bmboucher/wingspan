@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state
-from wingspan.encode import layout, state_encode
+from wingspan.encode import layout, state_encode, stripes
 from wingspan.engine import scoring
 
 # ---------------------------------------------------------------------------
@@ -144,6 +144,36 @@ def test_state_encoder_decision_type_one_hot_flips():
     assert not np.array_equal(v_main[head:], v_lay[head:])
 
 
+def test_state_encoder_birdfeeder_reset_flag_tracks_single_face():
+    """The birdfeeder stripe's trailing flag mirrors
+    ``Birdfeeder.reset_available()``: 1 when every die shows one face (a single
+    food, or all dice on the choice face), 0 on a mixed feeder. The stripe is
+    located through the registry so the test survives layout growth."""
+    eng, *_ = engine.Engine.create(seed=4)
+    feeder = eng.state.birdfeeder
+    feeder_stripe = next(
+        stripe
+        for stripe in stripes.state_stripe_layout().stripes
+        if stripe.name == "birdfeeder"
+    )
+    flag_index = feeder_stripe.offset + feeder_stripe.size - 1
+
+    def flag() -> float:
+        return float(encode.encode_state(eng.state)[flag_index])
+
+    feeder.counts.zero()
+    feeder.choice_dice = 0
+    feeder.counts[cards.Food.SEED] = 3  # one single-food face -> reset on offer
+    assert flag() == 1.0
+
+    feeder.counts[cards.Food.FISH] = 1  # a second face -> no reset
+    assert flag() == 0.0
+
+    feeder.counts.zero()
+    feeder.choice_dice = 5  # all dice on the choice face is still one face
+    assert flag() == 1.0
+
+
 # ---------------------------------------------------------------------------
 # Per-choice featurization
 
@@ -222,7 +252,7 @@ def test_pay_cost_features_distinguish_exchanges():
     """An AcceptExchange ``PayCostChoice`` surfaces its trade terms, so two
     different exchanges (egg→card vs food→tucks) produce different feature rows,
     and both differ from a skip — closing the old "PayCostChoice is featureless"
-    gap (DECISIONS.md §4.3)."""
+    gap (DECISIONS.md §2.8)."""
     eng, *_ = engine.Engine.create(seed=11)
     decision = decisions.AcceptExchangeDecision(
         player_id=0,

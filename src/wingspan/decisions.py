@@ -549,7 +549,7 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
 # Judgment-family taxonomy
 #
 # The RL model groups the decision classes above into *judgment families* —
-# one per distinct skill a player exercises (see ``DECISIONS.md`` §5). Each
+# one per distinct skill a player exercises (see ``DECISIONS.md`` §2). Each
 # family becomes one scoring head on the shared trunk: several as-built
 # ``Decision`` classes collapse onto one family when they ask the same
 # underlying judgment (e.g. every "is this bird worth keeping/playing?"
@@ -568,8 +568,8 @@ class DecisionFamily(enum.StrEnum):
 
     Several as-built ``Decision`` classes map to one family when they share an
     underlying judgment, and the RL model trains one scoring head per family
-    rather than one per decision class. See ``DECISIONS.md`` §5 for the
-    rationale and the full per-class mapping.
+    rather than one per decision class. See ``DECISIONS.md`` §0 for the full
+    per-class mapping and §2 for the per-family rationale.
     """
 
     SETUP = "setup"
@@ -608,7 +608,7 @@ ALL_DECISION_FAMILIES: tuple[DecisionFamily, ...] = (
 
 # Per-class assignment. Keyed on the concrete decision class so routing is a
 # pure function of the class. Bird valuation is split by direction (DECISIONS.md
-# §3.3): *acquiring* a bird ("which do I take?") and *giving one up* ("which do
+# §2.2/§2.3): *acquiring* a bird ("which do I take?") and *giving one up* ("which do
 # I lose?") are opposite judgments and route to separate heads. Choosing the
 # turn's action *type* (``MainActionDecision`` -> ``MAIN_ACTION``) is split from
 # choosing *which bird to play, where* (``PlayBirdDecision`` -> ``PLAY_BIRD``);

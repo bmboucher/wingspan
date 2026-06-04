@@ -156,18 +156,25 @@ def test_ask_single_choice_logs_label_and_skips_agent():
 
 
 def test_forced_feeder_take_logs_only_one_choice():
-    """``take_one_from_feeder`` with a single gainable option routes through
-    ``ask`` and logs the forced pick."""
-    eng, birds = _engine_with_agents()
+    """``take_one_from_feeder`` with a single allowed option routes through
+    ``ask`` and logs the forced pick. The feeder shows two faces so the
+    entry point's internal reset offer stays silent."""
+    eng, _ = _engine_with_agents()
     player = eng.state.players[0]
-    pb = state.PlayedBird(bird=birds[0])
-    eng.state.birdfeeder.counts = state.FoodPool.from_dict({cards.Food.RODENT: 2})
+    eng.state.birdfeeder.counts = state.FoodPool.from_dict(
+        {cards.Food.RODENT: 2, cards.Food.FISH: 1}
+    )
     eng.state.birdfeeder.choice_dice = 0
 
-    actions.take_one_from_feeder(
-        eng, _raising_agent, player, pb, [cards.Food.RODENT], reason="test"
+    gained = actions.take_one_from_feeder(
+        eng,
+        _raising_agent,
+        player,
+        prompt=f"[{player.name}] pick 1 from birdfeeder",
+        allowed=[cards.Food.RODENT],
     )
 
+    assert gained == cards.Food.RODENT
     skip_lines = [
         line for line in eng.state.log if "skipping decision, only 1 choice" in line
     ]

@@ -56,15 +56,11 @@ def _h_gain_all_food_feeder(
 ) -> None:
     from wingspan.engine import actions
 
-    st = engine.state
     bird = pb.bird
     assert eff.food is not None
     food = eff.food
-    actions.offer_birdfeeder_reset(engine, agent, player)
-    count = st.birdfeeder.gainable_count(food)
+    count = actions.take_all_of_food(engine, agent, player, food)
     if count > 0:
-        for _ in range(count):
-            actions.gain_feeder_die(engine, player, food)
         engine.log(f"  {bird.name}: gained all {count} {food.value} from birdfeeder")
     else:
         engine.log(f"  {bird.name}: no {food.value} in birdfeeder; skipped")

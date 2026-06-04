@@ -152,7 +152,8 @@ the document:
 - `setup` is a special case: only 2 examples per game (one opening per player),
   yet it is the highest-stakes decision in the game and has a 504-wide menu.
   Rare **and** high-variance **and** high-dimensional — it deserves its own
-  treatment (§6.4), exactly as DECISIONS.md §1.5 anticipates.
+  treatment (§6.4), exactly what the separate setup model now provides
+  (DECISIONS.md §2.13).
 
 ### 1.3 Choice-set sizes, and the padding problem
 
@@ -219,7 +220,7 @@ needed.
   `softmax` over the per-family head's scores.
 - **Self-play.** Both seats are driven by the *same* network. Symmetry comes
   from encoding the board from the deciding player's point of view (DECISIONS.md
-  §4) and giving the two seats opposite-signed rewards.
+  §0) and giving the two seats opposite-signed rewards.
 - **Reward / return (G).** What we want to maximize. Here: the **final score
   margin** (your score minus the opponent's), the same for every step you took
   in that game.
@@ -409,7 +410,7 @@ information** (opponent hand, deck order) and **chance** (dice, shuffles), which
 break vanilla MCTS and require determinization machinery. PPO self-play is the
 pragmatic path and aligns better with the project's analytical goal — the
 per-family heads and the value head give *direct, interrogable* readouts
-(DECISIONS.md §6), whereas a search wrapper hides the policy's reasoning behind
+(DECISIONS.md §2), whereas a search wrapper hides the policy's reasoning behind
 the tree. Revisit AlphaZero only if PPO self-play plateaus below your strength
 target.
 
@@ -450,7 +451,7 @@ The 12-core box can comfortably run ~10 actors and still service the learner.
 That is the difference between a multi-day run and an overnight one.
 
 **How much data is "enough"?** For the analytical payoff (per-card power
-rankings, bonus-card value, opening theory — DECISIONS.md §6), the binding
+rankings, bonus-card value, opening theory), the binding
 constraint is that each of the 180 birds must be *seen, played, and evaluated*
 many times across many contexts. As an order of magnitude, expect to need
 **10⁵–10⁶ games** before per-card readouts stabilize, and far more for the
@@ -647,7 +648,8 @@ budget last.
   table. Replace both with one shared `nn.Embedding(180, d)` (and `(26, d)` for
   bonus cards). The card's representation becomes consistent everywhere it
   appears, it generalizes better, and — the project's headline goal — that
-  single embedding table *is* the per-card power readout (DECISIONS.md §4).
+  single embedding table *is* the per-card power readout (the `bird_id` stripe
+  embedded through the shared card table, DECISIONS.md §1).
 - **Widen the trunk before the heads.** The shared "read the board" trunk is the
   thing every decision and the critic depend on, and at `hidden=128` it is the
   cheap part of the net (§1.1). Widening it to 256–512 lifts every head and the
@@ -663,7 +665,7 @@ effort:
 
 - **Keep them deliberately small** so they cannot overfit their few examples
   (the design already pools the two rarest decisions into `misc_rare` for
-  exactly this reason — DECISIONS.md §3.11).
+  exactly this reason — DECISIONS.md §2.10).
 - **Lean on the shared trunk and shared card embedding** so a starved head
   inherits a good board representation and good card vectors, and only has to
   learn a thin final mapping.
@@ -671,12 +673,12 @@ effort:
   analyzable structure — a bonus card's category and VP thresholds, an opening's
   affordable curve — that can become hand-computed training targets,
   letting these heads learn from heuristics instead of waiting for the rare
-  on-policy signal (DECISIONS.md §3.9 anticipates feeding the bonus head its
-  structured terms).
-- **Treat `setup` as its own model eventually** (DECISIONS.md §1.5): it is rare,
-  high-variance, high-dimensional, and game-defining. A separate small network
-  with its own, possibly heuristic-bootstrapped, objective is a clean future
-  refinement.
+  on-policy signal (the bonus head's `bonus_delta` stripe now carries exactly
+  these structured terms — DECISIONS.md §2.9).
+- **Treat `setup` as its own model** (now the default, DECISIONS.md §2.13): it
+  is rare, high-variance, high-dimensional, and game-defining. The separate
+  value-regression setup net realizes this, with its random-generation
+  bootstrap phase standing in for the heuristic objective.
 
 ---
 

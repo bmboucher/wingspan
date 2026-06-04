@@ -135,7 +135,7 @@ def _flatten(
     """Flatten every game's steps and pair each with its REINFORCE return —
     the terminal score margin from that step's player POV, scaled by
     ``score_norm`` (so player 0 and player 1 get opposite signs in a decisive
-    game; DECISIONS.md §5)."""
+    game; TRAINING.md §2's opposite-signed self-play rewards)."""
     flat_steps: list[steps.Step] = []
     returns: list[float] = []
     for record in records:

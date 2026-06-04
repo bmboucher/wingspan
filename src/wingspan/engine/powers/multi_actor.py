@@ -61,33 +61,20 @@ def _player_gains_dice(
     bird: cards.Bird,
 ) -> None:
     """``target_player`` takes ``amount`` dice from the birdfeeder one at a time
-    (resetting the feeder first if offered), crediting each to their supply."""
+    (the take entry point offers any single-face reset before each die),
+    crediting each to their supply."""
     from wingspan.engine import actions
 
-    st = engine.state
     responder = engine.agent_for(target_player)
     for _ in range(amount):
-        actions.offer_birdfeeder_reset(engine, responder, target_player)
-        food_ch = engine.ask(
+        gained = actions.take_one_from_feeder(
+            engine,
             responder,
-            decisions.GainFoodDecision(
-                player_id=target_player.id,
-                prompt=f"[{target_player.name}] take 1 die from birdfeeder ({bird.name})",
-                choices=[
-                    decisions.FoodChoice(
-                        label=st.birdfeeder.gain_option_label(food, combo),
-                        food=food,
-                        from_choice_die=combo,
-                    )
-                    for food, combo in st.birdfeeder.gain_options()
-                ],
-            ),
+            target_player,
+            prompt=f"[{target_player.name}] take 1 die from birdfeeder ({bird.name})",
         )
-        assert isinstance(food_ch, decisions.FoodChoice)
-        actions.gain_feeder_die(
-            engine, target_player, food_ch.food, from_choice_die=food_ch.from_choice_die
-        )
-        engine.log(f"  [{target_player.name}] +1 {food_ch.food.value} from birdfeeder")
+        assert gained is not None  # unrestricted menu, post-reset
+        engine.log(f"  [{target_player.name}] +1 {gained.value} from birdfeeder")
 
 
 @registry.handles(cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST)

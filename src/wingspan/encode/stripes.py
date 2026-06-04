@@ -349,20 +349,24 @@ def state_stripe_layout(
     stripes.append(
         StripeDescriptor(
             name="birdfeeder",
-            description="Birdfeeder die face counts: single-food faces and choice-wild dice.",
+            description=(
+                "Birdfeeder die face counts (single-food faces and choice-wild "
+                "dice) plus the reset-availability flag."
+            ),
             offset=off,
-            size=6,
+            size=7,
             encoding="vector",
             value_range="[0, 1]",
             notes=(
-                f"6 values: one per food type ({food_names}) for single-food faces, "
-                "then the count of choice-die (wild) faces. "
-                "Each normalized ÷ 5 (max dice showing that face)."
+                f"7 values: one per food type ({food_names}) for single-food faces, "
+                "then the count of choice-die (wild) faces — each normalized ÷ 5 "
+                "(max dice showing that face) — then a 0/1 flag set when every "
+                "die shows the same face (the optional pre-gain reset is on offer)."
             ),
             sub_fields=_birdfeeder_sub_fields(),
         )
     )
-    off += 6
+    off += 7
 
     # ---- miscellaneous scalars ----
     stripes.append(
@@ -1153,7 +1157,8 @@ def _hand_summary_sub_fields() -> tuple[SubFieldDescriptor, ...]:
 
 
 def _birdfeeder_sub_fields() -> tuple[SubFieldDescriptor, ...]:
-    """6 sub-fields for the birdfeeder stripe (one per food face + choice die)."""
+    """7 sub-fields for the birdfeeder stripe (one per food face + choice die
+    + the reset-availability flag)."""
     sub_fields: list[SubFieldDescriptor] = []
     for idx, food in enumerate(cards.ALL_FOODS):
         sub_fields.append(
@@ -1176,6 +1181,20 @@ def _birdfeeder_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             encoding="scalar",
             value_range="[0, 1]",
             notes="Normalized ÷ 5.",
+        )
+    )
+    sub_fields.append(
+        SubFieldDescriptor(
+            name="reset_available",
+            description=(
+                "Every die shows the same face — the optional pre-gain "
+                "birdfeeder reset would be offered."
+            ),
+            relative_offset=len(sub_fields),
+            size=1,
+            encoding="binary",
+            value_range="{0, 1}",
+            notes="Mirrors ``Birdfeeder.reset_available()`` (Rule 2).",
         )
     )
     return tuple(sub_fields)

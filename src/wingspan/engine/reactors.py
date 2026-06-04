@@ -41,8 +41,9 @@ def trigger_pink_predator_success(
     hunter_player: state.Player,
 ) -> None:
     """Called after a ``PREDATOR_HUNT`` succeeds (a card was tucked). Each
-    OTHER player's ``PINK_PREDATOR_FEEDER`` birds gain 1 die from the
-    birdfeeder."""
+    OTHER player's ``PINK_PREDATOR_FEEDER`` birds gain 1 die of the reacting
+    player's choice from the birdfeeder (the take entry point offers any
+    single-face reset to them first)."""
     # Local import to keep main_actions/reactors decoupled at module load.
     from wingspan.engine import actions
 
@@ -57,20 +58,17 @@ def trigger_pink_predator_success(
                 for eff in pb.bird.power.effects:
                     if eff.kind != cards.EffectKind.PINK_PREDATOR_FEEDER:
                         continue
-                    avail = st.birdfeeder.gainable_foods()
-                    if not avail:
-                        engine.log(
-                            f"  {pb.bird.name} (pink): birdfeeder empty; skipped"
-                        )
-                        continue
-                    actions.take_one_from_feeder(
+                    gained = actions.take_one_from_feeder(
                         engine,
                         engine.agent_for(other_player),
                         other_player,
-                        pb,
-                        avail,
-                        reason="pink_predator_feeder",
+                        prompt=(
+                            f"[{other_player.name}] pick 1 from birdfeeder "
+                            f"for {pb.bird.name}"
+                        ),
                     )
+                    assert gained is not None  # unrestricted menu, post-reset
+                    engine.log(f"  {pb.bird.name}: +1 {gained.value} from birdfeeder")
 
 
 def fire_pink_lay_egg(

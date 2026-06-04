@@ -8,7 +8,7 @@ index). After the game it reads each player's final board into a
 and report the score's six-way split live.
 
 Single-option forced moves are not recorded — the trainable surface is the
-moments with a genuine fork (DECISIONS.md §1.4).
+moments with a genuine fork (DECISIONS.md §0).
 
 The bundled card catalog is parsed once and reused across games (the card
 models are immutable and ``state.new_game`` copies the deck lists before

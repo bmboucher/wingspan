@@ -554,8 +554,13 @@ def test_pink_lay_eggs_reactor_fires_on_opponent_lay_eggs():
     assert bowl_pb.eggs >= 1
 
 
-def test_pink_predator_feeder_fires_when_predator_succeeds():
-    eng, birds = _engine(seed=12)
+def _predator_reaction_setup(
+    seed: int,
+) -> tuple[engine.Engine, state.Player, state.Player, state.PlayedBird]:
+    """A board where P0's Cooper's Hawk hunt is forced to succeed and P1 owns a
+    pink predator-feeder reactor (Turkey Vulture), with a controlled single-face
+    feeder (3 seed dice) so the reacting gain offers the optional reset."""
+    eng, birds = _engine(seed=seed)
     vulture = _find(birds, "Turkey Vulture")  # pink reactor
     hawk = _find(birds, "Cooper's Hawk")
     p0 = eng.state.players[0]
@@ -567,7 +572,7 @@ def test_pink_predator_feeder_fires_when_predator_succeeds():
     # Force a successful hunt: small bird on top of deck.
     small = next(bird for bird in birds if bird.wingspan_cm and bird.wingspan_cm < 30)
     eng.state.bird_deck.append(small)
-    # Give feeder some food.
+    # All feeder dice on one face, so the reacting player is offered the reset.
     eng.state.birdfeeder.counts.zero()
     eng.state.birdfeeder.choice_dice = 0  # controlled feeder: clear the choice face
     eng.state.birdfeeder.counts[cards.Food.SEED] = 3
@@ -575,6 +580,61 @@ def test_pink_predator_feeder_fires_when_predator_succeeds():
         p1.food[food] = 0
 
     eng.state.current_player = 0
+    return eng, p0, p1, pb_hawk
+
+
+def test_pink_predator_feeder_fires_when_predator_succeeds():
+    eng, p0, p1, pb_hawk = _predator_reaction_setup(seed=12)
+    offered = {"n": 0}
+
+    # P1 is offered the single-face reset before the gain and declines; the
+    # one-option seed gain then auto-resolves without consulting the agent.
+    def p1_agent[C: decisions.Choice](
+        _engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        assert isinstance(decision, decisions.ResetBirdfeederDecision)
+        offered["n"] += 1
+        return typing.cast(
+            C,
+            next(
+                choice
+                for choice in decision.choices
+                if isinstance(choice, decisions.SkipChoice)
+            ),
+        )
+
+    eng.agents[1] = p1_agent
     powers.dispatch_power(eng, _no_agent, p0, pb_hawk, cards.Habitat.FOREST, "activate")
     assert pb_hawk.tucked_cards == 1
+    assert offered["n"] == 1  # the reacting player got the reset offer
     assert p1.food[cards.Food.SEED] == 1
+
+
+def test_pink_predator_feeder_reset_accept_rerolls_before_the_gain():
+    """Regression: the pink predator-success reaction used to pull its die
+    without passing through the reset offer. Accepting the offered reset must
+    reroll the feeder before the gain menu is built."""
+    eng, p0, p1, pb_hawk = _predator_reaction_setup(seed=12)
+
+    def p1_agent[C: decisions.Choice](
+        _engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        if isinstance(decision, decisions.ResetBirdfeederDecision):
+            return typing.cast(
+                C,
+                next(
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.ResetBirdfeederChoice)
+                ),
+            )
+        assert isinstance(decision, decisions.GainFoodDecision)
+        return typing.cast(C, decision.choices[0])
+
+    eng.agents[1] = p1_agent
+    powers.dispatch_power(eng, _no_agent, p0, pb_hawk, cards.Habitat.FOREST, "activate")
+    assert pb_hawk.tucked_cards == 1
+    # The accepted reset rerolled all five dice before the take, so the
+    # three-die feeder became a fresh five-die roll minus the one die gained.
+    assert eng.state.birdfeeder.total() == state.BIRDFEEDER_DICE - 1
+    assert sum(p1.food[food] for food in cards.ALL_FOODS) == 1

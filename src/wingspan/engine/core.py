@@ -208,7 +208,7 @@ class Engine:
         visible). This keeps every front-end consistent: the interactive
         CLI never prompts a human to "pick" the only option, and the RL
         collector only ever sees genuine forks, so no zero-signal steps are
-        recorded (DECISIONS.md §1.4) and a forced move costs no forward pass
+        recorded (DECISIONS.md §0) and a forced move costs no forward pass
         during self-play. Because ``ask`` is the single choke point every
         agent call routes through, this one guard covers every decision type.
 

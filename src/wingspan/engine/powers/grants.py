@@ -48,13 +48,11 @@ def _h_gain_food_birdfeeder(
 ) -> None:
     from wingspan.engine import actions
 
-    st = engine.state
     bird = pb.bird
     if eff.food:
-        actions.offer_birdfeeder_reset(engine, agent, player)
-        take = min(eff.amount, st.birdfeeder.gainable_count(eff.food))
-        for _ in range(take):
-            actions.gain_feeder_die(engine, player, eff.food)
+        take = actions.take_all_of_food(
+            engine, agent, player, eff.food, limit=eff.amount
+        )
         if take:
             engine.log(f"  {bird.name}: +{take} {eff.food.value} from birdfeeder")
 
@@ -71,27 +69,23 @@ def _h_gain_food_from_feeder_choice(
 ) -> None:
     from wingspan.engine import actions
 
-    st = engine.state
     bird = pb.bird
     food_a, food_b = eff.food_a, eff.food_b
     assert food_a is not None and food_b is not None
-    actions.offer_birdfeeder_reset(engine, agent, player)
-    gainable = st.birdfeeder.gainable_foods()
-    avail = [food for food in (food_a, food_b) if food in gainable]
-    if not avail:
+    gained = actions.take_one_from_feeder(
+        engine,
+        agent,
+        player,
+        prompt=f"[{player.name}] pick 1 from birdfeeder for {bird.name}",
+        allowed=[food_a, food_b],
+    )
+    if gained is None:
         engine.log(
             f"  {bird.name}: neither {food_a.value} nor {food_b.value}"
             f" in birdfeeder; skipped"
         )
         return
-    actions.take_one_from_feeder(
-        engine,
-        agent,
-        player,
-        pb,
-        avail,
-        reason="gain_food_from_feeder_choice",
-    )
+    engine.log(f"  {bird.name}: +1 {gained.value} from birdfeeder")
 
 
 @registry.handles(cards.EffectKind.GAIN_DIE_ANY)
@@ -106,16 +100,15 @@ def _h_gain_die_any(
 ) -> None:
     from wingspan.engine import actions
 
-    st = engine.state
     bird = pb.bird
-    actions.offer_birdfeeder_reset(engine, agent, player)
-    avail = st.birdfeeder.gainable_foods()
-    if not avail:
-        engine.log(f"  {bird.name}: birdfeeder empty; skipped")
-        return
-    actions.take_one_from_feeder(
-        engine, agent, player, pb, avail, reason="gain_die_any"
+    gained = actions.take_one_from_feeder(
+        engine,
+        agent,
+        player,
+        prompt=f"[{player.name}] pick 1 from birdfeeder for {bird.name}",
     )
+    assert gained is not None  # unrestricted menu, post-reset
+    engine.log(f"  {bird.name}: +1 {gained.value} from birdfeeder")
 
 
 @registry.handles(cards.EffectKind.LAY_EGG_ON_THIS)

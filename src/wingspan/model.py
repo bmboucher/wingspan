@@ -107,7 +107,8 @@ class PolicyValueNet(nn.Module):
         # collapsible to a plain lookup at inference. A single card therefore has
         # one representation, derived from both its attributes and a learned
         # per-card component, used by the critic-state read and the actor's
-        # candidate scoring alike (DECISIONS.md card power-ranking goal). The card
+        # candidate scoring alike (TRAINING.md §6.3: the table is the per-card
+        # power readout the project's card-ranking goal needs). The card
         # feature matrix and the padding-row mask are constant buffers rebuilt from
         # the catalog (``persistent=False`` keeps them out of the checkpoint).
         self.card_encoder, _ = mlp.build_body(
@@ -302,7 +303,7 @@ class PolicyValueNet(nn.Module):
         Public because it is the model's per-card representation readout: at
         inference the weights are fixed, so this can be computed once and reused as a
         plain lookup, and it doubles as the ``[bird_index + 1] -> vector`` table the
-        card-power analysis reads (DECISIONS.md). ``forward`` reaches it through
+        card-power analysis reads (TRAINING.md §6.3). ``forward`` reaches it through
         ``_card_table_for_pass`` (which caches it during inference)."""
         return self.card_encoder(self.card_features) * self.card_pad_mask
 

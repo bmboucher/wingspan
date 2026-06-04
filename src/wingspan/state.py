@@ -339,6 +339,13 @@ class Birdfeeder(pydantic.BaseModel):
         die shows it. Drives the reroll-when-one-face-left rule."""
         return len(self.counts.types_with_positive()) + (1 if self.choice_dice else 0)
 
+    def reset_available(self) -> bool:
+        """Whether the optional pre-gain reset (Rule 2) is on offer: every die
+        shows the same face — one single food, or all dice on the
+        invertebrate/seed choice face. The single shared predicate behind the
+        engine's reset offer and the state encoder's reset-availability flag."""
+        return self.distinct_faces() == 1
+
     def gainable_foods(self) -> list[cards.Food]:
         """Foods a player could take right now, in canonical ``ALL_FOODS`` order:
         every food with a single face showing, plus invertebrate and seed

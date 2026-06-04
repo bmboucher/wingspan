@@ -468,23 +468,31 @@ modelling question.
 
 **Where the engine asks it.** Offered immediately before a feeder gain
 whenever every die in the feeder shows the same face (all one food, or all on
-the invertebrate/seed choice face):
+the invertebrate/seed choice face — `Birdfeeder.reset_available()`):
 
 - before each die of the main Gain Food action, and before the Forest
   conversion's extra die;
 - before the feeder-pulling powers: the named-food feeder gains, the
   either-of-two-foods picks, the any-die picks, the gain-all-of-a-food powers,
-  each seat's turn in the each-player gains, and the fewest-forest gain.
+  each seat's turn in the each-player gains, and the fewest-forest gain;
+- before the pink predator-success reaction's pull, offered to the *reacting*
+  player.
 
-The *empty*-feeder reroll is automatic and never a decision. One gap to be
-aware of: the pink predator-success reaction currently pulls its die without
-passing through the reset offer.
+The *empty*-feeder reroll is automatic and never a decision. Structurally, the
+offer cannot be bypassed: every feeder gain routes through one of the two
+entry points in `engine/actions.py` (`take_one_from_feeder` for a die of the
+player's choice, `take_all_of_food` for the no-choice gain-all powers), and
+both run the offer internally before building their menu / count from the
+post-reset feeder.
 
 **What the choice rows carry.** Nearly nothing, by design: the affirmative
 ("reroll everything") is a bare special-kind token; the decline is the same
 plus `is_skip`. The entire judgment — what is showing, how many dice remain,
-what the player needs — is read from the state vector (the 6-dim feeder
-stripe: five face counts plus the choice-die count) through the trunk.
+what the player needs — is read from the state vector (the 7-dim feeder
+stripe: five face counts, the choice-die count, and a 0/1 reset-availability
+flag mirroring the offer condition) through the trunk. The flag is derivable
+from the counts, but it is surfaced explicitly so this head — and every other
+head deciding around a pending feeder gain — reads it directly.
 
 **Variation within the family.** None structurally; the same two rows every
 time. The contexts (main action vs. the various powers, active vs. reacting

@@ -1,7 +1,7 @@
 """Tests for the judgment-family taxonomy (``decisions.DecisionFamily``).
 
 The RL model trains one scoring head per judgment family rather than one per
-decision class (DECISIONS.md §0/§5). These tests pin the invariants the model
+decision class (DECISIONS.md §0). These tests pin the invariants the model
 relies on:
 
 1. The family map is *total* over ``ALL_DECISION_CLASSES`` — every decision
@@ -62,7 +62,7 @@ def test_every_family_is_used_by_some_decision():
 def test_bird_acquisition_and_discard_are_distinct_families():
     """ "Which bird do I take?" (draw source, draft keep) and "which bird do I
     give up?" (tuck from hand, discard a card for food) are opposite judgments
-    and must route to different heads (DECISIONS.md §3.3, review point 1)."""
+    and must route to different heads (DECISIONS.md §2.2/§2.3, review point 1)."""
     acquisition = {
         decisions.family_for(cls)
         for cls in (
@@ -156,7 +156,7 @@ def test_setup_has_its_own_family():
 def test_rare_structural_powers_share_the_misc_head():
     """Repeat-a-power, pick-starting-player, and the habitat designation for a
     moved bird are all too rare to give their own heads, so they stay pooled in
-    the misc/rare head (DECISIONS.md §3.11; the former ``MOVE_HABITAT`` family
+    the misc/rare head (DECISIONS.md §2.10; the former ``MOVE_HABITAT`` family
     folded in here for lack of data)."""
     assert (
         decisions.family_for(decisions.BirdPowerPickPlayedBirdDecision)

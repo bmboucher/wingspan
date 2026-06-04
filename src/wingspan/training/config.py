@@ -186,7 +186,7 @@ class TrainConfig(pydantic.BaseModel):
     # 3·M + N tray dims). Requires use_distinct_hand_model. Fresh run.
     tray_set_embedding: bool = False
 
-    # ---- setup model (TRAINING.md / DECISIONS.md: the start-of-game keep) ----
+    # ---- setup model (TRAINING.md / DECISIONS.md §2.13: the start-of-game keep) ----
     # When enabled (the default), the start-of-game setup decision is pulled out of
     # the in-game policy into a separate value-regression bandit
     # (``wingspan.setup_model``): setups are drawn by the random generator early on,

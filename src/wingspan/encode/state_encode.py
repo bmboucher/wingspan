@@ -49,7 +49,7 @@ def encode_state(
         ),  # 4 * layout._BONUS_ID_DIM — held + count + stepped + linear
         _opp_bonus_count(opp),  # 1 — opponent bonus-card count (hidden identity)
         np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32),
-        _summary_birdfeeder(state),  # 6 (5 food faces + choice dice)
+        _summary_birdfeeder(state),  # 7 (5 food faces + choice dice + reset flag)
         _summary_misc_scalars(state, me, opp),  # 7
         _round_goals_all_rounds(state, me, opp),  # layout._ROUND_GOALS_STRIPE_DIM
         _card_index_block(me, opp, state),  # layout.N_CARD_INDEX_SLOTS — board+tray ids
@@ -400,6 +400,10 @@ def _summary_birdfeeder(state: state.GameState) -> np.ndarray:
                 for food in cards.ALL_FOODS
             ),
             state.birdfeeder.choice_dice / layout._BIRDFEEDER_COUNT_SCALE,
+            # The optional pre-gain reset (Rule 2) is on offer: every die shows
+            # the same face. Derivable from the counts above, but surfaced as an
+            # explicit flag so the model reads it directly.
+            1.0 if state.birdfeeder.reset_available() else 0.0,
         ],
         dtype=np.float32,
     )

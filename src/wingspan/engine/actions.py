@@ -245,9 +245,14 @@ def offer_birdfeeder_reset(
 ) -> None:
     """Apply the birdfeeder reset rules just before ``player`` takes food.
 
-    Two printed rules fire here, in order, so callers can treat this as the
-    single "prepare the feeder for a gain" step and then read its gainable
-    foods:
+    This is the preparation step of the two feeder-gain entry points —
+    :func:`take_one_from_feeder` and :func:`take_all_of_food` — which run it
+    before reading the feeder, so the menu / count they build reflects any
+    reroll. Power and reactor code must not call it directly: route every
+    feeder gain through those entry points and the offer can never be skipped.
+    (It stays public so the reset rules can be tested in isolation.)
+
+    Two printed rules fire here, in order:
 
     * **Empty feeder — automatic (Rule 1).** A feeder with no dice is rerolled
       at once; it is never a player choice. :func:`gain_feeder_die` already
@@ -257,17 +262,14 @@ def offer_birdfeeder_reset(
       decision.
     * **Single face — optional (Rule 2).** When every die shows the same face —
       one single food, or all dice on the invertebrate/seed choice face
-      (``Birdfeeder.distinct_faces() == 1``) — the player may reroll the whole
+      (``Birdfeeder.reset_available()``) — the player may reroll the whole
       feeder before taking. ``engine.ask`` a ``ResetBirdfeederDecision``; on the
-      affirmative choice, reroll.
-
-    Call this *before* inspecting the feeder for gainable foods, so the offered
-    foods reflect any reroll."""
+      affirmative choice, reroll."""
     feeder = engine.state.birdfeeder
     if feeder.is_empty():
         feeder.reroll(engine.state.rng)
         engine.log(f"  birdfeeder empty; rerolled to {feeder.counts.format()}")
-    if feeder.distinct_faces() != 1:
+    if not feeder.reset_available():
         return
     ch = engine.ask(
         agent,
@@ -315,28 +317,36 @@ def take_one_from_feeder(
     engine: "core.Engine",
     agent: "core.Agent",
     player: state.Player,
-    pb: state.PlayedBird,
-    avail: list[cards.Food],
-    reason: str,
-) -> None:
-    """Pull one die from the birdfeeder into ``player``'s food. The pick routes
-    through ``engine.ask``, whose single-choice guard auto-resolves (and logs) a
-    one-option gain without consulting the agent. ``avail`` must be non-empty
-    and every entry must have a non-zero count in the birdfeeder.
+    *,
+    prompt: str,
+    allowed: list[cards.Food] | None = None,
+) -> cards.Food | None:
+    """Offer the pre-gain birdfeeder reset, then pull one die of ``player``'s
+    choice into their food.
 
-    The optional single-face reset is *not* offered here: callers compute
-    ``avail`` from the feeder before calling, so they must invoke
-    :func:`offer_birdfeeder_reset` first (before reading the feeder) for any
-    reroll to be reflected in ``avail``."""
+    The single sanctioned entry point for a "take 1 die you choose" feeder
+    gain: the reset rules run first (:func:`offer_birdfeeder_reset`), the menu
+    is built from the *post-reset* feeder (``allowed`` restricts it to specific
+    foods, e.g. an either-of-two power; ``None`` offers everything showing),
+    the pick routes through ``engine.ask`` (whose single-choice guard
+    auto-resolves a one-option gain without consulting the agent), and the die
+    moves via :func:`gain_feeder_die`. Returns the food gained, or ``None``
+    when nothing in the post-reset feeder matches ``allowed`` — callers log
+    their own gain / skip message. Callers must not pre-read the feeder to
+    build the menu; everything feeder-dependent happens here, after the
+    reset."""
+    offer_birdfeeder_reset(engine, agent, player)
     feeder = engine.state.birdfeeder
-    # ``avail`` is the set of foods this gain may take; ``gain_options`` expands it
-    # into the distinct plain / choice-die ways to take each (see Birdfeeder).
-    options = feeder.gain_options(avail)
+    # ``gain_options`` expands the allowed foods into the distinct plain /
+    # choice-die ways to take each (see Birdfeeder).
+    options = feeder.gain_options(allowed)
+    if not options:
+        return None
     ch = engine.ask(
         agent,
         decisions.GainFoodDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] pick 1 from birdfeeder for {pb.bird.name}",
+            prompt=prompt,
             choices=[
                 decisions.FoodChoice(
                     label=feeder.gain_option_label(food, combo),
@@ -349,7 +359,33 @@ def take_one_from_feeder(
     )
     assert isinstance(ch, decisions.FoodChoice)
     gain_feeder_die(engine, player, ch.food, from_choice_die=ch.from_choice_die)
-    engine.log(f"  {pb.bird.name}: +1 {ch.food.value} from birdfeeder")
+    return ch.food
+
+
+def take_all_of_food(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    food: cards.Food,
+    *,
+    limit: int | None = None,
+) -> int:
+    """Offer the pre-gain birdfeeder reset, then take every die that could
+    yield ``food`` (capped at ``limit``), crediting each to ``player``'s food.
+
+    The no-choice sibling of :func:`take_one_from_feeder` for "gain all [food]
+    in the birdfeeder" powers: after the reset rules run, the count is read
+    from the post-reset feeder and the dice move one at a time through
+    :func:`gain_feeder_die` (which falls back to choice dice for
+    invertebrate / seed). Returns the number of dice taken — 0 when the
+    post-reset feeder shows none — and callers log their own message."""
+    offer_birdfeeder_reset(engine, agent, player)
+    count = engine.state.birdfeeder.gainable_count(food)
+    if limit is not None:
+        count = min(limit, count)
+    for _ in range(count):
+        gain_feeder_die(engine, player, food)
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -617,31 +653,20 @@ def _log_wasted_extra_play(
 def _take_one_die_active(
     engine: "core.Engine", agent: "core.Agent", player: state.Player
 ) -> None:
-    """One iteration of the main Gain Food action loop: offer the optional
-    single-face reset, then pull one die into ``player``'s food.
+    """One iteration of the main Gain Food action loop: one die of the
+    player's choice via :func:`take_one_from_feeder` (which offers the
+    optional single-face reset first).
 
     The feeder is kept non-empty by :func:`gain_feeder_die` (and the setup
     reroll), so there is always at least one gainable food to offer here."""
-    offer_birdfeeder_reset(engine, agent, player)
-    feeder = engine.state.birdfeeder
-    ch = engine.ask(
+    gained = take_one_from_feeder(
+        engine,
         agent,
-        decisions.GainFoodDecision(
-            player_id=player.id,
-            prompt=f"[{player.name}] take 1 die from birdfeeder",
-            choices=[
-                decisions.FoodChoice(
-                    label=feeder.gain_option_label(food, combo),
-                    food=food,
-                    from_choice_die=combo,
-                )
-                for food, combo in feeder.gain_options()
-            ],
-        ),
+        player,
+        prompt=f"[{player.name}] take 1 die from birdfeeder",
     )
-    assert isinstance(ch, decisions.FoodChoice)
-    gain_feeder_die(engine, player, ch.food, from_choice_die=ch.from_choice_die)
-    engine.log(f"  +1 {ch.food.value}")
+    assert gained is not None  # an unrestricted post-reset menu is never empty
+    engine.log(f"  +1 {gained.value}")
 
 
 #### Habitat-action conversions ####
