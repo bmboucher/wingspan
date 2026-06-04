@@ -49,44 +49,101 @@ def _h_draw_n_plus_one_draft(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    # American Oystercatcher: draw (#players+1) cards. Each non-active player
-    # (clockwise from active+1) picks one card; the active player keeps what
-    # remains. Works for any N >= 2.
+    # American Oystercatcher (2-player): draw 3 cards into the active player's
+    # hand. Active player (P0) passes 2 to the opponent (P1) via discard
+    # decisions, then P1 returns 1. P0 ends with 2 net cards; P1 ends with 1.
+    # Uses while-loops so edge cases (fewer cards drawn than expected) resolve
+    # without crashing: fewer cards → fewer passes → fewer returns.
     st = engine.state
     bird = pb.bird
     n_players = len(st.players)
-    n_draw = n_players + 1
+
+    # Skip-optional: power is always optional.
+    skip_ch = engine.ask(
+        agent,
+        decisions.AcceptExchangeDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] activate {bird.name}?",
+            choices=[
+                decisions.PayCostChoice(
+                    label="draw 3 cards, pass 2 to opponent, receive 1 back",
+                    gained_card_count=2,
+                    opp_gained_card_count=1,
+                ),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(skip_ch, decisions.SkipChoice):
+        engine.log(f"  {bird.name}: skipped")
+        return
+
+    # Draw (#players + 1) cards into P0's hand.
     drawn: list[cards.Bird] = []
-    for _ in range(n_draw):
+    for _ in range(n_players + 1):
         drawn_card = st.draw_bird()
         if drawn_card is None:
             break
         drawn.append(drawn_card)
+        player.hand.append(drawn_card)
+
     if not drawn:
         engine.log(f"  {bird.name}: deck empty; power skipped")
         return
-    for offset in range(1, n_players):
-        if not drawn:
-            break
-        picker = st.players[(player.id + offset) % n_players]
-        ch = engine.ask(
-            engine.agent_for(picker),
-            decisions.BirdPowerPickBirdFromHandDecision(
-                player_id=picker.id,
-                prompt=f"[{picker.name}] pick a card to keep (from {bird.name})",
+
+    # P0 discards all-but-one of the drawn cards into a pass pile for P1.
+    passable = list(drawn)
+    pass_pile: list[cards.Bird] = []
+
+    while len(passable) > 1:
+        pass_ch = engine.ask(
+            agent,
+            decisions.BirdPowerDiscardFromHandDecision(
+                player_id=player.id,
+                prompt=f"[{player.name}] pass a card to opponent ({bird.name})",
                 choices=[
                     decisions.BirdChoice(label=candidate.name, bird=candidate)
-                    for candidate in drawn
+                    for candidate in passable
                 ],
             ),
         )
-        kept_card = ch.bird
-        drawn.remove(kept_card)
-        picker.hand.append(kept_card)
-        engine.log(f"  {bird.name}: [{picker.name}] kept {kept_card.name}")
-    for leftover in drawn:
-        player.hand.append(leftover)
-        engine.log(f"  {bird.name}: [{player.name}] keeps leftover {leftover.name}")
+        player.hand.remove(pass_ch.bird)
+        passable.remove(pass_ch.bird)
+        pass_pile.append(pass_ch.bird)
+        engine.log(f"  {bird.name}: [{player.name}] passes {pass_ch.bird.name}")
+
+    if not pass_pile:
+        return
+
+    # P1 receives the passed cards, then returns all-but-one back to P0.
+    opponent = st.players[(player.id + 1) % n_players]
+    for passed_card in pass_pile:
+        opponent.hand.append(passed_card)
+
+    returnable = list(pass_pile)
+    cards_to_return: list[cards.Bird] = []
+
+    while len(returnable) > 1:
+        return_ch = engine.ask(
+            engine.agent_for(opponent),
+            decisions.BirdPowerDiscardFromHandDecision(
+                player_id=opponent.id,
+                prompt=f"[{opponent.name}] return a card to {player.name} ({bird.name})",
+                choices=[
+                    decisions.BirdChoice(label=candidate.name, bird=candidate)
+                    for candidate in returnable
+                ],
+            ),
+        )
+        opponent.hand.remove(return_ch.bird)
+        returnable.remove(return_ch.bird)
+        cards_to_return.append(return_ch.bird)
+        engine.log(f"  {bird.name}: [{opponent.name}] returns {return_ch.bird.name}")
+
+    # P0 gains the cards P1 returned.
+    for returned_card in cards_to_return:
+        player.hand.append(returned_card)
+        engine.log(f"  {bird.name}: [{player.name}] receives back {returned_card.name}")
 
 
 @registry.handles(cards.EffectKind.DRAW_BONUS_KEEP)

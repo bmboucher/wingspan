@@ -142,30 +142,26 @@ a bird play is legal). This is the most homogeneous family.
   of tuck-then-draw powers. Each draw is a separate decision over the current
   face-up tray plus the deck; tray slots emptied mid-turn stay empty until the
   end-of-turn refill, so consecutive draws see a shrinking tray.
-- *The draft pick* (`BirdPowerPickBirdFromHandDecision`): after the active
-  player plays American Oystercatcher (draw players+1 cards), each
-  **non-active** player picks one drawn card to keep; the active player keeps
-  the remainder without a decision.
+- *`BirdPowerPickBirdFromHandDecision`*: currently has no active call sites
+  in the engine (retained in `ALL_DECISION_CLASSES` for checkpoint
+  compatibility — do not remove or reorder it).
 
 (Brant's take-the-whole-tray and predator tuck-from-deck involve no pick and
 never reach this head.)
 
-**What the choice rows carry.** A tray card or drafted card is a full
-bird-kind row: bird identity (→ shared card table: points, costs, nest,
-habitats, wingspan, color, bonus categories, learned vector) plus the
-`bonus_delta` stripe pricing what acquiring it would do for the decider's held
-bonus cards and the `goal_delta` stripe pricing its immediate effect on the
-four round goals. The **deck option is a bare special-kind token** — no identity,
-no stats — which is exactly the value-of-information shape: the head must
-weigh named cards against the expected value of a blind draw.
+**What the choice rows carry.** A tray card is a full bird-kind row: bird
+identity (→ shared card table: points, costs, nest, habitats, wingspan, color,
+bonus categories, learned vector) plus the `bonus_delta` stripe pricing what
+acquiring it would do for the decider's held bonus cards and the `goal_delta`
+stripe pricing its immediate effect on the four round goals. The **deck option
+is a bare special-kind token** — no identity, no stats — which is exactly the
+value-of-information shape: the head must weigh named cards against the
+expected value of a blind draw.
 
 **Variation within the family.** The blank deck row vs. fully-featured card
-rows is the biggest intra-row contrast in any family. Across the two decision
-classes the card rows are byte-identical in shape; only the state's
-decision-type one-hot tells the head whether this is a tray-vs-deck pick
-(deck row possible, opponent context normal) or an Oystercatcher draft (no
-deck option, and the decider is reacting to an opponent's power). Neither
-class ever offers a skip.
+rows is the biggest intra-row contrast in any family. Only
+`DrawCardsPickSourceDecision` is active; only it ever offers a deck row or a
+skip. `BirdPowerPickBirdFromHandDecision` is retained but currently unused.
 
 ### 2.3 `DISCARD_BIRD` — which bird to give up
 
@@ -182,19 +178,27 @@ class ever offers a skip.
   the Forest trade space — which hand card to discard for the extra food die,
   after the trade was committed via a `SKIP_OPTIONAL` accept. Mandatory; the
   yes/no already happened upstream.
+- *The Oystercatcher pass-and-return draft* (`BirdPowerDiscardFromHandDecision`):
+  American Oystercatcher draws 3 cards into the active player's hand. The
+  active player makes **2** mandatory discard decisions to pass cards to the
+  opponent; the opponent then makes **1** mandatory discard decision to return
+  a card to the active player. No skip on any of these three asks — the
+  commitment happened upstream at the power's `AcceptExchangeDecision`.
 
 **What the choice rows carry.** Bird-kind rows: identity (→ card table) plus
 `bonus_delta` and `goal_delta`. Note the direction inversion: both stripes
 price what the bird would contribute *if it reached the board* — for a
-discard, that is the value being forfeited. The skip row, where present, is a special-kind token
-with `is_skip`.
+discard, that is the value being forfeited. The skip row, where present, is a
+special-kind token with `is_skip`.
 
 **Variation within the family.** The card rows are identical in shape across
 all sites; what differs is (a) whether a skip is on the menu (optional tucks
-vs. the mandatory pink reaction and forest discard), and (b) what the give-up
-buys — a tuck point, a draw, an egg, a food — which is **not** in the rows at
-all. The head reads the compensation only from the decision-type one-hot plus
-state context, which is the main representational thinness of this family.
+vs. the mandatory pink reaction, forest discard, and Oystercatcher passes),
+and (b) what the give-up buys — a tuck point, a draw, an egg, a food, or
+information about which cards the opponent values — which is **not** in the
+rows at all. The head reads the compensation only from the decision-type
+one-hot plus state context, which is the main representational thinness of
+this family.
 
 ### 2.4 `GAIN_FOOD` — which food advances the plan
 

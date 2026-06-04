@@ -474,7 +474,8 @@ def test_draw_n_plus_one_draft_each_player_picks_one_active_keeps_rest():
     eng.agents = [agent, agent]
     powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
 
-    # Drew 3 cards, p0 keeps 2 (own pick + leftover), p1 keeps 1.
+    # P0 accepts, draws 3, passes first 2 to P1, P1 returns first of those.
+    # Net: p0 ends with 2 cards, p1 with 1.
     assert len(p0.hand) == 2
     assert len(p1.hand) == 1
     assert len(gs.bird_deck) == deck_before - 3
@@ -494,11 +495,15 @@ def test_draw_n_plus_one_draft_empty_deck_no_op():
     gs.bird_deck = []
     gs.bird_discard = []
 
-    def agent[C: decisions.Choice](  # pragma: no cover
+    def agent[C: decisions.Choice](
         _engine: engine.Engine,
-        _decision: decisions.Decision[C],
+        decision: decisions.Decision[C],
     ) -> C:
-        pytest.fail("should not be consulted when deck is empty")
+        # Only the skip-optional fires before the deck-empty guard aborts.
+        assert isinstance(
+            decision, decisions.AcceptExchangeDecision
+        ), f"unexpected decision: {type(decision).__name__}"
+        return typing.cast(C, decision.choices[0])  # accept
 
     eng.agents = [agent, agent]
     powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")

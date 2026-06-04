@@ -424,8 +424,10 @@ class AcceptExchangeDecision(Decision[PayCostChoice | SkipChoice]):
 
 
 class BirdPowerPickBirdFromHandDecision(Decision[BirdChoice]):
-    """Power asks for a specific Bird from a drafted or drawn pile (e.g. the
-    American Oystercatcher draft) — a bird-*acquisition* judgment."""
+    """Power asks for a specific Bird from a drafted or drawn pile —
+    a bird-*acquisition* judgment. Currently has no call sites in the engine
+    (retained in ``ALL_DECISION_CLASSES`` for checkpoint compatibility —
+    do not remove or reorder it)."""
 
 
 class BirdPowerPickPlayedBirdDecision(Decision[PlayedBirdChoice]):
@@ -440,6 +442,18 @@ class BirdPowerPickBonusCardDecision(Decision[BonusCardChoice]):
 class BirdPowerTuckFromHandDecision(Decision[BirdChoice | SkipChoice]):
     """Power asks the player to tuck a card from hand (or skip) — a
     bird-*discard* judgment (the card leaves hand to become a tuck)."""
+
+
+class BirdPowerDiscardFromHandDecision(Decision[BirdChoice]):
+    """Power requires the player to discard a card from hand — a mandatory
+    bird-discard judgment. Used wherever a power moves cards *out* of a
+    player's hand as part of a draft/pass mechanic (e.g. the American
+    Oystercatcher pass-and-return draft: active player passes 2 of 3 drawn
+    cards to the opponent, opponent returns 1). No ``SkipChoice``: the
+    commitment happened upstream (accepting the power's
+    ``AcceptExchangeDecision``). Distinct from ``DiscardBirdForFoodDecision``
+    (the Forest-trade step 2) and ``BirdPowerTuckFromHandDecision``
+    (which is optional)."""
 
 
 class BirdPowerPickGainOrderDecision(Decision[PlayerIdChoice]):
@@ -499,6 +513,7 @@ ALL_DECISION_CLASSES: tuple[type[Decision[typing.Any]], ...] = (
     DiscardBirdForFoodDecision,
     SpendFoodForEggDecision,
     PayBirdFoodDecision,
+    BirdPowerDiscardFromHandDecision,
     SetupDecision,
 )
 
@@ -582,6 +597,7 @@ _DECISION_FAMILY: dict[type[Decision[typing.Any]], DecisionFamily] = {
     DrawCardsPickSourceDecision: DecisionFamily.DRAW_BIRD,
     BirdPowerPickBirdFromHandDecision: DecisionFamily.DRAW_BIRD,
     BirdPowerTuckFromHandDecision: DecisionFamily.DISCARD_BIRD,
+    BirdPowerDiscardFromHandDecision: DecisionFamily.DISCARD_BIRD,
     DiscardBirdForFoodDecision: DecisionFamily.DISCARD_BIRD,
     GainFoodDecision: DecisionFamily.GAIN_FOOD,
     SpendFoodDecision: DecisionFamily.SPEND_FOOD,
