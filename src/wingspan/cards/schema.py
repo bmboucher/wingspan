@@ -98,6 +98,9 @@ class EffectKind(enum.StrEnum):
     LAY_EGG_ANY = "lay_egg_any"
     DRAW_CARDS = "draw_cards"
     CACHE_FOOD = "cache_food"
+    # "Roll all dice not in birdfeeder. If any are [food], cache N [food]." —
+    # rolls outside-feeder dice and only caches when the target food appears.
+    ROLL_NOT_IN_FEEDER_CACHE = "roll_not_in_feeder_cache"
     TUCK_FROM_HAND = "tuck_from_hand"
     TUCK_FROM_DECK = "tuck_from_deck"
     PLAY_ADDITIONAL_BIRD = "play_additional_bird"

@@ -601,6 +601,11 @@ Yellow-Headed Blackbird** (all brown) — identical text:
   rows: this bird, or skip (the printed "you may also"). Accepting places the egg;
   skipping ends the power after the tuck. If the bird is at its egg limit the
   egg step is silently skipped.
+- **⚠ Gap:** the skip row sits in the `lay_egg` menu, so the lay-egg head — not the
+  `skip_optional` head — is asked a whether-question. The egg is a free gain: it
+  should be forced (the single target auto-resolves), with a `skip_optional` gate
+  offered first only while the birds-without-eggs round goal is active. See gaps
+  #19.
 
 ### 20d. Tuck → lay an egg on any bird (1 bird)
 
@@ -859,11 +864,18 @@ once-between-turns cap is not enforced — these fire on every qualifying trigge
 | Yellow-Billed Cuckoo | "When another player takes the “lay eggs” action, lay 1 [egg] on a bird with a [bowl] nest." |
 
 - **When:** immediately after the opponent completes a Lay Eggs main action.
-- **Option to activate?** **Yes, built into the menu:** the owner gets a `lay_egg`
-  decision listing every *other* owned bird whose nest matches (star nests count)
-  and has egg room, **plus an explicit skip row**. Choosing skip declines the free
-  egg (relevant under the birds-without-eggs goal); otherwise the egg is placed on
-  the chosen bird. With no eligible bird the power is skipped silently.
+- **Option to activate?** Currently **yes, built into the menu:** the owner gets a
+  `lay_egg` decision listing every *other* owned bird whose nest matches (star
+  nests count) and has egg room, **plus an explicit skip row**. With no eligible
+  bird the power is skipped silently.
+- **⚠ Gap (the skip row is misplaced — the power should be mandatory):** only the
+  `skip_optional` head should ever see a skip option; every other decision family
+  answers *which*, never *whether*. A free egg is always beneficial except while
+  the birds-without-eggs round goal is active, so the right shape is the standard
+  conditional-optionality one: run the `lay_egg` pick forced (a lone eligible bird
+  auto-resolves), and only under that goal precede it with a `skip_optional` gate.
+  The same misplaced skip row appears on §20c's lay-on-self step and §14's extra
+  egg — see gaps #19.
 - All five are implemented identically — the pink bird itself is always excluded as
   a target ("another bird"), which is harmless for the three "a bird" cards because
   their own nests can never match bowl anyway.
@@ -976,7 +988,8 @@ orientation pointers only.
     1 when exactly one (where the extra is unavailable once same-bird is excluded);
     (c) the extra egg's skip row is offered unconditionally rather than only under
     the birds-without-eggs round goal — once the ledger counts the extra, accepting
-    should commit to it except under that goal. (`engine/powers/multi_actor.py`
+    should commit to it except under that goal (and per #19 any such skip belongs
+    on a `skip_optional` gate, not as a row in the `lay_egg` menu). (`engine/powers/multi_actor.py`
     all-players-lay-egg handler; `engine/powers/dispatch.py` `lay_one_egg_on_nest`
     rebuilds the menu with no exclusions.)
 
@@ -1025,10 +1038,21 @@ orientation pointers only.
     `skip_optional` head's training surface. The mirror image of #16/#17: those add
     gates where a real decision is hidden; this removes one that hides nothing.
     (`engine/powers/tray_trade.py` wild-food-trade handler.)
+19. **Skip rows leak into the `lay_egg` menu — only `skip_optional` should ever see
+    a skip:** three call sites append an explicit skip row to a `lay_egg` decision,
+    putting a whether-question in front of a head that should only answer *which*:
+    the §27a pink lay-egg reactors (unconditional), §20c's lay-on-self step
+    (unconditional — the printed "you may also"), and §14's extra egg
+    (unconditional; part of #13). In all three the egg is a free gain, so the fix
+    is the standard conditional-optionality shape: run the `lay_egg` pick forced
+    (lone targets auto-resolve), and offer a `skip_optional` gate first only while
+    the birds-without-eggs round goal is active. (`engine/reactors.py` pink
+    lay-egg firing; `engine/powers/grants.py` tuck-then-lay-self handler;
+    `engine/powers/dispatch.py` `lay_one_egg_on_nest` optional path.)
 
 **Minor / cosmetic:**
 
-19. **The general supply is tracked and checkable when it should be infinite:** by
+20. **The general supply is tracked and checkable when it should be infinite:** by
     the printed rules the supply is unlimited — gaining from it can never fail and
     there is nothing to track. The engine instead keeps a 99-per-type counter that
     every supply-gain checks first, **silently granting nothing** (not even a
@@ -1038,10 +1062,10 @@ orientation pointers only.
     counter and no checks at all. (`state.py` `food_supply`; guards in
     `engine/powers/grants.py`, `engine/reactors.py`, `engine/powers/egg_trade.py`,
     `engine/powers/tray_trade.py`.)
-20. **Pink egg-layers always exclude themselves** as a target even where the card
+21. **Pink egg-layers always exclude themselves** as a target even where the card
     says "a bird" rather than "another bird" (Bronzed/Brown-Headed Cowbird,
     Yellow-Billed Cuckoo) — no behavioral difference in the core set because those
     birds' own nests (none/platform) never match the bowl requirement.
-21. **The unparsed-power fallback is currently unused:** all 180 core birds match a
+22. **The unparsed-power fallback is currently unused:** all 180 core birds match a
     pattern, so the run-as-no-op fallback path exists only as future-proofing — no
     bird in this document relies on it.

@@ -33,6 +33,14 @@ _TUCK_IF_DO_COVERED = re.compile(
     re.I,
 )
 
+# Regex that matches the "Roll all dice not in birdfeeder … cache" pattern.
+# Used to suppress the standalone _m_cache_food matcher when the more specific
+# roll-conditional matcher already handles the whole pattern.
+_ROLL_NOT_IN_FEEDER_COVERED = re.compile(
+    r"Roll all dice not in birdfeeder\.\s+If any are \[\w+\],",
+    re.I,
+)
+
 
 def _is_if_you_do_consequence(text: str, match_start: int) -> bool:
     """True when the matched clause at ``match_start`` is the consequence of an
@@ -246,7 +254,33 @@ def _m_draw_cards(text: str) -> schema.Effect | None:
 
 
 @registry.pattern
+def _m_roll_not_in_feeder_cache(text: str) -> schema.Effect | None:
+    """'Roll all dice not in birdfeeder. If any are [food], cache N [food].'
+
+    Rolls the dice currently outside the feeder and caches only when the target
+    food face appears. Registered before _m_cache_food so the full conditional
+    pattern takes priority over the bare cache clause."""
+    match = re.search(
+        r"Roll all dice not in birdfeeder\.\s+If any are (\[\w+\]),"
+        r"\s+cache\s+(\d+|a|an|one|two|three)\s+\1\s+from the supply on this bird",
+        text,
+        re.I,
+    )
+    if match and match.group(1) in tags.FOOD_TAGS:
+        return schema.Effect(
+            kind=schema.EffectKind.ROLL_NOT_IN_FEEDER_CACHE,
+            amount=tags.to_int(match.group(2)) or 1,
+            food=tags.FOOD_TAGS[match.group(1)],
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
 def _m_cache_food(text: str) -> schema.Effect | None:
+    # Skip when the roll-conditional combined matcher already handles this text.
+    if _ROLL_NOT_IN_FEEDER_COVERED.search(text):
+        return None
     match = re.search(
         r"Cache\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply on this bird",
         text,

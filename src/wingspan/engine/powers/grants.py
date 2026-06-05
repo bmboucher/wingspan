@@ -199,6 +199,51 @@ def _h_cache_food(
         engine.log(f"  {bird.name}: cached {eff.amount} {eff.food.value}")
 
 
+@registry.handles(cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE)
+def _h_roll_not_in_feeder_cache(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    st = engine.state
+    bird = pb.bird
+    dice_out = state.BIRDFEEDER_DICE - st.birdfeeder.total()
+
+    if dice_out <= 0:
+        engine.log(f"  {bird.name}: no dice outside feeder; skipped")
+        return
+
+    # Roll the outside dice using the same 6-face distribution as the feeder.
+    roll_counts = state.FoodPool()
+    choice_rolled = 0
+    for _ in range(dice_out):
+        face = st.rng.randint(0, cards.N_FOODS)
+        if face < cards.N_FOODS:
+            roll_counts[cards.ALL_FOODS[face]] += 1
+        else:
+            choice_rolled += 1
+
+    # Format the result in the same style as Birdfeeder.format().
+    roll_str = roll_counts.format()
+    if choice_rolled:
+        choice_part = f"{choice_rolled}choice"
+        roll_str = choice_part if roll_str == "(empty)" else f"{roll_str}+{choice_part}"
+    die_word = "die" if dice_out == 1 else "dice"
+    engine.log(f"  {bird.name}: rolled {dice_out} {die_word}: {roll_str}")
+
+    assert eff.food is not None
+    if roll_counts[eff.food] > 0 and st.food_supply.get(eff.food, 0) >= eff.amount:
+        st.food_supply[eff.food] -= eff.amount
+        pb.cached_food[eff.food] += eff.amount
+        engine.log(f"  {bird.name}: cached {eff.amount} {eff.food.value}")
+    elif roll_counts[eff.food] == 0:
+        engine.log(f"  {bird.name}: no {eff.food.value} rolled; nothing cached")
+
+
 @registry.handles(cards.EffectKind.TUCK_FROM_HAND)
 def _h_tuck_from_hand(
     engine: "core.Engine",
