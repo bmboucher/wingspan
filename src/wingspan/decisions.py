@@ -231,6 +231,9 @@ class BoardTargetChoice(Choice):
 class BonusCardChoice(Choice):
     bonus_card: cards.BonusCard
 
+    def display_label(self) -> str:
+        return f"{self.bonus_card.name} — {self.bonus_card.explanatory}"
+
 
 class DrawSourceChoice(Choice):
     """A draw source for the DRAW_CARDS action: either a tray slot or the

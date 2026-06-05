@@ -146,14 +146,14 @@ class Engine:
         ``split_setup_bonus`` regime); the dealt cards/food are still the
         ``SetupDecision``."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
-        eng.log("=== GAME START ===")
+        eng.log_section("=== GAME START ===")
         eng.instrumentation.game_start(engine=eng)
         eng._setup_phase(agents, defer_bonus=split_setup_bonus)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
-        eng.log("=== GAME END ===")
+        eng.log_section("=== GAME END ===")
         eng.instrumentation.game_end(engine=eng)
         return eng
 
@@ -172,14 +172,14 @@ class Engine:
         decides over exactly the inputs an agent would have seen; everything after
         setup is identical to ``play_one_game``."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
-        eng.log("=== GAME START ===")
+        eng.log_section("=== GAME START ===")
         eng.instrumentation.game_start(engine=eng)
         eng._setup_phase_fixed(choose_setups)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
-        eng.log("=== GAME END ===")
+        eng.log_section("=== GAME END ===")
         eng.instrumentation.game_end(engine=eng)
         return eng
 
@@ -236,6 +236,16 @@ class Engine:
     def log(self, msg: str) -> None:
         self.state.log.append(msg)
 
+    def log_section(self, msg: str) -> None:
+        """Log a ``===`` section header, ensuring exactly one blank line before it.
+
+        Consecutive ``log_section`` calls share a single blank line between
+        them (no double-blanks); the first call in an empty log skips the
+        leading blank entirely."""
+        if self.state.log and self.state.log[-1] != "":
+            self.log("")
+        self.log(msg)
+
     def log_skipped_decision(self, player_id: int, reason: str) -> None:
         """Log that a decision point resolved without consulting the agent —
         either auto-picked (``ask``'s single-choice guard) or never built
@@ -263,12 +273,12 @@ class Engine:
         # summary, then ask for the main action (which logs the AI distribution)
         # so the decision lines always follow their context header.
         turn_idx = state.ROUND_CUBES[self.state.round_idx] - player.action_cubes_left
-        self.log("")
-        self.log(
+        self.log_section(
             f"=== {player.name}, ROUND {self.state.round_idx + 1}, "
             f"TURN {turn_idx} ({player.action_cubes_left} CUBES LEFT) ==="
         )
         log_format.log_turn_summary(self)
+        self.log("")
         choice = self.ask(agent, self._main_action_decision(player))
         self.log(f"--> {self._main_action_label(choice)}")
         player.action_cubes_left -= 1
@@ -354,9 +364,11 @@ class Engine:
         for player in self.state.players:
             dealt_cards, dealt_bonus = self._deal_setup_inputs(player)
             if defer_bonus:
-                self.log(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
+                self.log_section(
+                    f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ==="
+                )
             else:
-                self.log(
+                self.log_section(
                     f"=== SETUP: {player.name} CHOOSING BIRDS, FOOD, AND BONUS CARD ==="
                 )
             self._resolve_setup_choice(
@@ -379,7 +391,7 @@ class Engine:
         for player in self.state.players:
             dealt_cards, dealt_bonus = dealt[player.id]
             sc = keeps[player.id].to_setup_choice()
-            self.log(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
+            self.log_section(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
             self._apply_setup_choice(player, dealt_cards, dealt_bonus, sc)
             self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, sc)
             self._log_setup_result(player)
@@ -405,15 +417,11 @@ class Engine:
             for row in player.board.values():
                 for pb in row:
                     pb.activations = 0
-        self.log("")
-        self.log(
+        self.log_section(
             f"=== ROUND {round_idx + 1} "
             f"({state.ROUND_CUBES[round_idx]} ACTIONS EACH) ==="
         )
-        self.log(
-            f"Round goal: {self.state.round_goals[round_idx].description} "
-            f"({self.state.round_goals[round_idx].category})"
-        )
+        self.log(f"Round goal: {self.state.round_goals[round_idx].description}")
         self.instrumentation.round_start(engine=self, round_num=round_idx)
         # Turn order rotates each round off the randomly-chosen first player;
         # both players hold equal cubes, so a strict alternation drains them
@@ -501,16 +509,14 @@ class Engine:
         )
         chosen = self.ask(agents[player.id], decision)
         self._apply_setup_choice(player, dealt_cards, dealt_bonus, chosen)
+        kept_names = ", ".join(bird.name for bird in chosen.kept_cards) or "(none)"
+        foods_str = ", ".join(food.value for food in chosen.kept_foods) or "none"
         bonus_part = (
             f" | bonus: {chosen.bonus_card.name}"
             if chosen.bonus_card is not None
             else ""
         )
-        self.log(
-            f"[{player.name}] keeps {len(chosen.kept_cards)} card(s), "
-            f"foods [{','.join(food.value for food in chosen.kept_foods) or 'none'}]"
-            f"{bonus_part}"
-        )
+        self.log(f"[{player.name}] keeps {kept_names}, foods [{foods_str}]{bonus_part}")
         self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, chosen)
 
     def _deal_starting_bonus(self) -> list[cards.BonusCard]:
@@ -569,7 +575,7 @@ class Engine:
         collecting agent records it like any other in-game decision."""
         if not dealt_bonus or sc.bonus_card is not None:
             return
-        self.log(f"=== SETUP: {player.name} CHOOSING BONUS CARD ===")
+        self.log_section(f"=== SETUP: {player.name} CHOOSING BONUS CARD ===")
         # ``_play_round`` resets the cubes again before real play, so pre-loading
         # them here only shapes the encoded snapshot the bonus pick is scored over.
         for seat in self.state.players:

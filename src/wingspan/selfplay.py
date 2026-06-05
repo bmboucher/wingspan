@@ -406,7 +406,11 @@ def _logged_policy_agent(
             return decision.choices[0]
         if not net.include_setup and decisions.is_setup_decision(decision):
             if setup_net is None:
-                return decisions.random_choice(decision, eng.state.rng)
+                chosen = decisions.random_choice(decision, eng.state.rng)
+                eng.log(
+                    f"[{eng.state.me().name}] setup chosen at random (no setup model)"
+                )
+                return chosen
             setup_decision = typing.cast(decisions.SetupDecision, decision)
             scores, probs = _compute_setup_scores_and_probs(
                 setup_net, setup_decision, eng, device
@@ -420,7 +424,7 @@ def _logged_policy_agent(
             chosen = decision.choices[chosen_idx]
             if not greedy:
                 eng.log(
-                    f"[AI chose: {chosen.display_label()} "
+                    f"[{eng.state.me().name} chose: {chosen.display_label()} "
                     f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
                 )
             return chosen
