@@ -1,7 +1,7 @@
 # pyright: reportUnusedFunction=false
 # (every function here is a power handler registered via @registry.handles;
 # none is called by name, so pyright's unused-function check is a false positive)
-"""Tray-draw, wild-food trade, and fewest-forest-birds handlers.
+"""Tray-draw, wild-food trade, and fewest-habitat-birds handlers.
 
 Each handler registers itself with ``@registry.handles`` and is imported by the
 ``powers`` package ``__init__`` so the dispatch table is populated on load.
@@ -125,6 +125,56 @@ def _trade_gain_step(
     return gain_food
 
 
+def _fewest_habitat_gate(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    bird: cards.Bird,
+    habitat: cards.Habitat,
+    make_accept_choice: typing.Callable[[int], decisions.PayCostChoice],
+) -> tuple[list[int], int] | None:
+    """Common pre-check for FEWEST_HABITAT effects.
+
+    Handles auto-skip (active player doesn't have fewest habitat birds) and the
+    tied-case veto gate (all tied players share the benefit). Returns
+    ``(counts, fewest)`` if the effect should proceed, or ``None`` if it was
+    auto-skipped or vetoed.
+
+    ``make_accept_choice(n_opponents_tied)`` is called only when a veto is
+    needed; it must return the fully-populated ``PayCostChoice`` for that tied
+    scenario.
+    """
+    st = engine.state
+    counts = [len(other.board[habitat]) for other in st.players]
+    fewest = min(counts)
+
+    # Auto-skip: only opponent benefits if the active player has more than fewest.
+    if len(player.board[habitat]) != fewest:
+        engine.log(
+            f"  {bird.name}: [{player.name}] has more {habitat.value} birds"
+            f" than opponent; power auto-skipped"
+        )
+        return None
+
+    # Tie check: all tied players share the benefit, so offer a veto gate.
+    n_tied = sum(1 for count in counts if count == fewest)
+    if n_tied > 1:
+        n_opponents_tied = n_tied - 1
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] activate {bird.name}?"
+            f" (tied fewest {habitat.value} birds; all tied players benefit)",
+            make_accept_choice(n_opponents_tied),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] skipped activation")
+            return None
+
+    return counts, fewest
+
+
 @registry.handles(cards.EffectKind.FEWEST_FOREST_GAINS_DIE)
 def _h_fewest_forest_gains_die(
     engine: "core.Engine",
@@ -137,42 +187,24 @@ def _h_fewest_forest_gains_die(
 ) -> None:
     from wingspan.engine import actions
 
-    st = engine.state
     bird = pb.bird
-    counts = [len(other.board[cards.Habitat.FOREST]) for other in st.players]
-    fewest = min(counts)
-
-    # Auto-skip: activating would only benefit the opponent(s) who have fewer
-    # forest birds, not the active player — a rational player never does this.
-    if len(player.board[cards.Habitat.FOREST]) != fewest:
-        engine.log(
-            f"  {bird.name}: [{player.name}] has more forest birds than opponent;"
-            f" power auto-skipped"
-        )
+    result = _fewest_habitat_gate(
+        engine,
+        agent,
+        player,
+        bird,
+        cards.Habitat.FOREST,
+        lambda n_opp: decisions.PayCostChoice(
+            label="activate",
+            gained_food_count=eff.amount,
+            opp_gained_food_count=n_opp * eff.amount,
+        ),
+    )
+    if result is None:
         return
 
-    # Tie check: when all tied players share the fewest count the opponent also
-    # gains a die, so offer a veto gate (gap #16). Strictly-fewer = no veto.
-    n_tied = sum(1 for count in counts if count == fewest)
-    if n_tied > 1:
-        n_opponents_tied = n_tied - 1
-        accepted = dispatch.offer_activation_veto(
-            engine,
-            agent,
-            player,
-            f"[{player.name}] activate {bird.name}?"
-            f" (tied fewest forest birds; all tied players gain {eff.amount} die)",
-            decisions.PayCostChoice(
-                label="activate",
-                gained_food_count=eff.amount,
-                opp_gained_food_count=n_opponents_tied * eff.amount,
-            ),
-        )
-        if not accepted:
-            engine.log(f"  {bird.name}: [{player.name}] skipped activation")
-            return
-
-    for other_player, forest_count in zip(st.players, counts):
+    counts, fewest = result
+    for other_player, forest_count in zip(engine.state.players, counts):
         if forest_count != fewest:
             continue
         responder = engine.agent_for(other_player)
@@ -199,27 +231,29 @@ def _h_fewest_wetland_draws_card(
     trigger: str,
 ) -> None:
     # "Player(s) with the fewest birds in their [wetland] draw 1 [card]."
-    # American Bittern, Common Loon. Mirrors _h_fewest_forest_gains_die but draws
-    # a card instead of taking a die. Three-way logic:
-    #   strictly fewer wetland: only active player benefits → mandatory activation
-    #   tied fewest: both players draw → rational to activate (mandatory)
-    #   strictly more wetland: only opponent benefits → auto-skip
+    # American Bittern, Common Loon. Same gate logic as _h_fewest_forest_gains_die
+    # via _fewest_habitat_gate; the tied case offers a veto because the opponent
+    # also draws.
     from wingspan.engine import actions
 
-    st = engine.state
     bird = pb.bird
-    counts = [len(other.board[cards.Habitat.WETLAND]) for other in st.players]
-    fewest = min(counts)
-
-    # Auto-skip: activating only benefits the opponent, never the active player.
-    if len(player.board[cards.Habitat.WETLAND]) != fewest:
-        engine.log(
-            f"  {bird.name}: [{player.name}] has more wetland birds than opponent;"
-            f" power auto-skipped"
-        )
+    result = _fewest_habitat_gate(
+        engine,
+        agent,
+        player,
+        bird,
+        cards.Habitat.WETLAND,
+        lambda n_opp: decisions.PayCostChoice(
+            label="activate",
+            gained_card_count=1,
+            opp_gained_card_count=n_opp,
+        ),
+    )
+    if result is None:
         return
 
-    for other_player, wetland_count in zip(st.players, counts):
+    counts, fewest = result
+    for other_player, wetland_count in zip(engine.state.players, counts):
         if wetland_count != fewest:
             continue
         responder = engine.agent_for(other_player)

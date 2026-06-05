@@ -419,6 +419,135 @@ def test_fewest_forest_auto_skips_when_active_player_not_fewest():
 
 
 # ---------------------------------------------------------------------------
+# American Bittern / Common Loon — FEWEST_WETLAND_DRAWS_CARD
+
+
+_WETLAND_POWER = "Player(s) with the fewest birds in their [wetland] draw 1 [card]."
+
+
+def _draw_agent[C: decisions.Choice](
+    _engine: engine.Engine,
+    decision: decisions.Decision[C],
+) -> C:
+    """Agent that accepts any AcceptExchangeDecision and picks the first draw source."""
+    if isinstance(decision, decisions.AcceptExchangeDecision):
+        return typing.cast(
+            C,
+            next(
+                ch for ch in decision.choices if isinstance(ch, decisions.PayCostChoice)
+            ),
+        )
+    return decision.choices[0]
+
+
+def test_fewest_wetland_draws_card_strict_min():
+    """Active player is the sole fewest-wetland player → draws 1 card, no veto asked."""
+    eng, pb = _make_engine_with_bird(_WETLAND_POWER, color=cards.PowerColor.BROWN)
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1 = gs.players
+    # Give P1 a wetland bird so P0 (0 birds) is strictly fewest.
+    p1.board[cards.Habitat.WETLAND].append(state.PlayedBird(bird=pb.bird))
+    hand_before_p0 = len(p0.hand)
+    hand_before_p1 = len(p1.hand)
+
+    eng.agents = [_draw_agent, _draw_agent]
+    powers.dispatch_power(eng, _draw_agent, p0, pb, cards.Habitat.WETLAND, "activate")
+
+    assert len(p0.hand) == hand_before_p0 + 1
+    assert len(p1.hand) == hand_before_p1
+
+
+def test_fewest_wetland_draws_card_tied_accepted():
+    """Both players tied for fewest wetland birds → veto offered → accepted → both draw."""
+    eng, pb = _make_engine_with_bird(_WETLAND_POWER, color=cards.PowerColor.BROWN)
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1 = gs.players
+    # Both have 0 wetland birds — tied.
+    hand_before_p0 = len(p0.hand)
+    hand_before_p1 = len(p1.hand)
+
+    # Verify the veto choice carries the correct card-draw ledger.
+    seen_veto: list[decisions.AcceptExchangeDecision] = []
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            seen_veto.append(decision)
+            return typing.cast(
+                C,
+                next(
+                    ch
+                    for ch in decision.choices
+                    if isinstance(ch, decisions.PayCostChoice)
+                ),
+            )
+        return decision.choices[0]
+
+    eng.agents = [agent, agent]
+    powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "activate")
+
+    assert len(seen_veto) == 1
+    accept_ch = next(
+        ch for ch in seen_veto[0].choices if isinstance(ch, decisions.PayCostChoice)
+    )
+    assert accept_ch.gained_card_count == 1
+    assert accept_ch.opp_gained_card_count == 1
+    assert len(p0.hand) == hand_before_p0 + 1
+    assert len(p1.hand) == hand_before_p1 + 1
+
+
+def test_fewest_wetland_draws_card_tied_skipped():
+    """Both players tied for fewest wetland birds → veto offered → skipped → neither draws."""
+    eng, pb = _make_engine_with_bird(_WETLAND_POWER, color=cards.PowerColor.BROWN)
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1 = gs.players
+    hand_before_p0 = len(p0.hand)
+    hand_before_p1 = len(p1.hand)
+
+    def skip_agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            return typing.cast(
+                C,
+                next(
+                    ch
+                    for ch in decision.choices
+                    if isinstance(ch, decisions.SkipChoice)
+                ),
+            )
+        return decision.choices[0]
+
+    eng.agents = [skip_agent, skip_agent]
+    powers.dispatch_power(eng, skip_agent, p0, pb, cards.Habitat.WETLAND, "activate")
+
+    assert len(p0.hand) == hand_before_p0
+    assert len(p1.hand) == hand_before_p1
+
+
+def test_fewest_wetland_auto_skips_when_active_not_fewest():
+    """Active player has MORE wetland birds than the opponent → power auto-skipped."""
+    eng, pb = _make_engine_with_bird(_WETLAND_POWER, color=cards.PowerColor.BROWN)
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1 = gs.players
+    # P0 (active) has 1 wetland bird; P1 has 0 — only P1 would qualify.
+    p0.board[cards.Habitat.WETLAND].append(state.PlayedBird(bird=pb.bird))
+    hand_before_p1 = len(p1.hand)
+
+    eng.agents = [_no_agent, _no_agent]
+    powers.dispatch_power(eng, _no_agent, p0, pb, cards.Habitat.WETLAND, "activate")
+
+    assert len(p1.hand) == hand_before_p1
+
+
+# ---------------------------------------------------------------------------
 # House Wren — PLAY_ADDITIONAL_BIRD_HERE
 
 

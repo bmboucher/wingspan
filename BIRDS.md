@@ -900,12 +900,5 @@ Everything flagged above, gathered for review.
    pattern, so the `UNIMPLEMENTED` run-as-no-op fallback exists only as
    future-proofing for expansion cards whose text doesn't match any known pattern.
 
-**Minor residual gap:**
-
-3. **No veto in the tied-case for "fewest wetland birds draw 1 card"** (§9 —
-   American Bittern, Common Loon). When all players are tied for fewest wetland
-   birds, both players draw — functionally the same as an "all players draw" power,
-   which does offer a veto (§16). The forest twin (Hermit Thrush) correctly offers a
-   veto in the tied case; the wetland version runs forced. The practical impact is
-   low (tied cases are common only early in the game), but it is a genuine
-   inconsistency.
+All residual gaps above are closed. The modeling choices in items 1 and 2
+reflect deliberate design decisions, not bugs.
