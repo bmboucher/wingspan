@@ -3,6 +3,11 @@
 Pink ("once between turns") powers fire when *another* player takes a
 specific action. The engine calls into this module after every Lay Eggs
 action and after every successful predator hunt.
+
+Each trigger loop enforces the once-between-turns cap: ``PlayedBird.pink_fired``
+is checked before firing and set on commit; ``Engine._take_turn`` clears it at
+the start of the owner's next turn. A decline or no-eligible-target does NOT
+consume the use — only a committing fire does.
 """
 
 from __future__ import annotations
@@ -30,20 +35,23 @@ def trigger_pink_lay_eggs_reactors(
             for pb in row:
                 if pb.bird.color != cards.PowerColor.PINK:
                     continue
+                if pb.pink_fired:
+                    continue
                 for eff in pb.bird.power.effects:
                     if eff.kind != cards.EffectKind.PINK_LAY_EGG_ON_NEST:
                         continue
-                    fire_pink_lay_egg(engine, other_player, pb, habitat, eff)
+                    if fire_pink_lay_egg(engine, other_player, pb, habitat, eff):
+                        pb.pink_fired = True
 
 
 def trigger_pink_predator_success(
     engine: "core.Engine",
     hunter_player: state.Player,
 ) -> None:
-    """Called after a ``PREDATOR_HUNT`` succeeds (a card was tucked). Each
-    OTHER player's ``PINK_PREDATOR_FEEDER`` birds gain 1 die of the reacting
-    player's choice from the birdfeeder (the take entry point offers any
-    single-face reset to them first)."""
+    """Called after a ``PREDATOR_HUNT`` or ``ROLL_NOT_IN_FEEDER_CACHE``
+    succeeds (a card was tucked or a cache was made). Each OTHER player's
+    ``PINK_PREDATOR_FEEDER`` birds gain 1 die of the reacting player's choice
+    from the birdfeeder."""
     # Local import to keep main_actions/reactors decoupled at module load.
     from wingspan.engine import actions
 
@@ -54,6 +62,8 @@ def trigger_pink_predator_success(
         for _, row in other_player.board.items():
             for pb in row:
                 if pb.bird.color != cards.PowerColor.PINK:
+                    continue
+                if pb.pink_fired:
                     continue
                 for eff in pb.bird.power.effects:
                     if eff.kind != cards.EffectKind.PINK_PREDATOR_FEEDER:
@@ -69,6 +79,7 @@ def trigger_pink_predator_success(
                     )
                     assert gained is not None  # unrestricted menu, post-reset
                     engine.log(f"  {pb.bird.name}: +1 {gained.value} from birdfeeder")
+                    pb.pink_fired = True
 
 
 def fire_pink_lay_egg(
@@ -77,14 +88,20 @@ def fire_pink_lay_egg(
     pb: state.PlayedBird,
     habitat: cards.Habitat,
     eff: cards.Effect,
-) -> None:
+) -> bool:
+    """Offer ``other_player`` the chance to lay 1 egg on a matching-nest bird.
+
+    Returns ``True`` if an egg was placed (the fire committed), ``False`` if
+    no eligible target existed or the player declined."""
     assert eff.nest is not None
     nest = eff.nest
     eligible: list[decisions.BoardTargetChoice | decisions.SkipChoice] = []
-    for habitat, row in other_player.board.items():
+    for h, row in other_player.board.items():
         for slot, target in enumerate(row):
-            if target is pb:
-                continue  # "another bird"
+            # "another bird" wording excludes the reactor itself; "a bird"
+            # wording (exclude_self=False) allows self-targeting.
+            if eff.exclude_self and target is pb:
+                continue
             if not cards.nest_matches(target.bird.nest, nest):
                 continue
             if target.eggs >= target.bird.egg_limit:
@@ -92,35 +109,40 @@ def fire_pink_lay_egg(
             eligible.append(
                 decisions.BoardTargetChoice(
                     label=(
-                        f"{target.bird.name}@{habitat.value}[{slot}]"
+                        f"{target.bird.name}@{h.value}[{slot}]"
                         f"({target.eggs}/{target.bird.egg_limit})"
                     ),
-                    habitat=habitat,
+                    habitat=h,
                     slot=slot,
                 )
             )
     if not eligible:
         engine.log(
-            f"  {pb.bird.name} (pink): no other [{nest.value}] bird with room; skipped"
+            f"  {pb.bird.name} (pink): no [{nest.value}] bird with room; skipped"
         )
-        return
+        return False
     eligible.append(decisions.SkipChoice(label="skip"))
     ch = engine.ask(
         engine.agent_for(other_player),
         decisions.LayEggDecision(
             player_id=other_player.id,
-            prompt=f"[{other_player.name}] lay 1 egg on a [{nest.value}] bird ({pb.bird.name}) (or skip)",
+            prompt=(
+                f"[{other_player.name}] lay 1 egg on a [{nest.value}] bird"
+                f" ({pb.bird.name}) (or skip)"
+            ),
             choices=eligible,
         ),
     )
     if isinstance(ch, decisions.SkipChoice):
         engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
-        return
+        return False
     other_player.board[ch.habitat][ch.slot].eggs += 1
     engine.log(
         f"  {pb.bird.name} (pink): [{other_player.name}] laid 1 egg on "
-        f"{other_player.board[ch.habitat][ch.slot].bird.name}@{ch.habitat.value}[{ch.slot}]"
+        f"{other_player.board[ch.habitat][ch.slot].bird.name}"
+        f"@{ch.habitat.value}[{ch.slot}]"
     )
+    return True
 
 
 def trigger_pink_play_bird_reactors(
@@ -141,13 +163,18 @@ def trigger_pink_play_bird_reactors(
             for pb in row:
                 if pb.bird.color != cards.PowerColor.PINK:
                     continue
+                if pb.pink_fired:
+                    continue
                 for eff in pb.bird.power.effects:
                     if eff.habitat != played_habitat:
                         continue
+                    fired = False
                     if eff.kind == cards.EffectKind.PINK_PLAY_BIRD_GAIN:
-                        _react_gain_from_supply(engine, other_player, pb, eff)
+                        fired = _react_gain_from_supply(engine, other_player, pb, eff)
                     elif eff.kind == cards.EffectKind.PINK_PLAY_BIRD_TUCK:
-                        _react_tuck_from_hand(engine, other_player, pb, eff)
+                        fired = _react_tuck_from_hand(engine, other_player, pb, eff)
+                    if fired:
+                        pb.pink_fired = True
 
 
 def trigger_pink_gain_food_reactors(
@@ -167,13 +194,16 @@ def trigger_pink_gain_food_reactors(
             for pb in row:
                 if pb.bird.color != cards.PowerColor.PINK:
                     continue
+                if pb.pink_fired:
+                    continue
                 for eff in pb.bird.power.effects:
                     if (
                         eff.kind == cards.EffectKind.PINK_GAIN_FOOD_CACHE
                         and eff.food is not None
                         and eff.food in gained_foods
                     ):
-                        _react_cache_from_supply(engine, pb, eff)
+                        if _react_cache_from_supply(engine, pb, eff):
+                            pb.pink_fired = True
 
 
 def _react_gain_from_supply(
@@ -181,29 +211,23 @@ def _react_gain_from_supply(
     other_player: state.Player,
     pb: state.PlayedBird,
     eff: cards.Effect,
-) -> None:
+) -> bool:
     assert eff.food is not None
-    st = engine.state
-    if st.food_supply.get(eff.food, 0) < eff.amount:
-        return
-    st.food_supply[eff.food] -= eff.amount
     other_player.food[eff.food] += eff.amount
     engine.log(
         f"  {pb.bird.name} (pink): [{other_player.name}] +{eff.amount} "
         f"{eff.food.value} from supply"
     )
+    return True
 
 
 def _react_cache_from_supply(
     engine: "core.Engine", pb: state.PlayedBird, eff: cards.Effect
-) -> None:
+) -> bool:
     assert eff.food is not None
-    st = engine.state
-    if st.food_supply.get(eff.food, 0) < eff.amount:
-        return
-    st.food_supply[eff.food] -= eff.amount
     pb.cached_food[eff.food] += eff.amount
     engine.log(f"  {pb.bird.name} (pink): cached {eff.amount} {eff.food.value}")
+    return True
 
 
 def _react_tuck_from_hand(
@@ -211,14 +235,15 @@ def _react_tuck_from_hand(
     other_player: state.Player,
     pb: state.PlayedBird,
     eff: cards.Effect,
-) -> None:
+) -> bool:
     """The reacting player may tuck ``eff.amount`` card(s) from hand behind ``pb``.
     A gate ask is offered for each card; the player may decline at any point.
-    No-op once the hand is empty."""
+    No-op once the hand is empty. Returns True if at least one card was tucked."""
     trigger_habitat = eff.habitat.value if eff.habitat else "?"
+    tucked_any = False
     for _ in range(eff.amount):
         if not other_player.hand:
-            return
+            return tucked_any
 
         # Gate: does the reacting player want to activate the tuck?
         gate_ch = engine.ask(
@@ -237,7 +262,7 @@ def _react_tuck_from_hand(
         )
         if isinstance(gate_ch, decisions.SkipChoice):
             engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
-            return
+            return tucked_any
 
         # Card selection: mandatory once activated.
         choices = [
@@ -257,6 +282,8 @@ def _react_tuck_from_hand(
         )
         other_player.hand.remove(ch.bird)
         pb.tucked_cards += 1
+        tucked_any = True
         engine.log(
             f"  {pb.bird.name} (pink): [{other_player.name}] tucked {ch.bird.name}"
         )
+    return tucked_any

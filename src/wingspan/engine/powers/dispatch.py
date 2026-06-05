@@ -69,11 +69,16 @@ def lay_one_egg_on_nest(
     nest: cards.NestType,
     label: str,
     optional: bool = False,
-) -> None:
-    """Ask ``target_player`` to pick one of their birds whose nest matches
-    ``nest`` (star nests are wild — ``cards.nest_matches``) and whose
-    ``eggs < egg_limit`` and add 1 egg there. No-op if none match. If
-    ``optional`` is True, the player may also choose to skip."""
+    exclude: state.PlayedBird | None = None,
+) -> state.PlayedBird | None:
+    """Ask ``target_player`` to place 1 egg on a matching-nest bird with room.
+
+    Returns the ``PlayedBird`` that received the egg, or ``None`` if no
+    eligible bird existed or the player declined.
+
+    ``exclude`` skips one specific bird (e.g. the one that already received the
+    mandatory base egg in the same power activation). ``optional`` adds a skip
+    row so the player may decline."""
     eligible: list[decisions.BoardTargetChoice | decisions.SkipChoice] = [
         decisions.BoardTargetChoice(
             label=f"{pb.bird.name}@{habitat.value}[{slot}]({pb.eggs}/{pb.bird.egg_limit})",
@@ -82,13 +87,15 @@ def lay_one_egg_on_nest(
         )
         for habitat, row in target_player.board.items()
         for slot, pb in enumerate(row)
-        if cards.nest_matches(pb.bird.nest, nest) and pb.eggs < pb.bird.egg_limit
+        if cards.nest_matches(pb.bird.nest, nest)
+        and pb.eggs < pb.bird.egg_limit
+        and (exclude is None or pb is not exclude)
     ]
     if not eligible:
         engine.log(
             f"  {label}: [{target_player.name}] has no [{nest.value}] bird with room; skipped"
         )
-        return
+        return None
     if optional:
         eligible.append(decisions.SkipChoice(label="skip"))
     prompt = f"[{target_player.name}] lay 1 egg on a [{nest.value}] bird ({label})" + (
@@ -104,9 +111,11 @@ def lay_one_egg_on_nest(
     )
     if isinstance(ch, decisions.SkipChoice):
         engine.log(f"  {label}: [{target_player.name}] skipped optional extra egg")
-        return
-    target_player.board[ch.habitat][ch.slot].eggs += 1
+        return None
+    chosen = target_player.board[ch.habitat][ch.slot]
+    chosen.eggs += 1
     engine.log(
         f"  {label}: [{target_player.name}] laid 1 egg on "
-        f"{target_player.board[ch.habitat][ch.slot].bird.name}@{ch.habitat.value}[{ch.slot}]"
+        f"{chosen.bird.name}@{ch.habitat.value}[{ch.slot}]"
     )
+    return chosen

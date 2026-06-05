@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import random
 import sys
+import typing
 
 import pytest
 
@@ -122,7 +123,8 @@ def test_power_every_player_lays_one_egg_on_matching_nest(
         and bird.name != bird_name
     )
     pbs: list[tuple[state.PlayedBird, state.PlayedBird]] = []
-    for player in gs.players:
+    pb_p0_extra: state.PlayedBird | None = None
+    for player_idx, player in enumerate(gs.players):
         habitat = target.habitats[0]
         decoy_habitat = decoy.habitats[0]
         pb_target = state.PlayedBird(bird=target)
@@ -134,6 +136,12 @@ def test_power_every_player_lays_one_egg_on_matching_nest(
         else:
             player.board[decoy_habitat].append(pb_decoy)
         pbs.append((pb_target, pb_decoy))
+        # Active player (P0) gets a second matching-nest bird so the extra egg
+        # (gap #13a) has a distinct target to land on after the base egg is
+        # placed on pb_target.
+        if player_idx == 0:
+            pb_p0_extra = state.PlayedBird(bird=target)
+            player.board[habitat].append(pb_p0_extra)
 
     # The power bird is held off-board so its own (matching) nest doesn't
     # confuse choice resolution — we trigger the effect directly.
@@ -176,7 +184,7 @@ def test_power_every_player_lays_one_egg_on_matching_nest(
         trigger="play",
     )
 
-    # Each player's matching-nest bird should have an egg.
+    # Each player's (first) matching-nest bird should have at least 1 egg.
     for pb_target, pb_decoy in pbs:
         assert pb_target.eggs >= 1, (
             f"every player should lay >=1 egg on matching-nest bird; "
@@ -185,13 +193,16 @@ def test_power_every_player_lays_one_egg_on_matching_nest(
         assert (
             pb_decoy.eggs == 0
         ), f"non-matching-nest bird {pb_decoy.bird.name} must not receive eggs"
-    # The active player (P0) should have laid at least 2 eggs total
-    # (1 mandatory + 1 optional bonus); the opponent should have laid exactly 1.
+    # The active player (P0) has two matching-nest birds; the base egg lands on
+    # pb_target and the extra egg (gap #13a — exclude prevents retargeting) on
+    # pb_p0_extra. Total must be 2. The opponent has exactly 1.
     p0_target, _ = pbs[0]
     p1_target, _ = pbs[1]
-    assert (
-        p0_target.eggs >= 2
-    ), f"active player should lay 2 eggs (1+1 bonus); got {p0_target.eggs}"
+    p0_extra_eggs = pb_p0_extra.eggs if pb_p0_extra is not None else 0
+    assert p0_target.eggs + p0_extra_eggs >= 2, (
+        f"active player should lay 2 eggs total (1 base + 1 extra on 2nd bird); "
+        f"got {p0_target.eggs}+{p0_extra_eggs}"
+    )
     assert (
         p1_target.eggs == 1
     ), f"opponent should lay exactly 1 egg; got {p1_target.eggs}"
@@ -343,3 +354,221 @@ def test_star_nest_bird_is_eligible_for_nest_lay():
     gs.current_player = 0
     powers.lay_one_egg_on_nest(eng, gs.players[0], cards.NestType.BOWL, label="test")
     assert pb_star.eggs == 1, "a star-nest bird must count as a [bowl] bird"
+
+
+# ---------------------------------------------------------------------------
+# Gap #13 — veto ledger, exclude param, birds_no_eggs gate
+
+
+def test_veto_ledger_shows_min_2_own_eligible_count() -> None:
+    """``gained_egg_count`` in the AcceptExchangeDecision must be
+    ``min(2, own_eligible_count)`` (gap #13b)."""
+    birds, bonuses, goals = cards.load_all()
+
+    power_bird = _by_name(birds, "Lazuli Bunting")  # bowl, amount=1
+    bowl_bird = next(
+        bird
+        for bird in birds
+        if bird.nest == cards.NestType.BOWL
+        and bird.egg_limit >= 2
+        and bird.name != power_bird.name
+    )
+    eff = next(
+        e
+        for e in power_bird.power.effects
+        if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+    )
+
+    # ── Case A: 1 eligible bird → ledger should show gained_egg_count=1 ──
+    gs_a = state.new_game(random.Random(10), birds, bonuses, goals)
+    gs_a.current_player = 0
+    pb_a = state.PlayedBird(bird=bowl_bird, eggs=0)
+    gs_a.players[0].board[bowl_bird.habitats[0]] = [pb_a]
+    for h in cards.ALL_HABITATS:
+        gs_a.players[1].board[h].clear()
+
+    captured_a: list[decisions.AcceptExchangeDecision] = []
+
+    def agent_a[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            captured_a.append(decision)
+            return typing.cast(C, decision.choices[0])  # accept
+        for choice in decision.choices:
+            if not isinstance(choice, decisions.SkipChoice):
+                return typing.cast(C, choice)
+        return decision.choices[0]
+
+    pb_power = state.PlayedBird(bird=power_bird)
+    eng_a = engine.Engine(gs_a, agents=[agent_a, agent_a])
+    powers.apply_effect(
+        eng_a, agent_a, gs_a.players[0], pb_power, power_bird.habitats[0], eff, "play"
+    )
+    accept_a = next(
+        c for c in captured_a[0].choices if isinstance(c, decisions.PayCostChoice)
+    )
+    assert (
+        accept_a.gained_egg_count == 1
+    ), "1 eligible bird → ledger must show gained_egg_count=1"
+
+    # ── Case B: 3 eligible birds → ledger should show gained_egg_count=2 (capped) ──
+    gs_b = state.new_game(random.Random(11), birds, bonuses, goals)
+    gs_b.current_player = 0
+    # Give P0 three bowl birds with room.
+    for _ in range(3):
+        gs_b.players[0].board[bowl_bird.habitats[0]].append(
+            state.PlayedBird(bird=bowl_bird, eggs=0)
+        )
+    for h in cards.ALL_HABITATS:
+        gs_b.players[1].board[h].clear()
+
+    captured_b: list[decisions.AcceptExchangeDecision] = []
+
+    def agent_b[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            captured_b.append(decision)
+            return typing.cast(C, decision.choices[0])  # accept
+        for choice in decision.choices:
+            if not isinstance(choice, decisions.SkipChoice):
+                return typing.cast(C, choice)
+        return decision.choices[0]
+
+    pb_power_b = state.PlayedBird(bird=power_bird)
+    eng_b = engine.Engine(gs_b, agents=[agent_b, agent_b])
+    powers.apply_effect(
+        eng_b,
+        agent_b,
+        gs_b.players[0],
+        pb_power_b,
+        power_bird.habitats[0],
+        eff,
+        "play",
+    )
+    accept_b = next(
+        c for c in captured_b[0].choices if isinstance(c, decisions.PayCostChoice)
+    )
+    assert (
+        accept_b.gained_egg_count == 2
+    ), "3 eligible birds → ledger must be capped at 2"
+
+
+def test_extra_egg_cannot_target_base_egg_bird_when_only_one_eligible() -> None:
+    """When the active player has exactly one matching-nest bird, the base egg
+    goes on it. The extra egg has no other eligible target: it silently does
+    nothing (gap #13a — ``exclude`` param)."""
+    birds, bonuses, goals = cards.load_all()
+    power_bird = _by_name(birds, "Lazuli Bunting")  # bowl, amount=1 extra
+    bowl_bird = next(
+        bird
+        for bird in birds
+        if bird.nest == cards.NestType.BOWL
+        and bird.egg_limit >= 2
+        and bird.name != power_bird.name
+    )
+    eff = next(
+        e
+        for e in power_bird.power.effects
+        if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+    )
+
+    gs = state.new_game(random.Random(20), birds, bonuses, goals)
+    gs.current_player = 0
+    pb_only = state.PlayedBird(bird=bowl_bird, eggs=0)
+    gs.players[0].board[bowl_bird.habitats[0]] = [pb_only]
+    for h in cards.ALL_HABITATS:
+        gs.players[1].board[h].clear()
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        for choice in decision.choices:
+            if not isinstance(choice, decisions.SkipChoice):
+                return typing.cast(C, choice)
+        return decision.choices[0]
+
+    pb_power = state.PlayedBird(bird=power_bird)
+    eng = engine.Engine(gs, agents=[agent, agent])
+    powers.apply_effect(
+        eng, agent, gs.players[0], pb_power, power_bird.habitats[0], eff, "play"
+    )
+
+    # The base egg is laid on pb_only (the only eligible bird, auto-resolved by
+    # Engine.ask since it is the sole choice). The extra egg has no distinct
+    # target — the exclude param prevents retargeting pb_only — so it is silently
+    # dropped. Total eggs must be exactly 1.
+    assert pb_only.eggs == 1, (
+        "extra-egg target is excluded (only one bird); "
+        "total eggs must be exactly 1 (base only)"
+    )
+
+
+def test_extra_egg_is_optional_under_birds_no_eggs_goal() -> None:
+    """Under the birds_no_eggs round goal, the extra egg must be presented as
+    an optional AcceptExchangeDecision (gap #13c)."""
+    birds, bonuses, goals = cards.load_all()
+    power_bird = _by_name(birds, "Lazuli Bunting")  # bowl, amount=1 extra
+    bowl_bird = next(
+        bird
+        for bird in birds
+        if bird.nest == cards.NestType.BOWL
+        and bird.egg_limit >= 3
+        and bird.name != power_bird.name
+    )
+    eff = next(
+        e
+        for e in power_bird.power.effects
+        if e.kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST
+    )
+
+    gs = state.new_game(random.Random(30), birds, bonuses, goals)
+    gs.current_player = 0
+
+    # Two matching birds so the extra egg has a different target.
+    pb_1 = state.PlayedBird(bird=bowl_bird, eggs=0)
+    pb_2 = state.PlayedBird(bird=bowl_bird, eggs=0)
+    gs.players[0].board[bowl_bird.habitats[0]] = [pb_1, pb_2]
+    for h in cards.ALL_HABITATS:
+        gs.players[1].board[h].clear()
+
+    # Patch the active round goal to birds_no_eggs.
+    anti_egg_goal = cards.EndRoundGoal(
+        id=99, description="birds without eggs", category="birds_no_eggs", tile_id=99
+    )
+    gs.round_goals[gs.round_idx] = anti_egg_goal
+
+    accept_decisions: list[decisions.AcceptExchangeDecision] = []
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            accept_decisions.append(decision)
+        for choice in decision.choices:
+            if not isinstance(choice, decisions.SkipChoice):
+                return typing.cast(C, choice)
+        return typing.cast(C, decision.choices[0])
+
+    pb_power = state.PlayedBird(bird=power_bird)
+    eng = engine.Engine(gs, agents=[agent, agent])
+    powers.apply_effect(
+        eng, agent, gs.players[0], pb_power, power_bird.habitats[0], eff, "play"
+    )
+
+    # There must be an AcceptExchangeDecision for the extra egg (with a skip row).
+    extra_egg_accepts = [
+        d
+        for d in accept_decisions
+        if any(
+            isinstance(c, decisions.SkipChoice) and c.label == "skip" for c in d.choices
+        )
+        and any(
+            isinstance(c, decisions.PayCostChoice) and c.label == "lay extra egg"
+            for c in d.choices
+        )
+    ]
+    assert (
+        len(extra_egg_accepts) >= 1
+    ), "under birds_no_eggs goal an extra-egg AcceptExchangeDecision must appear"

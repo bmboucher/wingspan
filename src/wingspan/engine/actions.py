@@ -176,26 +176,21 @@ def consume_extra_plays(
 ) -> None:
     """Resolve any +extra-play credits ``player`` accrued during the turn.
 
-    An extra play is optional ("you may play another bird"), so each credit
-    with a legal play opens with an ``AcceptExchangeDecision`` — take the play
-    or forfeit the credit — routed to the skip-optional head. On accept, the
-    play is offered as a ``PlayBirdDecision`` — the same ``(bird, habitat)``
-    ``PlayBirdChoice`` menu the main action's ``PLAY_BIRD`` branch uses, routed
-    to the play-bird head — restricted to the granting power's habitat when one
-    is set (House Wren). With no legal play the credit (and any remaining
-    credits) is wasted without consulting the agent. Called from
-    ``Engine._take_turn`` after the main action resolves."""
-    while engine.state.turn_extra_plays > 0:
-        engine.state.turn_extra_plays -= 1
-        habitat_filter = engine.state.turn_extra_play_habitat
+    Credits are stored as a FIFO list on ``GameState.turn_extra_plays``; each
+    entry is either ``None`` (unrestricted) or a ``Habitat`` (play must land
+    there, e.g. House Wren). An extra play is optional ("you may play another
+    bird"), so each credit with a legal play opens with an
+    ``AcceptExchangeDecision`` routed to the skip-optional head. With no legal
+    play for a given credit, that credit is wasted and the next credit is tried.
+    Called from ``Engine._take_turn`` after the main action resolves."""
+    while engine.state.turn_extra_plays:
+        habitat_filter = engine.state.turn_extra_plays.pop(0)
         plays = playable_bird_plays(player, habitat_filter)
         if not plays:
             _log_wasted_extra_play(engine, player, habitat_filter)
-            engine.state.turn_extra_play_habitat = None
-            break
+            continue
         if not _accept_extra_play(engine, agent, player, habitat_filter):
             engine.log(f"[{player.name}] declines the extra play")
-            engine.state.turn_extra_play_habitat = None
             continue
         if habitat_filter is not None:
             engine.log(
@@ -205,8 +200,6 @@ def consume_extra_plays(
             engine.log(f"[{player.name}] takes an EXTRA play")
         choice = _ask_play_bird(engine, agent, player, plays, extra=True)
         do_play_bird(engine, agent, choice.bird, choice.habitat)
-        # Habitat lock applies to a single extra play only.
-        engine.state.turn_extra_play_habitat = None
 
 
 # ---------------------------------------------------------------------------

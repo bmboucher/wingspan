@@ -60,8 +60,7 @@ def test_extra_play_offered_as_play_menu_and_plays_the_bird():
     for habitat in cards.ALL_HABITATS:
         player.board[habitat] = []
 
-    gs.turn_extra_plays = 1
-    gs.turn_extra_play_habitat = None
+    gs.turn_extra_plays = [None]
 
     sink: list[decisions.Decision[typing.Any]] = []
 
@@ -124,7 +123,7 @@ def test_extra_play_wasted_when_no_legal_play():
     gs.current_player = 0
     player = gs.me()
     player.hand = []  # nothing to play
-    gs.turn_extra_plays = 1
+    gs.turn_extra_plays = [None]
 
     def agent[C: decisions.Choice](
         _eng: engine.Engine,
@@ -134,7 +133,7 @@ def test_extra_play_wasted_when_no_legal_play():
 
     eng.agents = [agent, agent]
     actions.consume_extra_plays(eng, player, agent)
-    assert gs.turn_extra_plays == 0
+    assert gs.turn_extra_plays == []
 
 
 def test_extra_play_can_be_declined():
@@ -155,8 +154,7 @@ def test_extra_play_can_be_declined():
     for habitat in cards.ALL_HABITATS:
         player.board[habitat] = []
 
-    gs.turn_extra_plays = 1
-    gs.turn_extra_play_habitat = None
+    gs.turn_extra_plays = [None]
 
     sink: list[decisions.Decision[typing.Any]] = []
 
@@ -176,4 +174,75 @@ def test_extra_play_can_be_declined():
     assert [type(d) for d in sink] == [decisions.AcceptExchangeDecision]
     assert bird in player.hand
     assert player.food[food] == 1
-    assert gs.turn_extra_plays == 0
+    assert gs.turn_extra_plays == []
+
+
+def test_habitat_restricted_credit_only_offers_matching_habitat_birds():
+    """A credit with a habitat restriction (e.g. FOREST) must only offer birds
+    whose legal habitats include that one — birds only in WETLAND or GRASSLAND
+    must not appear in the play menu (gap #9)."""
+    birds, bonuses, goals = cards.load_all()
+    gs = state.new_game(random.Random(3), birds, bonuses, goals)
+    eng = engine.Engine(gs)
+    gs.current_player = 0
+    player = gs.me()
+
+    # Find a bird playable ONLY in wetland (not forest).
+    wetland_only_bird = next(
+        bird
+        for bird in birds
+        if bird.habitats == (cards.Habitat.WETLAND,)
+        and bird.color != cards.PowerColor.WHITE
+        and bird.food_cost.total <= 1
+    )
+    # Find TWO distinct birds playable in forest. Two are required so the
+    # PlayBirdDecision has >= 2 choices; Engine.ask auto-resolves single-choice
+    # menus without calling the agent, which would leave captured_plays empty.
+    forest_birds: list[cards.Bird] = []
+    for bird in birds:
+        if (
+            cards.Habitat.FOREST in bird.habitats
+            and bird.color != cards.PowerColor.WHITE
+            and bird.food_cost.total <= 1
+            and bird is not wetland_only_bird
+        ):
+            forest_birds.append(bird)
+            if len(forest_birds) == 2:
+                break
+    assert len(forest_birds) == 2, "need >= 2 affordable forest birds in catalog"
+    forest_bird, forest_bird_2 = forest_birds
+
+    player.hand = [wetland_only_bird, forest_bird, forest_bird_2]
+    for any_food in cards.ALL_FOODS:
+        player.food[any_food] = 1
+    for habitat in cards.ALL_HABITATS:
+        player.board[habitat] = []
+
+    # Forest-restricted credit.
+    gs.turn_extra_plays = [cards.Habitat.FOREST]
+
+    captured_plays: list[decisions.PlayBirdDecision] = []
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if isinstance(decision, decisions.PlayBirdDecision):
+            captured_plays.append(decision)
+        for choice in decision.choices:
+            if not isinstance(choice, (decisions.SkipChoice,)):
+                return typing.cast(C, choice)
+        return typing.cast(C, decision.choices[0])
+
+    eng.agents = [agent, agent]
+    actions.consume_extra_plays(eng, player, agent)
+
+    assert len(captured_plays) == 1
+    offered_birds = [c.bird for c in captured_plays[0].choices]
+    assert forest_bird in offered_birds, "forest bird must be offered for forest credit"
+    assert (
+        forest_bird_2 in offered_birds
+    ), "second forest bird must also be offered for forest credit"
+    assert (
+        wetland_only_bird not in offered_birds
+    ), "wetland-only bird must NOT be offered for a forest-restricted credit"

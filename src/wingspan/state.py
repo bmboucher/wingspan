@@ -71,6 +71,10 @@ def _new_round_goal_list() -> list[cards.EndRoundGoal]:
     return []
 
 
+def _new_extra_plays_list() -> list[cards.Habitat | None]:
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Food pool — mutable 5-vector aligned to cards.ALL_FOODS
 
@@ -182,6 +186,9 @@ class PlayedBird(pydantic.BaseModel):
     tucked_cards: int = 0
     # number of times the bird has been activated this round (used by some rules)
     activations: int = 0
+    # cleared at the start of the bird's owner's turn; set when a pink power
+    # commits a reaction during a between-turns window (cap: once per window)
+    pink_fired: bool = False
 
 
 class Board(pydantic.BaseModel):
@@ -488,7 +495,6 @@ class GameState(pydantic.BaseModel):
         default_factory=lambda: [None] * TRAY_SIZE
     )
     birdfeeder: Birdfeeder = pydantic.Field(default_factory=Birdfeeder)
-    food_supply: FoodPool = pydantic.Field(default_factory=lambda: FoodPool.uniform(99))
     # All 16 goals shuffled — first 4 are the per-round goals for rounds 1..4
     round_goals: list[cards.EndRoundGoal] = pydantic.Field(
         default_factory=_new_round_goal_list
@@ -504,11 +510,12 @@ class GameState(pydantic.BaseModel):
     log: list[str] = pydantic.Field(default_factory=list)
 
     # Per-turn scratch state. Reset at the start of every turn by the engine.
-    # ``turn_extra_play_habitat``, when set, restricts the next extra play to a
-    # single habitat (e.g. House Wren grants +1 play in this bird's habitat)
-    # and is cleared by the extra-plays loop after consuming one play.
-    turn_extra_plays: int = 0
-    turn_extra_play_habitat: cards.Habitat | None = None
+    # Each entry is one power-granted extra-play credit; ``None`` = unrestricted,
+    # a Habitat value = play must be in that habitat (e.g. House Wren).
+    # Credits are consumed FIFO by ``actions.consume_extra_plays``.
+    turn_extra_plays: list[cards.Habitat | None] = pydantic.Field(
+        default_factory=_new_extra_plays_list
+    )
     # How many end-of-turn discard obligations the active player has accrued
     # from "draw N, then discard 1 at end of turn" birds this turn. Cleared
     # by reset_turn_state at the start of each turn.
@@ -557,8 +564,7 @@ class GameState(pydantic.BaseModel):
 
     def reset_turn_state(self) -> None:
         """Clear per-turn scratch fields. Called at the start of every turn."""
-        self.turn_extra_plays = 0
-        self.turn_extra_play_habitat = None
+        self.turn_extra_plays = []
         self.turn_end_discards = 0
 
 

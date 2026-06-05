@@ -53,7 +53,6 @@ def test_cache_food_records_the_food_type():
     eng, birds = _engine()
     player = eng.state.players[0]
     pb = state.PlayedBird(bird=birds[0])
-    eng.state.food_supply[cards.Food.SEED] = 5
     _cache(eng, player, pb, cards.Food.SEED, 2)
     assert pb.cached_food[cards.Food.SEED] == 2
     assert pb.cached_food[cards.Food.FISH] == 0
@@ -65,8 +64,6 @@ def test_total_cached_sums_across_types_and_birds():
     across every bird, regardless of type."""
     eng, birds = _engine()
     player = eng.state.players[0]
-    eng.state.food_supply[cards.Food.SEED] = 5
-    eng.state.food_supply[cards.Food.FISH] = 5
     pb_forest = state.PlayedBird(bird=birds[0])
     pb_wetland = state.PlayedBird(bird=birds[1])
     player.board[cards.Habitat.FOREST] = [pb_forest]

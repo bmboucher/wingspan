@@ -28,12 +28,11 @@ def _h_play_additional_bird_here(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    # House Wren: grants +1 extra play in this bird's habitat. The habitat
-    # restriction is tracked on ``state.turn_extra_play_habitat`` and enforced
-    # when offering legal cards in the extra-plays loop.
+    # House Wren: grants +1 extra play in this bird's habitat. Appended as a
+    # single credit to the FIFO list; ``actions.consume_extra_plays`` pops and
+    # enforces the habitat restriction.
     bird = pb.bird
-    engine.state.turn_extra_plays += 1
-    engine.state.turn_extra_play_habitat = habitat
+    engine.state.turn_extra_plays.append(habitat)
     engine.log(
         f"  {bird.name}: granted +1 extra play (restricted to [{habitat.value}])"
     )

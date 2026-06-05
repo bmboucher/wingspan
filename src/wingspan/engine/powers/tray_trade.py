@@ -28,13 +28,13 @@ def _h_draw_from_tray_all(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    # Brant (generic for N): take every face-up card in the tray, then refill.
+    # Brant (generic for N): take every face-up card in the tray.
+    # The end-of-turn refill (core._take_turn) handles refilling; no mid-turn refill.
     st = engine.state
     bird = pb.bird
     taken = [card for card in st.tray if card is not None]
     st.tray = [None] * state.TRAY_SIZE
     player.hand.extend(taken)
-    st.refill_tray()
     engine.log(
         f"  {bird.name}: drew {len(taken)} card(s) from tray: "
         f"{[card.name for card in taken]}"
@@ -57,15 +57,11 @@ def _h_trade_wild_food(
     # Step 3: GAIN_FOOD — which food to gain from supply (mandatory; post-discard
     #   supply includes the just-returned food, so trading a food for itself is
     #   legal but wasteful — the model learns to avoid it).
-    st = engine.state
     bird = pb.bird
 
-    # Pre-flight: need a food to give up and something in the supply to take.
+    # Pre-flight: need a food to give up.
     if player.total_food() <= 0:
         engine.log(f"  {bird.name}: no food to trade; power skipped")
-        return
-    if not any(st.food_supply.get(food, 0) > 0 for food in cards.ALL_FOODS):
-        engine.log(f"  {bird.name}: supply empty; power skipped")
         return
 
     # Step 1 — activation gate.
@@ -107,7 +103,6 @@ def _trade_discard_step(
 ) -> cards.Food:
     """The 'lose 1 food back to the supply' half of a wild-food trade; returns
     the discarded food."""
-    st = engine.state
     lose_ch = engine.ask(
         agent,
         decisions.SpendFoodDecision(
@@ -123,7 +118,6 @@ def _trade_discard_step(
     assert isinstance(lose_ch, decisions.FoodChoice)
     lose_food = lose_ch.food
     player.food[lose_food] -= 1
-    st.food_supply[lose_food] = st.food_supply.get(lose_food, 0) + 1
     return lose_food
 
 
@@ -134,9 +128,7 @@ def _trade_gain_step(
     bird: cards.Bird,
 ) -> cards.Food:
     """The 'gain 1 food from the supply' half of a wild-food trade; returns
-    the gained food. Called after the discard step, so the just-returned food
-    is already in the supply."""
-    st = engine.state
+    the gained food. Supply is infinite so all 5 food types are always available."""
     gain_ch = engine.ask(
         agent,
         decisions.GainFoodDecision(
@@ -145,13 +137,11 @@ def _trade_gain_step(
             choices=[
                 decisions.FoodChoice(label=food.value, food=food)
                 for food in cards.ALL_FOODS
-                if st.food_supply.get(food, 0) > 0
             ],
         ),
     )
     assert isinstance(gain_ch, decisions.FoodChoice)
     gain_food = gain_ch.food
-    st.food_supply[gain_food] -= 1
     player.food[gain_food] += 1
     return gain_food
 

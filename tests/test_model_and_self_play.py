@@ -143,12 +143,14 @@ def test_model_same_family_scores_identically():
     """Two rows with identical inputs and the *same* family must yield
     identical logits — the routing is deterministic per family."""
     net = model.PolicyValueNet()
+    net.eval()  # disable dropout so identical rows produce identical outputs
     n_choices = 3
     state = torch.randn(1, encode.state_size()).repeat(2, 1)
     choices = torch.randn(1, n_choices, encode.CHOICE_FEATURE_DIM).repeat(2, 1, 1)
     mask = torch.ones(2, n_choices)
     family = torch.zeros(2, dtype=torch.long)
-    logits, _ = net(state, choices, mask, family)
+    with torch.no_grad():
+        logits, _ = net(state, choices, mask, family)
     assert torch.allclose(logits[0], logits[1])
 
 

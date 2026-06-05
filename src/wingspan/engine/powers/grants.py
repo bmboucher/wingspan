@@ -12,6 +12,7 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
+from wingspan.engine import reactors
 from wingspan.engine.powers import registry
 
 if typing.TYPE_CHECKING:
@@ -28,10 +29,8 @@ def _h_gain_food_supply(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    st = engine.state
     bird = pb.bird
-    if eff.food and st.food_supply.get(eff.food, 0) >= eff.amount:
-        st.food_supply[eff.food] -= eff.amount
+    if eff.food:
         player.food[eff.food] += eff.amount
         engine.log(f"  {bird.name}: +{eff.amount} {eff.food.value} from supply")
 
@@ -191,10 +190,8 @@ def _h_cache_food(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    st = engine.state
     bird = pb.bird
-    if eff.food and st.food_supply.get(eff.food, 0) >= eff.amount:
-        st.food_supply[eff.food] -= eff.amount
+    if eff.food:
         pb.cached_food[eff.food] += eff.amount
         engine.log(f"  {bird.name}: cached {eff.amount} {eff.food.value}")
 
@@ -236,11 +233,12 @@ def _h_roll_not_in_feeder_cache(
     engine.log(f"  {bird.name}: rolled {dice_out} {die_word}: {roll_str}")
 
     assert eff.food is not None
-    if roll_counts[eff.food] > 0 and st.food_supply.get(eff.food, 0) >= eff.amount:
-        st.food_supply[eff.food] -= eff.amount
+    if roll_counts[eff.food] > 0:
         pb.cached_food[eff.food] += eff.amount
         engine.log(f"  {bird.name}: cached {eff.amount} {eff.food.value}")
-    elif roll_counts[eff.food] == 0:
+        # Dice predators succeed on a cache, same as deck-draw predators.
+        reactors.trigger_pink_predator_success(engine, player)
+    else:
         engine.log(f"  {bird.name}: no {eff.food.value} rolled; nothing cached")
 
 
@@ -491,9 +489,7 @@ def _h_tuck_from_hand_then_gain_food_supply(
     pb.tucked_cards += 1
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
 
-    st = engine.state
-    if eff.food and st.food_supply.get(eff.food, 0) >= eff.amount:
-        st.food_supply[eff.food] -= eff.amount
+    if eff.food:
         player.food[eff.food] += eff.amount
         engine.log(f"  {bird.name}: +{eff.amount} {eff.food.value} from supply")
 
@@ -510,7 +506,7 @@ def _h_play_additional_bird(
 ) -> None:
     bird = pb.bird
     if not eff.habitat or eff.habitat == habitat:
-        engine.state.turn_extra_plays += 1
+        engine.state.turn_extra_plays.append(eff.habitat)
         engine.log(f"  {bird.name}: granted +1 extra play")
 
 
@@ -524,14 +520,11 @@ def _h_all_players_gain_food(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    st = engine.state
     bird = pb.bird
     if not eff.food:
         return
-    for other_player in st.players:
-        if st.food_supply.get(eff.food, 0) >= eff.amount:
-            st.food_supply[eff.food] -= eff.amount
-            other_player.food[eff.food] += eff.amount
+    for other_player in engine.state.players:
+        other_player.food[eff.food] += eff.amount
     engine.log(f"  {bird.name}: all players +{eff.amount} {eff.food.value}")
 
 
@@ -545,11 +538,19 @@ def _h_all_players_draw(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    from wingspan.engine import actions
-
+    # "All players draw 1 [card] from the deck." — deck-only (no tray menu),
+    # so no decision is needed and each player draws their own card silently.
+    bird = pb.bird
     for other_player in engine.state.players:
         for _ in range(eff.amount):
-            actions.draw_one_card(engine, agent, other_player)
+            drawn = engine.state.draw_bird()
+            if drawn is not None:
+                other_player.hand.append(drawn)
+                engine.log(
+                    f"  {bird.name}: [{other_player.name}] drew {drawn.name} from deck"
+                )
+            else:
+                engine.log(f"  {bird.name}: [{other_player.name}] deck empty; skipped")
 
 
 @registry.handles(cards.EffectKind.DRAW_BONUS)
@@ -647,24 +648,22 @@ def _h_tuck_from_hand_then_gain_food_choice(
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
 
     # Step 3: mandatory food choice from the two supply options.
-    st = engine.state
-    available = [food for food in [food_a, food_b] if st.food_supply.get(food, 0) > 0]
-    if not available:
-        engine.log(f"  {bird.name}: neither food in supply; food reward skipped")
-        return
     food_ch = engine.ask(
         agent,
         decisions.GainFoodDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] gain 1 {food_a.value} or {food_b.value} from supply ({bird.name})",
+            prompt=(
+                f"[{player.name}] gain 1 {food_a.value} or {food_b.value}"
+                f" from supply ({bird.name})"
+            ),
             choices=[
-                decisions.FoodChoice(label=food.value, food=food) for food in available
+                decisions.FoodChoice(label=food.value, food=food)
+                for food in [food_a, food_b]
             ],
         ),
     )
     assert isinstance(food_ch, decisions.FoodChoice)
     chosen = food_ch.food
-    st.food_supply[chosen] -= 1
     player.food[chosen] += 1
     engine.log(f"  {bird.name}: +1 {chosen.value} from supply (tuck reward)")
 

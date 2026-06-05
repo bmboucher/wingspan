@@ -161,3 +161,167 @@ def test_loggerhead_shrike_silent_when_no_rodent_gained() -> None:
         eng, eng.state.players[0], {cards.Food.SEED}
     )
     assert shrike.cached_food[cards.Food.RODENT] == 0
+
+
+# ---------------------------------------------------------------------------
+# Gap #10 — once-between-turns cap
+
+
+def test_pink_fired_cap_fires_only_once_per_window() -> None:
+    """A pink bird fires at most once per between-turns window; the second
+    trigger within the same window is silently skipped (gap #10)."""
+    eng = _engine()
+    shrike = state.PlayedBird(bird=_bird_named("Loggerhead Shrike"))
+    eng.state.players[1].board[cards.Habitat.GRASSLAND] = [shrike]
+
+    reactors.trigger_pink_gain_food_reactors(
+        eng, eng.state.players[0], {cards.Food.RODENT}
+    )
+    reactors.trigger_pink_gain_food_reactors(
+        eng, eng.state.players[0], {cards.Food.RODENT}
+    )
+    assert (
+        shrike.cached_food[cards.Food.RODENT] == 1
+    ), "cap: second trigger in the same window must be silently skipped"
+
+
+def test_pink_fired_reset_allows_fire_again() -> None:
+    """After ``pink_fired`` is cleared (simulating a new turn), the bird can
+    fire again in the next between-turns window (gap #10)."""
+    eng = _engine()
+    shrike = state.PlayedBird(bird=_bird_named("Loggerhead Shrike"))
+    eng.state.players[1].board[cards.Habitat.GRASSLAND] = [shrike]
+
+    reactors.trigger_pink_gain_food_reactors(
+        eng, eng.state.players[0], {cards.Food.RODENT}
+    )
+    assert shrike.pink_fired is True
+
+    shrike.pink_fired = False  # simulates _take_turn clearing the flag
+    reactors.trigger_pink_gain_food_reactors(
+        eng, eng.state.players[0], {cards.Food.RODENT}
+    )
+    assert (
+        shrike.cached_food[cards.Food.RODENT] == 2
+    ), "after reset the bird must be able to fire again"
+
+
+def test_pink_fired_decline_does_not_consume_use() -> None:
+    """Declining a reactive offer does NOT set ``pink_fired``; the bird can
+    still fire if the same trigger re-occurs in the window (gap #10)."""
+    eng = _engine()
+    eng.agents[1] = _always_skip_agent()
+    lark = state.PlayedBird(bird=_bird_named("Horned Lark"))
+    eng.state.players[1].board[cards.Habitat.GRASSLAND] = [lark]
+    eng.state.players[1].hand = [_bird_named("Belted Kingfisher")]
+
+    reactors.trigger_pink_play_bird_reactors(
+        eng, eng.state.players[0], cards.Habitat.GRASSLAND
+    )
+    assert lark.tucked_cards == 0
+    assert lark.pink_fired is False, "a declined fire must NOT set pink_fired"
+
+    # Second trigger: switch to an activating agent — bird should still fire.
+    eng.agents[1] = _always_activate_agent()
+    reactors.trigger_pink_play_bird_reactors(
+        eng, eng.state.players[0], cards.Habitat.GRASSLAND
+    )
+    assert lark.tucked_cards == 1
+    assert lark.pink_fired is True
+
+
+# ---------------------------------------------------------------------------
+# Gap #21 — exclude_self wording
+
+
+def test_pink_lay_egg_another_bird_sets_exclude_self_true() -> None:
+    """'lay 1 egg on another bird' should parse with exclude_self=True (gap #21)."""
+    power = cards.parse_power(
+        cards.PowerColor.PINK,
+        "When another player takes the [lay eggs] action, "
+        "lay 1 [egg] on another bird with a [bowl] nest.",
+    )
+    eff = next(
+        e for e in power.effects if e.kind == cards.EffectKind.PINK_LAY_EGG_ON_NEST
+    )
+    assert eff.exclude_self is True
+
+
+def test_pink_lay_egg_a_bird_sets_exclude_self_false() -> None:
+    """'lay 1 egg on a bird' should parse with exclude_self=False (gap #21)."""
+    power = cards.parse_power(
+        cards.PowerColor.PINK,
+        "When another player takes the [lay eggs] action, "
+        "lay 1 [egg] on a bird with a [bowl] nest.",
+    )
+    eff = next(
+        e for e in power.effects if e.kind == cards.EffectKind.PINK_LAY_EGG_ON_NEST
+    )
+    assert eff.exclude_self is False
+
+
+def test_fire_pink_lay_egg_exclude_self_true_skips_reactor_as_sole_target() -> None:
+    """When exclude_self=True and the reactor is the only eligible target, no
+    egg is laid and ``fire_pink_lay_egg`` returns False (gap #21)."""
+    eng = _engine()
+    eng.agents[1] = _always_activate_agent()
+
+    # Find any bird whose pink power uses PINK_LAY_EGG_ON_NEST with exclude_self=True.
+    reactor_bird = next(
+        bird
+        for bird in (cards.load_all()[0])
+        if any(
+            e.kind == cards.EffectKind.PINK_LAY_EGG_ON_NEST and e.exclude_self
+            for e in bird.power.effects
+        )
+    )
+    eff = next(
+        e
+        for e in reactor_bird.power.effects
+        if e.kind == cards.EffectKind.PINK_LAY_EGG_ON_NEST
+    )
+    nest = eff.nest
+    assert nest is not None
+
+    # Place the reactor bird as the ONLY eligible bird on P1's board.
+    pb = state.PlayedBird(bird=reactor_bird, eggs=0)
+    for h in cards.ALL_HABITATS:
+        eng.state.players[1].board[h].clear()
+    eng.state.players[1].board[reactor_bird.habitats[0]] = [pb]
+
+    committed = reactors.fire_pink_lay_egg(
+        eng, eng.state.players[1], pb, reactor_bird.habitats[0], eff
+    )
+    assert not committed
+    assert pb.eggs == 0
+
+
+def test_fire_pink_lay_egg_exclude_self_false_allows_self_targeting() -> None:
+    """When exclude_self=False the reactor bird IS a legal target for its own egg (gap #21)."""
+    eng = _engine()
+
+    # Synthesise an effect with exclude_self=False for a bowl nest.
+    eff = cards.Effect(
+        kind=cards.EffectKind.PINK_LAY_EGG_ON_NEST,
+        nest=cards.NestType.BOWL,
+        exclude_self=False,
+        raw_text="test",
+    )
+    # Find any bowl bird we can use as the reactor.
+    bowl_bird = next(
+        bird
+        for bird in (cards.load_all()[0])
+        if bird.nest == cards.NestType.BOWL and bird.egg_limit >= 1
+    )
+    pb = state.PlayedBird(bird=bowl_bird, eggs=0)
+    for h in cards.ALL_HABITATS:
+        eng.state.players[1].board[h].clear()
+    eng.state.players[1].board[bowl_bird.habitats[0]] = [pb]
+
+    # Use an always-activate agent — it will pick the first BoardTargetChoice.
+    eng.agents[1] = _always_activate_agent()
+    committed = reactors.fire_pink_lay_egg(
+        eng, eng.state.players[1], pb, bowl_bird.habitats[0], eff
+    )
+    assert committed
+    assert pb.eggs == 1  # self-targeted successfully

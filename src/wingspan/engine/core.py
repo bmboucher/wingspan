@@ -268,6 +268,11 @@ class Engine:
         tray instead of an ever-full one."""
         player = self.state.me()
         self.state.reset_turn_state()
+        # Clear the once-between-turns cap for each of this player's birds so
+        # they can fire again during the next between-turns window.
+        for row in player.board.values():
+            for pb in row:
+                pb.pink_fired = False
         self.instrumentation.turn_start(engine=self, player=player)
         # Print the turn header first so it anchors the block, then the state
         # summary, then ask for the main action (which logs the AI distribution)

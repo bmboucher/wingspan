@@ -19,16 +19,20 @@ from wingspan.cards.parse import registry, tags
 @registry.pattern
 @registry.pink_pattern
 def _m_pink_lay_egg_on_nest(text: str) -> schema.Effect | None:
+    # Capture the article word ("another" or "a"/"any") to distinguish
+    # "lay on another bird" (exclude_self=True) from "lay on a bird" (=False).
     match = re.search(
         r"When another player takes the .lay eggs. action,"
-        r"\s*lay 1 \[egg\] on \w+ bird with a \[(bowl|cavity|ground|platform)\] nest",
+        r"\s*lay 1 \[egg\] on (\w+) bird with a \[(bowl|cavity|ground|platform)\] nest",
         text,
         re.I,
     )
     if match:
+        article = match.group(1).lower()
         return schema.Effect(
             kind=schema.EffectKind.PINK_LAY_EGG_ON_NEST,
-            nest=tags.NEST_TAGS[match.group(1).lower()],
+            nest=tags.NEST_TAGS[match.group(2).lower()],
+            exclude_self=(article == "another"),
             raw_text=match.group(0),
         )
     return None

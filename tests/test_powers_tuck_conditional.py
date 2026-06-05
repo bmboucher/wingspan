@@ -358,7 +358,6 @@ def test_tuck_then_gain_food_tuck_accepted_gains_food():
     pb = state.PlayedBird(bird=source_bird)
     player.board[cards.Habitat.WETLAND] = [pb]
     player.hand = [next(b for b in birds if b is not source_bird)]
-    eng.state.food_supply[food_to_gain] = 5
     food_before = player.food[food_to_gain]
 
     def agent[C: decisions.Choice](
@@ -405,7 +404,6 @@ def test_tuck_then_gain_food_tuck_skipped_no_food():
     pb = state.PlayedBird(bird=source_bird)
     player.board[cards.Habitat.WETLAND] = [pb]
     player.hand = [next(b for b in birds if b is not source_bird)]
-    eng.state.food_supply[food_to_gain] = 5
     food_before = player.food[food_to_gain]
 
     def agent[C: decisions.Choice](

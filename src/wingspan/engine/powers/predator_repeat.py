@@ -162,16 +162,20 @@ def _h_repeat_predator_power(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
+    # Dice-roll predators (ROLL_NOT_IN_FEEDER_CACHE) are repeatable alongside
+    # deck-draw predators (PREDATOR_HUNT) — both can succeed and both trigger
+    # the pink-predator-success reactor on success.
+    _PREDATOR_KINDS = (
+        cards.EffectKind.PREDATOR_HUNT,
+        cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE,
+    )
     bird = pb.bird
     others = [
         other
         for other in player.board[habitat]
         if other is not pb
         and other.bird.predator
-        and any(
-            effect.kind == cards.EffectKind.PREDATOR_HUNT
-            for effect in other.bird.power.effects
-        )
+        and any(effect.kind in _PREDATOR_KINDS for effect in other.bird.power.effects)
     ]
     if not others:
         engine.log(f"  {bird.name}: no other predator here to repeat; skipped")

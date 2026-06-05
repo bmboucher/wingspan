@@ -167,15 +167,9 @@ def _gain_wild_from_supply(
     bird: cards.Bird,
     amount: int,
 ) -> None:
-    """Let ``player`` pick ``amount`` wild foods one at a time from the supply
-    (stopping early if the supply empties), crediting each to their tray."""
-    st = engine.state
+    """Let ``player`` pick ``amount`` wild foods one at a time from the infinite
+    supply, crediting each to their tray."""
     for _ in range(amount):
-        available = [
-            food for food in cards.ALL_FOODS if st.food_supply.get(food, 0) > 0
-        ]
-        if not available:
-            break
         food_ch = engine.ask(
             agent,
             decisions.GainFoodDecision(
@@ -183,12 +177,11 @@ def _gain_wild_from_supply(
                 prompt=f"[{player.name}] pick 1 [wild] from supply (from {bird.name})",
                 choices=[
                     decisions.FoodChoice(label=food.value, food=food)
-                    for food in available
+                    for food in cards.ALL_FOODS
                 ],
             ),
         )
         assert isinstance(food_ch, decisions.FoodChoice)
         chosen_food = food_ch.food
-        st.food_supply[chosen_food] -= 1
         player.food[chosen_food] += 1
         engine.log(f"  {bird.name}: +1 {chosen_food.value} from supply")

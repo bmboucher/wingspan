@@ -89,17 +89,16 @@ def _h_all_players_lay_egg_on_nest(
 ) -> None:
     # "All players lay 1 [egg] on any 1 [<nest>] bird." The optional second
     # sentence ("You may lay 1 [egg] on 1 additional [<nest>] bird.") is
-    # encoded as ``eff.amount`` extra optional layings the active player gets
-    # after the main round.
+    # encoded as ``eff.amount`` extra layings for the active player after the
+    # main round.
     #
     # Sequence:
-    #   1. P0 AcceptExchangeDecision — veto the whole power (exchange ledger
-    #      shows what P0 gains and what eligible opponents gain).
-    #   2. Non-active players, in turn order: if the active round goal rewards
-    #      birds-without-eggs, each gets their own AcceptExchangeDecision;
-    #      otherwise auto-yes and straight to LayEggDecision.
+    #   1. P0 AcceptExchangeDecision — veto the whole power (ledger shows
+    #      min(2, own_eligible) for P0 and eligible-opponent count).
+    #   2. Non-active players in turn order — anti-egg-goal gate each one.
     #   3. P0's mandatory base LayEggDecision.
-    #   4. P0's optional extra layings (existing ``eff.amount`` logic).
+    #   4. P0's extra layings — mandatory unless anti-egg-goal is active;
+    #      each excludes the previous egg's target (gap #13a/b/c).
     st = engine.state
     bird = pb.bird
     assert eff.nest is not None, "ALL_PLAYERS_LAY_EGG_ON_NEST requires nest"
@@ -109,7 +108,12 @@ def _h_all_players_lay_egg_on_nest(
     active_idx = player.id
 
     # Eligibility check — who has a matching bird with room?
-    p0_eligible = _has_eligible_bird_on_nest(player, nest)
+    own_eligible_count = sum(
+        1
+        for row in player.board.values()
+        for target_pb in row
+        if target_pb.bird.nest == nest and target_pb.eggs < target_pb.bird.egg_limit
+    )
     opp_eligible_count = sum(
         1
         for offset in range(1, n_players)
@@ -117,7 +121,7 @@ def _h_all_players_lay_egg_on_nest(
             st.players[(active_idx + offset) % n_players], nest
         )
     )
-    if not p0_eligible and opp_eligible_count == 0:
+    if own_eligible_count == 0 and opp_eligible_count == 0:
         engine.log(
             f"  {bird.name}: no player has a [{nest.value}] bird with room; skipped"
         )
@@ -132,7 +136,7 @@ def _h_all_players_lay_egg_on_nest(
         )
     )
 
-    # Step 1: P0 veto — they commit to activating or cancel for everyone.
+    # Step 1: P0 veto — commit to activating or cancel for everyone.
     p0_commit = engine.ask(
         agent,
         decisions.AcceptExchangeDecision(
@@ -141,7 +145,7 @@ def _h_all_players_lay_egg_on_nest(
             choices=[
                 decisions.PayCostChoice(
                     label="activate",
-                    gained_egg_count=1 if p0_eligible else 0,
+                    gained_egg_count=min(2, own_eligible_count),
                     opp_gained_egg_count=opp_eligible_count,
                 ),
                 decisions.SkipChoice(label="skip"),
@@ -183,13 +187,37 @@ def _h_all_players_lay_egg_on_nest(
         dispatch.lay_one_egg_on_nest(engine, other_player, nest, label=bird.name)
 
     # Step 3: P0's mandatory base egg.
-    dispatch.lay_one_egg_on_nest(engine, player, nest, label=bird.name)
+    last_laid = dispatch.lay_one_egg_on_nest(engine, player, nest, label=bird.name)
 
-    # Step 4: P0's optional extra eggs.
+    # Step 4: P0's extra eggs — mandatory unless anti-egg-goal; each extra
+    # excludes the bird that just received an egg so the same bird isn't
+    # targeted twice in a row (gap #13a).
     for _ in range(extra_for_self):
-        dispatch.lay_one_egg_on_nest(
-            engine, player, nest, label=bird.name, optional=True
+        if anti_egg_goal:
+            extra_ch = engine.ask(
+                agent,
+                decisions.AcceptExchangeDecision(
+                    player_id=player.id,
+                    prompt=(
+                        f"[{player.name}] lay 1 more egg on a [{nest.value}] bird"
+                        f" ({bird.name})? (or skip)"
+                    ),
+                    choices=[
+                        decisions.PayCostChoice(
+                            label="lay extra egg", gained_egg_count=1
+                        ),
+                        decisions.SkipChoice(label="skip"),
+                    ],
+                ),
+            )
+            if isinstance(extra_ch, decisions.SkipChoice):
+                engine.log(f"  {bird.name}: [{player.name}] skipped extra egg")
+                break
+        last_laid = dispatch.lay_one_egg_on_nest(
+            engine, player, nest, label=bird.name, exclude=last_laid
         )
+        if last_laid is None:
+            break
 
 
 def _has_eligible_bird_on_nest(player: state.Player, nest: cards.NestType) -> bool:

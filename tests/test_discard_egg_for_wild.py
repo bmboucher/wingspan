@@ -64,8 +64,6 @@ def test_discard_egg_for_wild_decrements_egg_and_grants_food():
 
     for food in player.food:
         player.food[food] = 0
-    for food in eng.state.food_supply:
-        eng.state.food_supply[food] = 5
 
     # Scripted agent: accept the exchange, pay with FOREST slot-0 egg, then
     # take the two wild foods in order (SEED first, then FRUIT).
@@ -115,8 +113,6 @@ def test_discard_egg_for_wild_decrements_egg_and_grants_food():
     assert sibling.eggs == 0
     assert player.food[cards.Food.SEED] == 1
     assert player.food[cards.Food.FRUIT] == 1
-    assert eng.state.food_supply[cards.Food.SEED] == 4
-    assert eng.state.food_supply[cards.Food.FRUIT] == 4
 
 
 def test_discard_egg_for_wild_skips_when_no_other_bird_has_an_egg():
@@ -128,7 +124,6 @@ def test_discard_egg_for_wild_skips_when_no_other_bird_has_an_egg():
     player.board[cards.Habitat.GRASSLAND].append(crow)
 
     before_food = player.food.as_dict()
-    before_supply = eng.state.food_supply.as_dict()
 
     def agent[C: decisions.Choice](
         _engine: engine.Engine,
@@ -142,7 +137,6 @@ def test_discard_egg_for_wild_skips_when_no_other_bird_has_an_egg():
 
     assert crow.eggs == 3  # self eggs untouched
     assert player.food.as_dict() == before_food
-    assert eng.state.food_supply.as_dict() == before_supply
 
 
 def test_discard_egg_for_wild_can_be_skipped():
@@ -155,7 +149,6 @@ def test_discard_egg_for_wild_can_be_skipped():
     player.board[cards.Habitat.WETLAND].extend([sibling, fishcrow])
 
     before_food = player.food.as_dict()
-    before_supply = eng.state.food_supply.as_dict()
 
     def agent[C: decisions.Choice](
         _engine: engine.Engine,
@@ -169,4 +162,3 @@ def test_discard_egg_for_wild_can_be_skipped():
 
     assert sibling.eggs == 2  # untouched
     assert player.food.as_dict() == before_food
-    assert eng.state.food_supply.as_dict() == before_supply

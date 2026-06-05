@@ -112,7 +112,7 @@ def test_parser_draw_n_plus_one_draft():
 # Brant — DRAW_FROM_TRAY_ALL
 
 
-def test_draw_from_tray_all_takes_all_three_and_refills():
+def test_draw_from_tray_all_takes_all_three_no_mid_turn_refill():
     eng, pb = _make_engine_with_bird("Draw the 3 face-up [card] in the bird tray.")
     gs = eng.state
     gs.current_player = 0
@@ -123,9 +123,9 @@ def test_draw_from_tray_all_takes_all_three_and_refills():
     deck_before = len(gs.bird_deck)
     powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.WETLAND, "play")
     assert [bird.name for bird in player.hand] == original_tray_names
-    assert all(b is not None for b in gs.tray)  # refilled to full
-    # 3 cards moved from deck to tray to refill.
-    assert len(gs.bird_deck) == deck_before - 3
+    # No mid-turn refill — the tray stays empty until end-of-turn.
+    assert all(b is None for b in gs.tray)
+    assert len(gs.bird_deck) == deck_before
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +143,6 @@ def test_trade_wild_food_swaps_one_food():
     for food in cards.ALL_FOODS:
         player.food[food] = 0
     player.food[cards.Food.SEED] = 2
-    gs.food_supply[cards.Food.FRUIT] = 5
 
     def agent[C: decisions.Choice](
         _engine: engine.Engine,
@@ -243,14 +242,11 @@ def test_trade_wild_food_is_an_activate_then_lose_then_gain_chain():
     player = gs.me()
     for food in cards.ALL_FOODS:
         player.food[food] = 0
-        gs.food_supply[food] = 0
     # Two hand foods → SpendFoodDecision has >1 choice, so the engine consults
     # the agent (a single-choice decision is auto-resolved without an agent call).
     player.food[cards.Food.SEED] = 1
     player.food[cards.Food.FISH] = 1
-    # Two supply foods → GainFoodDecision likewise has >1 choice.
-    gs.food_supply[cards.Food.FRUIT] = 3
-    gs.food_supply[cards.Food.INVERTEBRATE] = 3
+    # Supply is infinite — GainFoodDecision always offers all 5 food types.
 
     seen: list[type[decisions.Decision[typing.Any]]] = []
 
@@ -477,9 +473,9 @@ def test_play_additional_bird_here_grants_extra_play():
     gs = eng.state
     gs.current_player = 0
     player = gs.me()
-    before = gs.turn_extra_plays
+    before = len(gs.turn_extra_plays)
     powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.FOREST, "play")
-    assert gs.turn_extra_plays == before + 1
+    assert len(gs.turn_extra_plays) == before + 1
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +540,51 @@ def test_draw_n_plus_one_draft_empty_deck_no_op():
     powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
     assert p0.hand == []
     assert gs.players[1].hand == []
+
+
+# ---------------------------------------------------------------------------
+# ALL_PLAYERS_DRAW — gap #11
+
+
+def test_all_players_draw_each_player_gets_card_from_deck():
+    """Each player draws from the deck (no tray menu, no decision); the tray
+    is unchanged (gap #11)."""
+    eng, pb = _make_engine_with_bird(
+        "All players draw 1 [card] from the deck.",
+        color=cards.PowerColor.WHITE,
+    )
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1 = gs.players
+    p0.hand = []
+    p1.hand = []
+    tray_before = list(gs.tray)
+    deck_before = len(gs.bird_deck)
+
+    powers.dispatch_power(eng, _no_agent, p0, pb, cards.Habitat.WETLAND, "play")
+
+    # Each player gains 1 card.
+    assert len(p0.hand) == 1
+    assert len(p1.hand) == 1
+    # Cards came from deck, not tray.
+    assert len(gs.bird_deck) == deck_before - 2
+    # Tray is unchanged (no mid-power refill).
+    assert gs.tray == tray_before
+
+
+def test_all_players_draw_does_not_consult_agent():
+    """Deck-only draw needs no decision — the agent must never be called."""
+    eng, pb = _make_engine_with_bird(
+        "All players draw 1 [card] from the deck.",
+        color=cards.PowerColor.WHITE,
+    )
+    gs = eng.state
+    gs.current_player = 0
+    p0 = gs.me()
+    p0.hand = []
+
+    # _no_agent raises on any consultation.
+    powers.dispatch_power(eng, _no_agent, p0, pb, cards.Habitat.WETLAND, "play")
 
 
 # ---------------------------------------------------------------------------
