@@ -9,7 +9,7 @@ margins of all 504 candidate keeps for a dealt hand
 (``setup_model.select_by_margins``).
 
 The card-identity blocks are embedded in-net through copies of the main net's
-two shared embedders, built from the same :func:`wingspan.mlp.build_body` recipe
+two shared embedders, built from the same :func:`wingspan.model.mlp.build_body` recipe
 so ``load_state_dict`` syncs them weight-for-weight:
 
 * the **card encoder** (single-card ``M``-dim table) embeds the three tray index
@@ -36,7 +36,8 @@ import typing
 import torch
 from torch import nn
 
-from wingspan import architecture, encode, hand_model, mlp, setup_model
+from wingspan import architecture, encode, setup_model
+from wingspan.model import hand_model, mlp
 from wingspan.setup_model import encode as setup_encode
 
 if typing.TYPE_CHECKING:

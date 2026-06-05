@@ -25,8 +25,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import torch  # noqa: E402
 
-from wingspan import architecture, cards, encode, hand_model, model, state  # noqa: E402
+from wingspan import architecture, cards, encode, model, state  # noqa: E402
 from wingspan.encode import state_encode  # noqa: E402
+from wingspan.model import hand_model  # noqa: E402
 from wingspan.training import config  # noqa: E402
 
 _ARCH_OFF = architecture.ModelArchitecture(

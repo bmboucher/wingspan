@@ -114,7 +114,7 @@ HAND_SUMMARY_DIM = 10
 # (``state_encode.card_summary_matrix``): the leading dims (the set-size term and
 # the per-habitat counts) sum over the set; the remaining food-cost flags combine
 # by max (= OR, every entry is >= 0). Shared by the numpy encoder and the
-# torch-side derivation (``wingspan.hand_model``) so the two cannot disagree on
+# torch-side derivation (``wingspan.model.hand_model``) so the two cannot disagree on
 # the split.
 HAND_SUMMARY_SUM_DIMS = 4
 

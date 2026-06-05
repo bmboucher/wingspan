@@ -27,8 +27,9 @@ import pathlib
 
 import pydantic
 
-from wingspan import architecture, encode, report, setup_model
+from wingspan import architecture, encode, setup_model
 from wingspan.encode import stripes as encode_stripes
+from wingspan.reporting import html as report
 from wingspan.training import artifacts, config
 
 # Up to this many same-second restarts get a unique ``process_<stamp>-N.json``

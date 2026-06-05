@@ -12,8 +12,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from wingspan import architecture, decisions, encode, report, setup_model  # noqa: E402
+from wingspan import architecture, decisions, encode, setup_model  # noqa: E402
 from wingspan.encode import stripes as encode_stripes  # noqa: E402
+from wingspan.reporting import html as report  # noqa: E402
 
 
 def test_layout_total_matches_feature_dim():

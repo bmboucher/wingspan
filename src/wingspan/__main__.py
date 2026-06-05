@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
 
             return cloud_monitor.main(rest)
         case "inspect":
-            import wingspan.introspect as introspect
+            from wingspan.reporting import inspect_cli as introspect
 
             return introspect.main_inspect(rest)
         case _:

@@ -168,13 +168,17 @@ src/wingspan/
   state.py               # GameState, Player, Board, FoodPool, PlayedBird, Birdfeeder, new_game
   decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction + judgment families
   architecture.py        # ModelArchitecture + ActivationName (torch-free network topology descriptor)
-  model.py               # PyTorch PolicyValueNet (built from a ModelArchitecture)
-  mlp.py                 # shared MLP body/readout builders (policy net + setup net build identical stacks)
-  hand_model.py          # stateless multi-card set-embedder helpers (hand / tray / setup kept-set)
+  model/                 # PyTorch network (package)
+    __init__.py          #   re-exports PolicyValueNet
+    core.py              #   PolicyValueNet actor-critic (built from a ModelArchitecture)
+    mlp.py               #   shared MLP body/readout builders (policy net + setup net build identical stacks)
+    hand_model.py        #   stateless multi-card set-embedder helpers (hand / tray / setup kept-set)
   selfplay.py            # selfplay CLI: per-seat agent matchups over trained checkpoints
-  introspect.py          # model introspection CLI (vector layout, architecture, parameters)
-  report.py              # standalone HTML model-summary report generator
-  report_svg.py          # SVG bird-frequency diagram companion to report.py
+  reporting/             # model introspection and HTML report generation (package)
+    __init__.py          #   re-exports generate_html_report, main_inspect
+    html.py              #   standalone HTML model-summary report generator
+    svg.py               #   SVG architecture-diagram builder (embedded in html.py)
+    inspect_cli.py       #   model introspection CLI (vector layout, architecture, parameters)
   data/*.json            # wingsearch card data (bundled)
 
   encode/                # state/choice tensor encoders for RL (package)
