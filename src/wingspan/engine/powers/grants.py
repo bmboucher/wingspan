@@ -13,7 +13,7 @@ import typing
 
 from wingspan import cards, decisions, state
 from wingspan.engine import reactors
-from wingspan.engine.powers import registry
+from wingspan.engine.powers import dispatch, registry
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -128,9 +128,29 @@ def _h_lay_egg_on_this(
 ) -> None:
     cap = pb.bird.egg_limit - pb.eggs
     to_lay = min(eff.amount, cap)
+    if to_lay <= 0:
+        return
+
+    # When the anti-egg-goal is active, gate before laying (gap #15).
+    anti_egg_goal = (
+        engine.state.round_goals[engine.state.round_idx].category == "birds_no_eggs"
+    )
+    if anti_egg_goal:
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] lay {to_lay} egg(s) on {pb.bird.name}? (or skip)",
+            decisions.PayCostChoice(
+                label=f"lay {to_lay} egg(s)", gained_egg_count=to_lay
+            ),
+        )
+        if not accepted:
+            engine.log(f"  {pb.bird.name}: [{player.name}] skipped optional egg(s)")
+            return
+
     pb.eggs += to_lay
-    if to_lay:
-        engine.log(f"  {pb.bird.name}: +{to_lay} egg on itself")
+    engine.log(f"  {pb.bird.name}: +{to_lay} egg on itself")
 
 
 @registry.handles(cards.EffectKind.LAY_EGG_ANY)
@@ -222,6 +242,25 @@ def _h_roll_not_in_feeder_cache(
     if dice_out <= 0:
         engine.log(f"  {bird.name}: no dice outside feeder; skipped")
         return
+
+    # Veto gate: offered when opponent(s) have PINK_PREDATOR_FEEDER birds that
+    # would gain food on a successful cache (gap #17).
+    n_feeders = dispatch.count_opposing_pink_predator_feeders(engine, player)
+    if n_feeders > 0:
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] activate {bird.name}? (opponents may gain food on success)",
+            decisions.PayCostChoice(
+                label="roll dice",
+                gained_cache_count=1,
+                opp_gained_food_count=n_feeders,
+            ),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] declined dice predator")
+            return
 
     # Roll the outside dice using the same 6-face distribution as the feeder.
     roll_counts = state.FoodPool()
@@ -354,7 +393,8 @@ def _h_tuck_from_hand_then_lay_on_this(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    """Tuck 1 from hand (optional); if accepted, optionally lay 1 egg on this bird."""
+    """Tuck 1 from hand (optional); if accepted, lay 1 egg on this bird (forced,
+    or gated by ``birds_no_eggs``) (gap #19)."""
     bird = pb.bird
     if not player.hand:
         engine.log_skipped_decision(player.id, "no choices")
@@ -385,11 +425,27 @@ def _h_tuck_from_hand_then_lay_on_this(
     pb.tucked_cards += 1
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
 
-    # Offer the optional lay-on-this-bird.
+    # Lay on this bird: forced unless birds_no_eggs goal is active (gap #19).
     cap = bird.egg_limit - pb.eggs
     if cap <= 0:
         engine.log_skipped_decision(player.id, "no choices")
         return
+
+    anti_egg_goal = (
+        engine.state.round_goals[engine.state.round_idx].category == "birds_no_eggs"
+    )
+    if anti_egg_goal:
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] lay 1 egg on {bird.name}? (or skip)",
+            decisions.PayCostChoice(label="lay 1 egg", gained_egg_count=1),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] declined to lay egg")
+            return
+
     row = player.board[habitat]
     slot = next(idx for idx, slot_pb in enumerate(row) if slot_pb is pb)
     lay_choices: list[decisions.BoardTargetChoice | decisions.SkipChoice] = [
@@ -398,17 +454,17 @@ def _h_tuck_from_hand_then_lay_on_this(
             habitat=habitat,
             slot=slot,
         ),
-        decisions.SkipChoice(label="skip"),
     ]
     lay_ch = engine.ask(
         agent,
         decisions.LayEggDecision(
             player_id=player.id,
-            prompt=f"[{player.name}] optionally lay 1 egg on {bird.name} (or skip)",
+            prompt=f"[{player.name}] lay 1 egg on {bird.name}",
             choices=lay_choices,
         ),
     )
     if isinstance(lay_ch, decisions.SkipChoice):
+        # Unreachable — no skip row in choices; isinstance guard for type narrowing.
         return
     pb.eggs += 1
     engine.log(f"  {bird.name}: laid 1 egg on itself")
@@ -538,6 +594,26 @@ def _h_all_players_gain_food(
     bird = pb.bird
     if not eff.food:
         return
+
+    # Veto gate: all players gain food, offered when an opponent benefits (gap #16).
+    n_opponents = len(engine.state.players) - 1
+    if n_opponents > 0:
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] activate {bird.name}?"
+            f" (all players +{eff.amount} {eff.food.value})",
+            decisions.PayCostChoice(
+                label="activate",
+                gained_food_count=eff.amount,
+                opp_gained_food_count=n_opponents * eff.amount,
+            ),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] skipped activation")
+            return
+
     for other_player in engine.state.players:
         other_player.food[eff.food] += eff.amount
     engine.log(f"  {bird.name}: all players +{eff.amount} {eff.food.value}")
@@ -554,8 +630,28 @@ def _h_all_players_draw(
     trigger: str,
 ) -> None:
     # "All players draw 1 [card] from the deck." — deck-only (no tray menu),
-    # so no decision is needed and each player draws their own card silently.
+    # so no decision is needed per card; each player draws their own card silently.
     bird = pb.bird
+
+    # Veto gate: all players draw, offered when an opponent benefits (gap #16).
+    n_opponents = len(engine.state.players) - 1
+    if n_opponents > 0:
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] activate {bird.name}?"
+            f" (all players draw {eff.amount} card(s) from deck)",
+            decisions.PayCostChoice(
+                label="activate",
+                gained_card_count=eff.amount,
+                opp_gained_card_count=n_opponents * eff.amount,
+            ),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] skipped activation")
+            return
+
     for other_player in engine.state.players:
         for _ in range(eff.amount):
             drawn = engine.state.draw_bird()

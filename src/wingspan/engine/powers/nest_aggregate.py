@@ -12,7 +12,7 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine.powers import registry
+from wingspan.engine.powers import dispatch, registry
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -31,6 +31,34 @@ def _h_lay_egg_all_nest(
     bird = pb.bird
     assert eff.nest is not None
     nest = eff.nest
+
+    # Preview the total eggs that would be laid so the gate ledger is accurate (gap #15).
+    potential_count = sum(
+        min(eff.amount, pb_t.bird.egg_limit - pb_t.eggs)
+        for row in player.board.values()
+        for pb_t in row
+        if cards.nest_matches(pb_t.bird.nest, nest) and pb_t.eggs < pb_t.bird.egg_limit
+    )
+    if potential_count == 0:
+        engine.log(f"  {bird.name}: no [{nest.value}] bird with room; skipped")
+        return
+
+    # When the anti-egg-goal is active, gate before laying (gap #15).
+    anti_egg_goal = (
+        engine.state.round_goals[engine.state.round_idx].category == "birds_no_eggs"
+    )
+    if anti_egg_goal:
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] lay eggs on all [{nest.value}] birds ({bird.name})? (or skip)",
+            decisions.PayCostChoice(label="lay eggs", gained_egg_count=potential_count),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] skipped")
+            return
+
     count = 0
     for row in player.board.values():
         for pb_t in row:

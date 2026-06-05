@@ -587,6 +587,17 @@ def test_pink_predator_feeder_fires_when_predator_succeeds():
     eng, p0, p1, pb_hawk = _predator_reaction_setup(seed=12)
     offered = {"n": 0}
 
+    # P0 is now asked a veto gate (P1 has a PINK_PREDATOR_FEEDER bird, gap #17).
+    # Accept it so the hunt proceeds.
+    def p0_agent[C: decisions.Choice](
+        _engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        assert isinstance(decision, decisions.AcceptExchangeDecision)
+        return typing.cast(
+            C,
+            next(c for c in decision.choices if isinstance(c, decisions.PayCostChoice)),
+        )
+
     # P1 is offered the single-face reset before the gain and declines; the
     # one-option seed gain then auto-resolves without consulting the agent.
     def p1_agent[C: decisions.Choice](
@@ -603,8 +614,9 @@ def test_pink_predator_feeder_fires_when_predator_succeeds():
             ),
         )
 
+    eng.agents[0] = p0_agent
     eng.agents[1] = p1_agent
-    powers.dispatch_power(eng, _no_agent, p0, pb_hawk, cards.Habitat.FOREST, "activate")
+    powers.dispatch_power(eng, p0_agent, p0, pb_hawk, cards.Habitat.FOREST, "activate")
     assert pb_hawk.tucked_cards == 1
     assert offered["n"] == 1  # the reacting player got the reset offer
     assert p1.food[cards.Food.SEED] == 1
@@ -615,6 +627,16 @@ def test_pink_predator_feeder_reset_accept_rerolls_before_the_gain():
     without passing through the reset offer. Accepting the offered reset must
     reroll the feeder before the gain menu is built."""
     eng, p0, p1, pb_hawk = _predator_reaction_setup(seed=12)
+
+    # P0 is asked a veto gate (P1 has a PINK_PREDATOR_FEEDER bird, gap #17); accept.
+    def p0_agent[C: decisions.Choice](
+        _engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        assert isinstance(decision, decisions.AcceptExchangeDecision)
+        return typing.cast(
+            C,
+            next(c for c in decision.choices if isinstance(c, decisions.PayCostChoice)),
+        )
 
     def p1_agent[C: decisions.Choice](
         _engine: engine.Engine, decision: decisions.Decision[C]
@@ -631,8 +653,9 @@ def test_pink_predator_feeder_reset_accept_rerolls_before_the_gain():
         assert isinstance(decision, decisions.GainFoodDecision)
         return typing.cast(C, decision.choices[0])
 
+    eng.agents[0] = p0_agent
     eng.agents[1] = p1_agent
-    powers.dispatch_power(eng, _no_agent, p0, pb_hawk, cards.Habitat.FOREST, "activate")
+    powers.dispatch_power(eng, p0_agent, p0, pb_hawk, cards.Habitat.FOREST, "activate")
     assert pb_hawk.tucked_cards == 1
     # The accepted reset rerolled all five dice before the take, so the
     # three-die feeder became a fresh five-die roll minus the one die gained.

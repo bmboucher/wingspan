@@ -75,12 +75,23 @@ def test_each_player_gains_die_credits_both_players_in_chosen_order():
     )
 
     # Scripted agents:
-    #   - active player (p0) picks the starting player as P1
+    #   - active player (p0) accepts the veto gate, picks the starting player
+    #     as P1, then picks the first die available
     #   - each player picks the first die available
     def agent_p0[C: decisions.Choice](
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            # Accept the all-players veto gate (gap #16).
+            return typing.cast(
+                C,
+                next(
+                    c
+                    for c in decision.choices
+                    if isinstance(c, decisions.PayCostChoice)
+                ),
+            )
         if isinstance(decision, decisions.BirdPowerPickGainOrderDecision):
             assert decision.player_id == p0.id
             for choice in decision.choices:
@@ -205,6 +216,16 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
         decision: decisions.Decision[C],
     ) -> C:
         queried.append(("p0", type(decision), decision.player_id))
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            # Accept the all-players veto gate (gap #16).
+            return typing.cast(
+                C,
+                next(
+                    c
+                    for c in decision.choices
+                    if isinstance(c, decisions.PayCostChoice)
+                ),
+            )
         if isinstance(decision, decisions.BirdPowerPickGainOrderDecision):
             for choice in decision.choices:
                 if choice.player_id == p0.id:
@@ -223,10 +244,11 @@ def test_each_player_gains_die_routes_decisions_to_correct_agent():
     eng = engine.Engine(gs, agents=[agent_p0, agent_p1])
     powers.apply_effect(eng, agent_p0, p0, pb, carrier.habitats[0], eff, "play")
 
-    # Expected query log: p0 picks the starting player, p0 picks a die,
-    # then p1 picks a die.
+    # Expected query log: p0 accepts the veto gate, picks the starting player,
+    # p0 picks a die, then p1 picks a die.
     kinds = [(who, dtype) for (who, dtype, _pid) in queried]
     assert kinds == [
+        ("p0", decisions.AcceptExchangeDecision),
         ("p0", decisions.BirdPowerPickGainOrderDecision),
         ("p0", decisions.GainFoodDecision),
         ("p1", decisions.GainFoodDecision),

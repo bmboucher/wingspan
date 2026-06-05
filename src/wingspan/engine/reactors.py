@@ -91,8 +91,11 @@ def fire_pink_lay_egg(
 ) -> bool:
     """Offer ``other_player`` the chance to lay 1 egg on a matching-nest bird.
 
-    Returns ``True`` if an egg was placed (the fire committed), ``False`` if
-    no eligible target existed or the player declined."""
+    Returns ``True`` if an egg was placed (the fire committed), ``False`` if no
+    eligible target existed or the player declined the ``birds_no_eggs`` gate.
+
+    Outside the ``birds_no_eggs`` goal the lay is forced; when that goal is
+    active an ``AcceptExchangeDecision`` gate is offered first (gap #19)."""
     assert eff.nest is not None
     nest = eff.nest
     eligible: list[decisions.BoardTargetChoice | decisions.SkipChoice] = []
@@ -121,19 +124,40 @@ def fire_pink_lay_egg(
             f"  {pb.bird.name} (pink): no [{nest.value}] bird with room; skipped"
         )
         return False
-    eligible.append(decisions.SkipChoice(label="skip"))
+
+    # When the anti-egg-goal is active, gate before the mandatory pick (gap #19).
+    # Local import avoids a circular dependency: reactors → powers/__init__ → reactors.
+    anti_egg_goal = (
+        engine.state.round_goals[engine.state.round_idx].category == "birds_no_eggs"
+    )
+    if anti_egg_goal:
+        from wingspan.engine.powers import dispatch as _powers_dispatch
+
+        accepted = _powers_dispatch.offer_activation_veto(
+            engine,
+            engine.agent_for(other_player),
+            other_player,
+            f"[{other_player.name}] lay 1 egg on a [{nest.value}] bird"
+            f" ({pb.bird.name})? (or skip)",
+            decisions.PayCostChoice(label="lay 1 egg", gained_egg_count=1),
+        )
+        if not accepted:
+            engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
+            return False
+
     ch = engine.ask(
         engine.agent_for(other_player),
         decisions.LayEggDecision(
             player_id=other_player.id,
             prompt=(
                 f"[{other_player.name}] lay 1 egg on a [{nest.value}] bird"
-                f" ({pb.bird.name}) (or skip)"
+                f" ({pb.bird.name})"
             ),
             choices=eligible,
         ),
     )
     if isinstance(ch, decisions.SkipChoice):
+        # Unreachable — no skip row in choices; isinstance guard for type narrowing.
         engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
         return False
     other_player.board[ch.habitat][ch.slot].eggs += 1

@@ -133,6 +133,8 @@ def test_draw_from_tray_all_takes_all_three_no_mid_turn_refill():
 
 
 def test_trade_wild_food_swaps_one_food():
+    """Green Heron forces the trade — no optional gate (gap #18): discard a food,
+    then gain any food from supply."""
     eng, pb = _make_engine_with_bird(
         "Trade 1 [wild] for any other type from the supply.",
         color=cards.PowerColor.BROWN,
@@ -148,18 +150,8 @@ def test_trade_wild_food_swaps_one_food():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        # New flow: activate (AcceptExchangeDecision) → discard SEED
-        # (SpendFoodDecision) → gain FRUIT (GainFoodDecision) — a net swap.
-        if isinstance(decision, decisions.AcceptExchangeDecision):
-            return typing.cast(
-                C,
-                next(
-                    choice
-                    for choice in decision.choices
-                    if isinstance(choice, decisions.PayCostChoice)
-                ),
-            )
-        elif isinstance(decision, decisions.SpendFoodDecision):
+        # Forced flow (gap #18): discard SEED → gain FRUIT.
+        if isinstance(decision, decisions.SpendFoodDecision):
             want = cards.Food.SEED
         elif isinstance(decision, decisions.GainFoodDecision):
             want = cards.Food.FRUIT
@@ -177,36 +169,6 @@ def test_trade_wild_food_swaps_one_food():
     powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
     assert player.food[cards.Food.SEED] == 1
     assert player.food[cards.Food.FRUIT] == 1
-
-
-def test_trade_wild_food_skip_does_nothing():
-    eng, pb = _make_engine_with_bird(
-        "Trade 1 [wild] for any other type from the supply.",
-        color=cards.PowerColor.BROWN,
-    )
-    gs = eng.state
-    gs.current_player = 0
-    player = gs.me()
-    for food in cards.ALL_FOODS:
-        player.food[food] = 0
-    player.food[cards.Food.SEED] = 1
-    food_before = player.food.as_dict()
-
-    def agent[C: decisions.Choice](
-        _engine: engine.Engine,
-        decision: decisions.Decision[C],
-    ) -> C:
-        return typing.cast(
-            C,
-            next(
-                choice
-                for choice in decision.choices
-                if isinstance(choice, decisions.SkipChoice)
-            ),
-        )
-
-    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
-    assert player.food.as_dict() == food_before
 
 
 def test_trade_wild_food_no_food_no_op():
@@ -229,10 +191,10 @@ def test_trade_wild_food_no_food_no_op():
     powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
 
 
-def test_trade_wild_food_is_an_activate_then_lose_then_gain_chain():
-    """Green Heron decomposes into three atomic decisions, in order: activate
-    (SKIP_OPTIONAL head), discard a food (SPEND_FOOD head), gain a food
-    (GAIN_FOOD head)."""
+def test_trade_wild_food_is_a_forced_lose_then_gain_chain():
+    """Green Heron (gap #18): no optional gate — forced discard then forced gain.
+    Decomposes into exactly two decisions: discard (SPEND_FOOD) then gain
+    (GAIN_FOOD)."""
     eng, pb = _make_engine_with_bird(
         "Trade 1 [wild] for any other type from the supply.",
         color=cards.PowerColor.BROWN,
@@ -242,8 +204,8 @@ def test_trade_wild_food_is_an_activate_then_lose_then_gain_chain():
     player = gs.me()
     for food in cards.ALL_FOODS:
         player.food[food] = 0
-    # Two hand foods → SpendFoodDecision has >1 choice, so the engine consults
-    # the agent (a single-choice decision is auto-resolved without an agent call).
+    # Two foods → SpendFoodDecision has >1 choice, so the engine consults the
+    # agent (a single-choice decision is auto-resolved without a call).
     player.food[cards.Food.SEED] = 1
     player.food[cards.Food.FISH] = 1
     # Supply is infinite — GainFoodDecision always offers all 5 food types.
@@ -255,17 +217,6 @@ def test_trade_wild_food_is_an_activate_then_lose_then_gain_chain():
         decision: decisions.Decision[C],
     ) -> C:
         seen.append(type(decision))
-        # Accept the activation gate; pick the first FoodChoice for the two
-        # food steps.
-        if isinstance(decision, decisions.AcceptExchangeDecision):
-            return typing.cast(
-                C,
-                next(
-                    choice
-                    for choice in decision.choices
-                    if isinstance(choice, decisions.PayCostChoice)
-                ),
-            )
         return typing.cast(
             C,
             next(
@@ -277,14 +228,9 @@ def test_trade_wild_food_is_an_activate_then_lose_then_gain_chain():
 
     powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
     assert seen == [
-        decisions.AcceptExchangeDecision,
         decisions.SpendFoodDecision,
         decisions.GainFoodDecision,
     ]
-    assert (
-        decisions.family_for(decisions.AcceptExchangeDecision)
-        == decisions.DecisionFamily.SKIP_OPTIONAL
-    )
     assert (
         decisions.family_for(decisions.SpendFoodDecision)
         == decisions.DecisionFamily.SPEND_FOOD
@@ -373,6 +319,16 @@ def test_fewest_forest_gains_die_ties_each_gets_one():
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
+        # Accept the tied fewest-forest veto gate (gap #16).
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            return typing.cast(
+                C,
+                next(
+                    c
+                    for c in decision.choices
+                    if isinstance(c, decisions.PayCostChoice)
+                ),
+            )
         # Single-face rule: skip the optional reset and take the seed as-is.
         if isinstance(decision, decisions.ResetBirdfeederDecision):
             return typing.cast(
@@ -547,8 +503,8 @@ def test_draw_n_plus_one_draft_empty_deck_no_op():
 
 
 def test_all_players_draw_each_player_gets_card_from_deck():
-    """Each player draws from the deck (no tray menu, no decision); the tray
-    is unchanged (gap #11)."""
+    """Each player draws from the deck (no tray menu, no draw decision); the
+    tray is unchanged (gap #11). A veto gate is offered first (gap #16)."""
     eng, pb = _make_engine_with_bird(
         "All players draw 1 [card] from the deck.",
         color=cards.PowerColor.WHITE,
@@ -561,7 +517,18 @@ def test_all_players_draw_each_player_gets_card_from_deck():
     tray_before = list(gs.tray)
     deck_before = len(gs.bird_deck)
 
-    powers.dispatch_power(eng, _no_agent, p0, pb, cards.Habitat.WETLAND, "play")
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        # Accept the veto gate; no other decision should follow.
+        assert isinstance(decision, decisions.AcceptExchangeDecision)
+        return typing.cast(
+            C,
+            next(c for c in decision.choices if isinstance(c, decisions.PayCostChoice)),
+        )
+
+    powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
 
     # Each player gains 1 card.
     assert len(p0.hand) == 1
@@ -572,19 +539,32 @@ def test_all_players_draw_each_player_gets_card_from_deck():
     assert gs.tray == tray_before
 
 
-def test_all_players_draw_does_not_consult_agent():
-    """Deck-only draw needs no decision — the agent must never be called."""
+def test_all_players_draw_veto_skips_entire_draw():
+    """Declining the veto gate (gap #16) leaves both hands untouched."""
     eng, pb = _make_engine_with_bird(
         "All players draw 1 [card] from the deck.",
         color=cards.PowerColor.WHITE,
     )
     gs = eng.state
     gs.current_player = 0
-    p0 = gs.me()
+    p0, p1 = gs.players
     p0.hand = []
+    p1.hand = []
+    deck_before = len(gs.bird_deck)
 
-    # _no_agent raises on any consultation.
-    powers.dispatch_power(eng, _no_agent, p0, pb, cards.Habitat.WETLAND, "play")
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        assert isinstance(decision, decisions.AcceptExchangeDecision)
+        return typing.cast(
+            C, next(c for c in decision.choices if isinstance(c, decisions.SkipChoice))
+        )
+
+    powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
+    assert p0.hand == []
+    assert p1.hand == []
+    assert len(gs.bird_deck) == deck_before
 
 
 # ---------------------------------------------------------------------------

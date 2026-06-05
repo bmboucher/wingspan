@@ -33,6 +33,26 @@ def _h_predator_hunt(
     bird = pb.bird
     cap = eff.max_wingspan_cm
     assert cap is not None
+
+    # Veto gate: offered when opponent(s) have PINK_PREDATOR_FEEDER birds that
+    # would gain food on a successful hunt (gap #17).
+    n_feeders = dispatch.count_opposing_pink_predator_feeders(engine, player)
+    if n_feeders > 0:
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] activate {bird.name}? (opponents may gain food on success)",
+            decisions.PayCostChoice(
+                label="hunt",
+                gained_tuck_count=1,
+                opp_gained_food_count=n_feeders,
+            ),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] declined predator hunt")
+            return
+
     prey = st.draw_bird()
     if prey is None:
         engine.log(f"  {bird.name}: deck empty; predator hunt skipped")

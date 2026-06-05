@@ -12,7 +12,7 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine.powers import registry
+from wingspan.engine.powers import dispatch, registry
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -52,11 +52,10 @@ def _h_trade_wild_food(
     trigger: str,
 ) -> None:
     # Green Heron: discard 1 food, then gain 1 food from the supply.
-    # Step 1: SKIP_OPTIONAL activation gate — do you want to trade?
-    # Step 2: SPEND_FOOD — which food to discard (mandatory after activation).
-    # Step 3: GAIN_FOOD — which food to gain from supply (mandatory; post-discard
-    #   supply includes the just-returned food, so trading a food for itself is
-    #   legal but wasteful — the model learns to avoid it).
+    # The trade is forced — no activation gate (gap #18). Silent skip on no food.
+    # Step 1: SPEND_FOOD — which food to discard (mandatory if any food held).
+    # Step 2: GAIN_FOOD — which food to gain from supply (mandatory; the just-returned
+    #   food is back in supply, so trading a food for itself is legal but wasteful).
     bird = pb.bird
 
     # Pre-flight: need a food to give up.
@@ -64,30 +63,10 @@ def _h_trade_wild_food(
         engine.log(f"  {bird.name}: no food to trade; power skipped")
         return
 
-    # Step 1 — activation gate.
-    commit_ch = engine.ask(
-        agent,
-        decisions.AcceptExchangeDecision(
-            player_id=player.id,
-            prompt=f"[{player.name}] trade 1 food for another from the supply ({bird.name})?",
-            choices=[
-                decisions.PayCostChoice(
-                    label="trade 1 food -> 1 food (supply)",
-                    paid_food_count=1,
-                    gained_food_count=1,
-                ),
-                decisions.SkipChoice(label="skip"),
-            ],
-        ),
-    )
-    if isinstance(commit_ch, decisions.SkipChoice):
-        engine.log(f"  {bird.name}: declined to trade")
-        return
-
-    # Step 2 — mandatory discard.
+    # Step 1 — mandatory discard.
     lose_food = _trade_discard_step(engine, agent, player, bird)
 
-    # Step 3 — mandatory gain from supply.
+    # Step 2 — mandatory gain from supply.
     gain_food = _trade_gain_step(engine, agent, player, bird)
 
     engine.log(
@@ -171,6 +150,27 @@ def _h_fewest_forest_gains_die(
             f" power auto-skipped"
         )
         return
+
+    # Tie check: when all tied players share the fewest count the opponent also
+    # gains a die, so offer a veto gate (gap #16). Strictly-fewer = no veto.
+    n_tied = sum(1 for count in counts if count == fewest)
+    if n_tied > 1:
+        n_opponents_tied = n_tied - 1
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] activate {bird.name}?"
+            f" (tied fewest forest birds; all tied players gain {eff.amount} die)",
+            decisions.PayCostChoice(
+                label="activate",
+                gained_food_count=eff.amount,
+                opp_gained_food_count=n_opponents_tied * eff.amount,
+            ),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] skipped activation")
+            return
 
     for other_player, forest_count in zip(st.players, counts):
         if forest_count != fewest:

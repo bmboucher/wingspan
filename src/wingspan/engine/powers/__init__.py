@@ -7,7 +7,7 @@ The package is split by handler family; each submodule registers its handlers vi
 fully populated on first use.
 
 - ``registry``        — the ``_HANDLERS`` table + the ``handles`` decorator
-- ``dispatch``        — ``dispatch_power`` / ``apply_effect`` / ``lay_one_egg_on_nest``
+- ``dispatch``        — ``dispatch_power`` / ``apply_effect`` / ``lay_one_egg_on_nest`` / helpers
 - ``grants``          — direct food / egg / card grants
 - ``egg_trade``       — discard-egg-for-wild trade
 - ``multi_actor``     — each-player / all-players prompts

@@ -31,6 +31,25 @@ def _h_each_player_gains_die_choose_order(
     st = engine.state
     bird = pb.bird
     n_players = len(st.players)
+
+    # Veto gate: all players gain a die, so offered when an opponent benefits (gap #16).
+    n_opponents = n_players - 1
+    if n_opponents > 0:
+        accepted = dispatch.offer_activation_veto(
+            engine,
+            agent,
+            player,
+            f"[{player.name}] activate {bird.name}? (each player gains {eff.amount} die)",
+            decisions.PayCostChoice(
+                label="activate",
+                gained_food_count=eff.amount,
+                opp_gained_food_count=n_opponents * eff.amount,
+            ),
+        )
+        if not accepted:
+            engine.log(f"  {bird.name}: [{player.name}] skipped activation")
+            return
+
     start_ch = engine.ask(
         agent,
         decisions.BirdPowerPickGainOrderDecision(
@@ -107,12 +126,14 @@ def _h_all_players_lay_egg_on_nest(
     n_players = len(st.players)
     active_idx = player.id
 
-    # Eligibility check — who has a matching bird with room?
+    # Eligibility check — who has a matching bird with room? (gap #14: star nests
+    # are wild and must be counted via cards.nest_matches, not ==.)
     own_eligible_count = sum(
         1
         for row in player.board.values()
         for target_pb in row
-        if target_pb.bird.nest == nest and target_pb.eggs < target_pb.bird.egg_limit
+        if cards.nest_matches(target_pb.bird.nest, nest)
+        and target_pb.eggs < target_pb.bird.egg_limit
     )
     opp_eligible_count = sum(
         1
@@ -221,9 +242,11 @@ def _h_all_players_lay_egg_on_nest(
 
 
 def _has_eligible_bird_on_nest(player: state.Player, nest: cards.NestType) -> bool:
-    """Whether ``player`` has at least one bird of ``nest`` type with room for an egg."""
+    """Whether ``player`` has at least one bird matching ``nest`` with room for an egg.
+
+    Uses ``cards.nest_matches`` so star-nest birds are counted as wild (gap #14)."""
     return any(
-        pb.bird.nest == nest and pb.eggs < pb.bird.egg_limit
+        cards.nest_matches(pb.bird.nest, nest) and pb.eggs < pb.bird.egg_limit
         for row in player.board.values()
         for pb in row
     )
