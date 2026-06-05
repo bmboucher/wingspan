@@ -34,6 +34,7 @@ import torch
 import yaml
 
 from wingspan import agents, decisions, encode, engine, model, setup_model
+from wingspan.agents import display
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
 from wingspan.training import artifacts, config, policy
@@ -503,4 +504,4 @@ def _write_log(path: str, lines: list[str]) -> None:
     """Write the game log line-by-line to ``path`` (UTF-8, newline-terminated)."""
     with open(path, "w", encoding="utf-8") as log_file:
         for line in lines:
-            log_file.write(line + "\n")
+            log_file.write(display.strip_ansi(line) + "\n")

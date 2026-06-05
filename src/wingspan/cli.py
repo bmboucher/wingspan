@@ -8,6 +8,7 @@ import random
 import sys
 
 from wingspan import agents, cards, engine, selfplay
+from wingspan.agents import display
 
 
 def main_manual(argv: list[str] | None = None) -> int:
@@ -82,7 +83,7 @@ def main_random(argv: list[str] | None = None) -> int:
             path = args.log if args.games == 1 else f"{args.log}.{game_idx}"
             with open(path, "w", encoding="utf-8") as log_file:
                 for line in eng.state.log:
-                    log_file.write(line + "\n")
+                    log_file.write(display.strip_ansi(line) + "\n")
             if not args.quiet:
                 print(f"  log -> {path}")
     return 0

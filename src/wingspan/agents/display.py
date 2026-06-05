@@ -57,6 +57,7 @@ _POWER_COLORS: dict[cards.PowerColor, tuple[_Rgb, _Rgb]] = {
     cards.PowerColor.YELLOW: (_INK_BLACK, (245, 221, 60)),
 }
 _ANSI_RESET = "\x1b[0m"
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 # Short column headers for the board's two-row food tables, keyed in
 # ``cards.ALL_FOODS`` order. Kept terse so the counter table stays narrow.
@@ -85,6 +86,11 @@ def _icons(text: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Public formatters
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI SGR escape sequences from ``text`` (for plain-text file output)."""
+    return _ANSI_ESCAPE_RE.sub("", text)
 
 
 def format_cost(cost: cards.BirdCost) -> str:
