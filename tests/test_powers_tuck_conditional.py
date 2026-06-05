@@ -431,3 +431,138 @@ def test_american_coot_has_tuck_then_draw_effect():
     assert kinds == {
         cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW
     }, f"American Coot effect kinds: {kinds}"
+
+
+# ---------------------------------------------------------------------------
+# TUCK_FROM_HAND handler (plain opt-in tuck with no secondary effect)
+
+
+def _setup_tuck_from_hand(
+    eng: engine.Engine, birds: list[cards.Bird]
+) -> tuple[state.Player, state.PlayedBird]:
+    """Stage a synthetic bird with plain TUCK_FROM_HAND in the wetland."""
+    # No catalog bird parses to the standalone TUCK_FROM_HAND kind — all real
+    # catalog birds have a combined "tuck then [secondary]" form.  Build a
+    # synthetic bird by grafting the plain-tuck power onto an arbitrary template.
+    template = next(bird for bird in birds if bird.color == cards.PowerColor.BROWN)
+    tuck_power = cards.parse_power(
+        cards.PowerColor.BROWN,
+        "Tuck 1 [card] from your hand behind this bird.",
+    )
+    source_bird = template.model_copy(update={"power": tuck_power})
+    player = eng.state.players[0]
+    pb = state.PlayedBird(bird=source_bird)
+    player.board[cards.Habitat.WETLAND] = [pb]
+    player.hand = [next(b for b in birds if b is not template)]
+    return player, pb
+
+
+def test_tuck_from_hand_accept_tucks_card_and_shrinks_hand():
+    """Accepting the tuck gate and selecting a card moves it from hand to the
+    bird's tuck pile."""
+    eng, birds = _engine_with_agents(seed=7)
+    player, pb = _setup_tuck_from_hand(eng, birds)
+    hand_before = len(player.hand)
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        if isinstance(decision, decisions.ActivateTuckDecision):
+            return typing.cast(
+                C,
+                next(
+                    ch
+                    for ch in decision.choices
+                    if isinstance(ch, decisions.TuckActivateChoice)
+                ),
+            )
+        # BirdPowerTuckFromHandDecision — pick the first available card.
+        if isinstance(decision, decisions.BirdPowerTuckFromHandDecision):
+            return typing.cast(C, decision.choices[0])
+        raise AssertionError(f"unexpected decision: {type(decision).__name__}")
+
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
+    assert pb.tucked_cards == 1
+    assert len(player.hand) == hand_before - 1
+
+
+def test_tuck_from_hand_skip_gate_leaves_state_unchanged():
+    """Answering the tuck gate with SkipChoice leaves hand and tuck count
+    untouched."""
+    eng, birds = _engine_with_agents(seed=8)
+    player, pb = _setup_tuck_from_hand(eng, birds)
+    hand_before = list(player.hand)
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        return typing.cast(
+            C,
+            next(ch for ch in decision.choices if isinstance(ch, decisions.SkipChoice)),
+        )
+
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
+    assert pb.tucked_cards == 0
+    assert player.hand == hand_before
+
+
+# ---------------------------------------------------------------------------
+# TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE (e.g. Pygmy Nuthatch)
+
+
+def test_tuck_from_hand_then_gain_food_choice_gains_selected_food():
+    """After tucking, the agent picks one of the two supply options; the player
+    receives exactly +1 of that food type."""
+    eng, birds = _engine_with_agents(seed=9)
+    source_bird = next(
+        bird
+        for bird in birds
+        if any(
+            eff.kind == cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE
+            for eff in bird.power.effects
+        )
+    )
+    food_eff = next(
+        eff
+        for eff in source_bird.power.effects
+        if eff.kind == cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE
+    )
+    assert food_eff.food_a is not None and food_eff.food_b is not None
+
+    player = eng.state.players[0]
+    pb = state.PlayedBird(bird=source_bird)
+    player.board[cards.Habitat.WETLAND] = [pb]
+    player.hand = [next(b for b in birds if b is not source_bird)]
+    food_before_a = player.food[food_eff.food_a]
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        if isinstance(decision, decisions.ActivateTuckDecision):
+            return typing.cast(
+                C,
+                next(
+                    ch
+                    for ch in decision.choices
+                    if isinstance(ch, decisions.TuckActivateChoice)
+                ),
+            )
+        if isinstance(decision, decisions.BirdPowerTuckFromHandDecision):
+            return typing.cast(C, decision.choices[0])
+        if isinstance(decision, decisions.GainFoodDecision):
+            # Always pick food_a for a deterministic assertion.
+            return typing.cast(
+                C,
+                next(
+                    ch
+                    for ch in decision.choices
+                    if isinstance(ch, decisions.FoodChoice)
+                    and ch.food == food_eff.food_a
+                ),
+            )
+        raise AssertionError(f"unexpected decision: {type(decision).__name__}")
+
+    powers.dispatch_power(eng, agent, player, pb, cards.Habitat.WETLAND, "activate")
+    assert pb.tucked_cards == 1
+    assert len(player.hand) == 0
+    assert player.food[food_eff.food_a] == food_before_a + 1

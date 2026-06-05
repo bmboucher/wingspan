@@ -586,3 +586,153 @@ def test_target_birds_parse_to_expected_kinds():
     for name, kind in expected.items():
         kinds = [effect.kind for effect in by_name[name].power.effects]
         assert kind in kinds, f"{name}: {kinds}"
+
+
+# ---------------------------------------------------------------------------
+# PLAY_ADDITIONAL_BIRD wrong-habitat skip
+
+
+def test_play_additional_bird_wrong_habitat_does_not_grant_extra_play():
+    """A PLAY_ADDITIONAL_BIRD effect restricted to WETLAND, fired while
+    activating in FOREST, should skip the grant silently."""
+    birds, bonuses, goals = cards.load_all()
+    rng = random.Random(0)
+    gs = state.new_game(rng, birds, bonuses, goals)
+    eng = engine.Engine(gs)
+    gs.current_player = 0
+    player = gs.me()
+
+    # Synthesize a bird with PLAY_ADDITIONAL_BIRD restricted to WETLAND.
+    template = next(b for b in birds if b.color == cards.PowerColor.WHITE)
+    restricted_power = cards.Power(
+        color=cards.PowerColor.WHITE,
+        effects=(
+            cards.Effect(
+                kind=cards.EffectKind.PLAY_ADDITIONAL_BIRD,
+                habitat=cards.Habitat.WETLAND,
+            ),
+        ),
+    )
+    bird = template.model_copy(update={"power": restricted_power})
+    pb = state.PlayedBird(bird=bird)
+    player.board[cards.Habitat.FOREST] = [pb]
+
+    extra_plays_before = len(gs.turn_extra_plays)
+    powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.FOREST, "play")
+    assert len(gs.turn_extra_plays) == extra_plays_before
+
+
+# ---------------------------------------------------------------------------
+# Predator hunt, move-if-rightmost, repeat-predator edge cases
+
+
+def test_predator_hunt_empty_deck_logs_and_skips():
+    """PREDATOR_HUNT when the deck is empty logs 'deck empty' and leaves the
+    tuck count at zero."""
+    eng, pb = _make_engine_with_bird(
+        "Look at a [card] from the deck."
+        " If less than 75 cm, tuck it behind this bird. If not, discard it",
+        color=cards.PowerColor.BROWN,
+    )
+    gs = eng.state
+    gs.current_player = 0
+    player = gs.me()
+    player.board[cards.Habitat.FOREST] = [pb]
+    gs.bird_deck = []
+    gs.bird_discard = []
+
+    log_lines: list[str] = []
+    eng.log = lambda msg: log_lines.append(msg)  # type: ignore[method-assign]
+    powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.FOREST, "activate")
+    assert pb.tucked_cards == 0
+    assert any("deck empty" in line for line in log_lines)
+
+
+def test_move_bird_if_rightmost_no_other_habitat_space_skips():
+    """MOVE_BIRD_IF_RIGHTMOST when all other habitats are full logs the skip
+    and leaves the board unchanged."""
+    eng, pb = _make_engine_with_bird(
+        "If this bird is to the right of all other birds in its habitat,"
+        " move it to another habitat",
+        color=cards.PowerColor.BROWN,
+    )
+    gs = eng.state
+    gs.current_player = 0
+    player = gs.me()
+
+    # pb is rightmost (only bird) in WETLAND.
+    player.board[cards.Habitat.WETLAND] = [pb]
+
+    # Fill FOREST and GRASSLAND to capacity so can_play_in returns False.
+    filler = next(b for b in gs.bird_deck)
+    for habitat in (cards.Habitat.FOREST, cards.Habitat.GRASSLAND):
+        player.board[habitat] = [
+            state.PlayedBird(bird=filler) for _ in range(state.ROW_SLOTS)
+        ]
+    board_snapshot = {h: list(row) for h, row in player.board.items()}
+
+    powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.WETLAND, "activate")
+
+    # Board is unchanged.
+    for habitat, row in board_snapshot.items():
+        assert player.board[habitat] == row
+
+
+def test_repeat_predator_power_fires_the_target_predators_hunt():
+    """REPEAT_PREDATOR_POWER picks another predator in the habitat and repeats
+    its PREDATOR_HUNT (lines 185-200 in predator_repeat.py)."""
+    birds, bonuses, goals = cards.load_all()
+    rng = random.Random(0)
+    gs = state.new_game(rng, birds, bonuses, goals)
+    gs.current_player = 0
+    eng = engine.Engine(gs)
+    player = gs.me()
+
+    # A real catalog predator with PREDATOR_HUNT.
+    predator_bird = next(
+        bird
+        for bird in birds
+        if bird.predator
+        and any(
+            eff.kind == cards.EffectKind.PREDATOR_HUNT for eff in bird.power.effects
+        )
+    )
+    # A bird with REPEAT_PREDATOR_POWER (Hooded Merganser and similar).
+    repeat_bird = next(
+        bird
+        for bird in birds
+        if any(
+            eff.kind == cards.EffectKind.REPEAT_PREDATOR_POWER
+            for eff in bird.power.effects
+        )
+    )
+    predator_pb = state.PlayedBird(bird=predator_bird)
+    repeat_pb = state.PlayedBird(bird=repeat_bird)
+    player.board[cards.Habitat.WETLAND] = [predator_pb, repeat_pb]
+
+    # Provide a hunt target; predator may or may not succeed — we only care
+    # that the repeat *dispatched* the hunt (lines 185-200 covered).
+    hunt_target = next(b for b in birds if b not in (predator_bird, repeat_bird))
+    gs.bird_deck = [hunt_target]
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        # BirdPowerPickPlayedBirdDecision: pick the predator.
+        if isinstance(decision, decisions.BirdPowerPickPlayedBirdDecision):
+            return typing.cast(
+                C,
+                next(ch for ch in decision.choices if ch.played_bird is predator_pb),
+            )
+        raise AssertionError(f"unexpected decision: {type(decision).__name__}")
+
+    log_lines: list[str] = []
+    eng.log = lambda msg: log_lines.append(msg)  # type: ignore[method-assign]
+    powers.dispatch_power(
+        eng, agent, player, repeat_pb, cards.Habitat.WETLAND, "activate"
+    )
+
+    # The repeat log line proves execution reached lines 185-200.
+    assert any(
+        "repeat" in line.lower() for line in log_lines
+    ), f"Expected repeat log line; got: {log_lines}"

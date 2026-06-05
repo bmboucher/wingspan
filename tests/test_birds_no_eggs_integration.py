@@ -17,11 +17,13 @@ import math
 import os
 import random
 import sys
+import typing
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from wingspan import cards, decisions, encode, state  # noqa: E402
+from wingspan import cards, decisions, encode, engine, state  # noqa: E402
 from wingspan.encode import layout, state_encode  # noqa: E402
+from wingspan.engine import powers  # noqa: E402
 
 _BIRDS, _BONUSES, _GOALS = cards.load_all()
 
@@ -80,3 +82,49 @@ def test_bird_rows_price_the_eggless_newcomer():
     base = layout._OFF_GOAL_DELTA
     assert float(row[base + layout._GOAL_DELTA_COUNT]) == _Approx(1 / 5)
     assert float(row[base + layout._GOAL_DELTA_VP]) == _Approx(4 / 10)
+
+
+# ---------------------------------------------------------------------------
+# Engine: anti-egg-goal skip
+
+
+def test_lay_egg_any_anti_egg_goal_skip_adds_no_egg():
+    """When the active round goal is 'birds_no_eggs', the engine offers an
+    AcceptExchangeDecision before each LAY_EGG_ANY egg. Answering with
+    SkipChoice means the egg is never laid."""
+    no_eggs_goal = cards.EndRoundGoal(
+        id=0, description="[bird] with no [egg]", category="birds_no_eggs", tile_id=0
+    )
+    gs = state.new_game(random.Random(0), list(_BIRDS), list(_BONUSES), list(_GOALS))
+    gs.round_goals = [no_eggs_goal] * 4
+    gs.current_player = 0
+    eng = engine.Engine(gs)
+    player = gs.me()
+
+    # Stage a LAY_EGG_ANY bird in grassland alongside a target bird.
+    lay_bird = next(
+        bird
+        for bird in _BIRDS
+        if any(eff.kind == cards.EffectKind.LAY_EGG_ANY for eff in bird.power.effects)
+    )
+    target_bird = next(b for b in _BIRDS if b is not lay_bird)
+    pb = state.PlayedBird(bird=lay_bird)
+    target_pb = state.PlayedBird(bird=target_bird, eggs=0)
+    player.board[cards.Habitat.GRASSLAND] = [pb, target_pb]
+
+    def skip_agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        return typing.cast(
+            C,
+            next(ch for ch in decision.choices if isinstance(ch, decisions.SkipChoice)),
+        )
+
+    eng.agents = [skip_agent, skip_agent]
+    powers.dispatch_power(
+        eng, skip_agent, player, pb, cards.Habitat.GRASSLAND, "activate"
+    )
+    eggs_after = sum(slot.eggs for slot in player.board[cards.Habitat.GRASSLAND])
+    assert (
+        eggs_after == 0
+    ), "no egg should be laid when player skips the anti-egg-goal decision"
