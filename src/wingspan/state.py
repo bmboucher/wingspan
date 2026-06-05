@@ -388,8 +388,20 @@ class Birdfeeder(pydantic.BaseModel):
     def gain_option_label(self, food: cards.Food, from_choice_die: bool) -> str:
         """Human-readable label for one :meth:`gain_options` entry (CLI / log only)."""
         if from_choice_die:
-            return f"{food.value} (choice die)"
+            return f"{food.value} (choice die ×{self.choice_dice})"
         return f"{food.value}({self.counts[food]})"
+
+    def format(self) -> str:
+        """Compact human-readable rendering of the full die state for logs.
+
+        Combines named-food dice (via :meth:`FoodPool.format`) with the choice-die
+        count, e.g. ``"2fish+1fruit+2choice"`` or ``"3choice"``.  Returns
+        ``"(empty)"`` when no dice are showing."""
+        plain = self.counts.format()  # "2fish+1fruit" or "(empty)"
+        if not self.choice_dice:
+            return plain
+        choice_part = f"{self.choice_dice}choice"
+        return choice_part if plain == "(empty)" else f"{plain}+{choice_part}"
 
     def take(self, food: cards.Food, *, from_choice_die: bool = False) -> None:
         """Consume one die yielding ``food``.

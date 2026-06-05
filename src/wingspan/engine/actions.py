@@ -268,9 +268,13 @@ def offer_birdfeeder_reset(
     feeder = engine.state.birdfeeder
     if feeder.is_empty():
         feeder.reroll(engine.state.rng)
-        engine.log(f"  birdfeeder empty; rerolled to {feeder.counts.format()}")
+        engine.log(f"  birdfeeder empty; rerolled to {feeder.format()}")
     if not feeder.reset_available():
         return
+    engine.log(
+        f"  birdfeeder shows {feeder.format()} (all one face)"
+        f" — {player.name} can reroll first"
+    )
     ch = engine.ask(
         agent,
         decisions.ResetBirdfeederDecision(
@@ -286,7 +290,7 @@ def offer_birdfeeder_reset(
     )
     if isinstance(ch, decisions.ResetBirdfeederChoice):
         feeder.reroll(engine.state.rng)
-        engine.log(f"  {player.name} resets the birdfeeder -> {feeder.counts.format()}")
+        engine.log(f"  {player.name} resets the birdfeeder -> {feeder.format()}")
 
 
 def gain_feeder_die(
@@ -310,7 +314,7 @@ def gain_feeder_die(
     player.food[food] += 1
     if feeder.is_empty():
         feeder.reroll(engine.state.rng)
-        engine.log(f"  birdfeeder emptied; rerolled to {feeder.counts.format()}")
+        engine.log(f"  birdfeeder emptied; rerolled to {feeder.format()}")
 
 
 def take_one_from_feeder(
