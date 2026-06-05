@@ -1,13 +1,15 @@
 """Standalone HTML model-summary report generator.
 
 Produces a self-contained ``.html`` file (no external assets) documenting
-the full structure of a training run's network: the element-by-element
-breakdown of the state, choice, and setup vectors, the network architecture
-(including the separately-trained setup model — the SVG diagram itself is
-built by :mod:`wingspan.report_svg`), and the per-layer parameter
-accounting.  The file is meant to be opened in a browser and supports
-drill-down into complex stripes (board slots, round-goal rounds) via HTML5
-``<details>``/``<summary>`` elements — no JavaScript required.
+the full structure of a training run's network.  The architecture diagram
+(built by :mod:`wingspan.report_svg`) is the page's main menu: it is the only
+thing visible on load, and clicking one of its input boxes rolls out the
+matching vector's element-by-element breakdown below it (card features, card
+set, state, choice, and setup vectors — one panel at a time; clicking the
+active box again collapses it), while clicking any parameter count rolls out
+the per-layer parameter table jumped to that block's rows.  A small inline
+script drives the panel switching; complex stripes (board slots, round-goal
+rounds) still drill down via HTML5 ``<details>``/``<summary>`` elements.
 
 The public entry point is :func:`generate_html_report`.  The training loop
 writes the result alongside the other JSON sidecars at startup; the
@@ -24,13 +26,21 @@ from wingspan.encode import stripes as encode_stripes
 from wingspan.training.charts import text_helpers
 
 # ---------------------------------------------------------------------------
-# Accent colors — one per report section.
+# Accent colors — one per report section (the card / hand panels reuse their
+# diagram blocks' accents so the color coding carries through).
 
+_ACCENT_CARD = "#a855f7"
+_ACCENT_HAND = "#d946ef"
 _ACCENT_STATE = "#3b82f6"
 _ACCENT_CHOICE = "#22c55e"
 _ACCENT_SETUP = "#14b8a6"
 _ACCENT_ARCH = "#a855f7"
 _ACCENT_PARAMS = "#f97316"
+
+# Prefix of the parameter table's per-block row anchors: a diagram parameter
+# count with ``data-params-block="trunk"`` jumps to ``id="params-block-trunk"``.
+# The inline ``_SCRIPT`` repeats this prefix — keep the two in sync.
+_PARAMS_ANCHOR_PREFIX = "params-block-"
 
 # Minimum sub-field count that triggers grouped (nested) display rather than a
 # flat table.  Board stripes have 135 sub-fields across 15 slots, so they are
@@ -53,11 +63,6 @@ nav {
 }
 .nav-brand { font-weight: 700; font-size: 15px; color: #f8fafc; margin-right: 4px; }
 .nav-run   { font-size: 11px; color: #94a3b8; font-family: monospace; }
-nav a {
-  color: #cbd5e1; font-size: 13px; padding: 4px 10px; border-radius: 4px;
-  text-decoration: none; transition: background .15s;
-}
-nav a:hover { background: #334155; color: #f8fafc; }
 .container { max-width: 1400px; margin: 0 auto; padding: 28px 24px 60px; }
 .section { margin-bottom: 44px; }
 .section-header {
@@ -116,6 +121,72 @@ details[open] > summary::before { transform: rotate(90deg); }
 }
 .total-row > td { background: #1e293b; color: #f8fafc; font-weight: 700; }
 .arch-svg-wrap { background: #f1f5f9; border-radius: 8px; padding: 24px 20px; overflow-x: auto; }
+.click-hint { font-size: 12px; color: #64748b; margin: 10px 4px 0; }
+.panel[hidden] { display: none; }
+.arch-click, .arch-paramclick { cursor: pointer; }
+.arch-click:hover rect { stroke: #818cf8; stroke-width: 2; }
+.arch-click.selected rect { stroke: #4338ca; stroke-width: 2.5; }
+.arch-paramclick:hover text { fill: #1e293b; }
+.arch-paramclick.selected text { fill: #1e293b; text-decoration: underline; }
+@keyframes rowflash { from { background: #fde68a; } to { background: transparent; } }
+tr.flash > td { animation: rowflash 1.4s ease-out; }
+"""
+
+# ---------------------------------------------------------------------------
+# Inline JS — the diagram-as-menu behaviour. One delegated listener on the SVG
+# wrap routes clicks: ``data-panel`` toggles the matching detail panel (one at
+# a time, re-click collapses); ``data-params-block`` opens the Parameters panel
+# and flashes that block's anchor row (id prefix = ``_PARAMS_ANCHOR_PREFIX``).
+
+_SCRIPT = """\
+(function () {
+  'use strict';
+  var svgWrap = document.querySelector('.arch-svg-wrap');
+  if (!svgWrap) return;
+  var panels = document.querySelectorAll('.panel');
+  var openId = null;
+
+  function closeAll() {
+    panels.forEach(function (panel) { panel.hidden = true; });
+    document.querySelectorAll('.arch-click.selected, .arch-paramclick.selected')
+      .forEach(function (el) { el.classList.remove('selected'); });
+    openId = null;
+  }
+
+  function openPanel(id, clicked) {
+    closeAll();
+    var panel = document.getElementById(id);
+    if (!panel) return null;
+    panel.hidden = false;
+    openId = id;
+    clicked.classList.add('selected');
+    return panel;
+  }
+
+  function flashParamsRow(key) {
+    var row = document.getElementById('params-block-' + key);
+    if (!row) return;
+    row.classList.remove('flash');
+    void row.offsetWidth; /* restart the animation */
+    row.classList.add('flash');
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  svgWrap.addEventListener('click', function (event) {
+    var target = event.target.closest('.arch-click, .arch-paramclick');
+    if (!target) return;
+    var panelId = target.getAttribute('data-panel');
+    var paramsKey = target.getAttribute('data-params-block');
+    if (panelId) {
+      if (openId === panelId) { closeAll(); return; }
+      var panel = openPanel(panelId, target);
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (paramsKey) {
+      openPanel('params', target);
+      flashParamsRow(paramsKey);
+    }
+  });
+})();
 """
 
 
@@ -139,8 +210,10 @@ def generate_html_report(
 ) -> str:
     """Return a self-contained HTML document string for the model summary.
 
-    All CSS is embedded inline; no external resources are referenced, so the
-    file opens correctly when copied anywhere or viewed offline.
+    All CSS and JS are embedded inline; no external resources are referenced,
+    so the file opens correctly when copied anywhere or viewed offline.  The
+    architecture diagram leads the page and serves as its menu; every vector
+    breakdown and the parameter table start as hidden panels it reveals.
 
     The separately-trained setup model is always documented — its input-vector
     breakdown (``setup_layout``) and its block in the architecture diagram
@@ -157,19 +230,6 @@ def generate_html_report(
     )
     body = "\n".join(
         [
-            _vector_section(state_layout, "state", "State Vector", _ACCENT_STATE),
-            _vector_section(choice_layout, "choice", "Choice Vector", _ACCENT_CHOICE),
-            _vector_section(
-                setup_layout,
-                "setup",
-                "Setup Vector",
-                _ACCENT_SETUP,
-                input_note=(
-                    "raw network input — multi-hot / one-hot / count blocks, "
-                    "no card embedding"
-                ),
-                annotation=setup_annotation,
-            ),
             _arch_section(
                 arch,
                 param_report,
@@ -177,6 +237,43 @@ def generate_html_report(
                 setup_param=setup_param,
                 setup_arch=setup_arch,
                 use_setup_model=use_setup_model,
+            ),
+            _vector_section(
+                encode_stripes.card_feature_stripe_layout(),
+                report_svg.PANEL_CARD,
+                "Card Feature Vector",
+                _ACCENT_CARD,
+                input_note=(
+                    "raw single-card encoder input — static attributes + "
+                    "identity one-hot, one row of the shared card table"
+                ),
+            ),
+            _vector_section(
+                encode_stripes.hand_encoder_input_stripe_layout(),
+                report_svg.PANEL_HAND,
+                "Card Set Vector",
+                _ACCENT_HAND,
+                input_note=(
+                    "raw multi-card encoder input — set multi-hot + summary "
+                    "stats (own hand / setup keep / tray set)"
+                ),
+            ),
+            _vector_section(
+                state_layout, report_svg.PANEL_STATE, "State Vector", _ACCENT_STATE
+            ),
+            _vector_section(
+                choice_layout, report_svg.PANEL_CHOICE, "Choice Vector", _ACCENT_CHOICE
+            ),
+            _vector_section(
+                setup_layout,
+                report_svg.PANEL_SETUP,
+                "Setup Vector",
+                _ACCENT_SETUP,
+                input_note=(
+                    "raw network input — multi-hot / one-hot / count blocks, "
+                    "no card embedding"
+                ),
+                annotation=setup_annotation,
             ),
             _params_section(param_report),
         ]
@@ -204,26 +301,17 @@ def _wrap(*, title: str, run_name: str, body: str) -> str:
         f"</head>\n<body>\n"
         f"{nav}\n"
         f"<div class='container'>\n{body}\n</div>\n"
+        f"<script>\n{_SCRIPT}\n</script>\n"
         f"</body>\n</html>\n"
     )
 
 
 def _nav(run_name: str) -> str:
-    links = [
-        ("#state", "State Vector"),
-        ("#choice", "Choice Vector"),
-        ("#setup", "Setup Vector"),
-        ("#arch", "Architecture"),
-        ("#params", "Parameters"),
-    ]
-    link_html = " ".join(
-        f"<a href='{href}'>{html_lib.escape(label)}</a>" for href, label in links
-    )
+    """The slim header bar: brand + run name (the diagram is the navigation)."""
     return (
         f"<nav>"
         f"<span class='nav-brand'>Wingspan</span>"
         f"<span class='nav-run'>{html_lib.escape(run_name)}</span>"
-        f"&nbsp;&nbsp;{link_html}"
         f"</nav>"
     )
 
@@ -240,12 +328,15 @@ def _vector_section(
     input_note: str = "post-embedding network input",
     annotation: str = "",
 ) -> str:
-    """Build a complete section for a state, choice, or setup vector layout.
+    """Build a complete vector-layout section as a hidden panel.
 
-    ``input_note`` qualifies the element count in the subtitle (the state /
-    choice vectors are shown post-embedding; the setup vector is raw).  A
-    non-empty ``annotation`` is appended to the subtitle — used to flag the
-    setup section when the setup model is not active this run.
+    The panel starts hidden and is revealed by clicking the diagram input box
+    whose ``data-panel`` equals ``section_id`` (the ``report_svg.PANEL_*``
+    contract).  ``input_note`` qualifies the element count in the subtitle (the
+    state / choice vectors are shown post-embedding; the card, card-set, and
+    setup vectors are raw).  A non-empty ``annotation`` is appended to the
+    subtitle — used to flag the setup section when the setup model is not
+    active this run.
     """
     expanded_count = sum(1 for stripe in layout.stripes if stripe.sub_fields)
     sub = (
@@ -255,7 +346,7 @@ def _vector_section(
     if annotation:
         sub += f" · {html_lib.escape(annotation)}"
     return (
-        f"<div class='section' id='{section_id}'>"
+        f"<div class='section panel' id='{section_id}' hidden>"
         f"<div class='section-header' style='color:{accent}'>{html_lib.escape(title)}</div>"
         f"<div class='section-sub'>{sub}</div>"
         f"<div class='tbl-wrap'>"
@@ -539,6 +630,9 @@ def _arch_section(
         f" ⊕ choice encoder → decision heads + value head · connected setup net"
         f"</div>"
         f"<div class='arch-svg-wrap'>{svg}</div>"
+        f"<div class='click-hint'>Click an input box to inspect that vector's "
+        f"element-by-element breakdown, or any parameter count to open the "
+        f"parameter table at that block.</div>"
         f"</div>"
     )
 
@@ -547,13 +641,15 @@ def _arch_section(
 
 
 def _params_section(report: architecture.ParamReport) -> str:
+    """The per-layer parameter table as a hidden panel; each block's first row
+    carries the anchor a diagram parameter count jumps to."""
     total = report.total
     sub = (
         f"{text_helpers.human_count(total)} total trainable parameters &nbsp;·&nbsp; "
         f"{len(report.blocks)} blocks"
     )
     return (
-        f"<div class='section' id='params'>"
+        f"<div class='section panel' id='{report_svg.PANEL_PARAMS}' hidden>"
         f"<div class='section-header' style='color:{_ACCENT_PARAMS}'>Parameters</div>"
         f"<div class='section-sub'>{sub}</div>"
         f"<div class='tbl-wrap'>"
@@ -579,14 +675,19 @@ def _params_rows(report: architecture.ParamReport) -> str:
         if block.multiplier > 1:
             block_label = f"{block.label} ×{block.multiplier}"
 
+        # The block's jump anchor goes on its first rendered row (the subtotal
+        # row when a block has no per-layer rows, e.g. the per-family scorer).
+        anchor_attr = f" id='{_PARAMS_ANCHOR_PREFIX}{_params_block_key(block.label)}'"
+
         # Per-layer rows for this block.
         for idx, layer in enumerate(block.layers):
             layer_label = f"Linear  {layer.in_features} → {layer.out_features}"
             layer_params = layer.linear * block.multiplier
             running += layer_params
             pct = f"{100.0 * layer_params / max(total, 1):.1f}%"
+            row_anchor, anchor_attr = anchor_attr, ""
             rows.append(
-                f"<tr>"
+                f"<tr{row_anchor}>"
                 f"<td class='mono'>{html_lib.escape(block_label) if idx == 0 else ''}</td>"
                 f"<td class='mono dim'>{html_lib.escape(layer_label)}</td>"
                 f"<td class='right mono'>{text_helpers.human_count(layer_params)}</td>"
@@ -611,7 +712,7 @@ def _params_rows(report: architecture.ParamReport) -> str:
         # Block subtotal.
         block_pct = f"{100.0 * block.total / max(total, 1):.1f}%"
         rows.append(
-            f"<tr class='subtotal-row'>"
+            f"<tr class='subtotal-row'{anchor_attr}>"
             f"<td></td>"
             f"<td>Subtotal {html_lib.escape(block_label)}</td>"
             f"<td class='right'>{text_helpers.human_count(block.total)}</td>"
@@ -622,7 +723,8 @@ def _params_rows(report: architecture.ParamReport) -> str:
 
     # Grand total.
     rows.append(
-        f"<tr class='total-row'>"
+        f"<tr class='total-row' "
+        f"id='{_PARAMS_ANCHOR_PREFIX}{report_svg.PARAMS_BLOCK_TOTAL}'>"
         f"<td>TOTAL</td>"
         f"<td></td>"
         f"<td class='right'>{text_helpers.human_count(total)}</td>"
@@ -631,3 +733,10 @@ def _params_rows(report: architecture.ParamReport) -> str:
         f"</tr>"
     )
     return "".join(rows)
+
+
+def _params_block_key(label: str) -> str:
+    """The anchor / ``data-params-block`` key for a block label — the lowercased
+    ``BlockParam.label``, matching what ``report_svg`` attaches to the diagram's
+    parameter counts."""
+    return label.lower()

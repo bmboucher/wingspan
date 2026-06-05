@@ -10,6 +10,13 @@ input — 30 board slots + 3 tray slots).  Every block carries tinted
 input/output boxes (descriptive name · element count), centered layer rows,
 and exact bare-integer parameter counts overlaid on the borders.
 
+The diagram doubles as the report's navigation: every real input box is wrapped
+in an ``arch-click`` group whose ``data-panel`` names the report section it
+reveals (the :data:`PANEL_*` contract), and every parameter count in an
+``arch-paramclick`` group whose ``data-params-block`` names the parameter-table
+block it jumps to — ``wingspan.report``'s inline script and CSS supply the
+behaviour and affordances.
+
 The diagram is data-driven: layer shapes come from the
 :class:`wingspan.architecture.ParamReport` (with the hand encoder's shapes
 recomputed via :func:`wingspan.architecture.body_layers` when the main net
@@ -29,6 +36,23 @@ import html as html_lib
 import pydantic
 
 from wingspan import architecture, encode, setup_model, state
+
+# ---------------------------------------------------------------------------
+# Click contract with ``wingspan.report``: each clickable input box carries one
+# of these panel ids as its ``data-panel`` attribute, and the report gives the
+# matching detail section the same id. Parameter counts carry a
+# ``data-params-block`` key equal to ``BlockParam.label.lower()`` (the anchor
+# suffix of the parameter table's per-block rows), or ``PARAMS_BLOCK_TOTAL``
+# for counts with no block rows of their own (the grand total, the separate
+# setup net, the mean-pooled hand encoder).
+
+PANEL_CARD = "card"
+PANEL_HAND = "hand"
+PANEL_STATE = "state"
+PANEL_CHOICE = "choice"
+PANEL_SETUP = "setup"
+PANEL_PARAMS = "params"
+PARAMS_BLOCK_TOTAL = "total"
 
 # ---------------------------------------------------------------------------
 # Palette.
@@ -224,6 +248,11 @@ class _Unit(pydantic.BaseModel):
     tooltip: str
     dashed: bool = False
     stack: int = 0
+    # Click contract (see module constants): the report panel the input box
+    # opens (None for the heads, whose inputs are intermediate embeddings) and
+    # the parameter-table block the unit's parameter counts jump to.
+    panel: str | None = None
+    params_key: str | None = None
 
 
 class _Units(pydantic.BaseModel):
@@ -317,6 +346,8 @@ def _card_unit(
             f"{in_dim} → {arch.card_embed_dim} · one shared column per card, "
             f"reused across board / tray / hand / choice slots"
         ),
+        panel=PANEL_CARD,
+        params_key=block.label.lower(),
     )
 
 
@@ -350,6 +381,12 @@ def _hand_unit(
         out_count=arch.hand_embed_width,
         tooltip=tooltip,
         dashed=not distinct,
+        panel=PANEL_HAND,
+        params_key=(
+            param_report.hand.label.lower()
+            if param_report.hand is not None
+            else PARAMS_BLOCK_TOTAL
+        ),
     )
 
 
@@ -372,6 +409,8 @@ def _trunk_unit(
             f"State Encoder · {_count_text(block.total)} params · "
             f"{in_dim} → M={arch.trunk_embed_width}"
         ),
+        panel=PANEL_STATE,
+        params_key=block.label.lower(),
     )
 
 
@@ -394,6 +433,8 @@ def _choice_unit(
             f"Choice Encoder · {_count_text(block.total)} params · "
             f"{in_dim} → N={arch.choice_embed_width} · run once per offered choice"
         ),
+        panel=PANEL_CHOICE,
+        params_key=block.label.lower(),
     )
 
 
@@ -421,6 +462,8 @@ def _setup_unit(
             f"(predicted end-game score margin)"
         ),
         dashed=not use_setup_model,
+        panel=PANEL_SETUP,
+        params_key=PARAMS_BLOCK_TOTAL,
     )
 
 
@@ -442,6 +485,7 @@ def _value_unit(
             f"Value Head · {_count_text(block.total)} params · "
             f"{block.layers[0].in_features} → 1"
         ),
+        params_key=block.label.lower(),
     )
 
 
@@ -484,6 +528,7 @@ def _decision_unit(
         tooltip=tooltip,
         dashed=True,
         stack=num_families,
+        params_key=scorer.label.lower(),
     )
 
 
@@ -739,18 +784,25 @@ def _conn_svg(conn: _Conn) -> tuple[str, str]:
 
 def _draw_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
     """One block with its input box above and output box below, grouped under a
-    shared hover tooltip."""
+    shared hover tooltip. A unit with a ``panel`` gets its input box wrapped in
+    the ``arch-click`` group the report's script opens that panel from."""
     body_h = unit_h - 2 * (_SVG_IO_H + _SVG_IO_GAP)
     block_y = top_y + _SVG_IO_H + _SVG_IO_GAP
+    in_box = _io_box(
+        unit.x,
+        top_y,
+        f"{unit.in_label} · {_count_text(unit.in_count)}",
+        dashed=unit.dashed,
+    )
+    if unit.panel is not None:
+        in_box = (
+            f'<g class="arch-click" data-panel="{html_lib.escape(unit.panel)}">'
+            f"<title>Click to inspect this vector</title>\n{in_box}\n</g>"
+        )
     parts = [
         "<g>",
         f"<title>{html_lib.escape(unit.tooltip)}</title>",
-        _io_box(
-            unit.x,
-            top_y,
-            f"{unit.in_label} · {_count_text(unit.in_count)}",
-            dashed=unit.dashed,
-        ),
+        in_box,
         _draw_block(unit, block_y, body_h),
         _io_box(
             unit.x,
@@ -814,28 +866,37 @@ def _draw_block(unit: _Unit, y: int, body_h: int) -> str:
 
     parts.append(
         _draw_op_rows(
-            unit.rows, x, y + _SVG_BLK_PAD_T + _SVG_BLK_HDR_H + _SVG_BLK_HDR_GAP
+            unit.rows,
+            x,
+            y + _SVG_BLK_PAD_T + _SVG_BLK_HDR_H + _SVG_BLK_HDR_GAP,
+            params_key=unit.params_key,
         )
     )
 
     # Block parameter total, overlaid on the bottom-right border.
     parts.append(
-        _halo_text(
-            x + width - 12,
-            y + body_h + 4,
-            unit.sigma_text,
-            anchor="end",
-            size=10,
-            color=unit.accent,
-            bold=True,
+        _param_click_group(
+            _halo_text(
+                x + width - 12,
+                y + body_h + 4,
+                unit.sigma_text,
+                anchor="end",
+                size=10,
+                color=unit.accent,
+                bold=True,
+            ),
+            unit.params_key,
         )
     )
     return "\n".join(parts)
 
 
-def _draw_op_rows(rows: tuple[_OpRow, ...], x: int, rows_y0: int) -> str:
+def _draw_op_rows(
+    rows: tuple[_OpRow, ...], x: int, rows_y0: int, *, params_key: str | None
+) -> str:
     """The mini-rows: centered operation label, with each Linear's parameter
-    count overlaid on its bottom-right border."""
+    count overlaid on its bottom-right border (clickable to the parameter
+    table's ``params_key`` block)."""
     row_x = x + _SVG_ACCENT_W + 8
     row_w = _SVG_COL_W - _SVG_ACCENT_W - 16
     parts: list[str] = []
@@ -854,15 +915,30 @@ def _draw_op_rows(rows: tuple[_OpRow, ...], x: int, rows_y0: int) -> str:
         )
         if row.params is not None:
             parts.append(
-                _halo_text(
-                    row_x + row_w - 8,
-                    ry + _SVG_ROW_H + 4,
-                    _count_text(row.params),
-                    anchor="end",
-                    size=9,
+                _param_click_group(
+                    _halo_text(
+                        row_x + row_w - 8,
+                        ry + _SVG_ROW_H + 4,
+                        _count_text(row.params),
+                        anchor="end",
+                        size=9,
+                    ),
+                    params_key,
                 )
             )
     return "\n".join(parts)
+
+
+def _param_click_group(inner_svg: str, params_key: str | None) -> str:
+    """Wrap a parameter-count text in the ``arch-paramclick`` group the report's
+    script opens the Parameters panel from, jumped to ``params_key``'s block
+    rows. A ``None`` key leaves the text inert."""
+    if params_key is None:
+        return inner_svg
+    return (
+        f'<g class="arch-paramclick" data-params-block="{html_lib.escape(params_key)}">'
+        f"{inner_svg}</g>"
+    )
 
 
 def _io_box(x_col: int, top_y: int, text: str, *, dashed: bool) -> str:
@@ -987,14 +1063,15 @@ def _total_line(
     use_setup_model: bool,
 ) -> str:
     """The grand-total caption (the separate setup net's count is annotated,
-    not summed in)."""
+    not summed in), clickable to the parameter table's grand-total row."""
     text = f"TOTAL {_count_text(param_report.total)} params"
     if use_setup_model:
         text += f" · setup {_count_text(setup_param.total)} (separate)"
-    return (
+    return _param_click_group(
         f'<text x="{_SVG_W // 2}" y="{geom.total_y}" font-family="{_FONT_SANS}" '
         f'font-size="13" font-weight="700" fill="{_SVG_TOTAL_COLOR}" text-anchor="middle">'
-        f"{html_lib.escape(text)}</text>"
+        f"{html_lib.escape(text)}</text>",
+        PARAMS_BLOCK_TOTAL,
     )
 
 
