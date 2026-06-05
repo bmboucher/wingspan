@@ -19,6 +19,9 @@ if typing.TYPE_CHECKING:
     from wingspan.engine import core
 
 
+#### Food grants ####
+
+
 @registry.handles(cards.EffectKind.GAIN_FOOD_SUPPLY)
 def _h_gain_food_supply(
     engine: "core.Engine",
@@ -110,6 +113,9 @@ def _h_gain_die_any(
     engine.log(f"  {bird.name}: +1 {gained.value} from birdfeeder")
 
 
+#### Egg grants ####
+
+
 @registry.handles(cards.EffectKind.LAY_EGG_ON_THIS)
 def _h_lay_egg_on_this(
     engine: "core.Engine",
@@ -162,6 +168,9 @@ def _h_lay_egg_any(
                 engine.log(f"  {pb.bird.name}: [{player.name}] skipped optional egg")
                 continue
         actions.lay_one_egg(engine, agent, player)
+
+
+#### Card draws and cache ####
 
 
 @registry.handles(cards.EffectKind.DRAW_CARDS)
@@ -240,6 +249,9 @@ def _h_roll_not_in_feeder_cache(
         reactors.trigger_pink_predator_success(engine, player)
     else:
         engine.log(f"  {bird.name}: no {eff.food.value} rolled; nothing cached")
+
+
+#### Tuck from hand ####
 
 
 @registry.handles(cards.EffectKind.TUCK_FROM_HAND)
@@ -492,6 +504,9 @@ def _h_tuck_from_hand_then_gain_food_supply(
     if eff.food:
         player.food[eff.food] += eff.amount
         engine.log(f"  {bird.name}: +{eff.amount} {eff.food.value} from supply")
+
+
+#### Extra plays and all-players effects ####
 
 
 @registry.handles(cards.EffectKind.PLAY_ADDITIONAL_BIRD)

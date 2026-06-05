@@ -1422,7 +1422,7 @@ def _seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed % (2**32))
     # torch's seeding stubs are typed with unknown parameters; suppress the
-    # stub-gap report narrowly rather than leaving the seed unset (§5).
+    # stub-gap report narrowly rather than leaving the seed unset (TRAINING.md §5).
     torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType]
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)  # pyright: ignore[reportUnknownMemberType]

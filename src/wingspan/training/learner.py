@@ -4,20 +4,20 @@ One :func:`update` call performs a single on-policy REINFORCE step over all the
 steps of an iteration's games, with the two TRAINING.md fixes that make the
 baseline honest and the memory sane:
 
-* **Length-bucketing (§4.2a).** Stacking every decision into one tensor padded
+* **Length-bucketing (TRAINING.md §4.2a).** Stacking every decision into one tensor padded
   to the widest decision in the batch (the 504-option opening draft, or a
   food-rich 600+-option play) wastes ~97% of the tensor on padding and peaks
   GPU memory near 11 GB on a default batch. Instead steps are grouped into
   option-count buckets and padded only to each bucket's own width — a ~40×
   memory reduction — then their losses are summed over one shared backward.
 
-* **Advantage normalization (§3.3).** Advantages are centered and scaled to unit
+* **Advantage normalization (TRAINING.md §3.3).** Advantages are centered and scaled to unit
   std across the whole batch before the policy loss, so the gradient magnitude
   stays stable from the first iteration to the last regardless of how good the
   critic has become.
 
 The loss is the standard actor-critic sum
-``policy_loss + VALUE_COEF·value_loss − ENTROPY_COEF·entropy`` (§3.3).
+``policy_loss + VALUE_COEF·value_loss − ENTROPY_COEF·entropy`` (TRAINING.md §3.3).
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def update(
     entropy_all = torch.cat(entropies)
     return_all = torch.cat(returns_parts)
 
-    # Advantage = return − baseline, normalized across the batch (§3.3).
+    # Advantage = return − baseline, normalized across the batch (TRAINING.md §3.3).
     advantage = return_all - value_all.detach()
     adv_mean = advantage.mean()
     adv_std = advantage.std()

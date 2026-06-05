@@ -1,13 +1,13 @@
-"""Entry points: manual CLI play, random self-play, configurable-matchup
-selfplay (random/AI in any seat), and a training entry."""
+"""Entry points: manual CLI play (main_manual) and random self-play (main_random).
+
+The unified ``wingspan`` dispatcher lives in ``__main__.py``."""
 
 from __future__ import annotations
 
 import argparse
 import random
-import sys
 
-from wingspan import agents, cards, engine, selfplay
+from wingspan import agents, cards, engine
 from wingspan.agents import display
 
 
@@ -87,26 +87,3 @@ def main_random(argv: list[str] | None = None) -> int:
             if not args.quiet:
                 print(f"  log -> {path}")
     return 0
-
-
-def main_tournament(argv: list[str] | None = None) -> int:
-    """Run a round-robin tournament between trained AIs (``wingspan.tournament``).
-
-    Imported lazily so the lightweight ``manual`` / ``random`` subcommands don't
-    pay the tournament app's torch + rich import cost."""
-    from wingspan.tournament import app as tournament_app
-
-    return tournament_app.main(argv)
-
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "manual":
-        sys.exit(main_manual(sys.argv[2:]))
-    elif len(sys.argv) > 1 and sys.argv[1] == "random":
-        sys.exit(main_random(sys.argv[2:]))
-    elif len(sys.argv) > 1 and sys.argv[1] == "selfplay":
-        sys.exit(selfplay.main_selfplay(sys.argv[2:]))
-    elif len(sys.argv) > 1 and sys.argv[1] == "tournament":
-        sys.exit(main_tournament(sys.argv[2:]))
-    else:
-        sys.exit(main_random(sys.argv[1:]))

@@ -164,7 +164,7 @@ the [wingsearch](https://github.com/navarog/wingsearch) project.
 ```
 src/wingspan/
   __init__.py            # version only
-  cli.py                 # argparse entry points (manual / random / selfplay / tournament dispatch)
+  cli.py                 # argparse entry points (manual / random)
   state.py               # GameState, Player, Board, FoodPool, PlayedBird, Birdfeeder, new_game
   decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction + judgment families
   architecture.py        # ModelArchitecture + ActivationName (torch-free network topology descriptor)
@@ -174,6 +174,7 @@ src/wingspan/
   selfplay.py            # selfplay CLI: per-seat agent matchups over trained checkpoints
   introspect.py          # model introspection CLI (vector layout, architecture, parameters)
   report.py              # standalone HTML model-summary report generator
+  report_svg.py          # SVG bird-frequency diagram companion to report.py
   data/*.json            # wingsearch card data (bundled)
 
   encode/                # state/choice tensor encoders for RL (package)
@@ -230,7 +231,7 @@ src/wingspan/
     registry.py          # config-class-name <-> handler bijection
     handlers/            # card_visits (per-bird play tallies), decision_logger (JSONL rows)
 
-  training/              # live training + monitoring dashboard ("FLYWAY CONTROL")
+  training/              # live training + monitoring dashboard ("FLIGHT PLAN")
     __main__.py / app.py # entry point: argparse (+ --config) -> worker thread + rich.Live loop
     config.py            # TrainConfig (self-describing hyperparameters, §5.1)
     artifacts.py         # shared on-disk filenames (LAST/BEST/OPPONENT ckpt, metrics+games logs, model_config/process json)

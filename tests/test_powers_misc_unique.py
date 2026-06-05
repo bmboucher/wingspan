@@ -1,4 +1,4 @@
-"""Unit tests for the five misc-unique bird powers.
+"""Tests for the misc-unique bird powers (off-family single-card effects).
 
 Each test builds a minimal engine, patches a played bird with the target
 power text, and invokes ``powers.dispatch_power`` directly so we can

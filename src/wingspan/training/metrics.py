@@ -121,7 +121,7 @@ class FamilyCounts(pydantic.BaseModel):
 
 
 class EvalResult(pydantic.BaseModel):
-    """Outcome of a paired-game evaluation against the reference opponent (§7.3).
+    """Outcome of a paired-game evaluation against the reference opponent (TRAINING.md §7.3).
 
     ``win_rate`` and its ``ci95`` half-width use the normal approximation
     ``p ± 1.96·√(p(1−p)/n)``; ties count as half a win. ``mean_margin`` is the

@@ -58,7 +58,7 @@ class TrainConfig(pydantic.BaseModel):
     entropy_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.01
     grad_clip: typing.Annotated[float, pydantic.Field(gt=0.0)] = 5.0
     # Raw advantage scale before per-batch normalization. Kept for readable
-    # value targets; the per-batch normalization (§3.3) is what stabilizes the
+    # value targets; the per-batch normalization (TRAINING.md §3.3) is what stabilizes the
     # gradient regardless of this constant.
     score_norm: typing.Annotated[float, pydantic.Field(gt=0.0)] = 50.0
 

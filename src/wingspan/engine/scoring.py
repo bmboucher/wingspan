@@ -99,6 +99,9 @@ def round_goal_standing_for_round(
     )
 
 
+#### Round-goal evaluation and count deltas ####
+
+
 def eval_goal(player: state.Player, goal: cards.EndRoundGoal) -> int:
     """Score ``player`` against ``goal.category``. Returns 0 for unknown
     categories so unsupported goals don't blow up the round."""
@@ -311,6 +314,9 @@ def goal_best_case_for_eggs(
     old_vp = _placement_vp(before_count, opp_count, payout[0], payout[1])
     new_vp = _placement_vp(before_count + count_delta, opp_count, payout[0], payout[1])
     return count_delta, new_vp - old_vp
+
+
+#### Bonus card scoring ####
 
 
 def bonus_vp_deltas_for_count_change(

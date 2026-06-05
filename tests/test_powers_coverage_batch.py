@@ -1,4 +1,4 @@
-"""Tests for the bird powers added to reach 100% coverage."""
+"""Coverage-batch tests: the bird powers exercised to reach full handler coverage."""
 
 from __future__ import annotations
 

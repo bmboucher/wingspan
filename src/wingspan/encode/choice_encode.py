@@ -523,6 +523,7 @@ def _featurize_setup(
         )
 
 
+# Maps each Choice subclass to its featurizer; drives encode_choices and the stripe fillers below.
 _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
     decisions.SkipChoice: _featurize_skip,
     decisions.TuckActivateChoice: _featurize_tuck_activate,

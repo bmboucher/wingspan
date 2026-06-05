@@ -149,6 +149,10 @@ def _m_tuck_then_gain_food_choice(text: str) -> schema.Effect | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Individual resource-grant matchers (food, egg, card draw, cache)
+
+
 @registry.pattern
 def _m_gain_food_supply(text: str) -> schema.Effect | None:
     # Excludes "All players gain" (handled by _m_all_players_gain_food).
@@ -247,6 +251,10 @@ def _m_gain_food_birdfeeder(text: str) -> schema.Effect | None:
             raw_text=match.group(0),
         )
     return None
+
+
+# ---------------------------------------------------------------------------
+# Egg, card-draw, cache, and standalone tuck matchers
 
 
 @registry.pattern
@@ -393,6 +401,10 @@ def _m_play_additional_bird(text: str) -> schema.Effect | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# All-players effects and resource trades
+
+
 @registry.pattern
 def _m_all_players_gain_food(text: str) -> schema.Effect | None:
     match = re.search(
@@ -504,6 +516,10 @@ def _m_all_players_lay_egg_on_nest(text: str) -> schema.Effect | None:
             raw_text=match.group(0),
         )
     return None
+
+
+# ---------------------------------------------------------------------------
+# Special single-bird effects (repeat powers, fewest-bird bonuses, drafting, etc.)
 
 
 @registry.pattern
