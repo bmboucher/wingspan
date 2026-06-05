@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
-    "pytest-cov>=5.0",  # coverage measurement, on-demand only (not in the gate)
+    "pytest-cov>=5.0",  # coverage measurement; full gate includes regression check
     "pytest-xdist>=3.5",  # parallel test runs (the gate's default full-suite mode)
     "pyright>=1.1.400",
     "black>=24.0",
@@ -67,10 +67,12 @@ line_length = 88
 src_paths = ["src", "tests"]
 known_first_party = ["wingspan"]
 
-# --- Coverage (on-demand only; NOT wired into quality_gate.sh) -------------
-# Run through the gate's pytest pass-through, e.g.:
+# --- Coverage (full gate only; regression-checked against coverage_baseline.txt) ---
+# The full gate (no section flags) re-runs pytest serially with --cov and compares
+# the TOTAL % against coverage_baseline.txt in the repo root. Baseline ratchets up
+# automatically; the gate fails if it drops. Partial --pytest runs skip coverage.
+# For an HTML report alongside the check:
 #   bash scripts/quality_gate.sh --pytest --cov --cov-report=term-missing --cov-report=html
-# Plain gate runs add zero coverage overhead (no addopts, no --cov default).
 
 [tool.coverage.run]
 source_pkgs = ["wingspan"]  # keyed on the import package -> CWD-independent
@@ -80,6 +82,15 @@ branch = true
 # combines them at session end.
 concurrency = ["multiprocessing", "thread"]
 parallel = true
+omit = [
+    "*/wingspan/cli.py",               # argparse CLI boilerplate
+    "*/wingspan/__main__.py",          # dispatcher entry point
+    "*/wingspan/introspect.py",        # CLI introspection tool
+    "*/wingspan/report.py",            # text report rendering
+    "*/wingspan/report_svg.py",        # SVG diagram generation
+    "*/wingspan/training/charts/*.py", # chart/visualization generation
+    "*/wingspan/cloud/*.py",           # AWS/S3 integration (needs live cloud)
+]
 
 [tool.coverage.report]
 show_missing = true

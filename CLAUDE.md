@@ -204,11 +204,10 @@ bash scripts/quality_gate.sh [target-dir]
 ```
 
 Run from the current directory (worktree or repo root), or pass an explicit
-target dir. Five steps in order: `pyright` (strict) → `isort` → `black` →
-`pyright` (post-format) → `pytest`, stopping at the first `pyright` failure so
-broken code is never formatted. Config lives in `pyproject.toml`; `pyright` is
-the globally-installed npm binary; formatters and pytest run via the target
-directory's own `.venv`.
+target dir. Six steps in order: `pyright` (strict) → `isort` → `black` →
+`pyright` (post-format) → `pytest` → coverage regression. Config lives in
+`pyproject.toml`; `pyright` is the globally-installed npm binary; formatters,
+pytest, and coverage run via the target directory's own `.venv`.
 
 For faster iteration, run individual sections; everything after a section flag
 passes verbatim to the underlying tool, so there is never a reason to invoke
@@ -225,23 +224,37 @@ No-argument defaults: `--pytest` → `tests/ -n 8 --dist load` (worker count via
 targeted runs stay serial), `--format` → `src tests`. Steps always execute in
 canonical gate order regardless of flag order.
 
-Exit codes: `0` — passed. `1` — genuine check failure (pyright errors or
-failing tests): fix the code and rerun. `2` — infrastructure/usage failure
-(missing venv, `pyright` not on PATH, bad arguments): **not a code problem —
-stop and ask the user to fix it**.
+Exit codes: `0` — passed. `1` — genuine check failure (pyright errors, failing
+tests, or coverage regression): fix the code and rerun. `2` — infrastructure/usage
+failure (missing venv, `pyright` not on PATH, bad arguments): **not a code
+problem — stop and ask the user to fix it**.
 
 Always run the full gate (no section flags) before committing; every change
 must pass it to be considered finished. Strict-mode pyright must be completely
 clean (`reportPrivateImportUsage = false` silences torch's under-exporting
 stubs — don't re-enable it).
 
-Coverage is configured in `pyproject.toml` but deliberately **not** in the
-gate. For a report (branch coverage on — noticeably slower; artifacts
-gitignored):
+**Coverage regression check.** The full gate re-runs pytest serially with
+`--cov --cov-report=term-missing` (Step 6) and compares the TOTAL percentage
+against `coverage_baseline.txt` in the repo root. The baseline ratchets upward:
 
-```
-bash scripts/quality_gate.sh --pytest tests/ --cov --cov-report=term-missing --cov-report=html
-```
+- Coverage improves → baseline file updated automatically; commit it with your
+  change.
+- Coverage unchanged → gate passes silently.
+- Coverage drops → gate fails (exit 1). Either add tests to recover coverage,
+  or report the drop to the user so they can decide whether to lower the
+  baseline manually (see "Things to avoid").
+
+**First run (baseline absent):** the gate creates `coverage_baseline.txt`
+automatically and passes. Commit that file to lock the regression floor.
+
+The `--pytest` partial run (section flag present) skips coverage entirely for
+fast-iteration targeted runs. To run the full suite without the coverage step,
+use all three section flags explicitly: `--pyright --format --pytest`.
+
+Modules excluded from coverage measurement (CLI entry points, SVG/chart
+rendering, AWS/S3 integration) are listed in `[tool.coverage.run] omit` in
+`pyproject.toml`. To include a module, remove it from that list.
 
 ## Architectural patterns to preserve
 
@@ -428,3 +441,7 @@ and deliberate:
   actually needed; a bare model is the preferred shape.
 - No `_do_*` wrapper methods on Engine that just delegate to `actions.do_*` —
   call the free function directly.
+- **Never edit `coverage_baseline.txt` to lower the percentage.** The ratchet
+  is a one-way floor. If coverage drops (e.g. deleted dead code, or a module
+  removed from the `omit` list), report the impact and the gate's message to
+  the user and let them decide whether to update the baseline manually.

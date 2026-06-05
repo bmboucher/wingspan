@@ -22,7 +22,10 @@
 #                                        Explicit args replace the default entirely,
 #                                        so targeted runs stay serial. Override the
 #                                        worker count with WINGSPAN_PYTEST_WORKERS;
-#                                        0 = serial.)
+#                                        0 = serial.
+#                                        NOTE: the full gate automatically appends
+#                                        a serial coverage re-run; bare --pytest
+#                                        skips it for fast iteration.)
 #
 # Examples:
 #   bash scripts/quality_gate.sh                                # full gate
@@ -224,6 +227,85 @@ if [ "$RUN_PYTEST" = true ]; then
         echo
         echo "GATE FAILED at pytest — tests failed."
         FAILED=1
+    fi
+fi
+
+# ---- Step 6: coverage regression check (full gate only) ----
+#
+# Only runs when no section flags were given (FULL_GATE=true) and all prior
+# steps passed (FAILED=0). Re-runs the suite serially so the term-missing
+# report lands cleanly on stdout for parsing. Cached .pyc makes this fast
+# (~25-40s) even though xdist is disabled.
+#
+# Ratchet behaviour:
+#   Baseline absent       -> create it, pass (first-run establishment).
+#   Coverage >= baseline  -> update file if improved, pass.
+#   Coverage < baseline   -> print regression message, set FAILED=1.
+#
+# BASELINE_FILE always resolves to the main repo root even from a worktree
+# because REPO_ROOT is derived from this script's own location, not CWD.
+
+BASELINE_FILE="$REPO_ROOT/coverage_baseline.txt"
+
+if [ "$FULL_GATE" = true ] && [ "$FAILED" -eq 0 ]; then
+    header "coverage (regression check)"
+
+    COVERAGE_OUTPUT_FILE="$(mktemp)"
+    "$PYTHON" -m pytest tests/ -p no:xdist \
+        --cov --cov-report=term-missing \
+        2>&1 | tee "$COVERAGE_OUTPUT_FILE"
+    COVERAGE_EXIT="${PIPESTATUS[0]}"
+
+    if [ "$COVERAGE_EXIT" -ne 0 ]; then
+        echo
+        echo "WARNING: coverage re-run exited $COVERAGE_EXIT; skipping regression check."
+        rm -f "$COVERAGE_OUTPUT_FILE"
+    else
+        # Extract TOTAL line: "TOTAL   NNN  NNN  NNN  NNN  78%"  (last field = %)
+        COVERAGE_PCT="$(grep -E '^TOTAL\s' "$COVERAGE_OUTPUT_FILE" \
+            | awk '{print $NF}' \
+            | tr -d '%')"
+        rm -f "$COVERAGE_OUTPUT_FILE"
+
+        if [ -z "$COVERAGE_PCT" ]; then
+            echo
+            echo "WARNING: could not extract TOTAL coverage line — skipping regression check."
+        elif [ ! -f "$BASELINE_FILE" ]; then
+            # First run: establish the baseline.
+            echo "$COVERAGE_PCT" > "$BASELINE_FILE"
+            echo
+            echo "Coverage baseline established: ${COVERAGE_PCT}%"
+            echo "  Written to: $BASELINE_FILE"
+            echo "  Commit this file to lock the regression floor."
+        else
+            BASELINE_PCT="$(cat "$BASELINE_FILE" | tr -d '[:space:]')"
+
+            # Floating-point comparisons via awk (bash only does integer math).
+            REGRESSED="$(awk -v cur="$COVERAGE_PCT" -v base="$BASELINE_PCT" \
+                'BEGIN { print (cur + 0 < base + 0) ? "1" : "0" }')"
+            IMPROVED="$(awk -v cur="$COVERAGE_PCT" -v base="$BASELINE_PCT" \
+                'BEGIN { print (cur + 0 > base + 0) ? "1" : "0" }')"
+
+            if [ "$REGRESSED" = "1" ]; then
+                echo
+                echo "COVERAGE REGRESSION: ${COVERAGE_PCT}% is below baseline ${BASELINE_PCT}%"
+                echo
+                echo "  Options:"
+                echo "    1. Add tests to recover coverage, then rerun the gate."
+                echo "    2. If the drop is intentional, report the impact to the user"
+                echo "       so they can update coverage_baseline.txt manually."
+                echo "  Do NOT edit coverage_baseline.txt downward yourself."
+                FAILED=1
+            elif [ "$IMPROVED" = "1" ]; then
+                echo "$COVERAGE_PCT" > "$BASELINE_FILE"
+                echo
+                echo "Coverage improved: ${BASELINE_PCT}% -> ${COVERAGE_PCT}%"
+                echo "  Baseline updated. Commit coverage_baseline.txt with your change."
+            else
+                echo
+                echo "Coverage: ${COVERAGE_PCT}% (matches baseline — OK)"
+            fi
+        fi
     fi
 fi
 
