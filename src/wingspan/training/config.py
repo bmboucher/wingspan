@@ -167,11 +167,12 @@ class TrainConfig(pydantic.BaseModel):
     # [static attributes ⊕ identity one-hot] to its card_embed_dim vector. Empty =
     # a single linear projection; a non-empty stack makes it genuinely nonlinear.
     card_encoder_layers: architecture.Widths = (128,)
-    # When enabled, a dedicated hand encoder MLP replaces the mean-pool hand
-    # embedding: it takes [180-dim multi-hot ⊕ 10-dim hand summary] and outputs a
-    # card_embed_dim-wide vector, removing the hand summary from the trunk's
-    # continuous feed. Fresh run.
-    use_distinct_hand_model: bool = False
+    # When enabled (the default), a dedicated hand encoder MLP replaces the
+    # mean-pool hand embedding: it takes [180-dim multi-hot ⊕ 10-dim hand summary]
+    # and outputs a card_embed_dim-wide vector, removing the hand summary from the
+    # trunk's continuous feed. The mean-pool path remains for False configs, and
+    # old checkpoints keep loading via their saved configs. Fresh run.
+    use_distinct_hand_model: bool = True
     # Hidden widths of the hand encoder MLP. Active only when use_distinct_hand_model
     # is True; defaults match card_encoder_layers so toggling on starts from the same
     # structure. Fresh run.
@@ -183,8 +184,9 @@ class TrainConfig(pydantic.BaseModel):
     hand_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] | None = None
     # Append one hand-encoder embedding of the face-up tray *set* to the trunk
     # input (the tray's three per-slot card-table lookups are unchanged, giving
-    # 3·M + N tray dims). Requires use_distinct_hand_model. Fresh run.
-    tray_set_embedding: bool = False
+    # 3·M + N tray dims). Requires use_distinct_hand_model; on by default
+    # alongside it. Fresh run.
+    tray_set_embedding: bool = True
 
     # ---- setup model (TRAINING.md / DECISIONS.md §2.13: the start-of-game keep) ----
     # When enabled (the default), the start-of-game setup decision is pulled out of

@@ -1,14 +1,14 @@
 """SVG architecture diagram for the model-summary HTML report.
 
 Builds the self-contained ``<svg>`` drawing of the full network topology that
-``wingspan.report`` embeds in its Architecture section: the card and hand
-encoders on the top row, the state trunk / choice encoder / setup model on the
-middle row, and the value / decision heads on the bottom row, joined by
-fan-out connectors labelled with how many copies of each encoder's output the
-downstream input consumes (e.g. ×33 card embeddings in the state input — 30
-board slots + 3 tray slots).  Every block carries tinted input/output boxes
-(descriptive name · element count), centered layer rows, and exact
-thousands-separated parameter counts overlaid on the borders.
+``wingspan.report`` embeds in its Architecture section: the single-card and
+multi-card encoders on the top row, the state encoder / choice encoder / setup
+model on the middle row, and the value / decision heads on the bottom row,
+joined by fan-out connectors labelled with how many copies of each encoder's
+output the downstream input consumes (e.g. ×33 card embeddings in the state
+input — 30 board slots + 3 tray slots).  Every block carries tinted
+input/output boxes (descriptive name · element count), centered layer rows,
+and exact bare-integer parameter counts overlaid on the borders.
 
 The diagram is data-driven: layer shapes come from the
 :class:`wingspan.architecture.ParamReport` (with the hand encoder's shapes
@@ -164,6 +164,13 @@ def build_arch_svg(
     for unit, top_y, unit_h in placed:
         parts.append(_draw_unit(unit, top_y, unit_h))
 
+    # The top-row training note: the shared encoders learn only from in-game
+    # decisions; the setup net consumes them as frozen, synced copies. Gated on
+    # the distinct hand model — without it the setup net trains its own
+    # multi-card encoder, so the blanket note would be wrong.
+    if arch.use_distinct_hand_model:
+        parts.append(_row1_side_note(geom))
+
     # Connectors: all bodies first, then all labels, so the white label halos
     # mask any line they cross.
     conns = _band1_connectors(geom, arch, use_setup_model) + _band2_connectors(
@@ -207,6 +214,8 @@ class _Unit(pydantic.BaseModel):
     title: str
     subtitle: str = ""
     rows: tuple[_OpRow, ...]
+    # The parameter-total legend overlaid on the bottom-right border: a bare
+    # integer count, optionally suffixed ("… each" / "… total").
     sigma_text: str
     in_label: str
     in_count: int
@@ -233,7 +242,9 @@ class _Conn(pydantic.BaseModel):
     """One connector: a straight vertical (``lane_y is None``) or an orthogonal
     elbow routed along a horizontal lane.  ``copies`` drives the stroke width;
     ``label2`` is an optional second label line (used by the card→trunk
-    fan-out's breakdown)."""
+    fan-out's breakdown); ``label_left`` puts a straight vertical's labels
+    right-aligned to the line's left instead of the default right side (used
+    where a long label would overflow onto a neighbouring connector)."""
 
     src_x: int
     src_y: int
@@ -244,6 +255,7 @@ class _Conn(pydantic.BaseModel):
     label: str = ""
     label2: str = ""
     label_dx: int = 0
+    label_left: bool = False
     dashed: bool = False
 
 
@@ -293,15 +305,15 @@ def _card_unit(
     return _Unit(
         x=_SVG_COL_X[0],
         accent=_ACCENT_CARD,
-        title="CARD ENCODER · per-card MLP",
+        title="SINGLE-CARD ENCODER · per-card MLP",
         rows=_op_rows(block.layers, arch.activation.value, is_trunk=False),
-        sigma_text=f"Σ {_commas(block.total)}",
+        sigma_text=_count_text(block.total),
         in_label="card features",
         in_count=in_dim,
         out_label="card embedding",
         out_count=arch.card_embed_dim,
         tooltip=(
-            f"Card Encoder · {_commas(block.total)} params · "
+            f"Single-Card Encoder · {_count_text(block.total)} params · "
             f"{in_dim} → {arch.card_embed_dim} · one shared column per card, "
             f"reused across board / tray / hand / choice slots"
         ),
@@ -319,7 +331,7 @@ def _hand_unit(
         else sum(layer.params for layer in layers)
     )
     tooltip = (
-        f"Hand Encoder · {_commas(total)} params · "
+        f"Multi-Card Encoder · {_count_text(total)} params · "
         f"{layers[0].in_features} → {arch.hand_embed_width} · "
         f"embeds a card set (own hand / setup keep / tray)"
     )
@@ -328,10 +340,10 @@ def _hand_unit(
     return _Unit(
         x=_SVG_COL_X[1],
         accent=_ACCENT_HAND,
-        title="HAND ENCODER · card-set MLP",
+        title="MULTI-CARD ENCODER · card-set MLP",
         subtitle="" if distinct else "setup net only · main net mean-pools",
         rows=_op_rows(layers, arch.activation.value, is_trunk=False),
-        sigma_text=f"Σ {_commas(total)}",
+        sigma_text=_count_text(total),
         in_label="card set + summary",
         in_count=layers[0].in_features,
         out_label="set embedding",
@@ -349,15 +361,15 @@ def _trunk_unit(
     return _Unit(
         x=_SVG_COL_X[0],
         accent=_ACCENT_TRUNK,
-        title="STATE TRUNK",
+        title="STATE ENCODER",
         rows=_op_rows(block.layers, arch.activation.value, is_trunk=True),
-        sigma_text=f"Σ {_commas(block.total)}",
+        sigma_text=_count_text(block.total),
         in_label="state input",
         in_count=in_dim,
         out_label="state embedding",
         out_count=arch.trunk_embed_width,
         tooltip=(
-            f"State Trunk · {_commas(block.total)} params · "
+            f"State Encoder · {_count_text(block.total)} params · "
             f"{in_dim} → M={arch.trunk_embed_width}"
         ),
     )
@@ -371,15 +383,15 @@ def _choice_unit(
     return _Unit(
         x=_SVG_COL_X[1],
         accent=_ACCENT_CHOICE,
-        title="CHOICE ENC",
+        title="CHOICE ENCODER",
         rows=_op_rows(block.layers, arch.activation.value, is_trunk=False),
-        sigma_text=f"Σ {_commas(block.total)}",
+        sigma_text=_count_text(block.total),
         in_label="choice input",
         in_count=in_dim,
         out_label="choice embedding",
         out_count=arch.choice_embed_width,
         tooltip=(
-            f"Choice Encoder · {_commas(block.total)} params · "
+            f"Choice Encoder · {_count_text(block.total)} params · "
             f"{in_dim} → N={arch.choice_embed_width} · run once per offered choice"
         ),
     )
@@ -396,19 +408,15 @@ def _setup_unit(
         x=_SVG_COL_X[2],
         accent=_ACCENT_SETUP,
         title="SETUP MODEL · keep",
-        subtitle=(
-            "separate net · frozen encoder copies"
-            if use_setup_model
-            else "off this run — keep scored in-game"
-        ),
+        subtitle="" if use_setup_model else "off this run — keep scored in-game",
         rows=_op_rows(setup_param.layers, setup_arch.activation.value, is_trunk=False),
-        sigma_text=f"Σ {_commas(setup_param.total)}",
+        sigma_text=_count_text(setup_param.total),
         in_label="setup input",
         in_count=in_dim,
         out_label="score margin",
         out_count=1,
         tooltip=(
-            f"Setup Model ({status}) · {_commas(setup_param.total)} params incl. the "
+            f"Setup Model ({status}) · {_count_text(setup_param.total)} params incl. the "
             f"frozen card / hand encoder copies · {in_dim} → 1 "
             f"(predicted end-game score margin)"
         ),
@@ -425,13 +433,13 @@ def _value_unit(
         accent=_ACCENT_VALUE,
         title="VALUE HEAD",
         rows=_op_rows(block.layers, arch.activation.value, is_trunk=False),
-        sigma_text=f"Σ {_commas(block.total)}",
+        sigma_text=_count_text(block.total),
         in_label="state embedding",
         in_count=block.layers[0].in_features,
         out_label="value",
         out_count=1,
         tooltip=(
-            f"Value Head · {_commas(block.total)} params · "
+            f"Value Head · {_count_text(block.total)} params · "
             f"{block.layers[0].in_features} → 1"
         ),
     )
@@ -450,18 +458,18 @@ def _decision_unit(
         per_head = (
             scorer.total // scorer.multiplier if scorer.multiplier > 1 else scorer.total
         )
-        sigma_text = f"Σ {_commas(per_head)} each"
+        sigma_text = f"{_count_text(per_head)} each"
         tooltip = (
-            f"Decision Head ×{num_families} · {_commas(per_head)} params each · "
-            f"{_commas(scorer.total)} total · {mn} → 1 score per offered choice"
+            f"Decision Head ×{num_families} · {_count_text(per_head)} params each · "
+            f"{_count_text(scorer.total)} total · {mn} → 1 score per offered choice"
         )
     else:
         # Per-family head widths: no shared layer shape to draw — one aggregate row.
         rows = (_OpRow(kind=_OpKind.LINEAR, label="per-family readouts"),)
-        sigma_text = f"Σ {_commas(scorer.total)} total"
+        sigma_text = f"{_count_text(scorer.total)} total"
         tooltip = (
             f"Decision Head ×{num_families} · per-family layer widths · "
-            f"{_commas(scorer.total)} total · {mn} → 1 score per offered choice"
+            f"{_count_text(scorer.total)} total · {mn} → 1 score per offered choice"
         )
     return _Unit(
         x=_SVG_COL_X[1],
@@ -597,6 +605,7 @@ def _band1_connectors(
             copies=encode.N_CARD_INDEX_SLOTS,
             label=f"×{encode.N_CARD_INDEX_SLOTS}",
             label2=f"{encode.N_BOARD_INDEX_SLOTS} board + {state.TRAY_SIZE} tray",
+            label_left=True,
         ),
         _Conn(
             src_x=card_cx + _X_CARD_CHOICE_SRC,
@@ -691,22 +700,22 @@ def _conn_svg(conn: _Conn) -> tuple[str, str]:
     dash = ' stroke-dasharray="6,4"' if conn.dashed else ""
     lane_y = conn.lane_y
 
-    # Straight vertical: line with the label(s) stacked to its right.
+    # Straight vertical: line with the label(s) stacked beside it — to its
+    # right by default, right-aligned to its left under ``label_left``.
     if lane_y is None:
         body = (
             f'<line x1="{conn.src_x}" y1="{conn.src_y}" x2="{conn.dst_x}" y2="{conn.dst_y}" '
             f'stroke="{_SVG_ARROW}" stroke-width="{stroke}"{dash} marker-end="url(#arr)"/>'
         )
         mid_y = (conn.src_y + conn.dst_y) // 2
+        anchor, label_x = (
+            ("end", conn.src_x - 7) if conn.label_left else ("start", conn.src_x + 7)
+        )
         labels: list[str] = []
         if conn.label:
-            labels.append(
-                _halo_text(conn.src_x + 7, mid_y - 2, conn.label, anchor="start")
-            )
+            labels.append(_halo_text(label_x, mid_y - 2, conn.label, anchor=anchor))
         if conn.label2:
-            labels.append(
-                _halo_text(conn.src_x + 7, mid_y + 10, conn.label2, anchor="start")
-            )
+            labels.append(_halo_text(label_x, mid_y + 10, conn.label2, anchor=anchor))
         return body, "\n".join(labels)
 
     # Orthogonal elbow along a horizontal lane, label centered above the run.
@@ -739,14 +748,14 @@ def _draw_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
         _io_box(
             unit.x,
             top_y,
-            f"{unit.in_label} · {_commas(unit.in_count)}",
+            f"{unit.in_label} · {_count_text(unit.in_count)}",
             dashed=unit.dashed,
         ),
         _draw_block(unit, block_y, body_h),
         _io_box(
             unit.x,
             top_y + unit_h - _SVG_IO_H,
-            f"{unit.out_label} · {_commas(unit.out_count)}",
+            f"{unit.out_label} · {_count_text(unit.out_count)}",
             dashed=unit.dashed,
         ),
         "</g>",
@@ -756,7 +765,7 @@ def _draw_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
 
 def _draw_block(unit: _Unit, y: int, body_h: int) -> str:
     """The block body: bordered rect with accent bar, centered title/subtitle,
-    mini-rows, the ×N stack effect, and the Σ border legend."""
+    mini-rows, the ×N stack effect, and the parameter-total border legend."""
     x = unit.x
     width = _SVG_COL_W
     parts: list[str] = []
@@ -848,7 +857,7 @@ def _draw_op_rows(rows: tuple[_OpRow, ...], x: int, rows_y0: int) -> str:
                 _halo_text(
                     row_x + row_w - 8,
                     ry + _SVG_ROW_H + 4,
-                    _commas(row.params),
+                    _count_text(row.params),
                     anchor="end",
                     size=9,
                 )
@@ -926,13 +935,14 @@ def _svg_root(
     trunk_m = arch.trunk_embed_width
     choice_n = arch.choice_embed_width
     status = "active" if use_setup_model else "off"
-    total = _commas(param_report.total)
-    setup_total = _commas(setup_param.total)
+    total = _count_text(param_report.total)
+    setup_total = _count_text(setup_param.total)
     aria = (
-        f"PolicyValueNet architecture: Card Encoder (output reused "
+        f"PolicyValueNet architecture: Single-Card Encoder (output reused "
         f"×{encode.N_CARD_INDEX_SLOTS} in the state input, "
-        f"×{encode.CHOICE_BOARD_IDX_SLOTS + 1} per choice) and Hand Encoder feeding "
-        f"State Trunk (M={trunk_m}) and Choice Encoder (N={choice_n}), merging into "
+        f"×{encode.CHOICE_BOARD_IDX_SLOTS + 1} per choice) and Multi-Card Encoder "
+        f"feeding State Encoder (M={trunk_m}) and Choice Encoder (N={choice_n}), "
+        f"merging into "
         f"Value Head and {num_families} Decision Heads, {total} params total; "
         f"separate Setup Model ({status}, {setup_total} params)"
     )
@@ -954,6 +964,22 @@ def _svg_root(
     )
 
 
+def _row1_side_note(geom: _Geom) -> str:
+    """The annotation beside the top encoder row: both shared encoders are
+    trained by in-game decisions only — setup experience never reaches them
+    (the setup net carries frozen, synced copies)."""
+    note_x = _SVG_COL_X[2] + 12
+    mid_y = geom.row1_y + geom.row1_h // 2
+    return "\n".join(
+        [
+            _halo_text(note_x, mid_y - 4, "trained in-game only —", anchor="start"),
+            _halo_text(
+                note_x, mid_y + 10, "frozen copies in setup net", anchor="start"
+            ),
+        ]
+    )
+
+
 def _total_line(
     geom: _Geom,
     param_report: architecture.ParamReport,
@@ -962,9 +988,9 @@ def _total_line(
 ) -> str:
     """The grand-total caption (the separate setup net's count is annotated,
     not summed in)."""
-    text = f"TOTAL {_commas(param_report.total)} params"
+    text = f"TOTAL {_count_text(param_report.total)} params"
     if use_setup_model:
-        text += f" · setup {_commas(setup_param.total)} (separate)"
+        text += f" · setup {_count_text(setup_param.total)} (separate)"
     return (
         f'<text x="{_SVG_W // 2}" y="{geom.total_y}" font-family="{_FONT_SANS}" '
         f'font-size="13" font-weight="700" fill="{_SVG_TOTAL_COLOR}" text-anchor="middle">'
@@ -972,6 +998,6 @@ def _total_line(
     )
 
 
-def _commas(value: int) -> str:
-    """Exact thousands-separated count — the diagram never abbreviates to "123k"."""
-    return f"{value:,}"
+def _count_text(value: int) -> str:
+    """Exact bare-integer count — no thousands separators, never "123k"."""
+    return str(value)

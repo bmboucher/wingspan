@@ -33,7 +33,9 @@ _DISTINCT_MAIN = architecture.ModelArchitecture(
     card_embed_dim=8,
     use_distinct_hand_model=True,
 )
-_MEANPOOL_MAIN = _DISTINCT_MAIN.model_copy(update={"use_distinct_hand_model": False})
+_MEANPOOL_MAIN = _DISTINCT_MAIN.model_copy(
+    update={"use_distinct_hand_model": False, "tray_set_embedding": False}
+)
 
 
 def _loop_config(tmp_path: pathlib.Path) -> config.TrainConfig:

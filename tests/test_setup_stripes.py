@@ -62,25 +62,30 @@ def test_html_report_documents_inactive_setup_model():
 def test_html_report_arch_svg_content():
     html = _report_html(use_setup_model=True)
     arch = architecture.ModelArchitecture()
-    # All seven blocks are drawn, including the hand encoder.
-    assert "CARD ENCODER" in html
-    assert "HAND ENCODER" in html
-    assert "STATE TRUNK" in html
+    # All seven blocks are drawn, including the multi-card encoder.
+    assert "SINGLE-CARD ENCODER" in html
+    assert "MULTI-CARD ENCODER" in html
+    assert "STATE ENCODER" in html
     assert "DECISION HEAD" in html
     # Encoder fan-out copy labels (card -> trunk, hand -> setup).
     assert f"×{encode.N_CARD_INDEX_SLOTS}" in html
     assert "kept + tray set" in html
-    # Parameter counts are exact thousands-separated numbers, not "123k".
+    # The top-row encoders carry the freezing side note (default arch has the
+    # distinct hand model on, so the blanket note is accurate).
+    assert "trained in-game only" in html
+    # Parameter counts are exact bare integers — no "123k", no Σ, no commas.
     first_width = arch.card_encoder_layers[0]
     first_linear = encode.CARD_FEATURE_DIM * first_width + first_width
-    assert f"{first_linear:,}" in html
+    assert str(first_linear) in html
+    assert f"{first_linear:,}" not in html
+    assert "Σ" not in html
     # The trunk's M feeds both the value head and the decision head.
     assert html.count(f"M={arch.trunk_embed_width}") >= 2
 
 
 def test_html_report_arch_svg_setup_off():
     html = _report_html(use_setup_model=False)
-    assert "HAND ENCODER" in html
+    assert "MULTI-CARD ENCODER" in html
     assert "SETUP MODEL" in html
 
 
@@ -100,9 +105,16 @@ def _report_html(use_setup_model: bool) -> str:
     param_report = architecture.count_parameters(
         arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(state_dim, arch.card_embed_dim),
+        trunk_in=encode.trunk_input_dim(
+            state_dim,
+            arch.card_embed_dim,
+            use_distinct_hand_model=arch.use_distinct_hand_model,
+            hand_embed_dim=arch.hand_embed_dim,
+            tray_set_embedding=arch.tray_set_embedding,
+        ),
         choice_in=encode.choice_input_dim(choice_dim, arch.card_embed_dim),
         num_families=len(family_order),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
     return report.generate_html_report(
         encode_stripes.state_stripe_layout(spec, arch.card_embed_dim),

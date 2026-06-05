@@ -34,6 +34,7 @@ _ARCH_OFF = architecture.ModelArchitecture(
     choice_layers=(32, 32),
     card_embed_dim=8,
     use_distinct_hand_model=True,
+    tray_set_embedding=False,
 )
 _ARCH_ON = _ARCH_OFF.model_copy(update={"tray_set_embedding": True})
 
@@ -180,15 +181,21 @@ def test_none_hand_embed_dim_resolves_to_card_embed_dim():
 
 def test_validator_rejects_tray_set_embedding_without_hand_model():
     with pytest.raises(pydantic.ValidationError):
-        architecture.ModelArchitecture(tray_set_embedding=True)
+        architecture.ModelArchitecture(
+            use_distinct_hand_model=False, tray_set_embedding=True
+        )
     with pytest.raises(pydantic.ValidationError):
-        config.TrainConfig(device="cpu", tray_set_embedding=True)
+        config.TrainConfig(
+            device="cpu", use_distinct_hand_model=False, tray_set_embedding=True
+        )
 
 
 def test_tray_flag_changes_shape_key_for_fresh_restart():
     """Turning the flag on must register as a weight-incompatible change (the
     documented FRESH mechanism) — old checkpoints then restart cleanly."""
-    cfg_off = config.TrainConfig(device="cpu", use_distinct_hand_model=True)
+    cfg_off = config.TrainConfig(
+        device="cpu", use_distinct_hand_model=True, tray_set_embedding=False
+    )
     cfg_on = config.TrainConfig(
         device="cpu", use_distinct_hand_model=True, tray_set_embedding=True
     )

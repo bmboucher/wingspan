@@ -234,9 +234,14 @@ def test_card_representation_shared_between_board_and_hand():
     """The *same* per-card representation drives a card whether it sits on the
     board or in the hand: perturbing that one card's feature row (its input to the
     shared encoder) moves both the board-state value and the hand-state value —
-    proof the card table is shared, not re-learned per position."""
+    proof the card table is shared, not re-learned per position. This pins the
+    legacy mean-pool hand path; the default multi-card encoder reads the hand
+    multi-hot instead of the card table, so the premise only holds here."""
     eng, birds, *_ = engine.Engine.create(seed=51)
-    net = model.PolicyValueNet()
+    meanpool_arch = architecture.ModelArchitecture(
+        use_distinct_hand_model=False, tray_set_embedding=False
+    )
+    net = model.PolicyValueNet(arch=meanpool_arch)
     net.eval()
     card = birds[0]
     row = cards.bird_index(card) + 1

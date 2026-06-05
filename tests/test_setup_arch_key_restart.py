@@ -53,13 +53,11 @@ def test_key_changes_with_embedder_shapes(tmp_path: pathlib.Path):
         _cfg(tmp_path, card_encoder_layers=(64,)).setup_architecture_key
         != base.setup_architecture_key
     )
-    distinct = _cfg(tmp_path, use_distinct_hand_model=True)
-    assert distinct.setup_architecture_key != base.setup_architecture_key
+    meanpool = _cfg(tmp_path, use_distinct_hand_model=False, tray_set_embedding=False)
+    assert meanpool.setup_architecture_key != base.setup_architecture_key
     assert (
-        _cfg(
-            tmp_path, use_distinct_hand_model=True, hand_embed_dim=32
-        ).setup_architecture_key
-        != distinct.setup_architecture_key
+        _cfg(tmp_path, hand_embed_dim=32).setup_architecture_key
+        != base.setup_architecture_key
     )
     # A main-net knob that touches neither embedder leaves the setup key alone.
     assert (

@@ -565,12 +565,12 @@ FIELD_SPECS: list[FieldSpec] = [
         label="distinct hand MLP",
         section=ConfigSection.MODEL,
         group="hand model",
-        choices=["False", "True"],
+        choices=["True", "False"],
         impact=ChangeImpact.FRESH,
-        help="When on, a dedicated MLP encodes the full hand (180-dim multi-hot ⊕ "
-        "10-dim summary) instead of mean-pooling through the shared card encoder. "
-        "The 10-dim hand summary is redirected from the trunk's continuous input "
-        "into this encoder. Fresh run.",
+        help="When on (the default), a dedicated MLP encodes the full hand (180-dim "
+        "multi-hot ⊕ 10-dim summary) instead of mean-pooling through the shared "
+        "card encoder. The 10-dim hand summary is redirected from the trunk's "
+        "continuous input into this encoder. Fresh run.",
     ),
     LayersField(
         attr="hand_encoder_layers",
@@ -605,12 +605,12 @@ FIELD_SPECS: list[FieldSpec] = [
         label="tray set embedding",
         section=ConfigSection.MODEL,
         group="hand model",
-        choices=["False", "True"],
+        choices=["True", "False"],
         impact=ChangeImpact.FRESH,
         visible_when=lambda cfg: cfg.use_distinct_hand_model,
         help="Feed the trunk one hand-encoder embedding of the face-up tray *set* "
         "beside the three per-slot card lookups (3·M + N tray dims). Requires the "
-        "distinct hand MLP. Fresh run.",
+        "distinct hand MLP; on by default alongside it. Fresh run.",
     ),
     IntField(
         attr="seed",

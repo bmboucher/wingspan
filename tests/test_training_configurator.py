@@ -453,9 +453,16 @@ def _param_report_for(cfg: config.TrainConfig) -> architecture.ParamReport:
     return architecture.count_parameters(
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(cfg.state_dim, cfg.card_embed_dim),
+        trunk_in=encode.trunk_input_dim(
+            cfg.state_dim,
+            cfg.card_embed_dim,
+            use_distinct_hand_model=cfg.use_distinct_hand_model,
+            hand_embed_dim=cfg.hand_embed_dim,
+            tray_set_embedding=cfg.tray_set_embedding,
+        ),
         choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
         num_families=len(cfg.family_order),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
 
 

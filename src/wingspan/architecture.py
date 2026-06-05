@@ -98,10 +98,11 @@ class ModelArchitecture(pydantic.BaseModel):
     # it takes [180-dim multi-hot ⊕ 10-dim hand summary] = 190 dims as input and
     # outputs a ``card_embed_dim``-wide hand vector. The 10 hand-summary dims are
     # redirected from the trunk's continuous input into this encoder, so the trunk
-    # sees a correspondingly narrower continuous block. Defaults to False so bare
-    # ``ModelArchitecture()`` / ``PolicyValueNet()`` calls and existing checkpoints
-    # are unaffected.
-    use_distinct_hand_model: bool = False
+    # sees a correspondingly narrower continuous block. Defaults to True — the
+    # multi-card encoder is the default hand path. The mean-pool branch remains
+    # for ``False`` configs, and old checkpoints still load because their saved
+    # configs carry their own value.
+    use_distinct_hand_model: bool = True
     # Hidden widths of the hand encoder MLP (same shape convention as
     # ``card_encoder_layers``). Output is always ``hand_embed_width`` (the model
     # appends it), so this lists hidden layers only. Defaults mirror
@@ -118,8 +119,9 @@ class ModelArchitecture(pydantic.BaseModel):
     # the shared hand encoder from a tray multi-hot + summary the model derives
     # from the three tray index columns. The tray's three per-slot card-table
     # lookups are unchanged, so the tray contributes 3·M + N dims in total.
-    # Defaults to False so existing configs / checkpoints are unaffected.
-    tray_set_embedding: bool = False
+    # Defaults to True alongside ``use_distinct_hand_model``; ``False`` configs
+    # (and the checkpoints they describe) remain supported.
+    tray_set_embedding: bool = True
 
     @pydantic.model_validator(mode="after")
     def _check_tray_set_embedding(self) -> "ModelArchitecture":
