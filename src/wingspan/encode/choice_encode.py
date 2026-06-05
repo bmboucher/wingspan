@@ -192,6 +192,7 @@ def _featurize_pay_cost(
         layout._EXCHANGE_OPP_EGGS_TO_GAIN: choice.opp_gained_egg_count,
         layout._EXCHANGE_OPP_CARDS_TO_DRAW: choice.opp_gained_card_count,
         layout._EXCHANGE_OPP_CARDS_TO_TUCK: choice.opp_gained_tuck_count,
+        layout._EXCHANGE_CACHE_TO_GAIN: choice.gained_cache_count,
     }
     for index, count in exchange_terms.items():
         feat[layout._OFF_EXCHANGE + index] = count / layout._EXCHANGE_SCALE

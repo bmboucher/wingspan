@@ -92,7 +92,7 @@ offset order:
 | `board_target` | 120 | 15 slots × 8 scalars: lay-flag, pay-flag, cached food ×5, tucked | egg add/remove targets; played-bird picks (context, no flag) |
 | `main_action` | 4 | one-hot over Gain Food / Lay Eggs / Draw Cards / Play Bird | main-action rows |
 | `special` | 2 | `is_skip`, `is_self` | skip rows; player-id rows |
-| `exchange` | 12 | pay→gain ledger (÷3): cards/food/eggs paid; food/eggs/cards/tucks/plays gained; opponent-gain terms: `opp_food`, `opp_egg`, `opp_card`, `opp_tuck` — what a shared-benefit power additionally grants the opponent | accept-exchange rows |
+| `exchange` | 13 | pay→gain ledger (÷3): cards/food/eggs paid; food/eggs/cards/tucks/plays/cache gained; opponent-gain terms: `opp_food`, `opp_egg`, `opp_card`, `opp_tuck` — what a shared-benefit power additionally grants the opponent | accept-exchange rows |
 | `board_idx` | 15 | integer card index per board slot, embedded through the shared card table | wherever `board_target` is filled |
 | `bird_id` | 180 | bird identity one-hot (multi-hot for setup keeps), embedded through the shared card table — so the candidate's static attributes *and* its learned per-card vector arrive together | every bird-carrying row |
 | `bonus_id` | 26 | bonus-card identity one-hot | bonus picks, setup keeps |
@@ -196,6 +196,13 @@ skip. `BirdPowerPickBirdFromHandDecision` is retained but currently unused.
   opponent; the opponent then makes **1** mandatory discard decision to return
   a card to the active player. No skip on any of these three asks — the
   commitment happened upstream at the power's `AcceptExchangeDecision`.
+- *End-of-turn discard obligations* (`BirdPowerDiscardFromHandDecision`):
+  "Draw N [card]. If you do, discard 1 [card] from your hand at the end of
+  your turn." Eight birds (Black Tern, Clark's Grebe, Forster's Tern, Common
+  Yellowthroat, Pied-Billed Grebe, Red-Breasted Merganser, Ruddy Duck, Wood
+  Duck) accumulate one discard obligation via `turn_end_discards` on each
+  activation; the Engine resolves all obligations at turn end, after extra
+  plays, in order. Mandatory; the draw is unconditional (no opt-out).
 
 **What the choice rows carry.** Bird-kind rows: identity (→ card table) plus
 `bonus_delta` and `goal_delta`. Note the direction inversion: both stripes
@@ -234,6 +241,9 @@ across every trigger:
 - supply picks: choosing which wild food to take from the supply, e.g. the
   gain half of the discard-egg-for-wild powers and step 3 of Green Heron's
   wild-food trade (mandatory — activation gate is upstream in SKIP_OPTIONAL);
+- Pygmy Nuthatch's tuck reward: "gain 1 [invertebrate] or [seed] from the
+  supply" — a mandatory two-option supply pick offered after the tuck is
+  accepted (menu limited to whichever of the two named foods is available);
 
 Powers that grant a *named* food (from supply or feeder) take it without a
 decision and never reach this head.
@@ -408,18 +418,26 @@ follow-up decisions resolve only if the player commits.
 - (conditional on `birds_no_eggs` round goal) each non-active player's per-seat
   accept/skip for the above "all players lay" power (`AcceptExchangeDecision`);
 - (conditional on `birds_no_eggs` round goal) each "lay an egg on any bird"
-  power, per egg (`AcceptExchangeDecision`).
+  power, per egg (`AcceptExchangeDecision`);
+- the **cache-vs-keep decision** on the six seed-from-feeder birds (Acorn
+  Woodpecker, Blue Jay, Clark's Nutcracker, Red-Bellied / Red-Headed
+  Woodpecker, Steller's Jay): after the seed is taken from the birdfeeder,
+  `AcceptExchangeDecision` offers "cache it on this bird" (accept: the token
+  moves from player supply to `pb.cached_food`; ledger: `paid_food=seed,
+  paid_food_count=1, gained_cache_count=1`) or "keep it in supply" (skip).
 
 **What the choice rows carry.** Always exactly two rows. For
 `AcceptExchangeDecision` the accept row is a special-kind token carrying the
-**exchange ledger**: twelve normalized terms — cards/food/eggs to pay;
-food/eggs/cards/tucks/plays to gain; `opp_food`, `opp_egg`, `opp_card`,
+**exchange ledger**: thirteen normalized terms — cards/food/eggs to pay;
+food/eggs/cards/tucks/plays/cache to gain; `opp_food`, `opp_egg`, `opp_card`,
 `opp_tuck` — what a shared-benefit power additionally grants the opponent
 (the Oystercatcher draft sets `opp_gained_card_count`, the all-players-lay
-powers `opp_gained_egg_count`). The head does not pre-judge which terms are
-costs and which are benefits; it learns the sign from context. The terms
-distinguish quantitatively different trades (e.g. "1 egg for 1 wild" vs.
-"1 egg for 2 wild" — both exist). The ledger is also translated into
+powers `opp_gained_egg_count`). The `gained_cache_count` slot (slot 12, added
+in parse-gaps Stage A) carries the seed-caching trade's value — the head can
+weigh caching against keeping the token spendable. The head does not pre-judge
+which terms are costs and which are benefits; it learns the sign from context.
+The terms distinguish quantitatively different trades (e.g. "1 egg for 1 wild"
+vs. "1 egg for 2 wild" — both exist). The ledger is also translated into
 consequences on the same row: a net hand-card flow (cards drawn minus cards
 discarded) fills the `bonus_delta` stripe for the hand-counting bonus card,
 and a committed egg gain / egg payment fills the `goal_delta` stripe with the

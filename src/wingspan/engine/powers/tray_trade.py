@@ -196,3 +196,42 @@ def _h_fewest_forest_gains_die(
         engine.log(
             f"  {bird.name}: [{other_player.name}] +1 {gained.value} from birdfeeder"
         )
+
+
+@registry.handles(cards.EffectKind.FEWEST_WETLAND_DRAWS_CARD)
+def _h_fewest_wetland_draws_card(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    # "Player(s) with the fewest birds in their [wetland] draw 1 [card]."
+    # American Bittern, Common Loon. Mirrors _h_fewest_forest_gains_die but draws
+    # a card instead of taking a die. Three-way logic:
+    #   strictly fewer wetland: only active player benefits → mandatory activation
+    #   tied fewest: both players draw → rational to activate (mandatory)
+    #   strictly more wetland: only opponent benefits → auto-skip
+    from wingspan.engine import actions
+
+    st = engine.state
+    bird = pb.bird
+    counts = [len(other.board[cards.Habitat.WETLAND]) for other in st.players]
+    fewest = min(counts)
+
+    # Auto-skip: activating only benefits the opponent, never the active player.
+    if len(player.board[cards.Habitat.WETLAND]) != fewest:
+        engine.log(
+            f"  {bird.name}: [{player.name}] has more wetland birds than opponent;"
+            f" power auto-skipped"
+        )
+        return
+
+    for other_player, wetland_count in zip(st.players, counts):
+        if wetland_count != fewest:
+            continue
+        responder = engine.agent_for(other_player)
+        actions.draw_one_card(engine, responder, other_player)
+        engine.log(f"  {bird.name}: [{other_player.name}] drew 1 card")

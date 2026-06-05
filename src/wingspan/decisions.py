@@ -122,6 +122,7 @@ class PayCostChoice(Choice):
     gained_card_count: int = 0  # cards drawn into hand
     gained_tuck_count: int = 0  # cards tucked behind the bird (VP + tuck count)
     gained_play_count: int = 0  # extra bird plays unlocked (the extra-play accept)
+    gained_cache_count: int = 0  # food cached on the bird (the cache-vs-keep accept)
     # Opponent side — what a shared-benefit power also grants the opponent.
     opp_gained_food_count: int = 0
     opp_gained_egg_count: int = 0

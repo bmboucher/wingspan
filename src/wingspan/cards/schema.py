@@ -125,6 +125,19 @@ class EffectKind(enum.StrEnum):
     TUCK_FROM_HAND_THEN_LAY_ON_THIS = "tuck_from_hand_then_lay_on_this"
     TUCK_FROM_HAND_THEN_LAY_ANY = "tuck_from_hand_then_lay_any"
     TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY = "tuck_from_hand_then_gain_food_supply"
+    # "Tuck 1 [card] from hand. If you do, gain 1 [foodA] or [foodB] from the supply."
+    # The either-or supply-gain variant (Pygmy Nuthatch).
+    TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE = "tuck_from_hand_then_gain_food_choice"
+    # "Gain 1 [seed] from the birdfeeder, if available. You may cache it on this bird."
+    # Feeder gain with an optional cache-vs-keep decision. EffectKind is FRESH: the
+    # EXCHANGE stripe grows by one slot (gained_cache_count) to carry the cache terms.
+    GAIN_FOOD_FEEDER_MAY_CACHE = "gain_food_feeder_may_cache"
+    # "Discard 1 [egg] to draw N [card]." — egg-cost card draw (Franklin's Gull, Killdeer).
+    DISCARD_EGG_FOR_CARDS = "discard_egg_for_cards"
+    # "Draw N [card]. If you do, discard 1 [card] from your hand at the end of your turn."
+    DRAW_CARDS_THEN_DISCARD_EOT = "draw_cards_then_discard_eot"
+    # "Player(s) with fewest birds in their [wetland] draw 1 [card]."
+    FEWEST_WETLAND_DRAWS_CARD = "fewest_wetland_draws_card"
     PREDATOR_HUNT = "predator_hunt"
     MOVE_BIRD_IF_RIGHTMOST = "move_bird_if_rightmost"
     REPEAT_BROWN_POWER = "repeat_brown_power"
@@ -210,8 +223,16 @@ class Effect(pydantic.BaseModel):
     keep_count: int | None = None  # DRAW_BONUS_KEEP: # to keep
     max_wingspan_cm: int | None = None  # PREDATOR_TUCK: hunt threshold
     nest: NestType | None = None  # LAY_EGG_ALL_NEST, ALL_PLAYERS_LAY_ON_NEST
-    food_a: Food | None = None  # GAIN_FOOD_BIRDFEEDER_CHOICE: first option
-    food_b: Food | None = None  # GAIN_FOOD_BIRDFEEDER_CHOICE: second option
+    food_a: Food | None = (
+        None  # GAIN_FOOD_BIRDFEEDER_CHOICE / TUCK_THEN_GAIN_FOOD_CHOICE: first option
+    )
+    food_b: Food | None = (
+        None  # GAIN_FOOD_BIRDFEEDER_CHOICE / TUCK_THEN_GAIN_FOOD_CHOICE: second option
+    )
+    # PINK_LAY_EGG_ON_NEST: whether the bird's wording says "another bird"
+    # (exclude_self=True) vs. "a bird" (False). Defaults True since most pink
+    # egg-layers say "another bird" — only the self-inclusive wording sets False.
+    exclude_self: bool = True
 
 
 class Power(pydantic.BaseModel):

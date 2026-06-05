@@ -509,6 +509,10 @@ class GameState(pydantic.BaseModel):
     # and is cleared by the extra-plays loop after consuming one play.
     turn_extra_plays: int = 0
     turn_extra_play_habitat: cards.Habitat | None = None
+    # How many end-of-turn discard obligations the active player has accrued
+    # from "draw N, then discard 1 at end of turn" birds this turn. Cleared
+    # by reset_turn_state at the start of each turn.
+    turn_end_discards: int = 0
 
     # ----- helpers ------------------------------------------------------
 
@@ -555,6 +559,7 @@ class GameState(pydantic.BaseModel):
         """Clear per-turn scratch fields. Called at the start of every turn."""
         self.turn_extra_plays = 0
         self.turn_extra_play_habitat = None
+        self.turn_end_discards = 0
 
 
 # ---------------------------------------------------------------------------

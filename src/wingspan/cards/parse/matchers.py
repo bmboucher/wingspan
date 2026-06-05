@@ -29,6 +29,7 @@ _TUCK_IF_DO_COVERED = re.compile(
     r"|you may also lay\s+(?:\d+|a|an|one|two|three)\s+\[egg\] on this bird"
     r"|lay\s+(?:\d+|a|an|one|two|three)\s+\[egg\] on any bird"
     r"|gain\s+(?:\d+|a|an|one|two|three)\s+\[\w+\]\s+from the supply(?!\s+or)"
+    r"|gain\s+(?:\d+|a|an|one|two|three)\s+\[\w+\]\s+or\s+\[\w+\]\s+from the supply"
     r")",
     re.I,
 )
@@ -127,7 +128,32 @@ def _m_tuck_then_gain_food_supply(text: str) -> schema.Effect | None:
 
 
 @registry.pattern
+def _m_tuck_then_gain_food_choice(text: str) -> schema.Effect | None:
+    """'Tuck N from hand. If you do, gain 1 [foodA] or [foodB] from the supply.'
+
+    The either-or supply-gain variant (Pygmy Nuthatch). Registered before
+    _m_tuck_then_gain_food_supply so this more-specific pattern takes priority."""
+    match = re.search(
+        r"Tuck\s+(?:\d+|a|an|one|two|three)\s+\[card\] from your hand behind this bird\."
+        r"\s+If you do, gain\s+(?:\d+|a|an|one|two|three)\s+(\[\w+\])\s+or\s+(\[\w+\])\s+from the supply",
+        text,
+        re.I,
+    )
+    if match and match.group(1) in tags.FOOD_TAGS and match.group(2) in tags.FOOD_TAGS:
+        return schema.Effect(
+            kind=schema.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE,
+            food_a=tags.FOOD_TAGS[match.group(1)],
+            food_b=tags.FOOD_TAGS[match.group(2)],
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
 def _m_gain_food_supply(text: str) -> schema.Effect | None:
+    # Excludes "All players gain" (handled by _m_all_players_gain_food).
+    if re.search(r"All players gain", text, re.I):
+        return None
     match = re.search(
         r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the supply",
         text,
@@ -180,7 +206,33 @@ def _m_gain_die_any(text: str) -> schema.Effect | None:
 
 
 @registry.pattern
+def _m_gain_food_feeder_may_cache(text: str) -> schema.Effect | None:
+    """'Gain 1 [food] from the birdfeeder, if available. You may cache it on this bird.'
+
+    Registered before _m_gain_food_birdfeeder so the cache-optional variant takes
+    priority. Only matches when the 'You may cache it' clause is present."""
+    match = re.search(
+        r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the birdfeeder"
+        r".*You may cache it on this bird",
+        text,
+        re.I | re.DOTALL,
+    )
+    if match and match.group(2) in tags.FOOD_TAGS:
+        amount = tags.to_int(match.group(1)) or 1
+        return schema.Effect(
+            kind=schema.EffectKind.GAIN_FOOD_FEEDER_MAY_CACHE,
+            amount=amount,
+            food=tags.FOOD_TAGS[match.group(2)],
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
 def _m_gain_food_birdfeeder(text: str) -> schema.Effect | None:
+    # Excludes the "You may cache it" variant (handled by _m_gain_food_feeder_may_cache).
+    if re.search(r"You may cache it on this bird", text, re.I):
+        return None
     match = re.search(
         r"Gain\s+(\d+|a|an|one|two|three)\s+(\[\w+\])\s+from the birdfeeder",
         text,
@@ -237,8 +289,20 @@ def _m_lay_egg_any(text: str) -> schema.Effect | None:
 
 @registry.pattern
 def _m_draw_cards(text: str) -> schema.Effect | None:
-    # Excludes "All players draw" (handled separately).
+    # Excludes "All players draw" (handled by _m_all_players_draw).
     if re.search(r"All players draw", text, re.I):
+        return None
+    # Excludes "fewest birds in wetland draw" (handled by _m_fewest_wetland_draws_card).
+    if re.search(r"fewest birds in their \[wetland\] draw", text, re.I):
+        return None
+    # Excludes "discard 1 [egg] to draw" (handled by _m_discard_egg_for_cards).
+    if re.search(r"Discard\s+1\s+\[egg\]\s+to draw", text, re.I):
+        return None
+    # Excludes "draw N ... discard 1 [card] ... at the end of your turn" (handled by
+    # _m_draw_cards_then_discard_eot).
+    if re.search(
+        r"discard\s+1\s+\[card\].*at the end of your turn", text, re.I | re.DOTALL
+    ):
         return None
     match = re.search(r"Draw\s+(\d+|a|an|one|two|three)\s+\[card\]", text, re.I)
     if match:
@@ -636,6 +700,64 @@ def _m_repeat_predator(text: str) -> schema.Effect | None:
     if match:
         return schema.Effect(
             kind=schema.EffectKind.REPEAT_PREDATOR_POWER,
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
+def _m_fewest_wetland_draws_card(text: str) -> schema.Effect | None:
+    """'Player(s) with the fewest birds in their [wetland] draw 1 [card].'
+
+    American Bittern and Common Loon. Mirrors _m_fewest_forest_gains_die."""
+    match = re.search(
+        r"Player\(s\) with the fewest birds in their \[wetland\] draw 1 \[card\]",
+        text,
+        re.I,
+    )
+    if match:
+        return schema.Effect(
+            kind=schema.EffectKind.FEWEST_WETLAND_DRAWS_CARD,
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
+def _m_discard_egg_for_cards(text: str) -> schema.Effect | None:
+    """'Discard 1 [egg] to draw N [card].' — Franklin's Gull, Killdeer."""
+    match = re.search(
+        r"Discard\s+1\s+\[egg\]\s+to draw\s+(\d+|a|an|one|two|three)\s+\[card\]",
+        text,
+        re.I,
+    )
+    if match:
+        amount = tags.to_int(match.group(1)) or 1
+        return schema.Effect(
+            kind=schema.EffectKind.DISCARD_EGG_FOR_CARDS,
+            amount=amount,
+            raw_text=match.group(0),
+        )
+    return None
+
+
+@registry.pattern
+def _m_draw_cards_then_discard_eot(text: str) -> schema.Effect | None:
+    """'Draw N [card]. If you do, discard 1 [card] from your hand at the end of your turn.'
+
+    Black Tern, Clark's Grebe, Forster's Tern, Common Yellowthroat,
+    Pied-Billed Grebe, Red-Breasted Merganser, Ruddy Duck, Wood Duck."""
+    match = re.search(
+        r"Draw\s+(\d+|a|an|one|two|three)\s+\[card\]\."
+        r"\s+If you do, discard\s+1\s+\[card\].*at the end of your turn",
+        text,
+        re.I | re.DOTALL,
+    )
+    if match:
+        amount = tags.to_int(match.group(1)) or 1
+        return schema.Effect(
+            kind=schema.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT,
+            amount=amount,
             raw_text=match.group(0),
         )
     return None

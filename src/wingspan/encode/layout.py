@@ -136,7 +136,9 @@ _HABITAT_DIM = 3  # habitat one-hot
 _PAY_FOOD_DIM = 5  # food payment: count per food
 _MAIN_ACTION_DIM = 4  # one-hot over the four main actions
 _SPECIAL_DIM = 2  # is_skip, is_self
-_EXCHANGE_DIM = 12  # symmetric pay->gain terms: 8 self + 4 opponent-gain (below)
+_EXCHANGE_DIM = (
+    13  # symmetric pay->gain terms: 8 self + 4 opponent-gain + 1 cache (below)
+)
 _BONUS_DELTA_DIM = 3  # candidate bird's contribution to held bonus cards (below)
 _GOAL_DELTA_SLOT_DIM = 2  # count_delta + vp_delta per round-goal slot
 _GOAL_DELTA_DIM = 4 * _GOAL_DELTA_SLOT_DIM  # 8 (4 round goals × 2 scalars)
@@ -233,6 +235,10 @@ _EXCHANGE_OPP_CARDS_TO_TUCK = 10
 # Appended after the opponent-gain block (offsets above are checkpoint-aligned):
 # extra bird plays the accept unlocks (the extra-play commit's gained_play_count).
 _EXCHANGE_PLAYS_TO_GAIN = 11
+# FRESH (slot 12): food cached on the bird (the cache-vs-keep accept's gained_cache_count).
+# Adding this slot widens CHOICE_FEATURE_DIM by 1, which architecture_key detects via
+# choice_dim — old checkpoints are refused cleanly with no architecture.py edits.
+_EXCHANGE_CACHE_TO_GAIN = 12
 
 # Within-BONUS_DELTA indices: a candidate bird's contribution to the deciding
 # player's HELD bonus cards (filled for play / keep-bird / tray draw-source

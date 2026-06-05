@@ -284,6 +284,7 @@ class Engine:
         player.action_cubes_left -= 1
         self._dispatch_main_action(agent, choice)
         actions.consume_extra_plays(self, player, agent)
+        self._resolve_turn_end_discards(agent, player)
         self.state.refill_tray()
         self.instrumentation.turn_end(engine=self, player=player)
 
@@ -347,6 +348,32 @@ class Engine:
             prompt=f"[{player.name}] choose a main action",
             choices=choices,
         )
+
+    def _resolve_turn_end_discards(self, agent: Agent, player: state.Player) -> None:
+        """Resolve end-of-turn discard obligations from 'draw N, then discard 1 at
+        end of turn' birds (DRAW_CARDS_THEN_DISCARD_EOT).
+
+        Each obligation is one mandatory discard from hand. A single card in hand
+        auto-resolves via the ask() single-choice guard. Fizzles if hand is empty."""
+        for _ in range(self.state.turn_end_discards):
+            if not player.hand:
+                self.log(f"  [{player.name}] end-of-turn discard: hand empty, skipped")
+                break
+            ch = self.ask(
+                agent,
+                decisions.BirdPowerDiscardFromHandDecision(
+                    player_id=player.id,
+                    prompt=f"[{player.name}] discard 1 card from hand (end-of-turn obligation)",
+                    choices=[
+                        decisions.BirdChoice(label=card.name, bird=card)
+                        for card in player.hand
+                    ],
+                ),
+            )
+            assert isinstance(ch, decisions.BirdChoice)
+            player.hand.remove(ch.bird)
+            self.state.bird_discard.append(ch.bird)
+            self.log(f"  [{player.name}] end-of-turn discard: {ch.bird.name}")
 
     # ------------------------------------------------------------------
     # Setup (kept on Engine because it depends heavily on _ask)

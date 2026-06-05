@@ -570,3 +570,157 @@ def _h_draw_bonus(
             drawn.append(st.bonus_deck.pop())
     player.bonus_cards.extend(drawn)
     engine.log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
+
+
+@registry.handles(cards.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT)
+def _h_draw_cards_then_discard_eot(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    # "Draw N [card]. If you do, discard 1 [card] from your hand at the end of turn."
+    # The draw is mandatory (no skip offered). If any card was drawn, register
+    # one end-of-turn discard obligation — the EOT hook (core._resolve_turn_end_discards)
+    # fulfils it after all effects settle.
+    from wingspan.engine import actions
+
+    bird = pb.bird
+    hand_before = len(player.hand)
+    for _ in range(eff.amount):
+        actions.draw_one_card(engine, agent, player)
+    if len(player.hand) > hand_before:
+        engine.state.turn_end_discards += 1
+        engine.log(f"  {bird.name}: drew {eff.amount} card(s); +1 end-of-turn discard")
+
+
+@registry.handles(cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE)
+def _h_tuck_from_hand_then_gain_food_choice(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    """Tuck 1 from hand (optional); if accepted, gain 1 [foodA] or [foodB] from supply."""
+    bird = pb.bird
+    food_a, food_b = eff.food_a, eff.food_b
+    assert food_a is not None and food_b is not None
+
+    if not player.hand:
+        engine.log_skipped_decision(player.id, "no choices")
+        return
+
+    # Step 1: optional tuck gate.
+    gate_ch = engine.ask(
+        agent,
+        decisions.ActivateTuckDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
+            choices=[
+                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(gate_ch, decisions.SkipChoice):
+        return
+
+    # Step 2: mandatory card selection.
+    ch = engine.ask(
+        agent,
+        decisions.BirdPowerTuckFromHandDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] tuck 1 card behind {bird.name}",
+            choices=[
+                decisions.BirdChoice(label=card.name, bird=card) for card in player.hand
+            ],
+        ),
+    )
+    player.hand.remove(ch.bird)
+    pb.tucked_cards += 1
+    engine.log(f"  {bird.name}: tucked {ch.bird.name}")
+
+    # Step 3: mandatory food choice from the two supply options.
+    st = engine.state
+    available = [food for food in [food_a, food_b] if st.food_supply.get(food, 0) > 0]
+    if not available:
+        engine.log(f"  {bird.name}: neither food in supply; food reward skipped")
+        return
+    food_ch = engine.ask(
+        agent,
+        decisions.GainFoodDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] gain 1 {food_a.value} or {food_b.value} from supply ({bird.name})",
+            choices=[
+                decisions.FoodChoice(label=food.value, food=food) for food in available
+            ],
+        ),
+    )
+    assert isinstance(food_ch, decisions.FoodChoice)
+    chosen = food_ch.food
+    st.food_supply[chosen] -= 1
+    player.food[chosen] += 1
+    engine.log(f"  {bird.name}: +1 {chosen.value} from supply (tuck reward)")
+
+
+@registry.handles(cards.EffectKind.GAIN_FOOD_FEEDER_MAY_CACHE)
+def _h_gain_food_feeder_may_cache(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    # "Gain 1 [seed] from the birdfeeder, if available. You may cache it on this bird."
+    # Step 1: take the seed from the birdfeeder (mirrors _h_gain_food_birdfeeder).
+    # Step 2: if taken, offer AcceptExchangeDecision: cache-it (moves it to pb.cached_food)
+    #   or keep-it (moves it to player.food — the plain GAIN_FOOD_BIRDFEEDER behaviour).
+    from wingspan.engine import actions
+
+    bird = pb.bird
+    assert eff.food is not None
+
+    gained = actions.take_all_of_food(engine, agent, player, eff.food, limit=eff.amount)
+    if not gained:
+        engine.log(f"  {bird.name}: no {eff.food.value} in birdfeeder; skipped")
+        return
+
+    # At this point player.food already holds the gained seed (take_all_of_food credits it).
+    # The cache decision moves it from player.food to pb.cached_food on accept.
+    commit_ch = engine.ask(
+        agent,
+        decisions.AcceptExchangeDecision(
+            player_id=player.id,
+            prompt=(
+                f"[{player.name}] cache the {eff.food.value} on {bird.name}?"
+                " (or keep it in your supply)"
+            ),
+            choices=[
+                decisions.PayCostChoice(
+                    label=f"cache {eff.food.value} on {bird.name}",
+                    paid_food=eff.food,
+                    paid_food_count=1,
+                    gained_cache_count=1,
+                ),
+                decisions.SkipChoice(label="keep in supply"),
+            ],
+        ),
+    )
+    if isinstance(commit_ch, decisions.SkipChoice):
+        engine.log(
+            f"  {bird.name}: +{gained} {eff.food.value} from birdfeeder (kept in supply)"
+        )
+        return
+
+    # Move the food token from the player's supply to the bird's cache.
+    player.food[eff.food] -= gained
+    pb.cached_food[eff.food] += gained
+    engine.log(f"  {bird.name}: +{gained} {eff.food.value} from birdfeeder (cached)")

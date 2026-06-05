@@ -87,6 +87,79 @@ def _h_discard_egg_for_wild(
     _gain_wild_from_supply(engine, agent, player, bird, eff.amount)
 
 
+@registry.handles(cards.EffectKind.DISCARD_EGG_FOR_CARDS)
+def _h_discard_egg_for_cards(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    pb: state.PlayedBird,
+    habitat: cards.Habitat,
+    eff: cards.Effect,
+    trigger: str,
+) -> None:
+    # "Discard 1 [egg] to draw N [card]." — Franklin's Gull, Killdeer.
+    # Step 1: AcceptExchangeDecision gate (skip if no eggs on board).
+    # Step 2: mandatory RemoveEggDecision (which egg to give up).
+    # Step 3: draw N cards.
+    from wingspan.engine import actions
+
+    bird = pb.bird
+    egg_targets: list[decisions.BoardTargetChoice | decisions.SkipChoice] = [
+        decisions.BoardTargetChoice(
+            label=f"{pb_other.bird.name}@{egg_hab.value}[{slot}]",
+            habitat=egg_hab,
+            slot=slot,
+        )
+        for egg_hab, row in player.board.items()
+        for slot, pb_other in enumerate(row)
+        if pb_other.eggs > 0
+    ]
+    if not egg_targets:
+        engine.log(f"  {bird.name}: no eggs on board; power skipped")
+        return
+
+    # Step 1: is the trade worth it?
+    commit_ch = engine.ask(
+        agent,
+        decisions.AcceptExchangeDecision(
+            player_id=player.id,
+            prompt=(
+                f"[{player.name}] discard 1 egg to draw {eff.amount} card(s)"
+                f" ({bird.name})? (or skip)"
+            ),
+            choices=[
+                decisions.PayCostChoice(
+                    label=f"discard 1 egg for {eff.amount} card(s)",
+                    paid_egg_count=1,
+                    gained_card_count=eff.amount,
+                ),
+                decisions.SkipChoice(label="skip"),
+            ],
+        ),
+    )
+    if isinstance(commit_ch, decisions.SkipChoice):
+        engine.log(f"  {bird.name}: declined to discard an egg")
+        return
+
+    # Step 2: which egg to discard?
+    egg_ch = engine.ask(
+        agent,
+        decisions.RemoveEggDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] discard 1 egg ({bird.name})",
+            choices=egg_targets,
+        ),
+    )
+    assert isinstance(egg_ch, decisions.BoardTargetChoice)
+    source = player.board[egg_ch.habitat][egg_ch.slot]
+    source.eggs -= 1
+    engine.log(f"  {bird.name}: discarded 1 egg from {source.bird.name}")
+
+    # Step 3: draw the cards.
+    for _ in range(eff.amount):
+        actions.draw_one_card(engine, agent, player)
+
+
 def _gain_wild_from_supply(
     engine: "core.Engine",
     agent: "core.Agent",
