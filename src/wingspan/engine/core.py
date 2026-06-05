@@ -26,7 +26,7 @@ import random
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine import actions, scoring
+from wingspan.engine import actions, log_format, scoring
 from wingspan.instrumentation import dispatcher
 
 logger = logging.getLogger(__name__)
@@ -146,14 +146,14 @@ class Engine:
         ``split_setup_bonus`` regime); the dealt cards/food are still the
         ``SetupDecision``."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
-        eng.log("=== Wingspan game start ===")
+        eng.log("=== GAME START ===")
         eng.instrumentation.game_start(engine=eng)
         eng._setup_phase(agents, defer_bonus=split_setup_bonus)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
-        eng.log("=== Wingspan game end ===")
+        eng.log("=== GAME END ===")
         eng.instrumentation.game_end(engine=eng)
         return eng
 
@@ -172,14 +172,14 @@ class Engine:
         decides over exactly the inputs an agent would have seen; everything after
         setup is identical to ``play_one_game``."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
-        eng.log("=== Wingspan game start ===")
+        eng.log("=== GAME START ===")
         eng.instrumentation.game_start(engine=eng)
         eng._setup_phase_fixed(choose_setups)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
-        eng.log("=== Wingspan game end ===")
+        eng.log("=== GAME END ===")
         eng.instrumentation.game_end(engine=eng)
         return eng
 
@@ -259,15 +259,18 @@ class Engine:
         player = self.state.me()
         self.state.reset_turn_state()
         self.instrumentation.turn_start(engine=self, player=player)
-        # Blank separator + combined turn/decision header so each turn is one
-        # visually scannable block: `[Pn] turn (X cubes) --> ACTION` followed
-        # by the indented action result and any sub-events.
+        # Print the turn header first so it anchors the block, then the state
+        # summary, then ask for the main action (which logs the AI distribution)
+        # so the decision lines always follow their context header.
+        turn_idx = state.ROUND_CUBES[self.state.round_idx] - player.action_cubes_left
         self.log("")
-        choice = self.ask(agent, self._main_action_decision(player))
         self.log(
-            f"[{player.name}] turn ({player.action_cubes_left} cubes left) "
-            f"--> {self._main_action_label(choice)}"
+            f"=== {player.name}, ROUND {self.state.round_idx + 1}, "
+            f"TURN {turn_idx} ({player.action_cubes_left} CUBES LEFT) ==="
         )
+        log_format.log_turn_summary(self)
+        choice = self.ask(agent, self._main_action_decision(player))
+        self.log(f"--> {self._main_action_label(choice)}")
         player.action_cubes_left -= 1
         self._dispatch_main_action(agent, choice)
         actions.consume_extra_plays(self, player, agent)
@@ -350,6 +353,12 @@ class Engine:
         pick instead."""
         for player in self.state.players:
             dealt_cards, dealt_bonus = self._deal_setup_inputs(player)
+            if defer_bonus:
+                self.log(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
+            else:
+                self.log(
+                    f"=== SETUP: {player.name} CHOOSING BIRDS, FOOD, AND BONUS CARD ==="
+                )
             self._resolve_setup_choice(
                 player, agents, dealt_cards, dealt_bonus, defer_bonus=defer_bonus
             )
@@ -370,6 +379,7 @@ class Engine:
         for player in self.state.players:
             dealt_cards, dealt_bonus = dealt[player.id]
             sc = keeps[player.id].to_setup_choice()
+            self.log(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
             self._apply_setup_choice(player, dealt_cards, dealt_bonus, sc)
             self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, sc)
             self._log_setup_result(player)
@@ -395,9 +405,10 @@ class Engine:
             for row in player.board.values():
                 for pb in row:
                     pb.activations = 0
+        self.log("")
         self.log(
-            f"--- Round {round_idx + 1} "
-            f"(each player gets {state.ROUND_CUBES[round_idx]} actions) ---"
+            f"=== ROUND {round_idx + 1} "
+            f"({state.ROUND_CUBES[round_idx]} ACTIONS EACH) ==="
         )
         self.log(
             f"Round goal: {self.state.round_goals[round_idx].description} "
@@ -490,14 +501,15 @@ class Engine:
         )
         chosen = self.ask(agents[player.id], decision)
         self._apply_setup_choice(player, dealt_cards, dealt_bonus, chosen)
-        if defer_bonus and dealt_bonus:
-            bonus_name = "(deferred to in-game pick)"
-        else:
-            bonus_name = chosen.bonus_card.name if chosen.bonus_card else "(none)"
+        bonus_part = (
+            f" | bonus: {chosen.bonus_card.name}"
+            if chosen.bonus_card is not None
+            else ""
+        )
         self.log(
             f"[{player.name}] keeps {len(chosen.kept_cards)} card(s), "
-            f"foods [{','.join(food.value for food in chosen.kept_foods) or 'none'}], "
-            f"bonus '{bonus_name}'"
+            f"foods [{','.join(food.value for food in chosen.kept_foods) or 'none'}]"
+            f"{bonus_part}"
         )
         self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, chosen)
 
@@ -557,6 +569,7 @@ class Engine:
         collecting agent records it like any other in-game decision."""
         if not dealt_bonus or sc.bonus_card is not None:
             return
+        self.log(f"=== SETUP: {player.name} CHOOSING BONUS CARD ===")
         # ``_play_round`` resets the cubes again before real play, so pre-loading
         # them here only shapes the encoded snapshot the bonus pick is scored over.
         for seat in self.state.players:
@@ -575,9 +588,7 @@ class Engine:
         for bonus in dealt_bonus:
             if bonus is not chosen.bonus_card:
                 self.state.bonus_discard.append(bonus)
-        self.log(
-            f"  [{player.name}] keeps bonus '{chosen.bonus_card.name}' (setup pick)"
-        )
+        self.log(f"[{player.name}] keeps bonus: {chosen.bonus_card.name}")
 
     def _apply_setup_choice(
         self,

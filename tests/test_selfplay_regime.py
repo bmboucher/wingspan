@@ -85,10 +85,12 @@ def test_setup_decision_log_always_shows_top_options():
     probs = np.full(len(choices), 1.0 / len(choices))
     selfplay._log_distribution(eng, decision, probs, greedy=False)
 
-    header = f"[AI: SetupDecision | {len(choices)} choices]"
+    player_name = eng.state.me().name
+    header = f"[{player_name}: SetupDecision | {len(choices)} choices]"
     header_idx = eng.state.log.index(header)
+    # Each shown option emits 2 lines (label line + prob/score line).
     ranked = eng.state.log[header_idx + 1 :]
-    assert len(ranked) == selfplay._MAX_LOGGED_OPTIONS
+    assert len(ranked) == selfplay._MAX_LOGGED_OPTIONS * 2
 
 
 def test_non_setup_decision_keeps_probability_floor():
@@ -106,7 +108,12 @@ def test_non_setup_decision_keeps_probability_floor():
     probs[0] = 1.0 - float(probs[1:].sum())
     selfplay._log_distribution(eng, decision, probs, greedy=False)
 
-    header = f"[AI: BirdPowerPickBirdFromHandDecision | {len(choices)} choices]"
+    player_name = eng.state.me().name
+    header = (
+        f"[{player_name}: BirdPowerPickBirdFromHandDecision | {len(choices)} choices]"
+    )
     header_idx = eng.state.log.index(header)
+    # Each shown option emits 2 lines (label line + prob/score line); only 1
+    # option clears the 1% floor so we expect exactly 2 lines total.
     ranked = eng.state.log[header_idx + 1 :]
-    assert len(ranked) == 1
+    assert len(ranked) == 2

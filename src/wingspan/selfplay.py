@@ -447,7 +447,7 @@ def _logged_policy_agent(
         chosen = decision.choices[chosen_idx]
         if not greedy:
             eng.log(
-                f"[AI chose: {chosen.display_label()} "
+                f"[{eng.state.me().name} chose: {chosen.display_label()} "
                 f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
             )
         return chosen
@@ -479,15 +479,17 @@ def _log_distribution[C: decisions.Choice](
         :_MAX_LOGGED_OPTIONS
     ]
 
+    player_name = eng.state.me().name
     mode = " | greedy" if greedy else ""
-    eng.log(f"[AI: {type(decision).__name__} | {n_choices} choices{mode}]")
+    eng.log(f"[{player_name}: {type(decision).__name__} | {n_choices} choices{mode}]")
     for rank, option_idx in enumerate(shown, start=1):
         prob_pct = float(probs[option_idx]) * 100.0
         score_str = (
             f"  ({float(scores[option_idx]):+6.2f})" if scores is not None else ""
         )
         label = decision.choices[option_idx].display_label()
-        eng.log(f"  {rank:2d}.  {prob_pct:6.3f}%{score_str}  {label}")
+        eng.log(f"{rank}. {label}")
+        eng.log(f"    {prob_pct:6.3f}%{score_str}")
 
 
 #### Log file output ####
