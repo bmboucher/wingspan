@@ -179,7 +179,14 @@ src/wingspan/
 
   encode/                # state/choice tensor encoders for RL (package)
     layout.py            # feature dims, stripe offsets, normalization scales (the chain)
-    stripes.py           # programmatic stripe registry for the state/choice vectors
+    stripes/             # programmatic stripe registry for the state/choice vectors
+      __init__.py        #   re-exports SubFieldDescriptor, StripeDescriptor, VectorLayout,
+                         #   state_stripe_layout, choice_stripe_layout, card_feature_stripe_layout
+      descriptors.py     #   SubFieldDescriptor / StripeDescriptor / VectorLayout models
+      embed_rules.py     #   post-embedding rewrite logic shared by state and choice
+      state.py           #   state_stripe_layout + state sub-field builders
+      choice.py          #   choice_stripe_layout + choice sub-field builders
+      card_feature.py    #   card_feature_stripe_layout + hand_encoder_input_stripe_layout
     state_encode.py      # encode_state / state_size + per-aspect state summaries
     choice_encode.py     # encode_choices + per-Choice featurizers + stripe fillers
 
