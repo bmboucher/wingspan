@@ -3,7 +3,8 @@
 Produces a self-contained ``.html`` file (no external assets) documenting
 the full structure of a training run's network: the element-by-element
 breakdown of the state, choice, and setup vectors, the network architecture
-(including the separately-trained setup model), and the per-layer parameter
+(including the separately-trained setup model — the SVG diagram itself is
+built by :mod:`wingspan.report_svg`), and the per-layer parameter
 accounting.  The file is meant to be opened in a browser and supports
 drill-down into complex stripes (board slots, round-goal rounds) via HTML5
 ``<details>``/``<summary>`` elements — no JavaScript required.
@@ -18,13 +19,12 @@ from __future__ import annotations
 import collections
 import html as html_lib
 
-from wingspan import architecture, setup_model
+from wingspan import architecture, report_svg, setup_model
 from wingspan.encode import stripes as encode_stripes
 from wingspan.training.charts import text_helpers
 
 # ---------------------------------------------------------------------------
-# Accent colors — one per report section (``_ACCENT_SETUP`` also colors the
-# setup block in the SVG diagram).
+# Accent colors — one per report section.
 
 _ACCENT_STATE = "#3b82f6"
 _ACCENT_CHOICE = "#22c55e"
@@ -36,50 +36,6 @@ _ACCENT_PARAMS = "#f97316"
 # flat table.  Board stripes have 135 sub-fields across 15 slots, so they are
 # always grouped; small stripes (≤ threshold) display flat.
 _GROUP_THRESHOLD = 24
-
-# ---------------------------------------------------------------------------
-# SVG architecture diagram — color palette.
-
-_SVG_BG = "#f1f5f9"
-_SVG_BLOCK_FILL = "#ffffff"
-_SVG_BLOCK_STROKE = "#e2e8f0"
-_SVG_ARROW = "#94a3b8"
-_SVG_TEXT_TITLE = "#1e293b"
-_SVG_TEXT_DIM = "#64748b"
-_SVG_TEXT_MUTED = "#94a3b8"
-_SVG_PILL_BG = "#1e293b"
-_SVG_PILL_FG = "#e2e8f0"
-_SVG_LINEAR_COLOR = "#3b82f6"
-_SVG_ACT_COLOR = "#22c55e"
-
-_ACCENT_CARD = "#a855f7"
-_ACCENT_TRUNK_SVG = "#3b82f6"
-_ACCENT_CHOICE_SVG = "#0ea5e9"
-_ACCENT_VALUE = "#10b981"
-_ACCENT_DECISION = "#f97316"
-_ACCENT_DECISION_BADGE_BG = "#fde8d8"
-
-# SVG geometry constants.
-
-_SVG_W = 860
-_SVG_GUTTER = 20
-_SVG_COL_W = 390
-_SVG_COL_R = 450  # x of right column = GUTTER + COL_W + 40px gap
-_SVG_ACCENT_W = 4  # left-border accent bar width
-_SVG_RX_BLK = 8  # block corner radius
-_SVG_RX_ROW = 4  # mini-row corner radius
-_SVG_ROW_H = 28  # mini-row height
-_SVG_ROW_STRIDE = 33  # mini-row height + 5px gap
-
-# Block internal layout (all relative to block top-left):
-#   PAD_T | title (16px) + gap (6px) + subtitle (16px) = HDR_H | HDR_GAP
-#   | rows (ROW_STRIDE each) | FTR_GAP | footer text | PAD_B
-_SVG_BLK_PAD_T = 14
-_SVG_BLK_HDR_H = 38
-_SVG_BLK_HDR_GAP = 6
-_SVG_BLK_FTR_GAP = 6
-_SVG_BLK_FTR_H = 28
-_SVG_BLK_PAD_B = 14
 
 # ---------------------------------------------------------------------------
 # Inline CSS — fully self-contained; no external resources.
@@ -217,8 +173,6 @@ def generate_html_report(
             _arch_section(
                 arch,
                 param_report,
-                state_dim,
-                choice_dim,
                 family_order,
                 setup_param=setup_param,
                 setup_arch=setup_arch,
@@ -563,19 +517,15 @@ def _sub_field_row(sf: encode_stripes.SubFieldDescriptor, stripe_offset: int) ->
 def _arch_section(
     arch: architecture.ModelArchitecture,
     param_report: architecture.ParamReport,
-    state_dim: int,
-    choice_dim: int,
     family_order: tuple[str, ...],
     *,
     setup_param: architecture.BlockParam,
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> str:
-    svg = _build_arch_svg(
+    svg = report_svg.build_arch_svg(
         arch,
         param_report,
-        state_dim,
-        choice_dim,
         family_order,
         setup_param=setup_param,
         setup_arch=setup_arch,
@@ -585,8 +535,8 @@ def _arch_section(
         f"<div class='section' id='arch'>"
         f"<div class='section-header' style='color:{_ACCENT_ARCH}'>Architecture</div>"
         f"<div class='section-sub'>"
-        f"Network flow — embed → trunk → choice encoder → scorer heads → value head"
-        f" · separate setup net"
+        f"Network flow — card + hand encoders → state trunk ⊕ choice encoder"
+        f" → decision heads + value head · connected setup net"
         f"</div>"
         f"<div class='arch-svg-wrap'>{svg}</div>"
         f"</div>"
@@ -681,529 +631,3 @@ def _params_rows(report: architecture.ParamReport) -> str:
         f"</tr>"
     )
     return "".join(rows)
-
-
-#### SVG architecture diagram ####
-
-
-def _blk_h(num_rows: int) -> int:
-    """Total pixel height of a block containing ``num_rows`` mini-rows."""
-    return (
-        _SVG_BLK_PAD_T
-        + _SVG_BLK_HDR_H
-        + _SVG_BLK_HDR_GAP
-        + num_rows * _SVG_ROW_STRIDE
-        + _SVG_BLK_FTR_GAP
-        + _SVG_BLK_FTR_H
-        + _SVG_BLK_PAD_B
-    )
-
-
-def _has_act_after(is_trunk: bool, is_final: bool) -> bool:
-    """Mirror of arch_diagram._has_activation: trunk gets activation after every
-    layer; all other blocks only on non-final layers."""
-    if is_trunk:
-        return True
-    return not is_final
-
-
-def _layer_rows_svg(
-    layers: tuple[architecture.LayerParam, ...],
-    activation: str,
-    *,
-    is_trunk: bool,
-) -> list[tuple[str, str, str]]:
-    """Return (style, label, badge) tuples for the mini-box rows in a block.
-
-    ``style`` is ``"linear"`` or ``"act"``.  ``badge`` is a human-readable
-    param count for linear rows, empty string for activation rows.
-    """
-    rows: list[tuple[str, str, str]] = []
-    num_layers = len(layers)
-    for idx, layer in enumerate(layers):
-        badge = text_helpers.human_count(layer.linear)
-        rows.append(("linear", f"Linear →{layer.out_features}", badge))
-        if _has_act_after(is_trunk, is_final=(idx == num_layers - 1)):
-            rows.append(("act", activation, ""))
-    return rows
-
-
-def _svg_block(
-    x: int,
-    y: int,
-    width: int,
-    height: int,
-    accent: str,
-    title: str,
-    subtitle: str,
-    rows: list[tuple[str, str, str]],
-    sigma: int,
-    out_label: str,
-    out_color: str,
-    tooltip: str,
-    *,
-    dashed: bool = False,
-    stack: int = 0,
-) -> str:
-    """Render one network block as an SVG ``<g>`` element.
-
-    ``stack`` > 1 adds shadow rects behind the block (the ×N stacked-card
-    effect for the decision-head template).  ``dashed`` applies a dashed
-    stroke to the main block border.
-    """
-    parts: list[str] = []
-
-    # Shadow rects for stacked-card effect (drawn behind, largest first).
-    if stack > 1:
-        for offset in (6, 3):
-            parts.append(
-                f'<rect x="{x + offset}" y="{y + offset}" '
-                f'width="{width}" height="{height}" rx="{_SVG_RX_BLK}" '
-                f'fill="{_SVG_BLOCK_FILL}" stroke="{_SVG_BLOCK_STROKE}" stroke-width="1"/>'
-            )
-
-    dash_attr = ' stroke-dasharray="5,3"' if dashed else ""
-    clip_id = f"c{x}-{y}"
-
-    # Clip path so the left accent bar respects the block's rounded corners.
-    parts.append(
-        f'<defs><clipPath id="{clip_id}">'
-        f'<rect x="{x}" y="{y}" width="{width}" height="{height}" rx="{_SVG_RX_BLK}"/>'
-        f"</clipPath></defs>"
-    )
-
-    # Main block group with accessible tooltip.
-    parts.append(f"<g>")
-    parts.append(f"<title>{html_lib.escape(tooltip)}</title>")
-
-    # Main block rect.
-    parts.append(
-        f'<rect x="{x}" y="{y}" width="{width}" height="{height}" rx="{_SVG_RX_BLK}" '
-        f'fill="{_SVG_BLOCK_FILL}" stroke="{_SVG_BLOCK_STROKE}" stroke-width="1"{dash_attr}/>'
-    )
-
-    # Left accent bar (clipped to block shape).
-    parts.append(
-        f'<rect x="{x}" y="{y}" width="{_SVG_ACCENT_W}" height="{height}" '
-        f'fill="{accent}" clip-path="url(#{clip_id})"/>'
-    )
-
-    # Title and subtitle text.
-    tx = x + _SVG_ACCENT_W + 10
-    ty_title = y + _SVG_BLK_PAD_T + 14
-    ty_sub = ty_title + 18
-    mono = "'Courier New',monospace"
-    sans = "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
-
-    parts.append(
-        f'<text x="{tx}" y="{ty_title}" font-family="{sans}" '
-        f'font-size="13" font-weight="700" fill="{_SVG_TEXT_TITLE}">'
-        f"{html_lib.escape(title)}</text>"
-    )
-
-    # ×N badge for repeated blocks (decision head).
-    if stack > 1:
-        badge_label = f"×{stack}"
-        badge_w = len(badge_label) * 7 + 12
-        badge_rx = x + width - badge_w - 10
-        badge_ry = y + _SVG_BLK_PAD_T + 2
-        parts.append(
-            f'<rect x="{badge_rx}" y="{badge_ry}" width="{badge_w}" height="18" '
-            f'rx="9" fill="{_ACCENT_DECISION_BADGE_BG}"/>'
-            f'<text x="{badge_rx + badge_w // 2}" y="{badge_ry + 13}" '
-            f'font-family="{sans}" font-size="10" font-weight="700" '
-            f'fill="{_ACCENT_DECISION}" text-anchor="middle">'
-            f"{html_lib.escape(badge_label)}</text>"
-        )
-
-    parts.append(
-        f'<text x="{tx}" y="{ty_sub}" font-family="{mono}" '
-        f'font-size="11" fill="{_SVG_TEXT_DIM}">{html_lib.escape(subtitle)}</text>'
-    )
-
-    # Mini-rows for each layer operation.
-    row_x = x + _SVG_ACCENT_W + 8
-    row_w = width - _SVG_ACCENT_W - 16
-    row_y0 = y + _SVG_BLK_PAD_T + _SVG_BLK_HDR_H + _SVG_BLK_HDR_GAP
-
-    for row_idx, (row_type, label, badge) in enumerate(rows):
-        ry = row_y0 + row_idx * _SVG_ROW_STRIDE
-        color = _SVG_LINEAR_COLOR if row_type == "linear" else _SVG_ACT_COLOR
-
-        parts.append(
-            f'<rect x="{row_x}" y="{ry}" width="{row_w}" height="{_SVG_ROW_H}" '
-            f'rx="{_SVG_RX_ROW}" fill="{color}" fill-opacity="0.06" '
-            f'stroke="{color}" stroke-width="1.5"/>'
-        )
-        parts.append(
-            f'<text x="{row_x + 10}" y="{ry + 19}" font-family="{mono}" '
-            f'font-size="11" font-weight="600" fill="{color}">'
-            f"{html_lib.escape(label)}</text>"
-        )
-
-        # Param pill for linear layers.
-        if badge:
-            pill_w = len(badge) * 7 + 12
-            pill_x = row_x + row_w - pill_w - 4
-            pill_y = ry + 5
-            parts.append(
-                f'<rect x="{pill_x}" y="{pill_y}" width="{pill_w}" height="18" '
-                f'rx="9" fill="{_SVG_PILL_BG}"/>'
-                f'<text x="{pill_x + pill_w // 2}" y="{pill_y + 13}" '
-                f'font-family="{mono}" font-size="10" fill="{_SVG_PILL_FG}" '
-                f'text-anchor="middle">{html_lib.escape(badge)}</text>'
-            )
-
-    # Footer: Σ (left) and output annotation (right).
-    footer_y = y + height - _SVG_BLK_PAD_B - 3
-    parts.append(
-        f'<text x="{tx}" y="{footer_y}" font-family="{mono}" '
-        f'font-size="11" fill="{_SVG_TEXT_DIM}">'
-        f"Σ {text_helpers.human_count(sigma)}</text>"
-    )
-    parts.append(
-        f'<text x="{x + width - 10}" y="{footer_y}" font-family="{mono}" '
-        f'font-size="11" font-weight="700" fill="{out_color}" text-anchor="end">'
-        f"{html_lib.escape(out_label)}</text>"
-    )
-
-    parts.append("</g>")
-    return "\n".join(parts)
-
-
-def _svg_arrows(
-    x1: int,
-    y1: int,
-    x2: int,
-    y2: int,
-    *,
-    label: str = "",
-) -> str:
-    """A vertical arrow from ``(x1, y1)`` to ``(x2, y2)`` with an optional
-    dimension label placed to the right of the midpoint."""
-    mid_y = (y1 + y2) // 2
-    arrow = (
-        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
-        f'stroke="{_SVG_ARROW}" stroke-width="1.5" marker-end="url(#arr)"/>'
-    )
-    if not label:
-        return arrow
-    label_part = (
-        f'<text x="{x1 + 4}" y="{mid_y - 3}" '
-        f'font-family="\'Courier New\',monospace" font-size="10" '
-        f'fill="{_SVG_TEXT_MUTED}">{html_lib.escape(label)}</text>'
-    )
-    return f"{arrow}\n{label_part}"
-
-
-def _build_arch_svg(
-    arch: architecture.ModelArchitecture,
-    param_report: architecture.ParamReport,
-    state_dim: int,
-    choice_dim: int,
-    family_order: tuple[str, ...],
-    *,
-    setup_param: architecture.BlockParam,
-    setup_arch: setup_model.SetupArchitecture,
-    use_setup_model: bool,
-) -> str:
-    """Return a self-contained ``<svg>`` string for the architecture diagram.
-
-    The separately-trained setup model is drawn as a full-width block above the
-    main net (no connectors — it is a separate network). It is drawn even when
-    ``use_setup_model`` is False: dashed, with an "off" caption, so the diagram
-    always shows what the setup net would look like.
-    """
-    activation = arch.activation.value
-    num_families = len(family_order)
-
-    # Build layer-row lists for each block.  The trunk uses BODY_TRUNK rules
-    # (activation after every layer); all other blocks use BODY_CHOICE / READOUT
-    # rules (no activation after the final layer).
-    setup_rows = _layer_rows_svg(
-        setup_param.layers, setup_arch.activation.value, is_trunk=False
-    )
-    card_rows = _layer_rows_svg(param_report.embed.layers, activation, is_trunk=False)
-    trunk_rows = _layer_rows_svg(param_report.trunk.layers, activation, is_trunk=True)
-    choice_rows = _layer_rows_svg(
-        param_report.choice.layers, activation, is_trunk=False
-    )
-    value_rows = _layer_rows_svg(param_report.value.layers, activation, is_trunk=False)
-    # Decision head: param_report.scorer.layers contains per-head layers (multiplier
-    # accounts for the family count separately).
-    decision_rows = _layer_rows_svg(
-        param_report.scorer.layers, activation, is_trunk=False
-    )
-
-    # Block pixel heights.
-    setup_h = _blk_h(len(setup_rows))
-    card_h = _blk_h(len(card_rows))
-    trunk_h = _blk_h(len(trunk_rows))
-    choice_h = _blk_h(len(choice_rows))
-    value_h = _blk_h(len(value_rows))
-    decision_h = _blk_h(len(decision_rows))
-    parallel_h = max(trunk_h, choice_h)
-    output_h = max(value_h, decision_h)
-
-    # Vertical layout: setup (separate) → caption → card → fan-out →
-    # parallel zone → merge → output → total.
-    y_setup = 22
-    y_setup_cap = y_setup + setup_h + 16
-    y_card = y_setup_cap + 22
-    y_conn1 = y_card + card_h
-    y_parallel = y_conn1 + 46
-    y_conn2 = y_parallel + parallel_h
-    y_output = y_conn2 + 46
-    y_total = y_output + output_h + 22
-    svg_h = y_total + 22
-
-    # Horizontal centers for connector routing.
-    left_cx = _SVG_GUTTER + _SVG_COL_W // 2  # center of left column
-    right_cx = _SVG_COL_R + _SVG_COL_W // 2  # center of right column
-    center_x = _SVG_W // 2  # horizontal center of canvas
-
-    parts: list[str] = []
-
-    # SVG root element.
-    trunk_m = arch.trunk_embed_width
-    choice_n = arch.choice_embed_width
-    setup_status = "active" if use_setup_model else "off"
-    setup_total_str = text_helpers.human_count(setup_param.total)
-    parts.append(
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_SVG_W} {svg_h}" '
-        f'width="100%" style="display:block;max-width:{_SVG_W}px;" '
-        f'role="img" aria-label="PolicyValueNet architecture: shared Card Encoder '
-        f"feeding State Trunk (M={trunk_m}) and Choice Encoder (N={choice_n}), "
-        f"merging into Value Head and {num_families} Decision Heads, "
-        f"{text_helpers.human_count(param_report.total)} params total; "
-        f'separate Setup Model ({setup_status}, {setup_total_str} params)">'
-    )
-    parts.append(
-        f"<title>PolicyValueNet · "
-        f"{text_helpers.human_count(param_report.total)} params total · "
-        f"M={trunk_m} N={choice_n} ×{num_families} heads · "
-        f"setup {setup_total_str} ({setup_status})</title>"
-    )
-
-    # Canvas background.
-    parts.append(f'<rect width="{_SVG_W}" height="{svg_h}" fill="{_SVG_BG}"/>')
-
-    # Arrowhead marker.
-    parts.append(
-        "<defs>"
-        '<marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" '
-        'markerWidth="5" markerHeight="5" orient="auto">'
-        '<path d="M0,0.5 L7,4 L0,7.5 Z" fill="#94a3b8"/>'
-        "</marker>"
-        "</defs>"
-    )
-
-    # Setup Model block (full canvas width; a separate network — no connectors
-    # to the main net below).  Drawn even when the setup model is off: dashed,
-    # with the off caption, instead of being omitted.
-    setup_in = setup_param.layers[0].in_features if setup_param.layers else 0
-    parts.append(
-        _svg_block(
-            x=_SVG_GUTTER,
-            y=y_setup,
-            width=_SVG_W - 2 * _SVG_GUTTER,
-            height=setup_h,
-            accent=_ACCENT_SETUP,
-            title="SETUP MODEL · keep",
-            subtitle=f"in {setup_in} (multi-hot)",
-            rows=setup_rows,
-            sigma=setup_param.total,
-            out_label="→ margin",
-            out_color=_ACCENT_SETUP,
-            tooltip=(
-                f"Setup Model ({setup_status}) · {setup_total_str} params "
-                f"· {setup_in} → 1 (predicted score margin)"
-            ),
-            dashed=not use_setup_model,
-        )
-    )
-
-    # Caption under the setup block: the separate-model note, or the off
-    # explanation when the in-game policy scores the opening keep instead.
-    mono = "'Courier New',monospace"
-    if use_setup_model:
-        setup_caption = "separate model · trained apart from the main net below"
-        caption_color = _SVG_TEXT_DIM
-    else:
-        setup_caption = "off this run — opening keep handled by the in-game policy"
-        caption_color = _SVG_TEXT_MUTED
-    parts.append(
-        f'<text x="{_SVG_GUTTER}" y="{y_setup_cap}" font-family="{mono}" '
-        f'font-size="11" font-style="italic" fill="{caption_color}">'
-        f"{html_lib.escape(setup_caption)}</text>"
-    )
-
-    # Card Encoder block (full canvas width).
-    card_in = (
-        param_report.embed.layers[0].in_features if param_report.embed.layers else 0
-    )
-    card_out = arch.card_embed_dim
-    parts.append(
-        _svg_block(
-            x=_SVG_GUTTER,
-            y=y_card,
-            width=_SVG_W - 2 * _SVG_GUTTER,
-            height=card_h,
-            accent=_ACCENT_CARD,
-            title="CARD ENCODER · per-card MLP",
-            subtitle=f"in {card_in} (attrs ⊕ id)",
-            rows=card_rows,
-            sigma=param_report.embed.total,
-            out_label=f"→ {card_out}",
-            out_color=_ACCENT_CARD,
-            tooltip=(
-                f"Card Encoder · {text_helpers.human_count(param_report.embed.total)} params "
-                f"· {card_in} → {card_out}"
-            ),
-        )
-    )
-
-    # Fan-out connectors: card encoder → trunk and choice encoder.
-    fan_bar_y = y_conn1 + 24
-    parts.append(
-        f'<g aria-hidden="true">'
-        f'<line x1="{center_x}" y1="{y_conn1}" x2="{center_x}" y2="{fan_bar_y}" '
-        f'stroke="{_SVG_ARROW}" stroke-width="1.5"/>'
-        f'<line x1="{left_cx}" y1="{fan_bar_y}" x2="{right_cx}" y2="{fan_bar_y}" '
-        f'stroke="{_SVG_ARROW}" stroke-width="1.5"/>'
-        + _svg_arrows(left_cx, fan_bar_y, left_cx, y_parallel - 1)
-        + "\n"
-        + _svg_arrows(right_cx, fan_bar_y, right_cx, y_parallel - 1)
-        + "\n</g>"
-    )
-
-    # State Trunk block (left column).
-    trunk_in = (
-        param_report.trunk.layers[0].in_features
-        if param_report.trunk.layers
-        else state_dim
-    )
-    parts.append(
-        _svg_block(
-            x=_SVG_GUTTER,
-            y=y_parallel,
-            width=_SVG_COL_W,
-            height=parallel_h,
-            accent=_ACCENT_TRUNK_SVG,
-            title="STATE TRUNK",
-            subtitle=f"in {trunk_in}",
-            rows=trunk_rows,
-            sigma=param_report.trunk.total,
-            out_label=f"M = {trunk_m}",
-            out_color=_ACCENT_TRUNK_SVG,
-            tooltip=(
-                f"State Trunk · {text_helpers.human_count(param_report.trunk.total)} params "
-                f"· {trunk_in} → {trunk_m}"
-            ),
-        )
-    )
-
-    # Choice Encoder block (right column).
-    choice_in = (
-        param_report.choice.layers[0].in_features
-        if param_report.choice.layers
-        else choice_dim
-    )
-    parts.append(
-        _svg_block(
-            x=_SVG_COL_R,
-            y=y_parallel,
-            width=_SVG_COL_W,
-            height=parallel_h,
-            accent=_ACCENT_CHOICE_SVG,
-            title="CHOICE ENC",
-            subtitle=f"in {choice_in}",
-            rows=choice_rows,
-            sigma=param_report.choice.total,
-            out_label=f"N = {choice_n}",
-            out_color=_ACCENT_CHOICE_SVG,
-            tooltip=(
-                f"Choice Encoder · {text_helpers.human_count(param_report.choice.total)} params "
-                f"· {choice_in} → {choice_n}"
-            ),
-        )
-    )
-
-    # Merge connectors: trunk and choice encoder → output heads.
-    merge_bar_y = y_conn2 + 24
-    mn = trunk_m + choice_n
-    parts.append(
-        f'<g aria-hidden="true">'
-        f'<line x1="{left_cx}" y1="{y_conn2}" x2="{left_cx}" y2="{merge_bar_y}" '
-        f'stroke="{_SVG_ARROW}" stroke-width="1.5"/>'
-        f'<line x1="{right_cx}" y1="{y_conn2}" x2="{right_cx}" y2="{merge_bar_y}" '
-        f'stroke="{_SVG_ARROW}" stroke-width="1.5"/>'
-        + _svg_arrows(left_cx, merge_bar_y, left_cx, y_output - 1, label=f"M={trunk_m}")
-        + "\n"
-        + _svg_arrows(right_cx, merge_bar_y, right_cx, y_output - 1, label=f"M+N={mn}")
-        + "\n</g>"
-    )
-
-    # Value Head block (left column).
-    value_in = trunk_m
-    parts.append(
-        _svg_block(
-            x=_SVG_GUTTER,
-            y=y_output,
-            width=_SVG_COL_W,
-            height=output_h,
-            accent=_ACCENT_VALUE,
-            title="VALUE HEAD",
-            subtitle=f"in M = {value_in}",
-            rows=value_rows,
-            sigma=param_report.value.total,
-            out_label="→ scalar",
-            out_color=_ACCENT_VALUE,
-            tooltip=(
-                f"Value Head · {text_helpers.human_count(param_report.value.total)} params "
-                f"· {value_in} → 1"
-            ),
-        )
-    )
-
-    # Decision Head block (right column, with stacked-card effect and ×N badge).
-    scorer = param_report.scorer
-    per_head_total = scorer.total // scorer.multiplier
-    parts.append(
-        _svg_block(
-            x=_SVG_COL_R,
-            y=y_output,
-            width=_SVG_COL_W,
-            height=output_h,
-            accent=_ACCENT_DECISION,
-            title="DECISION HEAD",
-            subtitle=f"in M+N = {mn}",
-            rows=decision_rows,
-            sigma=per_head_total,
-            out_label=f"→ {text_helpers.human_count(scorer.total)} total",
-            out_color=_ACCENT_DECISION,
-            tooltip=(
-                f"Decision Head ×{num_families} · "
-                f"{text_helpers.human_count(per_head_total)} params each · "
-                f"{text_helpers.human_count(scorer.total)} total · {mn} → 1"
-            ),
-            dashed=True,
-            stack=num_families,
-        )
-    )
-
-    # Grand total line (the separate setup net's count is annotated, not
-    # summed in — mirroring the FLIGHT PLAN diagram's total row).
-    sans = "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
-    total_str = text_helpers.human_count(param_report.total)
-    total_text = f"TOTAL ≈ {total_str} params"
-    if use_setup_model:
-        total_text += f" · setup ≈ {setup_total_str} (separate)"
-    parts.append(
-        f'<text x="{center_x}" y="{y_total}" font-family="{sans}" '
-        f'font-size="13" font-weight="700" fill="{_ACCENT_ARCH}" text-anchor="middle">'
-        f"{total_text}</text>"
-    )
-
-    parts.append("</svg>")
-    return "\n".join(parts)

@@ -59,6 +59,31 @@ def test_html_report_documents_inactive_setup_model():
     assert "off this run" in html
 
 
+def test_html_report_arch_svg_content():
+    html = _report_html(use_setup_model=True)
+    arch = architecture.ModelArchitecture()
+    # All seven blocks are drawn, including the hand encoder.
+    assert "CARD ENCODER" in html
+    assert "HAND ENCODER" in html
+    assert "STATE TRUNK" in html
+    assert "DECISION HEAD" in html
+    # Encoder fan-out copy labels (card -> trunk, hand -> setup).
+    assert f"×{encode.N_CARD_INDEX_SLOTS}" in html
+    assert "kept + tray set" in html
+    # Parameter counts are exact thousands-separated numbers, not "123k".
+    first_width = arch.card_encoder_layers[0]
+    first_linear = encode.CARD_FEATURE_DIM * first_width + first_width
+    assert f"{first_linear:,}" in html
+    # The trunk's M feeds both the value head and the decision head.
+    assert html.count(f"M={arch.trunk_embed_width}") >= 2
+
+
+def test_html_report_arch_svg_setup_off():
+    html = _report_html(use_setup_model=False)
+    assert "HAND ENCODER" in html
+    assert "SETUP MODEL" in html
+
+
 ###### PRIVATE #######
 
 
