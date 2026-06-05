@@ -258,7 +258,14 @@ src/wingspan/
     evaluate.py          # paired-game strength vs the reference opponent + 95% CI (§7)
     convergence.py       # series + axis-window math for the convergence charts
     sysmon.py            # host telemetry sampling for the SYSTEM band
-    loop.py              # TrainingLoop orchestrator (collect/update/eval/checkpoint)
+    loop.py              # TrainingLoop orchestrator (run loop, __init__, system monitor)
+    loop_resume.py       # resume from checkpoint, init phase/target, metadata writes
+    loop_collect.py      # batched / multiprocess self-play collection
+    loop_setup.py        # setup-model lifecycle (fit, update, sync, resume)
+    loop_eval.py         # paired-game eval, opponent graduation / advancement
+    loop_target.py       # target-milestone sequence (checkpoint → eval → pause)
+    loop_checkpoint.py   # commit, checkpoint write, finish; seed + atomic-I/O helpers
+    loop_metrics.py      # pure metrics aggregation (no loop state)
     theme.py             # palette + glyph constants ("wetland dawn")
     charts/              # custom rich renderables (package)
       geometry.py        # layout constants (gutter, inset width, ...)

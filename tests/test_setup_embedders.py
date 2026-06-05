@@ -25,7 +25,7 @@ torch = pytest.importorskip("torch")
 
 from wingspan import architecture, setup_model  # noqa: E402
 from wingspan.setup_model import encode as setup_encode  # noqa: E402
-from wingspan.training import config, loop, setup_net  # noqa: E402
+from wingspan.training import config, loop, loop_setup, setup_net  # noqa: E402
 
 _DISTINCT_MAIN = architecture.ModelArchitecture(
     trunk_layers=(32, 32),
@@ -104,7 +104,7 @@ def test_sync_copies_main_weights_and_resyncs_after_update(tmp_path: pathlib.Pat
             param.add_(1.0)
     training.net.eval()
     assert not torch.equal(setup_policy_net.card_table(), training.net.card_table())
-    training._sync_setup_embedders()
+    loop_setup.sync_setup_embedders(training)
     assert torch.equal(setup_policy_net.card_table(), training.net.card_table())
     for name, tensor in setup_policy_net.hand_encoder.state_dict().items():
         assert torch.equal(tensor, training.net.hand_encoder.state_dict()[name])

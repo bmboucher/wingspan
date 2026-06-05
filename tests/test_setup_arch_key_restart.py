@@ -24,7 +24,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 torch = pytest.importorskip("torch")
 
 from wingspan import setup_model  # noqa: E402
-from wingspan.training import artifacts, config, loop, runstate  # noqa: E402
+from wingspan.training import (  # noqa: E402
+    artifacts,
+    config,
+    loop,
+    loop_setup,
+    runstate,
+)
 
 _OLD_FEATURE_DIM = 477  # the pre-shared-embedder layout's width
 
@@ -155,7 +161,7 @@ def test_matching_setup_checkpoint_still_resumes(tmp_path: pathlib.Path):
     cfg = _cfg(tmp_path, resume=True)
     source = loop.TrainingLoop(cfg)
     source._setup_fit_done = True
-    source._save_setup_checkpoint()
+    loop_setup.save_setup_checkpoint(source)
     _write_main_checkpoint(tmp_path, cfg)
 
     resumed = loop.TrainingLoop(cfg)
