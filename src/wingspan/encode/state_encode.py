@@ -210,7 +210,7 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
     Layout (``layout._BIRD_ATTR_DIM`` dims): victory points; food cost 6-vector (5
     specific foods then wild); nest 4-one-hot (a STAR nest is a wildcard encoded
     all-ones, NONE all-zeros); habitat multi-hot; flocking and predator flags;
-    wingspan; egg limit; power-color one-hot (NONE => all-zero); swift-start
+    wingspan; egg limit; power-color one-hot (NONE => all-zero); plays-another-bird
     flag; and a 26-wide multi-hot of the bonus-card categories the bird
     statically qualifies for (the "test" predicates such as 'named after a
     person' or a wingspan threshold), keyed to the same ``bonus_index`` space as
@@ -245,12 +245,12 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
     vec[layout._OFF_ATTR_WINGSPAN] = bird.wingspan_cm / layout._WINGSPAN_SCALE
     vec[layout._OFF_ATTR_EGG_LIMIT] = bird.egg_limit / layout._EGG_LIMIT_SCALE
 
-    # Power color (one-hot; NONE leaves all zero) and the swift-start flag.
+    # Power color (one-hot; NONE leaves all zero) and plays-another-bird flag.
     for i, color in enumerate(layout._COLORS):
         if bird.color == color:
             vec[layout._OFF_ATTR_COLOR + i] = 1.0
             break
-    vec[layout._OFF_ATTR_SWIFT] = 1.0 if bird.is_swift_start else 0.0
+    vec[layout._OFF_ATTR_PLAYS_BIRD] = 1.0 if bird.plays_another_bird else 0.0
 
     # "Test" predicates: the bonus cards this bird statically qualifies for.
     for category in bird.bonus_categories:

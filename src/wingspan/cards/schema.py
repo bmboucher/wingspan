@@ -268,11 +268,21 @@ class Bird(pydantic.BaseModel):
     food_cost: BirdCost
     flocking: bool  # food may be paid with any subset including wild
     predator: bool
-    is_swift_start: bool
     raw_power_text: str
     power: Power
     # which bonus-card categories include this bird (set of bonus IDs)
     bonus_categories: tuple[str, ...] = ()
+
+    @pydantic.computed_field
+    @property
+    def plays_another_bird(self) -> bool:
+        """True when the bird's white power grants an extra bird play (PLAY_ADDITIONAL_BIRD
+        or PLAY_ADDITIONAL_BIRD_HERE)."""
+        return any(
+            effect.kind
+            in (EffectKind.PLAY_ADDITIONAL_BIRD, EffectKind.PLAY_ADDITIONAL_BIRD_HERE)
+            for effect in self.power.effects
+        )
 
     @property
     def primary_habitat(self) -> Habitat:
@@ -411,7 +421,6 @@ class BirdRecord(pydantic.BaseModel):
             food_cost=cost,
             flocking=(self.flocking == "X"),
             predator=(self.predator == "X"),
-            is_swift_start=(self.swift_start == "X"),
             raw_power_text=power_text,
             power=parse.parse_power(color, power_text),
             bonus_categories=parse.bonus_categories_for_bird(self, bonuses),

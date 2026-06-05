@@ -1347,13 +1347,13 @@ def _card_attr_sub_fields() -> tuple[SubFieldDescriptor, ...]:
             f"Order: {color_names}. A power-less bird is all zeros.",
         ),
         (
-            "swift_start",
-            layout._OFF_ATTR_SWIFT,
+            "plays_another_bird",
+            layout._OFF_ATTR_PLAYS_BIRD,
             1,
             "scalar",
             "{0, 1}",
-            "Whether the bird belongs to the Swift Start pack.",
-            None,
+            "Whether the bird's white power grants an extra bird play.",
+            "Set for PLAY_ADDITIONAL_BIRD and PLAY_ADDITIONAL_BIRD_HERE effects.",
         ),
         (
             "bonus_categories",

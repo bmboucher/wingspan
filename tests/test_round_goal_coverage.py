@@ -35,7 +35,6 @@ def _bird(
         food_cost=cards.BirdCost(),
         flocking=False,
         predator=False,
-        is_swift_start=False,
         raw_power_text="",
         power=cards.Power(color=cards.PowerColor.NONE),
         bonus_categories=(),
