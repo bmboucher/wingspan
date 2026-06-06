@@ -50,7 +50,7 @@ I often feel when I play in person that some games are "good" for both players a
 
 ---
 
-# Addendum: Infrastructure capacity & gap analysis (2026-06-02)
+# Addendum: Infrastructure capacity & gap analysis (2026-06-02, revised 2026-06-06)
 
 *Appended assessment — does the current codebase let us run the six projects above, what has to be built first, and how the existing AWS/cloud stack can absorb the heavy work. This section only catalogs gaps; it does not change any proposal above.*
 
@@ -65,21 +65,20 @@ analysis harness wires them together:
 - **Durable per-game records.** Every finished game writes a `metrics.GameOutcome` row to `games.jsonl`: per-seat **full six-way `ScoreBreakdown`**, winner, decision count, per-family decision counts, and the **`seed`** (so any game is exactly replayable). These already stream to S3 as immutable `games/<session>/chunk_*.jsonl` during cloud runs.
 - **Self-describing checkpoints.** `TrainConfig` + `ModelArchitecture` are stored with each checkpoint and reconstituted via `model.PolicyValueNet.from_model_config`, so any saved run can be reloaded for offline scoring/analysis.
 - **A working cloud training stack** (`deploy/` + `wingspan.cloud`): containerized headless runner, S3 persistence, Spot-interruptible + resumable, the `wingspan-monitor` multi-run roster, and Terraform for S3 + an ECS cluster with a Fargate Spot capacity provider + IAM task roles.
+- **Generic event reporting framework.** `wingspan.instrumentation` exposes 15 typed game events — the full game/round/turn lifecycle (`GAME_START/END`, `ROUND_START/END`, `TURN_START/END`), the decision flow (`MAKING_DECISION`, `MADE_DECISION`), and domain-specific events (`BIRD_PLACED`, `FOOD_GAINED`, `EGGS_LAID`, `CARDS_DRAWN`, `ROUND_GOAL_SCORED`, `PLAYER_FINAL_SCORED`, `SETUP_APPLIED`) — via a `Instrumentation` dispatcher that the engine holds. Handlers are Pydantic models (`CallbackHandler` subclasses) registered by name with `@registry.register`; an `InstrumentationConfig` wires named handler instances to their events, serializes/deserializes through `model_dump`/YAML, and round-trips through checkpoints. Two bundled handlers ship as reference implementations: `DecisionLogger` (one JSONL row per genuine decision) and `CardVisitRecorder` (per-game bird-play tally). An engine with no instrumentation holds the shared empty router — no per-call overhead.
+- **Unified players package.** `wingspan.players` (`spec` → `factory` → `loaders`) centralizes the player-spec grammar (`human` / `random` / named checkpoint / run-dir / direct path) and checkpoint loading that was previously spread across `selfplay.py`, `tournament.participants`, and the CLI. Both `wingspan play` and the tournament use it as the single entry point.
+- **Artifact versioning (MODEL_VERSION 0.1) + compat shim.** The `wingspan.compat` package with its v0.0 choice-encoding shim is in place, the v0.1 fixture set is committed, and the FRESH/REGIME versioning policy is enforced in code (inference loaders check the artifact version and refuse mismatches cleanly).
 
 ## Per-project verdict & gaps
 
-### Project: General architecture exploration — ⚠️ needs an architecture change + sweep orchestration
+### Project: General architecture exploration — ⚠️ needs sweep orchestration
 
-`ModelArchitecture` already exposes independent width lists for the card encoder
-(`card_encoder_layers` → EMBED), state trunk (`trunk_layers`), choice encoder
-(`choice_layers`), and value head (`value_layers`), plus a separate setup net
-(`setup_hidden_layers`). So four of the six "submodels" are already
-independently sizable, and we can launch many runs and compare them on
-throughput, vs-fixed-opponent strength (paired eval + CI), and head-to-head play.
-**But** the proposal's central move — pin every submodel lite except one
-decision head — is not currently expressible.
+`ModelArchitecture` exposes independent width lists for every submodel: card
+encoder (`card_encoder_layers` → EMBED), state trunk (`trunk_layers`), choice
+encoder (`choice_layers`), value head (`value_layers`), plus a separate setup
+net (`setup_hidden_layers`). All six submodels are independently sizable, and
+per-decision-family head sizing is also fully supported (see below).
 
-- [ ] **Per-head sizing.** Today a *single* `head_layers` list is shared by all 13 scoring heads (`architecture.count_parameters` builds the SCORER block with `multiplier=num_families`). To sweep one decision head heavy while the rest stay lite, add per-family head-width lists (or an override map), and thread it through `ModelArchitecture.shape_key`, `count_parameters`, the arch diagram, and the configurator. This is a network-shape (FRESH) change — old checkpoints restart.
 - [ ] **Define the lite/heavy presets** per submodel (EMBED / TRUNK / CHOICE / per-head SCORER / VALUE / setup), as a small set of named `ModelArchitecture`/`TrainConfig` presets.
 - [ ] **Sweep launcher.** Generate one run-file per (submodel→heavy, rest lite) cell plus an all-lite baseline, and start them as independent runs. The `wingspan-monitor` roster already compares live runs; what's missing is emitting the configs.
 - [ ] **Convergence metric.** Define "time/iterations to converge" (e.g. eval-win-rate-vs-fixed-opponent crossing a threshold, or a plateau detector over `metrics.jsonl`) and compute it per run — not currently derived.
@@ -87,14 +86,22 @@ decision head — is not currently expressible.
 
 ### Project: Does the main-action model know which card it wants? — ⚠️ primitives exist, harness does not
 
-- [ ] **Counterfactual-scoring harness.** Reach a `macro_action` decision with >1 playable bird (replay from `seed`, or snapshot states during collection), score "play a bird" with `policy_probs`, then re-encode with each candidate bird removed from the hand and re-score; record the per-bird delta. No state-perturbation/re-score tool exists today.
+- [ ] **Counterfactual-scoring harness.** Reach a `macro_action` decision with >1 playable bird (replay from `seed`, or snapshot states during collection), score "play a bird" with `policy_probs`, then re-encode with each candidate bird removed from the hand and re-score; record the per-bird delta. Requires the state-replay/perturbation utility (see cross-cutting gaps).
 - [ ] **Cross-head readout.** Capture the `play_bird` head's pick at the same decision point to correlate "the bird the macro head weighted most" with "the bird actually played."
 - [ ] **Stats layer.** How often a removal moves the macro score, and the correlation between the weighted bird and the play-bird selection. (Single-machine scale; not infra-blocked.)
 
-### Project: Does the model learn not to add eggs when it can't? — ⚠️ needs per-decision context capture
+### Project: Does the model learn not to add eggs when it can't? — ⚠️ handler + analysis script needed
 
-- [ ] **Decision-predicate logging.** Flag the exact scenario — a gain-eggs main action offered with **zero** available egg capacity **and** no brown-power bird to activate in the grassland — and record whether the policy chose it. Either a streaming per-decision filter during play or an instrumented replay-from-`seed` pass; neither exists today.
-- [ ] **Baseline rate.** Compare the chosen-rate against the average over all decision points (how often the situation even arises). Small analysis layer; modest game volume.
+The instrumentation framework removes the need for a replay/snapshot harness —
+a `MadeDecisionHandler` subclass can filter for the exact scenario
+(`GainEggsDecision` with zero available egg capacity and no activatable
+brown-power bird) and write matching rows to JSONL during live collection. The
+engine hooks are already firing; this is now purely a "write the handler"
+problem.
+
+- [ ] **Predicate handler.** Implement a `CallbackHandler` (subclassing `MadeDecisionHandler`) that inspects the game state at `MADE_DECISION` time, flags the no-op-eggs scenario, and records the policy's choice to JSONL. Register it in the `instrumentation` handlers package and wire it via `InstrumentationConfig`.
+- [ ] **Enable via run config.** Add the handler to a stats-collection run's `InstrumentationConfig`; the config is already serializable so a cloud run file supports it without code changes.
+- [ ] **Baseline rate.** Analysis script: read the output JSONL to compute the scenario's rate and compare to the overall decision-point rate.
 
 ### Project: Setup card stats — ✅ closest to runnable; ⚠️ "impact on outcome" is the expensive half
 
@@ -104,13 +111,20 @@ Scoring the 504 options for a hand is already implemented (`enumerate_setup_cand
 - [ ] **Outcome-impact decision (Q2).** Selection frequency ≠ outcome impact. Either use the predicted-margin / value head as a *proxy* (cheap, available now) or actually **play games to completion** from each setup and measure win rate (expensive — shares the per-card outcome logging of Project 5). Pick one and state it.
 - [ ] **Handle both setup paths.** With `use_setup_model=False`, setups are scored by the main net's SETUP head instead of `SetupNet`; the harness should cover both or standardize on the setup model.
 
-### Project: General card stats (GIH / GOB win rate, per-slot) — ❌ blocked on per-card logging (biggest data-plumbing gap)
+### Project: General card stats (GIH / GOB win rate, per-slot) — ⚠️ engine hooks exist, handler + aggregation needed
 
-We can already play fixed-model games fast, but `GameOutcome` records **no per-card data** — not which cards were drawn, kept in the opener, played, nor their habitat/slot. GIH/GOB/per-slot win rates cannot be computed from current logs at all.
+The instrumentation framework has closed the "no engine hooks" gap from the
+original assessment. `BIRD_PLACED` delivers bird, habitat, and slot (via
+`played_bird`); `SETUP_APPLIED` delivers the opening keep; `PLAYER_FINAL_SCORED`
+delivers the per-seat score breakdown; and `GAME_END` is where the winner is
+known. A multi-event `CallbackHandler` spanning these four events can accumulate
+per-game card visit data and write a per-game record on `GAME_END`, with
+GIH/GOB/per-slot win rate computable purely from the collected JSONL. The
+`CardVisitRecorder` bundled handler is a direct template.
 
-- [ ] **Per-card game record.** Extend the per-game log (or add a parallel record) to capture, per seat and tied to win/loss + `seed`: cards drawn over the game, opening-hand/kept cards, and cards played with their habitat **and slot**. This is TRAINING.md §8's "per-card visit counts," widened to GIH/GOB/GOB-per-slot. Sizeable schema + engine-hook change.
-- [ ] **Fixed-model stats-collection mode.** A non-training driver that plays a large number of games (10⁵–10⁶ for stable per-card readouts — TRAINING.md §4.1) with a locked checkpoint and streams the per-card records. `mp_collect` does the playing; the record needs plumbing and a collect-only entry point.
-- [ ] **Aggregation.** GIH / GOB / per-slot win-rate tables with sample sizes and CIs.
+- [ ] **Card-stats handler.** Implement a `CallbackHandler` subclassing `BirdPlacedHandler`, `SetupAppliedHandler`, `PlayerFinalScoredHandler`, and `GameEndHandler`, accumulating per-seat bird-play data (with habitat and slot) and opener cards, and writing one JSONL row per game on `game_end` with the winner linked in. Register and wire via `InstrumentationConfig`.
+- [ ] **Fixed-model stats-collection run.** Drive `mp_collect` (or a simpler single-process driver) with the locked checkpoint and the card-stats instrumentation config enabled. No new code needed beyond the handler — just a run config.
+- [ ] **Aggregation.** GIH / GOB / per-slot win-rate tables with sample sizes and CIs, reading the per-game JSONL output.
 
 ### Project: Are there low/high-scoring games? — ✅ runnable now (analysis script only)
 
@@ -121,10 +135,9 @@ We can already play fixed-model games fast, but `GameOutcome` records **no per-c
 
 ## Cross-cutting gaps (shared by several projects)
 
-- [ ] **An offline-analysis package** (e.g. `wingspan.analysis`) that loads a checkpoint via `from_model_config` and hosts the counterfactual scorer (P2), the decision-predicate capture/replay (P3), the setup sampler (P4), and the stats aggregators (P4–P6) on the existing primitives.
+- [ ] **An offline-analysis package** (e.g. `wingspan.analysis`) that loads a checkpoint via `from_model_config` and hosts the counterfactual scorer (P2), the setup sampler (P4), and the stats aggregators (P4–P6) on the existing primitives. Handler implementations for P3 and P5 live in `wingspan.instrumentation.handlers` instead.
 - [ ] **A games-log reader/aggregator** that consumes `games.jsonl` locally **and** the S3 `games/<session>/chunk_*.jsonl` chunks (P5, P6) — a small extension of `cloud.s3sync` (list + download many shard objects).
-- [ ] **A state-replay/perturbation utility** keyed off `seed` (reach decision *k*, snapshot/perturb the `GameState`, re-encode) — reused by P2 and P3.
-- [ ] **Per-card / per-decision-context logging schema** as Pydantic models alongside `metrics.GameOutcome` (P3, P5); once shipped, new fields default so logs from current-era runs keep loading (CLAUDE.md "Checkpoint compatibility policy").
+- [ ] **A state-replay/perturbation utility** keyed off `seed` (reach decision *k*, snapshot/perturb the `GameState`, re-encode) — needed only for P2 now (P3 uses live instrumentation instead).
 
 ## Offloading to AWS (reusing the cloud stack)
 
@@ -137,18 +150,26 @@ research projects are mostly *fixed-model inference/stat jobs at volume* —
 embarrassingly parallel and Spot-friendly — so the cleanest path is a second
 **analysis-job** type on the same scaffold, run as map/reduce.
 
+An important simplification from the instrumentation framework: a stats-collection
+cloud run is now just a training run with a locked checkpoint (no gradient
+updates) and an `InstrumentationConfig` specifying the data-capturing handlers —
+no separate job mode needed for P3 and P5. For Projects 1, 2, and 4, a distinct
+analysis-job type is still the right model.
+
 - [ ] **Second container entrypoint / job mode.** Alongside the training runner, add an analysis runner that reads a *job-file* from S3 (mirroring `CloudRunFile`), runs a fixed-checkpoint shard, and writes partial results to S3 — keeping the Spot graceful-stop and resuming a shard from its last committed offset.
-- [ ] **Sharding + launcher (the "map").** Split work into K shards — deal-seed ranges (P4, P5), decision-sample ranges (P2, P3), or run-configs (P1) — upload the job-file(s), and `aws ecs run-task` K Spot tasks, each writing `analysis/<job>/shard_<k>.(jsonl|parquet)`.
+- [ ] **Sharding + launcher (the "map").** Split work into K shards — deal-seed ranges (P4, P5), decision-sample ranges (P2), or run-configs (P1) — upload the job-file(s), and `aws ecs run-task` K Spot tasks, each writing `analysis/<job>/shard_<k>.(jsonl|parquet)`.
 - [ ] **Aggregation step (the "reduce").** A final task (or local) that reads all shards from S3 into the project's tables (per-card GIH/GOB, setup frequencies, score correlation) — and for P1, the head-to-head tournament + Elo across the per-config training runs.
-- [ ] **Run analysis over existing training output.** Because ordinary runs already stream `games/<session>/chunk_*.jsonl` to S3, Project 6 (and Project 5, once per-card logging lands) can reduce directly over the game chunks of normal training runs — no separate collection job needed.
+- [ ] **Run analysis over existing training output.** Because ordinary runs already stream `games/<session>/chunk_*.jsonl` to S3, Project 6 (and Project 5, once the card-stats handler is written) can reduce directly over the game chunks of normal training runs — no separate collection job needed.
 - [ ] **Right-size the task.** The current task definition is fixed at `cpu=2048 / memory=8192` (2 vCPU). `mp_collect` scales with cores, so large map jobs want either bigger task sizes (more vCPU per task) or many small tasks; parameterize this in the Terraform/launcher.
 - [ ] **Reuse the monitor.** Emit a per-shard `status.json` so `wingspan-monitor` (or a small variant) can show analysis-job progress the same way it shows training runs.
 
 **Bottom line.** Project 6 is runnable today with only an analysis script.
-Projects 2, 3, and 4 need modest harnesses built on existing primitives (no
-fundamental infra gap; 4 benefits most from cloud fan-out). Project 1 needs a
-real architecture change (per-head sizing) plus sweep/compare orchestration.
-Project 5 is gated on new per-card logging, the largest data-plumbing item. The
-cloud stack already gives us scale, persistence, and interruptibility — but only
-for training; offloading the analysis work needs an analysis-job entrypoint and a
-map/reduce launcher layered onto the same S3 + Fargate Spot scaffold.
+Project 4 needs only a sampler harness and an outcome-impact decision.
+Project 3 needs a single handler implementation — the engine hooks are live, no
+replay machinery required. Project 5 likewise needs a handler + aggregation
+layer (the engine hooks exist via `BIRD_PLACED` / `SETUP_APPLIED`); neither 3
+nor 5 requires the analysis-job cloud entrypoint. Project 2 still needs the
+state-perturbation/replay utility plus the counterfactual harness. Project 1
+needs a real architecture change (per-head sizing) plus sweep/compare
+orchestration. The cloud stack needs an analysis-job entrypoint for Projects 1,
+2, and 4; Projects 3, 5, and 6 can run over normal instrumented collection runs.
