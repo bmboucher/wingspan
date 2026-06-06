@@ -42,20 +42,27 @@ def test_state_size_differs_by_one_decision_type_column():
     assert encode.state_size(_INCLUDE) == encode.state_size(_EXCLUDE) + 1
 
 
-def test_choice_dim_differs_by_setup_agg_stripe():
+def test_choice_dim_differs_by_the_trailing_setup_stripes():
     assert (
         encode.choice_feature_dim(_INCLUDE)
-        == encode.choice_feature_dim(_EXCLUDE) + layout._SETUP_DIM
+        == encode.choice_feature_dim(_EXCLUDE)
+        + layout._SETUP_DIM
+        + layout._KEPT_MULTIHOT_DIM
     )
 
 
 def test_card_region_offsets_are_spec_invariant():
-    # The board-index block sits immediately before the candidate bird one-hot,
-    # and both precede the trailing conditional setup_agg, so the model's slice
-    # offsets never move with the spec.
+    # The board-index block sits immediately before the candidate bird-index
+    # column, and both precede the trailing conditional setup stripes, so the
+    # model's slice offsets never move with the spec (the kept_multihot region
+    # is by construction the include_setup row's final columns).
     assert (
         encode.CHOICE_BOARD_IDX_OFFSET + encode.CHOICE_BOARD_IDX_SLOTS
         == encode.CHOICE_BIRD_ID_OFFSET
+    )
+    assert (
+        encode.CHOICE_KEPT_MULTIHOT_OFFSET + encode.CHOICE_KEPT_MULTIHOT_DIM
+        == encode.choice_feature_dim(_INCLUDE)
     )
 
 
@@ -98,10 +105,15 @@ def test_stripe_layouts_sum_and_show_setup_only_when_included():
         assert (
             sum(s.size for s in choice_layout.stripes)
             == choice_layout.total_size
-            == encode.choice_input_dim(encode.choice_feature_dim(spec), card_embed_dim)
+            == encode.choice_input_dim(
+                encode.choice_feature_dim(spec),
+                card_embed_dim,
+                include_setup=spec.include_setup,
+            )
         )
         choice_names = {s.name for s in choice_layout.stripes}
         assert ("setup_agg" in choice_names) == spec.include_setup
+        assert ("kept_multihot" in choice_names) == spec.include_setup
 
 
 def test_model_builds_for_both_specs():

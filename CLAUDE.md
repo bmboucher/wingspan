@@ -407,10 +407,16 @@ tracks the codebase, the other the on-disk artifact format.
   graceful `architecture_key` gate — mismatch starts fresh, never crashes.
   Training resume across versions is **not** promised.
 - **Compat is version-number-specific checks, never config flags.** A shim
-  for an older same-major encoding lives behind
-  `version.adapt_encoding_for_version` (shape: `if artifact older than the
-  change: regenerate the encoding without the new field`) — do not add
-  `TrainConfig` axes to toggle old behaviors.
+  for an older same-major encoding lives in the `wingspan.compat` package, one
+  module per superseded era (shape: `if artifact older than the change:
+  regenerate the encoding without the new field` — see `compat.v0_0`, which
+  regenerates the pre-0.1 choice rows and provides the frozen-era
+  `PolicyValueNetV00`; the loaders route by
+  `compat.v0_0.uses_v0_0_choice_encoding`). Do not add `TrainConfig` axes to
+  toggle old behaviors. Inference call sites must encode through the net
+  (`net.encode_state` / `net.encode_choices`), never by pairing the live
+  encoder with a spec by hand — that is what lets a compat-era net carry its
+  own geometry.
 - **A MINOR bump is required for every FRESH-type change** (see below), and
   must: (a) bump `MODEL_VERSION`; (b) add the version-specific shim; (c)
   capture a new fixture set under `tests/data/compat/v<X.Y>/` from a run at

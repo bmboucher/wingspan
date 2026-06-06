@@ -28,8 +28,12 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "0.0"
-"""The current artifact-compatibility version (the only place it is defined)."""
+MODEL_VERSION = "0.1"
+"""The current artifact-compatibility version (the only place it is defined).
+
+0.1 reshaped the choice vector (landing-slot placement encoding, the single
+``bird_id`` index column, the dedicated ``kept_multihot`` stripe); pre-0.1
+artifacts load and play through the ``wingspan.compat.v0_0`` shim."""
 
 PRE_VERSIONING_VERSION = "0.0"
 """The version assigned to artifacts that predate the ``version`` field.
@@ -95,19 +99,20 @@ def check_artifact_compatible(artifact_version: str, *, what: str) -> None:
 
 
 def adapt_encoding_for_version(artifact_version: str) -> None:
-    """The seam where version-specific encoding shims land.
+    """The seam where version-specific encoding shims are documented.
 
-    When a MINOR bump changes the encoding (e.g. version 1.3 adds a stripe),
-    the shim that regenerates the *older* encoding for a same-major artifact
-    belongs here — the shape is ``if parse_version(artifact_version) older
-    than the change: encode without the new field``. Such a shim must also
-    satisfy (or route around) the live-layout checks at
-    ``selfplay._encoding_key`` and
-    ``tournament.participants._descriptor_encoding_key``, which currently
-    require an exact match with the live encoder.
+    The first real shim landed with 0.1 and lives, as this docstring always
+    promised, in the dedicated ``wingspan.compat`` package:
+    ``compat.v0_0`` regenerates the pre-0.1 choice encoding for same-major
+    artifacts (``compat.v0_0.encode_choices`` + ``PolicyValueNetV00``), routed
+    by the loaders (``model.PolicyValueNet.from_model_config``,
+    ``selfplay._load_policy_net``) and by the era-aware expected-encoding keys
+    in ``tournament.participants``. Future MINOR encoding changes follow the
+    same shape: a ``compat.v<X_Y>`` module keyed on
+    ``parse_version(artifact_version)`` older-than-the-change.
 
-    At version 0.0 nothing has changed yet, so this is an identity no-op kept
-    as the documented hook; promote it to a dedicated ``compat`` module when
-    the first real shim arrives.
+    This function itself stays a validating no-op (this module is torch-free
+    and must not import the shims); it remains so a future caller that only
+    needs the validation keeps a stable seam.
     """
     parse_version(artifact_version)

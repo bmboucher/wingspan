@@ -270,7 +270,9 @@ def _count_parameters(info: _ArchInfo) -> architecture.ParamReport:
             hand_embed_dim=info.arch.hand_embed_dim,
             tray_set_embedding=info.arch.tray_set_embedding,
         ),
-        choice_in=encode.choice_input_dim(info.choice_dim, info.arch.card_embed_dim),
+        choice_in=encode.choice_input_dim(
+            info.choice_dim, info.arch.card_embed_dim, include_setup=info.include_setup
+        ),
         num_families=len(info.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )

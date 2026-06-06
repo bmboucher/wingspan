@@ -155,9 +155,11 @@ def state_embed_rules(
 
 
 def choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
-    """The board-index / bird-identity stripes of the choice vector, embedded."""
+    """The board-index / bird-index / kept-set stripes of the choice vector,
+    embedded. The ``kept_multihot`` rule only fires when the stripe is present
+    (``include_setup`` layouts) — ``embed_layout`` looks rules up by name."""
     slots = layout.CHOICE_BOARD_IDX_SLOTS
-    birds = layout.CHOICE_BIRD_ID_DIM
+    kept = layout.CHOICE_KEPT_MULTIHOT_DIM
     return {
         "board_idx": _EmbedRule(
             new_size=slots * card_embed_dim,
@@ -174,9 +176,19 @@ def choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
             encoding="card-embedding (candidate)",
             value_range="learned",
             notes=(
-                f"Candidate bird -> one {card_embed_dim}-dim shared card embedding (a "
-                f"setup pick's kept set sums their vectors). Raw encoding is a {birds}-"
-                "wide one-hot / multi-hot over all core birds."
+                f"Candidate bird -> one {card_embed_dim}-dim shared card embedding, "
+                "zeroed when no bird. Raw encoding is a single integer index column "
+                "(bird_index + 1; 0 = no bird)."
+            ),
+        ),
+        "kept_multihot": _EmbedRule(
+            new_size=card_embed_dim,
+            encoding="card-embedding (kept set, summed)",
+            value_range="learned",
+            notes=(
+                f"A setup pick's kept set -> one {card_embed_dim}-dim embedding, "
+                f"summed over the kept cards' shared card vectors. Raw encoding is "
+                f"a {kept}-wide multi-hot over all core birds."
             ),
         ),
     }

@@ -28,7 +28,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wingspan import decisions, encode, engine, model
+from wingspan import decisions, engine, model
 
 
 def sample_action(
@@ -77,8 +77,8 @@ def greedy_agent(net: model.PolicyValueNet, device: torch.device) -> engine.Agen
         if not net.include_setup and decisions.is_setup_decision(decision):
             return decisions.random_choice(decision, eng.state.rng)
         family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision, net.spec)
-        choice_feats = encode.encode_choices(decision, eng.state, net.spec)
+        state_vec = net.encode_state(eng.state, decision)
+        choice_feats = net.encode_choices(decision, eng.state)
         idx = greedy_action(net, device, state_vec, choice_feats, family_idx)
         return decision.choices[idx]
 

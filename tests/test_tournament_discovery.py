@@ -17,6 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 import pytest
 import torch
 
+from wingspan import version
 from wingspan.tournament import participants
 from wingspan.training import artifacts, config, runmeta
 
@@ -27,6 +28,7 @@ def _make_run(directory: pathlib.Path, iteration: int) -> None:
     payload = {
         "model": {},
         "progress": {"iteration": iteration, "total_games": iteration * 5},
+        "version": version.MODEL_VERSION,
     }
     torch.save(payload, directory / artifacts.LAST_CKPT)
     _write_descriptor(directory)
@@ -34,7 +36,12 @@ def _make_run(directory: pathlib.Path, iteration: int) -> None:
 
 def _write_descriptor(directory: pathlib.Path, *, choice_dim_offset: int = 0) -> None:
     """Write a ``model_config.json`` matching the live encoder, optionally with
-    a deliberately stale ``choice_dim`` (offset by ``choice_dim_offset``)."""
+    a deliberately stale ``choice_dim`` (offset by ``choice_dim_offset``).
+
+    Stamped with the current artifact version, exactly like the production
+    writer (``runmeta.write_model_config``) — a version-less descriptor would
+    read as the pre-0.1 era and be expected to carry the frozen ``compat.v0_0``
+    dims instead of the live ones."""
     cfg = config.TrainConfig()
     descriptor = runmeta.ModelConfig(
         run_name=cfg.run_name,
@@ -43,6 +50,7 @@ def _write_descriptor(directory: pathlib.Path, *, choice_dim_offset: int = 0) ->
         family_order=cfg.family_order,
         architecture=cfg.arch,
         include_setup=cfg.encoding_spec.include_setup,
+        version=version.MODEL_VERSION,
     )
     (directory / artifacts.MODEL_CONFIG_JSON).write_text(
         descriptor.model_dump_json(), encoding="utf-8"

@@ -122,7 +122,11 @@ def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathli
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
         trunk_in=_trunk_input_dim(cfg),
-        choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
+        choice_in=encode.choice_input_dim(
+            cfg.choice_dim,
+            cfg.card_embed_dim,
+            include_setup=cfg.encoding_spec.include_setup,
+        ),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
@@ -153,7 +157,11 @@ def write_model_summary_html(
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
         trunk_in=_trunk_input_dim(cfg),
-        choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
+        choice_in=encode.choice_input_dim(
+            cfg.choice_dim,
+            cfg.card_embed_dim,
+            include_setup=cfg.encoding_spec.include_setup,
+        ),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )

@@ -497,17 +497,18 @@ class BirdPowerPickGainOrderDecision(Decision[PlayerIdChoice]):
 
 
 class BirdPowerPickHabitatDecision(Decision[HabitatChoice]):
-    """Power asks the player to designate a habitat target.
+    """The move-bird power asks for the destination habitat.
 
-    For the move-bird power the decision carries the move as typed context:
-    ``moving_bird`` is the bird being relocated (with the eggs sitting on it)
-    and ``from_habitat`` is the row it currently occupies, so the encoder can
-    price each destination's round-goal / bonus consequences and an
-    interactive UI can show what is moving. Both stay ``None`` for plain
-    habitat designations that move nothing."""
+    The decision carries the move as typed context: ``moving_bird`` is the
+    bird being relocated (with the eggs sitting on it) and ``from_habitat`` is
+    the row it currently occupies, so the encoder can mark each destination's
+    exact landing slot and price its round-goal / bonus consequences, and an
+    interactive UI can show what is moving. Both fields are required — a
+    future power needing a plain habitat designation (moving nothing) should
+    define its own decision and encoding rather than relax these."""
 
-    moving_bird: state.PlayedBird | None = None
-    from_habitat: cards.Habitat | None = None
+    moving_bird: state.PlayedBird
+    from_habitat: cards.Habitat
 
 
 class ResetBirdfeederDecision(Decision[ResetBirdfeederChoice | SkipChoice]):

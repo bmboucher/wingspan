@@ -33,7 +33,7 @@ import numpy as np
 import pydantic
 import torch
 
-from wingspan import cards, decisions, encode, engine, model, setup_model, state
+from wingspan import cards, decisions, engine, model, setup_model, state
 from wingspan.engine import scoring
 
 # ``steps`` is aliased because ``GameRecord.steps`` (and the local recording
@@ -337,8 +337,8 @@ def _recording_agent(
             # collected through the plain (non-setup-model) game path.
             return decisions.random_choice(decision, eng.state.rng)
         family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision, net.spec)
-        choice_feats = encode.encode_choices(decision, eng.state, net.spec)
+        state_vec = net.encode_state(eng.state, decision)
+        choice_feats = net.encode_choices(decision, eng.state)
         chosen_idx = policy.sample_action(
             net, device, state_vec, choice_feats, family_idx, rng
         )

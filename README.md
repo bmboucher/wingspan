@@ -169,6 +169,8 @@ src/wingspan/
   decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction + judgment families
   architecture.py        # ModelArchitecture + ActivationName (torch-free network topology descriptor)
   version.py             # MODEL_VERSION artifact-compat version + load-time check (torch-free)
+  compat/                # version-specific artifact shims (deleted wholesale at a MAJOR bump)
+    v0_0.py              #   pre-0.1 choice geometry: frozen row transform + PolicyValueNetV00
   model/                 # PyTorch network (package)
     __init__.py          #   re-exports PolicyValueNet
     core.py              #   PolicyValueNet actor-critic (built from a ModelArchitecture)

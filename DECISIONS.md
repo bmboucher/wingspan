@@ -79,27 +79,31 @@ The family → decision-class map (head order = `ALL_DECISION_FAMILIES`):
 
 ## 1. The choice vector at a glance
 
-One uniform row per candidate (`encode/layout.py`); base width 396, plus the
-trailing 4-dim `setup_agg` stripe when `include_setup` (400). The stripes, in
-offset order:
+One uniform row per candidate (`encode/layout.py`); base width 215, plus the
+trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes when
+`include_setup` (399). This is the artifact-version-0.1 layout; checkpoints
+from the pre-0.1 geometry (397-dim rows: a 3-dim habitat one-hot, a 180-wide
+`bird_id` one-hot doubling as the setup multi-hot, no landing-slot marks) are
+re-encoded at inference by `wingspan.compat.v0_0` and play through the
+frozen-era `PolicyValueNetV00`. The live stripes, in offset order:
 
 | Stripe | Width | Contents | Filled for |
 |---|---|---|---|
 | `kind` | 6 | one-hot: bird / food / habitat / payment / board_target / special | every row |
 | `gain_food` | 7 | 5 plain food faces + choice-die-as-invertebrate + choice-die-as-seed | food-type identifier: die gains, supply gains, and single-token spends — the *type* of the token, not the direction of flow |
-| `habitat` | 3 | habitat one-hot | play-bird rows, habitat picks, payment context |
 | `pay_food` | 5 | per-food payment counts (÷4) | payment multisets, named exchange costs, setup foods-spent |
 | `board_target` | 120 | 15 slots × 8 scalars: lay-flag, pay-flag, cached food ×5, tucked | egg add/remove targets; played-bird picks (context, no flag) |
 | `main_action` | 4 | one-hot over Gain Food / Lay Eggs / Draw Cards / Play Bird | main-action rows |
 | `special` | 2 | `is_skip`, `is_self` | skip rows; player-id rows |
 | `exchange` | 13 | pay→gain ledger (÷3): cards/food/eggs paid; food/eggs/cards/tucks/plays/cache gained; opponent-gain terms: `opp_food`, `opp_egg`, `opp_card`, `opp_tuck` — what a shared-benefit power additionally grants the opponent | accept-exchange rows |
-| `board_idx` | 15 | integer card index per board slot, embedded through the shared card table | wherever `board_target` is filled |
-| `bird_id` | 180 | bird identity one-hot (multi-hot for setup keeps), embedded through the shared card table — so the candidate's static attributes *and* its learned per-card vector arrive together | every bird-carrying row |
+| `board_idx` | 15 | integer card index per board slot (`bird_index + 1`, 0 = empty), embedded through the shared card table. Board-target rows fill every occupant; **placement rows mark only the landing slot** — the exact slot the bird would occupy (play-bird and payment rows: the chosen habitat's next free slot; move-bird rows: the destination's next free slot, or the mover's current slot on the "stay" row) | wherever `board_target` is filled; play-bird rows; payment context; move-habitat rows |
+| `bird_id` | 1 | the candidate bird as a single integer index column (`bird_index + 1`, 0 = no bird), embedded through the shared card table (zeroed when 0) — so the candidate's static attributes *and* its learned per-card vector arrive together | every bird-carrying row |
 | `bonus_id` | 26 | bonus-card identity one-hot | bonus picks, setup keeps |
 | `bonus_delta` | 3 | how this choice moves the decider's **held** bonus cards (static categories *and* the dynamic egg / hand-size / habitat-spread cards): affected-card count + summed stepped-VP and linear-VP marginals (signed) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; draw-source deck row, accept rows and the DRAW_CARDS main action (net hand change) |
 | `goal_delta` | 8 | how this choice moves each of the 4 round goals: per goal slot, count delta + marginal placement-VP swing (signed; **zero once that round is scored** — payouts freeze) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; lay/remove commitment rows (accept trades, LAY_EGGS main action — capacity-capped optimistic bound) |
 | `bonus_value` | 5 | what this **offered bonus card** is worth to the decider: board qualifying count, the stepped and linear VP that count pays, and qualifying-bird counts in hand (kept subset at setup) and tray | bonus picks; setup keeps carrying a bonus |
 | `setup_agg` | 4 | kept-subset aggregates: Σpoints, Σfood-cost, Σegg-limit, kept count | setup keeps only (`include_setup`) |
+| `kept_multihot` | 180 | multi-hot of the specific kept birds, summed through the shared card table (the kept set is unordered — the single-candidate `bird_id` column stays zero on setup rows) | setup keeps only (`include_setup`) |
 
 Worth remembering when reading the family sections: per-slot **egg counts and
 remaining capacity are not in the choice rows** — they ride the state vector's
@@ -286,8 +290,10 @@ All three are mandatory; the yes/no, where one exists, lives upstream in
 
 - **Payment rows** (`payment`-kind): the candidate multiset's per-food counts on
   the `pay_food` stripe, *plus decision-level context shared by every row* —
-  the committed bird's identity (→ card table) and the destination habitat —
-  so the head sees what the tokens are buying, not just the tokens leaving.
+  the committed bird's identity (→ card table) and its landing slot marked in
+  the `board_idx` block (the payment is asked before the bird is placed, so
+  the chosen habitat's next free slot is where it will land) — so the head
+  sees what the tokens are buying, not just the tokens leaving.
 - **Single-token rows** (`food`-kind): a one-hot on the `gain_food` stripe —
   the same stripe used for food gains, because `gain_food` is a food-type
   identifier, not a "gains" stripe. For a spend decision, the hot slot marks
@@ -295,13 +301,13 @@ All three are mandatory; the yes/no, where one exists, lives upstream in
   by the decision-type one-hot, not by the row itself.
 
 **Variation within the family.** Two row shapes inside one head: payment-kind
-rows (multisets on `pay_food` + committed bird + habitat) and food-kind rows
-(a single food type on `gain_food`, no bird/habitat context). The model is
+rows (multisets on `pay_food` + committed bird + landing slot) and food-kind
+rows (a single food type on `gain_food`, no bird/slot context). The model is
 effectively learning two sub-skills — "which multiset preserves my
 flexibility?" and "which loose token do I value least?" — tied together by
 the shared notion of food value. Payment rows are the only place in the game
-where decision-level context (the committed bird's identity and habitat) rides
-identically on every candidate row.
+where decision-level context (the committed bird's identity and landing slot)
+rides identically on every candidate row.
 
 ### 2.6 `LAY_EGG` — which bird gets the egg
 
@@ -506,13 +512,15 @@ share this head so none starves:
 
 **What the choice rows carry.** Three disjoint shapes:
 
-- habitat picks: the 3-wide habitat one-hot; when the decision carries the
-  move-bird context (`BirdPowerPickHabitatDecision.moving_bird` /
-  `from_habitat`), each destination row also carries the moving bird's
-  identity (→ card table) plus `goal_delta` / `bonus_delta` pricing the
-  relocation — habitat bird counts, the egg block riding along (including the
-  egg-set minimum), and the habitat-spread bonus card; the "stay" row's
-  deltas are naturally all-zero;
+- habitat picks: each destination row carries the moving bird's identity
+  (→ card table, the decision's `moving_bird` / `from_habitat` context), its
+  **landing slot** marked in the `board_idx` block — the exact slot the bird
+  would occupy (the destination row's next free slot; the "stay" row marks
+  the bird's current slot), so the model reads the resulting location instead
+  of inferring it from a habitat flag — plus `goal_delta` / `bonus_delta`
+  pricing the relocation: habitat bird counts, the egg block riding along
+  (including the egg-set minimum), and the habitat-spread bonus card; the
+  "stay" row's deltas are naturally all-zero;
 - played-bird picks: the candidate's bird identity (→ card table) plus the
   full board block *as context, with no target flag* — and since the board
   block is the decider's whole board, it is identical on every row; the rows
@@ -544,15 +552,17 @@ The chosen play's costs are follow-ups in other families, eggs then food:
 strategic pick is kept clean of spend logistics.
 
 **What the choice rows carry.** Bird-kind rows: the bird's identity (→ card
-table), the destination habitat one-hot, the `bonus_delta` stripe pricing
+table), its **landing slot** marked in the `board_idx` block (the chosen
+habitat's next free slot — the exact slot the bird would occupy, so the model
+reads the resulting location directly), the `bonus_delta` stripe pricing
 the play's marginal contribution to the held bonus cards, and the
 `goal_delta` stripe pricing its marginal count/VP swing on each of the four
 round goals. No cost features — costs resolve downstream, and only
 completable pairs are offered.
 
 **Variation within the family.** One class, one shape. A bird playable in two
-habitats produces two rows differing only in the habitat stripe — that is the
-intra-decision texture this head specializes in. Notably, a main-action play
+habitats produces two rows differing only in the marked landing slot — that is
+the intra-decision texture this head specializes in. Notably, a main-action play
 and an extra play are **completely indistinguishable** to the model: same
 decision class (so the same decision-type one-hot), same row shape, and no
 extra-play-credit scalar in the state vector. The model cannot currently
@@ -612,11 +622,12 @@ axis:
   card-identity blocks embedded through frozen copies of the main net's
   shared card encoders.
 - **`use_setup_model = False`:** the main net keeps a `SETUP` head and scores
-  the same candidates as ordinary choice rows (kept-bird identity multi-hot,
-  foods-*spent* on the `pay_food` stripe, the `setup_agg` aggregates, and the
-  kept bonus identity — plus, when the candidate carries a bonus, the
-  `bonus_value` stripe with its hand potential counted over the **kept**
-  subset, not the full dealt hand).
+  the same candidates as ordinary choice rows (the kept birds as a multi-hot
+  on the dedicated trailing `kept_multihot` stripe — the single-candidate
+  `bird_id` column stays zero — foods-*spent* on the `pay_food` stripe, the
+  `setup_agg` aggregates, and the kept bonus identity — plus, when the
+  candidate carries a bonus, the `bonus_value` stripe with its hand potential
+  counted over the **kept** subset, not the full dealt hand).
 
 **Whether the bonus pick is folded in is itself a config choice.**
 `TrainConfig.split_setup_bonus` (effective only alongside the setup model —

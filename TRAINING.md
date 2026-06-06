@@ -28,8 +28,8 @@ The measured profile is in §1 and is the foundation for every later decision.
 > (§5.2), the shared card embedding (§6.3), and per-card visit-count logging (§8).
 >
 > Two caveats on the numbers/claims below: the §1.1 measured sizes predate the
-> encoder expansion (as of the bonus_delta stripe the state vector is **768**
-> and the choice vector **383**, not 282/260 — re-measure before quoting), and
+> encoder expansion (as of the landing-slot encoding the state vector is **768**
+> and the choice vector **215**, not 282/260 — re-measure before quoting), and
 > checkpoints do **not** store RNG state, so a resumed
 > session is *not* bit-for-bit identical — but every collected game is
 > seed-reproducible from `config.seed`, so the per-game logs are stable. Engine
@@ -91,7 +91,7 @@ it produces. Here is this game, as the encoder and engine actually emit it.
 | Quantity | Value | Source |
 |---|---|---|
 | State vector length | **768** | `encode.state_size()` |
-| Per-choice feature length | **383** | `encode.CHOICE_FEATURE_DIM` |
+| Per-choice feature length | **215** | `encode.CHOICE_FEATURE_DIM` |
 | Judgment-family heads | **13** | `decisions.ALL_DECISION_FAMILIES` |
 | Distinct decision classes | **17** | `decisions.ALL_DECISION_CLASSES` |
 | Total parameters (`hidden=128`) | **532,110** | `PolicyValueNet` |

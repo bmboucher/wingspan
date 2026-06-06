@@ -2,11 +2,12 @@
 # (reads the layout's package-private stripe constants to slice choice rows)
 """Tests for move-bird consequence pricing on habitat rows.
 
-When a ``BirdPowerPickHabitatDecision`` carries the move context
-(``moving_bird`` / ``from_habitat``), each destination row prices relocating
-that bird: habitat bird counts, the egg block riding along (including the
-egg-set minimum), and the habitat-spread bonus card. The "stay" row's deltas
-are all-zero, and a context-free habitat designation stays a bare one-hot.
+A ``BirdPowerPickHabitatDecision`` carries the move context (``moving_bird`` /
+``from_habitat``): each destination row prices relocating that bird — habitat
+bird counts, the egg block riding along (including the egg-set minimum), and
+the habitat-spread bonus card — and marks the bird's landing slot in the
+board-index block (the destination row's next free slot; the "stay" row marks
+the bird's current slot). The "stay" row's deltas are all-zero.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ import random
 import sys
 
 import numpy as np
+import pydantic
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -65,6 +68,16 @@ def _bonus_delta(row: np.ndarray) -> tuple[float, float, float]:
     )
 
 
+def _marked_board_slots(row: np.ndarray) -> dict[int, float]:
+    """The nonzero entries of the board-index block, keyed by positional slot."""
+    block = row[layout._OFF_BOARD_IDX : layout._OFF_BOARD_IDX + layout._BOARD_IDX_SLOTS]
+    return {slot: float(value) for slot, value in enumerate(block) if value != 0.0}
+
+
+def _board_slot_index(habitat: cards.Habitat, slot: int) -> int:
+    return list(cards.ALL_HABITATS).index(habitat) * state.ROW_SLOTS + slot
+
+
 def _move_rows(
     game_state: state.GameState,
     moving_bird: state.PlayedBird,
@@ -108,9 +121,23 @@ def test_move_rows_price_bird_count_eggs_and_sets():
 
     # Every row carries the moving bird's identity; the stay row prices zero.
     for row in rows:
-        assert row[layout._OFF_BIRD_ID + cards.bird_index(roomy)] == 1.0
+        assert row[layout._OFF_BIRD_ID] == cards.bird_index(roomy) + 1
     for goal_idx in range(4):
         assert _goal_delta_slot(stay_row, goal_idx) == (0.0, 0.0)
+
+    # Each row marks exactly one board-index slot — the bird's landing slot.
+    # The mover sits at forest slot 1 (rightmost of [static, mover]); the
+    # grassland and wetland rows each hold one bird, so it would land at slot 1.
+    mover_index = float(cards.bird_index(roomy) + 1)
+    assert _marked_board_slots(stay_row) == {
+        _board_slot_index(cards.Habitat.FOREST, 1): mover_index
+    }
+    assert _marked_board_slots(grass_row) == {
+        _board_slot_index(cards.Habitat.GRASSLAND, 1): mover_index
+    }
+    assert _marked_board_slots(wetland_row) == {
+        _board_slot_index(cards.Habitat.WETLAND, 1): mover_index
+    }
 
     # To wetland: forest loses a bird (-1) and 2 eggs (-2); wetland gains the
     # 2 eggs; the per-habitat egg minimum rises 0 -> 1 (a completed set).
@@ -156,18 +183,19 @@ def test_move_rows_price_habitat_spread_bonus():
     assert _bonus_delta(rows[1]) == (0.0, 0.0, 0.0)
 
 
-def test_context_free_habitat_rows_stay_bare():
-    """A habitat designation with no move context carries no identity and no
-    deltas — just the habitat one-hot."""
-    game_state = _game_with_goals(["birds_forest"] * 4)
-    decision = decisions.BirdPowerPickHabitatDecision(
-        player_id=0,
-        prompt="designate",
-        choices=[decisions.HabitatChoice(label="forest", habitat=cards.Habitat.FOREST)],
-    )
-    row = encode.encode_choices(decision, game_state)[0]
-    bird_id_block = row[layout._OFF_BIRD_ID : layout._OFF_BIRD_ID + layout._BIRD_ID_DIM]
-    assert not bird_id_block.any()
-    for goal_idx in range(4):
-        assert _goal_delta_slot(row, goal_idx) == (0.0, 0.0)
-    assert _bonus_delta(row) == (0.0, 0.0, 0.0)
+def test_move_context_is_required():
+    """The decision's move context is required by construction — the plain
+    habitat-designation mode (no ``moving_bird``) no longer exists, so the
+    encoder never sees a context-free habitat row."""
+    with pytest.raises(pydantic.ValidationError):
+        decisions.BirdPowerPickHabitatDecision.model_validate(
+            {
+                "player_id": 0,
+                "prompt": "designate",
+                "choices": [
+                    decisions.HabitatChoice(
+                        label="forest", habitat=cards.Habitat.FOREST
+                    )
+                ],
+            }
+        )

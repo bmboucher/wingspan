@@ -278,7 +278,11 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
         extras.append(f"+d{_fmt_dropout(cfg.dropout)}")
     tags = ("  " + " ".join(extras)) if extras else ""
     trunk_in = _trunk_in(cfg)
-    choice_in = encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim)
+    choice_in = encode.choice_input_dim(
+        cfg.choice_dim,
+        cfg.card_embed_dim,
+        include_setup=cfg.encoding_spec.include_setup,
+    )
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
     setup_chain = (
         _chain(_setup_readout_in(cfg), (*cfg.setup_hidden_layers, 1))
@@ -496,10 +500,16 @@ def _choice_encoder_column(
     """The per-choice encoder box (a body block whose final layer is a bare Linear,
     no activation), fed by the card encoder plus its additional features."""
     cfg = view.working
-    choice_in = encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim)
-    # Both card regions (the candidate one-hot and the 15-slot board-index block)
-    # are embedded, so the passthrough "extra" excludes them.
+    include_setup = cfg.encoding_spec.include_setup
+    choice_in = encode.choice_input_dim(
+        cfg.choice_dim, cfg.card_embed_dim, include_setup=include_setup
+    )
+    # Every card region (the candidate index column, the 15-slot board-index
+    # block, and — when setup is in the main net — the kept-set multi-hot) is
+    # embedded, so the passthrough "extra" excludes them all.
     extra = cfg.choice_dim - encode.CHOICE_BIRD_ID_DIM - encode.CHOICE_BOARD_IDX_SLOTS
+    if include_setup:
+        extra -= encode.CHOICE_KEPT_MULTIHOT_DIM
     entries = _block_op_entries(
         view,
         cfg.choice_layers,
@@ -983,7 +993,11 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
         trunk_in=_trunk_in(cfg),
-        choice_in=encode.choice_input_dim(cfg.choice_dim, cfg.card_embed_dim),
+        choice_in=encode.choice_input_dim(
+            cfg.choice_dim,
+            cfg.card_embed_dim,
+            include_setup=cfg.encoding_spec.include_setup,
+        ),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )

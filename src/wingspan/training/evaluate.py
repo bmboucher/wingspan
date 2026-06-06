@@ -29,7 +29,7 @@ import typing
 
 import torch
 
-from wingspan import agents, decisions, encode, engine, model
+from wingspan import agents, decisions, engine, model
 from wingspan.training import collect, metrics, policy
 
 _Z_95 = 1.96
@@ -242,8 +242,8 @@ def _counting_greedy_agent(
             return decisions.random_choice(decision, eng.state.rng)
         counter[0] += 1
         family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision, net.spec)
-        choice_feats = encode.encode_choices(decision, eng.state, net.spec)
+        state_vec = net.encode_state(eng.state, decision)
+        choice_feats = net.encode_choices(decision, eng.state)
         idx = policy.greedy_action(net, device, state_vec, choice_feats, family_idx)
         return decision.choices[idx]
 

@@ -5,13 +5,14 @@ Most of the layout is fixed, but the *shape* of the main model is config-driven
 on a single axis — whether the opening (``SetupDecision``) is scored by the main
 model or delegated to the separate setup model. :class:`EncodingSpec` captures
 that axis (``include_setup``); the setup-only pieces are kept LAST in every
-stable order (the choice ``setup_agg`` stripe, the decision-type one-hot's setup
-column, the ``SETUP`` scoring head), so excluding them is a clean truncation of
-trailing dimensions that leaves every other offset and index unchanged. The
-spec-dependent totals are therefore exposed as functions
-(``state_feature_dim`` / ``choice_feature_dim`` / ``decision_type_dim`` /
-``num_families``); the module constants ``CHOICE_FEATURE_DIM`` /
-``DECISION_TYPE_DIM`` are the default-spec (setup-included) values.
+stable order (the choice ``setup_agg`` and ``kept_multihot`` stripes, the
+decision-type one-hot's setup column, the ``SETUP`` scoring head), so excluding
+them is a clean truncation of trailing dimensions that leaves every other
+offset and index unchanged. The spec-dependent totals are therefore exposed as
+functions (``state_feature_dim`` / ``choice_feature_dim`` /
+``decision_type_dim`` / ``num_families``); the module constants
+``CHOICE_FEATURE_DIM`` / ``DECISION_TYPE_DIM`` are the default-spec
+(setup-excluded) values.
 
 The ``_OFF_*`` chain is evaluated top-to-bottom; the ``encode_state`` stripe
 order and these offsets are part of the checkpoint format — reordering or
@@ -128,11 +129,11 @@ _SLOTS_PER_BOARD = state.N_HABITATS * state.ROW_SLOTS  # 15
 # A single uniform feature vector with type-specific stripes. Each branch in
 # ``_featurize_choice`` fills only the stripes relevant to that decision type;
 # the rest stay zero. Every offset below is fixed; only the trailing
-# ``setup_agg`` stripe is conditional (present iff ``EncodingSpec.include_setup``).
+# ``setup_agg`` / ``kept_multihot`` stripes are conditional (present iff
+# ``EncodingSpec.include_setup``).
 
 _KIND_DIM = 6  # bird, food, habitat, payment, board_target, special
 _GAIN_FOOD_DIM = 7  # 5 foods + take-choice-die-as-invertebrate + ...-as-seed
-_HABITAT_DIM = 3  # habitat one-hot
 _PAY_FOOD_DIM = 5  # food payment: count per food
 _MAIN_ACTION_DIM = 4  # one-hot over the four main actions
 _SPECIAL_DIM = 2  # is_skip, is_self
@@ -159,36 +160,44 @@ _BT_TUCKED = _BT_CACHED + cards.N_FOODS  # 7
 _BOARD_TARGET_DIM = _SLOTS_PER_BOARD * _BT_SLOT_SCALARS  # 15 * 8 = 120
 _BOARD_IDX_SLOTS = _SLOTS_PER_BOARD  # 15 integer card indices, embedded by the model
 
-# Card-identity stripes: a one-hot over every core-set bird / bonus card, so a
-# specific card — or, for the setup pick, a *set* of cards as a multi-hot — is
-# encoded by identity. The model maps the bird stripe through the shared card
-# encoder (the same ``[181, D]`` table the state board / tray slots use). Sized
-# from the loaded catalog (180 birds / 26 bonus cards in the core set).
+# Card-identity stripes. The candidate bird is a single integer index column
+# (``bird_index + 1``, 0 = no bird) the model looks up in the shared card table
+# (the same ``[181, D]`` table the state board / tray slots use) — the same
+# convention as the board-index block. The bonus card stays a one-hot. A setup
+# pick's kept *set* of cards rides the trailing ``kept_multihot`` stripe (a
+# multi-hot the model sums through the card table), present iff
+# ``include_setup``. ``_BIRD_ID_DIM`` is the catalog size (180 core-set birds)
+# and also feeds the state-side hand multi-hot / card-feature constants.
 _BIRD_ID_DIM = cards.n_birds()
 _BONUS_ID_DIM = cards.n_bonus_cards()
+_CHOICE_BIRD_ID_DIM = 1  # the candidate bird's single index column
+_KEPT_MULTIHOT_DIM = _BIRD_ID_DIM  # setup kept-set multi-hot (only when include_setup)
 
-# Stripe offsets (cumulative). The board-index block and bird-identity one-hot
-# (the two card regions the model embeds) sit together just before bonus_id;
+# Stripe offsets (cumulative). The board-index block and bird-index column
+# (two of the card regions the model embeds) sit together just before bonus_id;
 # bonus_id is followed by bonus_delta, goal_delta, then bonus_value (the
 # per-candidate contribution / pricing scalars), and the conditional setup_agg
-# stripe trails everything — so the card-region offsets the model slices on
-# stay invariant to ``include_setup``.
+# and kept_multihot stripes trail everything — so the card-region offsets the
+# model slices on stay invariant to ``include_setup`` (the trailing
+# kept_multihot region is by construction the row's final columns).
 _OFF_KIND = 0
 _OFF_GAIN_FOOD = _OFF_KIND + _KIND_DIM
-_OFF_HAB = _OFF_GAIN_FOOD + _GAIN_FOOD_DIM
-_OFF_PAY = _OFF_HAB + _HABITAT_DIM
+_OFF_PAY = _OFF_GAIN_FOOD + _GAIN_FOOD_DIM
 _OFF_BOARD = _OFF_PAY + _PAY_FOOD_DIM
 _OFF_MAIN_ACTION = _OFF_BOARD + _BOARD_TARGET_DIM
 _OFF_SPECIAL = _OFF_MAIN_ACTION + _MAIN_ACTION_DIM
 _OFF_EXCHANGE = _OFF_SPECIAL + _SPECIAL_DIM
 _OFF_BOARD_IDX = _OFF_EXCHANGE + _EXCHANGE_DIM
 _OFF_BIRD_ID = _OFF_BOARD_IDX + _BOARD_IDX_SLOTS
-_OFF_BONUS_ID = _OFF_BIRD_ID + _BIRD_ID_DIM
+_OFF_BONUS_ID = _OFF_BIRD_ID + _CHOICE_BIRD_ID_DIM
 _OFF_BONUS_DELTA = _OFF_BONUS_ID + _BONUS_ID_DIM
 _OFF_GOAL_DELTA = _OFF_BONUS_DELTA + _BONUS_DELTA_DIM
 _OFF_BONUS_VALUE = _OFF_GOAL_DELTA + _GOAL_DELTA_DIM
 _OFF_SETUP = _OFF_BONUS_VALUE + _BONUS_VALUE_DIM  # trailing; present iff include_setup
-_CHOICE_BASE_DIM = _OFF_SETUP  # row width without setup_agg (include_setup=False)
+_OFF_KEPT_MULTIHOT = _OFF_SETUP + _SETUP_DIM  # trailing; present iff include_setup
+_CHOICE_BASE_DIM = (
+    _OFF_SETUP  # row width without the setup stripes (include_setup=False)
+)
 
 # Within-KIND indices
 _KIND_BIRD = 0
@@ -412,17 +421,21 @@ OFF_HAND_MULTIHOT = OFF_CARD_INDEX + N_CARD_INDEX_SLOTS
 OFF_DECISION_TYPE = OFF_HAND_MULTIHOT + HAND_MULTIHOT_DIM
 
 # Choice-vector card regions the model embeds through the shared card table. The
-# board-index block sits immediately before the candidate bird one-hot; both
-# precede bonus_id and the trailing (conditional) setup_agg stripe, so these
+# board-index block sits immediately before the candidate bird-index column; both
+# precede bonus_id and the trailing (conditional) setup stripes, so these
 # offsets are invariant to ``include_setup`` and the model slices on plain
-# constants. The model embeds a single-card candidate's one-hot to that card's
-# vector and each of the 15 board-slot indices to its card vector.
+# constants. The model embeds the candidate's index column to that card's
+# vector (masked to zero when no bird) and each of the 15 board-slot indices to
+# its card vector; when ``include_setup``, the trailing kept_multihot stripe is
+# summed through the card table into one more vector.
 CHOICE_BOARD_IDX_OFFSET = _OFF_BOARD_IDX
 CHOICE_BOARD_IDX_SLOTS = _BOARD_IDX_SLOTS
 CHOICE_BIRD_ID_OFFSET = _OFF_BIRD_ID
-CHOICE_BIRD_ID_DIM = _BIRD_ID_DIM
+CHOICE_BIRD_ID_DIM = _CHOICE_BIRD_ID_DIM
 CHOICE_BONUS_ID_OFFSET = _OFF_BONUS_ID
 CHOICE_SETUP_OFFSET = _OFF_SETUP
+CHOICE_KEPT_MULTIHOT_OFFSET = _OFF_KEPT_MULTIHOT
+CHOICE_KEPT_MULTIHOT_DIM = _KEPT_MULTIHOT_DIM
 
 
 def trunk_input_dim(
@@ -474,18 +487,27 @@ def trunk_input_dim(
     return base
 
 
-def choice_input_dim(choice_dim: int, card_embed_dim: int) -> int:
+def choice_input_dim(
+    choice_dim: int, card_embed_dim: int, *, include_setup: bool = False
+) -> int:
     """The per-choice encoder's first-``Linear`` input width: the flat
-    ``choice_dim`` with the candidate's bird-identity one-hot AND the 15-slot
+    ``choice_dim`` with the candidate's bird-index column AND the 15-slot
     board-index block replaced by their shared-embedding lookups — one
-    ``card_embed_dim`` vector per board slot plus one for the candidate."""
-    return (
+    ``card_embed_dim`` vector per board slot plus one for the candidate. When
+    ``include_setup``, the trailing kept_multihot stripe likewise collapses to
+    one summed embedding; ``choice_dim`` alone cannot reveal whether the
+    trailing setup stripes are present, so the flag is explicit (default
+    matches ``DEFAULT_SPEC``)."""
+    base = (
         choice_dim
-        - CHOICE_BIRD_ID_DIM  # candidate one-hot -> one embedding
+        - CHOICE_BIRD_ID_DIM  # candidate index column -> one embedding
         - CHOICE_BOARD_IDX_SLOTS  # board index columns -> per-slot embeddings
         + card_embed_dim
         + CHOICE_BOARD_IDX_SLOTS * card_embed_dim
     )
+    if include_setup:
+        base += card_embed_dim - CHOICE_KEPT_MULTIHOT_DIM  # multi-hot -> one embedding
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -513,8 +535,10 @@ def num_families(spec: EncodingSpec = DEFAULT_SPEC) -> int:
 
 def choice_feature_dim(spec: EncodingSpec = DEFAULT_SPEC) -> int:
     """Width of one choice feature row for ``spec``: the fixed base plus the
-    trailing ``setup_agg`` stripe when ``include_setup``."""
-    return _CHOICE_BASE_DIM + (_SETUP_DIM if spec.include_setup else 0)
+    trailing ``setup_agg`` + ``kept_multihot`` stripes when ``include_setup``."""
+    return _CHOICE_BASE_DIM + (
+        _SETUP_DIM + _KEPT_MULTIHOT_DIM if spec.include_setup else 0
+    )
 
 
 def state_feature_dim(spec: EncodingSpec = DEFAULT_SPEC) -> int:

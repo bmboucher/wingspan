@@ -113,7 +113,9 @@ def _report_html(use_setup_model: bool) -> str:
             hand_embed_dim=arch.hand_embed_dim,
             tray_set_embedding=arch.tray_set_embedding,
         ),
-        choice_in=encode.choice_input_dim(choice_dim, arch.card_embed_dim),
+        choice_in=encode.choice_input_dim(
+            choice_dim, arch.card_embed_dim, include_setup=spec.include_setup
+        ),
         num_families=len(family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )

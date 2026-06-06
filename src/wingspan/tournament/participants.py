@@ -22,6 +22,7 @@ import pydantic
 import torch
 
 from wingspan import agents, decisions, encode, engine, model, version
+from wingspan.compat import v0_0
 from wingspan.training import artifacts, policy, runmeta
 from wingspan.training.configure import runs
 
@@ -178,15 +179,13 @@ def _reconstruct_net(checkpoint_dir: str) -> model.PolicyValueNet:
     seating with a clear message instead of a mid-game tensor-shape error."""
     descriptor = runmeta.read_model_config(checkpoint_dir)
     saved = _descriptor_encoding_key(descriptor)
-    live = _live_encoding_key(
-        encode.EncodingSpec(include_setup=descriptor.include_setup)
-    )
-    if saved != live:
+    expected = _expected_encoding_key(descriptor)
+    if saved != expected:
         raise ValueError(
             f"Run {checkpoint_dir!r} was trained against an encoding layout "
             "incompatible with the current code:\n"
-            f"  saved: {saved}\n"
-            f"  live:  {live}\n"
+            f"  saved:    {saved}\n"
+            f"  expected: {expected}\n"
             "It cannot consume freshly-encoded states and is not seatable."
         )
     return model.PolicyValueNet.from_model_config(descriptor)
@@ -203,20 +202,19 @@ def _loadable(checkpoint_dir: str, summary: runs.RunSummary) -> bool:
 
 
 def _encoding_compatible(checkpoint_dir: str) -> bool:
-    """Whether the run's saved encoding descriptor matches the live encoder,
-    mirroring ``selfplay._encoding_key``: the ``(state_dim, choice_dim,
-    family_order)`` triple must agree for freshly-encoded inputs to feed the
-    run's net. The descriptor's own ``include_setup`` selects which spec the
-    live dims are computed for. A missing, unparseable, or version-incompatible
-    descriptor returns ``False`` (the run is simply not seatable); never
-    raises."""
+    """Whether the run's saved encoding descriptor matches the encoder its
+    artifact era promises, mirroring ``selfplay._encoding_key``: the
+    ``(state_dim, choice_dim, family_order)`` triple must agree for the net to
+    consume the inputs it will be fed. The descriptor's own ``include_setup``
+    selects the spec, and its artifact version selects the era (a pre-0.1 run
+    is seatable through the ``compat.v0_0`` encoder). A missing, unparseable,
+    or version-incompatible descriptor returns ``False`` (the run is simply
+    not seatable); never raises."""
     try:
         descriptor = runmeta.read_model_config(checkpoint_dir)
     except (OSError, pydantic.ValidationError, version.IncompatibleArtifactError):
         return False
-    return _descriptor_encoding_key(descriptor) == _live_encoding_key(
-        encode.EncodingSpec(include_setup=descriptor.include_setup)
-    )
+    return _descriptor_encoding_key(descriptor) == _expected_encoding_key(descriptor)
 
 
 def _descriptor_encoding_key(
@@ -226,16 +224,25 @@ def _descriptor_encoding_key(
     return (descriptor.state_dim, descriptor.choice_dim, descriptor.family_order)
 
 
-def _live_encoding_key(
-    spec: encode.EncodingSpec,
+def _expected_encoding_key(
+    descriptor: runmeta.ModelConfig,
 ) -> tuple[int, int, tuple[str, ...]]:
-    """The live encoder's encoding-compatibility signature for ``spec``, built
-    exactly the way ``config.TrainConfig._sync_encoding_dims`` derives it."""
+    """The encoding-compatibility signature ``descriptor``'s artifact era
+    promises: the live encoder's dims (built exactly the way
+    ``config.TrainConfig._sync_encoding_dims`` derives them), except that a
+    pre-0.1 descriptor's choice dim comes from the frozen ``compat.v0_0``
+    geometry its net will actually be fed (state encoding and the family-head
+    order are unchanged between the eras)."""
+    spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
     family_order = tuple(
         family.value
         for family in decisions.active_decision_families(spec.include_setup)
     )
-    return (encode.state_size(spec), encode.choice_feature_dim(spec), family_order)
+    if v0_0.uses_v0_0_choice_encoding(descriptor.version):
+        choice_dim = v0_0.choice_feature_dim(spec)
+    else:
+        choice_dim = encode.choice_feature_dim(spec)
+    return (encode.state_size(spec), choice_dim, family_order)
 
 
 def _option_from_summary(

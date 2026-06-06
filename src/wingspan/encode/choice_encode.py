@@ -4,7 +4,7 @@
 """The choice encoder: ``encode_choices`` featurizes every legal choice in a
 decision into a ``(n_choices, choice_feature_dim(spec))`` matrix, dispatching on
 the concrete ``Choice`` subclass through ``_CHOICE_FEATURIZERS``. The ``_fill_*``
-helpers write the shared per-card / per-food / per-habitat / per-board stripes.
+helpers write the shared per-card / per-food / per-board stripes.
 """
 
 from __future__ import annotations
@@ -266,23 +266,21 @@ def _featurize_play_bird(
     choice: decisions.PlayBirdChoice,
     state: state.GameState,
 ) -> None:
-    # A play candidate from ``PlayBirdDecision``: the bird-identity stripe carries
-    # the card (its attributes ride the shared card table), and the habitat stripe
-    # carries the bundled habitat pick. KIND stays BIRD — it is fundamentally a
-    # bird play — while the habitat stripe distinguishes the per-habitat variants
-    # of the same bird. The costs are follow-up decisions (RemoveEggDecision /
-    # PayBirdFoodDecision), so no payment stripe is filled here; the bonus_delta
-    # and goal_delta stripes price the play's contribution to held bonus cards and
-    # round-goal standings.
+    # A play candidate from ``PlayBirdDecision``: the bird-index column carries
+    # the card (its attributes ride the shared card table), and the landing-slot
+    # marker in the board-index block carries the bundled habitat pick as the
+    # exact slot the bird would occupy — the model reads the resulting location
+    # directly instead of inferring it from a habitat flag. KIND stays BIRD — it
+    # is fundamentally a bird play — while the landing slot distinguishes the
+    # per-habitat variants of the same bird. The costs are follow-up decisions
+    # (RemoveEggDecision / PayBirdFoodDecision), so no payment stripe is filled
+    # here; the bonus_delta and goal_delta stripes price the play's contribution
+    # to held bonus cards and round-goal standings.
+    player = state.players[decision.player_id]
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
-    _fill_habitat(feat, choice.habitat)
-    _fill_bonus_delta(
-        feat,
-        state.players[decision.player_id],
-        choice.bird,
-        play_habitat=choice.habitat,
-    )
+    _fill_landing_slot(feat, player, choice.bird, choice.habitat)
+    _fill_bonus_delta(feat, player, choice.bird, play_habitat=choice.habitat)
     _fill_goal_delta(feat, decision.player_id, choice.bird, state)
 
 
@@ -295,13 +293,17 @@ def _featurize_food_payment(
     # A complete payment multiset for a committed bird play (PayBirdFoodDecision).
     # KIND_PAYMENT marks the row a whole-payment pick; the PAY stripe carries the
     # candidate's per-food counts, and the committed play rides along as context —
-    # bird identity (embedded through the shared card table) plus habitat — so the
+    # bird identity (embedded through the shared card table) plus its landing
+    # slot in the board-index block (the payment is asked before the bird is
+    # placed, so the row's next free slot is where it will land) — so the
     # spend-food head sees *what* the payment is for, not just the tokens leaving.
     feat[layout._OFF_KIND + layout._KIND_PAYMENT] = 1.0
     _fill_payment(feat, choice.payment)
     if isinstance(decision, decisions.PayBirdFoodDecision):
         _fill_bird_identity(feat, decision.bird)
-        _fill_habitat(feat, decision.habitat)
+        _fill_landing_slot(
+            feat, state.players[decision.player_id], decision.bird, decision.habitat
+        )
 
 
 def _featurize_played_bird(
@@ -325,31 +327,35 @@ def _featurize_habitat(
     choice: decisions.HabitatChoice,
     state: state.GameState,
 ) -> None:
-    # A plain habitat designation is just its one-hot. When the decision
-    # carries move-bird context (``BirdPowerPickHabitatDecision.moving_bird``),
-    # each destination row also prices relocating that bird — its identity
-    # (through the shared card table) plus the round-goal / bonus consequences
-    # of the move (habitat bird counts, the egg block riding along, the
-    # habitat-spread bonus card). The "stay" option's deltas are naturally
-    # all-zero.
+    # A habitat pick is always a move-bird destination
+    # (``BirdPowerPickHabitatDecision`` is the only decision that offers
+    # ``HabitatChoice``). Each row prices relocating the moving bird: its
+    # identity (through the shared card table), its landing slot in the
+    # board-index block — the exact slot it would occupy, so the model reads
+    # the resulting location instead of inferring it from a habitat flag — and
+    # the round-goal / bonus consequences of the move (habitat bird counts, the
+    # egg block riding along, the habitat-spread bonus card). The "stay" row
+    # marks the bird's *current* slot (it is the rightmost of its row — the
+    # power only fires then) and its deltas are naturally all-zero.
+    assert isinstance(decision, decisions.BirdPowerPickHabitatDecision)
     feat[layout._OFF_KIND + layout._KIND_HABITAT] = 1.0
-    _fill_habitat(feat, choice.habitat)
-    if (
-        isinstance(decision, decisions.BirdPowerPickHabitatDecision)
-        and decision.moving_bird is not None
-        and decision.from_habitat is not None
-    ):
-        player = state.players[decision.player_id]
-        _fill_bird_identity(feat, decision.moving_bird.bird)
-        _fill_goal_delta_for_move(
-            feat,
-            decision.player_id,
-            decision.from_habitat,
-            choice.habitat,
-            decision.moving_bird,
-            state,
-        )
-        _fill_bonus_delta_for_move(feat, player, decision.from_habitat, choice.habitat)
+    player = state.players[decision.player_id]
+    moving_bird = decision.moving_bird
+    if choice.habitat == decision.from_habitat:
+        current_slot = len(player.board[choice.habitat]) - 1
+        _fill_board_index(feat, moving_bird.bird, choice.habitat, current_slot)
+    else:
+        _fill_landing_slot(feat, player, moving_bird.bird, choice.habitat)
+    _fill_bird_identity(feat, moving_bird.bird)
+    _fill_goal_delta_for_move(
+        feat,
+        decision.player_id,
+        decision.from_habitat,
+        choice.habitat,
+        moving_bird,
+        state,
+    )
+    _fill_bonus_delta_for_move(feat, player, decision.from_habitat, choice.habitat)
 
 
 def _featurize_food(
@@ -468,12 +474,14 @@ def _featurize_setup(
     """Featurize a single combined setup pick.
 
     Only reached when the main model carries setup (``include_setup``), so the
-    row is wide enough to hold the trailing ``setup_agg`` stripe. The 504
-    candidates share a state vector, so the network reads the choice features to
-    tell them apart: (a) a multi-hot of the *specific* kept birds in the
-    bird-identity stripe, (b) aggregate stats of the kept-card subset in the
-    setup_agg stripe, (c) a multi-hot of foods spent in the PAY_FOOD stripe, and
-    (d) the kept bonus card's identity one-hot.
+    row is wide enough to hold the trailing ``setup_agg`` and ``kept_multihot``
+    stripes. The 504 candidates share a state vector, so the network reads the
+    choice features to tell them apart: (a) a multi-hot of the *specific* kept
+    birds in the dedicated kept_multihot stripe (the single-candidate bird-index
+    column stays zero — a setup pick is a set, not one bird), (b) aggregate
+    stats of the kept-card subset in the setup_agg stripe, (c) a multi-hot of
+    foods spent in the PAY_FOOD stripe, and (d) the kept bonus card's identity
+    one-hot.
     """
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
     # PAY_FOOD stripe encodes the foods *spent* (complement of kept_foods), so the
@@ -482,18 +490,20 @@ def _featurize_setup(
         if food not in choice.kept_foods:
             feat[layout._OFF_PAY + i] = 1.0 / layout._PAYMENT_COUNT_SCALE
     kept = choice.kept_cards
-    # Identity multi-hot of the kept birds plus the setup_agg aggregate stats that
-    # summarise the subset. One pass sets each identity bit and accumulates all
-    # three sums (the setup deal featurizes 504 candidates, so folding three
-    # generator passes into one matters). The aggregates live in the dedicated
-    # SETUP stripe because they are kept-*subset* summaries the shared card table
-    # cannot reconstruct from the identity multi-hot.
+    # Identity multi-hot of the kept birds (in the trailing kept_multihot
+    # stripe, which the model sums through the shared card table) plus the
+    # setup_agg aggregate stats that summarise the subset. One pass sets each
+    # identity bit and accumulates all three sums (the setup deal featurizes
+    # 504 candidates, so folding three generator passes into one matters). The
+    # aggregates live in the dedicated SETUP stripe because they are
+    # kept-*subset* summaries the shared card table cannot reconstruct from the
+    # identity multi-hot.
     if kept:
         points = 0.0
         cost = 0.0
         eggs = 0.0
         for bird in kept:
-            feat[layout._OFF_BIRD_ID + cards.bird_index(bird)] = 1.0
+            feat[layout._OFF_KEPT_MULTIHOT + cards.bird_index(bird)] = 1.0
             points += bird.points
             cost += bird.food_cost.total
             eggs += bird.egg_limit
@@ -548,11 +558,35 @@ _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
 
 
 def _fill_bird_identity(feat: np.ndarray, bird: cards.Bird) -> None:
-    """Set the bird-identity one-hot bit for ``bird``. Called for every
-    bird-carrying choice, and once per card to build a kept-set multi-hot. The
-    model maps this stripe through the shared card encoder, so a candidate's
-    static attributes and its learned per-card vector arrive together."""
-    feat[layout._OFF_BIRD_ID + cards.bird_index(bird)] = 1.0
+    """Write the candidate bird's index column (``bird_index + 1``; the zeroed
+    default means "no bird"). Called for every bird-carrying choice. The model
+    looks the index up in the shared card table, so a candidate's static
+    attributes and its learned per-card vector arrive together."""
+    feat[layout._OFF_BIRD_ID] = cards.bird_index(bird) + 1
+
+
+def _fill_board_index(
+    feat: np.ndarray, bird: cards.Bird, habitat: cards.Habitat, slot: int
+) -> None:
+    """Write ``bird``'s card index at one positional board slot of the
+    board-index block (``hab_idx * ROW_SLOTS + slot``, the same indexing as
+    ``_fill_board_slots``). The single marked slot is how placement rows carry
+    their resulting location; every other board-index column stays zero (the
+    full current board already rides the state vector)."""
+    for hab_idx, candidate in enumerate(cards.ALL_HABITATS):
+        if candidate == habitat:
+            slot_index = hab_idx * state.ROW_SLOTS + slot
+            feat[layout._OFF_BOARD_IDX + slot_index] = cards.bird_index(bird) + 1
+            break
+
+
+def _fill_landing_slot(
+    feat: np.ndarray, player: state.Player, bird: cards.Bird, habitat: cards.Habitat
+) -> None:
+    """Mark where ``bird`` would land if placed in ``habitat`` now: its card
+    index at the row's next free slot (rows fill left to right, and legality /
+    the engine's placement order guarantee the row isn't full)."""
+    _fill_board_index(feat, bird, habitat, len(player.board[habitat]))
 
 
 def _fill_bonus_identity(feat: np.ndarray, bonus_card: cards.BonusCard) -> None:
@@ -892,13 +926,6 @@ def _add_pay_food(feat: np.ndarray, food: cards.Food) -> None:
     for i, candidate in enumerate(cards.ALL_FOODS):
         if candidate == food:
             feat[layout._OFF_PAY + i] += 1.0 / layout._PAYMENT_COUNT_SCALE
-            break
-
-
-def _fill_habitat(feat: np.ndarray, habitat: cards.Habitat) -> None:
-    for i, candidate in enumerate(cards.ALL_HABITATS):
-        if candidate == habitat:
-            feat[layout._OFF_HAB + i] = 1.0
             break
 
 

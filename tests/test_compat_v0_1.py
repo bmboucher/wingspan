@@ -1,16 +1,14 @@
-"""Backwards-compatibility smoke tests for the pinned v0.0 artifacts.
+"""Backwards-compatibility smoke tests for the pinned v0.1 artifacts.
 
-Loads the real run snapshot committed under ``tests/data/compat/v0.0/`` (see
+Loads the real run snapshot committed under ``tests/data/compat/v0.1/`` (see
 its README for provenance; the checkpoints are gzip-compressed and LFS-tracked)
 through the production loaders and proves the artifact-version contract:
-same-MAJOR artifacts must load and play games. The fixture files deliberately
-predate the ``version`` field, so every load here also exercises the
-default-to-"0.0" path real legacy artifacts take — and, since the 0.1
-choice-vector reshape, the ``compat.v0_0`` shim: the descriptor routes to the
-frozen-era ``PolicyValueNetV00``, whose game drives the v0.0 row transform
-end to end.
+same-MAJOR artifacts must load and play games. Unlike the v0.0 set, these
+files carry an explicit ``version: "0.1"`` stamp, so every load here exercises
+the stamped-version path — and the nets reconstruct as the *live* era (the
+choice-vector reshape that 0.1 introduced), never the ``compat.v0_0`` shim.
 
-Heavy (a ~13 MB checkpoint load plus a full self-play game), so the nets are
+Heavy (a ~12 MB checkpoint load plus a full self-play game), so the nets are
 loaded once per module and the file is front-loaded via ``_HEAVY_TEST_FILES``.
 """
 
@@ -29,11 +27,11 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from wingspan import model, version  # noqa: E402
+from wingspan import encode, model, version  # noqa: E402
 from wingspan.compat import v0_0  # noqa: E402
 from wingspan.training import collect, runmeta, setup_net, setup_runmeta  # noqa: E402
 
-FIXTURE_DIR = pathlib.Path(__file__).parent / "data" / "compat" / "v0.0"
+FIXTURE_DIR = pathlib.Path(__file__).parent / "data" / "compat" / "v0.1"
 
 _DEVICE = "cpu"
 
@@ -72,29 +70,34 @@ def setup_payload() -> dict[str, typing.Any]:
     return _load_gzipped_checkpoint("setup.pt.gz")
 
 
-def test_model_config_loads_with_default_version():
+def test_model_config_carries_the_explicit_version():
     descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
-    assert descriptor.version == version.PRE_VERSIONING_VERSION
+    assert descriptor.version == "0.1"
     # The pinned descriptor must stay compatible until a deliberate MAJOR bump.
-    version.check_artifact_compatible(descriptor.version, what="v0.0 fixture")
+    version.check_artifact_compatible(descriptor.version, what="v0.1 fixture")
 
 
-def test_setup_config_loads_with_default_version():
+def test_setup_config_carries_the_explicit_version():
     descriptor = setup_runmeta.read_setup_config(str(FIXTURE_DIR))
-    assert descriptor.version == version.PRE_VERSIONING_VERSION
-    version.check_artifact_compatible(descriptor.version, what="v0.0 fixture")
+    assert descriptor.version == "0.1"
+    version.check_artifact_compatible(descriptor.version, what="v0.1 fixture")
+
+
+def test_v0_1_net_is_the_live_era(loaded_net: model.PolicyValueNet):
+    """A 0.1 descriptor reconstructs as the live net at the live choice dims —
+    the compat shim is exclusively for artifacts older than the reshape."""
+    assert not isinstance(loaded_net, v0_0.PolicyValueNetV00)
+    assert loaded_net.choice_dim == encode.choice_feature_dim(loaded_net.spec)
 
 
 def test_policy_net_loads_state_dict(
     loaded_net: model.PolicyValueNet, main_payload: dict[str, typing.Any]
 ):
     """The pinned weights drop into the descriptor-reconstructed net exactly,
-    and the payload — which predates the version stamp — passes the check via
-    the pre-versioning default."""
-    assert "version" not in main_payload
+    and the payload's explicit version stamp passes the check."""
+    assert main_payload["version"] == "0.1"
     version.check_artifact_compatible(
-        str(main_payload.get("version", version.PRE_VERSIONING_VERSION)),
-        what="v0.0 fixture last.pt",
+        str(main_payload["version"]), what="v0.1 fixture last.pt"
     )
     # Strict mode (the default) raises on any missing or unexpected key, so a
     # clean load *is* the exact-key-match assertion.
@@ -109,19 +112,12 @@ def test_setup_net_loads_state_dict(setup_payload: dict[str, typing.Any]):
         typing.cast("dict[str, torch.Tensor]", setup_payload["setup_model"])
     )
     net.eval()
-    assert "version" not in setup_payload
-
-
-def test_pre_0_1_net_is_the_frozen_compat_subclass(loaded_net: model.PolicyValueNet):
-    """The version-less (v0.0) descriptor routes to the frozen-era compat net,
-    whose choice geometry matches the pinned weights — not the live encoder."""
-    assert isinstance(loaded_net, v0_0.PolicyValueNetV00)
-    assert loaded_net.choice_dim == v0_0.choice_feature_dim(loaded_net.spec)
+    assert setup_payload["version"] == "0.1"
 
 
 def test_forward_pass(loaded_net: model.PolicyValueNet):
-    """A batch of inputs in the net's own (frozen v0.0) shape flows through
-    the loaded weights to finite logits and value."""
+    """A batch of freshly-encoded-shape inputs flows through the loaded
+    weights to finite logits and value."""
     batch_size, n_choices = 2, 4
     state_vec = torch.zeros(batch_size, loaded_net.state_dim)
     choices = torch.randn(batch_size, n_choices, loaded_net.choice_dim)
@@ -136,10 +132,10 @@ def test_forward_pass(loaded_net: model.PolicyValueNet):
 
 
 def test_loaded_net_plays_a_game(loaded_net: model.PolicyValueNet):
-    """The v0.0 net drives a full self-play game through the production
+    """The v0.1 net drives a full self-play game through the production
     collector — the load-and-play guarantee end to end."""
     record = collect.play_game(
-        loaded_net, torch.device(_DEVICE), random.Random(0), seed=20260605
+        loaded_net, torch.device(_DEVICE), random.Random(0), seed=20260606
     )
     assert record.steps, "expected at least one recorded step"
     assert record.winner in (-1, 0, 1)

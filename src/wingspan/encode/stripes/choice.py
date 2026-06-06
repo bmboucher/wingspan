@@ -25,15 +25,16 @@ def choice_stripe_layout(
     """Build the stripe registry for the per-choice encoder's input vector.
 
     Each stripe is a type-specific feature group every candidate is encoded into.
-    The board-index block and bird-identity one-hot are shown at their
-    *post-embedding* width — each board slot as one ``card_embed_dim`` vector, the
-    candidate as one — so the breakdown sums to the choice encoder's first-``Linear``
-    input (``layout.choice_input_dim``), what the network actually sees. The trailing
-    ``setup_agg`` stripe is present only when ``spec.include_setup``.
+    The board-index block, the bird-index column, and the kept-set multi-hot are
+    shown at their *post-embedding* width — each board slot as one
+    ``card_embed_dim`` vector, the candidate as one, the kept set as one — so the
+    breakdown sums to the choice encoder's first-``Linear`` input
+    (``layout.choice_input_dim``), what the network actually sees. The trailing
+    ``setup_agg`` / ``kept_multihot`` stripes are present only when
+    ``spec.include_setup``.
     """
     total = layout.choice_feature_dim(spec)
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
-    habitat_names = ", ".join(h.value for h in cards.ALL_HABITATS)
 
     stripes: list[descriptors.StripeDescriptor] = []
 
@@ -69,19 +70,6 @@ def choice_stripe_layout(
                 "Zero for non-food choices."
             ),
             sub_fields=_gain_food_sub_fields(),
-        )
-    )
-
-    stripes.append(
-        descriptors.StripeDescriptor(
-            name="habitat",
-            description="One-hot encoding of a habitat choice.",
-            offset=layout._OFF_HAB,
-            size=layout._HABITAT_DIM,
-            encoding="one-hot",
-            value_range="{0, 1}",
-            notes=f"Habitats in order: {habitat_names}. Zero for non-habitat choices.",
-            sub_fields=_choice_habitat_sub_fields(),
         )
     )
 
@@ -174,7 +162,8 @@ def choice_stripe_layout(
             name="board_idx",
             description=(
                 "Bird indices for the deciding player's 15 board slots — the "
-                "board_target stripe's occupants, looked up in the shared card table."
+                "board_target stripe's occupants, or a placement row's "
+                "landing-slot marker, looked up in the shared card table."
             ),
             offset=layout._OFF_BOARD_IDX,
             size=layout._BOARD_IDX_SLOTS,
@@ -182,7 +171,10 @@ def choice_stripe_layout(
             value_range=f"int 0–{cards.n_birds()}",
             notes=(
                 f"{layout._BOARD_IDX_SLOTS} integer indices (positional, ALL_HABITATS × "
-                "ROW_SLOTS). bird_index + 1; 0 = empty slot. Zero for non-board choices."
+                "ROW_SLOTS). bird_index + 1; 0 = empty slot. Board-target rows fill "
+                "all occupants; placement rows (play-bird, its food payment, "
+                "move-bird destinations) mark only the slot the bird would occupy. "
+                "Zero for other choices."
             ),
         )
     )
@@ -191,17 +183,18 @@ def choice_stripe_layout(
         descriptors.StripeDescriptor(
             name="bird_id",
             description=(
-                f"Bird identity: one-hot (single bird) or multi-hot (kept set) "
-                f"over all {layout._BIRD_ID_DIM} core-set birds."
+                "The candidate bird's identity as a single integer index column, "
+                "looked up in the shared card table."
             ),
             offset=layout._OFF_BIRD_ID,
-            size=layout._BIRD_ID_DIM,
-            encoding="one-hot / multi-hot",
-            value_range="{0, 1}",
+            size=layout._CHOICE_BIRD_ID_DIM,
+            encoding="integer-index",
+            value_range=f"int 0–{cards.n_birds()}",
             notes=(
-                "Embedded through the shared card table (same weights as state "
-                "board/tray slots). For a setup pick the kept-set multi-hot is summed "
-                "through the embedding. Zero for non-bird choices."
+                "bird_index + 1; 0 = no bird (the model zeroes the embedding so "
+                "non-bird rows contribute nothing). Same weights as the state "
+                "board/tray slots. A setup pick's kept *set* rides the trailing "
+                "kept_multihot stripe instead."
             ),
         )
     )
@@ -299,7 +292,7 @@ def choice_stripe_layout(
 
     end = layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_DIM
 
-    # ---- setup_agg (trailing; present only when the main model carries setup) ----
+    # ---- setup stripes (trailing; present only when the main model carries setup) ----
     if spec.include_setup:
         stripes.append(
             descriptors.StripeDescriptor(
@@ -321,6 +314,26 @@ def choice_stripe_layout(
             )
         )
         end += layout._SETUP_DIM
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name="kept_multihot",
+                description=(
+                    "Multi-hot of the specific birds a SetupChoice keeps, over "
+                    f"all {layout._KEPT_MULTIHOT_DIM} core-set birds."
+                ),
+                offset=layout._OFF_KEPT_MULTIHOT,
+                size=layout._KEPT_MULTIHOT_DIM,
+                encoding="multi-hot",
+                value_range="{0, 1}",
+                notes=(
+                    "Summed through the shared card table into one embedding (the "
+                    "kept set is unordered). Present only when use_setup_model is "
+                    "off (the main net scores the opening); zero for non-setup "
+                    "choices."
+                ),
+            )
+        )
+        end += layout._KEPT_MULTIHOT_DIM
 
     assert (
         end == total
@@ -330,7 +343,9 @@ def choice_stripe_layout(
     return embed_rules.embed_layout(
         raw,
         embed_rules.choice_embed_rules(card_embed_dim),
-        layout.choice_input_dim(total, card_embed_dim),
+        layout.choice_input_dim(
+            total, card_embed_dim, include_setup=spec.include_setup
+        ),
     )
 
 
@@ -388,21 +403,6 @@ def _gain_food_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
             value_range="{0, 1}",
         )
         for idx, (name, desc) in enumerate(entries)
-    )
-
-
-def _choice_habitat_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """3 sub-fields for the habitat one-hot in a choice vector."""
-    return tuple(
-        descriptors.SubFieldDescriptor(
-            name=f"habitat_{hab.value}",
-            description=f"This choice targets the {hab.value} habitat.",
-            relative_offset=idx,
-            size=1,
-            encoding="one-hot bit",
-            value_range="{0, 1}",
-        )
-        for idx, hab in enumerate(cards.ALL_HABITATS)
     )
 
 

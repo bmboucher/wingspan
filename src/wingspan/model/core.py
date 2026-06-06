@@ -36,6 +36,9 @@ from wingspan import architecture, decisions, encode
 from wingspan.model import hand_model, mlp
 
 if typing.TYPE_CHECKING:
+    import numpy as np
+
+    from wingspan import state
     from wingspan.training import runmeta
 
 
@@ -115,14 +118,45 @@ class PolicyValueNet(nn.Module):
         """Rebuild a net matching a saved ``model_config.json`` descriptor — its
         full topology plus the encoding dims and family-head count it was trained
         under. The returned net has fresh weights in the saved shape, ready for
-        ``load_state_dict`` from the run's checkpoint."""
-        return cls(
+        ``load_state_dict`` from the run's checkpoint. Descriptors written
+        before the 0.1 choice-vector reshape come back as the frozen-era
+        ``compat.v0_0.PolicyValueNetV00``, so every caller gets a net whose
+        choice geometry matches its weights without consulting the version."""
+        from wingspan.compat import v0_0  # local: compat subclasses this net
+
+        net_cls: type[PolicyValueNet] = (
+            v0_0.PolicyValueNetV00
+            if v0_0.uses_v0_0_choice_encoding(descriptor.version)
+            else cls
+        )
+        return net_cls(
             state_dim=descriptor.state_dim,
             choice_dim=descriptor.choice_dim,
             num_families=len(descriptor.family_order),
             arch=descriptor.architecture,
             spec=encode.EncodingSpec(include_setup=descriptor.include_setup),
         )
+
+    def encode_state(
+        self,
+        game_state: "state.GameState",
+        decision: decisions.Decision[typing.Any],
+    ) -> "np.ndarray":
+        """Featurize ``game_state`` at ``decision`` for one forward pass of
+        *this* net. The net owns its encoding (``self.spec`` and, in compat
+        subclasses, the artifact-era geometry), so inference call sites ask the
+        net instead of pairing the live encoder with a spec by hand."""
+        return encode.encode_state(game_state, decision, self.spec)
+
+    def encode_choices(
+        self,
+        decision: decisions.Decision[typing.Any],
+        game_state: "state.GameState",
+    ) -> "np.ndarray":
+        """Featurize every choice in ``decision`` for one forward pass of this
+        net (see :meth:`encode_state`). Compat subclasses override this with
+        their frozen era's encoder."""
+        return encode.encode_choices(decision, game_state, self.spec)
 
     def forward(
         self,
@@ -302,7 +336,9 @@ class PolicyValueNet(nn.Module):
 
         The per-choice encoder reads each candidate's non-identity features plus
         its card identity embedded through the shared card table."""
-        choice_in_dim = encode.choice_input_dim(choice_dim, arch.card_embed_dim)
+        choice_in_dim = encode.choice_input_dim(
+            choice_dim, arch.card_embed_dim, include_setup=self.include_setup
+        )
         self.choice_encoder, _ = mlp.build_body(
             choice_in_dim,
             arch.choice_layers,
@@ -437,24 +473,38 @@ class PolicyValueNet(nn.Module):
         self, choices: torch.Tensor, card_table: torch.Tensor
     ) -> torch.Tensor:
         """Turn the per-choice features ``(B, K, choice_dim)`` into the choice
-        encoder's input by mapping the candidate's two card regions through the
+        encoder's input by mapping the candidate's card regions through the
         shared card table and concatenating them with the remaining features.
 
-        The 15-slot board-index block (the board_target stripe's occupant ids)
-        sits immediately before the candidate bird one-hot; the board indices
-        become one ``card_embed_dim`` vector per slot (flattened) and the
-        candidate one-hot becomes a single ``card_embed_dim`` vector (a setup
-        pick's kept-set multi-hot sums their vectors). Everything else — including
-        bonus_id and any trailing setup_agg stripe — passes through. These offsets
-        are spec-invariant, so the slice is config-independent."""
+        The 15-slot board-index block (occupant ids plus the placement rows'
+        landing-slot marker) sits immediately before the candidate bird-index
+        column; the board indices become one ``card_embed_dim`` vector per slot
+        (flattened, index 0 = the table's padding row) and the candidate index
+        becomes a single ``card_embed_dim`` vector, explicitly zeroed when the
+        column is 0 so a non-bird row contributes nothing. Those two offsets
+        are spec-invariant; the trailing kept_multihot stripe (a setup pick's
+        kept-set multi-hot) exists only when ``include_setup`` and is summed
+        through the card table into one more vector. Everything else —
+        including bonus_id and the setup_agg stripe — passes through."""
         off_board = encode.CHOICE_BOARD_IDX_OFFSET
         off_bird = encode.CHOICE_BIRD_ID_OFFSET  # == off_board + board-index slots
         end_bird = off_bird + encode.CHOICE_BIRD_ID_DIM
         board_idx = (
             choices[..., off_board:off_bird].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
         )
-        bird_multihot = choices[..., off_bird:end_bird]
-        rest = torch.cat([choices[..., :off_board], choices[..., end_bird:]], dim=-1)
-        cand_emb = bird_multihot @ card_table[1:]
+        cand_idx = (
+            choices[..., off_bird].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
+        )  # (B, K)
+        cand_mask = (cand_idx > 0).unsqueeze(-1).to(card_table.dtype)
+        cand_emb = card_table[cand_idx] * cand_mask
         board_emb = card_table[board_idx].reshape(*board_idx.shape[:-1], -1)
+        if self.include_setup:
+            off_kept = encode.CHOICE_KEPT_MULTIHOT_OFFSET
+            kept_multihot = choices[..., off_kept:]
+            kept_emb = kept_multihot @ card_table[1:]
+            rest = torch.cat(
+                [choices[..., :off_board], choices[..., end_bird:off_kept]], dim=-1
+            )
+            return torch.cat([rest, cand_emb, board_emb, kept_emb], dim=-1)
+        rest = torch.cat([choices[..., :off_board], choices[..., end_bird:]], dim=-1)
         return torch.cat([rest, cand_emb, board_emb], dim=-1)

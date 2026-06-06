@@ -33,8 +33,9 @@ import numpy as np
 import torch
 import yaml
 
-from wingspan import agents, decisions, encode, engine, model, setup_model, version
+from wingspan import agents, decisions, engine, model, setup_model, version
 from wingspan.agents import display
+from wingspan.compat import v0_0
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
 from wingspan.training import artifacts, config, policy
@@ -292,9 +293,9 @@ def _load_policy_net(
             "not a valid self-describing training checkpoint."
         )
     # Payloads that predate the version stamp read as the pre-versioning era.
+    artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
     version.check_artifact_compatible(
-        str(payload.get("version", version.PRE_VERSIONING_VERSION)),
-        what=f"checkpoint at {checkpoint_path}",
+        artifact_version, what=f"checkpoint at {checkpoint_path}"
     )
 
     # The net is rebuilt from the checkpoint's own topology, so its layer widths
@@ -302,17 +303,23 @@ def _load_policy_net(
     # encoding layout (state/choice feature dims and the family head order),
     # since freshly-encoded states are fed into the net at inference. A net
     # trained with a different topology is still perfectly usable here.
+    # Pre-0.1 payloads route to the frozen-era compat net, whose encoding the
+    # agent then uses automatically (``net.encode_state`` / ``encode_choices``).
     saved = config.TrainConfig.model_validate(payload["config"])
-    current = config.TrainConfig()
-    if _encoding_key(saved) != _encoding_key(current):
-        raise ValueError(
-            "Checkpoint encoding layout is incompatible with the current code:\n"
-            f"  saved:   {_encoding_key(saved)}\n"
-            f"  current: {_encoding_key(current)}\n"
-            "It was trained against a different encode.py / decisions.py layout."
-        )
-
-    net = model.PolicyValueNet(arch=saved.arch, spec=saved.encoding_spec).to(device)
+    if v0_0.uses_v0_0_choice_encoding(artifact_version):
+        net: model.PolicyValueNet = v0_0.PolicyValueNetV00(
+            arch=saved.arch, spec=saved.encoding_spec
+        ).to(device)
+    else:
+        current = config.TrainConfig()
+        if _encoding_key(saved) != _encoding_key(current):
+            raise ValueError(
+                "Checkpoint encoding layout is incompatible with the current code:\n"
+                f"  saved:   {_encoding_key(saved)}\n"
+                f"  current: {_encoding_key(current)}\n"
+                "It was trained against a different encode.py / decisions.py layout."
+            )
+        net = model.PolicyValueNet(arch=saved.arch, spec=saved.encoding_spec).to(device)
     net.load_state_dict(payload["model"])
     net.eval()
     return net, saved
@@ -463,10 +470,11 @@ def _handle_main_decision[C: decisions.Choice](
     rng: random.Random,
 ) -> C:
     """Score a regular decision with one forward pass through the main policy net."""
-    # One forward pass gives the full distribution over the legal options.
+    # One forward pass gives the full distribution over the legal options. The
+    # net owns its encoding (a compat-era net encodes in its frozen geometry).
     family_idx = decisions.family_index_for(type(decision))
-    state_vec = encode.encode_state(eng.state, decision, net.spec)
-    choice_feats = encode.encode_choices(decision, eng.state, net.spec)
+    state_vec = net.encode_state(eng.state, decision)
+    choice_feats = net.encode_choices(decision, eng.state)
     logits, probs = policy.policy_logits_and_probs(
         net, device, state_vec, choice_feats, family_idx
     )
