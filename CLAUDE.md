@@ -11,8 +11,9 @@ changes stay consistent.
 A Wingspan core-set simulator (180 birds, 26 bonus cards, 16 round goals,
 2-player automa-free) plus an RL training pipeline. **See `README.md`** for
 the general description and full CLI reference; **`docs/PROJECT.md`** for the
-annotated package layout — skim it before adding a module so new code lands in
-the right package, and update it when the layout changes. The long-term goal
+top-level package map — each subpackage then has its own **`INDEX.md`** with
+module-level detail; load the relevant one when working in that area, and
+update it when the layout changes. The long-term goal
 is self-play training at scale to answer analytical questions about the game (card power
 rankings, bonus-card value, food/habitat economy) — design for scaling up
 training, not for the minimum that runs today. All 180 bird powers are modelled
@@ -27,12 +28,14 @@ in sync.
 
 | File | What it covers | Update when… |
 | ---- | -------------- | ------------ |
-| `docs/PROJECT.md` | Annotated package layout, module tree | Adding or renaming a module/package; structural refactors |
+| `docs/PROJECT.md` | Top-level package map (links to each subpackage's `INDEX.md`) | Adding or renaming a top-level package; structural refactors |
+| `src/wingspan/*/INDEX.md` | Per-subpackage module detail: classes, key methods, state | Adding or renaming a module within a subpackage |
 | `docs/DECISIONS.md` | Decision/choice taxonomy, `ALL_DECISION_CLASSES` ordering, choice-vector stripes, engine call sites | Adding a `Decision`/`Choice` subclass; changing a featurizer; reordering `ALL_DECISION_CLASSES`; adding an engine decision call site |
 | `docs/BIRDS.md` | All 180 birds + 26 bonus cards: `EffectKind` patterns, handler mappings, implementation gaps | Adding an `EffectKind` variant, a matcher, or a power handler; covering a previously `UNIMPLEMENTED` bird |
 | `docs/TRAINING.md` | Training program, hyperparameter guidance, Phase 0–3 roadmap | Changing the training approach, convergence criteria, or phased plan |
 | `docs/RESEARCH.md` | Research agenda, per-project feasibility verdicts | Adding/completing a research project; updating a feasibility gap assessment |
 | `docs/VERSIONING.md` | Artifact version changelog, FRESH/REGIME distinction, compat shim rules, format rules | Bumping `MODEL_VERSION`; adding a compat shim; capturing a new fixture set |
+| `docs/QUALITY.md` | Quality gate section flags, coverage regression details, merge exit codes | (reference only — load when iterating on the gate) |
 
 ## Making changes: the worktree workflow
 
@@ -82,17 +85,12 @@ bash scripts/quality_gate.sh
 ```
 
 When run from inside the worktree (after `EnterWorktree`) this gates the
-worktree's own code using the worktree's own `.venv` (installed by
-`create_worktree.sh`). Do not proceed until the gate is clean.
+worktree's own code using the worktree's own `.venv`. Do not proceed until
+the gate is clean. Exit `0` = passed; exit `1` = code problem, fix it and
+rerun; exit `2` = infrastructure failure, **stop and ask the user to fix it**.
 
-While iterating, run individual sections with arguments passed through to the
-underlying tool — e.g. `bash scripts/quality_gate.sh --pytest
-tests/test_smoke.py` for a single test file. See "Quality gate" below for the
-full argument reference. Always finish with the full gate (no section flags).
-
-If the gate exits `2`, or any workflow script itself malfunctions, that is an
-infrastructure problem, not a code problem — **stop and ask the user to fix
-it** (see "Script failures: stop, don't circumvent" below).
+For section flags (`--pyright`, `--pytest`, `--format`, `--coverage`) and
+targeted-run examples, load `docs/QUALITY.md`.
 
 ### Step 5 — Commit and report ready
 
@@ -129,38 +127,23 @@ the main working directory.
 ### Workflow script reference
 
 **`bash scripts/create_worktree.sh <feature-slug>`** — run from the repo root.
-Takes exactly one argument, the feature slug. Commits any dirty state in
-`main`, creates `.claude/worktrees/<slug>` on branch `wt/<slug>` from local
-`HEAD`, installs a fresh `.venv` inside the worktree, and writes the merge-auth
-lock `<slug>.lock` in the repo root. Fails without touching anything if the
-worktree directory or branch already exists.
+Commits any dirty state in `main`, creates `.claude/worktrees/<slug>` on branch
+`wt/<slug>` from local `HEAD`, installs a fresh `.venv` inside the worktree,
+and writes the merge-auth lock `<slug>.lock` in the repo root.
 
-**`bash scripts/quality_gate.sh [target-dir] [--pyright [args…]]
-[--format [paths…]] [--pytest [args…]]`** — the only sanctioned way to run
-pyright / isort / black / pytest. Full reference in "Quality gate" below.
+**`bash scripts/quality_gate.sh`** — the only sanctioned way to run
+pyright / isort / black / pytest. See `docs/QUALITY.md` for section flags,
+targeted-run examples, and coverage details.
 
 **`bash scripts/merge_worktree.sh <feature-slug>`** — run from the main working
 directory (`ExitWorktree(action="keep")` first if the session is inside the
 worktree), and only after the human has deleted `<slug>.lock`. Squash-merges
-`wt/<slug>` into `main`, refreshes main's `.venv` if the merge changed
-`pyproject.toml`, runs the full gate on the merged result, commits, pushes, and
-removes the worktree + branch; on any failure it resets `main` clean. Exit
-codes:
+`wt/<slug>` into `main`, runs the full quality gate, commits, pushes, and
+removes the worktree + branch. Exit code reference in `docs/QUALITY.md`.
 
-| Exit | Meaning | What Claude does |
-|------|---------|------------------|
-| 0 | merged, pushed, cleaned up | report done |
-| 1 | merge-auth lock still present | stop — human authorization missing |
-| 2 | merge conflicts | fix in the worktree, commit there, retry |
-| 3 | gate failed on the merged result | fix in the worktree, commit there, retry |
-| 4 | preflight failure (worktree/branch missing, or worktree has uncommitted changes) | commit the worktree work if that is the cause; otherwise stop and report |
-| 5 | gate or venv refresh could not run (infrastructure failure) | **stop — ask the user to fix the environment** |
-
-**`bash scripts/auto_merge_worktree.sh <feature-slug>`** — fully automated
-variant the *human* runs: loops `merge_worktree.sh`, spawning `claude -p`
-subprocesses to fix conflicts / gate failures, up to 5 attempts. Requires the
-lock to be already deleted and `claude` on PATH. Stops immediately (no
-subprocess) on exit 1 (lock present) or exit 5 (infrastructure failure).
+**`bash scripts/auto_merge_worktree.sh <feature-slug>`** — automated variant
+the *human* runs; loops `merge_worktree.sh` with `claude -p` subprocesses up to
+5 attempts. Requires the lock deleted and `claude` on PATH.
 
 ## Merge-auth lock files
 
@@ -193,7 +176,7 @@ Never do any of the following to get past a failing script:
 - Run `pyright`, `pytest`, `isort`, or `black` directly instead of through
   `quality_gate.sh`. Its section flags and pass-through arguments cover every
   invocation needed — a single test file, a `-k` filter, a one-module
-  type-check (see "Quality gate" below).
+  type-check (see `docs/QUALITY.md`).
 - Hand-roll the scripts' jobs with raw `git worktree add` /
   `git merge --squash` / `pip install` commands.
 - Edit the workflow scripts mid-feature to make an error go away. Changing the
@@ -208,66 +191,8 @@ See `README.md` for the full CLI (`wingspan play / dashboard / tournament /
 inspect / cloud / monitor`) and training notes;
 `docs/TRAINING.md` is the training program. Setup: `pip install -e ".[dev]"`.
 Training is CPU-only — collection fans out across worker processes and
-`--device cpu` is fastest (`docs/TRAINING.md` §1.4). Run tests through the
-quality gate below, not bare pytest.
-
-## Quality gate
-
-```
-bash scripts/quality_gate.sh [target-dir]
-```
-
-Run from the current directory (worktree or repo root), or pass an explicit
-target dir. Five steps in order: `pyright` (strict) → `isort` → `black` →
-`pyright` (post-format) → `pytest`. Config lives in `pyproject.toml`;
-`pyright` is the globally-installed npm binary; formatters, pytest, and
-coverage run via the target directory's own `.venv`.
-
-For faster iteration, run individual sections; everything after a section flag
-passes verbatim to the underlying tool, so there is never a reason to invoke
-the tools directly:
-
-```
-bash scripts/quality_gate.sh --pyright src/wingspan/state.py   # types only / one file
-bash scripts/quality_gate.sh --format                          # isort + black only
-bash scripts/quality_gate.sh --pytest tests/test_encode.py -k state -x -q
-bash scripts/quality_gate.sh --coverage                        # full gate + coverage regression
-```
-
-No-argument defaults: `--pytest` → `tests/ -n 8 --dist load` (worker count via
-`WINGSPAN_PYTEST_WORKERS`, `0` = serial; explicit args replace the default, so
-targeted runs stay serial), `--format` → `src tests`. Steps always execute in
-canonical gate order regardless of flag order.
-
-Exit codes: `0` — passed. `1` — genuine check failure (pyright errors, failing
-tests, or coverage regression): fix the code and rerun. `2` — infrastructure/usage
-failure (missing venv, `pyright` not on PATH, bad arguments): **not a code
-problem — stop and ask the user to fix it**.
-
-Always run the full gate (no section flags) before committing; every change
-must pass it to be considered finished. Strict-mode pyright must be completely
-clean (`reportPrivateImportUsage = false` silences torch's under-exporting
-stubs — don't re-enable it).
-
-**Coverage regression check.** Pass `--coverage` (no args) to run pytest
-serially with `--cov --cov-report=term-missing` in a single pass, then compare
-the TOTAL percentage against `coverage_baseline.txt` in the repo root.
-`merge_worktree.sh` always passes `--coverage`; it is not needed during
-worktree iteration. The baseline ratchets upward:
-
-- Coverage improves → baseline file updated automatically; commit it with your
-  change.
-- Coverage unchanged → gate passes silently.
-- Coverage drops → gate fails (exit 1). Either add tests to recover coverage,
-  or report the drop to the user so they can decide whether to lower the
-  baseline manually (see "Things to avoid").
-
-**First run (baseline absent):** the gate creates `coverage_baseline.txt`
-automatically and passes. Commit that file to lock the regression floor.
-
-Modules excluded from coverage measurement (CLI entry points, SVG/chart
-rendering, AWS/S3 integration) are listed in `[tool.coverage.run] omit` in
-`pyproject.toml`. To include a module, remove it from that list.
+`--device cpu` is fastest (`docs/TRAINING.md` §1.4). Run tests through
+`bash scripts/quality_gate.sh`, not bare pytest.
 
 ## Architectural patterns to preserve
 
@@ -406,7 +331,7 @@ full policy, FRESH/REGIME distinction, format rules, and per-version changelog.
   files").
 - **Never circumvent the workflow scripts** — no direct pyright / pytest /
   isort / black, no hand-rolled worktree or merge commands, no mid-feature
-  script edits (see "Script failures: stop, don't circumvent").
+  script edits (see "Script failures: stop, don't circumvent" above).
 - No tolerant-parse fallbacks, "assume compatible" branches, or ghost entries
   for old artifact formats (see `docs/VERSIONING.md`).
 - Don't replace the `cards.Food` / `cards.Habitat` / etc. `StrEnum`s with
@@ -421,6 +346,6 @@ full policy, FRESH/REGIME distinction, format rules, and per-version changelog.
 - No `_do_*` wrapper methods on Engine that just delegate to `actions.do_*` —
   call the free function directly.
 - **Never edit `coverage_baseline.txt` to lower the percentage.** The ratchet
-  is a one-way floor. If coverage drops (e.g. deleted dead code, or a module
-  removed from the `omit` list), report the impact and the gate's message to
-  the user and let them decide whether to update the baseline manually.
+  is a one-way floor. If coverage drops, report the impact and gate message to
+  the user and let them decide whether to update the baseline manually
+  (see `docs/QUALITY.md` for coverage regression details).
