@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from wingspan import architecture, decisions, encode, setup_model  # noqa: E402
+from wingspan import architecture, decisions, encode, setup_model, version  # noqa: E402
 from wingspan.encode import stripes as encode_stripes  # noqa: E402
 from wingspan.reporting import html as report  # noqa: E402
 
@@ -147,4 +147,5 @@ def _report_html(use_setup_model: bool) -> str:
         choice_dim=choice_dim,
         family_order=family_order,
         run_name="test-report-panels",
+        model_version=version.MODEL_VERSION,
     )

@@ -15,7 +15,7 @@ import typing
 
 import torch
 
-from wingspan import model
+from wingspan import model, version
 from wingspan.training import (
     artifacts,
     evaluate,
@@ -223,6 +223,7 @@ def save_opponent(
         "model": opponent.state_dict(),
         "opponent_generation": generation,
         "git_sha": loop_checkpoint.git_sha(),
+        "version": version.MODEL_VERSION,
     }
     loop_checkpoint.atomic_save(
         payload, training_loop._ckpt_dir / artifacts.OPPONENT_CKPT

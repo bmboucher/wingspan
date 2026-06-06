@@ -33,7 +33,7 @@ import numpy as np
 import torch
 import yaml
 
-from wingspan import agents, decisions, encode, engine, model, setup_model
+from wingspan import agents, decisions, encode, engine, model, setup_model, version
 from wingspan.agents import display
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
@@ -291,6 +291,11 @@ def _load_policy_net(
             f"Checkpoint at {checkpoint_path} has no embedded 'config' — it is "
             "not a valid self-describing training checkpoint."
         )
+    # Payloads that predate the version stamp read as the pre-versioning era.
+    version.check_artifact_compatible(
+        str(payload.get("version", version.PRE_VERSIONING_VERSION)),
+        what=f"checkpoint at {checkpoint_path}",
+    )
 
     # The net is rebuilt from the checkpoint's own topology, so its layer widths
     # always match its weights; what must match the *current* code is the
@@ -341,6 +346,11 @@ def _load_setup_net(
     payload = typing.cast(
         "dict[str, typing.Any]",
         torch.load(ckpt_path, map_location=device, weights_only=False),
+    )
+    # Payloads that predate the version stamp read as the pre-versioning era.
+    version.check_artifact_compatible(
+        str(payload.get("version", version.PRE_VERSIONING_VERSION)),
+        what=f"setup checkpoint at {ckpt_path}",
     )
     net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
     net_instance.load_state_dict(payload["setup_model"])

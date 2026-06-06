@@ -21,7 +21,7 @@ import typing
 import pydantic
 import torch
 
-from wingspan import agents, decisions, encode, engine, model
+from wingspan import agents, decisions, encode, engine, model, version
 from wingspan.training import artifacts, policy, runmeta
 from wingspan.training.configure import runs
 
@@ -154,6 +154,11 @@ def load_player(
             weights_only=False,
         ),
     )
+    # Payloads that predate the version stamp read as the pre-versioning era.
+    version.check_artifact_compatible(
+        str(payload.get("version", version.PRE_VERSIONING_VERSION)),
+        what=f"{artifacts.LAST_CKPT} at {spec.checkpoint_dir}",
+    )
     net = _reconstruct_net(spec.checkpoint_dir)
     state_dict = typing.cast("dict[str, torch.Tensor]", payload["model"])
     net.load_state_dict(state_dict)
@@ -202,11 +207,12 @@ def _encoding_compatible(checkpoint_dir: str) -> bool:
     mirroring ``selfplay._encoding_key``: the ``(state_dim, choice_dim,
     family_order)`` triple must agree for freshly-encoded inputs to feed the
     run's net. The descriptor's own ``include_setup`` selects which spec the
-    live dims are computed for. A missing or unparseable descriptor returns
-    ``False`` (the run is simply not seatable); never raises."""
+    live dims are computed for. A missing, unparseable, or version-incompatible
+    descriptor returns ``False`` (the run is simply not seatable); never
+    raises."""
     try:
         descriptor = runmeta.read_model_config(checkpoint_dir)
-    except (OSError, pydantic.ValidationError):
+    except (OSError, pydantic.ValidationError, version.IncompatibleArtifactError):
         return False
     return _descriptor_encoding_key(descriptor) == _live_encoding_key(
         encode.EncodingSpec(include_setup=descriptor.include_setup)

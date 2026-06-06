@@ -14,7 +14,7 @@ import pathlib
 
 import pydantic
 
-from wingspan import architecture, setup_model
+from wingspan import architecture, setup_model, version
 from wingspan.training import artifacts, config
 
 
@@ -35,6 +35,9 @@ class SetupConfig(pydantic.BaseModel):
     setup_feature_dim: int
     setup_arch: setup_model.SetupArchitecture
     main_arch: architecture.ModelArchitecture = architecture.ModelArchitecture()
+    # The artifact-compatibility version the run was written at; defaults so
+    # files that predate the field read as the pre-versioning era ("0.0").
+    version: str = version.PRE_VERSIONING_VERSION
 
 
 def write_setup_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
@@ -44,6 +47,7 @@ def write_setup_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
         setup_feature_dim=setup_model.SETUP_FEATURE_DIM,
         setup_arch=cfg.setup_arch,
         main_arch=cfg.arch,
+        version=version.MODEL_VERSION,
     )
     path = pathlib.Path(checkpoint_dir)
     path.mkdir(parents=True, exist_ok=True)
@@ -54,6 +58,12 @@ def write_setup_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
 
 def read_setup_config(checkpoint_dir: str) -> SetupConfig:
     """Read the ``setup_config.json`` descriptor from ``checkpoint_dir`` (pairs
-    with :func:`write_setup_config`). Raises ``FileNotFoundError`` if absent."""
+    with :func:`write_setup_config`). Raises ``FileNotFoundError`` if absent and
+    ``version.IncompatibleArtifactError`` when the descriptor's artifact version
+    is outside the current code's load guarantee."""
     path = pathlib.Path(checkpoint_dir) / artifacts.SETUP_CONFIG_JSON
-    return SetupConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    descriptor = SetupConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    version.check_artifact_compatible(
+        descriptor.version, what=f"{artifacts.SETUP_CONFIG_JSON} at {checkpoint_dir}"
+    )
+    return descriptor

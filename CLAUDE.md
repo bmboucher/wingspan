@@ -385,20 +385,61 @@ no parallel scratch dicts.
 ## Checkpoint compatibility policy
 
 The June 2026 compatibility cutoff: loaders tolerate **no** artifact written
-before it; compatibility with everything the *current* code writes is strict
-and deliberate:
+before it. From the cutoff on, compatibility is governed by the **artifact
+version** below — a deliberate, versioned guarantee, never ad-hoc tolerance:
+
+### Artifact version (`wingspan.version.MODEL_VERSION`)
+
+Every persisted artifact (`model_config.json`, `setup_config.json`, and every
+`.pt` payload) is stamped with a `MAJOR.MINOR` artifact version. This is
+distinct from the package release version (`wingspan.__version__`) — one
+tracks the codebase, the other the on-disk artifact format.
+
+- **The guarantee: load + play.** At code version X.Y, artifacts with the same
+  MAJOR and MINOR ≤ Y must load and play games (inference / eval /
+  tournament). A different MAJOR, or a MINOR newer than the code, is refused
+  cleanly with `version.IncompatibleArtifactError`.
+- **Enforcement is deliberately asymmetric.** The hard version check guards
+  the *inference* loaders (`runmeta.read_model_config`,
+  `setup_runmeta.read_setup_config`, `selfplay._load_policy_net` /
+  `_load_setup_net`, `tournament.participants.load_player`). The *resume*
+  loaders (`loop_resume`, `loop_setup`, `loop_eval.load_opponent`) keep the
+  graceful `architecture_key` gate — mismatch starts fresh, never crashes.
+  Training resume across versions is **not** promised.
+- **Compat is version-number-specific checks, never config flags.** A shim
+  for an older same-major encoding lives behind
+  `version.adapt_encoding_for_version` (shape: `if artifact older than the
+  change: regenerate the encoding without the new field`) — do not add
+  `TrainConfig` axes to toggle old behaviors.
+- **A MINOR bump is required for every FRESH-type change** (see below), and
+  must: (a) bump `MODEL_VERSION`; (b) add the version-specific shim; (c)
+  capture a new fixture set under `tests/data/compat/v<X.Y>/` from a run at
+  the new version (see that directory's READMEs); (d) extend the compat tests
+  so **every retained fixture set still loads and plays**. All same-MAJOR
+  fixture sets are retained.
+- **A MAJOR bump is the deliberate escape hatch**: it drops the accumulated
+  shims and deletes the old fixture sets. It must be its own called-out,
+  user-approved decision — never a side effect.
+- The fixture sets under `tests/data/compat/` are the only checkpoints
+  committed to git: gzip-compressed (`*.pt.gz`) and **Git LFS**-tracked via
+  `.gitattributes`, with the config JSONs committed plain. New fixture sets
+  must follow the same shape (see the v0.0 README in that directory).
+
+### Format rules
 
 - **Every artifact is self-describing; loaders refuse what isn't.** Every
-  checkpoint embeds its `config` (`setup.pt` embeds `setup_config`); every run
-  directory carries `model_config.json` (+ `setup_config.json` when the setup
-  model is on). Never add an "assume compatible" branch, a missing-key
-  fallback, a second on-disk location for the same datum, or a ghost entry
-  kept only for index stability.
-- **FRESH vs REGIME is the gate.** `architecture_key` / `ShapeKey` (and the
-  setup twins) cover everything that changes a tensor shape; a mismatch
-  refuses the weights and restarts cleanly (FRESH). Shape-preserving knobs
-  (`activation`, `dropout`, learning rates, cadences) stay out of the key and
-  resume freely (REGIME).
+  checkpoint embeds its `config` (`setup.pt` embeds `setup_config`) and its
+  `version`; every run directory carries `model_config.json`
+  (+ `setup_config.json` when the setup model is on). Never add an "assume
+  compatible" branch, a second on-disk location for the same datum, or a
+  ghost entry kept only for index stability.
+- **FRESH vs REGIME still gates resume.** `architecture_key` / `ShapeKey` (and
+  the setup twins) cover everything that changes a tensor shape; a mismatch
+  refuses the weights and restarts cleanly (FRESH) — and, per the versioning
+  rules above, shipping such a change requires the MINOR bump + shim +
+  fixture set. Shape-preserving knobs (`activation`, `dropout`, learning
+  rates, cadences) stay out of the key, resume freely, and need no version
+  bump (REGIME).
 - **The stable orders are part of the checkpoint format.**
   `ALL_DECISION_CLASSES`, `ALL_DECISION_FAMILIES`, the `encode/layout.py`
   offset chain, and the `cards.parse.catalog` card-index maps are append-only;
@@ -406,7 +447,9 @@ and deliberate:
   checkpoint and must be a deliberate, called-out decision.
 - **New fields on persisted models default — the one sanctioned back-compat
   mechanism** so current-era artifacts keep loading; comment why the default
-  exists. Required fields stay required.
+  exists. Required fields stay required. (The `version` field itself works
+  this way: absence reads as `version.PRE_VERSIONING_VERSION`, pinned `"0.0"`
+  forever while `MODEL_VERSION` advances.)
 - Crash-survivability tolerance is fine and stays (e.g. `metrics_log` skipping
   a truncated final line): it guards the *current* format against
   interruption, not an old format against age.

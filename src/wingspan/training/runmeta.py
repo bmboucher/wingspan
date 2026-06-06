@@ -27,7 +27,7 @@ import pathlib
 
 import pydantic
 
-from wingspan import architecture, encode, setup_model
+from wingspan import architecture, encode, setup_model, version
 from wingspan.encode import stripes as encode_stripes
 from wingspan.reporting import html as report
 from wingspan.training import artifacts, config
@@ -56,6 +56,9 @@ class ModelConfig(pydantic.BaseModel):
     architecture: architecture.ModelArchitecture
     # Whether the main net carries the opening (``encode.EncodingSpec.include_setup``).
     include_setup: bool
+    # The artifact-compatibility version the run was written at; defaults so
+    # files that predate the field read as the pre-versioning era ("0.0").
+    version: str = version.PRE_VERSIONING_VERSION
 
 
 class SessionRecord(pydantic.BaseModel):
@@ -98,6 +101,7 @@ def write_model_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
         family_order=cfg.family_order,
         architecture=cfg.arch,
         include_setup=cfg.encoding_spec.include_setup,
+        version=version.MODEL_VERSION,
     )
     path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
     path.write_text(descriptor.model_dump_json(indent=2), encoding="utf-8")
@@ -165,6 +169,7 @@ def write_model_summary_html(
         choice_dim=cfg.choice_dim,
         family_order=cfg.family_order,
         run_name=cfg.run_name,
+        model_version=version.MODEL_VERSION,
     )
     path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_SUMMARY_HTML
     path.write_text(html_content, encoding="utf-8")
@@ -176,9 +181,15 @@ def read_model_config(checkpoint_dir: str) -> ModelConfig:
 
     Pairs with :func:`write_model_config`: the returned descriptor reconstitutes
     the run's network via ``model.PolicyValueNet.from_model_config``. Raises
-    ``FileNotFoundError`` if the run has no descriptor on disk."""
+    ``FileNotFoundError`` if the run has no descriptor on disk, and
+    ``version.IncompatibleArtifactError`` when the descriptor's artifact version
+    is outside the current code's load guarantee."""
     path = pathlib.Path(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
-    return ModelConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    descriptor = ModelConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    version.check_artifact_compatible(
+        descriptor.version, what=f"{artifacts.MODEL_CONFIG_JSON} at {checkpoint_dir}"
+    )
+    return descriptor
 
 
 def write_session_record(

@@ -15,6 +15,10 @@ dist/
 checkpoints/
 *.pt
 *.pth
+# Pinned backwards-compatibility fixtures are the one sanctioned home for
+# committed checkpoints — gzip-compressed (*.pt.gz, not matched by *.pt) and
+# LFS-tracked via .gitattributes (see CLAUDE.md "Checkpoint compatibility
+# policy").
 .idea/
 .vscode/
 .claude/

@@ -26,7 +26,7 @@ import rich.panel as rich_panel
 import rich.table as rich_table
 from rich import text as rich_text
 
-from wingspan import architecture, decisions, encode, setup_model
+from wingspan import architecture, decisions, encode, setup_model, version
 from wingspan.encode import stripes as encode_stripes
 from wingspan.reporting import html as report
 from wingspan.training import artifacts, runmeta, setup_runmeta
@@ -145,6 +145,7 @@ def _write_html_report(
         choice_dim=info.choice_dim,
         family_order=info.family_order,
         run_name=info.run_name,
+        model_version=info.model_version,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_content, encoding="utf-8")
@@ -183,6 +184,7 @@ class _ArchInfo:
         include_setup: bool,
         run_name: str = "(baseline)",
         setup_arch: setup_model.SetupArchitecture | None = None,
+        model_version: str = version.MODEL_VERSION,
     ):
         self.arch = arch
         self.state_dim = state_dim
@@ -191,6 +193,7 @@ class _ArchInfo:
         self.include_setup = include_setup
         self.run_name = run_name
         self.setup_arch = setup_arch or setup_model.SetupArchitecture()
+        self.model_version = model_version
 
     @property
     def spec(self) -> encode.EncodingSpec:
@@ -241,6 +244,7 @@ def _load_arch_info(checkpoint_dir: str | None) -> _ArchInfo:
         include_setup=descriptor.include_setup,
         run_name=descriptor.run_name,
         setup_arch=_load_setup_arch(checkpoint_dir),
+        model_version=descriptor.version,
     )
 
 

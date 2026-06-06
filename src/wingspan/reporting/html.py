@@ -208,6 +208,7 @@ def generate_html_report(
     choice_dim: int,
     family_order: tuple[str, ...],
     run_name: str,
+    model_version: str,
 ) -> str:
     """Return a self-contained HTML document string for the model summary.
 
@@ -282,6 +283,7 @@ def generate_html_report(
     return _wrap(
         title=f"Model Summary — {html_lib.escape(run_name)}",
         run_name=run_name,
+        model_version=model_version,
         body=body,
     )
 
@@ -291,8 +293,8 @@ def generate_html_report(
 #### HTML shell ####
 
 
-def _wrap(*, title: str, run_name: str, body: str) -> str:
-    nav = _nav(run_name)
+def _wrap(*, title: str, run_name: str, model_version: str, body: str) -> str:
+    nav = _nav(run_name, model_version)
     return (
         f"<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
         f"<meta charset='utf-8'>\n"
@@ -307,12 +309,14 @@ def _wrap(*, title: str, run_name: str, body: str) -> str:
     )
 
 
-def _nav(run_name: str) -> str:
-    """The slim header bar: brand + run name (the diagram is the navigation)."""
+def _nav(run_name: str, model_version: str) -> str:
+    """The slim header bar: brand + run name + artifact version (the diagram is
+    the navigation)."""
     return (
         f"<nav>"
         f"<span class='nav-brand'>Wingspan</span>"
         f"<span class='nav-run'>{html_lib.escape(run_name)}</span>"
+        f"<span class='nav-run'>v{html_lib.escape(model_version)}</span>"
         f"</nav>"
     )
 

@@ -163,11 +163,12 @@ the [wingsearch](https://github.com/navarog/wingsearch) project.
 
 ```
 src/wingspan/
-  __init__.py            # version only
+  __init__.py            # package release version only
   cli.py                 # argparse entry points (manual / random)
   state.py               # GameState, Player, Board, FoodPool, PlayedBird, Birdfeeder, new_game
   decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction + judgment families
   architecture.py        # ModelArchitecture + ActivationName (torch-free network topology descriptor)
+  version.py             # MODEL_VERSION artifact-compat version + load-time check (torch-free)
   model/                 # PyTorch network (package)
     __init__.py          #   re-exports PolicyValueNet
     core.py              #   PolicyValueNet actor-critic (built from a ModelArchitecture)

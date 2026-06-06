@@ -16,7 +16,7 @@ import pydantic
 import torch
 from torch import optim
 
-from wingspan import setup_model
+from wingspan import setup_model, version
 from wingspan.training import (
     artifacts,
     collect,
@@ -290,5 +290,6 @@ def save_setup_checkpoint(training_loop: "loop.TrainingLoop") -> None:
         "setup_optimizer": training_loop._setup_optimizer.state_dict(),
         "setup_fit_done": training_loop._setup_fit_done,
         "git_sha": loop_checkpoint.git_sha(),
+        "version": version.MODEL_VERSION,
     }
     loop_checkpoint.atomic_save(payload, training_loop._ckpt_dir / artifacts.SETUP_CKPT)

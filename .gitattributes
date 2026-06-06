@@ -4,3 +4,8 @@
 # quote" and exit non-zero even when the script ran fine — which silently broke
 # the worktree merge gate (scripts/merge_worktree.sh -> scripts/quality_gate.sh).
 *.sh text eol=lf
+
+# Pinned backwards-compatibility checkpoint fixtures are gzip-compressed and
+# stored in Git LFS so the binary weights never bloat the repo's own history
+# (see CLAUDE.md "Checkpoint compatibility policy").
+tests/data/compat/**/*.pt.gz filter=lfs diff=lfs merge=lfs -text
