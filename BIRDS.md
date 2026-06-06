@@ -32,25 +32,6 @@ collected again in the [Gaps and deviations](#gaps-and-deviations) section at th
     cleared at the start of the owner's next turn. A decline or no-eligible-target
     does **not** consume the use — only a committing fire does.
   - Birds with no power do nothing (last section before the gaps).
-- **Forced choices resolve silently.** Any decision that ends up with exactly one
-  legal option is auto-resolved without consulting the player/model (it is logged as
-  a skipped decision). So when a description below says "the player picks…", that
-  pick only reaches the model when there are ≥ 2 options.
-- **The birdfeeder reset rules.** The two printed reset rules fire at different
-  moments. **Empty → reroll is instant:** the moment a take removes the last die,
-  the feeder is rerolled on the spot (every die that leaves the feeder goes through
-  one shared routine that does this), so the feeder is never observed empty at any
-  later decision point — players always see real dice when weighing unrelated
-  choices (which bird to draw, what to play, etc.). **Single face → reroll is
-  optional and waits for the next gain:** just before any feeder gain — from main
-  actions and bird powers alike — if every die shows the same face, the player
-  about to take is offered a `reset_birdfeeder` decision (reroll first, or take
-  as-is). This optional offer is implied and not repeated in every entry below.
-  (The pre-gain routine also carries a defensive empty-feeder reroll, but the
-  instant reroll above makes it unreachable in normal play.)
-- **The supply is infinite.** The printed rules treat the general food supply as
-  unlimited; the engine matches this exactly — there is no counter, no depletion
-  check, and gaining from the supply can never fail.
 - **"Always beneficial" powers run with no opt-out.** The real game makes every
   power optional; the engine instead hard-codes a power as mandatory when declining
   could never be the better move — the underlying assumption being that *more of
@@ -59,17 +40,32 @@ collected again in the [Gaps and deviations](#gaps-and-deviations) section at th
   `skip_optional` gates on the egg powers). Each such group below explains the
   reasoning. Note this assumption is about *free* gains only — plenty of powers pay
   costs for benefits, and those always go through an accept/decline.
+- **Optional powers go through `skip_optional`.** Whenever a power involves paying
+  a cost (or could plausibly be declined), the first thing presented is a
+  `skip_optional` decision whose accept row carries the full ledger of what would be
+  paid and gained; declining ends the power immediately. After accepting, the
+  follow-up choices are mandatory — the commitment is settled up front.
 - **"All players…" powers offer the active player a veto.** When a power also hands
   the opponent resources, "free gain for me" is no longer sufficient reason to force
   activation: denying the opponent an egg/card/die can be worth more than the active
   player's own gain. All such powers now open with a `skip_optional` veto whose
   accept row carries both the active player's gain and the `opp_gained_*` ledger.
   Declining cancels the whole power for everyone.
-- **Optional powers go through `skip_optional`.** Whenever a power involves paying
-  a cost (or could plausibly be declined), the first thing presented is a
-  `skip_optional` decision whose accept row carries the full ledger of what would be
-  paid and gained; declining ends the power immediately. After accepting, the
-  follow-up choices are mandatory — the commitment is settled up front.
+- **Forced choices resolve silently.** Any decision that ends up with exactly one
+  legal option is auto-resolved without consulting the player/model (it is logged as
+  a skipped decision). So when a description below says "the player picks…", that
+  pick only reaches the model when there are ≥ 2 options.
+- **The birdfeeder reset rules.** Two distinct rules fire at different moments:
+  - *Empty → instant reroll:* The moment a take removes the last die, the feeder is
+    rerolled immediately (every die-take goes through one shared routine that does
+    this). The feeder is never observed empty at a later decision point — players
+    always see real dice when weighing other choices.
+  - *Single face → optional reroll:* Just before any feeder gain — from main actions
+    and bird powers alike — if every remaining die shows the same face, the player
+    about to take is offered a `reset_birdfeeder` decision: reroll first, or take
+    as-is. This offer is implied and not repeated in each entry below.
+  - *(The pre-gain routine also includes a defensive empty-feeder reroll, but the
+    instant reroll above makes it unreachable in normal play.)*
 
 ---
 
@@ -120,14 +116,15 @@ printed points, eggs laid on them, and bonus/goal eligibility.
 - **Option to activate?** **Yes** — because the opponent also gains, the active
   player first gets a `skip_optional` veto. The accept row carries both their own
   gain (`gained_food_count=1`) and the opponent's (`opp_gained_food_count=1`).
-  Declining ends the power with nobody gaining. If no opponents exist, the power
-  runs unconditionally.
+  Declining ends the power with nobody gaining.
 - **Subsequent choices (on accept):** none — everyone receives the fixed food
   automatically.
 
 ---
 
 ## 4. Gain a specific food from the birdfeeder (7 birds)
+
+### 4a. Gain and optionally cache (6 birds)
 
 | Bird | Exact printed text |
 |---|---|
@@ -137,21 +134,28 @@ printed points, eggs laid on them, and bonus/goal eligibility.
 | Red-Bellied Woodpecker (brown) | "Gain 1 [seed] from the birdfeeder, if available. You may cache it on this bird." |
 | Red-Headed Woodpecker (brown) | "Gain 1 [seed] from the birdfeeder, if available. You may cache it on this bird." |
 | Steller's Jay (brown) | "Gain 1 [seed] from the birdfeeder, if available. You may cache it on this bird." |
-| Great Crested Flycatcher (brown) | "Gain 1 [invertebrate] from the birdfeeder, if available." |
 
 - **When:** on each activation of the bird's row.
 - **Option to activate?** No — the take itself is automatic. After the standard reset
-  check, the engine takes up to one die of the named food from the feeder. If none
-  is showing, the power silently does nothing ("if available").
+  check, the engine takes up to one seed die from the feeder. If none is showing,
+  the power silently does nothing ("if available").
 - **Why always beneficial:** a free food with no cost; the worst case is "nothing
   available", which is a no-op either way.
-- **Subsequent choices:** Great Crested Flycatcher — none; the take is automatic.
-  The six seed birds: after taking the seed (which lands in the player's supply), a
-  `skip_optional` decision is offered — "cache this seed on the bird" or "keep it
+- **Subsequent choices:** after taking the seed (which lands in the player's supply),
+  a `skip_optional` decision is offered — "cache this seed on the bird" or "keep it
   in supply". The accept row carries `paid_food=seed / paid_food_count=1 /
   gained_cache_count=1` (the food moves from supply to the bird's cached-food total,
   worth a point at game end); the skip row leaves the seed spendable. If the feeder
   had no seed, the cache decision is never reached.
+
+### 4b. Gain only (1 bird)
+
+**Great Crested Flycatcher (brown):** "Gain 1 [invertebrate] from the birdfeeder, if available."
+
+- **When:** on each activation of its row.
+- **Option to activate?** No — fully automatic. After the standard reset check, the
+  engine takes up to one invertebrate die from the feeder. If none is showing, the
+  power silently does nothing. No cache decision is ever offered.
 
 ---
 
@@ -251,18 +255,10 @@ benefit, so declining is always right (auto-skip is fine); if the counts are
   which always includes the active player when the power runs — takes one die using
   *their own agent*: reset check, then their own `gain_food` pick from the feeder.
 
-**American Bittern / Common Loon** (wetland, draws a card):
-
-- **When:** on each activation of the bird's (wetland) row.
-- **Option to activate?** Same three-way shortcut as Hermit Thrush: if the
-  active player has strictly more wetland birds than the minimum, the power is
-  *auto-skipped*; in the tied case a `skip_optional` veto is offered — the
-  accept row carries `gained_card_count=1` (own draw) and
-  `opp_gained_card_count=N` for each other tied player; in the strictly-fewer
-  case the power runs forced.
-- **Subsequent choices:** every player whose wetland count equals the minimum
-  draws one card via their own agent — a `draw_bird` pick over the face-up
-  tray cards and the deck, exactly like a main-action draw.
+**American Bittern / Common Loon** (wetland, draws a card): identical three-way
+shortcut as Hermit Thrush, but applied to wetland bird counts. Qualifying players
+draw one card via `draw_bird` (face-up tray or deck, exactly like a main-action
+draw) rather than taking a die.
 
 ---
 

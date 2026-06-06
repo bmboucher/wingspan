@@ -106,9 +106,9 @@ def adapt_encoding_for_version(artifact_version: str) -> None:
     ``compat.v0_0`` regenerates the pre-0.1 choice encoding for same-major
     artifacts (``compat.v0_0.encode_choices`` + ``PolicyValueNetV00``), routed
     by the loaders (``model.PolicyValueNet.from_model_config``,
-    ``selfplay._load_policy_net``) and by the era-aware expected-encoding keys
-    in ``tournament.participants``. Future MINOR encoding changes follow the
-    same shape: a ``compat.v<X_Y>`` module keyed on
+    ``players.loaders.load_policy_net``) and by the era-aware
+    expected-encoding keys in ``players.loaders``. Future MINOR encoding
+    changes follow the same shape: a ``compat.v<X_Y>`` module keyed on
     ``parse_version(artifact_version)`` older-than-the-change.
 
     This function itself stays a validating no-op (this module is torch-free

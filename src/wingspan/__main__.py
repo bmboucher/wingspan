@@ -3,9 +3,7 @@
 Usage: wingspan <command> [args …]
 
 Commands:
-  play        Play a game manually against a random opponent.
-  random      Run one or more random-vs-random games.
-  selfplay    Run games with configurable per-seat agent matchups.
+  play        Play games between any mix of human, random, and trained-AI seats.
   dashboard   FLIGHT PLAN: configure a run, then train and monitor it live.
   tournament  Round-robin tournament between trained AIs.
   cloud       Run a training job headless with S3 persistence.
@@ -19,9 +17,7 @@ import sys
 
 # One-line description per verb — printed by the top-level help.
 _VERBS: dict[str, str] = {
-    "play": "Play a game manually against a random opponent.",
-    "random": "Run one or more random-vs-random games.",
-    "selfplay": "Run games with configurable per-seat agent matchups.",
+    "play": "Play games between any mix of human, random, and trained-AI seats.",
     "dashboard": "FLIGHT PLAN: configure a run, then train and monitor it live.",
     "tournament": "Round-robin tournament between trained AIs.",
     "cloud": "Run a training job headless with S3 persistence.",
@@ -41,15 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         case "play":
             import wingspan.cli as cli
 
-            return cli.main_manual(rest)
-        case "random":
-            import wingspan.cli as cli
-
-            return cli.main_random(rest)
-        case "selfplay":
-            import wingspan.selfplay as selfplay_mod
-
-            return selfplay_mod.main_selfplay(rest)
+            return cli.main_play(rest)
         case "dashboard":
             import wingspan.training.app as training_app
 

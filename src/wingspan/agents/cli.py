@@ -1,4 +1,4 @@
-"""Interactive human (stdin/stdout) agent and the mixed-hotseat helper.
+"""Interactive human (stdin/stdout) agent.
 
 The CLI agent walks a human through the offered choices index-by-index.
 The combined ``SetupDecision`` is special-cased: enumerating all 504 legal
@@ -11,11 +11,10 @@ instances.
 
 from __future__ import annotations
 
-import random
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.agents import base, display, interactive
+from wingspan.agents import display, interactive
 from wingspan.engine import core as engine_core
 
 
@@ -68,16 +67,6 @@ def cli_agent() -> engine_core.Agent:
             print("  out of range")
 
     return agent
-
-
-def mixed_agents(
-    rng: random.Random,
-    human_index: int,
-) -> tuple[engine_core.Agent, engine_core.Agent]:
-    """Two-player roster with one human at ``human_index`` and a random opponent."""
-    agent_a = cli_agent() if human_index == 0 else base.random_agent(rng)
-    agent_b = cli_agent() if human_index == 1 else base.random_agent(rng)
-    return (agent_a, agent_b)
 
 
 ###### PRIVATE #######

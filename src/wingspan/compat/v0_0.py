@@ -153,8 +153,8 @@ class PolicyValueNetV00(core.PolicyValueNet):
     formula, and ``_embed_choices`` slices the frozen card regions (the
     180-wide bird one-hot / multi-hot and the board-index block at their v0.0
     offsets). Constructed by the version-routing loaders
-    (``PolicyValueNet.from_model_config``, ``selfplay._load_policy_net``) —
-    never by the training pipeline, which always runs the live era.
+    (``PolicyValueNet.from_model_config``, ``players.loaders.load_policy_net``)
+    — never by the training pipeline, which always runs the live era.
     """
 
     def __init__(

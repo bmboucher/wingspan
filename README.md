@@ -27,54 +27,36 @@ worker processes, and the gradient update is small, so the whole pipeline is
 designed for CPU. (A CUDA PyTorch build still works for one-off experiments, but
 CPU is the supported path.)
 
-## Play a game interactively
+## Play games
+
+One command runs every matchup — interactive play, quick automated games, and
+trained-AI matches. Set each seat with `--p0` / `--p1`; the value is `human`
+(interactive play in the terminal), `random` (the uniform-random agent), a
+named checkpoint (`last`, `best`, or `opponent`, resolved against
+`--checkpoint-dir`), a path to a `.pt` file, or a run directory (its `last.pt`
+is seated). The default matchup is `last` vs `last` — the most recent trained
+model playing itself — so the bare command needs a trained model (see **Train
+an agent**); use `--p0 human --p1 random` to play without one:
 
 ```
-wingspan play                 # you are player 0 vs a random opponent
-wingspan play --you 1         # control player 1 instead
-wingspan play --both-human    # two humans, hotseat on one keyboard
-wingspan play --seed 42       # reproducible deal
+wingspan play                                 # latest trained model vs itself
+wingspan play --p0 human --p1 random          # play interactively vs a random opponent
+wingspan play --p0 human --p1 human           # two humans, hotseat on one keyboard
+wingspan play --p0 human --p1 best --seed 42  # take on the strongest checkpoint, reproducible deal
+wingspan play --p0 random --p1 random --games 5 --log games.log  # quick automated games -> games.log.0 ..
+wingspan play --p0 best --p1 opponent --games 10        # best vs the frozen ladder rung
+wingspan play --p0 best --p1 best --greedy --log ai.log # best vs itself, argmax play
+wingspan play --p0 runs/exp/last.pt --p1 random         # a checkpoint by path
 ```
 
-The game presents a numbered menu for every choice the rules require — pick a
-bird, choose a habitat, pay food, lay eggs, and so on. A short game log and the
-final scores are printed at the end.
-
-## Run fast automated games
-
-For quick games with no prompts — useful for logs, debugging, or sanity checks —
-two **random** agents can play to completion:
-
-```
-wingspan random                            # one game, prints the result
-wingspan random --games 5                  # five games back to back
-wingspan random --log game.log             # write the full action-by-action log
-wingspan random --games 5 --log games.log  # writes games.log.0 .. games.log.4
-```
-
-To pit a *trained* network against itself, a frozen past self, or the random
-agent, use the `selfplay` command below.
-
-## Watch trained agents play
-
-Once you have a checkpoint (see **Train an agent**), `selfplay` runs games with
-any agent in either seat, so the random/random, random/AI, and AI/AI matchups all
-go through one command. Set each seat with `--p0` / `--p1`; the value is
-`random`, a named checkpoint (`last`, `best`, or `opponent`, resolved against
-`--checkpoint-dir`), or a path to a `.pt` file:
-
-```
-wingspan selfplay --p0 best                            # trained "best" vs random
-wingspan selfplay --p0 best --p1 opponent --games 10   # best vs the frozen ladder rung
-wingspan selfplay --p0 best --p1 best --greedy --log ai.log  # best vs itself, argmax play
-wingspan selfplay --p0 runs/exp/last.pt --p1 random    # a checkpoint by path
-```
-
-When a seat is AI-driven, every genuine decision is annotated in the game log
-with the policy's ranked probability distribution over the legal options, turning
-the log into a move-by-move readout of what the network was "thinking".
-`--greedy` makes AI agents take the argmax option instead of sampling; `--games`,
-`--log`, `--seed`, and `--quiet` behave as in the `random` command.
+A `human` seat gets a numbered menu for every choice the rules require — pick a
+bird, choose a habitat, pay food, lay eggs, and so on. When a seat is
+AI-driven, every genuine decision is annotated in the game log with the
+policy's ranked probability distribution over the legal options, turning the
+log into a move-by-move readout of what the network was "thinking", and
+`--greedy` makes AI seats take the argmax option instead of sampling. `--games
+N` plays a series (game *i* deals with `--seed + i`), `--log` writes the full
+action-by-action log per game, and `--quiet` suppresses the per-game summary.
 
 ## Train an agent
 
@@ -127,9 +109,7 @@ command with subcommands:
 
 | Command                 | What it does                                            |
 | ----------------------- | ------------------------------------------------------- |
-| `wingspan play`         | Interactive game against a random opponent              |
-| `wingspan random`       | Random-vs-random automated games                        |
-| `wingspan selfplay`     | Configurable per-seat agent matchups (random or AI)     |
+| `wingspan play`         | Games between any mix of human, random, and AI seats    |
 | `wingspan dashboard`    | FLIGHT PLAN: config screen → live training dashboard    |
 | `wingspan tournament`   | Round-robin tournament between trained AIs              |
 | `wingspan inspect`      | Model introspection report (vectors, architecture, params) |
@@ -152,8 +132,7 @@ python -m pytest tests/
 - Every bird's "when played / when activated / between turns" power is handled
   by a small library of generic power patterns. All core-set birds are covered;
   anything a future pattern doesn't yet recognise falls back to a logged no-op
-  so a game never crashes, and the interactive game prints a power-coverage
-  report at startup so you can see what's modelled.
+  so a game never crashes (`cards.power_coverage` reports what's modelled).
 
 ## How it's organized
 
@@ -164,7 +143,7 @@ the [wingsearch](https://github.com/navarog/wingsearch) project.
 ```
 src/wingspan/
   __init__.py            # package release version only
-  cli.py                 # argparse entry points (manual / random)
+  cli.py                 # the unified `wingspan play` entry point (argparse + series runner)
   state.py               # GameState, Player, Board, FoodPool, PlayedBird, Birdfeeder, new_game
   decisions.py           # Decision[C] hierarchy + Choice hierarchy + MainAction + judgment families
   architecture.py        # ModelArchitecture + ActivationName (torch-free network topology descriptor)
@@ -176,7 +155,10 @@ src/wingspan/
     core.py              #   PolicyValueNet actor-critic (built from a ModelArchitecture)
     mlp.py               #   shared MLP body/readout builders (policy net + setup net build identical stacks)
     hand_model.py        #   stateless multi-card set-embedder helpers (hand / tray / setup kept-set)
-  selfplay.py            # selfplay CLI: per-seat agent matchups over trained checkpoints
+  players/               # seat players from CLI specs (shared by play + tournament)
+    spec.py              #   the player-spec grammar (human / random / named / .pt path / run dir)
+    loaders.py           #   both self-describing checkpoint load paths + encoding-compat keys
+    factory.py           #   spec -> Agent (log-annotating policy agent) + regime resolution
   reporting/             # model introspection and HTML report generation (package)
     __init__.py          #   re-exports generate_html_report, main_inspect
     html.py              #   standalone HTML model-summary report generator
@@ -224,9 +206,9 @@ src/wingspan/
     helpers.py           # cost_meets, enumerate_payments — pure functions
 
   agents/
-    __init__.py          # re-exports random_agent, cli_agent, mixed_agents
+    __init__.py          # re-exports random_agent, cli_agent
     base.py              # random_agent
-    cli.py               # cli_agent + mixed_agents (hotseat helper)
+    cli.py               # cli_agent (the interactive human agent)
     display.py           # human-readable formatters for cards and game state
     interactive.py       # terminal selection-form widget for the interactive CLI
 

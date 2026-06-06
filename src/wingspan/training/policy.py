@@ -12,8 +12,9 @@ differ only in selection rule:
 
 :func:`policy_logits_and_probs` exposes the underlying logits and the softmax
 distribution itself, for callers that want every option's raw score and probability
-(e.g. the selfplay log annotator). :func:`policy_probs` is a thin wrapper that
-returns only the probabilities for callers that don't need the raw logits.
+(e.g. the ``players.factory`` log annotator). :func:`policy_probs` is a thin
+wrapper that returns only the probabilities for callers that don't need the raw
+logits.
 
 :func:`greedy_agent` wraps a net into an :class:`engine.Agent` that plays the
 argmax at every decision — the strength-play agent shared by the evaluation

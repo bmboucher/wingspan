@@ -190,8 +190,8 @@ Never do any of the following to get past a failing script:
 
 ## Run / test
 
-See `README.md` for the full CLI (`wingspan play / random / selfplay /
-dashboard / tournament / inspect / cloud / monitor`) and training notes;
+See `README.md` for the full CLI (`wingspan play / dashboard / tournament /
+inspect / cloud / monitor`) and training notes;
 `TRAINING.md` is the training program. Setup: `pip install -e ".[dev]"`.
 Training is CPU-only — collection fans out across worker processes and
 `--device cpu` is fastest (TRAINING.md §1.4). Run tests through the quality
@@ -400,8 +400,9 @@ tracks the codebase, the other the on-disk artifact format.
   cleanly with `version.IncompatibleArtifactError`.
 - **Enforcement is deliberately asymmetric.** The hard version check guards
   the *inference* loaders (`runmeta.read_model_config`,
-  `setup_runmeta.read_setup_config`, `selfplay._load_policy_net` /
-  `_load_setup_net`, `tournament.participants.load_player`). The *resume*
+  `setup_runmeta.read_setup_config`, and the `players.loaders` trio
+  `load_policy_net` / `load_setup_net` / `load_policy_net_from_run_dir` behind
+  `cli.main_play` and `tournament.participants.load_player`). The *resume*
   loaders (`loop_resume`, `loop_setup`, `loop_eval.load_opponent`) keep the
   graceful `architecture_key` gate — mismatch starts fresh, never crashes.
   Training resume across versions is **not** promised.
