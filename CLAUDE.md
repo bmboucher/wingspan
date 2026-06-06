@@ -416,7 +416,13 @@ tracks the codebase, the other the on-disk artifact format.
   toggle old behaviors. Inference call sites must encode through the net
   (`net.encode_state` / `net.encode_choices`), never by pairing the live
   encoder with a spec by hand — that is what lets a compat-era net carry its
-  own geometry.
+  own geometry. The guarantee extends to *describing*: reporting surfaces
+  (`wingspan inspect`, the run-start `model_inspect.json` /
+  `model_summary.html`) derive every layout, width, and parameter count
+  through the descriptor seam in `runmeta` (`choice_layout_for`,
+  `param_report_for`, `build_model_summary_html`, …), which routes by the
+  descriptor's version the same way the loaders do — never compute a report
+  value from the live encoder when a descriptor is in hand.
 - **A MINOR bump is required for every FRESH-type change** (see below), and
   must: (a) bump `MODEL_VERSION`; (b) add the version-specific shim; (c)
   capture a new fixture set under `tests/data/compat/v<X.Y>/` from a run at

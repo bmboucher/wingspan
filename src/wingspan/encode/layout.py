@@ -510,6 +510,18 @@ def choice_input_dim(
     return base
 
 
+def choice_passthrough_dim(choice_dim: int, *, include_setup: bool = False) -> int:
+    """The choice columns that pass straight through to the encoder — the flat
+    ``choice_dim`` minus every card-region stripe the model replaces with a
+    shared-embedding lookup (the candidate index column, the 15-slot
+    board-index block, and — when ``include_setup`` — the kept-set multi-hot).
+    The architecture diagram's "additional inputs" count."""
+    extra = choice_dim - CHOICE_BIRD_ID_DIM - CHOICE_BOARD_IDX_SLOTS
+    if include_setup:
+        extra -= CHOICE_KEPT_MULTIHOT_DIM
+    return extra
+
+
 # ---------------------------------------------------------------------------
 # Spec-dependent totals + the decision-type one-hot. Indexed by Decision
 # subclass so adding a new decision is a single registration in

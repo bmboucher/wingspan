@@ -278,11 +278,7 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
         extras.append(f"+d{_fmt_dropout(cfg.dropout)}")
     tags = ("  " + " ".join(extras)) if extras else ""
     trunk_in = _trunk_in(cfg)
-    choice_in = encode.choice_input_dim(
-        cfg.choice_dim,
-        cfg.card_embed_dim,
-        include_setup=cfg.encoding_spec.include_setup,
-    )
+    choice_in = _choice_in(cfg)
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
     setup_chain = (
         _chain(_setup_readout_in(cfg), (*cfg.setup_hidden_layers, 1))
@@ -500,16 +496,8 @@ def _choice_encoder_column(
     """The per-choice encoder box (a body block whose final layer is a bare Linear,
     no activation), fed by the card encoder plus its additional features."""
     cfg = view.working
-    include_setup = cfg.encoding_spec.include_setup
-    choice_in = encode.choice_input_dim(
-        cfg.choice_dim, cfg.card_embed_dim, include_setup=include_setup
-    )
-    # Every card region (the candidate index column, the 15-slot board-index
-    # block, and — when setup is in the main net — the kept-set multi-hot) is
-    # embedded, so the passthrough "extra" excludes them all.
-    extra = cfg.choice_dim - encode.CHOICE_BIRD_ID_DIM - encode.CHOICE_BOARD_IDX_SLOTS
-    if include_setup:
-        extra -= encode.CHOICE_KEPT_MULTIHOT_DIM
+    choice_in = _choice_in(cfg)
+    extra = _choice_extra(cfg)
     entries = _block_op_entries(
         view,
         cfg.choice_layers,
@@ -993,11 +981,7 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
         trunk_in=_trunk_in(cfg),
-        choice_in=encode.choice_input_dim(
-            cfg.choice_dim,
-            cfg.card_embed_dim,
-            include_setup=cfg.encoding_spec.include_setup,
-        ),
+        choice_in=_choice_in(cfg),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
     )
@@ -1012,6 +996,34 @@ def _trunk_in(cfg: config.TrainConfig) -> int:
         use_distinct_hand_model=cfg.use_distinct_hand_model,
         hand_embed_dim=cfg.hand_embed_dim,
         tray_set_embedding=cfg.tray_set_embedding,
+    )
+
+
+def _choice_in(cfg: config.TrainConfig | _StaticConfig) -> int:
+    """The choice encoder's first-``Linear`` input width. The static adapter
+    carries a precomputed value (era-routed by the caller through the
+    descriptor seam — ``runmeta.choice_input_dim_for``); a live
+    ``TrainConfig`` (the interactive configurator) is always the current
+    era."""
+    if isinstance(cfg, _StaticConfig):
+        return cfg.choice_in
+    return encode.choice_input_dim(
+        cfg.choice_dim,
+        cfg.card_embed_dim,
+        include_setup=cfg.encoding_spec.include_setup,
+    )
+
+
+def _choice_extra(cfg: config.TrainConfig | _StaticConfig) -> int:
+    """The choice encoder's passthrough "additional inputs" count — every card
+    region (the candidate identity, the board-index block, and — when setup is
+    in the main net — the kept-set multi-hot) is embedded, so the extra count
+    excludes them all. Era-precomputed on the static adapter
+    (``runmeta.choice_extra_for``)."""
+    if isinstance(cfg, _StaticConfig):
+        return cfg.choice_extra
+    return encode.choice_passthrough_dim(
+        cfg.choice_dim, include_setup=cfg.encoding_spec.include_setup
     )
 
 
@@ -1064,13 +1076,21 @@ def _fmt_dropout(dropout: float) -> str:
 class _StaticConfig:
     """Minimal working-config adapter for focus-free diagram rendering.
 
-    Exposes only the attributes the diagram draw functions read from a real
-    ``TrainConfig``, so :func:`render_static` can drive them without constructing
-    a full training config."""
+    Exposes the attributes the diagram draw functions read from a real
+    ``TrainConfig``, so :func:`render_static` can drive them without
+    constructing a full training config. The choice-encoder widths are
+    *precomputed* by the caller (era-routed through the descriptor seam)
+    rather than derived from the live encoder — see :func:`_choice_in` /
+    :func:`_choice_extra` — so an old run's diagram shows its own geometry."""
 
     state_dim: int
     choice_dim: int
+    choice_in: int
+    choice_extra: int
     card_embed_dim: int
+    use_distinct_hand_model: bool
+    hand_embed_dim: int | None
+    tray_set_embedding: bool
     trunk_layers: architecture.Widths
     choice_layers: architecture.Widths
     head_layers: architecture.Widths
@@ -1081,6 +1101,10 @@ class _StaticConfig:
     dropout: float
     arch: architecture.ModelArchitecture
     family_order: tuple[str, ...]
+    setup_arch: setup_model.SetupArchitecture
+    setup_hidden_layers: architecture.Widths
+    setup_activation: architecture.ActivationName
+    setup_dropout: float
     use_setup_model: bool = False
 
 
@@ -1097,6 +1121,11 @@ def render_static(
     state_dim: int,
     choice_dim: int,
     family_order: tuple[str, ...],
+    *,
+    choice_in: int,
+    choice_extra: int,
+    use_setup_model: bool = False,
+    setup_arch: setup_model.SetupArchitecture | None = None,
     width: int = 48,
 ) -> list[text.Text]:
     """Render the architecture block diagram without interactive focus state.
@@ -1104,12 +1133,26 @@ def render_static(
     Returns the same box-and-arrow rows the FLIGHT PLAN ARCHITECTURE panel draws
     — ``EMBED → TRUNK → CHOICE → CONCAT → SCORER`` (with value-head tap) and the
     total-param line — as a plain list of Rich ``Text`` rows ready to print.
-    ``width`` is the box interior column budget (default 48).
+    ``choice_in`` / ``choice_extra`` are the choice encoder's input and
+    passthrough widths, supplied by the caller era-routed through the
+    descriptor seam (``runmeta.choice_input_dim_for`` /
+    ``runmeta.choice_extra_for``) so an old run's diagram never assumes the
+    live encoding. When ``use_setup_model`` the separate setup net is drawn
+    from ``setup_arch`` (the default topology when ``None``). ``width`` is the
+    box interior column budget (default 48).
     """
+    resolved_setup_arch = (
+        setup_arch if setup_arch is not None else setup_model.SetupArchitecture()
+    )
     cfg = _StaticConfig(
         state_dim=state_dim,
         choice_dim=choice_dim,
+        choice_in=choice_in,
+        choice_extra=choice_extra,
         card_embed_dim=arch.card_embed_dim,
+        use_distinct_hand_model=arch.use_distinct_hand_model,
+        hand_embed_dim=arch.hand_embed_dim,
+        tray_set_embedding=arch.tray_set_embedding,
         trunk_layers=arch.trunk_layers,
         choice_layers=arch.choice_layers,
         head_layers=arch.head_layers,
@@ -1120,6 +1163,11 @@ def render_static(
         dropout=arch.dropout,
         arch=arch,
         family_order=family_order,
+        setup_arch=resolved_setup_arch,
+        setup_hidden_layers=resolved_setup_arch.hidden_layers,
+        setup_activation=resolved_setup_arch.activation,
+        setup_dropout=resolved_setup_arch.dropout,
+        use_setup_model=use_setup_model,
     )
     view = _StaticView(working=cfg)
     rows, _ = _diagram_rows(typing.cast("state.ConfiguratorState", view), width)

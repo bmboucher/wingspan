@@ -6,7 +6,9 @@
 ``choice_stripe_layout`` returns a :class:`~descriptors.VectorLayout` listing
 every stripe in the per-choice encoder's input vector in offset order, with a
 post-embedding rewrite applied so the totals match the choice encoder's
-first-``Linear`` input width.
+first-``Linear`` input width. ``raw_choice_stripe_layout`` is the pre-rewrite
+registry at the encoder-output widths — the compat layout shims reuse its
+era-shared stripes.
 """
 
 from __future__ import annotations
@@ -32,6 +34,27 @@ def choice_stripe_layout(
     (``layout.choice_input_dim``), what the network actually sees. The trailing
     ``setup_agg`` / ``kept_multihot`` stripes are present only when
     ``spec.include_setup``.
+    """
+    raw = raw_choice_stripe_layout(spec)
+    return embed_rules.embed_layout(
+        raw,
+        embed_rules.choice_embed_rules(card_embed_dim),
+        layout.choice_input_dim(
+            raw.total_size, card_embed_dim, include_setup=spec.include_setup
+        ),
+    )
+
+
+def raw_choice_stripe_layout(
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+) -> descriptors.VectorLayout:
+    """Build the *raw* (pre-embedding) stripe registry for the choice vector.
+
+    Stripes appear at the exact offsets and widths ``encode_choices`` writes —
+    the encoder-output view, before the card-index / kept-set stripes are
+    rewritten to their embedded widths. :func:`choice_stripe_layout` applies
+    that rewrite; the compat layout shims (``wingspan.compat``) instead reuse
+    the era-shared stripes of this raw registry at their frozen offsets.
     """
     total = layout.choice_feature_dim(spec)
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
@@ -339,14 +362,7 @@ def choice_stripe_layout(
         end == total
     ), f"choice stripe offsets end at {end} but choice_feature_dim(spec) = {total}"
 
-    raw = descriptors.VectorLayout(total_size=total, stripes=tuple(stripes))
-    return embed_rules.embed_layout(
-        raw,
-        embed_rules.choice_embed_rules(card_embed_dim),
-        layout.choice_input_dim(
-            total, card_embed_dim, include_setup=spec.include_setup
-        ),
-    )
+    return descriptors.VectorLayout(total_size=total, stripes=tuple(stripes))
 
 
 ###### PRIVATE #######

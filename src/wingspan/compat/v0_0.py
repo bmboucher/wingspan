@@ -19,6 +19,13 @@ module regenerates them:
 * :class:`PolicyValueNetV00` overrides the two places the net itself bakes in
   the geometry: the choice encoder's input width (the pre-0.1
   ``choice_input_dim`` formula) and the ``_embed_choices`` card-region slicing.
+* :func:`choice_stripe_layout` *describes* the frozen layout — the stripe
+  registry the descriptor-driven reporting seam (``runmeta.choice_layout_for``)
+  shows for pre-0.1 runs, mirroring the live
+  ``encode.stripes.choice_stripe_layout``. Era-shared stripes reuse the live
+  raw registry's descriptors (the same principle as the transform's block
+  copies); only the reshaped placement / card-identity stripes are described
+  here.
 
 The v0.0 stripe offsets below are frozen literals — they must never track the
 live ``encode.layout`` (that is the point). The transform's *input* side reads
@@ -42,6 +49,8 @@ import torch
 
 from wingspan import architecture, cards, decisions, encode, version
 from wingspan.encode import layout
+from wingspan.encode.stripes import choice as stripes_choice
+from wingspan.encode.stripes import descriptors, embed_rules
 from wingspan.model import core, mlp
 
 if typing.TYPE_CHECKING:
@@ -89,6 +98,27 @@ _OFF_BONUS_VALUE = _OFF_GOAL_DELTA + _GOAL_DELTA_DIM
 _OFF_SETUP = _OFF_BONUS_VALUE + _BONUS_VALUE_DIM  # trailing; iff include_setup
 _CHOICE_BASE_DIM = _OFF_SETUP  # 397 — the v0.0 fixture's choice_dim
 
+_DEFAULT_CARD_EMBED_DIM = architecture.ModelArchitecture().card_embed_dim
+
+# The stripes whose contents (and descriptions) are identical in both eras,
+# mapped to their frozen v0.0 offsets — the layout twin of the transform's
+# _copy_shared_blocks. The reshaped stripes (habitat / board_idx / bird_id)
+# get era-specific descriptors instead.
+_SHARED_STRIPE_OFFSETS: dict[str, int] = {
+    "kind": _OFF_KIND,
+    "gain_food": _OFF_GAIN_FOOD,
+    "pay_food": _OFF_PAY,
+    "board_target": _OFF_BOARD,
+    "main_action": _OFF_MAIN_ACTION,
+    "special": _OFF_SPECIAL,
+    "exchange": _OFF_EXCHANGE,
+    "bonus_id": _OFF_BONUS_ID,
+    "bonus_delta": _OFF_BONUS_DELTA,
+    "goal_delta": _OFF_GOAL_DELTA,
+    "bonus_value": _OFF_BONUS_VALUE,
+    "setup_agg": _OFF_SETUP,
+}
+
 
 def uses_v0_0_choice_encoding(artifact_version: str) -> bool:
     """Whether ``artifact_version`` predates the 0.1 choice-vector reshape and
@@ -116,6 +146,36 @@ def choice_input_dim(choice_dim: int, card_embed_dim: int) -> int:
         - _BOARD_IDX_SLOTS
         + card_embed_dim
         + _BOARD_IDX_SLOTS * card_embed_dim
+    )
+
+
+def choice_passthrough_dim(choice_dim: int) -> int:
+    """The v0.0 choice columns that pass straight through to the encoder —
+    everything except the embedded card regions (the 180-wide bird one-hot /
+    keep multi-hot and the 15-slot board-index block). The frozen twin of the
+    live ``encode.choice_passthrough_dim``, with no ``include_setup`` axis."""
+    return choice_dim - _BIRD_ID_DIM - _BOARD_IDX_SLOTS
+
+
+def choice_stripe_layout(
+    spec: encode.EncodingSpec = encode.DEFAULT_SPEC,
+    card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
+) -> descriptors.VectorLayout:
+    """Build the stripe registry for a v0.0 net's choice-encoder input vector.
+
+    The frozen-era twin of the live ``encode.stripes.choice_stripe_layout``:
+    every stripe of the v0.0 row at its frozen offset, with the board-index
+    block and the 180-wide bird one-hot shown at their post-embedding width so
+    the breakdown sums to :func:`choice_input_dim` — what a
+    :class:`PolicyValueNetV00` actually sees. The trailing ``setup_agg`` stripe
+    is present only when ``spec.include_setup`` (v0.0 had no separate
+    ``kept_multihot`` stripe — keeps rode ``bird_id``).
+    """
+    raw = _raw_choice_stripes(spec)
+    return embed_rules.embed_layout(
+        raw,
+        _choice_embed_rules(card_embed_dim),
+        choice_input_dim(choice_feature_dim(spec), card_embed_dim),
     )
 
 
@@ -328,6 +388,168 @@ def _fix_placement_stripes(
         if candidate == habitat:
             row[_OFF_HAB + index] = 1.0
             break
+
+
+#### v0.0 stripe registry ####
+
+
+def _raw_choice_stripes(spec: encode.EncodingSpec) -> descriptors.VectorLayout:
+    """The raw (pre-embedding) v0.0 stripe list: era-shared stripes reused from
+    the live raw registry at their frozen offsets, plus the era-specific
+    habitat / board_idx / bird_id descriptors. The contiguity loop pins every
+    frozen offset against the inherited stripe widths — a live width change
+    fails loudly here instead of silently shifting the v0.0 table."""
+    shared = {
+        stripe.name: stripe
+        for stripe in stripes_choice.raw_choice_stripe_layout(spec).stripes
+    }
+
+    def shared_at(name: str) -> descriptors.StripeDescriptor:
+        return shared[name].model_copy(update={"offset": _SHARED_STRIPE_OFFSETS[name]})
+
+    assembled = [
+        shared_at("kind"),
+        shared_at("gain_food"),
+        _habitat_stripe(),
+        shared_at("pay_food"),
+        shared_at("board_target"),
+        shared_at("main_action"),
+        shared_at("special"),
+        shared_at("exchange"),
+        _board_idx_stripe(),
+        _bird_id_stripe(),
+        shared_at("bonus_id"),
+        shared_at("bonus_delta"),
+        shared_at("goal_delta"),
+        shared_at("bonus_value"),
+    ]
+    if spec.include_setup:
+        assembled.append(shared_at("setup_agg"))
+
+    offset = 0
+    for stripe in assembled:
+        assert stripe.offset == offset, (
+            f"v0.0 stripe {stripe.name!r} lands at offset {offset} but the "
+            f"frozen layout places it at {stripe.offset} — a live stripe width "
+            "changed; extend the v0.0 shim"
+        )
+        offset += stripe.size
+    return descriptors.VectorLayout(
+        total_size=choice_feature_dim(spec), stripes=tuple(assembled)
+    )
+
+
+def _habitat_stripe() -> descriptors.StripeDescriptor:
+    """The 3-wide destination-habitat one-hot the 0.1 reshape removed."""
+    habitat_names = ", ".join(habitat.value for habitat in cards.ALL_HABITATS)
+    return descriptors.StripeDescriptor(
+        name="habitat",
+        description=(
+            "Destination-habitat one-hot for a placement row (a play-bird "
+            "candidate, its committed food payment, or a move-bird habitat "
+            "pick)."
+        ),
+        offset=_OFF_HAB,
+        size=_HABITAT_DIM,
+        encoding="one-hot",
+        value_range="{0, 1}",
+        notes=(
+            f"Habitats in order: {habitat_names}. The 0.1 reshape replaced "
+            "this with a landing-slot mark in board_idx. Zero for "
+            "non-placement choices."
+        ),
+        sub_fields=_habitat_sub_fields(),
+    )
+
+
+def _habitat_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """3 sub-fields for the v0.0 destination-habitat one-hot."""
+    return tuple(
+        descriptors.SubFieldDescriptor(
+            name=f"habitat_{habitat.value}",
+            description=f"This placement lands in {habitat.value}.",
+            relative_offset=index,
+            size=1,
+            encoding="one-hot bit",
+            value_range="{0, 1}",
+        )
+        for index, habitat in enumerate(cards.ALL_HABITATS)
+    )
+
+
+def _board_idx_stripe() -> descriptors.StripeDescriptor:
+    """The v0.0 board-index block: board-target occupants only — placement rows
+    wrote nothing here (the destination rode the habitat stripe)."""
+    return descriptors.StripeDescriptor(
+        name="board_idx",
+        description=(
+            "Bird indices for the deciding player's 15 board slots — the "
+            "board_target stripe's occupants, looked up in the shared card "
+            "table."
+        ),
+        offset=_OFF_BOARD_IDX,
+        size=_BOARD_IDX_SLOTS,
+        encoding="integer-index",
+        value_range=f"int 0–{_BIRD_ID_DIM}",
+        notes=(
+            f"{_BOARD_IDX_SLOTS} integer indices (positional, ALL_HABITATS × "
+            "ROW_SLOTS). bird_index + 1; 0 = empty slot. Board-target rows "
+            "fill all occupants; v0.0 placement rows wrote nothing here (the "
+            "0.1 landing-slot mark did not exist yet). Zero for other choices."
+        ),
+    )
+
+
+def _bird_id_stripe() -> descriptors.StripeDescriptor:
+    """The v0.0 bird-identity stripe: a 180-wide one-hot doubling as the
+    setup keep multi-hot."""
+    return descriptors.StripeDescriptor(
+        name="bird_id",
+        description=(
+            f"The candidate bird's identity as a one-hot over all "
+            f"{_BIRD_ID_DIM} core-set birds — doubling as a setup pick's "
+            "kept-set multi-hot."
+        ),
+        offset=_OFF_BIRD_ID,
+        size=_BIRD_ID_DIM,
+        encoding="one-hot / multi-hot",
+        value_range="{0, 1}",
+        notes=(
+            "One bit per core-set bird. One-hot for a single-bird candidate; "
+            "a SetupChoice marks every kept bird (the 0.1 reshape collapsed "
+            "this to one index column and moved the kept set onto a dedicated "
+            "kept_multihot stripe). Zero for non-bird choices."
+        ),
+    )
+
+
+def _choice_embed_rules(card_embed_dim: int) -> dict[str, embed_rules._EmbedRule]:
+    """The v0.0 card-region stripes at embedded width: the board-index block as
+    one embedding per slot, the bird one-hot / keep multi-hot summed through
+    the shared card table into one embedding (the ``_embed_choices`` matmul)."""
+    return {
+        "board_idx": embed_rules._EmbedRule(
+            new_size=_BOARD_IDX_SLOTS * card_embed_dim,
+            encoding="card-embedding",
+            value_range="learned",
+            notes=(
+                f"{_BOARD_IDX_SLOTS} board slots -> one {card_embed_dim}-dim "
+                f"shared card embedding each ({_BOARD_IDX_SLOTS}x"
+                f"{card_embed_dim}). Raw encoding stores {_BOARD_IDX_SLOTS} "
+                "integer indices (bird_index + 1; 0 = empty)."
+            ),
+        ),
+        "bird_id": embed_rules._EmbedRule(
+            new_size=card_embed_dim,
+            encoding="card-embedding (candidate / kept set, summed)",
+            value_range="learned",
+            notes=(
+                f"The {_BIRD_ID_DIM}-wide bird one-hot (a setup keep's "
+                f"multi-hot) -> one {card_embed_dim}-dim embedding, summed "
+                "over the marked cards' shared card vectors."
+            ),
+        ),
+    }
 
 
 _assert_live_layout_contract()

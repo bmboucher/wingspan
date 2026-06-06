@@ -19,6 +19,15 @@ and the ``metrics.jsonl`` / ``games.jsonl`` history logs:
 The writers are split out of ``loop`` (and kept torch-free) so they can be unit
 tested without a training run, mirroring the ``artifacts`` / ``runs`` split. The
 caller supplies the timestamp strings so these functions stay pure.
+
+This module also owns the descriptor-derived reporting seam (the ``*_for`` /
+``build_*`` functions): every layout, input width, and parameter count shown by
+``wingspan inspect`` or written to ``model_inspect.json`` /
+``model_summary.html`` derives from a :class:`ModelConfig` descriptor and is
+**era-routed by its artifact version** (pre-0.1 descriptors get the frozen
+``wingspan.compat.v0_0`` geometry). The run-start writers funnel through the
+same seam via :func:`_descriptor_for`, so a run's reports are consistent with
+its ``model_config.json`` by construction.
 """
 
 from __future__ import annotations
@@ -94,15 +103,7 @@ class InspectReport(pydantic.BaseModel):
 
 def write_model_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
     """Write (overwriting) ``model_config.json`` for ``cfg`` and return its path."""
-    descriptor = ModelConfig(
-        run_name=cfg.run_name,
-        state_dim=cfg.state_dim,
-        choice_dim=cfg.choice_dim,
-        family_order=cfg.family_order,
-        architecture=cfg.arch,
-        include_setup=cfg.encoding_spec.include_setup,
-        version=version.MODEL_VERSION,
-    )
+    descriptor = _descriptor_for(cfg)
     path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
     path.write_text(descriptor.model_dump_json(indent=2), encoding="utf-8")
     return path
@@ -111,33 +112,14 @@ def write_model_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
 def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
     """Write (overwriting) ``model_inspect.json`` for ``cfg`` and return its path.
 
-    Builds the state and choice stripe registries from the live encoding
-    constants and the per-block parameter accounting from the architecture, then
-    writes the result as :class:`InspectReport` JSON.  The file is
-    self-documenting: every input element is named and described, and the
+    Derives everything from the same descriptor :func:`write_model_config`
+    writes, via :func:`build_inspect_report`, so the JSON breakdown is
+    consistent with the run's ``model_config.json`` by construction. The file
+    is self-documenting: every input element is named and described, and the
     parameter count matches ``sum(p.numel())`` of the equivalent
     :class:`~wingspan.model.PolicyValueNet`.
     """
-    param_report = architecture.count_parameters(
-        cfg.arch,
-        card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=_trunk_input_dim(cfg),
-        choice_in=encode.choice_input_dim(
-            cfg.choice_dim,
-            cfg.card_embed_dim,
-            include_setup=cfg.encoding_spec.include_setup,
-        ),
-        num_families=len(cfg.family_order),
-        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
-    )
-    inspect_report = InspectReport(
-        state_layout=_state_layout(cfg),
-        choice_layout=encode_stripes.choice_stripe_layout(
-            cfg.encoding_spec, cfg.card_embed_dim
-        ),
-        param_report=param_report,
-        total_params=param_report.total,
-    )
+    inspect_report = build_inspect_report(_descriptor_for(cfg))
     path = _ensure_dir(checkpoint_dir) / artifacts.INSPECT_REPORT_JSON
     path.write_text(inspect_report.model_dump_json(indent=2), encoding="utf-8")
     return path
@@ -151,34 +133,11 @@ def write_model_summary_html(
     Produces a self-contained browser-readable summary covering the full
     state/choice vector layouts (with per-element drill-down), the network
     architecture diagram, and the per-layer parameter accounting.  Regenerated
-    on every startup, matching the contract of :func:`write_model_config`.
+    on every startup, matching the contract of :func:`write_model_config`, and
+    built by the same :func:`build_model_summary_html` that ``wingspan inspect
+    --html`` uses — the two surfaces are identical by construction.
     """
-    param_report = architecture.count_parameters(
-        cfg.arch,
-        card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=_trunk_input_dim(cfg),
-        choice_in=encode.choice_input_dim(
-            cfg.choice_dim,
-            cfg.card_embed_dim,
-            include_setup=cfg.encoding_spec.include_setup,
-        ),
-        num_families=len(cfg.family_order),
-        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
-    )
-    html_content = report.generate_html_report(
-        _state_layout(cfg),
-        encode_stripes.choice_stripe_layout(cfg.encoding_spec, cfg.card_embed_dim),
-        param_report,
-        cfg.arch,
-        setup_layout=setup_model.setup_stripe_layout(),
-        setup_arch=cfg.setup_arch,
-        use_setup_model=cfg.use_setup_model,
-        state_dim=cfg.state_dim,
-        choice_dim=cfg.choice_dim,
-        family_order=cfg.family_order,
-        run_name=cfg.run_name,
-        model_version=version.MODEL_VERSION,
-    )
+    html_content = build_model_summary_html(_descriptor_for(cfg), cfg.setup_arch)
     path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_SUMMARY_HTML
     path.write_text(html_content, encoding="utf-8")
     return path
@@ -198,6 +157,136 @@ def read_model_config(checkpoint_dir: str) -> ModelConfig:
         descriptor.version, what=f"{artifacts.MODEL_CONFIG_JSON} at {checkpoint_dir}"
     )
     return descriptor
+
+
+def build_inspect_report(descriptor: ModelConfig) -> InspectReport:
+    """The encoding + parameter breakdown for ``descriptor``, era-routed.
+
+    The single source behind ``model_inspect.json`` and the ``wingspan
+    inspect`` tables: every layout and count derives from the run's own
+    descriptor — never the live encoder alone — so the report matches the
+    checkpoint the descriptor describes regardless of its artifact era.
+    """
+    param_report = param_report_for(descriptor)
+    return InspectReport(
+        state_layout=state_layout_for(descriptor),
+        choice_layout=choice_layout_for(descriptor),
+        param_report=param_report,
+        total_params=param_report.total,
+    )
+
+
+def build_model_summary_html(
+    descriptor: ModelConfig, setup_arch: setup_model.SetupArchitecture
+) -> str:
+    """The standalone ``model_summary.html`` document for ``descriptor``.
+
+    The single builder behind both the run-start writer
+    (:func:`write_model_summary_html`) and ``wingspan inspect --html``, so the
+    two surfaces are identical by construction. ``setup_arch`` is the one
+    datum not on the descriptor (it lives in ``setup_config.json``); the
+    separate setup model is active exactly when the main net does not carry
+    setup (``include_setup`` off).
+    """
+    return report.generate_html_report(
+        state_layout_for(descriptor),
+        choice_layout_for(descriptor),
+        param_report_for(descriptor),
+        descriptor.architecture,
+        setup_layout=setup_model.setup_stripe_layout(),
+        setup_arch=setup_arch,
+        use_setup_model=not descriptor.include_setup,
+        state_dim=descriptor.state_dim,
+        choice_dim=descriptor.choice_dim,
+        family_order=descriptor.family_order,
+        run_name=descriptor.run_name,
+        model_version=descriptor.version,
+    )
+
+
+def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
+    """The per-layer / per-block parameter accounting for ``descriptor``'s net,
+    with the choice-encoder input width era-routed so the totals match the
+    actual checkpoint — ``sum(p.numel())`` of the net
+    ``model.PolicyValueNet.from_model_config`` reconstitutes."""
+    arch = descriptor.architecture
+    return architecture.count_parameters(
+        arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
+        trunk_in=encode.trunk_input_dim(
+            descriptor.state_dim,
+            arch.card_embed_dim,
+            use_distinct_hand_model=arch.use_distinct_hand_model,
+            hand_embed_dim=arch.hand_embed_dim,
+            tray_set_embedding=arch.tray_set_embedding,
+        ),
+        choice_in=choice_input_dim_for(descriptor),
+        num_families=len(descriptor.family_order),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
+    )
+
+
+def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
+    """The post-embedding state stripe registry for ``descriptor``.
+
+    Always the live registry: the state encoding is era-invariant through
+    artifact version 0.1 (only the choice vector reshaped). A future era that
+    reshapes the state vector must extend this with version routing, exactly
+    like :func:`choice_layout_for`.
+    """
+    arch = descriptor.architecture
+    return encode_stripes.state_stripe_layout(
+        encode.EncodingSpec(include_setup=descriptor.include_setup),
+        arch.card_embed_dim,
+        use_distinct_hand_model=arch.use_distinct_hand_model,
+        hand_embed_dim=arch.hand_embed_dim,
+        tray_set_embedding=arch.tray_set_embedding,
+    )
+
+
+def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
+    """The post-embedding choice stripe registry for ``descriptor``,
+    era-routed: pre-0.1 artifacts get the frozen v0.0 registry (habitat
+    stripe, 180-wide bird one-hot), current ones the live registry."""
+    from wingspan.compat import v0_0  # local: compat imports the model package
+
+    spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
+    if v0_0.uses_v0_0_choice_encoding(descriptor.version):
+        return v0_0.choice_stripe_layout(spec, descriptor.architecture.card_embed_dim)
+    return encode_stripes.choice_stripe_layout(
+        spec, descriptor.architecture.card_embed_dim
+    )
+
+
+def choice_input_dim_for(descriptor: ModelConfig) -> int:
+    """The choice encoder's first-``Linear`` input width for ``descriptor``,
+    era-routed: the pre-0.1 formula has no ``include_setup`` axis (the keep
+    multi-hot rode the bird stripe)."""
+    from wingspan.compat import v0_0  # local: compat imports the model package
+
+    if v0_0.uses_v0_0_choice_encoding(descriptor.version):
+        return v0_0.choice_input_dim(
+            descriptor.choice_dim, descriptor.architecture.card_embed_dim
+        )
+    return encode.choice_input_dim(
+        descriptor.choice_dim,
+        descriptor.architecture.card_embed_dim,
+        include_setup=descriptor.include_setup,
+    )
+
+
+def choice_extra_for(descriptor: ModelConfig) -> int:
+    """The choice encoder's passthrough width for ``descriptor`` — the row
+    columns that are not card-region embedding lookups (the architecture
+    diagram's "additional inputs" count), era-routed like
+    :func:`choice_input_dim_for`."""
+    from wingspan.compat import v0_0  # local: compat imports the model package
+
+    if v0_0.uses_v0_0_choice_encoding(descriptor.version):
+        return v0_0.choice_passthrough_dim(descriptor.choice_dim)
+    return encode.choice_passthrough_dim(
+        descriptor.choice_dim, include_setup=descriptor.include_setup
+    )
 
 
 def write_session_record(
@@ -229,27 +318,19 @@ def write_session_record(
 ###### PRIVATE #######
 
 
-def _trunk_input_dim(cfg: config.TrainConfig) -> int:
-    """The run's post-embedding trunk input width, with every embedding knob
-    (distinct hand encoder, hand embed width, tray-set embedding) threaded."""
-    return encode.trunk_input_dim(
-        cfg.state_dim,
-        cfg.card_embed_dim,
-        use_distinct_hand_model=cfg.use_distinct_hand_model,
-        hand_embed_dim=cfg.hand_embed_dim,
-        tray_set_embedding=cfg.tray_set_embedding,
-    )
-
-
-def _state_layout(cfg: config.TrainConfig) -> encode_stripes.VectorLayout:
-    """The run's post-embedding state stripe registry, embedding knobs threaded
-    (the choice layout takes none of them, so it is built inline)."""
-    return encode_stripes.state_stripe_layout(
-        cfg.encoding_spec,
-        cfg.card_embed_dim,
-        use_distinct_hand_model=cfg.use_distinct_hand_model,
-        hand_embed_dim=cfg.hand_embed_dim,
-        tray_set_embedding=cfg.tray_set_embedding,
+def _descriptor_for(cfg: config.TrainConfig) -> ModelConfig:
+    """The :class:`ModelConfig` descriptor for ``cfg``, stamped at the current
+    artifact version — the single construction every run-start writer shares,
+    so the JSON / HTML reports describe exactly what ``model_config.json``
+    records."""
+    return ModelConfig(
+        run_name=cfg.run_name,
+        state_dim=cfg.state_dim,
+        choice_dim=cfg.choice_dim,
+        family_order=cfg.family_order,
+        architecture=cfg.arch,
+        include_setup=cfg.encoding_spec.include_setup,
+        version=version.MODEL_VERSION,
     )
 
 

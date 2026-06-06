@@ -144,3 +144,32 @@ def test_loaded_net_plays_a_game(loaded_net: model.PolicyValueNet):
     assert record.steps, "expected at least one recorded step"
     assert record.winner in (-1, 0, 1)
     assert all(score >= 0 for score in record.scores)
+
+
+def test_param_report_matches_the_loaded_net(loaded_net: model.PolicyValueNet):
+    """The era-routed parameter report equals ``sum(p.numel())`` of the
+    reconstituted net — what ``wingspan inspect`` and the run reports show for
+    this directory describes the pinned checkpoint, not the live encoder."""
+    descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
+    report = runmeta.param_report_for(descriptor)
+    assert report.total == sum(p.numel() for p in loaded_net.parameters())
+
+
+def test_choice_layout_routes_to_the_frozen_registry():
+    """``choice_layout_for`` on the v0.0 descriptor returns the frozen-era
+    stripe table — the habitat one-hot is back, there is no kept_multihot
+    stripe, and the post-embedding total is the v0.0 choice-encoder input
+    width (matching the loaded net's first ``Linear``)."""
+    descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
+    layout = runmeta.choice_layout_for(descriptor)
+    names = [stripe.name for stripe in layout.stripes]
+    assert "habitat" in names
+    assert "kept_multihot" not in names
+    expected_input = v0_0.choice_input_dim(
+        descriptor.choice_dim, descriptor.architecture.card_embed_dim
+    )
+    assert layout.total_size == expected_input
+    assert runmeta.choice_input_dim_for(descriptor) == expected_input
+    assert runmeta.choice_extra_for(descriptor) == v0_0.choice_passthrough_dim(
+        descriptor.choice_dim
+    )

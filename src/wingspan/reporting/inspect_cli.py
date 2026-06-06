@@ -12,7 +12,10 @@ Prints four sections:
 Without ``--checkpoint-dir`` the tool uses the default
 :class:`~wingspan.architecture.ModelArchitecture` (the out-of-the-box network
 shape). Pass a run's checkpoint directory to read its ``model_config.json`` and
-show the exact topology that checkpoint was trained with.
+show the exact topology that checkpoint was trained with: every table, width,
+and count derives from the run's own descriptor through the era-routed
+``runmeta`` seam, so a pre-0.1 run shows its frozen v0.0 choice geometry — not
+the live encoder's.
 """
 
 from __future__ import annotations
@@ -28,7 +31,6 @@ from rich import text as rich_text
 
 from wingspan import architecture, decisions, encode, setup_model, version
 from wingspan.encode import stripes as encode_stripes
-from wingspan.reporting import html as report
 from wingspan.training import artifacts, runmeta, setup_runmeta
 from wingspan.training.charts import text_helpers
 from wingspan.training.configure import arch_diagram
@@ -120,7 +122,12 @@ def _write_html_report(
     info: _ArchInfo,
     console: rich_console.Console,
 ) -> None:
-    """Generate and write the HTML report; print the output path to the console."""
+    """Generate and write the HTML report; print the output path to the console.
+
+    Built by the same :func:`runmeta.build_model_summary_html` the run-start
+    writer uses, so regenerating into a run directory reproduces (for a
+    current-era run) or era-corrects (for an older run) its original
+    ``model_summary.html`` instead of clobbering it with live-encoder data."""
     import pathlib
 
     # Resolve the output path: explicit FILE, then <checkpoint-dir>/model_summary.html,
@@ -132,21 +139,7 @@ def _write_html_report(
     else:
         out_path = pathlib.Path(artifacts.MODEL_SUMMARY_HTML)
 
-    param_report = _count_parameters(info)
-    html_content = report.generate_html_report(
-        _state_layout(info),
-        encode_stripes.choice_stripe_layout(info.spec, info.arch.card_embed_dim),
-        param_report,
-        info.arch,
-        setup_layout=setup_model.setup_stripe_layout(),
-        setup_arch=info.setup_arch,
-        use_setup_model=info.use_setup_model,
-        state_dim=info.state_dim,
-        choice_dim=info.choice_dim,
-        family_order=info.family_order,
-        run_name=info.run_name,
-        model_version=info.model_version,
-    )
+    html_content = runmeta.build_model_summary_html(info.descriptor, info.setup_arch)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_content, encoding="utf-8")
     console.print(f"[bold green]HTML report written →[/bold green] {out_path}")
@@ -173,39 +166,29 @@ def _utf8_stdout() -> io.TextIOWrapper:
 
 
 class _ArchInfo:
-    """The resolved architecture and encoding dims for one introspection run."""
+    """The resolved run descriptor for one introspection run, plus the setup-net
+    topology — the one datum not on the descriptor (it lives in
+    ``setup_config.json``). Every table, width, and count is derived from
+    ``descriptor`` through the era-routed ``runmeta`` seam."""
 
     def __init__(
         self,
-        arch: architecture.ModelArchitecture,
-        state_dim: int,
-        choice_dim: int,
-        family_order: tuple[str, ...],
-        include_setup: bool,
-        run_name: str = "(baseline)",
+        descriptor: runmeta.ModelConfig,
         setup_arch: setup_model.SetupArchitecture | None = None,
-        model_version: str = version.MODEL_VERSION,
     ):
-        self.arch = arch
-        self.state_dim = state_dim
-        self.choice_dim = choice_dim
-        self.family_order = family_order
-        self.include_setup = include_setup
-        self.run_name = run_name
+        self.descriptor = descriptor
         self.setup_arch = setup_arch or setup_model.SetupArchitecture()
-        self.model_version = model_version
 
     @property
-    def spec(self) -> encode.EncodingSpec:
-        """The encoding spec the run was built under (whether the main net carries
-        setup) — drives which stripes the report shows / hides."""
-        return encode.EncodingSpec(include_setup=self.include_setup)
+    def run_name(self) -> str:
+        """The run's display name (``"(baseline)"`` for the no-dir default)."""
+        return self.descriptor.run_name
 
     @property
     def use_setup_model(self) -> bool:
         """Whether the separate setup model is active — the inverse of the main
         net carrying setup (``include_setup``)."""
-        return not self.include_setup
+        return not self.descriptor.include_setup
 
 
 def _default_family_order() -> tuple[str, ...]:
@@ -219,32 +202,31 @@ def _default_family_order() -> tuple[str, ...]:
 
 
 def _load_arch_info(checkpoint_dir: str | None) -> _ArchInfo:
-    """Load architecture from a run's ``model_config.json``; with no checkpoint
+    """Load the run descriptor from ``model_config.json``; with no checkpoint
     dir at all, describe the baseline (default-config) network instead.
 
-    A checkpoint dir without a ``model_config.json`` raises ``FileNotFoundError``
-    — every run directory carries the descriptor, so its absence means the path
-    is not a run directory. The setup net's topology comes from the run's
+    The baseline is a synthetic current-era descriptor, so every code path —
+    tables, diagram, HTML — is descriptor-first. A checkpoint dir without a
+    ``model_config.json`` raises ``FileNotFoundError`` — every run directory
+    carries the descriptor, so its absence means the path is not a run
+    directory. The setup net's topology comes from the run's
     ``setup_config.json`` when present; absent, the default
     :class:`~wingspan.setup_model.SetupArchitecture` is used."""
     if checkpoint_dir is None:
         return _ArchInfo(
-            arch=architecture.ModelArchitecture(),
-            state_dim=encode.state_size(),
-            choice_dim=encode.CHOICE_FEATURE_DIM,
-            family_order=_default_family_order(),
-            include_setup=encode.DEFAULT_SPEC.include_setup,
+            descriptor=runmeta.ModelConfig(
+                run_name="(baseline)",
+                state_dim=encode.state_size(),
+                choice_dim=encode.CHOICE_FEATURE_DIM,
+                family_order=_default_family_order(),
+                architecture=architecture.ModelArchitecture(),
+                include_setup=encode.DEFAULT_SPEC.include_setup,
+                version=version.MODEL_VERSION,
+            )
         )
-    descriptor = runmeta.read_model_config(checkpoint_dir)
     return _ArchInfo(
-        arch=descriptor.architecture,
-        state_dim=descriptor.state_dim,
-        choice_dim=descriptor.choice_dim,
-        family_order=descriptor.family_order,
-        include_setup=descriptor.include_setup,
-        run_name=descriptor.run_name,
+        descriptor=runmeta.read_model_config(checkpoint_dir),
         setup_arch=_load_setup_arch(checkpoint_dir),
-        model_version=descriptor.version,
     )
 
 
@@ -256,45 +238,12 @@ def _load_setup_arch(checkpoint_dir: str) -> setup_model.SetupArchitecture:
         return setup_model.SetupArchitecture()
 
 
-def _count_parameters(info: _ArchInfo) -> architecture.ParamReport:
-    """The main net's parameter accounting for ``info``, with every embedding
-    knob (distinct hand encoder, hand embed width, tray-set embedding) threaded
-    into the trunk's post-embedding input width."""
-    return architecture.count_parameters(
-        info.arch,
-        card_feat_in=encode.CARD_FEATURE_DIM,
-        trunk_in=encode.trunk_input_dim(
-            info.state_dim,
-            info.arch.card_embed_dim,
-            use_distinct_hand_model=info.arch.use_distinct_hand_model,
-            hand_embed_dim=info.arch.hand_embed_dim,
-            tray_set_embedding=info.arch.tray_set_embedding,
-        ),
-        choice_in=encode.choice_input_dim(
-            info.choice_dim, info.arch.card_embed_dim, include_setup=info.include_setup
-        ),
-        num_families=len(info.family_order),
-        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
-    )
-
-
-def _state_layout(info: _ArchInfo) -> encode_stripes.VectorLayout:
-    """The post-embedding state stripe registry for ``info``'s architecture."""
-    return encode_stripes.state_stripe_layout(
-        info.spec,
-        info.arch.card_embed_dim,
-        use_distinct_hand_model=info.arch.use_distinct_hand_model,
-        hand_embed_dim=info.arch.hand_embed_dim,
-        tray_set_embedding=info.arch.tray_set_embedding,
-    )
-
-
 #### Vector layout sections ####
 
 
 def _print_state_section(console: rich_console.Console, info: _ArchInfo) -> None:
     """Print the STATE VECTOR breakdown table."""
-    layout = _state_layout(info)
+    layout = runmeta.state_layout_for(info.descriptor)
     table = _make_stripe_table(layout, "STATE VECTOR")
     console.print()
     console.print(
@@ -308,8 +257,9 @@ def _print_state_section(console: rich_console.Console, info: _ArchInfo) -> None
 
 
 def _print_choice_section(console: rich_console.Console, info: _ArchInfo) -> None:
-    """Print the CHOICE VECTOR breakdown table."""
-    layout = encode_stripes.choice_stripe_layout(info.spec, info.arch.card_embed_dim)
+    """Print the CHOICE VECTOR breakdown table — era-routed, so a pre-0.1 run
+    shows its frozen v0.0 stripes (habitat one-hot, 180-wide bird identity)."""
+    layout = runmeta.choice_layout_for(info.descriptor)
     table = _make_stripe_table(layout, "CHOICE VECTOR")
     console.print()
     console.print(
@@ -360,14 +310,20 @@ def _make_stripe_table(
 
 
 def _print_arch_section(console: rich_console.Console, info: _ArchInfo) -> None:
-    """Print the ARCHITECTURE block diagram (identical to FLIGHT PLAN)."""
+    """Print the ARCHITECTURE block diagram (identical to FLIGHT PLAN), the
+    choice-encoder widths era-routed through the descriptor seam."""
     # Use ~40 columns for the diagram box so it fits even in narrow terminals.
     box_width = min(48, (console.width or 80) - 4)
+    descriptor = info.descriptor
     rows = arch_diagram.render_static(
-        info.arch,
-        state_dim=info.state_dim,
-        choice_dim=info.choice_dim,
-        family_order=info.family_order,
+        descriptor.architecture,
+        state_dim=descriptor.state_dim,
+        choice_dim=descriptor.choice_dim,
+        family_order=descriptor.family_order,
+        choice_in=runmeta.choice_input_dim_for(descriptor),
+        choice_extra=runmeta.choice_extra_for(descriptor),
+        use_setup_model=info.use_setup_model,
+        setup_arch=info.setup_arch,
         width=box_width,
     )
     # Render each row separated by newlines inside a panel.
@@ -391,8 +347,9 @@ def _print_arch_section(console: rich_console.Console, info: _ArchInfo) -> None:
 
 
 def _print_params_section(console: rich_console.Console, info: _ArchInfo) -> None:
-    """Print the per-layer / per-block parameter breakdown."""
-    report = _count_parameters(info)
+    """Print the per-layer / per-block parameter breakdown — era-routed, so the
+    totals match ``sum(p.numel())`` of the run's actual checkpoint."""
+    report = runmeta.param_report_for(info.descriptor)
     total = report.total
     table = _build_params_table(report, total)
     console.print()

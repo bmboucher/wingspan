@@ -231,7 +231,7 @@ src/wingspan/
     __main__.py / app.py # entry point: argparse (+ --config) -> worker thread + rich.Live loop
     config.py            # TrainConfig (self-describing hyperparameters, §5.1)
     artifacts.py         # shared on-disk filenames (LAST/BEST/OPPONENT ckpt, metrics+games logs, model_config/process json)
-    runmeta.py           # model_config.json (full topology, reconstitutable) + dated process_<stamp>.json sidecars (torch-free); read_model_config reader
+    runmeta.py           # model_config.json (full topology, reconstitutable) + dated process_<stamp>.json sidecars (torch-free); read_model_config reader + the era-routed descriptor reporting seam (*_for / build_*)
     metrics.py           # ScoreBreakdown / FamilyCounts / EvalResult / IterationMetrics / GameOutcome (games.jsonl row)
     metrics_log.py       # cached reader for the append-only metrics.jsonl history
     runstate.py          # RunState: the shared live snapshot the dashboard reads (+ RunProgress)

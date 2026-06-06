@@ -140,3 +140,31 @@ def test_loaded_net_plays_a_game(loaded_net: model.PolicyValueNet):
     assert record.steps, "expected at least one recorded step"
     assert record.winner in (-1, 0, 1)
     assert all(score >= 0 for score in record.scores)
+
+
+def test_param_report_matches_the_loaded_net(loaded_net: model.PolicyValueNet):
+    """The era-routed parameter report equals ``sum(p.numel())`` of the
+    reconstituted net — the inspect / report surfaces describe the pinned
+    checkpoint exactly."""
+    descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
+    report = runmeta.param_report_for(descriptor)
+    assert report.total == sum(p.numel() for p in loaded_net.parameters())
+
+
+def test_choice_layout_routes_to_the_live_registry():
+    """``choice_layout_for`` on a 0.1 descriptor is the live stripe table —
+    no resurrected habitat stripe — at the live choice-encoder input width."""
+    descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
+    layout = runmeta.choice_layout_for(descriptor)
+    names = [stripe.name for stripe in layout.stripes]
+    assert "habitat" not in names
+    expected_input = encode.choice_input_dim(
+        descriptor.choice_dim,
+        descriptor.architecture.card_embed_dim,
+        include_setup=descriptor.include_setup,
+    )
+    assert layout.total_size == expected_input
+    assert runmeta.choice_input_dim_for(descriptor) == expected_input
+    assert runmeta.choice_extra_for(descriptor) == encode.choice_passthrough_dim(
+        descriptor.choice_dim, include_setup=descriptor.include_setup
+    )

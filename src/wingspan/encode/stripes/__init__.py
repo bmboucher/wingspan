@@ -28,7 +28,10 @@ from wingspan.encode.stripes.card_feature import (
     card_feature_stripe_layout,
     hand_encoder_input_stripe_layout,
 )
-from wingspan.encode.stripes.choice import choice_stripe_layout
+from wingspan.encode.stripes.choice import (
+    choice_stripe_layout,
+    raw_choice_stripe_layout,
+)
 from wingspan.encode.stripes.descriptors import (
     StripeDescriptor,
     SubFieldDescriptor,
@@ -42,6 +45,7 @@ __all__ = [
     "VectorLayout",
     "state_stripe_layout",
     "choice_stripe_layout",
+    "raw_choice_stripe_layout",
     "card_feature_stripe_layout",
     "hand_encoder_input_stripe_layout",
 ]
