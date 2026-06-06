@@ -21,6 +21,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     _configure_logging()
     run = _load_run(args)
+    if run.s3 is None:
+        print(
+            "error: run-file is missing the required s3: block for cloud execution.",
+            file=sys.stderr,
+        )
+        return 1
     sync = s3sync.S3Sync(run.s3, run.run_name)
     return runner.HeadlessRunner(run, sync).run()
 
@@ -53,7 +59,7 @@ def _apply_overrides(
         s3_updates["region"] = args.region
     if args.endpoint_url:
         s3_updates["endpoint_url"] = args.endpoint_url
-    if not s3_updates:
+    if not s3_updates or run.s3 is None:
         return run
     return run.model_copy(update={"s3": run.s3.model_copy(update=s3_updates)})
 

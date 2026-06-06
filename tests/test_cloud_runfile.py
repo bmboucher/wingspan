@@ -41,6 +41,7 @@ train:
 def test_parse_run_file_injects_run_name_and_scratch_dir() -> None:
     run = runfile.parse_run_file(_SAMPLE_YAML)
     assert run.run_name == "testrun"
+    assert run.s3 is not None
     assert run.s3.bucket == "my-bucket"
     assert run.sync.checkpoint_upload_iters == 2
     # run_name is authoritative over the train block; checkpoint_dir defaults to

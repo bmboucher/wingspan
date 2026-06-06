@@ -1,11 +1,13 @@
-"""The single YAML run-file that configures one cloud training run.
+"""The single YAML run-file that configures one training run.
 
-A cloud run is fully described by one YAML document, parsed here into
+A run is fully described by one YAML document, parsed here into
 ``CloudRunFile``: the training hyperparameters (``train``, a verbatim
-:class:`~wingspan.training.config.TrainConfig`), where artifacts are persisted
-(``s3``), and how often they are offloaded (``sync``). The run-file carries no
-credentials — the container authenticates to S3 through the standard AWS chain
-(the Fargate task role in the cloud, environment / ``~/.aws`` locally).
+:class:`~wingspan.training.config.TrainConfig`), optionally where artifacts are
+persisted in S3 (``s3``), and how often they are offloaded (``sync``). The
+``s3`` block is required for cloud (Fargate) runs and omitted for local runs.
+The run-file carries no credentials — the container authenticates to S3 through
+the standard AWS chain (the Fargate task role in the cloud, environment /
+``~/.aws`` locally).
 
 :func:`parse_run_file` turns YAML text into a validated ``CloudRunFile``; reading
 that text from a local path or an ``s3://`` URI is the entry point's job
@@ -62,10 +64,14 @@ class SyncConfig(pydantic.BaseModel):
 
 
 class CloudRunFile(pydantic.BaseModel):
-    """One cloud run, exactly as the YAML run-file describes it."""
+    """One training run, exactly as the YAML run-file describes it.
+
+    ``s3`` is required for cloud (Fargate) runs.  Omit it for local runs where
+    artifacts stay on disk only.
+    """
 
     run_name: typing.Annotated[str, pydantic.Field(min_length=1)]
-    s3: S3Config
+    s3: S3Config | None = None
     train: config.TrainConfig = pydantic.Field(default_factory=config.TrainConfig)
     sync: SyncConfig = pydantic.Field(default_factory=SyncConfig)
 
@@ -75,13 +81,14 @@ class CloudRunFile(pydantic.BaseModel):
 
         The training loop keys its on-disk artifacts off ``train.run_name`` /
         ``train.checkpoint_dir``; rather than make the user repeat them, derive
-        both from the single top-level ``run_name`` (and a per-run scratch dir
-        under the container workdir when the YAML left the default), so one
-        ``run_name`` drives the S3 prefix, the local directory, and the run label
-        together.
+        both from the single top-level ``run_name`` (and, for cloud runs, a
+        per-run scratch dir under the container workdir when the YAML left the
+        default), so one ``run_name`` drives the S3 prefix, the local directory,
+        and the run label together.  For local runs (``s3`` absent) the
+        ``checkpoint_dir`` default is kept as-is.
         """
         updates: dict[str, str] = {"run_name": self.run_name}
-        if self.train.checkpoint_dir == _DEFAULT_CHECKPOINT_DIR:
+        if self.s3 is not None and self.train.checkpoint_dir == _DEFAULT_CHECKPOINT_DIR:
             scratch = pathlib.PurePosixPath(_DEFAULT_WORKDIR) / self.run_name
             updates["checkpoint_dir"] = str(scratch)
         self.train = self.train.model_copy(update=updates)
