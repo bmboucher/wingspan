@@ -128,3 +128,43 @@ def test_lay_egg_any_anti_egg_goal_skip_adds_no_egg():
     assert (
         eggs_after == 0
     ), "no egg should be laid when player skips the anti-egg-goal decision"
+
+
+def test_lay_egg_any_no_room_offers_no_gate():
+    """When no owned bird has egg room, LAY_EGG_ANY skips its anti-egg-goal
+    AcceptExchangeDecision outright (regression: the gate used to be offered
+    even though accepting could not lay an egg — a no-op non-decision the
+    SKIP_OPTIONAL head should never be trained on)."""
+    no_eggs_goal = cards.EndRoundGoal(
+        id=0, description="[bird] with no [egg]", category="birds_no_eggs", tile_id=0
+    )
+    gs = state.new_game(random.Random(0), list(_BIRDS), list(_BONUSES), list(_GOALS))
+    gs.round_goals = [no_eggs_goal] * 4
+    gs.current_player = 0
+    eng = engine.Engine(gs)
+    player = gs.me()
+
+    # Stage a LAY_EGG_ANY bird and a neighbour, both at their egg limits.
+    lay_bird = next(
+        bird
+        for bird in _BIRDS
+        if any(eff.kind == cards.EffectKind.LAY_EGG_ANY for eff in bird.power.effects)
+    )
+    target_bird = next(bird for bird in _BIRDS if bird is not lay_bird)
+    pb = state.PlayedBird(bird=lay_bird, eggs=lay_bird.egg_limit)
+    target_pb = state.PlayedBird(bird=target_bird, eggs=target_bird.egg_limit)
+    player.board[cards.Habitat.GRASSLAND] = [pb, target_pb]
+
+    def no_agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        raise AssertionError(
+            f"agent should not be consulted (got {type(decision).__name__})"
+        )
+
+    eng.agents = [no_agent, no_agent]
+    powers.dispatch_power(
+        eng, no_agent, player, pb, cards.Habitat.GRASSLAND, "activate"
+    )
+    eggs_after = sum(slot.eggs for slot in player.board[cards.Habitat.GRASSLAND])
+    assert eggs_after == lay_bird.egg_limit + target_bird.egg_limit

@@ -172,6 +172,17 @@ def _h_lay_egg_any(
     anti_egg_goal = st.round_goals[st.round_idx].category == "birds_no_eggs"
 
     for _ in range(eff.amount):
+        # Mirror LAY_EGG_ON_THIS / the nest-aggregate powers: when no bird has
+        # egg room the gate would be a no-op non-decision, so skip the whole
+        # step outright instead of training the SKIP_OPTIONAL head on it.
+        any_room = any(
+            played.eggs < played.bird.egg_limit
+            for row in player.board.values()
+            for played in row
+        )
+        if not any_room:
+            engine.log_skipped_decision(player.id, "no choices")
+            break
         if anti_egg_goal:
             commit_ch = engine.ask(
                 agent,

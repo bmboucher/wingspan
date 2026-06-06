@@ -18,6 +18,15 @@ from wingspan.engine.powers import dispatch, registry
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
 
+# Predator power kinds repeatable via REPEAT_PREDATOR_POWER (Hooded Merganser).
+# Dice-roll predators (ROLL_NOT_IN_FEEDER_CACHE) are repeatable alongside
+# deck-draw predators (PREDATOR_HUNT) — both can succeed and both trigger
+# the pink-predator-success reactor on success.
+_PREDATOR_KINDS = (
+    cards.EffectKind.PREDATOR_HUNT,
+    cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE,
+)
+
 
 @registry.handles(cards.EffectKind.PREDATOR_HUNT)
 def _h_predator_hunt(
@@ -182,13 +191,6 @@ def _h_repeat_predator_power(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    # Dice-roll predators (ROLL_NOT_IN_FEEDER_CACHE) are repeatable alongside
-    # deck-draw predators (PREDATOR_HUNT) — both can succeed and both trigger
-    # the pink-predator-success reactor on success.
-    _PREDATOR_KINDS = (
-        cards.EffectKind.PREDATOR_HUNT,
-        cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE,
-    )
     bird = pb.bird
     others = [
         other
@@ -216,7 +218,7 @@ def _h_repeat_predator_power(
     target_pb = ch.played_bird
     engine.log(f"  {bird.name}: repeats {target_pb.bird.name}'s predator power")
     for sub in target_pb.bird.power.effects:
-        if sub.kind == cards.EffectKind.PREDATOR_HUNT:
+        if sub.kind in _PREDATOR_KINDS:
             dispatch.apply_effect(
                 engine, agent, player, target_pb, habitat, sub, trigger="repeat"
             )

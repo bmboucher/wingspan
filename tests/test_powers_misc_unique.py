@@ -865,3 +865,68 @@ def test_repeat_predator_power_fires_the_target_predators_hunt():
     assert any(
         "repeat" in line.lower() for line in log_lines
     ), f"Expected repeat log line; got: {log_lines}"
+
+
+def test_repeat_predator_power_fires_a_dice_roll_predator():
+    """REPEAT_PREDATOR_POWER also executes a dice-roll predator's
+    ROLL_NOT_IN_FEEDER_CACHE when chosen (regression: the dispatch loop used
+    to run only PREDATOR_HUNT, so a chosen dice-roll predator was offered in
+    the menu but repeating it silently did nothing)."""
+    birds, bonuses, goals = cards.load_all()
+    rng = random.Random(0)
+    gs = state.new_game(rng, birds, bonuses, goals)
+    gs.current_player = 0
+    eng = engine.Engine(gs)
+    player = gs.me()
+
+    # A real catalog dice-roll predator (Anhinga and similar).
+    predator_bird = next(
+        bird
+        for bird in birds
+        if bird.predator
+        and any(
+            eff.kind == cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE
+            for eff in bird.power.effects
+        )
+    )
+    # A bird with REPEAT_PREDATOR_POWER (Hooded Merganser and similar).
+    repeat_bird = next(
+        bird
+        for bird in birds
+        if any(
+            eff.kind == cards.EffectKind.REPEAT_PREDATOR_POWER
+            for eff in bird.power.effects
+        )
+    )
+    predator_pb = state.PlayedBird(bird=predator_bird)
+    repeat_pb = state.PlayedBird(bird=repeat_bird)
+    player.board[cards.Habitat.WETLAND] = [predator_pb, repeat_pb]
+
+    # Empty the feeder so all five dice are outside it and the repeated
+    # power must roll them (a full feeder would skip the roll entirely).
+    gs.birdfeeder = state.Birdfeeder()
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        # BirdPowerPickPlayedBirdDecision: pick the dice-roll predator.
+        if isinstance(decision, decisions.BirdPowerPickPlayedBirdDecision):
+            return typing.cast(
+                C,
+                next(ch for ch in decision.choices if ch.played_bird is predator_pb),
+            )
+        raise AssertionError(f"unexpected decision: {type(decision).__name__}")
+
+    log_lines: list[str] = []
+    eng.log = lambda msg: log_lines.append(msg)  # type: ignore[method-assign]
+    powers.dispatch_power(
+        eng, agent, player, repeat_pb, cards.Habitat.WETLAND, "activate"
+    )
+
+    # The repeat happened AND the dice-roll handler actually rolled.
+    assert any(
+        "repeat" in line.lower() for line in log_lines
+    ), f"Expected repeat log line; got: {log_lines}"
+    assert any(
+        "rolled" in line for line in log_lines
+    ), f"Expected the repeated dice-roll predator to roll; got: {log_lines}"

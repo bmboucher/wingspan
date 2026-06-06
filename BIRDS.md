@@ -9,7 +9,9 @@ grouped by mechanic, but **every bird's exact printed power text appears verbati
 Decision points are referred to by the decision-model IDs the RL policy trains
 against: `main_action`, `play_bird`, `draw_bird`, `discard_bird`, `gain_food`,
 `spend_food`, `lay_egg`, `pay_egg`, `skip_optional`, `choose_bonus`, `misc_rare`,
-`reset_birdfeeder`.
+`reset_birdfeeder`. (A 13th decision family, `setup`, covers the pre-game
+keep/discard picks; it is owned by the separate setup model and never appears
+during bird-power resolution, so it is omitted here.)
 
 Anything that deviates from the printed rules is flagged inline with **⚠ Gap** and
 collected again in the [Gaps and deviations](#gaps-and-deviations) section at the end.
@@ -252,12 +254,15 @@ benefit, so declining is always right (auto-skip is fine); if the counts are
 **American Bittern / Common Loon** (wetland, draws a card):
 
 - **When:** on each activation of the bird's (wetland) row.
-- **Option to activate?** Partially shortcut: if the active player has strictly
-  more wetland birds than the minimum, the power is *auto-skipped*. In the
-  strictly-fewer *or tied* case, the power runs: every player at the minimum draws
-  one card via their own agent (one `draw_bird` pick each).
-- **⚠ Gap (no veto in tied case):** in the tied case both players draw, so a veto
-  should be offered as Hermit Thrush does; instead the draw runs unconditionally.
+- **Option to activate?** Same three-way shortcut as Hermit Thrush: if the
+  active player has strictly more wetland birds than the minimum, the power is
+  *auto-skipped*; in the tied case a `skip_optional` veto is offered — the
+  accept row carries `gained_card_count=1` (own draw) and
+  `opp_gained_card_count=N` for each other tied player; in the strictly-fewer
+  case the power runs forced.
+- **Subsequent choices:** every player whose wetland count equals the minimum
+  draws one card via their own agent — a `draw_bird` pick over the face-up
+  tray cards and the deck, exactly like a main-action draw.
 
 ---
 
@@ -339,8 +344,10 @@ brown) — identical text:
 - **Option to activate?** Usually no. The egg-laying is treated as always beneficial
   (a free point) **except** when the active round goal is the one that rewards birds
   *without* eggs — only then is laying potentially harmful, so the player first gets
-  a `skip_optional` decision ("lay 1 egg" vs skip). Outside that goal the power runs
-  as mandatory so the model isn't trained on a trivially obvious yes.
+  a `skip_optional` decision ("lay 1 egg" vs skip). The gate is offered only when
+  at least one owned bird has egg room — with a full board the whole power is
+  skipped silently rather than posing a no-op question. Outside that goal the power
+  runs as mandatory so the model isn't trained on a trivially obvious yes.
 - **Subsequent choices:** a `lay_egg` decision over every owned bird with egg room
   (auto-resolves when only one bird has room; silently skipped when no bird does).
   If the goal-conditioned `skip_optional` was offered and declined, nothing happens.
@@ -816,13 +823,15 @@ does **not** consume the use; only a committing fire does (see the global conven
 
 | Bird | Exact printed text |
 |---|---|
-| American Avocet | "When another player takes the "lay eggs" action, lay 1 [egg] on another bird with a [ground] nest." |
-| Barrow's Goldeneye | "When another player takes the "lay eggs" action, lay 1 [egg] on another bird with a [cavity] nest." |
-| Bronzed Cowbird | "When another player takes the "lay eggs" action, lay 1 [egg] on a bird with a [bowl] nest." |
-| Brown-Headed Cowbird | "When another player takes the "lay eggs" action, lay 1 [egg] on a bird with a [bowl] nest." |
-| Yellow-Billed Cuckoo | "When another player takes the "lay eggs" action, lay 1 [egg] on a bird with a [bowl] nest." |
+| American Avocet | "When another player takes the “lay eggs” action, lay 1 [egg] on another bird with a [ground] nest." |
+| Barrow's Goldeneye | "When another player takes the “lay eggs” action, lay 1 [egg] on another bird with a [cavity] nest." |
+| Bronzed Cowbird | "When another player takes the “lay eggs” action, lay 1 [egg] on a bird with a [bowl] nest." |
+| Brown-Headed Cowbird | "When another player takes the “lay eggs” action, lay 1 [egg] on a bird with a [bowl] nest." |
+| Yellow-Billed Cuckoo | "When another player takes the “lay eggs” action, lay 1 [egg] on a bird with a [bowl] nest." |
 
 - **When:** immediately after the opponent completes a Lay Eggs main action.
+  The action itself is the trigger, not its yield — the reaction fires even if
+  that action laid zero eggs.
 - **Option to activate?** Usually no — the owner gets a forced `lay_egg` decision
   listing every owned bird whose nest matches (star nests count as wild) and has
   egg room. A lone eligible bird auto-resolves. Exception: when the birds-without-eggs
@@ -875,7 +884,7 @@ does **not** consume the use; only a committing fire does (see the global conven
 
 ### 27e. Loggerhead Shrike
 
-**Loggerhead Shrike:** "When another player takes the "gain food" action, if they gain any number of [rodent], cache 1 [rodent] from the supply on this bird."
+**Loggerhead Shrike:** "When another player takes the “gain food” action, if they gain any number of [rodent], cache 1 [rodent] from the supply on this bird."
 
 - **When:** immediately after the opponent completes a Gain Food main action during
   which their rodent count increased (rodents gained by that action's dice and row
@@ -887,7 +896,9 @@ does **not** consume the use; only a committing fire does (see the global conven
 
 ## Gaps and deviations
 
-Everything flagged above, gathered for review.
+Nothing above carries a **⚠ Gap** flag — every printed power behaves as
+described in its section. What remains are deliberate modeling choices, not
+bugs:
 
 **Residual modeling choices (not bugs — deliberate decisions):**
 
@@ -899,6 +910,13 @@ Everything flagged above, gathered for review.
 2. **The unparsed-power fallback is currently unused.** All 180 core birds match a
    pattern, so the `UNIMPLEMENTED` run-as-no-op fallback exists only as
    future-proofing for expansion cards whose text doesn't match any known pattern.
+3. **Always-beneficial powers run mandatory.** The real game makes every power
+   optional ("you may"); the engine hard-codes the strictly-free ones — supply
+   and feeder gains, free caches and draws, and the always-beneficial pink
+   reactions (§27b, §27c, §27e) — as mandatory, per the "always beneficial"
+   convention at the top. A decision is surfaced only where declining could
+   rationally win: cost-paying powers, opponent-benefit vetoes, and the
+   birds-without-eggs gates.
 
-All residual gaps above are closed. The modeling choices in items 1 and 2
-reflect deliberate design decisions, not bugs.
+The modeling choices in items 1–3 reflect deliberate design decisions, not
+bugs.

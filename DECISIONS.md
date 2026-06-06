@@ -424,7 +424,8 @@ follow-up decisions resolve only if the player commits.
 - (conditional on `birds_no_eggs` round goal) each non-active player's per-seat
   accept/skip for the above "all players lay" power (`AcceptExchangeDecision`);
 - (conditional on `birds_no_eggs` round goal) each "lay an egg on any bird"
-  power, per egg (`AcceptExchangeDecision`);
+  power, per egg (`AcceptExchangeDecision`) — offered only when at least one
+  owned bird has egg room (a full board skips the power without asking);
 - the **cache-vs-keep decision** on the six seed-from-feeder birds (Acorn
   Woodpecker, Blue Jay, Clark's Nutcracker, Red-Bellied / Red-Headed
   Woodpecker, Steller's Jay): after the seed is taken from the birdfeeder,
