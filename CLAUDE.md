@@ -1,351 +1,109 @@
 # CLAUDE.md
 
-Project-specific guidance for working in the Wingspan simulator. The global
-style rules in `~/.claude/CLAUDE.md` already apply (Pydantic-first, absolute
-module-qualified imports, Python 3.12+ syntax, no `Any`/payload bags); this
-file documents the patterns the current codebase has settled on so future
-changes stay consistent.
+Project-specific guidance for the Wingspan simulator. Global style rules in `~/.claude/CLAUDE.md` apply (Pydantic-first, module-qualified imports, Python 3.12+, no `Any` bags) — this file covers only wingspan-specific patterns.
 
 ## What this project is
 
-A Wingspan core-set simulator (180 birds, 26 bonus cards, 16 round goals,
-2-player automa-free) plus an RL training pipeline. **See `README.md`** for
-the general description and full CLI reference; **`docs/PROJECT.md`** for the
-top-level package map — each subpackage then has its own **`INDEX.md`** with
-module-level detail; load the relevant one when working in that area, and
-update it when the layout changes. The long-term goal
-is self-play training at scale to answer analytical questions about the game (card power
-rankings, bonus-card value, food/habitat economy) — design for scaling up
-training, not for the minimum that runs today. All 180 bird powers are modelled
-via generic `EffectKind` patterns; the `UNIMPLEMENTED` fallback (runtime no-op,
-surfaced in the coverage report) keeps unparsed future additions non-fatal.
+A 2-player Wingspan core-set simulator (180 birds, 26 bonus cards, 16 round goals) plus an RL self-play training pipeline. The long-term goal is answering analytical questions about the game (card power rankings, food economy) via scale — **design for scaling up training, not the minimum that runs today**. See `README.md` for the CLI reference and `docs/PROJECT.md` for the package map.
 
 ## Documentation files
 
-Load these files for extra context when working in the relevant area. Update
-them in the same change that updates the code — they are not kept automatically
-in sync.
+Load these when working in the relevant area. Update them in the same commit that updates the code — they are not kept automatically in sync.
 
 | File | What it covers | Update when… |
 | ---- | -------------- | ------------ |
 | `docs/PROJECT.md` | Top-level package map (links to each subpackage's `INDEX.md`) | Adding or renaming a top-level package; structural refactors |
 | `src/wingspan/*/INDEX.md` | Per-subpackage module detail: classes, key methods, state | Adding or renaming a module within a subpackage |
-| `docs/DECISIONS.md` | Decision/choice taxonomy, `ALL_DECISION_CLASSES` ordering, choice-vector stripes, engine call sites | Adding a `Decision`/`Choice` subclass; changing a featurizer; reordering `ALL_DECISION_CLASSES`; adding an engine decision call site |
-| `docs/BIRDS.md` | All 180 birds + 26 bonus cards: `EffectKind` patterns, handler mappings, implementation gaps | Adding an `EffectKind` variant, a matcher, or a power handler; covering a previously `UNIMPLEMENTED` bird |
+| `docs/DECISIONS.md` | Decision/choice taxonomy, `ALL_DECISION_CLASSES` ordering, choice-vector stripes, engine call sites | Adding a `Decision`/`Choice` subclass; changing a featurizer; reordering `ALL_DECISION_CLASSES` |
+| `docs/BIRDS.md` | All 180 birds + 26 bonus cards: `EffectKind` patterns, handler mappings, implementation gaps | Adding an `EffectKind` variant, a matcher, or a power handler |
 | `docs/TRAINING.md` | Training program, hyperparameter guidance, Phase 0–3 roadmap | Changing the training approach, convergence criteria, or phased plan |
 | `docs/RESEARCH.md` | Research agenda, per-project feasibility verdicts | Adding/completing a research project; updating a feasibility gap assessment |
-| `docs/VERSIONING.md` | Artifact version changelog, FRESH/REGIME distinction, compat shim rules, format rules | Bumping `MODEL_VERSION`; adding a compat shim; capturing a new fixture set |
-| `docs/QUALITY.md` | Quality gate section flags, coverage regression details, merge exit codes | (reference only — load when iterating on the gate) |
+| `docs/VERSIONING.md` | Artifact version changelog, FRESH/REGIME distinction, compat shim rules | Bumping `MODEL_VERSION`; adding a compat shim; capturing a new fixture set |
+| `docs/QUALITY.md` | Quality gate section flags, coverage regression details, merge exit codes | Reference only — load when iterating on the gate |
 
 ## Making changes: the worktree workflow
 
-Substantive code changes are implemented in an isolated git **worktree**, not
-directly in the main working directory. The shape is fixed:
+Substantive code changes follow a fixed shape:
 
-**plan → user approves → create worktree → implement → gate passes → commit →
-report ready → human authorizes (deletes lock) → merge → done.**
+**plan → user approves → create worktree → implement → gate passes → commit → report ready → human authorizes (deletes lock) → merge → done.**
 
-**When this applies.** Any change that goes through plan-and-approve. Edit the
-main working directory directly (no worktree) only for trivial edits — one-line
-fixes, comment/doc tweaks — or when the user explicitly says to just edit in
-place. When in doubt, use the worktree.
+**When this applies.** Any change that goes through plan-and-approve. For trivial edits (one-liners, doc tweaks), edit the main working directory directly — no worktree — then **commit and push with a descriptive commit message**. When in doubt, use the worktree.
 
-### Step 1 — Plan and get approval
+### Steps
 
-Don't touch code until the user approves the plan (standard plan-mode flow).
+1. **Plan and get approval.** Don't touch code until the user approves the plan.
 
-### Step 2 — Create the worktree
+2. **Create the worktree and enter it.**
+   ```
+   bash scripts/create_worktree.sh <feature-slug>
+   EnterWorktree(path=".claude/worktrees/<slug>")
+   ```
+   The script commits any dirty state in `main`, creates the worktree on branch `wt/<slug>`, installs a fresh `.venv`, and writes `<slug>.lock` in the repo root (the merge-auth lock). All subsequent edits happen inside the worktree.
 
-```
-bash scripts/create_worktree.sh <feature-slug>
-```
+3. **Implement the change** inside the worktree. The main working directory is untouched.
 
-This commits any pre-existing dirty state in `main`, creates the worktree at
-`.claude/worktrees/<slug>` on branch `wt/<slug>` from the current local `HEAD`,
-installs a **fresh `.venv`** inside the worktree (wall-clock ~30–60s, zero token
-cost), and creates a **merge-auth lock** at `<slug>.lock` in the repo root.
+4. **Run the quality gate.**
+   ```
+   bash scripts/quality_gate.sh
+   ```
+   Exit `0` = passed. Exit `1` = code problem — fix and rerun. Exit `2` = infrastructure failure — **stop, show the user the output verbatim, and wait for them to fix it**. See `docs/QUALITY.md` for section flags and targeted-run examples.
 
-Then switch the session into the worktree (this CLAUDE.md is the sanctioned
-trigger for `EnterWorktree`):
+5. **Commit and stop.** Commit all changes on the feature branch. Report that the change is ready and tell the user to delete the lock file to authorize the merge. Do **not** merge or delete the lock yourself.
 
-```
-EnterWorktree(path=".claude/worktrees/<slug>")
-```
+6. **Merge (after human authorization).** Once the human deletes `<slug>.lock`:
+   ```
+   bash scripts/merge_worktree.sh <slug>       # human runs directly, or:
+   bash scripts/auto_merge_worktree.sh <slug>  # automated: loops merge with claude -p
+   ```
+   If asked to merge during your session, `ExitWorktree(action="keep")` first, then run `merge_worktree.sh` from the main working directory.
 
-All subsequent edits run inside the worktree.
+### Hard rules
 
-### Step 3 — Implement the change
-
-Make all edits inside the worktree. The main working directory is untouched.
-
-### Step 4 — Run the quality gate
-
-```
-bash scripts/quality_gate.sh
-```
-
-When run from inside the worktree (after `EnterWorktree`) this gates the
-worktree's own code using the worktree's own `.venv`. Do not proceed until
-the gate is clean. Exit `0` = passed; exit `1` = code problem, fix it and
-rerun; exit `2` = infrastructure failure, **stop and ask the user to fix it**.
-
-For section flags (`--pyright`, `--pytest`, `--format`, `--coverage`) and
-targeted-run examples, load `docs/QUALITY.md`.
-
-### Step 5 — Commit and report ready
-
-Commit all worktree changes on the feature branch (uncommitted work is not
-merged). Then **stop**: report that the change is implemented and passing, and
-tell the user to delete the lock file when they're ready to merge.
-
-Do **not** merge on your own initiative. Do **not** delete the lock file.
-
-### Step 6 — Merge (after human authorization)
-
-The human deletes the lock file to authorize, then merges in one of two ways:
-
-**Manual merge (human runs):**
-```
-bash scripts/merge_worktree.sh <slug>
-```
-
-**Automated merge (Claude subprocess via `claude -p`):**
-```
-bash scripts/auto_merge_worktree.sh <slug>
-```
-
-Both scripts handle: committing any new dirty state in `main`, squash-merging
-the feature branch, refreshing main's `.venv` (`pip install -e ".[dev]"`) when
-the merge changed `pyproject.toml`, running the quality gate on the merged
-result, committing, pushing, and removing the worktree + branch. On any failure
-they reset `main` to a clean state and report what needs fixing.
-
-If the human asks you to merge during your session (after they've deleted the
-lock), `ExitWorktree(action="keep")` first, then run `merge_worktree.sh` from
-the main working directory.
-
-### Workflow script reference
-
-**`bash scripts/create_worktree.sh <feature-slug>`** — run from the repo root.
-Commits any dirty state in `main`, creates `.claude/worktrees/<slug>` on branch
-`wt/<slug>` from local `HEAD`, installs a fresh `.venv` inside the worktree,
-and writes the merge-auth lock `<slug>.lock` in the repo root.
-
-**`bash scripts/quality_gate.sh`** — the only sanctioned way to run
-pyright / isort / black / pytest. See `docs/QUALITY.md` for section flags,
-targeted-run examples, and coverage details.
-
-**`bash scripts/merge_worktree.sh <feature-slug>`** — run from the main working
-directory (`ExitWorktree(action="keep")` first if the session is inside the
-worktree), and only after the human has deleted `<slug>.lock`. Squash-merges
-`wt/<slug>` into `main`, runs the full quality gate, commits, pushes, and
-removes the worktree + branch. Exit code reference in `docs/QUALITY.md`.
-
-**`bash scripts/auto_merge_worktree.sh <feature-slug>`** — automated variant
-the *human* runs; loops `merge_worktree.sh` with `claude -p` subprocesses up to
-5 attempts. Requires the lock deleted and `claude` on PATH.
-
-## Merge-auth lock files
-
-`create_worktree.sh` creates `<slug>.lock` in the repo root to block premature
-merging. The human deletes it to authorize. `merge_worktree.sh` refuses to run
-while it exists. Lock files are gitignored via `*.lock`.
-
-**Claude must NEVER delete, move, or modify any `*.lock` file in the repo
-root.** A lock being absent means a human reviewed and approved the merge;
-Claude deleting one bypasses that review entirely. Claude may fail to create the
-lock (the script handles it) — that is acceptable — but removing an existing
-lock is not. This rule applies even if asked, even if the lock seems stale.
-
-## Script failures: stop, don't circumvent
-
-The workflow scripts above are the **only** sanctioned interface to the build
-tools and the merge process. Distinguish two kinds of failure:
-
-- **Genuine check failures** (gate exit `1`: pyright type errors, failing
-  tests) are normal feature work. Fix the code, rerun the gate.
-- **Infrastructure failures** (gate exit `2`; merge exit `5`; a script crashing
-  with a bash error; the venv install failing; `pyright` or `claude` missing
-  from PATH; CRLF-mangled scripts) mean the tooling itself is broken. **Stop
-  working immediately, show the user the failing output verbatim, and ask them
-  to fix the script or environment.** Do not continue toward a merge until
-  they have.
-
-Never do any of the following to get past a failing script:
-
-- Run `pyright`, `pytest`, `isort`, or `black` directly instead of through
-  `quality_gate.sh`. Its section flags and pass-through arguments cover every
-  invocation needed — a single test file, a `-k` filter, a one-module
-  type-check (see `docs/QUALITY.md`).
-- Hand-roll the scripts' jobs with raw `git worktree add` /
-  `git merge --squash` / `pip install` commands.
-- Edit the workflow scripts mid-feature to make an error go away. Changing the
-  scripts is a legitimate change, but it is its own plan-and-approve feature —
-  never a workaround embedded in another one.
-- Declare a change finished "except for the gate" because the gate wouldn't
-  run.
-
-## Run / test
-
-See `README.md` for the full CLI (`wingspan play / dashboard / tournament /
-inspect / cloud / monitor`) and training notes;
-`docs/TRAINING.md` is the training program. Setup: `pip install -e ".[dev]"`.
-Training is CPU-only — collection fans out across worker processes and
-`--device cpu` is fastest (`docs/TRAINING.md` §1.4). Run tests through
-`bash scripts/quality_gate.sh`, not bare pytest.
+- **Never delete, move, or modify any `*.lock` file in the repo root.** A lock being absent means a human reviewed and approved; Claude removing one bypasses that entirely. This applies even if asked, even if the lock seems stale.
+- **`quality_gate.sh` is the only sanctioned way to run pyright / isort / black / pytest.** Do not call them directly, hand-roll the gate with raw git/pip commands, or edit the workflow scripts mid-feature. Changing the scripts is its own plan-and-approve feature.
+- **Infrastructure failures (exit `2`, crashing bash, missing PATH tools) mean stop.** Do not continue toward a merge until the user fixes the environment.
 
 ## Architectural patterns to preserve
 
-### Pydantic v2 BaseModel for *all* structured data
+### Decision/choice system
 
-Every record-shaped object is a `pydantic.BaseModel` — immutable card data,
-mutable game state, every `Choice` / `Decision` subclass, and the raw-JSON
-`*Record` input models. No dataclasses, `TypedDict`, or bare `dict[str, ...]`
-for new records. Conventions: frozen models for immutable card data and IR,
-default mutability for game state; `arbitrary_types_allowed=True` only where
-already used (e.g. `random.Random` on `GameState`); `*Record` models use
-`Field(alias=...)` + `extra="allow"`, and their `.load()` imports the
-`cards.parse` helpers lazily to avoid a cycle; vector-shaped pools
-(`FoodPool`, `BirdCost`) keep the two-layer shape — fixed-length internal
-vector aligned to `cards.ALL_FOODS`, dict-like external API.
+Agents resolve decisions, not raw action ints. `Choice` is the abstract base — one subclass per data shape with named typed attributes; no opaque payload tuples or `Any` carriers. `Decision[C: Choice]` is generic in the Choice it accepts; declinable decisions include `SkipChoice` in the union (consumers branch via `isinstance`).
 
-### Imports: module-qualified, never symbol-level
+`ALL_DECISION_CLASSES` is the encoder's stable one-hot order: append new subclasses at the end, keep `SetupDecision` last; reordering or removing entries is a FRESH change (`docs/VERSIONING.md`). Adding a decision point: Choice subclass → `Decision[C]` subclass → `ALL_DECISION_CLASSES` → featurize in `encode/choice_encode.py`. See `docs/DECISIONS.md`.
 
-Per the global rule: `from wingspan import cards, decisions, state` then
-`cards.Bird` — never `from wingspan.cards import Bird`. Group sibling engine
-submodules (`from wingspan.engine import actions, helpers, powers`); alias
-(`import core as engine_core`) when the bare name would be ambiguous.
-`__init__.py` files re-export each package's public surface — keep `__all__`
-updated. Standard library too (`import typing` → `typing.Any`), and
-`from __future__ import annotations` at the top of every module.
-
-### Python 3.12+ syntax
-
-PEP 695 generics (`class Decision[C: Choice](pydantic.BaseModel)`, `def
-agent[C: decisions.Choice](...) -> C`) — no `TypeVar` / `Generic[T]`.
-`enum.StrEnum` for every enum. `X | None`, never `Optional[X]`.
-`Annotated[list[C], Field(min_length=1)]` for declarative single-field
-validation; reserve `@model_validator` for genuine cross-field invariants.
-
-### The decision/choice system
-
-Agents resolve decisions, not raw action ints:
-
-- `Choice` is the abstract base; one subclass per *data shape* with named
-  typed attributes — no opaque payload tuples, no `Any` carriers.
-- `Decision[C: Choice]` is generic in the Choice it accepts; declinable
-  decisions include `SkipChoice` in the union and consumers branch via
-  `isinstance`. Extra context = typed fields on the Decision subclass.
-- `ALL_DECISION_CLASSES` is the encoder's stable one-hot order: append new
-  subclasses at the end, keep `SetupDecision` last (the `include_setup`
-  truncation contract); reordering or removing entries is a FRESH change
-  (see `docs/VERSIONING.md`).
-- New decision point: Choice subclass (or reuse one) → `Decision[C]` subclass
-  → `ALL_DECISION_CLASSES` → featurize in `encode/choice_encode.py`.
-
-**Optional-then-commit.** Any declinable effect flows through
-`AcceptExchangeDecision` (SKIP_OPTIONAL family) first: the accept row is a
-`PayCostChoice` carrying the full exchange ledger (`paid_*` / `gained_*` /
-`opp_gained_*`); the skip row is a `SkipChoice`; follow-ups are then presented
-without a skip — the commitment is settled. Conditionally-optional effects
-(e.g. `birds_no_eggs` under its round goal) offer the accept decision only
-under that condition and run as mandatory otherwise, so the SKIP_OPTIONAL head
-isn't trained on trivially-obvious non-decisions.
-
-### Configurable network topology
-
-`architecture.ModelArchitecture` (top-level, torch-free) is the single
-topology descriptor: per-block hidden-width lists (`trunk_layers`,
-`choice_layers`, `head_layers`, `value_layers`, `card_encoder_layers`,
-`hand_encoder_layers`, `per_family_head_layers`) plus scalar handles
-(`activation`, `dropout`, `layernorm`, `card_embed_dim`, ...).
-`PolicyValueNet` builds every block from it via the shared `mlp.build_body` /
-`mlp.build_readout` recipes (the setup net builds byte-identical stacks);
-`TrainConfig` mirrors the fields flat, assembling them via its `arch` property
-— deliberately *not* named `architecture`, which would shadow the imported
-module; `runmeta` serializes it to `model_config.json` for
-`PolicyValueNet.from_model_config`. Invariants: the trunk (width `M`) and
-choice encoder (width `N`) are independent, concatenated to `M+N` for the
-scorers; any new field that changes a tensor shape must join `ShapeKey` /
-`architecture_key` (FRESH); shape-preserving knobs stay out of it (REGIME).
+**Optional-then-commit.** Declinable effects flow through `AcceptExchangeDecision` first (the accept row carries the full exchange ledger; the skip row is `SkipChoice`); follow-ups are presented without a skip once the commitment is settled.
 
 ### Engine = orchestrator; sibling modules = free functions
 
-`engine.core.Engine` owns the turn loop, setup phase, and the `ask` plumbing
-that routes a Decision through an Agent. Everything else (actions, power
-dispatch, pink reactors, scoring) lives in sibling modules as **free functions
-whose first argument is the Engine** — call `actions.do_play_bird(engine,
-agent)` directly; no `_do_*` wrapper methods on Engine. Sibling modules break
-the import cycle with `if typing.TYPE_CHECKING: from wingspan.engine import
-core` and `engine: "core.Engine"` annotations — don't move logic into
-`core.py` just to avoid this.
+`engine.core.Engine` owns the turn loop, setup, and the `ask` plumbing. Everything else (actions, powers, pink reactors, scoring) lives in sibling modules as **free functions whose first argument is the Engine** — `actions.do_play_bird(engine, agent)` directly; no `_do_*` wrapper methods on Engine. Break the import cycle with `if typing.TYPE_CHECKING` and forward-reference annotations.
 
 ### The Agent protocol
 
-`Agent` (in `engine.core`) is a `typing.Protocol` with a generic `__call__`:
-`def __call__[C: decisions.Choice](self, engine, decision:
-decisions.Decision[C], /) -> C`. This keeps `Agent` non-generic at use sites
-(`list[Agent]` typechecks) while each call's return type tracks the Decision's
-parameterization. New agents live in `wingspan.agents` and follow the same
-generic-function shape — `agents.base.random_agent` is the reference.
-Opponent-prompting effects route through `engine.agent_for(player)`.
+`Agent` is a `typing.Protocol` with `def __call__[C: decisions.Choice](self, engine, decision: decisions.Decision[C], /) -> C` — non-generic at use sites (`list[Agent]`) while call-site return types are tracked. New agents in `wingspan.agents`; `agents.base.random_agent` is the reference.
 
 ### Bird powers: parser + dispatcher pair
 
-Three-step pattern: `EffectKind` variant in `cards.schema` → `@registry.pattern`
-matcher in `cards.parse.matchers` (pink powers use `@registry.pink_pattern` in
-`pink_matchers`) → `@registry.handles(EffectKind.X)` handler in `engine.powers`.
-Pink effects dispatch from `engine.reactors`; keep the `UNIMPLEMENTED` fallback
-in place. See `docs/BIRDS.md` for the full implementation reference.
+`EffectKind` variant in `cards.schema` → `@registry.pattern` matcher in `cards.parse.matchers` (pink: `@registry.pink_pattern` in `pink_matchers`) → `@registry.handles(EffectKind.X)` handler in `engine.powers`. Pink effects dispatch from `engine.reactors`. Keep the `UNIMPLEMENTED` fallback in place. See `docs/BIRDS.md`.
 
-### Public constants and per-turn scratch state
+### Network topology and versioning
 
-Action / track / cost constants live at the top of `state.py`; encoder feature
-dims, stripe offsets, and normalisation scales in `encode/layout.py` (the
-whole chain in one file); chart layout sizes in `training/charts/geometry.py`.
-No magic numbers in function bodies — promote them. Cross-action turn state
-(e.g. House Wren's extra play) lives on `GameState` as explicit typed fields
-(`turn_extra_plays`, ...) reset by `GameState.reset_turn_state()` each turn —
-no parallel scratch dicts.
+`architecture.ModelArchitecture` is the single topology descriptor; `PolicyValueNet` builds all blocks from it; `TrainConfig` mirrors the fields via its `arch` property. Any new field that changes a tensor shape must join `ShapeKey` / `architecture_key` (FRESH change requiring a `MODEL_VERSION` bump + compat shim); shape-preserving knobs stay out of it (REGIME). See `docs/VERSIONING.md`.
 
-## Checkpoint compatibility policy
+### Constants and per-turn scratch state
 
-Some changes alter the shape of persisted artifacts (encoding layout, tensor
-dimensions, stable ordering of decision classes). These require a version bump,
-a compat shim, and updated fixture sets — see **`docs/VERSIONING.md`** for the
-full policy, FRESH/REGIME distinction, format rules, and per-version changelog.
+Action/track/cost constants at the top of `state.py`; encoder dims and stripe offsets in `encode/layout.py`; chart sizes in `training/charts/geometry.py`. No magic numbers — promote them. Per-turn scratch lives on `GameState` as explicit typed fields reset by `GameState.reset_turn_state()`.
 
 ## Test conventions
 
-- Tests prepend `src/` to `sys.path` themselves (see `test_smoke.py`) so
-  `pytest tests/` works from the repo root without install; new tests match.
-- One file per power (`tests/test_powers_*.py`); the cross-power smoke test is
-  `test_smoke.py`; encoder and food-payment helpers have dedicated files; the
-  training-cycle smoke coverage is the collect → update pair in
-  `test_model_and_self_play.py`.
+- Tests prepend `src/` to `sys.path` (see `test_smoke.py`) — new tests match this pattern.
+- One file per power (`tests/test_powers_*.py`); cross-power smoke test is `test_smoke.py`; training-cycle coverage in `test_model_and_self_play.py`.
 
 ## Things to avoid
 
-- **Never delete, move, or modify `*.lock` files in the repo root** — they are
-  human-authorization tokens for the merge workflow (see "Merge-auth lock
-  files").
-- **Never circumvent the workflow scripts** — no direct pyright / pytest /
-  isort / black, no hand-rolled worktree or merge commands, no mid-feature
-  script edits (see "Script failures: stop, don't circumvent" above).
-- No tolerant-parse fallbacks, "assume compatible" branches, or ghost entries
-  for old artifact formats (see `docs/VERSIONING.md`).
-- Don't replace the `cards.Food` / `cards.Habitat` / etc. `StrEnum`s with
-  strings — JSON serialisation is already free and the type checker catches
-  typos.
-- No `Decision`/`Choice` payload tuples or `Any`-typed context fields — add a
-  typed field to the subclass or define a new Choice subclass.
-- Don't bypass `Engine.ask` — it validates the agent's answer against the
-  offered choices; constructing a Choice directly skips that check.
-- No `model_config = ConfigDict(...)` unless a non-default behavior is
-  actually needed; a bare model is the preferred shape.
-- No `_do_*` wrapper methods on Engine that just delegate to `actions.do_*` —
-  call the free function directly.
-- **Never edit `coverage_baseline.txt` to lower the percentage.** The ratchet
-  is a one-way floor. If coverage drops, report the impact and gate message to
-  the user and let them decide whether to update the baseline manually
-  (see `docs/QUALITY.md` for coverage regression details).
+- **Never delete, move, or modify `*.lock` files** (see workflow above).
+- **Never circumvent the workflow scripts** — no direct tool calls, no hand-rolled worktree/merge, no mid-feature script edits.
+- No tolerant-parse fallbacks or ghost entries for old artifact formats (see `docs/VERSIONING.md`).
+- No `Decision`/`Choice` payload tuples or `Any`-typed context fields — add a typed field to the subclass or define a new Choice subclass.
+- Don't bypass `Engine.ask` — it validates the agent's answer against the offered choices.
+- No `_do_*` wrapper methods on Engine that just delegate to `actions.do_*`.
+- **Never lower `coverage_baseline.txt`** — it's a one-way ratchet; report drops to the user and let them decide.
