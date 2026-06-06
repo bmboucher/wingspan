@@ -204,10 +204,10 @@ bash scripts/quality_gate.sh [target-dir]
 ```
 
 Run from the current directory (worktree or repo root), or pass an explicit
-target dir. Six steps in order: `pyright` (strict) → `isort` → `black` →
-`pyright` (post-format) → `pytest` → coverage regression. Config lives in
-`pyproject.toml`; `pyright` is the globally-installed npm binary; formatters,
-pytest, and coverage run via the target directory's own `.venv`.
+target dir. Five steps in order: `pyright` (strict) → `isort` → `black` →
+`pyright` (post-format) → `pytest`. Config lives in `pyproject.toml`;
+`pyright` is the globally-installed npm binary; formatters, pytest, and
+coverage run via the target directory's own `.venv`.
 
 For faster iteration, run individual sections; everything after a section flag
 passes verbatim to the underlying tool, so there is never a reason to invoke
@@ -217,6 +217,7 @@ the tools directly:
 bash scripts/quality_gate.sh --pyright src/wingspan/state.py   # types only / one file
 bash scripts/quality_gate.sh --format                          # isort + black only
 bash scripts/quality_gate.sh --pytest tests/test_encode.py -k state -x -q
+bash scripts/quality_gate.sh --coverage                        # full gate + coverage regression
 ```
 
 No-argument defaults: `--pytest` → `tests/ -n 8 --dist load` (worker count via
@@ -234,9 +235,11 @@ must pass it to be considered finished. Strict-mode pyright must be completely
 clean (`reportPrivateImportUsage = false` silences torch's under-exporting
 stubs — don't re-enable it).
 
-**Coverage regression check.** The full gate re-runs pytest serially with
-`--cov --cov-report=term-missing` (Step 6) and compares the TOTAL percentage
-against `coverage_baseline.txt` in the repo root. The baseline ratchets upward:
+**Coverage regression check.** Pass `--coverage` (no args) to run pytest
+serially with `--cov --cov-report=term-missing` in a single pass, then compare
+the TOTAL percentage against `coverage_baseline.txt` in the repo root.
+`merge_worktree.sh` always passes `--coverage`; it is not needed during
+worktree iteration. The baseline ratchets upward:
 
 - Coverage improves → baseline file updated automatically; commit it with your
   change.
@@ -247,10 +250,6 @@ against `coverage_baseline.txt` in the repo root. The baseline ratchets upward:
 
 **First run (baseline absent):** the gate creates `coverage_baseline.txt`
 automatically and passes. Commit that file to lock the regression floor.
-
-The `--pytest` partial run (section flag present) skips coverage entirely for
-fast-iteration targeted runs. To run the full suite without the coverage step,
-use all three section flags explicitly: `--pyright --format --pytest`.
 
 Modules excluded from coverage measurement (CLI entry points, SVG/chart
 rendering, AWS/S3 integration) are listed in `[tool.coverage.run] omit` in

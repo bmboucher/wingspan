@@ -2,7 +2,7 @@
 # Run the quality gate: pyright -> isort -> black -> pyright -> pytest.
 #
 # Usage:
-#   bash scripts/quality_gate.sh [target-dir] [--pyright [args...]] [--format [paths...]] [--pytest [args...]]
+#   bash scripts/quality_gate.sh [target-dir] [--pyright [args...]] [--format [paths...]] [--pytest [args...]] [--coverage]
 #
 # target-dir  Directory to check (default: repo root, derived from this script's
 #             location). Must come BEFORE the first section flag. Pass a worktree
@@ -20,15 +20,20 @@
 #   --pytest  [args...]   pytest        (default args: tests/ -n $WINGSPAN_PYTEST_WORKERS
 #                                        --dist load — parallel via pytest-xdist.
 #                                        Explicit args replace the default entirely,
-#                                        so targeted runs stay serial. Override the
+#                                        so targeted runs stay serial unless the
+#                                        caller passes -n themselves. Override the
 #                                        worker count with WINGSPAN_PYTEST_WORKERS;
-#                                        0 = serial.
-#                                        NOTE: the full gate automatically appends
-#                                        a serial coverage re-run; bare --pytest
-#                                        skips it for fast iteration.)
+#                                        0 = serial.)
+#   --coverage            Run pytest serially with --cov in a single pass, then
+#                         check TOTAL coverage against coverage_baseline.txt.
+#                         Takes no arguments. Implies --pytest (uses the full
+#                         serial+cov run instead of the default parallel run).
+#                         Used by merge_worktree.sh; not needed during worktree
+#                         iteration.
 #
 # Examples:
-#   bash scripts/quality_gate.sh                                # full gate
+#   bash scripts/quality_gate.sh                                # full gate (fast, no coverage)
+#   bash scripts/quality_gate.sh --coverage                     # full gate + coverage regression
 #   bash scripts/quality_gate.sh --pyright                      # type-check only
 #   bash scripts/quality_gate.sh --pytest tests/test_smoke.py   # one test file
 #   bash scripts/quality_gate.sh --pytest -k house_wren -x      # pytest flags
@@ -78,6 +83,7 @@ TARGET_DIR="$REPO_ROOT"
 RUN_PYRIGHT=false
 RUN_FORMAT=false
 RUN_PYTEST=false
+RUN_COVERAGE=false
 PYRIGHT_ARGS=()
 FORMAT_ARGS=()
 PYTEST_ARGS=()
@@ -85,9 +91,10 @@ SECTION=""   # section that bare args currently belong to ("" = before any flag)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --pyright) SECTION="pyright"; RUN_PYRIGHT=true ;;
-        --format)  SECTION="format";  RUN_FORMAT=true ;;
-        --pytest)  SECTION="pytest";  RUN_PYTEST=true ;;
+        --pyright)  SECTION="pyright"; RUN_PYRIGHT=true ;;
+        --format)   SECTION="format";  RUN_FORMAT=true ;;
+        --pytest)   SECTION="pytest";  RUN_PYTEST=true ;;
+        --coverage) SECTION="";        RUN_COVERAGE=true ;;
         --only|--only=*)
             infra_error "--only has been removed. Use section flags instead: --pyright / --format / --pytest (arguments after each flag are passed to that tool, e.g. --pytest tests/test_smoke.py)."
             ;;
@@ -102,7 +109,7 @@ while [[ $# -gt 0 ]]; do
                 usage
                 exit 0
             elif [[ "$1" == -* ]]; then
-                infra_error "Unknown flag: $1 (section flags: --pyright / --format / --pytest; run with --help for usage)"
+                infra_error "Unknown flag: $1 (section flags: --pyright / --format / --pytest / --coverage; run with --help for usage)"
             else
                 TARGET_DIR="$1"
             fi
@@ -111,15 +118,21 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# Default args for sections that were requested bare. A bare pytest section
-# runs the whole suite in parallel; explicit args replace the default entirely
-# (targeted runs stay serial unless the caller passes -n themselves).
+# --coverage implies --pytest (the coverage run IS the pytest run).
+if [ "$RUN_COVERAGE" = true ]; then
+    RUN_PYTEST=true
+fi
+
+# Default args for sections that were requested bare.
 if [ ${#FORMAT_ARGS[@]} -eq 0 ]; then FORMAT_ARGS=(src tests); fi
 if [ ${#PYTEST_ARGS[@]} -eq 0 ]; then
     if ! [[ "$WINGSPAN_PYTEST_WORKERS" =~ ^[0-9]+$ ]]; then
         infra_error "WINGSPAN_PYTEST_WORKERS must be a non-negative integer (got: $WINGSPAN_PYTEST_WORKERS)"
     fi
-    if [ "$WINGSPAN_PYTEST_WORKERS" -gt 0 ]; then
+    if [ "$RUN_COVERAGE" = true ]; then
+        # Coverage run: serial for clean term-missing output, with --cov.
+        PYTEST_ARGS=(tests/ -p no:xdist --cov --cov-report=term-missing)
+    elif [ "$WINGSPAN_PYTEST_WORKERS" -gt 0 ]; then
         PYTEST_ARGS=(tests/ -n "$WINGSPAN_PYTEST_WORKERS" --dist load)
     else
         PYTEST_ARGS=(tests/)
@@ -167,12 +180,17 @@ fi
 
 cd "$TARGET_DIR"
 if [ "$FULL_GATE" = true ]; then
-    echo "==== QUALITY GATE: $TARGET_DIR ===="
+    if [ "$RUN_COVERAGE" = true ]; then
+        echo "==== QUALITY GATE (with coverage): $TARGET_DIR ===="
+    else
+        echo "==== QUALITY GATE: $TARGET_DIR ===="
+    fi
 else
     STEPS=""
     [ "$RUN_PYRIGHT" = true ] && STEPS="$STEPS pyright"
     [ "$RUN_FORMAT" = true ] && STEPS="$STEPS format"
     [ "$RUN_PYTEST" = true ] && STEPS="$STEPS pytest"
+    [ "$RUN_COVERAGE" = true ] && STEPS="$STEPS coverage"
     echo "==== QUALITY GATE: $TARGET_DIR  [steps:$STEPS] ===="
 fi
 
@@ -220,22 +238,39 @@ if [ "$RUN_PYRIGHT" = true ] && [ "$RUN_FORMAT" = true ]; then
 fi
 
 # ---- Step 5: pytest ----
+#
+# When --coverage is set, PYTEST_ARGS already include --cov/--cov-report so the
+# output from this single run is also what we parse for the regression check.
+# We tee it to a temp file so the regression check can extract the TOTAL line
+# while still printing live output to the terminal.
 
 if [ "$RUN_PYTEST" = true ]; then
     header "pytest"
-    if ! "$PYTHON" -m pytest "${PYTEST_ARGS[@]}"; then
-        echo
-        echo "GATE FAILED at pytest — tests failed."
-        FAILED=1
+    if [ "$RUN_COVERAGE" = true ]; then
+        COVERAGE_OUTPUT_FILE="$(mktemp)"
+        "$PYTHON" -m pytest "${PYTEST_ARGS[@]}" 2>&1 | tee "$COVERAGE_OUTPUT_FILE"
+        PYTEST_EXIT="${PIPESTATUS[0]}"
+        if [ "$PYTEST_EXIT" -ne 0 ]; then
+            echo
+            echo "GATE FAILED at pytest — tests failed."
+            rm -f "$COVERAGE_OUTPUT_FILE"
+            COVERAGE_OUTPUT_FILE=""
+            FAILED=1
+        fi
+    else
+        if ! "$PYTHON" -m pytest "${PYTEST_ARGS[@]}"; then
+            echo
+            echo "GATE FAILED at pytest — tests failed."
+            FAILED=1
+        fi
     fi
 fi
 
-# ---- Step 6: coverage regression check (full gate only) ----
+# ---- Step 6: coverage regression check (--coverage only) ----
 #
-# Only runs when no section flags were given (FULL_GATE=true) and all prior
-# steps passed (FAILED=0). Re-runs the suite serially so the term-missing
-# report lands cleanly on stdout for parsing. Cached .pyc makes this fast
-# (~25-40s) even though xdist is disabled.
+# Runs after Step 5 when --coverage was passed and all prior steps passed.
+# PYTEST_ARGS already included --cov/--cov-report; COVERAGE_OUTPUT_FILE holds
+# the tee'd output from that single run.
 #
 # Ratchet behaviour:
 #   Baseline absent       -> create it, pass (first-run establishment).
@@ -247,64 +282,52 @@ fi
 
 BASELINE_FILE="$REPO_ROOT/coverage_baseline.txt"
 
-if [ "$FULL_GATE" = true ] && [ "$FAILED" -eq 0 ]; then
+if [ "$RUN_COVERAGE" = true ] && [ "$FAILED" -eq 0 ] && [ -n "${COVERAGE_OUTPUT_FILE:-}" ]; then
     header "coverage (regression check)"
 
-    COVERAGE_OUTPUT_FILE="$(mktemp)"
-    "$PYTHON" -m pytest tests/ -p no:xdist \
-        --cov --cov-report=term-missing \
-        2>&1 | tee "$COVERAGE_OUTPUT_FILE"
-    COVERAGE_EXIT="${PIPESTATUS[0]}"
+    # Extract TOTAL line: "TOTAL   NNN  NNN  NNN  NNN  78%"  (last field = %)
+    COVERAGE_PCT="$(grep -E '^TOTAL\s' "$COVERAGE_OUTPUT_FILE" \
+        | awk '{print $NF}' \
+        | tr -d '%')"
+    rm -f "$COVERAGE_OUTPUT_FILE"
 
-    if [ "$COVERAGE_EXIT" -ne 0 ]; then
+    if [ -z "$COVERAGE_PCT" ]; then
         echo
-        echo "WARNING: coverage re-run exited $COVERAGE_EXIT; skipping regression check."
-        rm -f "$COVERAGE_OUTPUT_FILE"
+        echo "WARNING: could not extract TOTAL coverage line — skipping regression check."
+    elif [ ! -f "$BASELINE_FILE" ]; then
+        # First run: establish the baseline.
+        echo "$COVERAGE_PCT" > "$BASELINE_FILE"
+        echo
+        echo "Coverage baseline established: ${COVERAGE_PCT}%"
+        echo "  Written to: $BASELINE_FILE"
+        echo "  Commit this file to lock the regression floor."
     else
-        # Extract TOTAL line: "TOTAL   NNN  NNN  NNN  NNN  78%"  (last field = %)
-        COVERAGE_PCT="$(grep -E '^TOTAL\s' "$COVERAGE_OUTPUT_FILE" \
-            | awk '{print $NF}' \
-            | tr -d '%')"
-        rm -f "$COVERAGE_OUTPUT_FILE"
+        BASELINE_PCT="$(cat "$BASELINE_FILE" | tr -d '[:space:]')"
 
-        if [ -z "$COVERAGE_PCT" ]; then
+        # Floating-point comparisons via awk (bash only does integer math).
+        REGRESSED="$(awk -v cur="$COVERAGE_PCT" -v base="$BASELINE_PCT" \
+            'BEGIN { print (cur + 0 < base + 0) ? "1" : "0" }')"
+        IMPROVED="$(awk -v cur="$COVERAGE_PCT" -v base="$BASELINE_PCT" \
+            'BEGIN { print (cur + 0 > base + 0) ? "1" : "0" }')"
+
+        if [ "$REGRESSED" = "1" ]; then
             echo
-            echo "WARNING: could not extract TOTAL coverage line — skipping regression check."
-        elif [ ! -f "$BASELINE_FILE" ]; then
-            # First run: establish the baseline.
+            echo "COVERAGE REGRESSION: ${COVERAGE_PCT}% is below baseline ${BASELINE_PCT}%"
+            echo
+            echo "  Options:"
+            echo "    1. Add tests to recover coverage, then rerun the gate."
+            echo "    2. If the drop is intentional, report the impact to the user"
+            echo "       so they can update coverage_baseline.txt manually."
+            echo "  Do NOT edit coverage_baseline.txt downward yourself."
+            FAILED=1
+        elif [ "$IMPROVED" = "1" ]; then
             echo "$COVERAGE_PCT" > "$BASELINE_FILE"
             echo
-            echo "Coverage baseline established: ${COVERAGE_PCT}%"
-            echo "  Written to: $BASELINE_FILE"
-            echo "  Commit this file to lock the regression floor."
+            echo "Coverage improved: ${BASELINE_PCT}% -> ${COVERAGE_PCT}%"
+            echo "  Baseline updated. Commit coverage_baseline.txt with your change."
         else
-            BASELINE_PCT="$(cat "$BASELINE_FILE" | tr -d '[:space:]')"
-
-            # Floating-point comparisons via awk (bash only does integer math).
-            REGRESSED="$(awk -v cur="$COVERAGE_PCT" -v base="$BASELINE_PCT" \
-                'BEGIN { print (cur + 0 < base + 0) ? "1" : "0" }')"
-            IMPROVED="$(awk -v cur="$COVERAGE_PCT" -v base="$BASELINE_PCT" \
-                'BEGIN { print (cur + 0 > base + 0) ? "1" : "0" }')"
-
-            if [ "$REGRESSED" = "1" ]; then
-                echo
-                echo "COVERAGE REGRESSION: ${COVERAGE_PCT}% is below baseline ${BASELINE_PCT}%"
-                echo
-                echo "  Options:"
-                echo "    1. Add tests to recover coverage, then rerun the gate."
-                echo "    2. If the drop is intentional, report the impact to the user"
-                echo "       so they can update coverage_baseline.txt manually."
-                echo "  Do NOT edit coverage_baseline.txt downward yourself."
-                FAILED=1
-            elif [ "$IMPROVED" = "1" ]; then
-                echo "$COVERAGE_PCT" > "$BASELINE_FILE"
-                echo
-                echo "Coverage improved: ${BASELINE_PCT}% -> ${COVERAGE_PCT}%"
-                echo "  Baseline updated. Commit coverage_baseline.txt with your change."
-            else
-                echo
-                echo "Coverage: ${COVERAGE_PCT}% (matches baseline — OK)"
-            fi
+            echo
+            echo "Coverage: ${COVERAGE_PCT}% (matches baseline — OK)"
         fi
     fi
 fi

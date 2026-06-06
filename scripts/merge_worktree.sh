@@ -110,7 +110,7 @@ fi
 
 echo
 echo "==== Running quality gate on merged result ===="
-bash "$SCRIPT_DIR/quality_gate.sh"
+bash "$SCRIPT_DIR/quality_gate.sh" --coverage
 GATE_STATUS=$?
 if [ "$GATE_STATUS" -eq 2 ]; then
     echo
