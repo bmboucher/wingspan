@@ -42,9 +42,12 @@ def build_body(
     """Build a body MLP — a trunk, the choice encoder, or a card/hand encoder —
     and return it with its output width. Each layer is ``Linear`` → (optional)
     ``LayerNorm`` → activation → (optional) ``Dropout``; the activation + dropout
-    on the final layer are emitted only when ``final_activation`` (the trunk keeps
-    a trailing activation, the encoders do not). LayerNorm — when enabled — is
-    applied to these body blocks; the readout heads omit it."""
+    on the final layer are emitted only when ``final_activation`` is True. The
+    trunk always passes True; the encoders pass
+    ``arch.encoder_final_activation`` (True for new runs, False for old
+    checkpoints — see :class:`wingspan.architecture.ModelArchitecture`).
+    LayerNorm — when enabled — is applied to these body blocks; the readout
+    heads omit it."""
     modules: list[nn.Module] = []
     prev = in_dim
     last_index = len(widths) - 1

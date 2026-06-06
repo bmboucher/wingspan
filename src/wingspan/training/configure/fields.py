@@ -787,6 +787,17 @@ FIELD_SPECS: list[FieldSpec] = [
         "Fresh run.",
     ),
     ChoiceField(
+        attr="encoder_final_activation",
+        label="encoder final act",
+        section=ConfigSection.MODEL,
+        group="card embeddings",
+        choices=["True", "False"],
+        impact=ChangeImpact.REGIME,
+        help="When on (the default for new runs), the card, hand, and choice encoders "
+        "apply a final activation after their last layer, matching the trunk. Old "
+        "checkpoints carry False and keep their original behaviour on load. Regime.",
+    ),
+    ChoiceField(
         attr="use_distinct_hand_model",
         label="distinct hand MLP",
         section=ConfigSection.MODEL,

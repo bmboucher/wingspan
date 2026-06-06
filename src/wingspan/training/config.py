@@ -187,6 +187,11 @@ class TrainConfig(pydantic.BaseModel):
     # 3·M + N tray dims). Requires use_distinct_hand_model; on by default
     # alongside it. Fresh run.
     tray_set_embedding: bool = True
+    # When True (the default for new runs), the card, hand, and choice encoders
+    # apply a final activation after their last layer, matching the trunk.
+    # Saved into model_config.json so old checkpoints (which omit this field)
+    # keep their original no-final-relu behaviour on load. REGIME.
+    encoder_final_activation: bool = True
 
     # ---- setup model (TRAINING.md / DECISIONS.md §2.13: the start-of-game keep) ----
     # When enabled (the default), the start-of-game setup decision is pulled out of
@@ -391,6 +396,7 @@ class TrainConfig(pydantic.BaseModel):
             hand_encoder_layers=self.hand_encoder_layers,
             hand_embed_dim=self.hand_embed_dim,
             tray_set_embedding=self.tray_set_embedding,
+            encoder_final_activation=self.encoder_final_activation,
         )
 
     @property

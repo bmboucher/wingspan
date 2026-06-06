@@ -335,7 +335,9 @@ def _card_unit(
         x=_SVG_COL_X[0],
         accent=_ACCENT_CARD,
         title="SINGLE-CARD ENCODER · per-card MLP",
-        rows=_op_rows(block.layers, arch.activation.value, is_trunk=False),
+        rows=_op_rows(
+            block.layers, arch.activation.value, is_trunk=arch.encoder_final_activation
+        ),
         sigma_text=_count_text(block.total),
         in_label="card features",
         in_count=in_dim,
@@ -373,7 +375,9 @@ def _hand_unit(
         accent=_ACCENT_HAND,
         title="MULTI-CARD ENCODER · card-set MLP",
         subtitle="" if distinct else "setup net only · main net mean-pools",
-        rows=_op_rows(layers, arch.activation.value, is_trunk=False),
+        rows=_op_rows(
+            layers, arch.activation.value, is_trunk=arch.encoder_final_activation
+        ),
         sigma_text=_count_text(total),
         in_label="card set + summary",
         in_count=layers[0].in_features,
@@ -423,7 +427,9 @@ def _choice_unit(
         x=_SVG_COL_X[1],
         accent=_ACCENT_CHOICE,
         title="CHOICE ENCODER",
-        rows=_op_rows(block.layers, arch.activation.value, is_trunk=False),
+        rows=_op_rows(
+            block.layers, arch.activation.value, is_trunk=arch.encoder_final_activation
+        ),
         sigma_text=_count_text(block.total),
         in_label="choice input",
         in_count=in_dim,
@@ -556,8 +562,9 @@ def _op_rows(
 
 
 def _has_act_after(is_trunk: bool, is_final: bool) -> bool:
-    """Mirror of ``mlp.build_body`` / ``mlp.build_readout``: the trunk gets an
-    activation after every layer; all other blocks only on non-final layers."""
+    """Mirror of ``mlp.build_body``: blocks with ``final_activation=True``
+    (the trunk always; the encoders when ``arch.encoder_final_activation``)
+    get an activation after every layer; other blocks only on non-final layers."""
     if is_trunk:
         return True
     return not is_final

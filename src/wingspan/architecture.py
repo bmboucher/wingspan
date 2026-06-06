@@ -122,6 +122,12 @@ class ModelArchitecture(pydantic.BaseModel):
     # Defaults to True alongside ``use_distinct_hand_model``; ``False`` configs
     # (and the checkpoints they describe) remain supported.
     tray_set_embedding: bool = True
+    # When True, the card, hand, and choice encoders apply a final activation
+    # after their last layer, consistent with the trunk. Default False preserves
+    # the behaviour of checkpoints written before this field was introduced —
+    # those lack the key in their saved model_config.json, so Pydantic assigns
+    # this default and inference runs without the final relu, unchanged.
+    encoder_final_activation: bool = False
 
     @pydantic.model_validator(mode="after")
     def _check_tray_set_embedding(self) -> "ModelArchitecture":

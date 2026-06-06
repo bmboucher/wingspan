@@ -22,9 +22,10 @@ fields are edited. The wiring, top to bottom:
 Layer mini-boxes are color-coded by operation kind (Linear / LayerNorm /
 activation / Dropout) and transcribe ``model._build_body`` / ``_build_readout``:
 body blocks (trunk / choice) apply LayerNorm — when enabled — after every Linear;
-the trunk keeps an activation on its final layer while the choice encoder does
-not; readout heads (scorer / value, and the setup net) never LayerNorm and end in
-a bare ``Linear →1``. Parameter counts come from
+the trunk always keeps a final activation; the card / choice / hand encoders keep
+one too when ``arch.encoder_final_activation`` is True (new runs), or omit it
+when False (old checkpoints); readout heads (scorer / value, and the setup net)
+never LayerNorm and end in a bare ``Linear →1``. Parameter counts come from
 :func:`architecture.count_parameters` (the main net) and
 :func:`setup_model.count_setup_parameters` (the setup net), each pinned to
 ``sum(p.numel())`` of the real module by a test. Below a two-column width floor
@@ -373,9 +374,9 @@ def _setup_off_line() -> text.Text:
 def _card_encoder_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
     """The shared per-card encoder MLP — maps each card's ``[static attributes ⊕
     identity one-hot]`` (``CARD_FEATURE_DIM``) to its ``card_embed_dim`` vector,
-    yielding the per-card table every board / tray / hand / choice slot looks up. A
-    full-width body block (final layer no activation, like the choice encoder)
-    whose bottom taps down into the fan-out to both trunks."""
+    yielding the per-card table every board / tray / hand / choice slot looks up.
+    A full-width body block whose bottom taps down into the fan-out to both trunks.
+    Applies a final activation when ``encoder_final_activation`` is True."""
     cfg = view.working
     report = _param_report(view)
     widths = cfg.card_encoder_layers + (cfg.card_embed_dim,)
@@ -388,6 +389,7 @@ def _card_encoder_box(view: state.ConfiguratorState, content_w: int) -> list[tex
         activation=str(cfg.activation),
         dropout=cfg.dropout,
         layernorm=cfg.layernorm,
+        final_activation=cfg.encoder_final_activation,
     )
     return _model_block(
         view,
@@ -493,8 +495,9 @@ def _state_trunk_column(
 def _choice_encoder_column(
     view: state.ConfiguratorState, width: int, report: architecture.ParamReport
 ) -> list[text.Text]:
-    """The per-choice encoder box (a body block whose final layer is a bare Linear,
-    no activation), fed by the card encoder plus its additional features."""
+    """The per-choice encoder box, fed by the card encoder plus its additional
+    features. Applies a final activation when ``encoder_final_activation`` is
+    True, matching the trunk; otherwise ends in a bare Linear."""
     cfg = view.working
     choice_in = _choice_in(cfg)
     extra = _choice_extra(cfg)
@@ -507,6 +510,7 @@ def _choice_encoder_column(
         activation=str(cfg.activation),
         dropout=cfg.dropout,
         layernorm=cfg.layernorm,
+        final_activation=cfg.encoder_final_activation,
     )
     block = _model_block(
         view,
@@ -654,11 +658,13 @@ def _block_op_entries(
     activation: str,
     dropout: float,
     layernorm: bool,
+    final_activation: bool = False,
 ) -> list[_OpEntry]:
     """The flat, run-collapsed list of mini-box entries for a block: each layer
     expands to its ordered ops (Linear, optional LayerNorm, optional activation +
     Dropout), runs of identical layers fold to one ``×N`` group, and each op
-    carries its parameter count and focus state."""
+    carries its parameter count and focus state. ``final_activation`` mirrors
+    ``arch.encoder_final_activation`` for ``BODY_CHOICE`` blocks."""
     per_layer = [
         _layer_ops(
             width,
@@ -670,6 +676,7 @@ def _block_op_entries(
             layernorm=layernorm,
             dropout=dropout,
             activation=activation,
+            final_activation=final_activation,
         )
         for index, width in enumerate(widths)
     ]
@@ -687,10 +694,12 @@ def _layer_ops(
     layernorm: bool,
     dropout: float,
     activation: str,
+    final_activation: bool = False,
 ) -> list[_OpEntry]:
     """The ordered op entries one layer expands to, following the model's per-block
-    rules (LayerNorm after every body Linear; activation on every trunk layer but
-    only the non-final layer of the choice encoder / readouts; dropout only where
+    rules (LayerNorm after every body Linear; activation on every trunk layer and
+    on every encoder layer when ``final_activation`` is True, otherwise only on
+    non-final layers; readouts never on the final layer; dropout only where
     an activation is present)."""
     ops = [
         _OpEntry(
@@ -706,7 +715,7 @@ def _layer_ops(
                 kind=_OpKind.LAYERNORM, label="LayerNorm", short="LN", param=params.norm
             )
         )
-    if _has_activation(kind, is_final):
+    if _has_activation(kind, is_final, final_activation=final_activation):
         ops.append(
             _OpEntry(
                 kind=_OpKind.ACTIVATION,
@@ -727,10 +736,16 @@ def _layer_ops(
     return ops
 
 
-def _has_activation(kind: _BlockKind, is_final: bool) -> bool:
+def _has_activation(
+    kind: _BlockKind, is_final: bool, *, final_activation: bool = False
+) -> bool:
     """Whether a layer carries an activation: the trunk keeps one on every layer;
-    the choice encoder and readout heads drop it on their final layer."""
+    BODY_CHOICE blocks keep one on every layer when ``final_activation`` is True
+    (``arch.encoder_final_activation``), otherwise only on non-final layers;
+    readout heads always drop it on their final layer."""
     if kind is _BlockKind.BODY_TRUNK:
+        return True
+    if kind is _BlockKind.BODY_CHOICE and final_activation:
         return True
     return not is_final
 
@@ -1099,6 +1114,7 @@ class _StaticConfig:
     activation: architecture.ActivationName
     layernorm: bool
     dropout: float
+    encoder_final_activation: bool
     arch: architecture.ModelArchitecture
     family_order: tuple[str, ...]
     setup_arch: setup_model.SetupArchitecture
@@ -1161,6 +1177,7 @@ def render_static(
         activation=arch.activation,
         layernorm=arch.layernorm,
         dropout=arch.dropout,
+        encoder_final_activation=arch.encoder_final_activation,
         arch=arch,
         family_order=family_order,
         setup_arch=resolved_setup_arch,

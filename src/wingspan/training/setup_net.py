@@ -83,7 +83,7 @@ class SetupNet(nn.Module):
             activation=main_arch.activation,
             dropout=main_arch.dropout,
             layernorm=main_arch.layernorm,
-            final_activation=False,
+            final_activation=main_arch.encoder_final_activation,
         )
         self.card_encoder.requires_grad_(False)
 
@@ -98,7 +98,7 @@ class SetupNet(nn.Module):
             activation=main_arch.activation,
             dropout=main_arch.dropout,
             layernorm=main_arch.layernorm,
-            final_activation=False,
+            final_activation=main_arch.encoder_final_activation,
         )
         if self._hand_encoder_frozen:
             self.hand_encoder.requires_grad_(False)

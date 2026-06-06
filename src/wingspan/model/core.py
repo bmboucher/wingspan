@@ -270,7 +270,7 @@ class PolicyValueNet(nn.Module):
             activation=arch.activation,
             dropout=arch.dropout,
             layernorm=arch.layernorm,
-            final_activation=False,
+            final_activation=arch.encoder_final_activation,
         )
         self.register_buffer(
             "card_features",
@@ -295,7 +295,7 @@ class PolicyValueNet(nn.Module):
                 activation=arch.activation,
                 dropout=arch.dropout,
                 layernorm=arch.layernorm,
-                final_activation=False,
+                final_activation=arch.encoder_final_activation,
             )
         if arch.tray_set_embedding:
             self.register_buffer(
@@ -311,8 +311,9 @@ class PolicyValueNet(nn.Module):
 
         The trunk reads continuous state features plus looked-up card embeddings
         (index block → one embedding per slot, hand → mean-pool or dedicated
-        encoder, tray set when enabled). It keeps a final activation (its output
-        is an internal representation, not a logit)."""
+        encoder, tray set when enabled). Always keeps a final activation — its
+        output is an internal representation consumed by both the value head and
+        the scorer concat."""
         trunk_in_dim = encode.trunk_input_dim(
             state_dim,
             arch.card_embed_dim,
@@ -335,7 +336,8 @@ class PolicyValueNet(nn.Module):
         """Register ``choice_encoder``.
 
         The per-choice encoder reads each candidate's non-identity features plus
-        its card identity embedded through the shared card table."""
+        its card identity embedded through the shared card table. Applies a final
+        activation when ``arch.encoder_final_activation`` is True."""
         choice_in_dim = encode.choice_input_dim(
             choice_dim, arch.card_embed_dim, include_setup=self.include_setup
         )
@@ -345,7 +347,7 @@ class PolicyValueNet(nn.Module):
             activation=arch.activation,
             dropout=arch.dropout,
             layernorm=arch.layernorm,
-            final_activation=False,
+            final_activation=arch.encoder_final_activation,
         )
 
     def _build_scorers(
