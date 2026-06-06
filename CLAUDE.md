@@ -10,15 +10,28 @@ changes stay consistent.
 
 A Wingspan core-set simulator (180 birds, 26 bonus cards, 16 round goals,
 2-player automa-free) plus an RL training pipeline. **See `README.md`** for
-the general description, the full CLI reference, and the annotated package
-layout (§ "How it's organized") — skim the layout before adding a module so
-new code lands in the right package, and update it there when the layout
-changes. The long-term goal is self-play training at scale to answer
-analytical questions about the game (card power rankings, bonus-card value,
-food/habitat economy) — design for scaling up training, not for the minimum
-that runs today. All 180 bird powers are modelled via generic `EffectKind`
-patterns; the `UNIMPLEMENTED` fallback (runtime no-op, surfaced in the
-coverage report) keeps unparsed future additions non-fatal.
+the general description and full CLI reference; **`docs/PROJECT.md`** for the
+annotated package layout — skim it before adding a module so new code lands in
+the right package, and update it when the layout changes. The long-term goal
+is self-play training at scale to answer analytical questions about the game (card power
+rankings, bonus-card value, food/habitat economy) — design for scaling up
+training, not for the minimum that runs today. All 180 bird powers are modelled
+via generic `EffectKind` patterns; the `UNIMPLEMENTED` fallback (runtime no-op,
+surfaced in the coverage report) keeps unparsed future additions non-fatal.
+
+## Documentation files
+
+Load these files for extra context when working in the relevant area. Update
+them in the same change that updates the code — they are not kept automatically
+in sync.
+
+| File | What it covers | Update when… |
+| ---- | -------------- | ------------ |
+| `docs/PROJECT.md` | Annotated package layout, module tree | Adding or renaming a module/package; structural refactors |
+| `docs/DECISIONS.md` | Decision/choice taxonomy, `ALL_DECISION_CLASSES` ordering, choice-vector stripes, engine call sites | Adding a `Decision`/`Choice` subclass; changing a featurizer; reordering `ALL_DECISION_CLASSES`; adding an engine decision call site |
+| `docs/BIRDS.md` | All 180 birds + 26 bonus cards: `EffectKind` patterns, handler mappings, implementation gaps | Adding an `EffectKind` variant, a matcher, or a power handler; covering a previously `UNIMPLEMENTED` bird |
+| `docs/TRAINING.md` | Training program, hyperparameter guidance, Phase 0–3 roadmap | Changing the training approach, convergence criteria, or phased plan |
+| `docs/RESEARCH.md` | Research agenda, per-project feasibility verdicts | Adding/completing a research project; updating a feasibility gap assessment |
 
 ## Making changes: the worktree workflow
 
@@ -192,10 +205,10 @@ Never do any of the following to get past a failing script:
 
 See `README.md` for the full CLI (`wingspan play / dashboard / tournament /
 inspect / cloud / monitor`) and training notes;
-`TRAINING.md` is the training program. Setup: `pip install -e ".[dev]"`.
+`docs/TRAINING.md` is the training program. Setup: `pip install -e ".[dev]"`.
 Training is CPU-only — collection fans out across worker processes and
-`--device cpu` is fastest (TRAINING.md §1.4). Run tests through the quality
-gate below, not bare pytest.
+`--device cpu` is fastest (`docs/TRAINING.md` §1.4). Run tests through the
+quality gate below, not bare pytest.
 
 ## Quality gate
 
@@ -313,12 +326,6 @@ without a skip — the commitment is settled. Conditionally-optional effects
 under that condition and run as mandatory otherwise, so the SKIP_OPTIONAL head
 isn't trained on trivially-obvious non-decisions.
 
-**Keep `DECISIONS.md` in sync.** Any change to the decision/choice taxonomy,
-`_DECISION_FAMILY`, the choice-vector stripes or featurizers, the engine's
-decision call sites, or the setup / `split_setup_bonus` config axes must
-update `DECISIONS.md` in the same change — its "Maintaining this document"
-section maps each kind of code change to the sections to refresh.
-
 ### Configurable network topology
 
 `architecture.ModelArchitecture` (top-level, torch-free) is the single
@@ -359,17 +366,11 @@ Opponent-prompting effects route through `engine.agent_for(player)`.
 
 ### Bird powers: parser + dispatcher pair
 
-Supporting a new bird power is a three-step pattern: (1) add an `EffectKind`
-variant in `cards.schema`, adding a new typed carrier field to `Effect` if the
-existing ones don't cover its data — no generic payload; (2) add a pattern
-matcher in `cards.parse.matchers` with `@registry.pattern`
-(`@registry.pink_pattern` in `pink_matchers` for reactive ones) — registration
-order = source order, more specific patterns first when they overlap; (3) add
-a handler in the matching `engine.powers` submodule with
-`@registry.handles(EffectKind.X)`. Pink (between-turn) effects dispatch from
-`engine.reactors`, not `apply_effect`, which treats them as silent no-ops.
-Keep the `UNIMPLEMENTED` fallback in place — it's what lets future expansion
-cards or parser gaps stay non-fatal.
+Three-step pattern: `EffectKind` variant in `cards.schema` → `@registry.pattern`
+matcher in `cards.parse.matchers` (pink powers use `@registry.pink_pattern` in
+`pink_matchers`) → `@registry.handles(EffectKind.X)` handler in `engine.powers`.
+Pink effects dispatch from `engine.reactors`; keep the `UNIMPLEMENTED` fallback
+in place. See `docs/BIRDS.md` for the full implementation reference.
 
 ### Public constants and per-turn scratch state
 
