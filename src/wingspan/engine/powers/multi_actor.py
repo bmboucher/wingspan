@@ -177,8 +177,36 @@ def _h_all_players_lay_egg_on_nest(
         engine.log(f"  {bird.name}: [{player.name}] skipped activation")
         return
 
-    # Step 2: non-active players, in turn order from P0+1.
     anti_egg_goal = st.round_goals[st.round_idx].category == "birds_no_eggs"
+
+    # Step 2: non-active players, in turn order from P0+1.
+    _other_players_lay_optional(
+        engine, player, nest, bird, anti_egg_goal, active_idx, n_players
+    )
+
+    # Step 3: P0's mandatory base egg.
+    last_laid = dispatch.lay_one_egg_on_nest(engine, player, nest, label=bird.name)
+
+    # Step 4: P0's extra eggs — each excludes the previous target (gap #13a).
+    _active_player_extra_eggs(
+        engine, agent, player, nest, bird, extra_for_self, anti_egg_goal, last_laid
+    )
+
+
+def _other_players_lay_optional(
+    engine: "core.Engine",
+    player: state.Player,
+    nest: cards.NestType,
+    bird: cards.Bird,
+    anti_egg_goal: bool,
+    active_idx: int,
+    n_players: int,
+) -> None:
+    """Prompt each non-active player (in turn order) to lay one egg on a matching nest bird.
+
+    When ``anti_egg_goal`` is active each player may skip; otherwise the lay is
+    mandatory for eligible players."""
+    st = engine.state
     for offset in range(1, n_players):
         other_player = st.players[(active_idx + offset) % n_players]
         if not _has_eligible_bird_on_nest(other_player, nest):
@@ -207,12 +235,22 @@ def _h_all_players_lay_egg_on_nest(
                 continue
         dispatch.lay_one_egg_on_nest(engine, other_player, nest, label=bird.name)
 
-    # Step 3: P0's mandatory base egg.
-    last_laid = dispatch.lay_one_egg_on_nest(engine, player, nest, label=bird.name)
 
-    # Step 4: P0's extra eggs — mandatory unless anti-egg-goal; each extra
-    # excludes the bird that just received an egg so the same bird isn't
-    # targeted twice in a row (gap #13a).
+def _active_player_extra_eggs(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    nest: cards.NestType,
+    bird: cards.Bird,
+    extra_for_self: int,
+    anti_egg_goal: bool,
+    last_laid: state.PlayedBird | None,
+) -> None:
+    """Lay the active player's extra eggs beyond the mandatory base egg.
+
+    Each extra lay excludes the bird that received the previous egg so the same
+    bird is not targeted twice in a row (gap #13a). Stops early if anti-egg-goal
+    causes a skip, or if no eligible target remains."""
     for _ in range(extra_for_self):
         if anti_egg_goal:
             extra_ch = engine.ask(

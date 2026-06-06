@@ -144,8 +144,234 @@ class LayersField(FieldSpec):
     min_len: int = 1
 
 
-# The full editable surface, grouped by section. Help text is distilled from the
-# field comments in ``config.py``; steps are the LEFT/RIGHT nudge increments.
+def spec_for(attr: str) -> FieldSpec:
+    """The :class:`FieldSpec` for an editable attribute name."""
+    return _BY_ATTR[attr]
+
+
+def editable_attrs(cfg: config.TrainConfig | None = None) -> list[str]:
+    """Editable attribute names in form display order (section order, then FIELD_SPECS
+    order within each section).
+
+    When ``cfg`` is supplied, fields whose ``visible_when`` predicate returns
+    ``False`` are excluded so callers can navigate only the currently-visible
+    subset. Omit ``cfg`` to get the full list (e.g. for ``_BY_ATTR`` construction).
+    """
+    return [
+        spec.attr
+        for section in SECTION_ORDER
+        for spec in FIELD_SPECS
+        if spec.section is section
+        and (cfg is None or spec.visible_when is None or spec.visible_when(cfg))
+    ]
+
+
+def reset_hidden_fields(cfg: config.TrainConfig) -> config.TrainConfig:
+    """Reset any field that is currently hidden (``visible_when`` returns False) to
+    its factory default. Called after every config mutation so hidden state never
+    lingers when the user re-enables a feature group."""
+    defaults = _DEFAULTS
+    updates: dict[str, object] = {}
+    for spec in FIELD_SPECS:
+        if spec.visible_when is not None and not spec.visible_when(cfg):
+            default_val = getattr(defaults, spec.attr)
+            if getattr(cfg, spec.attr) != default_val:
+                updates[spec.attr] = default_val
+    if not updates:
+        return cfg
+    return config.TrainConfig.model_validate({**cfg.model_dump(), **updates})
+
+
+def read_field(cfg: config.TrainConfig, spec: FieldSpec) -> FieldValue:
+    """The current value of ``spec``'s field. The single localized cast bridges
+    the dynamic attribute-name access — every editable field is a ``FieldValue``,
+    so re-typing the ``getattr`` result here keeps ``Any`` out of every caller."""
+    return typing.cast("FieldValue", getattr(cfg, spec.attr))
+
+
+def format_value(cfg: config.TrainConfig, spec: FieldSpec) -> str:
+    """The display string for ``spec``'s current value."""
+    value = read_field(cfg, spec)
+    if isinstance(spec, OptionalIntField) and value is None:
+        return spec.none_label
+    if isinstance(spec, FloatField):
+        if spec.scientific:
+            return f"{value:.0e}"
+        return f"{value:.6f}".rstrip("0").rstrip(".") or "0"
+    if isinstance(spec, LayersField):
+        widths = value if isinstance(value, tuple) else ()
+        return ", ".join(str(width) for width in widths) or "none"
+    return str(value)
+
+
+def default_string(spec: FieldSpec) -> str:
+    """The factory-default value of ``spec``, formatted for the detail panel."""
+    return format_value(_DEFAULTS, spec)
+
+
+def is_changed(
+    working: config.TrainConfig, saved: config.TrainConfig | None, spec: FieldSpec
+) -> bool:
+    """Whether ``spec`` differs from the saved run's value (False if no saved
+    run) — drives the changed-field marker."""
+    if saved is None:
+        return False
+    return read_field(working, spec) != read_field(saved, spec)
+
+
+def commit(
+    cfg: config.TrainConfig, spec: FieldSpec, raw: str
+) -> tuple[config.TrainConfig, str | None]:
+    """Parse ``raw`` per ``spec``'s kind and return ``(new_cfg, None)`` on
+    success, or ``(cfg, error)`` if it cannot parse or the model rejects it.
+    Failure is signalled by the error string — ``None`` is a *valid* parse for
+    an :class:`OptionalIntField` (its tracking-default state)."""
+    parsed, parse_error = _parse(spec, raw)
+    if parse_error is not None:
+        return cfg, parse_error
+    return _validated_update(cfg, spec, parsed)
+
+
+def nudge(
+    cfg: config.TrainConfig, spec: FieldSpec, direction: int
+) -> tuple[config.TrainConfig, str | None]:
+    """Apply a LEFT (``direction == -1``) / RIGHT (``+1``) step to ``spec``.
+
+    Numeric fields step by ``spec.step`` and are validated; a choice cycles; a
+    layer list adds / removes a layer; a text / path field has no step and is
+    returned unchanged.
+    """
+    if isinstance(spec, ChoiceField):
+        return _cycle_choice(cfg, spec, direction), None
+    if isinstance(spec, OptionalIntField):
+        # Step from the resolved fallback when unset, so the first nudge lands
+        # one step away from the value the None currently tracks.
+        value = read_field(cfg, spec)
+        base = value if isinstance(value, int) else _read_fallback_int(cfg, spec)
+        return _validated_update(cfg, spec, base + direction * spec.step)
+    if isinstance(spec, LayersField):
+        widths = _read_layers(cfg, spec)
+        if direction > 0:
+            last_width = widths[-1] if widths else _NEW_LAYER_WIDTH
+            new_widths = widths + (last_width,)
+        elif len(widths) <= spec.min_len:
+            return (
+                cfg,
+                f"{spec.label}: already at the minimum of {spec.min_len} layer(s)",
+            )
+        else:
+            new_widths = widths[:-1]
+        return _validated_update(cfg, spec, new_widths)
+    if isinstance(spec, IntField):
+        return _validated_update(
+            cfg, spec, _read_int(cfg, spec) + direction * spec.step
+        )
+    if isinstance(spec, FloatField):
+        stepped = _read_float(cfg, spec) + direction * spec.step
+        return _validated_update(cfg, spec, round(stepped, _FLOAT_ROUND))
+    return cfg, None
+
+
+###### PRIVATE #######
+
+
+def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue, str | None]:
+    """Parse an edit-buffer string into the field's Python type, or an error.
+
+    Success/failure is carried by the error slot (not a ``None`` value): an
+    :class:`OptionalIntField` legitimately parses to ``None``."""
+    text = raw.strip()
+    if isinstance(spec, OptionalIntField):
+        if not text or text.lower() == "none":
+            return None, None
+        try:
+            return int(text), None
+        except ValueError:
+            return None, f"{spec.label}: expects a whole number or 'none'"
+    if isinstance(spec, IntField):
+        try:
+            return int(text), None
+        except ValueError:
+            return None, f"{spec.label}: expects a whole number"
+    if isinstance(spec, FloatField):
+        try:
+            return float(text), None
+        except ValueError:
+            return None, f"{spec.label}: expects a number"
+    if isinstance(spec, ChoiceField):
+        if text in spec.choices:
+            return text, None
+        return None, f"{spec.label}: choose one of {', '.join(spec.choices)}"
+    if isinstance(spec, LayersField):
+        tokens = [
+            token for token in text.replace(",", " ").split() if token.lower() != "none"
+        ]
+        if not tokens:
+            return (), None  # empty list (valid only where min_len is 0)
+        try:
+            return tuple(int(token) for token in tokens), None
+        except ValueError:
+            return None, f"{spec.label}: expects comma-separated whole numbers"
+    if not text:
+        return None, f"{spec.label}: cannot be empty"
+    return text, None
+
+
+def _validated_update(
+    cfg: config.TrainConfig, spec: FieldSpec, value: FieldValue
+) -> tuple[config.TrainConfig, str | None]:
+    """Apply ``value`` to ``spec``'s field through ``model_validate`` so the
+    model's declarative bounds reject anything out of range."""
+    candidate: dict[str, object] = {**cfg.model_dump(), spec.attr: value}
+    try:
+        return config.TrainConfig.model_validate(candidate), None
+    except pydantic.ValidationError as error:
+        return cfg, _friendly_error(spec, error)
+
+
+def _friendly_error(spec: FieldSpec, error: pydantic.ValidationError) -> str:
+    """Turn a pydantic ValidationError into a one-line field-scoped message."""
+    details = error.errors()
+    message = details[0]["msg"] if details else "invalid value"
+    return f"{spec.label}: {message}"
+
+
+def _cycle_choice(
+    cfg: config.TrainConfig, spec: ChoiceField, direction: int
+) -> config.TrainConfig:
+    current = format_value(cfg, spec)
+    index = spec.choices.index(current) if current in spec.choices else 0
+    chosen = spec.choices[(index + direction) % len(spec.choices)]
+    updated, _ = _validated_update(cfg, spec, chosen)
+    return updated
+
+
+def _read_int(cfg: config.TrainConfig, spec: FieldSpec) -> int:
+    value = read_field(cfg, spec)
+    return value if isinstance(value, int) else 0
+
+
+def _read_float(cfg: config.TrainConfig, spec: FieldSpec) -> float:
+    value = read_field(cfg, spec)
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _read_fallback_int(cfg: config.TrainConfig, spec: OptionalIntField) -> int:
+    """The integer value an unset :class:`OptionalIntField` currently tracks."""
+    fallback = typing.cast("int | None", getattr(cfg, spec.fallback_attr))
+    return fallback if isinstance(fallback, int) else 0
+
+
+def _read_layers(cfg: config.TrainConfig, spec: FieldSpec) -> tuple[int, ...]:
+    value = read_field(cfg, spec)
+    return value if isinstance(value, tuple) else ()
+
+
+# ---------------------------------------------------------------------------
+# The full editable surface — kept at the bottom so readers encounter the API
+# and class hierarchy first. The derived module-level globals (_BY_ATTR, etc.)
+# must immediately follow the table; functions resolve them at call time.
+
 FIELD_SPECS: list[FieldSpec] = [
     IntField(
         attr="games_per_iter",
@@ -807,226 +1033,3 @@ _DEFAULTS = config.TrainConfig()
 _FLOAT_ROUND = 6  # decimal places a nudged float is rounded to (kills FP crud)
 # Width seeded when a RIGHT-nudge adds the first layer to an empty list.
 _NEW_LAYER_WIDTH = 128
-
-
-def spec_for(attr: str) -> FieldSpec:
-    """The :class:`FieldSpec` for an editable attribute name."""
-    return _BY_ATTR[attr]
-
-
-def editable_attrs(cfg: config.TrainConfig | None = None) -> list[str]:
-    """Editable attribute names in form display order (section order, then FIELD_SPECS
-    order within each section).
-
-    When ``cfg`` is supplied, fields whose ``visible_when`` predicate returns
-    ``False`` are excluded so callers can navigate only the currently-visible
-    subset. Omit ``cfg`` to get the full list (e.g. for ``_BY_ATTR`` construction).
-    """
-    return [
-        spec.attr
-        for section in SECTION_ORDER
-        for spec in FIELD_SPECS
-        if spec.section is section
-        and (cfg is None or spec.visible_when is None or spec.visible_when(cfg))
-    ]
-
-
-def reset_hidden_fields(cfg: config.TrainConfig) -> config.TrainConfig:
-    """Reset any field that is currently hidden (``visible_when`` returns False) to
-    its factory default. Called after every config mutation so hidden state never
-    lingers when the user re-enables a feature group."""
-    defaults = _DEFAULTS
-    updates: dict[str, object] = {}
-    for spec in FIELD_SPECS:
-        if spec.visible_when is not None and not spec.visible_when(cfg):
-            default_val = getattr(defaults, spec.attr)
-            if getattr(cfg, spec.attr) != default_val:
-                updates[spec.attr] = default_val
-    if not updates:
-        return cfg
-    return config.TrainConfig.model_validate({**cfg.model_dump(), **updates})
-
-
-def read_field(cfg: config.TrainConfig, spec: FieldSpec) -> FieldValue:
-    """The current value of ``spec``'s field. The single localized cast bridges
-    the dynamic attribute-name access — every editable field is a ``FieldValue``,
-    so re-typing the ``getattr`` result here keeps ``Any`` out of every caller."""
-    return typing.cast("FieldValue", getattr(cfg, spec.attr))
-
-
-def format_value(cfg: config.TrainConfig, spec: FieldSpec) -> str:
-    """The display string for ``spec``'s current value."""
-    value = read_field(cfg, spec)
-    if isinstance(spec, OptionalIntField) and value is None:
-        return spec.none_label
-    if isinstance(spec, FloatField):
-        if spec.scientific:
-            return f"{value:.0e}"
-        return f"{value:.6f}".rstrip("0").rstrip(".") or "0"
-    if isinstance(spec, LayersField):
-        widths = value if isinstance(value, tuple) else ()
-        return ", ".join(str(width) for width in widths) or "none"
-    return str(value)
-
-
-def default_string(spec: FieldSpec) -> str:
-    """The factory-default value of ``spec``, formatted for the detail panel."""
-    return format_value(_DEFAULTS, spec)
-
-
-def is_changed(
-    working: config.TrainConfig, saved: config.TrainConfig | None, spec: FieldSpec
-) -> bool:
-    """Whether ``spec`` differs from the saved run's value (False if no saved
-    run) — drives the changed-field marker."""
-    if saved is None:
-        return False
-    return read_field(working, spec) != read_field(saved, spec)
-
-
-def commit(
-    cfg: config.TrainConfig, spec: FieldSpec, raw: str
-) -> tuple[config.TrainConfig, str | None]:
-    """Parse ``raw`` per ``spec``'s kind and return ``(new_cfg, None)`` on
-    success, or ``(cfg, error)`` if it cannot parse or the model rejects it.
-    Failure is signalled by the error string — ``None`` is a *valid* parse for
-    an :class:`OptionalIntField` (its tracking-default state)."""
-    parsed, parse_error = _parse(spec, raw)
-    if parse_error is not None:
-        return cfg, parse_error
-    return _validated_update(cfg, spec, parsed)
-
-
-def nudge(
-    cfg: config.TrainConfig, spec: FieldSpec, direction: int
-) -> tuple[config.TrainConfig, str | None]:
-    """Apply a LEFT (``direction == -1``) / RIGHT (``+1``) step to ``spec``.
-
-    Numeric fields step by ``spec.step`` and are validated; a choice cycles; a
-    layer list adds / removes a layer; a text / path field has no step and is
-    returned unchanged.
-    """
-    if isinstance(spec, ChoiceField):
-        return _cycle_choice(cfg, spec, direction), None
-    if isinstance(spec, OptionalIntField):
-        # Step from the resolved fallback when unset, so the first nudge lands
-        # one step away from the value the None currently tracks.
-        value = read_field(cfg, spec)
-        base = value if isinstance(value, int) else _read_fallback_int(cfg, spec)
-        return _validated_update(cfg, spec, base + direction * spec.step)
-    if isinstance(spec, LayersField):
-        widths = _read_layers(cfg, spec)
-        if direction > 0:
-            last_width = widths[-1] if widths else _NEW_LAYER_WIDTH
-            new_widths = widths + (last_width,)
-        elif len(widths) <= spec.min_len:
-            return (
-                cfg,
-                f"{spec.label}: already at the minimum of {spec.min_len} layer(s)",
-            )
-        else:
-            new_widths = widths[:-1]
-        return _validated_update(cfg, spec, new_widths)
-    if isinstance(spec, IntField):
-        return _validated_update(
-            cfg, spec, _read_int(cfg, spec) + direction * spec.step
-        )
-    if isinstance(spec, FloatField):
-        stepped = _read_float(cfg, spec) + direction * spec.step
-        return _validated_update(cfg, spec, round(stepped, _FLOAT_ROUND))
-    return cfg, None
-
-
-###### PRIVATE #######
-
-
-def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue, str | None]:
-    """Parse an edit-buffer string into the field's Python type, or an error.
-
-    Success/failure is carried by the error slot (not a ``None`` value): an
-    :class:`OptionalIntField` legitimately parses to ``None``."""
-    text = raw.strip()
-    if isinstance(spec, OptionalIntField):
-        if not text or text.lower() == "none":
-            return None, None
-        try:
-            return int(text), None
-        except ValueError:
-            return None, f"{spec.label}: expects a whole number or 'none'"
-    if isinstance(spec, IntField):
-        try:
-            return int(text), None
-        except ValueError:
-            return None, f"{spec.label}: expects a whole number"
-    if isinstance(spec, FloatField):
-        try:
-            return float(text), None
-        except ValueError:
-            return None, f"{spec.label}: expects a number"
-    if isinstance(spec, ChoiceField):
-        if text in spec.choices:
-            return text, None
-        return None, f"{spec.label}: choose one of {', '.join(spec.choices)}"
-    if isinstance(spec, LayersField):
-        tokens = [
-            token for token in text.replace(",", " ").split() if token.lower() != "none"
-        ]
-        if not tokens:
-            return (), None  # empty list (valid only where min_len is 0)
-        try:
-            return tuple(int(token) for token in tokens), None
-        except ValueError:
-            return None, f"{spec.label}: expects comma-separated whole numbers"
-    if not text:
-        return None, f"{spec.label}: cannot be empty"
-    return text, None
-
-
-def _validated_update(
-    cfg: config.TrainConfig, spec: FieldSpec, value: FieldValue
-) -> tuple[config.TrainConfig, str | None]:
-    """Apply ``value`` to ``spec``'s field through ``model_validate`` so the
-    model's declarative bounds reject anything out of range."""
-    candidate: dict[str, object] = {**cfg.model_dump(), spec.attr: value}
-    try:
-        return config.TrainConfig.model_validate(candidate), None
-    except pydantic.ValidationError as error:
-        return cfg, _friendly_error(spec, error)
-
-
-def _friendly_error(spec: FieldSpec, error: pydantic.ValidationError) -> str:
-    """Turn a pydantic ValidationError into a one-line field-scoped message."""
-    details = error.errors()
-    message = details[0]["msg"] if details else "invalid value"
-    return f"{spec.label}: {message}"
-
-
-def _cycle_choice(
-    cfg: config.TrainConfig, spec: ChoiceField, direction: int
-) -> config.TrainConfig:
-    current = format_value(cfg, spec)
-    index = spec.choices.index(current) if current in spec.choices else 0
-    chosen = spec.choices[(index + direction) % len(spec.choices)]
-    updated, _ = _validated_update(cfg, spec, chosen)
-    return updated
-
-
-def _read_int(cfg: config.TrainConfig, spec: FieldSpec) -> int:
-    value = read_field(cfg, spec)
-    return value if isinstance(value, int) else 0
-
-
-def _read_float(cfg: config.TrainConfig, spec: FieldSpec) -> float:
-    value = read_field(cfg, spec)
-    return float(value) if isinstance(value, (int, float)) else 0.0
-
-
-def _read_fallback_int(cfg: config.TrainConfig, spec: OptionalIntField) -> int:
-    """The integer value an unset :class:`OptionalIntField` currently tracks."""
-    fallback = typing.cast("int | None", getattr(cfg, spec.fallback_attr))
-    return fallback if isinstance(fallback, int) else 0
-
-
-def _read_layers(cfg: config.TrainConfig, spec: FieldSpec) -> tuple[int, ...]:
-    value = read_field(cfg, spec)
-    return value if isinstance(value, tuple) else ()

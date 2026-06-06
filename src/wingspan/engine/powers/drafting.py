@@ -90,10 +90,26 @@ def _h_draw_n_plus_one_draft(
         engine.log(f"  {bird.name}: deck empty; power skipped")
         return
 
-    # P0 discards all-but-one of the drawn cards into a pass pile for P1.
+    pass_pile = _draft_pass_loop(engine, agent, player, bird, drawn)
+    if not pass_pile:
+        return
+
+    _draft_return_loop(engine, player, bird, pass_pile, n_players)
+
+
+def _draft_pass_loop(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    bird: cards.Bird,
+    drawn: list[cards.Bird],
+) -> list[cards.Bird]:
+    """P0 discards all-but-one drawn card into a pass pile for P1.
+
+    Returns the cards passed (empty when nothing was passed, which signals the
+    caller to skip the return loop)."""
     passable = list(drawn)
     pass_pile: list[cards.Bird] = []
-
     while len(passable) > 1:
         pass_ch = engine.ask(
             agent,
@@ -110,18 +126,24 @@ def _h_draw_n_plus_one_draft(
         passable.remove(pass_ch.bird)
         pass_pile.append(pass_ch.bird)
         engine.log(f"  {bird.name}: [{player.name}] passes {pass_ch.bird.name}")
+    return pass_pile
 
-    if not pass_pile:
-        return
 
-    # P1 receives the passed cards, then returns all-but-one back to P0.
+def _draft_return_loop(
+    engine: "core.Engine",
+    player: state.Player,
+    bird: cards.Bird,
+    pass_pile: list[cards.Bird],
+    n_players: int,
+) -> None:
+    """P1 receives the pass pile, returns all-but-one card back to P0."""
+    st = engine.state
     opponent = st.players[(player.id + 1) % n_players]
     for passed_card in pass_pile:
         opponent.hand.append(passed_card)
 
     returnable = list(pass_pile)
     cards_to_return: list[cards.Bird] = []
-
     while len(returnable) > 1:
         return_ch = engine.ask(
             engine.agent_for(opponent),
@@ -139,7 +161,6 @@ def _h_draw_n_plus_one_draft(
         cards_to_return.append(return_ch.bird)
         engine.log(f"  {bird.name}: [{opponent.name}] returns {return_ch.bird.name}")
 
-    # P0 gains the cards P1 returned.
     for returned_card in cards_to_return:
         player.hand.append(returned_card)
         engine.log(f"  {bird.name}: [{player.name}] receives back {returned_card.name}")

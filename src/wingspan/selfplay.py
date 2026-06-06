@@ -406,58 +406,77 @@ def _logged_policy_agent(
         if len(decision.choices) == 1:
             return decision.choices[0]
         if not net.include_setup and decisions.is_setup_decision(decision):
-            if setup_net is None:
-                chosen = decisions.random_choice(decision, eng.state.rng)
-                eng.log(
-                    f"[{eng.state.me().name}] setup chosen at random (no setup model)"
-                )
-                return chosen
-            setup_decision = typing.cast(decisions.SetupDecision, decision)
-            scores, probs = _compute_setup_scores_and_probs(
-                setup_net, setup_decision, eng, device
-            )
-            _log_distribution(eng, decision, probs, greedy, scores=scores)
-            n_choices = len(decision.choices)
-            if greedy:
-                chosen_idx = int(np.argmax(probs))
-            else:
-                chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
-            chosen = decision.choices[chosen_idx]
-            if not greedy:
-                eng.log(
-                    f"[{eng.state.me().name} chose: {chosen.display_label()} "
-                    f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
-                )
-            return chosen
-
-        # One forward pass gives the full distribution over the legal options.
-        family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision, net.spec)
-        choice_feats = encode.encode_choices(decision, eng.state, net.spec)
-        logits, probs = policy.policy_logits_and_probs(
-            net, device, state_vec, choice_feats, family_idx
-        )
-
-        _log_distribution(eng, decision, probs, greedy, scores=logits)
-
-        # Pick from the same probs already in hand: argmax for greedy strength
-        # play, otherwise the on-policy sampling rule. Calling np.argmax directly
-        # (rather than policy.greedy_action) avoids a redundant forward pass.
-        n_choices = len(decision.choices)
-        if greedy:
-            chosen_idx = int(np.argmax(probs))
-        else:
-            chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
-
-        chosen = decision.choices[chosen_idx]
-        if not greedy:
-            eng.log(
-                f"[{eng.state.me().name} chose: {chosen.display_label()} "
-                f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
-            )
-        return chosen
+            return _handle_setup_decision(eng, decision, setup_net, device, greedy, rng)
+        return _handle_main_decision(eng, decision, net, device, greedy, rng)
 
     return agent
+
+
+def _handle_setup_decision[C: decisions.Choice](
+    eng: engine.Engine,
+    decision: decisions.Decision[C],
+    setup_net: setup_net_module.SetupNet | None,
+    device: torch.device,
+    greedy: bool,
+    rng: random.Random,
+) -> C:
+    """Score a SetupDecision with the setup net (or randomly if unavailable)."""
+    if setup_net is None:
+        chosen = decisions.random_choice(decision, eng.state.rng)
+        eng.log(f"[{eng.state.me().name}] setup chosen at random (no setup model)")
+        return chosen
+    setup_decision = typing.cast(decisions.SetupDecision, decision)
+    scores, probs = _compute_setup_scores_and_probs(
+        setup_net, setup_decision, eng, device
+    )
+    _log_distribution(eng, decision, probs, greedy, scores=scores)
+    n_choices = len(decision.choices)
+    if greedy:
+        chosen_idx = int(np.argmax(probs))
+    else:
+        chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
+    chosen = decision.choices[chosen_idx]
+    if not greedy:
+        eng.log(
+            f"[{eng.state.me().name} chose: {chosen.display_label()} "
+            f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
+        )
+    return chosen
+
+
+def _handle_main_decision[C: decisions.Choice](
+    eng: engine.Engine,
+    decision: decisions.Decision[C],
+    net: model.PolicyValueNet,
+    device: torch.device,
+    greedy: bool,
+    rng: random.Random,
+) -> C:
+    """Score a regular decision with one forward pass through the main policy net."""
+    # One forward pass gives the full distribution over the legal options.
+    family_idx = decisions.family_index_for(type(decision))
+    state_vec = encode.encode_state(eng.state, decision, net.spec)
+    choice_feats = encode.encode_choices(decision, eng.state, net.spec)
+    logits, probs = policy.policy_logits_and_probs(
+        net, device, state_vec, choice_feats, family_idx
+    )
+    _log_distribution(eng, decision, probs, greedy, scores=logits)
+
+    # Pick from the same probs already in hand: argmax for greedy strength play,
+    # otherwise the on-policy sampling rule. Calling np.argmax directly (rather
+    # than policy.greedy_action) avoids a redundant forward pass.
+    n_choices = len(decision.choices)
+    if greedy:
+        chosen_idx = int(np.argmax(probs))
+    else:
+        chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
+    chosen = decision.choices[chosen_idx]
+    if not greedy:
+        eng.log(
+            f"[{eng.state.me().name} chose: {chosen.display_label()} "
+            f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
+        )
+    return chosen
 
 
 def _log_distribution[C: decisions.Choice](
