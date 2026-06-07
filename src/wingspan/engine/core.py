@@ -285,7 +285,6 @@ class Engine:
         log_format.log_turn_summary(self)
         self.log("")
         choice = self.ask(agent, self._main_action_decision(player))
-        self.log(f"--> {self._main_action_label(choice)}")
         player.action_cubes_left -= 1
         self._dispatch_main_action(agent, choice)
         actions.consume_extra_plays(self, player, agent)
@@ -406,7 +405,6 @@ class Engine:
             self._resolve_setup_choice(
                 player, agents, dealt_cards, dealt_bonus, defer_bonus=defer_bonus
             )
-            self._log_setup_result(player)
 
     def _setup_phase_fixed(self, choose_setups: SetupChooser) -> None:
         """Resolve setup from a chooser callback rather than agent prompts (the

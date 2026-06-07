@@ -149,11 +149,10 @@ def _handle_setup_decision[C: decisions.Choice](
     else:
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
     chosen = decision.choices[chosen_idx]
-    if not greedy:
-        eng.log(
-            f"[{eng.state.me().name} chose: {chosen.display_label()} "
-            f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
-        )
+    eng.log(
+        f"[{eng.state.me().name} chose: {chosen.display_label()} "
+        f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
+    )
     return chosen
 
 
@@ -185,11 +184,10 @@ def _handle_main_decision[C: decisions.Choice](
     else:
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
     chosen = decision.choices[chosen_idx]
-    if not greedy:
-        eng.log(
-            f"[{eng.state.me().name} chose: {chosen.display_label()} "
-            f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
-        )
+    eng.log(
+        f"[{eng.state.me().name} chose: {chosen.display_label()} "
+        f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
+    )
     return chosen
 
 

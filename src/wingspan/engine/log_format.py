@@ -7,6 +7,7 @@ a reader of the log does not need to reconstruct context from the event stream.
 
 from __future__ import annotations
 
+import itertools
 import typing
 
 from wingspan import cards, state
@@ -16,27 +17,20 @@ from wingspan.engine import scoring
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
 
-# Food abbreviations for the feeder line.
-_FOOD_ABBR: dict[cards.Food, str] = {
-    cards.Food.INVERTEBRATE: "inv",
-    cards.Food.SEED: "seed",
-    cards.Food.FISH: "fish",
-    cards.Food.FRUIT: "berry",
-    cards.Food.RODENT: "rod",
-}
-
 # Column headers for the score table.
 _SCORE_HEADERS = ["Birds", "Eggs", "Tuck", "Cache", "Bonus", "Goals", "TOTAL"]
 
-# Column headers for the food table (aligned to cards.ALL_FOODS order).
-_FOOD_HEADERS = ["Inv", "Seed", "Fish", "Berry", "Rod"]
+# Column headers for the food table (aligned to cards.ALL_FOODS order), plus
+# the birdfeeder's inv/seed choice-face column shown on the Feeder row.
+_FOOD_HEADERS = ["Inv", "Seed", "Fish", "Berry", "Rod", "Inv/Seed"]
 
 
 def log_turn_summary(engine: "core.Engine") -> None:
     """Emit a detailed snapshot of the game state at the start of a turn.
 
-    Writes the active player's board (by habitat), hand, tray, feeder, a
-    combined score+food table, and their bonus card status into the game log."""
+    Writes the active player's board (by habitat), hand, tray, a combined
+    score+food table (including a Feeder row with die counts), and their
+    bonus card status into the game log."""
     gs = engine.state
     player = gs.me()
 
@@ -90,7 +84,7 @@ def _log_hand(engine: "core.Engine", player: state.Player) -> None:
 
 
 def _log_tray(engine: "core.Engine", gs: state.GameState) -> None:
-    """Log each tray card on its own line(s), then the feeder food counts."""
+    """Log each tray card on its own line(s)."""
     engine.log("Tray:")
     for bird in gs.tray:
         if bird is not None:
@@ -98,13 +92,6 @@ def _log_tray(engine: "core.Engine", gs: state.GameState) -> None:
             _log_multiline(engine, bird_text, indent="  ")
         else:
             engine.log("  (empty slot)")
-
-    feeder_parts = [
-        f"{abbr}={gs.birdfeeder.counts[food]}" for food, abbr in _FOOD_ABBR.items()
-    ]
-    if gs.birdfeeder.choice_dice:
-        feeder_parts.append(f"+{gs.birdfeeder.choice_dice} choice")
-    engine.log("Feeder: " + "  ".join(feeder_parts))
 
 
 #### Score + food tables ####
@@ -133,27 +120,37 @@ def _score_row(player: state.Player) -> list[int]:
     ]
 
 
-def _food_row(player: state.Player) -> list[int]:
-    """Compute the 5 food columns for one player."""
-    return [player.food[food] for food in cards.ALL_FOODS]
+def _food_row(player: state.Player) -> list[int | str]:
+    """Compute the 6 food-table columns for one player.
+
+    The first 5 are food token counts; the 6th (Inv/Seed) is blank because
+    that column belongs to the birdfeeder's choice-face dice, not players."""
+    return [*[player.food[food] for food in cards.ALL_FOODS], ""]
+
+
+def _feeder_food_row(feeder: state.Birdfeeder) -> list[int | str]:
+    """Compute the 6 food-table columns for the Feeder row.
+
+    Five die-face counts plus the inv/seed choice-face count."""
+    return [*[feeder.counts[food] for food in cards.ALL_FOODS], feeder.choice_dice]
 
 
 def _table_lines(
-    player_names: list[str],
+    row_labels: list[str],
     headers: list[str],
-    rows: list[list[int]],
+    rows: list[list[int | str]],
 ) -> list[str]:
-    """Format a table as 3 strings: header row, then one row per player.
+    """Format a table as strings: header row, then one data row per label.
 
     Columns are right-aligned; each column is as wide as the widest of its
-    header and all player values in that column."""
+    header and all row values in that column."""
     col_widths = [
         max(len(headers[col_idx]), *(len(str(row[col_idx])) for row in rows))
         for col_idx in range(len(headers))
     ]
-    name_width = max(len(name) for name in player_names)
+    name_width = max(len(label) for label in row_labels)
 
-    def _format_row(label: str, values: list[int]) -> str:
+    def _format_row(label: str, values: list[int | str]) -> str:
         cells = " │ ".join(
             str(values[col_idx]).rjust(col_widths[col_idx])
             for col_idx in range(len(values))
@@ -165,25 +162,34 @@ def _table_lines(
     )
     header_line = f"{''.ljust(name_width)} │ {header_cells}"
     data_lines = [
-        _format_row(player_names[row_idx], rows[row_idx])
+        _format_row(row_labels[row_idx], rows[row_idx])
         for row_idx in range(len(rows))
     ]
     return [header_line] + data_lines
 
 
 def _log_score_food_tables(engine: "core.Engine", gs: state.GameState) -> None:
-    """Log score and food counts as a single combined side-by-side table."""
+    """Log score and food counts as a single combined side-by-side table.
+
+    The food side carries an extra Feeder row below the player rows showing
+    the current birdfeeder die counts (five fixed faces + inv/seed choice
+    faces). The score side has no entry for Feeder, so zip_longest pads it
+    with a blank line to keep the combined output rectangular."""
     player_names = [player.name for player in gs.players]
-    score_rows = [_score_row(player) for player in gs.players]
-    food_rows = [_food_row(player) for player in gs.players]
+
+    score_rows: list[list[int | str]] = [_score_row(player) for player in gs.players]
+    food_rows: list[list[int | str]] = [_food_row(player) for player in gs.players]
+    food_rows.append(_feeder_food_row(gs.birdfeeder))
 
     score_lines = _table_lines(player_names, _SCORE_HEADERS, score_rows)
-    food_lines = _table_lines(player_names, _FOOD_HEADERS, food_rows)
+    food_lines = _table_lines(player_names + ["Feeder"], _FOOD_HEADERS, food_rows)
 
     # Pad score lines to uniform width so the food table aligns vertically.
     score_width = max(len(line) for line in score_lines)
     separator = "  ║  "
-    for score_line, food_line in zip(score_lines, food_lines):
+    for score_line, food_line in itertools.zip_longest(
+        score_lines, food_lines, fillvalue=""
+    ):
         engine.log(score_line.ljust(score_width) + separator + food_line)
 
 

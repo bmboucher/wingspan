@@ -497,6 +497,7 @@ def draw_one_card(
         drawn = engine.state.draw_bird()
         if drawn:
             player.hand.append(drawn)
+            engine.log(f"[{player.name}] drew from deck: {drawn.name}")
 
 
 # ---------------------------------------------------------------------------
