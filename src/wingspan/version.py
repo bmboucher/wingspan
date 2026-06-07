@@ -31,13 +31,17 @@ import pydantic
 MODEL_VERSION = "0.2"
 """The current artifact-compatibility version (the only place it is defined).
 
-0.2 makes the setup input vector dynamic: ``kept_foods`` is omitted when
-``split_setup_food=True``; ``kept_bonus`` + ``kept_bonus_value`` are replaced by
-``bonus_cards`` (multi-hot of available bonuses) + ``bonus_card_affinity``
-(min/max qualifier counts, 2 dims) when ``split_setup_bonus=True``.  The vector
-size changes with the flags (308 / 303 / 306 / 301 depending on config).  Pre-0.2
-setup artifacts load as ``SetupEncoding(split_food=False, split_bonus=False)``
-(the old 308-dim layout) via Pydantic defaults — no explicit shim needed.
+0.2 bundles two encoding changes: (a) setup input vector is now dynamic —
+``kept_foods`` is omitted when ``split_setup_food=True``; ``kept_bonus`` +
+``kept_bonus_value`` are replaced by ``bonus_cards`` (multi-hot of available
+bonuses) + ``bonus_card_affinity`` (min/max qualifier counts, 2 dims) when
+``split_setup_bonus=True``; the vector size varies (308 / 303 / 306 / 301
+depending on config); pre-0.2 setup artifacts load as
+``SetupEncoding(split_food=False, split_bonus=False)`` via Pydantic defaults —
+no explicit shim needed; (b) card feature vector redesigned (CARD_FEATURE_DIM
+229 → 224): bonus_categories pruned from 26 to 7 curated intrinsic-property
+categories, a new caches_food flag, and a 13-dim power_exchange stripe; pre-0.2
+main-net artifacts load and play through the ``wingspan.compat.v0_1`` shim.
 
 0.1 reshaped the choice vector (landing-slot placement encoding, the single
 ``bird_id`` index column, the dedicated ``kept_multihot`` stripe); pre-0.1
