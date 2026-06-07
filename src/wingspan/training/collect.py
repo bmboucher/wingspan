@@ -28,6 +28,7 @@ from __future__ import annotations
 import enum
 import functools
 import random
+import typing
 
 import numpy as np
 import pydantic
@@ -194,6 +195,7 @@ def play_game_with_setup(
     opponent_agent: engine.Agent | None = None,
     split_setup_bonus: bool = False,
     setup_greedy: bool = False,
+    use_actor_critic: bool = False,
 ) -> GameRecord:
     """Play one game whose setups are chosen externally (the setup-model path).
 
@@ -207,7 +209,11 @@ def play_game_with_setup(
     ``split_setup_bonus`` defers each net seat's bonus pick out of the setup keep
     (its candidate carries ``bonus_card=None``) to the engine's in-game
     ``CHOOSE_BONUS`` head; a random-opponent seat keeps its generator-chosen
-    bonus. The deferred pick is then a recorded in-game step like any other."""
+    bonus. The deferred pick is then a recorded in-game step like any other.
+
+    ``use_actor_critic`` enables actor-critic collection: selection uses the
+    policy head's logits, and each recorded ``SetupSample`` carries ``chosen_idx``
+    and ``all_candidates`` so the learner can compute a REINFORCE gradient."""
     eng = new_engine(spec.deal_seed)
     main_rng = random.Random(spec.continuation_seed)
     recorded: list[training_steps.Step] = []
@@ -220,14 +226,15 @@ def play_game_with_setup(
         net_seats = (0,)
 
     setup_rng = random.Random(spec.deal_seed ^ _SETUP_RNG_SALT)
-    pending_setups: list[tuple[int, np.ndarray]] = []
+    # Pending entries: (seat, chosen_features, chosen_idx | None, all_candidates | None)
+    pending_setups: list[tuple[int, np.ndarray, int | None, np.ndarray | None]] = []
 
     def choose_setups(
         chooser_engine: engine.Engine,
         dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
     ) -> list[setup_model.SetupCandidate]:
         context = setup_model.SetupContext.from_state(chooser_engine.state)
-        keeps = _choose_setups(
+        keep_results = _choose_setups(
             spec,
             dealt,
             context,
@@ -239,11 +246,17 @@ def play_game_with_setup(
             device=device,
             defer_bonus=split_setup_bonus,
             setup_greedy=setup_greedy,
+            use_actor_critic=use_actor_critic,
         )
         if spec.phase.records:
             for seat in net_seats:
-                features = setup_model.encode_setup_candidate(keeps[seat], context)
-                pending_setups.append((seat, features))
+                result = keep_results[seat]
+                chosen_features = setup_model.encode_setup_candidate(
+                    result.candidate, context
+                )
+                pending_setups.append(
+                    (seat, chosen_features, result.chosen_idx, result.all_candidates)
+                )
         # Shared deal, independent continuation: reseed the post-setup game (and
         # reshuffle the undealt deck) so a batch's games — which share ``deal_seed``
         # and thus the deal — still diverge through the rest of play.
@@ -251,7 +264,7 @@ def play_game_with_setup(
             spec.continuation_seed ^ _CONTINUATION_SALT
         )
         chooser_engine.state.rng.shuffle(chooser_engine.state.bird_deck)
-        return keeps
+        return [result.candidate for result in keep_results]
 
     engine.Engine.play_one_game_with_setups(
         eng.state, (agent_a, agent_b), choose_setups
@@ -266,11 +279,13 @@ def play_game_with_setup(
     totals = (score_0, score_1)
     setup_samples = [
         setup_model.SetupSample(
-            features=features,
+            features=chosen_features,
             margin=totals[seat] - totals[1 - seat],
             iteration=spec.iteration,
+            chosen_idx=chosen_idx,
+            all_candidates=all_candidates,
         )
-        for seat, features in pending_setups
+        for seat, chosen_features, chosen_idx, all_candidates in pending_setups
     ]
     return GameRecord(
         steps=recorded,
@@ -358,6 +373,19 @@ def _recording_agent(
     return agent
 
 
+class _KeepResult(typing.NamedTuple):
+    """The result of choosing one seat's setup: the chosen candidate plus
+    optional actor-critic data (populated only when ``use_actor_critic=True``
+    and the phase is MODEL_DRIVEN for a net-controlled seat)."""
+
+    candidate: setup_model.SetupCandidate
+    # Index into all_candidates that was selected; None outside actor-critic mode.
+    chosen_idx: int | None
+    # Full (K, feature_dim) matrix of every candidate's features; None outside
+    # actor-critic mode. Compressed to float16 by _compact before IPC.
+    all_candidates: np.ndarray | None
+
+
 def _choose_setups(
     spec: SetupGameSpec,
     dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
@@ -371,31 +399,44 @@ def _choose_setups(
     device: torch.device,
     defer_bonus: bool = False,
     setup_greedy: bool = False,
-) -> list[setup_model.SetupCandidate]:
+    use_actor_critic: bool = False,
+) -> list[_KeepResult]:
     """Decide both seats' setups for one game.
 
     Random phases draw a joint setup from the generator (the batch's ``deal_seed``
     seeds it, so a batch's games share the generated set and ``tuple_index`` picks
     this game's); the model-driven phase scores each net seat's 504 candidates
-    with the setup net and samples (softmax over predicted margins), while any
-    random-opponent seat keeps a food-aware random keep.
+    with the setup net and samples (softmax over predicted margins or policy
+    logits), while any random-opponent seat keeps a food-aware random keep.
 
     ``defer_bonus`` (the ``split_setup_bonus`` regime) removes the bonus from each
     net seat's keep so the engine's in-game ``CHOOSE_BONUS`` head picks it instead:
     the random generator still produces full 3-tuples (its tuple/games-per-batch
     counts are unchanged) but a net seat's chosen candidate is bonus-stripped here,
     and the model-driven path scores bonus-free candidates directly. A
-    random-opponent seat is never touched, so it keeps its generator-chosen bonus."""
+    random-opponent seat is never touched, so it keeps its generator-chosen bonus.
+
+    When ``use_actor_critic=True`` and the phase is MODEL_DRIVEN, net-seat results
+    carry ``chosen_idx`` and ``all_candidates`` so the learner can compute a
+    REINFORCE gradient at training time."""
     if spec.phase is not SetupPhase.MODEL_DRIVEN:
         joint = generator.generate(setup_rng, (dealt[0], dealt[1]), context)
         chosen = joint[spec.tuple_index % len(joint)]
         return [
-            _strip_bonus(candidate) if defer_bonus and seat in net_seats else candidate
+            _KeepResult(
+                (
+                    _strip_bonus(candidate)
+                    if defer_bonus and seat in net_seats
+                    else candidate
+                ),
+                None,
+                None,
+            )
             for seat, candidate in enumerate((chosen[0], chosen[1]))
         ]
 
     assert setup_policy_net is not None, "model-driven setup needs a setup net"
-    keeps: list[setup_model.SetupCandidate] = []
+    keeps: list[_KeepResult] = []
     for seat in (0, 1):
         dealt_cards, dealt_bonus = dealt[seat]
         if seat in net_seats:
@@ -405,15 +446,31 @@ def _choose_setups(
             features = np.stack(
                 [setup_model.encode_setup_candidate(c, context) for c in candidates]
             )
-            margins = _setup_predict(setup_policy_net, device, features)
+
+            # Use policy logits for selection when actor-critic is enabled,
+            # otherwise fall back to predicted value margins.
+            if use_actor_critic:
+                scores = _setup_policy_logits(setup_policy_net, device, features)
+            else:
+                scores = _setup_predict(setup_policy_net, device, features)
             sample_rng = None if setup_greedy else setup_rng
-            index = setup_model.select_by_margins(
-                margins, setup_temperature, sample_rng
+            index = setup_model.select_by_margins(scores, setup_temperature, sample_rng)
+            keeps.append(
+                _KeepResult(
+                    candidates[index],
+                    index if use_actor_critic else None,
+                    features if use_actor_critic else None,
+                )
             )
-            keeps.append(candidates[index])
         else:
             keeps.append(
-                generator.generate_one(setup_rng, (dealt_cards, dealt_bonus), context)
+                _KeepResult(
+                    generator.generate_one(
+                        setup_rng, (dealt_cards, dealt_bonus), context
+                    ),
+                    None,
+                    None,
+                )
             )
     return keeps
 
@@ -431,7 +488,18 @@ def _setup_predict(
     setup_policy_net: setup_net.SetupNet, device: torch.device, features: np.ndarray
 ) -> np.ndarray:
     """Forward a candidate feature matrix ``(K, feature_dim)`` through the setup
-    net and return the ``(K,)`` predicted margins."""
+    net and return the ``(K,)`` predicted margins (value head)."""
     with torch.no_grad():
         feats_t = torch.tensor(features, dtype=torch.float32, device=device)
         return setup_policy_net(feats_t).cpu().numpy()
+
+
+def _setup_policy_logits(
+    setup_policy_net: setup_net.SetupNet, device: torch.device, features: np.ndarray
+) -> np.ndarray:
+    """Forward ``(K, feature_dim)`` features through the policy head and return
+    the ``(K,)`` logits used for softmax candidate selection (actor-critic mode)."""
+    with torch.no_grad():
+        feats_t = torch.tensor(features, dtype=torch.float32, device=device)
+        policy_logits, _ = setup_policy_net.policy_and_value(feats_t)
+        return policy_logits.cpu().numpy()

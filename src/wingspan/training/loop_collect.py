@@ -133,6 +133,7 @@ def collect_with_setup_sequential(
             opponent,
             split_setup_bonus=training_loop.config.split_setup_bonus_active,
             setup_greedy=training_loop.config.setup_policy_greedy,
+            use_actor_critic=training_loop.config.setup_use_actor_critic,
         )
         records.append(record)
         record_collected_game(training_loop, record)

@@ -680,6 +680,79 @@ effort:
   value-regression setup net realizes this, with its random-generation
   bootstrap phase standing in for the heuristic objective.
 
+### 6.5 The setup model's actor-critic training option
+
+The default `SetupNet` is trained purely by MSE regression: the value head learns
+to predict `final_margin / score_norm` from the chosen candidate's features, using
+both the bootstrap RANDOM_RECORD samples (offline fit) and subsequent MODEL_DRIVEN
+games (on-policy MSE). The problem is that **the regression target is high-variance
+and provides no gradient to the selection mechanism** — the value head learns what
+a good setup looks like, but the sampling distribution that picks setups during
+collection only improves via the greedy re-rank from the value scores, never via
+direct policy-gradient flow.
+
+Set `setup_use_actor_critic = true` in the training config to enable an opt-in
+actor-critic mode that adds a policy head and trains it with REINFORCE.
+
+#### How it works
+
+**Architecture.** When `setup_use_actor_critic=True`, `SetupNet` builds a second
+`policy_mlp` head alongside the existing value `mlp`, with identical shape. Both
+heads share the frozen card/hand embedder and the learned per-set embedding —
+only the final readout layers are separate. Toggle `SetupArchitecture.use_policy_head`
+in the shape key, so switching the flag invalidates and resets the setup checkpoint.
+
+**Collection (MODEL_DRIVEN phase).** Instead of ranking candidates by the value
+head and picking the top-scoring one, `play_game_with_setup` calls
+`SetupNet.policy_and_value()` to get policy logits for all K candidates, then
+samples via softmax (`setup_policy_temperature` still applies). The full
+`(K, feature_dim)` candidate feature matrix is stored in
+`SetupSample.all_candidates` (float16 after IPC compaction) along with
+`SetupSample.chosen_idx`. These fields are **in-memory only** and are not
+persisted to the JSONL store — the offline bootstrap format is unchanged.
+
+**IPC cost.** Each sample carries a `(K, SETUP_FEATURE_DIM)` float16 array.
+With K=504 (bonus included) and SETUP_FEATURE_DIM=28 (current), that is
+~28 KB/sample, ~56 KB/game, ~14 MB/iteration at 256 games — well within
+the IPC budget. If the feature dimension grows, re-measure.
+
+**Training (MODEL_DRIVEN phase).** One on-policy REINFORCE step replaces the
+plain MSE `online_update`:
+
+```
+advantage = (margin / score_norm) − value_pred.detach()   # actor sees critic only as a baseline
+log_probs  = log_softmax(policy_logits)                    # over all K candidates
+loss = pg_coef   * (−log_probs[chosen_idx] * advantage)   # REINFORCE
+     + value_coef * MSE(value_pred[chosen_idx], target)   # keep the critic honest
+     − entropy_coef * H(softmax(policy_logits))            # exploration bonus
+```
+
+The advantage is clamped to `[−10, 10]` for stability. Samples without
+`all_candidates` (e.g. RANDOM_RECORD samples replayed from the store) are
+silently skipped — only the on-policy MODEL_DRIVEN games contribute.
+
+**The offline fit at `setup_train_iter` is unchanged.** It trains the value head
+via MSE on the bootstrap RANDOM_RECORD samples as before. The policy head first
+trains on-policy once MODEL_DRIVEN collection begins.
+
+**Hyperparameters.** Three coefficients control the loss blend:
+
+| Config field | Default | Role |
+|---|---|---|
+| `setup_pg_coef` | `1.0` | Weight on the policy-gradient term |
+| `setup_value_coef` | `0.5` | Weight on the value MSE term |
+| `setup_entropy_coef` | `0.01` | Entropy bonus (keeps exploration alive) |
+
+Start with the defaults. Raise `setup_entropy_coef` (0.05–0.1) if the policy
+collapses to deterministic early; lower it once the policy is stable. The
+`setup_temperature` parameter still governs sampling independently of entropy
+regularization — they are complementary.
+
+**This is a setup-FRESH change.** Toggling `setup_use_actor_critic` changes
+`SetupArchitecture.shape_key` and will invalidate any existing `setup.pt`,
+resetting the setup net. The main `PolicyValueNet` is not affected and does
+not require a `MODEL_VERSION` bump.
+
 ---
 
 ## 7. Evaluating out-of-sample performance

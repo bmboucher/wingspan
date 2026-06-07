@@ -1,12 +1,17 @@
-"""The setup model network: a value-regressor over a setup candidate, reading
-the main net's card representations.
+"""The setup model network: a value-regressor (and optional policy head) over a
+setup candidate, reading the main net's card representations.
 
 ``SetupNet`` consumes one
 :func:`wingspan.setup_model.encode.encode_setup_candidate` feature vector and
-emits a single scalar — its predicted end-of-game score margin (normalized by
-``score_norm`` during training). The setup policy is a softmax over the predicted
-margins of all 504 candidate keeps for a dealt hand
-(``setup_model.select_by_margins``).
+emits either one or two scalars depending on whether the actor-critic mode is
+enabled (``arch.use_policy_head``):
+
+* **Value-only** (default): ``forward(features)`` returns ``(B,)`` predicted
+  score margins.  The setup policy is a softmax over these predicted margins for
+  all 504 candidate keeps (``setup_model.select_by_margins``).
+* **Actor-critic**: ``forward`` still returns value scalars (backward compat);
+  ``policy_and_value(features)`` returns ``(policy_logits (B,), value_preds (B,))``.
+  Candidate selection uses policy logits; training uses REINFORCE + value MSE.
 
 The card-identity blocks are embedded in-net through copies of the main net's
 two shared embedders, built from the same :func:`wingspan.model.mlp.build_body` recipe
@@ -26,7 +31,7 @@ learn from hundreds of in-game decisions per game; freezing the copies lets the
 setup MLP (``arch.hidden_layers`` → 1, built by ``mlp.build_readout``) score
 keeps in the representation most meaningful to the in-game model. The frozen
 inputs shift as the main net trains — the accepted trade-off; the on-policy
-``online_update`` already tracks moving targets each iteration.
+updates already track moving targets each iteration.
 """
 
 from __future__ import annotations
@@ -45,7 +50,10 @@ if typing.TYPE_CHECKING:
 
 
 class SetupNet(nn.Module):
-    """A scalar-output net scoring one setup candidate (see module docstring)."""
+    """A net scoring one setup candidate; optionally with a separate policy head.
+
+    See module docstring for the value-only vs actor-critic distinction.
+    """
 
     # Constant buffers registered in __init__ (declared here so the type checker
     # sees them as tensors rather than nn.Module's generic attribute access).
@@ -119,13 +127,27 @@ class SetupNet(nn.Module):
             persistent=False,
         )
 
-        # The trainable readout MLP over the embedded candidate.
+        # Value head: the trainable readout MLP predicting score margin.
         readout_in = setup_model.setup_readout_input_dim(feature_dim, main_arch)
         self.mlp = mlp.build_readout(
             readout_in,
             arch.hidden_layers,
             activation=arch.activation,
             dropout=arch.dropout,
+        )
+
+        # Policy head: a second readout MLP of identical architecture whose
+        # logits drive candidate selection and REINFORCE training. Present only
+        # when ``arch.use_policy_head`` is True (actor-critic mode).
+        self.policy_mlp: nn.Sequential | None = (
+            mlp.build_readout(
+                readout_in,
+                arch.hidden_layers,
+                activation=arch.activation,
+                dropout=arch.dropout,
+            )
+            if arch.use_policy_head
+            else None
         )
 
     @classmethod
@@ -139,12 +161,64 @@ class SetupNet(nn.Module):
         )
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        """Score a batch of setup candidates: ``(B, feature_dim)`` -> ``(B,)``.
+        """Score a batch of setup candidates via the value head: ``(B, feature_dim)`` -> ``(B,)``.
 
         The kept-cards multi-hot becomes one set embedding, the tray index
         columns become per-slot card-table rows plus one tray-set embedding, and
         the remaining blocks (foods, bonus, feeder, goals) pass through to the
-        readout MLP in their encoded order."""
+        value readout MLP in their encoded order."""
+        return self.mlp(self._embed(features)).squeeze(-1)
+
+    def policy_and_value(
+        self, features: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Score a batch via both heads: ``(B, feature_dim)`` -> ``(policy_logits (B,), value_preds (B,))``.
+
+        Requires ``arch.use_policy_head=True``; raises ``RuntimeError`` otherwise.
+        Both heads run on the same embedded representation, computed once."""
+        if self.policy_mlp is None:
+            raise RuntimeError(
+                "policy_and_value called on a SetupNet without a policy head "
+                "(arch.use_policy_head=False)"
+            )
+        embedded = self._embed(features)
+        policy_logits = self.policy_mlp(embedded).squeeze(-1)
+        value_preds = self.mlp(embedded).squeeze(-1)
+        return policy_logits, value_preds
+
+    def card_table(self) -> torch.Tensor:
+        """The frozen ``[181, M]`` card table: the constant card-feature matrix
+        mapped through the synced card-encoder copy, with the padding row (index
+        0) forced to zero so an empty tray slot contributes a zero vector —
+        identical math to ``model.PolicyValueNet.card_table``."""
+        return self.card_encoder(self.card_features) * self.card_pad_mask
+
+    def train(self, mode: bool = True) -> "SetupNet":
+        """Flip train/eval mode, invalidating the cached inference card table and
+        re-pinning the frozen embedder copies to eval.
+
+        Every way the synced weights can change is bracketed by a mode flip
+        through here: the loop's per-iteration sync helper ends with ``eval()``,
+        and workers ``eval()`` after every broadcast reload — so a stale table is
+        never served. Pinning the frozen submodules to eval keeps a nonzero main
+        ``dropout`` from adding noise to the frozen features during the setup
+        MLP's own training steps."""
+        self._inference_card_table = None
+        super().train(mode)
+        self.card_encoder.eval()
+        if self._hand_encoder_frozen:
+            self.hand_encoder.eval()
+        return self
+
+    ###### PRIVATE #######
+
+    def _embed(self, features: torch.Tensor) -> torch.Tensor:
+        """Compute the shared readout input from raw ``(B, feature_dim)`` features.
+
+        Replaces the kept-cards multi-hot with one set embedding, and the tray
+        index columns with per-slot card-table rows plus a tray-set embedding.
+        Used by both ``forward`` and ``policy_and_value`` so the embedding is
+        computed once regardless of how many heads are read."""
         card_table = self._card_table_for_pass()  # (181, M)
 
         # Slice the raw vector on the encoder's public block offsets.
@@ -178,37 +252,10 @@ class SetupNet(nn.Module):
             self.hand_encoder, tray_multihot, tray_summary
         )
 
-        readout_input = torch.cat(
+        return torch.cat(
             [kept_emb, foods_bonus, tray_set_emb, tray_slot_emb, feeder_goals],
             dim=-1,
         )
-        return self.mlp(readout_input).squeeze(-1)
-
-    def card_table(self) -> torch.Tensor:
-        """The frozen ``[181, M]`` card table: the constant card-feature matrix
-        mapped through the synced card-encoder copy, with the padding row (index
-        0) forced to zero so an empty tray slot contributes a zero vector —
-        identical math to ``model.PolicyValueNet.card_table``."""
-        return self.card_encoder(self.card_features) * self.card_pad_mask
-
-    def train(self, mode: bool = True) -> "SetupNet":
-        """Flip train/eval mode, invalidating the cached inference card table and
-        re-pinning the frozen embedder copies to eval.
-
-        Every way the synced weights can change is bracketed by a mode flip
-        through here: the loop's per-iteration sync helper ends with ``eval()``,
-        and workers ``eval()`` after every broadcast reload — so a stale table is
-        never served. Pinning the frozen submodules to eval keeps a nonzero main
-        ``dropout`` from adding noise to the frozen features during the setup
-        MLP's own training steps."""
-        self._inference_card_table = None
-        super().train(mode)
-        self.card_encoder.eval()
-        if self._hand_encoder_frozen:
-            self.hand_encoder.eval()
-        return self
-
-    ###### PRIVATE #######
 
     def _card_table_for_pass(self) -> torch.Tensor:
         """The card table for one forward pass: recomputed per call in training

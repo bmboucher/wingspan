@@ -22,19 +22,31 @@ import pydantic
 
 
 class SetupSample(pydantic.BaseModel):
-    """One ``(setup features, realized margin)`` regression sample.
+    """One ``(setup features, realized margin)`` training sample.
 
     ``features`` is the :func:`wingspan.setup_model.encode.encode_setup_candidate`
     vector for the seat's chosen setup; ``margin`` is the seat's end-of-game
     ``own_total - opponent_total`` (the contextual-bandit reward), left
     unnormalized here so the learner can scale it by ``score_norm`` consistently
-    with the in-game return."""
+    with the in-game return.
+
+    The two optional fields below are populated only in the actor-critic
+    (``setup_use_actor_critic=True``) MODEL_DRIVEN phase — they carry the data
+    needed to compute a REINFORCE gradient over all candidates at training time:
+
+    * ``chosen_idx`` — which row in ``all_candidates`` was selected.
+    * ``all_candidates`` — the ``(K, feature_dim)`` matrix of every candidate's
+      encoded features (K = 504 or 252 with split-bonus). Compressed to float16
+      before IPC; never persisted to the JSONL store.
+    """
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
     features: np.ndarray
     margin: float
     iteration: int
+    chosen_idx: int | None = None
+    all_candidates: np.ndarray | None = None
 
 
 class _SetupRow(pydantic.BaseModel):

@@ -251,6 +251,20 @@ class TrainConfig(pydantic.BaseModel):
     # size used for both the offline fit and the on-policy updates.
     setup_offline_epochs: typing.Annotated[int, pydantic.Field(ge=1)] = 20
     setup_offline_batch_size: typing.Annotated[int, pydantic.Field(ge=1)] = 256
+    # Actor-critic training for the setup model (TRAINING.md §setup-actor-critic).
+    # When True, a policy head is added to the setup net (setup-FRESH change) and
+    # the MODEL_DRIVEN on-policy update uses REINFORCE (policy gradient + value
+    # baseline + entropy bonus) instead of plain MSE on the value head only. The
+    # offline fit at ``setup_train_iter`` always targets the value head via MSE
+    # regardless of this setting; the policy head first trains on-policy.
+    # Toggling this flag invalidates the existing ``setup.pt`` checkpoint because
+    # ``use_policy_head`` enters the ``setup_architecture_key`` via shape_key.
+    setup_use_actor_critic: bool = False
+    # Loss-term weights for the actor-critic update (ignored when
+    # ``setup_use_actor_critic`` is False). All must be ≥ 0.
+    setup_pg_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 1.0
+    setup_value_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.5
+    setup_entropy_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.01
 
     # ---- checkpointing (TRAINING.md §5) ----
     checkpoint_dir: str = "checkpoints"
@@ -414,6 +428,7 @@ class TrainConfig(pydantic.BaseModel):
             hidden_layers=self.setup_hidden_layers,
             activation=self.setup_activation,
             dropout=self.setup_dropout,
+            use_policy_head=self.setup_use_actor_critic,
         )
 
     @property

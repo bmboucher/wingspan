@@ -104,6 +104,10 @@ class _WorkerArch(pydantic.BaseModel):
     # head (the ``split_setup_bonus`` regime); applied in both the setup-collection
     # and the eval game paths so workers match the main process.
     split_setup_bonus: bool = False
+    # Whether the actor-critic setup training mode is enabled; when True the
+    # worker uses policy-head logits for candidate selection and records
+    # all_candidates + chosen_idx in each SetupSample.
+    setup_use_actor_critic: bool = False
 
 
 class _GameTask(pydantic.BaseModel):
@@ -176,6 +180,9 @@ class ProcessCollector:
             setup_temperature=cfg.setup_policy_temperature,
             setup_greedy=cfg.setup_policy_greedy,
             split_setup_bonus=cfg.split_setup_bonus_active,
+            setup_use_actor_critic=(
+                cfg.setup_use_actor_critic if cfg.use_setup_model else False
+            ),
         )
         self._weights_path = pathlib.Path(cfg.checkpoint_dir) / _WEIGHTS_FILENAME
         self._opponent_path = pathlib.Path(cfg.checkpoint_dir) / _OPPONENT_FILENAME
@@ -428,6 +435,7 @@ _worker_setup_version: int = -1
 _worker_generator: setup_model.RandomSetupGenerator | None = None
 _worker_setup_temperature: float = 1.0
 _worker_setup_greedy: bool = False
+_worker_setup_use_actor_critic: bool = False
 
 
 def _worker_init(arch: _WorkerArch) -> None:
@@ -436,7 +444,7 @@ def _worker_init(arch: _WorkerArch) -> None:
     over them."""
     global _worker_arch, _worker_net, _worker_device, _worker_weights_version
     global _worker_setup_net, _worker_setup_version, _worker_generator
-    global _worker_setup_temperature, _worker_setup_greedy
+    global _worker_setup_temperature, _worker_setup_greedy, _worker_setup_use_actor_critic
     torch.set_num_threads(1)
     _worker_arch = arch
     _worker_device = torch.device("cpu")
@@ -462,6 +470,7 @@ def _worker_init(arch: _WorkerArch) -> None:
         _worker_setup_version = -1
         _worker_setup_temperature = arch.setup_temperature
         _worker_setup_greedy = arch.setup_greedy
+        _worker_setup_use_actor_critic = arch.setup_use_actor_critic
         _worker_generator = setup_model.RandomSetupGenerator(
             hand_combos=arch.setup_hand_combos,
             food_sets=arch.setup_food_sets,
@@ -534,6 +543,7 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             opponent,
             split_setup_bonus=arch.split_setup_bonus,
             setup_greedy=_worker_setup_greedy,
+            use_actor_critic=_worker_setup_use_actor_critic,
         )
     )
 
@@ -579,6 +589,8 @@ def _compact(record: collect.GameRecord) -> collect.GameRecord:
     # a float. Halving the feature payload mirrors the step compaction above.
     for sample in record.setup_samples:
         sample.features = sample.features.astype(np.float16)
+        if sample.all_candidates is not None:
+            sample.all_candidates = sample.all_candidates.astype(np.float16)
     return record
 
 

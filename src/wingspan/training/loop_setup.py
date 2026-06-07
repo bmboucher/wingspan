@@ -118,17 +118,30 @@ def update_setup(
     elif setup_phase is collect.SetupPhase.MODEL_DRIVEN:
         assert training_loop._setup_net is not None
         assert training_loop._setup_optimizer is not None
-        stats = setup_learner.online_update(
-            training_loop._setup_net,
-            training_loop._setup_optimizer,
-            samples,
-            training_loop.config,
-            training_loop.device,
-        )
+        # Route to the actor-critic update when the policy head is enabled,
+        # otherwise use the plain MSE regression on the value head.
+        if training_loop.config.setup_use_actor_critic:
+            stats = setup_learner.actor_critic_update(
+                training_loop._setup_net,
+                training_loop._setup_optimizer,
+                samples,
+                training_loop.config,
+                training_loop.device,
+            )
+            label = "SETUP AC"
+        else:
+            stats = setup_learner.online_update(
+                training_loop._setup_net,
+                training_loop._setup_optimizer,
+                samples,
+                training_loop.config,
+                training_loop.device,
+            )
+            label = "SETUP MSE"
         with training_loop.lock:
             training_loop.state.push_event(
                 runstate.EventKind.INFO,
-                f"SETUP MSE {stats.loss:.4f} · pred "
+                f"{label} {stats.loss:.4f} · pred "
                 f"{stats.pred_margin_mean:+.1f} vs real "
                 f"{stats.realized_margin_mean:+.1f} ({stats.n_samples} samples)",
             )
