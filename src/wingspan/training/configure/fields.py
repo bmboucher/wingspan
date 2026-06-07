@@ -959,9 +959,22 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.SETUP,
         group="network",
         step=0.05,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.use_setup_model and not cfg.setup_policy_greedy,
         help="Softmax temperature over the 504 candidates' predicted margins when "
-        "sampling a setup during collection (eval takes the argmax).",
+        "sampling a setup during collection (eval takes the argmax). Ignored when "
+        "setup greedy is True.",
+    ),
+    ChoiceField(
+        attr="setup_policy_greedy",
+        label="setup greedy",
+        section=ConfigSection.SETUP,
+        group="network",
+        choices=["True", "False"],
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model,
+        help="When True, collection takes the hard argmax over predicted margins "
+        "instead of softmax sampling — trains the in-game model on the best "
+        "setup the setup net knows. Eval always uses argmax regardless.",
     ),
     IntField(
         attr="setup_record_start_iter",

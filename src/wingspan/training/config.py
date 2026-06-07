@@ -228,9 +228,14 @@ class TrainConfig(pydantic.BaseModel):
     setup_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
     setup_lr: typing.Annotated[float, pydantic.Field(gt=0.0)] = 1e-3
     # Softmax temperature over the 504 candidates' predicted margins when sampling
-    # a setup during collection (eval takes the argmax). Higher = more exploration
-    # while predictions are near-flat early on.
+    # a setup during collection (eval always takes the argmax). Higher = more
+    # exploration while predictions are near-flat early on. Ignored when
+    # ``setup_policy_greedy`` is True.
     setup_policy_temperature: typing.Annotated[float, pydantic.Field(gt=0.0)] = 0.5
+    # When True, collection uses hard argmax over predicted margins instead of
+    # softmax sampling — ensures the in-game model always trains on the setup the
+    # setup net currently considers best.
+    setup_policy_greedy: bool = False
     # Schedule (cumulative/lifetime iterations): below ``record_start`` setups are
     # random and unrecorded; in ``[record_start, train)`` they are random and
     # recorded; at ``train`` the net is fit once offline and then drives selection

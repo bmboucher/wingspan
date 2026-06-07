@@ -99,6 +99,7 @@ class _WorkerArch(pydantic.BaseModel):
     setup_food_sets: int = 1
     setup_tuples_per_batch: int = 1
     setup_temperature: float = 1.0
+    setup_greedy: bool = False
     # Whether the opening bonus pick is deferred to the in-game ``CHOOSE_BONUS``
     # head (the ``split_setup_bonus`` regime); applied in both the setup-collection
     # and the eval game paths so workers match the main process.
@@ -173,6 +174,7 @@ class ProcessCollector:
             setup_food_sets=cfg.setup_food_sets,
             setup_tuples_per_batch=cfg.setup_tuples_per_batch,
             setup_temperature=cfg.setup_policy_temperature,
+            setup_greedy=cfg.setup_policy_greedy,
             split_setup_bonus=cfg.split_setup_bonus_active,
         )
         self._weights_path = pathlib.Path(cfg.checkpoint_dir) / _WEIGHTS_FILENAME
@@ -425,6 +427,7 @@ _worker_setup_net: setup_net.SetupNet | None = None
 _worker_setup_version: int = -1
 _worker_generator: setup_model.RandomSetupGenerator | None = None
 _worker_setup_temperature: float = 1.0
+_worker_setup_greedy: bool = False
 
 
 def _worker_init(arch: _WorkerArch) -> None:
@@ -433,7 +436,7 @@ def _worker_init(arch: _WorkerArch) -> None:
     over them."""
     global _worker_arch, _worker_net, _worker_device, _worker_weights_version
     global _worker_setup_net, _worker_setup_version, _worker_generator
-    global _worker_setup_temperature
+    global _worker_setup_temperature, _worker_setup_greedy
     torch.set_num_threads(1)
     _worker_arch = arch
     _worker_device = torch.device("cpu")
@@ -458,6 +461,7 @@ def _worker_init(arch: _WorkerArch) -> None:
         _worker_setup_net.eval()
         _worker_setup_version = -1
         _worker_setup_temperature = arch.setup_temperature
+        _worker_setup_greedy = arch.setup_greedy
         _worker_generator = setup_model.RandomSetupGenerator(
             hand_combos=arch.setup_hand_combos,
             food_sets=arch.setup_food_sets,
@@ -529,6 +533,7 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             _worker_setup_temperature,
             opponent,
             split_setup_bonus=arch.split_setup_bonus,
+            setup_greedy=_worker_setup_greedy,
         )
     )
 

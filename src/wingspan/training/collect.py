@@ -193,6 +193,7 @@ def play_game_with_setup(
     setup_temperature: float,
     opponent_agent: engine.Agent | None = None,
     split_setup_bonus: bool = False,
+    setup_greedy: bool = False,
 ) -> GameRecord:
     """Play one game whose setups are chosen externally (the setup-model path).
 
@@ -237,6 +238,7 @@ def play_game_with_setup(
             setup_rng=setup_rng,
             device=device,
             defer_bonus=split_setup_bonus,
+            setup_greedy=setup_greedy,
         )
         if spec.phase.records:
             for seat in net_seats:
@@ -368,6 +370,7 @@ def _choose_setups(
     setup_rng: random.Random,
     device: torch.device,
     defer_bonus: bool = False,
+    setup_greedy: bool = False,
 ) -> list[setup_model.SetupCandidate]:
     """Decide both seats' setups for one game.
 
@@ -403,7 +406,10 @@ def _choose_setups(
                 [setup_model.encode_setup_candidate(c, context) for c in candidates]
             )
             margins = _setup_predict(setup_policy_net, device, features)
-            index = setup_model.select_by_margins(margins, setup_temperature, setup_rng)
+            sample_rng = None if setup_greedy else setup_rng
+            index = setup_model.select_by_margins(
+                margins, setup_temperature, sample_rng
+            )
             keeps.append(candidates[index])
         else:
             keeps.append(
