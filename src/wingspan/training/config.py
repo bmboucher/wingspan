@@ -219,6 +219,17 @@ class TrainConfig(pydantic.BaseModel):
     # ``architecture_key`` / ``setup_architecture_key``. Inert when the setup model
     # is off; gate on ``split_setup_bonus_active``.
     split_setup_bonus: bool = False
+    # Analogous to ``split_setup_bonus``: defers the opening food pick out of the
+    # combined SetupDecision to sequential in-game food decisions resolved after the
+    # card-keep applies (see ``engine.core.Engine._maybe_resolve_deferred_setup_food``).
+    # The setup candidates carry ``kept_foods=()`` (food block all-zero in the feature
+    # vector, ``SETUP_FEATURE_DIM`` unchanged) — REGIME/resumable, deliberately NOT
+    # part of ``setup_architecture_key``. Food decision schedule (per birds kept):
+    #   0–2 birds → 2/1/0 SpendFoodDecision asks over the SPEND_FOOD head (discard N).
+    #   3–5 birds → 0/1/2 GainFoodDecision asks over the GAIN_FOOD head (gain M).
+    # ``setup_food_sets`` is ignored when this is active.
+    # Inert when the setup model is off; gate on ``split_setup_food_active``.
+    split_setup_food: bool = False
     # The setup net's MLP hidden widths (input-to-output) — a setup-FRESH change
     # (restarts only the setup net, never the main net).
     setup_hidden_layers: typing.Annotated[
@@ -359,6 +370,14 @@ class TrainConfig(pydantic.BaseModel):
         model, so it is gated on ``use_setup_model``; every collection / eval call
         site reads this rather than the raw ``split_setup_bonus`` flag."""
         return self.split_setup_bonus and self.use_setup_model
+
+    @property
+    def split_setup_food_active(self) -> bool:
+        """Whether the opening food pick is deferred to sequential in-game
+        GAIN_FOOD/SPEND_FOOD decisions this run. Only takes effect alongside the
+        setup model, so it is gated on ``use_setup_model``; every collection / eval
+        call site reads this rather than the raw ``split_setup_food`` flag."""
+        return self.split_setup_food and self.use_setup_model
 
     @property
     def eval_pairs(self) -> int:

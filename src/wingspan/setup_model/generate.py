@@ -18,6 +18,10 @@ Each sampled joint tuple becomes one game (played from that fixed setup with an
 independent in-game continuation), so a batch compares many keeps over one deal.
 The procedure is a pure function of its ``rng``, so a seed reproduces the same
 batch in any worker process.
+
+When ``split_food=True`` (the ``split_setup_food`` regime), step 2 is skipped
+entirely: candidates always carry ``kept_foods=()``, and food is resolved by the
+engine via sequential in-game GAIN_FOOD / SPEND_FOOD decisions after card-keep.
 """
 
 from __future__ import annotations
@@ -38,12 +42,23 @@ type JointSetup = tuple[candidates.SetupCandidate, candidates.SetupCandidate]
 
 
 class RandomSetupGenerator:
-    """Seeded generator of joint random setups for a deal (see module docstring)."""
+    """Seeded generator of joint random setups for a deal (see module docstring).
 
-    def __init__(self, hand_combos: int, food_sets: int, tuples_per_batch: int):
+    When ``split_food=True`` (the ``split_setup_food`` regime) the food axis is
+    omitted entirely: ``_seat_candidates`` returns one candidate per bonus option
+    with ``kept_foods=()``, and ``setup_food_sets`` has no effect."""
+
+    def __init__(
+        self,
+        hand_combos: int,
+        food_sets: int,
+        tuples_per_batch: int,
+        split_food: bool = False,
+    ):
         self.hand_combos = hand_combos
         self.food_sets = food_sets
         self.tuples_per_batch = tuples_per_batch
+        self.split_food = split_food
 
     def generate(
         self,
@@ -70,8 +85,9 @@ class RandomSetupGenerator:
         seat_deal: SeatDeal,
         context: encode.SetupContext,
     ) -> candidates.SetupCandidate:
-        """One food-aware random keep for a single seat — the setup the random
-        opponent uses once the AI seats have switched to the setup model."""
+        """One random keep for a single seat — the setup the random opponent uses
+        once the AI seats have switched to the setup model. Food-aware unless
+        ``split_food`` is set, in which case food is omitted (``kept_foods=()``)."""
         return rng.choice(
             self._seat_candidates(
                 rng,
@@ -85,15 +101,28 @@ class RandomSetupGenerator:
     def _seat_candidates(
         self, rng: random.Random, seat_deal: SeatDeal, tray: list[cards.Bird]
     ) -> list[candidates.SetupCandidate]:
-        """The candidate keeps for one seat under a freshly-sampled card subset:
-        the (food-biased) food keeps crossed with the two dealt bonus cards."""
+        """The candidate keeps for one seat under a freshly-sampled card subset.
+
+        Normal mode: food-biased food keeps × bonus cards.
+        Split-food mode: a single deferred sentinel (``kept_foods=()``) × bonus cards.
+        """
         dealt_cards, dealt_bonus = seat_deal
         kept_cards = self._random_keep(rng, dealt_cards)
-        kept_food_size = cards.N_FOODS - len(kept_cards)
-        food_options = self._food_options(rng, kept_cards, kept_food_size, tray)
         bonus_options: list[cards.BonusCard | None] = (
             list(dealt_bonus) if dealt_bonus else [None]
         )
+
+        # In split-food mode skip food sampling entirely — food resolves in-game.
+        if self.split_food:
+            return [
+                candidates.SetupCandidate(
+                    kept_cards=kept_cards, kept_foods=(), bonus_card=bonus_card
+                )
+                for bonus_card in bonus_options
+            ]
+
+        kept_food_size = cards.N_FOODS - len(kept_cards)
+        food_options = self._food_options(rng, kept_cards, kept_food_size, tray)
         return [
             candidates.SetupCandidate(
                 kept_cards=kept_cards, kept_foods=foods, bonus_card=bonus_card

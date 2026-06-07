@@ -104,6 +104,9 @@ class _WorkerArch(pydantic.BaseModel):
     # head (the ``split_setup_bonus`` regime); applied in both the setup-collection
     # and the eval game paths so workers match the main process.
     split_setup_bonus: bool = False
+    # Whether the opening food pick is deferred to sequential in-game food
+    # decisions (the ``split_setup_food`` regime); applied in both paths.
+    split_setup_food: bool = False
     # Whether the actor-critic setup training mode is enabled; when True the
     # worker uses policy-head logits for candidate selection and records
     # all_candidates + chosen_idx in each SetupSample.
@@ -180,6 +183,7 @@ class ProcessCollector:
             setup_temperature=cfg.setup_policy_temperature,
             setup_greedy=cfg.setup_policy_greedy,
             split_setup_bonus=cfg.split_setup_bonus_active,
+            split_setup_food=cfg.split_setup_food_active,
             setup_use_actor_critic=(
                 cfg.setup_use_actor_critic if cfg.use_setup_model else False
             ),
@@ -475,6 +479,7 @@ def _worker_init(arch: _WorkerArch) -> None:
             hand_combos=arch.setup_hand_combos,
             food_sets=arch.setup_food_sets,
             tuples_per_batch=arch.setup_tuples_per_batch,
+            split_food=arch.split_setup_food,
         )
     # This process inherits no logging handlers — the dashboard configures file
     # logging in the main process only. Without a handler, a WARNING+ record
@@ -542,6 +547,7 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             _worker_setup_temperature,
             opponent,
             split_setup_bonus=arch.split_setup_bonus,
+            split_setup_food=arch.split_setup_food,
             setup_greedy=_worker_setup_greedy,
             use_actor_critic=_worker_setup_use_actor_critic,
         )
@@ -566,6 +572,7 @@ def _worker_eval(task: _EvalTask) -> int:
         task.pair_seed,
         task.net_seat,
         split_setup_bonus=arch.split_setup_bonus,
+        split_setup_food=arch.split_setup_food,
     )
 
 

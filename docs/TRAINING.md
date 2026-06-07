@@ -753,6 +753,43 @@ regularization — they are complementary.
 resetting the setup net. The main `PolicyValueNet` is not affected and does
 not require a `MODEL_VERSION` bump.
 
+### 6.6 Setup-split knobs: deferring bonus and food picks to in-game heads
+
+Two optional flags move pieces of the opening judgment out of the setup model
+and into the regular in-game decision heads. Both are REGIME (shape-preserving,
+resumable) — they are gated on `use_setup_model` and never change tensor shapes.
+
+**`split_setup_bonus`** (`bool`, default `False`; gate: `split_setup_bonus_active`):
+When on, candidates drop the bonus axis (`bonus_card = None`; the setup
+encoder's bonus block stays all-zero). The opening bonus pick is instead asked
+as a normal `CHOOSE_BONUS` decision right after the keep (§2.9 of DECISIONS.md).
+Concentrates all bonus-valuation signal in one place on-policy. Candidate set
+shrinks from 504 to 252 for the standard 5-card / 2-bonus deal.
+
+**`split_setup_food`** (`bool`, default `False`; gate: `split_setup_food_active`):
+When on, candidates carry `kept_foods = ()` (food block all-zero;
+`SETUP_FEATURE_DIM` unchanged). The opening food pick is asked as sequential
+in-game decisions right after the keep, routing through GAIN_FOOD or SPEND_FOOD
+depending on birds kept:
+
+| Birds kept | Player starts with | Decisions |
+|---|---|---|
+| 0 | 5 food | none (all food kept) |
+| 1 | 5 food | 1 × `SpendFoodDecision` |
+| 2 | 5 food | 2 × `SpendFoodDecision` (no-repeat) |
+| 3 | 0 food | 2 × `GainFoodDecision` (no-repeat) |
+| 4 | 0 food | 1 × `GainFoodDecision` |
+| 5 | 0 food | none (no food kept) |
+
+This adds one on-policy sample per seat per game to the GAIN_FOOD / SPEND_FOOD
+heads (§2.4, §2.5 of DECISIONS.md), which are among the most data-starved
+heads (§6.4). When active, `setup_food_sets` is ignored — random setup
+generation emits `kept_foods = ()` directly, skipping the biased food-sampling
+and cross-product assembly that normal random generation performs.
+
+Both flags can be active simultaneously. Neither touches `MODEL_VERSION` or
+`setup_architecture_key`.
+
 ---
 
 ## 7. Evaluating out-of-sample performance

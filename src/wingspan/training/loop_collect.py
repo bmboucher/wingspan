@@ -106,6 +106,7 @@ def collect_with_setup_sequential(
         hand_combos=training_loop.config.setup_hand_combos,
         food_sets=training_loop.config.setup_food_sets,
         tuples_per_batch=training_loop.config.setup_tuples_per_batch,
+        split_food=training_loop.config.split_setup_food_active,
     )
     records: list[collect.GameRecord] = []
     for spec in specs:
@@ -132,6 +133,7 @@ def collect_with_setup_sequential(
             training_loop.config.setup_policy_temperature,
             opponent,
             split_setup_bonus=training_loop.config.split_setup_bonus_active,
+            split_setup_food=training_loop.config.split_setup_food_active,
             setup_greedy=training_loop.config.setup_policy_greedy,
             use_actor_critic=training_loop.config.setup_use_actor_critic,
         )

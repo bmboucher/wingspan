@@ -17,12 +17,14 @@ checkpoint-invalidating subset of fields (used by the FRESH-restart gate in the
 training loop).
 
 **`candidates.py`** — The keep-set options the setup model scores:
-- `SetupCandidate(kept_birds, kept_food)` — one keep option (a subset of the
-  dealt hand + food choices).
-- `generate_candidates(hand, food_options) -> list[SetupCandidate]` — enumerates
-  all valid keep combinations up to the starting-hand limit.
-- `select_best(net: SetupNet, candidates, gs) -> SetupCandidate` — runs the
-  setup net on each candidate's feature vector and returns the argmax.
+- `SetupCandidate(kept_cards, kept_foods, bonus_card)` — one keep option (a
+  subset of the dealt hand, a food tuple, and an optional bonus card).
+- `enumerate_setup_candidates(dealt_cards, dealt_bonus, *, include_bonus=True,
+  include_food=True) -> list[SetupCandidate]` — enumerates all valid keep
+  combinations. `include_bonus=False` drops the bonus axis (every candidate
+  carries `bonus_card=None`). `include_food=False` collapses the food axis to
+  a single deferred sentinel (`kept_foods=()`), producing 64 candidates for a
+  5-card / 2-bonus deal instead of 504.
 
 **`encode.py`** — `encode_candidate(candidate: SetupCandidate, gs: GameState)
 -> np.ndarray`: per-candidate feature encoder. Features include: kept bird
@@ -33,9 +35,12 @@ mix, and kept-food vector. Output width matches `stripes.setup_input_dim()`.
 `setup_input_dim() -> int`. Programmatic stripe registry for the setup input
 vector; analogous to `encode.stripes` for the main encoder.
 
-**`generate.py`** — `generate_random_setup_samples(n, seed) -> list[SetupRecord]`:
-random-setup generation for the pre-model offline training phase (Phase 0).
-Plays games with random keeps and records the final score as a regression target.
+**`generate.py`** — `RandomSetupGenerator(hand_combos, food_sets,
+tuples_per_batch, *, split_food=False)` — generates batches of random-setup
+candidates for a game deal. `split_food=True` skips biased food sampling
+entirely and emits `kept_foods=()` on every candidate (the engine resolves
+food via deferred in-game GAIN_FOOD / SPEND_FOOD decisions). `generate_one`
+returns one `SetupBatch` for a single game deal.
 
 **`record.py`** — `SetupRecord(candidate, final_score)` — the setup training
 sample. `SetupStore(path)` — an append-only on-disk store (JSONL) of

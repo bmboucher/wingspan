@@ -248,6 +248,12 @@ across every trigger:
 - Pygmy Nuthatch's tuck reward: "gain 1 [invertebrate] or [seed] from the
   supply" — a mandatory two-option supply pick offered after the tuck is
   accepted (menu limited to whichever of the two named foods is available);
+- under the `split_setup_food` regime (see §2.13): the **opening food gain**
+  — asked immediately after the setup keep is applied, against a
+  start-of-round-1 snapshot (empty board, full cubes, real tray/feeder/goals).
+  2 asks for 3 birds kept (no-repeat menu shrinks from 5 to 4), 1 ask for 4
+  birds kept (full 5-item menu). Players start with 0 food in this branch;
+  these decisions are mandatory and build the opening stock one token at a time.
 
 Powers that grant a *named* food (from supply or feeder) take it without a
 decision and never reach this head.
@@ -281,8 +287,13 @@ SKIP_OPTIONAL.
   the upstream commit.
 - *The trade give-back* (`SpendFoodDecision`): the lose half of Green Heron's
   trade — which food goes back to the supply.
+- *The setup food discard* (`SpendFoodDecision`): under the `split_setup_food`
+  regime (see §2.13) — asked immediately after the setup keep is applied,
+  against a start-of-round-1 snapshot. Players start with 5 food in this
+  branch; 1 ask for 1 bird kept (discard 1), 2 asks for 2 birds kept (discard
+  2 — no-repeat menu shrinks from 5 to 4 after the first). Mandatory.
 
-All three are mandatory; the yes/no, where one exists, lives upstream in
+All four are mandatory; the yes/no, where one exists, lives upstream in
 `SKIP_OPTIONAL`.
 
 **What the choice rows carry.** Two genuinely different shapes, visible in the
@@ -650,6 +661,34 @@ use_setup_model`):
   one place. This knob is shape-preserving (REGIME, resumable), whereas
   `use_setup_model` changes tensor shapes (FRESH).
 
+**Whether the opening food pick is folded in is a separate config choice.**
+`TrainConfig.split_setup_food` (effective only alongside the setup model —
+the gate is `split_setup_food_active = split_setup_food and use_setup_model`):
+
+- **Off (folded, the default):** food is one axis of the combined keep —
+  candidates are every (kept-cards × kept-foods × dealt-bonus) combination.
+  The setup model jointly values the opening card-food-bonus bundle.
+- **On (split):** every candidate carries `kept_foods = ()` (the setup
+  encoder's food block is all-zero; `SETUP_FEATURE_DIM` is unchanged — REGIME,
+  resumable). The opening food pick is instead asked as sequential in-game
+  decisions right after the keep is applied, routing through the GAIN_FOOD or
+  SPEND_FOOD head depending on how many birds were kept:
+
+  | Birds kept | Player starts with | Decisions asked |
+  |---|---|---|
+  | 0 | 5 food | none |
+  | 1 | 5 food | 1 × `SpendFoodDecision` (discard 1) |
+  | 2 | 5 food | 2 × `SpendFoodDecision` (no-repeat) |
+  | 3 | 0 food | 2 × `GainFoodDecision` (no-repeat) |
+  | 4 | 0 food | 1 × `GainFoodDecision` |
+  | 5 | 0 food | none |
+
+  The argument *for* splitting: the food judgment trains on the dedicated
+  GAIN_FOOD / SPEND_FOOD heads with on-policy credit (§2.4, §2.5), adding one
+  sample per seat per game to these otherwise lightly-exercised heads. When
+  `split_setup_food` is active, `setup_food_sets` is ignored (random setup
+  generation emits `kept_foods = ()` directly without food sampling).
+
 ---
 
 ## 3. Maintaining this document
@@ -666,7 +705,7 @@ edit it describes.*
 | New or changed stripe / offset / scale in `encode/layout.py` | the §1 stripe table (widths, totals) + each family section whose rows use the stripe |
 | A featurizer in `encode/choice_encode.py` fills different stripes (or fills them differently) | the "What the choice rows carry" paragraph of every family that uses that `Choice` class |
 | A new engine call site asks an existing decision (new power handler, new reactor, new conversion) | the "Where the engine asks it" list of the matching family |
-| A change to `EncodingSpec`, `use_setup_model`, `split_setup_bonus`, or the setup candidate enumeration | §0 (the config-axis paragraph) and §2.13 |
+| A change to `EncodingSpec`, `use_setup_model`, `split_setup_bonus`, `split_setup_food`, or the setup candidate enumeration | §0 (the config-axis paragraph) and §2.13 |
 | New state-vector signal that materially changes what a head can see (e.g. an extra-play scalar) | the family section(s) that called out the gap — §2.11 currently documents the extra-play blind spot |
 
 **How to verify rather than trust memory:**

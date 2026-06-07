@@ -194,6 +194,7 @@ def play_game_with_setup(
     setup_temperature: float,
     opponent_agent: engine.Agent | None = None,
     split_setup_bonus: bool = False,
+    split_setup_food: bool = False,
     setup_greedy: bool = False,
     use_actor_critic: bool = False,
 ) -> GameRecord:
@@ -210,6 +211,10 @@ def play_game_with_setup(
     (its candidate carries ``bonus_card=None``) to the engine's in-game
     ``CHOOSE_BONUS`` head; a random-opponent seat keeps its generator-chosen
     bonus. The deferred pick is then a recorded in-game step like any other.
+
+    ``split_setup_food`` defers each net seat's food pick to sequential in-game
+    GAIN_FOOD/SPEND_FOOD decisions after the card-keep is applied; a
+    random-opponent seat likewise has its food resolved by the engine.
 
     ``use_actor_critic`` enables actor-critic collection: selection uses the
     policy head's logits, and each recorded ``SetupSample`` carries ``chosen_idx``
@@ -245,6 +250,7 @@ def play_game_with_setup(
             setup_rng=setup_rng,
             device=device,
             defer_bonus=split_setup_bonus,
+            defer_food=split_setup_food,
             setup_greedy=setup_greedy,
             use_actor_critic=use_actor_critic,
         )
@@ -267,7 +273,7 @@ def play_game_with_setup(
         return [result.candidate for result in keep_results]
 
     engine.Engine.play_one_game_with_setups(
-        eng.state, (agent_a, agent_b), choose_setups
+        eng.state, (agent_a, agent_b), choose_setups, split_setup_food=split_setup_food
     )
 
     breakdowns = (
@@ -398,6 +404,7 @@ def _choose_setups(
     setup_rng: random.Random,
     device: torch.device,
     defer_bonus: bool = False,
+    defer_food: bool = False,
     setup_greedy: bool = False,
     use_actor_critic: bool = False,
 ) -> list[_KeepResult]:
@@ -416,24 +423,26 @@ def _choose_setups(
     and the model-driven path scores bonus-free candidates directly. A
     random-opponent seat is never touched, so it keeps its generator-chosen bonus.
 
+    ``defer_food`` (the ``split_setup_food`` regime) analogously strips food from
+    net seat candidates (``kept_foods=()``). The generator already produces food-
+    free candidates when ``split_food`` is set; the strip here covers the MODEL_DRIVEN
+    path's enumerated candidates and the RANDOM path's net-seat candidates.
+
     When ``use_actor_critic=True`` and the phase is MODEL_DRIVEN, net-seat results
     carry ``chosen_idx`` and ``all_candidates`` so the learner can compute a
     REINFORCE gradient at training time."""
     if spec.phase is not SetupPhase.MODEL_DRIVEN:
         joint = generator.generate(setup_rng, (dealt[0], dealt[1]), context)
         chosen = joint[spec.tuple_index % len(joint)]
-        return [
-            _KeepResult(
-                (
-                    _strip_bonus(candidate)
-                    if defer_bonus and seat in net_seats
-                    else candidate
-                ),
-                None,
-                None,
-            )
-            for seat, candidate in enumerate((chosen[0], chosen[1]))
-        ]
+        results: list[_KeepResult] = []
+        for seat, candidate in enumerate((chosen[0], chosen[1])):
+            if seat in net_seats:
+                if defer_bonus:
+                    candidate = _strip_bonus(candidate)
+                if defer_food:
+                    candidate = _strip_food(candidate)
+            results.append(_KeepResult(candidate, None, None))
+        return results
 
     assert setup_policy_net is not None, "model-driven setup needs a setup net"
     keeps: list[_KeepResult] = []
@@ -441,7 +450,10 @@ def _choose_setups(
         dealt_cards, dealt_bonus = dealt[seat]
         if seat in net_seats:
             candidates = setup_model.enumerate_setup_candidates(
-                dealt_cards, dealt_bonus, include_bonus=not defer_bonus
+                dealt_cards,
+                dealt_bonus,
+                include_bonus=not defer_bonus,
+                include_food=not defer_food,
             )
             features = np.stack(
                 [setup_model.encode_setup_candidate(c, context) for c in candidates]
@@ -482,6 +494,15 @@ def _strip_bonus(
     so the engine defers it to the in-game ``CHOOSE_BONUS`` head. ``SetupCandidate``
     is frozen, so this returns a new instance."""
     return candidate.model_copy(update={"bonus_card": None})
+
+
+def _strip_food(
+    candidate: setup_model.SetupCandidate,
+) -> setup_model.SetupCandidate:
+    """A copy of ``candidate`` with food deferred (``kept_foods=()``), so the
+    engine resolves food via in-game GAIN_FOOD/SPEND_FOOD decisions instead.
+    ``SetupCandidate`` is frozen, so this returns a new instance."""
+    return candidate.model_copy(update={"kept_foods": ()})
 
 
 def _setup_predict(

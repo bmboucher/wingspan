@@ -61,6 +61,7 @@ def enumerate_setup_candidates(
     dealt_bonus: list[cards.BonusCard],
     *,
     include_bonus: bool = True,
+    include_food: bool = True,
 ) -> list[SetupCandidate]:
     """Every legal setup keep for a deal, in the engine's ``(kept_mask,
     kept_food_combo, bonus)`` order — 504 for the standard 5-card / 2-bonus deal.
@@ -72,7 +73,13 @@ def enumerate_setup_candidates(
     ``bonus_card=None`` (the ``split_setup_bonus`` regime, where the bonus is
     instead chosen by the in-game ``CHOOSE_BONUS`` head). That halves the count to
     the distinct ``(kept_mask, kept_food_combo)`` keeps — 252 for the standard
-    deal — while preserving their order."""
+    deal — while preserving their order.
+
+    ``include_food=False`` drops the food axis (the ``split_setup_food`` regime,
+    where food is resolved by sequential in-game GAIN_FOOD/SPEND_FOOD decisions
+    after the card-keep applies). Every candidate carries ``kept_foods=()`` and
+    the food block of its feature vector is all-zero. With both axes dropped the
+    count is 32 (one per card-keep mask for the standard 5-card deal)."""
     num_cards = len(dealt_cards)
     all_foods = list(cards.ALL_FOODS)
     bonuses: list[cards.BonusCard | None]
@@ -83,13 +90,22 @@ def enumerate_setup_candidates(
     out: list[SetupCandidate] = []
     for mask in range(1 << num_cards):
         kept = tuple(dealt_cards[i] for i in range(num_cards) if mask & (1 << i))
-        kept_food_size = len(all_foods) - len(kept)
-        for food_combo in itertools.combinations(all_foods, kept_food_size):
+
+        # Food axis: either enumerate legal food-keep subsets or a single deferred
+        # sentinel (kept_foods=()) that zeros the food block in the feature vector.
+        if include_food:
+            food_options: list[tuple[cards.Food, ...]] = list(
+                itertools.combinations(all_foods, len(all_foods) - len(kept))
+            )
+        else:
+            food_options = [()]
+
+        for food_combo in food_options:
             for bonus_card in bonuses:
                 out.append(
                     SetupCandidate(
                         kept_cards=kept,
-                        kept_foods=tuple(food_combo),
+                        kept_foods=food_combo,
                         bonus_card=bonus_card,
                     )
                 )

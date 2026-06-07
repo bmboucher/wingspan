@@ -910,6 +910,19 @@ FIELD_SPECS: list[FieldSpec] = [
         "round-1 opening). Feeds that head more data; shape-preserving, so it never "
         "invalidates either net's weights.",
     ),
+    ChoiceField(
+        attr="split_setup_food",
+        label="split setup food",
+        section=ConfigSection.SETUP,
+        choices=["True", "False"],
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model,
+        help="Only with the setup model on: the setup net picks cards only while "
+        "food is deferred to sequential in-game GAIN_FOOD/SPEND_FOOD decisions "
+        "(2/1/0 gains for 3/4/5 birds kept; 1/2 spends for 1/2 birds kept). "
+        "Feeds those heads more data; food block zeros out but feature dim is "
+        "unchanged, so it never invalidates either net's weights.",
+    ),
     LayersField(
         attr="setup_hidden_layers",
         label="setup layers",

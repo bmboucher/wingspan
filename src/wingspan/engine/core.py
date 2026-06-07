@@ -132,6 +132,7 @@ class Engine:
         instrumentation: dispatcher.Instrumentation | None = None,
         *,
         split_setup_bonus: bool = False,
+        split_setup_food: bool = False,
     ) -> Engine:
         """Construct an Engine on ``gs`` with ``agents``, run a full game,
         and return the engine. The caller's ``gs`` is mutated in place, so
@@ -144,12 +145,20 @@ class Engine:
         ``split_setup_bonus`` defers the opening bonus pick out of the combined
         ``SetupDecision`` to a follow-up in-game ``CHOOSE_BONUS`` decision (the
         ``split_setup_bonus`` regime); the dealt cards/food are still the
-        ``SetupDecision``."""
+        ``SetupDecision``.
+
+        ``split_setup_food`` defers the opening food pick to sequential in-game
+        ``GainFoodDecision`` / ``SpendFoodDecision`` asks after the card-keep
+        resolves (the ``split_setup_food`` regime). The number and kind of asks
+        depends on how many birds the player kept (see
+        ``_maybe_resolve_deferred_setup_food``)."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
         eng.log_section("=== GAME START ===")
         eng.instrumentation.game_start(engine=eng)
         log_format.log_game_setup(eng)
-        eng._setup_phase(agents, defer_bonus=split_setup_bonus)
+        eng._setup_phase(
+            agents, defer_bonus=split_setup_bonus, defer_food=split_setup_food
+        )
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
@@ -164,6 +173,8 @@ class Engine:
         agents: tuple[Agent, Agent],
         choose_setups: SetupChooser,
         instrumentation: dispatcher.Instrumentation | None = None,
+        *,
+        split_setup_food: bool = False,
     ) -> Engine:
         """Like :meth:`play_one_game`, but the setup phase is resolved by
         ``choose_setups`` (the random generator or the setup model) instead of by
@@ -171,12 +182,15 @@ class Engine:
 
         The engine still deals the starting hands / bonus / food, so the chooser
         decides over exactly the inputs an agent would have seen; everything after
-        setup is identical to ``play_one_game``."""
+        setup is identical to ``play_one_game``.
+
+        ``split_setup_food`` defers food to sequential in-game food decisions after
+        each seat's card-keep is applied (the ``split_setup_food`` regime)."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
         eng.log_section("=== GAME START ===")
         eng.instrumentation.game_start(engine=eng)
         log_format.log_game_setup(eng)
-        eng._setup_phase_fixed(choose_setups)
+        eng._setup_phase_fixed(choose_setups, defer_food=split_setup_food)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
@@ -386,19 +400,33 @@ class Engine:
     # ------------------------------------------------------------------
 
     def _setup_phase(
-        self, agents: typing.Sequence[Agent], *, defer_bonus: bool = False
+        self,
+        agents: typing.Sequence[Agent],
+        *,
+        defer_bonus: bool = False,
+        defer_food: bool = False,
     ) -> None:
         """Pre-round-1 setup: deal each player a starting hand, prompt the
         combined keep-cards / discard-food / bonus-card pick, log the result.
 
         ``defer_bonus`` (the ``split_setup_bonus`` regime) drops the bonus from the
         ``SetupDecision`` and resolves it via a follow-up in-game ``CHOOSE_BONUS``
-        pick instead."""
+        pick instead.
+
+        ``defer_food`` (the ``split_setup_food`` regime) drops food from the
+        ``SetupDecision`` and resolves it via sequential in-game food decisions
+        after the card-keep is applied."""
         for player in self.state.players:
             dealt_cards, dealt_bonus = self._deal_setup_inputs(player)
-            if defer_bonus:
+            if defer_bonus and defer_food:
+                self.log_section(f"=== SETUP: {player.name} CHOOSING BIRDS ===")
+            elif defer_bonus:
                 self.log_section(
                     f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ==="
+                )
+            elif defer_food:
+                self.log_section(
+                    f"=== SETUP: {player.name} CHOOSING BIRDS AND BONUS CARD ==="
                 )
             else:
                 self.log_section(
@@ -406,10 +434,17 @@ class Engine:
                 )
             log_format.log_dealt_hand(self, player, dealt_cards)
             self._resolve_setup_choice(
-                player, agents, dealt_cards, dealt_bonus, defer_bonus=defer_bonus
+                player,
+                agents,
+                dealt_cards,
+                dealt_bonus,
+                defer_bonus=defer_bonus,
+                defer_food=defer_food,
             )
 
-    def _setup_phase_fixed(self, choose_setups: SetupChooser) -> None:
+    def _setup_phase_fixed(
+        self, choose_setups: SetupChooser, *, defer_food: bool = False
+    ) -> None:
         """Resolve setup from a chooser callback rather than agent prompts (the
         setup-model path): deal each player's inputs, ask the chooser for both
         seats' keeps over those inputs, then apply them. Skips ``Engine.ask``
@@ -418,7 +453,11 @@ class Engine:
         A keep whose ``bonus_card`` is ``None`` while bonus cards were dealt has
         deferred its bonus (the ``split_setup_bonus`` regime): the bonus is then
         picked via the in-game ``CHOOSE_BONUS`` head over the already-applied
-        cards/food, recorded like any other in-game decision."""
+        cards/food, recorded like any other in-game decision.
+
+        ``defer_food`` (the ``split_setup_food`` regime) skips the food update in
+        ``_apply_setup_choice`` and instead resolves food via sequential in-game
+        food decisions immediately after the card-keep and bonus are applied."""
         dealt = tuple(self._deal_setup_inputs(player) for player in self.state.players)
         keeps = choose_setups(self, dealt)
         for player in self.state.players:
@@ -426,8 +465,16 @@ class Engine:
             sc = keeps[player.id].to_setup_choice()
             self.log_section(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
             log_format.log_dealt_hand(self, player, dealt_cards)
-            self._apply_setup_choice(player, dealt_cards, dealt_bonus, sc)
+            self._apply_setup_choice(
+                player, dealt_cards, dealt_bonus, sc, defer_food=defer_food
+            )
             self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, sc)
+            self._maybe_resolve_deferred_setup_food(
+                player,
+                self.agent_for(player),
+                len(sc.kept_cards),
+                defer_food=defer_food,
+            )
             self._log_setup_result(player)
 
     def _log_setup_result(self, player: state.Player) -> None:
@@ -514,6 +561,7 @@ class Engine:
         dealt_bonus: list[cards.BonusCard],
         *,
         defer_bonus: bool = False,
+        defer_food: bool = False,
     ) -> None:
         """Present the combined hand / food / bonus pick as a single Decision over
         the already-dealt inputs.
@@ -526,9 +574,16 @@ class Engine:
         ``defer_bonus`` drops the bonus axis from the enumeration (each
         ``SetupChoice`` carries ``bonus_card=None``) and resolves the bonus through
         a follow-up in-game ``CHOOSE_BONUS`` pick — the ``split_setup_bonus``
-        regime."""
+        regime.
+
+        ``defer_food`` drops the food axis (each ``SetupChoice`` carries
+        ``kept_foods=()``) and resolves food through sequential in-game food
+        decisions after the card-keep applies — the ``split_setup_food`` regime."""
         choices = self._build_setup_choices(
-            dealt_cards, dealt_bonus, include_bonus=not defer_bonus
+            dealt_cards,
+            dealt_bonus,
+            include_bonus=not defer_bonus,
+            include_food=not defer_food,
         )
         self.state.current_player = player.id
         decision = decisions.SetupDecision(
@@ -542,7 +597,9 @@ class Engine:
             dealt_bonus=dealt_bonus,
         )
         chosen = self.ask(agents[player.id], decision)
-        self._apply_setup_choice(player, dealt_cards, dealt_bonus, chosen)
+        self._apply_setup_choice(
+            player, dealt_cards, dealt_bonus, chosen, defer_food=defer_food
+        )
         kept_names = ", ".join(bird.name for bird in chosen.kept_cards) or "(none)"
         foods_str = ", ".join(food.value for food in chosen.kept_foods) or "none"
         bonus_part = (
@@ -552,6 +609,9 @@ class Engine:
         )
         self.log(f"[{player.name}] keeps {kept_names}, foods [{foods_str}]{bonus_part}")
         self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, chosen)
+        self._maybe_resolve_deferred_setup_food(
+            player, agents[player.id], len(chosen.kept_cards), defer_food=defer_food
+        )
 
     def _deal_starting_bonus(self) -> list[cards.BonusCard]:
         """Pop ``STARTING_BONUS_CARDS_DEAL`` bonus cards from the deck (or as
@@ -568,6 +628,7 @@ class Engine:
         dealt_bonus: list[cards.BonusCard],
         *,
         include_bonus: bool = True,
+        include_food: bool = True,
     ) -> list[decisions.SetupChoice]:
         """Enumerate every legal ``SetupChoice``.
 
@@ -581,13 +642,20 @@ class Engine:
 
         ``include_bonus=False`` (the ``split_setup_bonus`` regime) drops the bonus
         axis — each ``SetupChoice`` carries ``bonus_card=None`` — so the bonus is
-        instead picked by the in-game ``CHOOSE_BONUS`` head."""
+        instead picked by the in-game ``CHOOSE_BONUS`` head.
+
+        ``include_food=False`` (the ``split_setup_food`` regime) drops the food
+        axis — each ``SetupChoice`` carries ``kept_foods=()`` — so food is instead
+        resolved by sequential in-game food decisions after the card-keep applies."""
         from wingspan.setup_model import candidates as setup_candidates
 
         return [
             candidate.to_setup_choice()
             for candidate in setup_candidates.enumerate_setup_candidates(
-                dealt_cards, dealt_bonus, include_bonus=include_bonus
+                dealt_cards,
+                dealt_bonus,
+                include_bonus=include_bonus,
+                include_food=include_food,
             )
         ]
 
@@ -636,22 +704,109 @@ class Engine:
         dealt_cards: list[cards.Bird],
         dealt_bonus: list[cards.BonusCard],
         sc: decisions.SetupChoice,
+        *,
+        defer_food: bool = False,
     ) -> None:
-        """Mutate ``player`` / ``self.state`` to reflect the chosen setup combination."""
+        """Mutate ``player`` / ``self.state`` to reflect the chosen setup combination.
+
+        When ``defer_food`` is True (the ``split_setup_food`` regime), the food
+        update is skipped here — food is instead resolved by a subsequent call to
+        ``_maybe_resolve_deferred_setup_food``."""
         kept = list(sc.kept_cards)
         player.hand = kept
         for card in dealt_cards:
             if card not in kept:
                 self.state.bird_discard.append(card)
-        for food in cards.ALL_FOODS:
-            if food not in sc.kept_foods:
-                player.food[food] -= 1
+        if not defer_food:
+            for food in cards.ALL_FOODS:
+                if food not in sc.kept_foods:
+                    player.food[food] -= 1
         if sc.bonus_card is not None:
             player.bonus_cards.append(sc.bonus_card)
             for bonus in dealt_bonus:
                 if bonus is not sc.bonus_card:
                     self.state.bonus_discard.append(bonus)
         self.instrumentation.setup_applied(engine=self, player=player, choice=sc)
+
+    def _maybe_resolve_deferred_setup_food(
+        self,
+        player: state.Player,
+        agent: Agent,
+        n_kept: int,
+        *,
+        defer_food: bool,
+    ) -> None:
+        """Resolve the opening food pick via in-game decisions when the setup keep
+        deferred it (the ``split_setup_food`` regime).
+
+        Food decisions depend on how many birds were kept, splitting evenly around
+        the "pay-for-cards" midpoint so both spend and gain sides of food valuation
+        get training signal:
+
+          0 kept → keep all 5 food (no decision needed)
+          1 kept → 5 food dealt, 1 × SpendFoodDecision (discard 1)
+          2 kept → 5 food dealt, 2 × SpendFoodDecision (no repeat)
+          3 kept → zero food,    2 × GainFoodDecision  (no repeat)
+          4 kept → zero food,    1 × GainFoodDecision
+          5 kept → keep no food (no decision needed)
+
+        All decisions are mandatory (no SkipChoice offered) and route through
+        ``Engine.ask`` so collecting agents record them like any in-game decision.
+        The encoder's action-cubes snapshot is pre-loaded to round-1 values (same
+        as the bonus-deferral path) so the heads score food over a faithful opening.
+        """
+        if not defer_food:
+            return
+
+        # Pre-load round-1 cubes so the in-game encoder sees a faithful opening.
+        # ``_play_round`` resets them again before real play.
+        for seat in self.state.players:
+            seat.action_cubes_left = state.ROUND_CUBES[0]
+        self.state.current_player = player.id
+
+        if n_kept >= 3:
+            # High-keep: player would have no food left after paying for birds.
+            # Zero out the post-deal food pool and grant food via gain decisions.
+            for food in cards.ALL_FOODS:
+                player.food[food] = 0
+            n_gains = min(5 - n_kept, 2)  # 3 kept → 2, 4 kept → 1, 5 kept → 0
+            gained: set[cards.Food] = set()
+            for gain_num in range(n_gains):
+                available = [food for food in cards.ALL_FOODS if food not in gained]
+                decision = decisions.GainFoodDecision(
+                    player_id=player.id,
+                    prompt=(
+                        f"[{player.name}] setup: choose food to gain "
+                        f"({gain_num + 1}/{n_gains})"
+                    ),
+                    choices=[
+                        decisions.FoodChoice(label=food.value, food=food)
+                        for food in available
+                    ],
+                )
+                chosen = self.ask(agent, decision)
+                assert isinstance(chosen, decisions.FoodChoice)
+                player.food[chosen.food] += 1
+                gained.add(chosen.food)
+        else:
+            # Low-keep: player has 5 food from the deal and discards down.
+            n_spends = n_kept  # 0 kept → 0, 1 kept → 1, 2 kept → 2
+            for spend_num in range(n_spends):
+                held = [food for food in cards.ALL_FOODS if player.food[food] > 0]
+                decision = decisions.SpendFoodDecision(
+                    player_id=player.id,
+                    prompt=(
+                        f"[{player.name}] setup: choose food to discard "
+                        f"({spend_num + 1}/{n_spends})"
+                    ),
+                    choices=[
+                        decisions.FoodChoice(label=food.value, food=food)
+                        for food in held
+                    ],
+                )
+                chosen = self.ask(agent, decision)
+                assert isinstance(chosen, decisions.FoodChoice)
+                player.food[chosen.food] -= 1
 
 
 # ---------------------------------------------------------------------------
