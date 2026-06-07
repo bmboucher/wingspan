@@ -43,7 +43,6 @@ from torch import nn
 
 from wingspan import architecture, encode, setup_model
 from wingspan.model import hand_model, mlp
-from wingspan.setup_model import encode as setup_encode
 
 if typing.TYPE_CHECKING:
     from wingspan.training import setup_runmeta
@@ -64,7 +63,7 @@ class SetupNet(nn.Module):
     def __init__(
         self,
         *,
-        feature_dim: int = setup_model.SETUP_FEATURE_DIM,
+        encoding: setup_model.SetupEncoding | None = None,
         arch: setup_model.SetupArchitecture | None = None,
         main_arch: architecture.ModelArchitecture | None = None,
     ):
@@ -74,11 +73,14 @@ class SetupNet(nn.Module):
         # synced weights or the train/eval mode may have changed; recomputed on
         # the next eval forward. Set before any buffer registration.
         self._inference_card_table: torch.Tensor | None = None
+        if encoding is None:
+            encoding = setup_model.SetupEncoding()
         if arch is None:
             arch = setup_model.SetupArchitecture()
         if main_arch is None:
             main_arch = architecture.ModelArchitecture()
-        self.feature_dim = feature_dim
+        self.encoding = encoding
+        self.feature_dim = encoding.total_dim
         self.arch = arch
         self.main_arch = main_arch
 
@@ -128,7 +130,7 @@ class SetupNet(nn.Module):
         )
 
         # Value head: the trainable readout MLP predicting score margin.
-        readout_in = setup_model.setup_readout_input_dim(feature_dim, main_arch)
+        readout_in = setup_model.setup_readout_input_dim(encoding.total_dim, main_arch)
         self.mlp = mlp.build_readout(
             readout_in,
             arch.hidden_layers,
@@ -155,7 +157,7 @@ class SetupNet(nn.Module):
         """Rebuild a net matching a saved ``setup_config.json`` descriptor — fresh
         weights in the saved shape, ready for ``load_state_dict``."""
         return cls(
-            feature_dim=descriptor.setup_feature_dim,
+            encoding=descriptor.setup_encoding,
             arch=descriptor.setup_arch,
             main_arch=descriptor.main_arch,
         )
@@ -221,15 +223,17 @@ class SetupNet(nn.Module):
         computed once regardless of how many heads are read."""
         card_table = self._card_table_for_pass()  # (181, M)
 
-        # Slice the raw vector on the encoder's public block offsets.
-        kept_multihot = features[..., : setup_encode.OFF_KEPT_FOODS]
-        foods_bonus = features[..., setup_encode.OFF_KEPT_FOODS : setup_encode.OFF_TRAY]
+        # Slice the raw vector using encoding-aware offsets: kept_cards block,
+        # the passthrough block (foods/bonus — variable width), then tray onward.
+        enc = self.encoding
+        kept_multihot = features[..., : enc.kept_cards_dim]
+        passthrough = features[..., enc.kept_cards_dim : enc.off_tray]
         tray_idx = (
-            features[..., setup_encode.OFF_TRAY : setup_encode.OFF_FEEDER]
+            features[..., enc.off_tray : enc.off_feeder]
             .long()
             .clamp_(0, encode.HAND_MULTIHOT_DIM)
         )
-        feeder_goals = features[..., setup_encode.OFF_FEEDER :]
+        feeder_goals = features[..., enc.off_feeder :]
 
         # Kept set -> one N-dim embedding (summary derived from the multi-hot).
         kept_summary = hand_model.set_summary_from_multihot(
@@ -253,7 +257,7 @@ class SetupNet(nn.Module):
         )
 
         return torch.cat(
-            [kept_emb, foods_bonus, tray_set_emb, tray_slot_emb, feeder_goals],
+            [kept_emb, passthrough, tray_set_emb, tray_slot_emb, feeder_goals],
             dim=-1,
         )
 

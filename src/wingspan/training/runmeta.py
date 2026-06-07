@@ -137,7 +137,9 @@ def write_model_summary_html(
     built by the same :func:`build_model_summary_html` that ``wingspan inspect
     --html`` uses — the two surfaces are identical by construction.
     """
-    html_content = build_model_summary_html(_descriptor_for(cfg), cfg.setup_arch)
+    html_content = build_model_summary_html(
+        _descriptor_for(cfg), cfg.setup_arch, cfg.setup_encoding
+    )
     path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_SUMMARY_HTML
     path.write_text(html_content, encoding="utf-8")
     return path
@@ -177,7 +179,9 @@ def build_inspect_report(descriptor: ModelConfig) -> InspectReport:
 
 
 def build_model_summary_html(
-    descriptor: ModelConfig, setup_arch: setup_model.SetupArchitecture
+    descriptor: ModelConfig,
+    setup_arch: setup_model.SetupArchitecture,
+    setup_encoding: setup_model.SetupEncoding | None = None,
 ) -> str:
     """The standalone ``model_summary.html`` document for ``descriptor``.
 
@@ -186,14 +190,17 @@ def build_model_summary_html(
     two surfaces are identical by construction. ``setup_arch`` is the one
     datum not on the descriptor (it lives in ``setup_config.json``); the
     separate setup model is active exactly when the main net does not carry
-    setup (``include_setup`` off).
+    setup (``include_setup`` off). ``setup_encoding`` controls which stripes
+    appear in the setup vector breakdown — defaults to ``SetupEncoding()`` (the
+    pre-0.2 all-splits-off layout) when not supplied.
     """
+    enc = setup_encoding if setup_encoding is not None else setup_model.SetupEncoding()
     return report.generate_html_report(
         state_layout_for(descriptor),
         choice_layout_for(descriptor),
         param_report_for(descriptor),
         descriptor.architecture,
-        setup_layout=setup_model.setup_stripe_layout(),
+        setup_layout=setup_model.setup_stripe_layout(enc),
         setup_arch=setup_arch,
         use_setup_model=not descriptor.include_setup,
         state_dim=descriptor.state_dim,

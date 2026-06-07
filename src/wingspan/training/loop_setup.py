@@ -259,14 +259,27 @@ def setup_architecture_matches(
 ) -> bool:
     """Whether a ``setup.pt`` payload's setup-net shape matches this run's.
 
-    The persisted ``setup_feature_dim`` is the encoding-layout discriminator:
+    The persisted ``setup_encoding`` is the encoding-layout discriminator:
     the config-derived key alone cannot see a layout change (both sides
-    recompute it from *current* code), so the payload records the width it
-    actually trained against.  Payloads that predate the field fail the
-    comparison — their features used the old layout.
+    recompute it from *current* code), so the payload records the encoding it
+    actually trained against.  Pre-0.2 payloads carry ``setup_feature_dim``
+    instead; those match only when this run's encoding is also the legacy
+    308-dim layout.
     """
-    if payload.get("setup_feature_dim") != setup_model.SETUP_FEATURE_DIM:
-        return False
+    current_encoding = training_loop.config.setup_encoding
+    raw_encoding = payload.get("setup_encoding")
+    if raw_encoding is None:
+        # Legacy checkpoint without setup_encoding — use the old feature_dim discriminator.
+        saved_dim = payload.get("setup_feature_dim")
+        if saved_dim != current_encoding.total_dim:
+            return False
+    else:
+        try:
+            saved_encoding = setup_model.SetupEncoding.model_validate(raw_encoding)
+        except pydantic.ValidationError:
+            return False
+        if saved_encoding != current_encoding:
+            return False
     raw_config = payload.get("setup_config")
     if raw_config is None:
         return False  # not a self-describing setup checkpoint — refuse
@@ -298,7 +311,7 @@ def save_setup_checkpoint(training_loop: "loop.TrainingLoop") -> None:
         return
     payload: dict[str, object] = {
         "setup_config": training_loop.config.model_dump(),
-        "setup_feature_dim": setup_model.SETUP_FEATURE_DIM,
+        "setup_encoding": training_loop.config.setup_encoding.model_dump(),
         "setup_model": training_loop._setup_net.state_dict(),
         "setup_optimizer": training_loop._setup_optimizer.state_dict(),
         "setup_fit_done": training_loop._setup_fit_done,

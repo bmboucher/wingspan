@@ -24,7 +24,7 @@ def test_forward_shape():
 def test_from_setup_config_round_trip():
     descriptor = setup_runmeta.SetupConfig(
         run_name="t",
-        setup_feature_dim=setup_model.SETUP_FEATURE_DIM,
+        setup_encoding=setup_model.SetupEncoding(),
         setup_arch=setup_model.SetupArchitecture(hidden_layers=(64,)),
         main_arch=architecture.ModelArchitecture(
             card_embed_dim=16, use_distinct_hand_model=True, hand_embed_dim=24

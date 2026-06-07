@@ -1,4 +1,9 @@
-"""The setup network's topology descriptor — the editable *shape* of ``SetupNet``.
+"""Setup network descriptors: encoding layout and topology.
+
+:class:`SetupEncoding` describes the input-vector layout for a given flag
+configuration — which stripes are present and where they start.  The vector
+changes size when the ``split_setup_food`` / ``split_setup_bonus`` training flags
+are active: deferred axes are removed rather than zeroed.
 
 :class:`SetupArchitecture` is the small, torch-free analogue of
 :class:`wingspan.architecture.ModelArchitecture` for the separately-trained setup
@@ -28,6 +33,93 @@ import typing
 import pydantic
 
 from wingspan import architecture, cards, encode, state
+
+# Fixed block sizes shared by SetupEncoding and encode.py.
+_KEPT_CARDS_DIM = 180  # cards.n_birds() — stable core-set count
+_KEPT_FOODS_DIM = 5  # cards.N_FOODS
+_BONUS_DIM = 26  # cards.n_bonus_cards()
+_BONUS_AFF_DIM = 2  # [min_bonus_card_affinity, max_bonus_card_affinity]
+_TRAY_DIM = 3  # state.TRAY_SIZE
+_FEEDER_DIM = 6  # N_FOODS + 1 choice die
+_GOALS_DIM = 80  # 4 rounds × 20 goal categories
+_KEPT_BONUS_VALUE_DIM = 4
+_GOAL_AFFINITY_DIM = 4  # one scalar per round
+
+
+class SetupEncoding(pydantic.BaseModel):
+    """Input-vector layout for the setup net under a given flag configuration.
+
+    When ``split_food`` is active the ``kept_foods`` stripe (5 dims) is omitted.
+    When ``split_bonus`` is active the ``kept_bonus`` one-hot (26 dims) and
+    ``kept_bonus_value`` (4 dims) are replaced by ``bonus_cards`` multi-hot
+    (26 dims) + ``bonus_card_affinity`` min/max (2 dims). All offsets and the
+    total dimension are derived from these two flags.
+
+    ``SetupEncoding()`` — both flags ``False`` — reproduces the pre-0.2
+    layout (308 dims), so old ``setup_config.json`` files that lack this field
+    deserialize correctly via Pydantic's default.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    split_food: bool = False
+    split_bonus: bool = False
+
+    # ---- offset properties (all derived, no stored state) ----
+
+    @property
+    def kept_cards_dim(self) -> int:
+        """Always 180 — the fixed number of core-set bird cards."""
+        return _KEPT_CARDS_DIM
+
+    @property
+    def off_kept_cards(self) -> int:
+        """Always 0: kept_cards is the first block."""
+        return 0
+
+    @property
+    def _foods_dim(self) -> int:
+        return 0 if self.split_food else _KEPT_FOODS_DIM
+
+    @property
+    def off_bonus_block(self) -> int:
+        """Start of the bonus block (kept_bonus OR bonus_cards + affinity)."""
+        return _KEPT_CARDS_DIM + self._foods_dim
+
+    @property
+    def bonus_block_dim(self) -> int:
+        """28 when split_bonus (bonus_cards + affinity), 26 when not (kept_bonus only).
+
+        ``kept_bonus_value`` (4 dims) is placed after goals, not in this block."""
+        return (_BONUS_DIM + _BONUS_AFF_DIM) if self.split_bonus else _BONUS_DIM
+
+    @property
+    def off_tray(self) -> int:
+        return self.off_bonus_block + self.bonus_block_dim
+
+    @property
+    def off_feeder(self) -> int:
+        return self.off_tray + _TRAY_DIM
+
+    @property
+    def off_goals(self) -> int:
+        return self.off_feeder + _FEEDER_DIM
+
+    @property
+    def off_bonus_value(self) -> int:
+        """Start of the kept_bonus_value block (only present when ``split_bonus=False``)."""
+        return self.off_goals + _GOALS_DIM
+
+    @property
+    def off_goal_affinity(self) -> int:
+        bonus_value_dim = 0 if self.split_bonus else _KEPT_BONUS_VALUE_DIM
+        return self.off_bonus_value + bonus_value_dim
+
+    @property
+    def total_dim(self) -> int:
+        """Total feature-vector length for this encoding configuration."""
+        return self.off_goal_affinity + _GOAL_AFFINITY_DIM
+
 
 # A setup-net shape signature: the hidden-layer widths plus whether the policy
 # head is present. Activation / dropout are excluded — they leave tensor shapes

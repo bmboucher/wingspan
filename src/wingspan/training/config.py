@@ -208,25 +208,23 @@ class TrainConfig(pydantic.BaseModel):
     # ``setup_architecture_key`` and checkpoint).
     use_setup_model: bool = True
     # Split the opening keep into two judgments (only meaningful when
-    # ``use_setup_model`` is on): the setup net picks cards/food while the bonus
-    # card is deferred to the in-game ``CHOOSE_BONUS`` head, asked as a normal
-    # ``BirdPowerPickBonusCardDecision`` over the dealt bonus cards against a
-    # minimal round-1 opening state. The setup candidates then carry
-    # ``bonus_card=None`` (their bonus feature block is left at zero), and the
-    # CHOOSE_BONUS head gains one extra on-policy sample per net seat per game.
-    # Shape-preserving (the CHOOSE_BONUS head already exists; the setup feature dim
-    # is unchanged), so it is a REGIME/resumable knob — deliberately NOT part of
-    # ``architecture_key`` / ``setup_architecture_key``. Inert when the setup model
-    # is off; gate on ``split_setup_bonus_active``.
+    # ``use_setup_model`` is on): the setup net picks cards while the bonus card
+    # is deferred to the in-game ``CHOOSE_BONUS`` head. The setup candidates carry
+    # ``bonus_card=None``; the setup feature vector gains a ``bonus_cards``
+    # multi-hot (which bonuses are on offer) and a ``bonus_card_affinity`` pair
+    # (min/max qualifier counts) in place of ``kept_bonus`` + ``kept_bonus_value``.
+    # The vector SHRINKS by 2 dims vs. the full layout (30→28 bonus block), making
+    # this a setup-FRESH knob that IS part of ``setup_architecture_key``.
+    # Inert when the setup model is off; gate on ``split_setup_bonus_active``.
     split_setup_bonus: bool = False
     # Analogous to ``split_setup_bonus``: defers the opening food pick out of the
     # combined SetupDecision to sequential in-game food decisions resolved after the
     # card-keep applies (see ``engine.core.Engine._maybe_resolve_deferred_setup_food``).
-    # The setup candidates carry ``kept_foods=()`` (food block all-zero in the feature
-    # vector, ``SETUP_FEATURE_DIM`` unchanged) — REGIME/resumable, deliberately NOT
-    # part of ``setup_architecture_key``. Food decision schedule (per birds kept):
-    #   0–2 birds → 2/1/0 SpendFoodDecision asks over the SPEND_FOOD head (discard N).
-    #   3–5 birds → 0/1/2 GainFoodDecision asks over the GAIN_FOOD head (gain M).
+    # The setup candidates carry ``kept_foods=()``, and the 5-dim ``kept_foods``
+    # stripe is OMITTED from the feature vector, making this a setup-FRESH knob
+    # that IS part of ``setup_architecture_key``.  Food decision schedule:
+    #   0–2 birds → 2/1/0 SpendFoodDecision asks (discard N).
+    #   3–5 birds → 0/1/2 GainFoodDecision asks (gain M).
     # ``setup_food_sets`` is ignored when this is active.
     # Inert when the setup model is off; gate on ``split_setup_food_active``.
     split_setup_food: bool = False
@@ -451,6 +449,18 @@ class TrainConfig(pydantic.BaseModel):
         )
 
     @property
+    def setup_encoding(self) -> setup_model.SetupEncoding:
+        """The setup input-vector layout implied by the active split flags.
+
+        Only meaningful when ``use_setup_model`` is on; gated via the
+        ``*_active`` properties so the encoding always matches the engine's
+        candidate generation."""
+        return setup_model.SetupEncoding(
+            split_food=self.split_setup_food_active,
+            split_bonus=self.split_setup_bonus_active,
+        )
+
+    @property
     def setup_architecture_key(
         self,
     ) -> tuple[
@@ -467,7 +477,7 @@ class TrainConfig(pydantic.BaseModel):
         both nets (each via its own key)."""
         arch = self.arch
         return (
-            setup_model.SETUP_FEATURE_DIM,
+            self.setup_encoding.total_dim,
             self.setup_arch.shape_key,
             (
                 arch.card_encoder_layers,

@@ -32,7 +32,6 @@ import torch
 import torch.nn.functional as F
 from torch import optim
 
-from wingspan import setup_model
 from wingspan.setup_model import record
 from wingspan.training import config, metrics, setup_net
 
@@ -53,7 +52,7 @@ def offline_fit(
     ``setup_train_iter``). Materializes the whole window in memory — a one-time
     cost; the window can be shortened via ``setup_record_start_iter`` if it grows
     too large."""
-    features, margins = _materialize(store)
+    features, margins = _materialize(store, net)
     if features.shape[0] == 0:
         return _empty_stats()
     return _fit(
@@ -155,16 +154,19 @@ def actor_critic_update(
 ###### PRIVATE #######
 
 
-def _materialize(store: record.SetupDataStore) -> tuple[np.ndarray, np.ndarray]:
+def _materialize(
+    store: record.SetupDataStore, net: setup_net.SetupNet
+) -> tuple[np.ndarray, np.ndarray]:
     """Load every stored sample into a ``(N, feature_dim)`` feature matrix and an
     ``(N,)`` margin vector."""
+    feature_dim = net.encoding.total_dim
     feats: list[np.ndarray] = []
     margins: list[float] = []
-    for sample in store.iter_samples():
+    for sample in store.iter_samples(expected_dim=feature_dim):
         feats.append(sample.features.astype(np.float32))
         margins.append(sample.margin)
     if not feats:
-        empty = np.zeros((0, setup_model.SETUP_FEATURE_DIM), dtype=np.float32)
+        empty = np.zeros((0, feature_dim), dtype=np.float32)
         return empty, np.zeros((0,), dtype=np.float32)
     return np.stack(feats), np.array(margins, dtype=np.float32)
 

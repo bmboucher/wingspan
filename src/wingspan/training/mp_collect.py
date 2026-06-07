@@ -94,7 +94,7 @@ class _WorkerArch(pydantic.BaseModel):
     # run does not use the setup model.
     setup_enabled: bool = False
     setup_arch: setup_model.SetupArchitecture | None = None
-    setup_feature_dim: int = 0
+    setup_encoding: setup_model.SetupEncoding = setup_model.SetupEncoding()
     setup_hand_combos: int = 1
     setup_food_sets: int = 1
     setup_tuples_per_batch: int = 1
@@ -176,7 +176,7 @@ class ProcessCollector:
             include_setup=cfg.encoding_spec.include_setup,
             setup_enabled=cfg.use_setup_model,
             setup_arch=cfg.setup_arch if cfg.use_setup_model else None,
-            setup_feature_dim=setup_model.SETUP_FEATURE_DIM,
+            setup_encoding=cfg.setup_encoding,
             setup_hand_combos=cfg.setup_hand_combos,
             setup_food_sets=cfg.setup_food_sets,
             setup_tuples_per_batch=cfg.setup_tuples_per_batch,
@@ -466,7 +466,7 @@ def _worker_init(arch: _WorkerArch) -> None:
     # state_dict (which carries the synced embedder weights) strict-loads.
     if arch.setup_enabled and arch.setup_arch is not None:
         _worker_setup_net = setup_net.SetupNet(
-            feature_dim=arch.setup_feature_dim,
+            encoding=arch.setup_encoding,
             arch=arch.setup_arch,
             main_arch=arch.arch,
         ).to(_worker_device)

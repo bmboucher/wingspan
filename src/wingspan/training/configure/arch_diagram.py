@@ -328,7 +328,8 @@ def _chain(in_dim: int, widths: tuple[int, ...]) -> str:
 
 def _setup_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
     """The separate setup net — an unconnected readout MLP value-regressor over the
-    setup-candidate features (``SETUP_FEATURE_DIM → setup_hidden_layers → 1``)."""
+    setup-candidate features (``setup_encoding.total_dim → setup_hidden_layers → 1``).
+    """
     cfg = view.working
     block = _setup_block(view)
     entries = _block_op_entries(
@@ -344,7 +345,7 @@ def _setup_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]
     caption = [
         (
             f"in {_setup_readout_in(cfg)} "
-            f"(embedded {setup_model.SETUP_FEATURE_DIM}-dim candidate)",
+            f"(embedded {cfg.setup_encoding.total_dim}-dim candidate)",
             theme.TEXT_DIM2,
         )
     ]
@@ -1045,7 +1046,7 @@ def _choice_extra(cfg: config.TrainConfig | _StaticConfig) -> int:
 def _setup_readout_in(cfg: config.TrainConfig) -> int:
     """The setup net's readout-MLP input width under the working main
     architecture (whose embedder copies size the embedded candidate)."""
-    return setup_model.setup_readout_input_dim(setup_model.SETUP_FEATURE_DIM, cfg.arch)
+    return setup_model.setup_readout_input_dim(cfg.setup_encoding.total_dim, cfg.arch)
 
 
 def _setup_block(view: state.ConfiguratorState) -> architecture.BlockParam:
@@ -1053,7 +1054,7 @@ def _setup_block(view: state.ConfiguratorState) -> architecture.BlockParam:
     are shaped by the working main architecture)."""
     return setup_model.count_setup_parameters(
         view.working.setup_arch,
-        feature_dim=setup_model.SETUP_FEATURE_DIM,
+        feature_dim=view.working.setup_encoding.total_dim,
         main_arch=view.working.arch,
     )
 
@@ -1118,6 +1119,7 @@ class _StaticConfig:
     arch: architecture.ModelArchitecture
     family_order: tuple[str, ...]
     setup_arch: setup_model.SetupArchitecture
+    setup_encoding: setup_model.SetupEncoding
     setup_hidden_layers: architecture.Widths
     setup_activation: architecture.ActivationName
     setup_dropout: float
@@ -1142,6 +1144,7 @@ def render_static(
     choice_extra: int,
     use_setup_model: bool = False,
     setup_arch: setup_model.SetupArchitecture | None = None,
+    setup_encoding: setup_model.SetupEncoding | None = None,
     width: int = 48,
 ) -> list[text.Text]:
     """Render the architecture block diagram without interactive focus state.
@@ -1154,11 +1157,14 @@ def render_static(
     descriptor seam (``runmeta.choice_input_dim_for`` /
     ``runmeta.choice_extra_for``) so an old run's diagram never assumes the
     live encoding. When ``use_setup_model`` the separate setup net is drawn
-    from ``setup_arch`` (the default topology when ``None``). ``width`` is the
-    box interior column budget (default 48).
+    from ``setup_arch`` / ``setup_encoding`` (defaults when ``None``). ``width``
+    is the box interior column budget (default 48).
     """
     resolved_setup_arch = (
         setup_arch if setup_arch is not None else setup_model.SetupArchitecture()
+    )
+    resolved_setup_encoding = (
+        setup_encoding if setup_encoding is not None else setup_model.SetupEncoding()
     )
     cfg = _StaticConfig(
         state_dim=state_dim,
@@ -1181,6 +1187,7 @@ def render_static(
         arch=arch,
         family_order=family_order,
         setup_arch=resolved_setup_arch,
+        setup_encoding=resolved_setup_encoding,
         setup_hidden_layers=resolved_setup_arch.hidden_layers,
         setup_activation=resolved_setup_arch.activation,
         setup_dropout=resolved_setup_arch.dropout,

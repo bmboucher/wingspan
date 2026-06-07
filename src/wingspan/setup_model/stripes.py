@@ -7,44 +7,51 @@ The setup analogue of :mod:`wingspan.encode.stripes`: :func:`setup_stripe_layout
 returns a :class:`wingspan.encode.stripes.VectorLayout` naming every block of the
 :func:`wingspan.setup_model.encode.encode_setup_candidate` feature vector, with
 offsets and sizes derived from the same constants the encoder uses. The registry
-documents the *raw* vector — the layout's ``total_size`` equals
-``SETUP_FEATURE_DIM`` — while the in-net embedding rewrite (the kept-cards
-multi-hot through the frozen set encoder, the tray index columns through the
-frozen card table) is noted per stripe rather than expanded, since the setup
-net's readout width also depends on the main net's embed dims.
+reflects the *active* layout for the given
+:class:`~wingspan.setup_model.architecture.SetupEncoding` — the stripes and total
+size change when the split flags are on. The default (no args) reproduces the
+pre-0.2 layout (308 dims, both splits off).
 """
 
 from __future__ import annotations
 
 from wingspan import cards, encode
 from wingspan.encode import stripes as encode_stripes
+from wingspan.setup_model import architecture as arch_module
 from wingspan.setup_model import encode as setup_encode
 
 
-def setup_stripe_layout() -> encode_stripes.VectorLayout:
+def setup_stripe_layout(
+    encoding: arch_module.SetupEncoding | None = None,
+) -> encode_stripes.VectorLayout:
     """Build the stripe registry for the setup net's input vector.
 
-    Lists the eight fixed blocks in offset order. Two deliberate contrasts
-    with the in-game encoder are called out in the notes: the birdfeeder block
-    carries *raw* die-face counts (the state vector's is normalized ÷ 5), and
-    each round goal is a bare category one-hot (no count / VP scalars — though
-    the trailing affinity block prices the keep against each goal).
+    ``encoding`` selects the active layout; the default ``SetupEncoding()``
+    reproduces the 308-dim pre-0.2 layout (both splits off). Two deliberate
+    contrasts with the in-game encoder are called out in the notes: the
+    birdfeeder block carries *raw* die-face counts (the state vector's is
+    normalized ÷ 5), and each round goal is a bare category one-hot (no count /
+    VP scalars — though the trailing affinity block prices the keep against each
+    goal).
     """
-    food_names = ", ".join(food.value for food in cards.ALL_FOODS)
+    if encoding is None:
+        encoding = arch_module.SetupEncoding()
 
+    food_names = ", ".join(food.value for food in cards.ALL_FOODS)
     stripes: list[encode_stripes.StripeDescriptor] = []
     off = 0
 
     # ---- candidate blocks: the keep being scored ----
+
     stripes.append(
         encode_stripes.StripeDescriptor(
             name="kept_cards",
             description=(
                 f"The bird cards this candidate keeps, as a multi-hot over all "
-                f"{setup_encode._KEPT_CARDS_DIM} core-set birds."
+                f"{arch_module._KEPT_CARDS_DIM} core-set birds."
             ),
             offset=off,
-            size=setup_encode._KEPT_CARDS_DIM,
+            size=arch_module._KEPT_CARDS_DIM,
             encoding="multi-hot",
             value_range="{0, 1}",
             notes=(
@@ -55,43 +62,88 @@ def setup_stripe_layout() -> encode_stripes.VectorLayout:
             ),
         )
     )
-    off += setup_encode._KEPT_CARDS_DIM
+    off += arch_module._KEPT_CARDS_DIM
 
-    stripes.append(
-        encode_stripes.StripeDescriptor(
-            name="kept_foods",
-            description="The starting food tokens this candidate keeps.",
-            offset=off,
-            size=setup_encode._KEPT_FOODS_DIM,
-            encoding="multi-hot",
-            value_range="{0, 1}",
-            notes=f"Food types in order: {food_names}.",
-            sub_fields=_kept_food_sub_fields(),
+    if not encoding.split_food:
+        stripes.append(
+            encode_stripes.StripeDescriptor(
+                name="kept_foods",
+                description="The starting food tokens this candidate keeps.",
+                offset=off,
+                size=arch_module._KEPT_FOODS_DIM,
+                encoding="multi-hot",
+                value_range="{0, 1}",
+                notes=f"Food types in order: {food_names}.",
+                sub_fields=_kept_food_sub_fields(),
+            )
         )
-    )
-    off += setup_encode._KEPT_FOODS_DIM
+        off += arch_module._KEPT_FOODS_DIM
 
-    stripes.append(
-        encode_stripes.StripeDescriptor(
-            name="kept_bonus",
-            description=(
-                f"The bonus card this candidate keeps, as a one-hot over all "
-                f"{setup_encode._BONUS_DIM} core-set bonus cards."
-            ),
-            offset=off,
-            size=setup_encode._BONUS_DIM,
-            encoding="one-hot",
-            value_range="{0, 1}",
-            notes=(
-                "Indexed by stable bonus-card order from cards.bonus_index(). "
-                "All-zero when no bonus is kept (split_setup_bonus defers the "
-                "bonus pick to the in-game CHOOSE_BONUS head)."
-            ),
+    if not encoding.split_bonus:
+        stripes.append(
+            encode_stripes.StripeDescriptor(
+                name="kept_bonus",
+                description=(
+                    f"The bonus card this candidate keeps, as a one-hot over all "
+                    f"{arch_module._BONUS_DIM} core-set bonus cards."
+                ),
+                offset=off,
+                size=arch_module._BONUS_DIM,
+                encoding="one-hot",
+                value_range="{0, 1}",
+                notes=(
+                    "Indexed by stable bonus-card order from cards.bonus_index(). "
+                    "All-zero when no bonus is kept."
+                ),
+            )
         )
-    )
-    off += setup_encode._BONUS_DIM
+        off += arch_module._BONUS_DIM
+    else:
+        stripes.append(
+            encode_stripes.StripeDescriptor(
+                name="bonus_cards",
+                description=(
+                    f"The bonus cards available in this deal, as a multi-hot over "
+                    f"all {arch_module._BONUS_DIM} core-set bonus cards."
+                ),
+                offset=off,
+                size=arch_module._BONUS_DIM,
+                encoding="multi-hot",
+                value_range="{0, 1}",
+                notes=(
+                    "Indexed by cards.bonus_index(). Present only when "
+                    "split_setup_bonus is active — encodes which bonuses are on "
+                    "offer for this deal (context), since the bonus pick is deferred "
+                    "to the in-game CHOOSE_BONUS head."
+                ),
+            )
+        )
+        off += arch_module._BONUS_DIM
+
+        stripes.append(
+            encode_stripes.StripeDescriptor(
+                name="bonus_card_affinity",
+                description=(
+                    "Min and max qualifier counts for the dealt bonus cards "
+                    "against the kept cards."
+                ),
+                offset=off,
+                size=arch_module._BONUS_AFF_DIM,
+                encoding="vector",
+                value_range="[0, ~1]",
+                notes=(
+                    "2 values: min_affinity and max_affinity — for each dealt bonus "
+                    "card, count how many kept cards qualify it (same logic as "
+                    "kept_bonus_value's qual_count), then take the min and max of "
+                    "the two counts, normalized ÷ 5."
+                ),
+                sub_fields=_bonus_affinity_sub_fields(),
+            )
+        )
+        off += arch_module._BONUS_AFF_DIM
 
     # ---- context blocks: the shared per-deal view ----
+
     stripes.append(
         encode_stripes.StripeDescriptor(
             name="tray",
@@ -151,31 +203,33 @@ def setup_stripe_layout() -> encode_stripes.VectorLayout:
     )
     off += setup_encode._GOALS_DIM
 
-    # ---- candidate pricing blocks: the keep valued against bonus and goals ----
-    stripes.append(
-        encode_stripes.StripeDescriptor(
-            name="kept_bonus_value",
-            description=(
-                "The kept bonus card priced against this candidate's keep: "
-                "kept-card qualifiers, the stepped / linear VP they would pay, "
-                "and tray potential."
-            ),
-            offset=off,
-            size=setup_encode._KEPT_BONUS_VALUE_DIM,
-            encoding="vector",
-            value_range="[0, ~1]",
-            notes=(
-                f"{setup_encode._KEPT_BONUS_VALUE_DIM} values: qual_count (kept "
-                "cards passing the bonus test — every kept card for the "
-                "hand-counting dynamic card, ÷5), stepped_vp / linear_vp (what "
-                "the card pays if they all reach the board, ÷7), tray_potential "
-                "(tray birds that could still qualify it, ÷5). All-zero when no "
-                "bonus is kept (split_setup_bonus)."
-            ),
-            sub_fields=_kept_bonus_value_sub_fields(),
+    # ---- candidate pricing blocks: keep valued against bonus and round goals ----
+
+    if not encoding.split_bonus:
+        stripes.append(
+            encode_stripes.StripeDescriptor(
+                name="kept_bonus_value",
+                description=(
+                    "The kept bonus card priced against this candidate's keep: "
+                    "kept-card qualifiers, the stepped / linear VP they would pay, "
+                    "and tray potential."
+                ),
+                offset=off,
+                size=arch_module._KEPT_BONUS_VALUE_DIM,
+                encoding="vector",
+                value_range="[0, ~1]",
+                notes=(
+                    f"{arch_module._KEPT_BONUS_VALUE_DIM} values: qual_count (kept "
+                    "cards passing the bonus test — every kept card for the "
+                    "hand-counting dynamic card, ÷5), stepped_vp / linear_vp (what "
+                    "the card pays if they all reach the board, ÷7), tray_potential "
+                    "(tray birds that could still qualify it, ÷5). All-zero when no "
+                    "bonus is kept."
+                ),
+                sub_fields=_kept_bonus_value_sub_fields(),
+            )
         )
-    )
-    off += setup_encode._KEPT_BONUS_VALUE_DIM
+        off += arch_module._KEPT_BONUS_VALUE_DIM
 
     stripes.append(
         encode_stripes.StripeDescriptor(
@@ -199,13 +253,13 @@ def setup_stripe_layout() -> encode_stripes.VectorLayout:
     )
     off += setup_encode._GOAL_AFFINITY_DIM
 
-    assert off == setup_encode.SETUP_FEATURE_DIM, (
-        f"stripe offsets sum to {off} but SETUP_FEATURE_DIM is "
-        f"{setup_encode.SETUP_FEATURE_DIM} — setup_model encode.py and stripes.py "
+    assert off == encoding.total_dim, (
+        f"stripe offsets sum to {off} but encoding.total_dim is "
+        f"{encoding.total_dim} — setup_model architecture.py and stripes.py "
         "are out of sync"
     )
     return encode_stripes.VectorLayout(
-        total_size=setup_encode.SETUP_FEATURE_DIM, stripes=tuple(stripes)
+        total_size=encoding.total_dim, stripes=tuple(stripes)
     )
 
 
@@ -291,6 +345,30 @@ def _kept_bonus_value_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, .
             notes=notes,
         )
         for idx, (name, desc, notes) in enumerate(entries)
+    )
+
+
+def _bonus_affinity_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...]:
+    """2 sub-fields: min and max bonus-card affinity against the kept cards."""
+    return (
+        encode_stripes.SubFieldDescriptor(
+            name="min_affinity",
+            description="Qualifier count for the weaker-matching dealt bonus card.",
+            relative_offset=0,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes="Normalized ÷ 5.",
+        ),
+        encode_stripes.SubFieldDescriptor(
+            name="max_affinity",
+            description="Qualifier count for the stronger-matching dealt bonus card.",
+            relative_offset=1,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes="Normalized ÷ 5.",
+        ),
     )
 
 

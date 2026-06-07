@@ -234,15 +234,30 @@ def play_game_with_setup(
     # Pending entries: (seat, chosen_features, chosen_idx | None, all_candidates | None)
     pending_setups: list[tuple[int, np.ndarray, int | None, np.ndarray | None]] = []
 
+    # Encoding derived from the net (when available) or from the active flags.
+    # Used consistently for both candidate scoring and feature recording so the
+    # stored samples always match what the net expects.
+    setup_enc = (
+        setup_policy_net.encoding
+        if setup_policy_net is not None
+        else setup_model.SetupEncoding(
+            split_food=split_setup_food, split_bonus=split_setup_bonus
+        )
+    )
+
     def choose_setups(
         chooser_engine: engine.Engine,
         dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
     ) -> list[setup_model.SetupCandidate]:
-        context = setup_model.SetupContext.from_state(chooser_engine.state)
+        # Shared context: tray / birdfeeder / round goals — no per-seat bonus
+        # cards here; those are attached per-seat inside _choose_setups and in
+        # the recording branch below.
+        base_context = setup_model.SetupContext.from_state(chooser_engine.state)
         keep_results = _choose_setups(
             spec,
             dealt,
-            context,
+            base_context,
+            setup_enc=setup_enc,
             net_seats=net_seats,
             generator=generator,
             setup_policy_net=setup_policy_net,
@@ -257,8 +272,12 @@ def play_game_with_setup(
         if spec.phase.records:
             for seat in net_seats:
                 result = keep_results[seat]
+                _, seat_dealt_bonus = dealt[seat]
+                seat_context = base_context.model_copy(
+                    update={"dealt_bonus_cards": tuple(seat_dealt_bonus)}
+                )
                 chosen_features = setup_model.encode_setup_candidate(
-                    result.candidate, context
+                    result.candidate, seat_context, setup_enc
                 )
                 pending_setups.append(
                     (seat, chosen_features, result.chosen_idx, result.all_candidates)
@@ -397,6 +416,7 @@ def _choose_setups(
     dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
     context: setup_model.SetupContext,
     *,
+    setup_enc: setup_model.SetupEncoding,
     net_seats: tuple[int, ...],
     generator: setup_model.RandomSetupGenerator,
     setup_policy_net: setup_net.SetupNet | None,
@@ -449,6 +469,11 @@ def _choose_setups(
     for seat in (0, 1):
         dealt_cards, dealt_bonus = dealt[seat]
         if seat in net_seats:
+            # Build a seat-specific context with this seat's bonus cards so the
+            # bonus_cards multi-hot and affinity stripes are filled correctly.
+            seat_context = context.model_copy(
+                update={"dealt_bonus_cards": tuple(dealt_bonus)}
+            )
             candidates = setup_model.enumerate_setup_candidates(
                 dealt_cards,
                 dealt_bonus,
@@ -456,7 +481,10 @@ def _choose_setups(
                 include_food=not defer_food,
             )
             features = np.stack(
-                [setup_model.encode_setup_candidate(c, context) for c in candidates]
+                [
+                    setup_model.encode_setup_candidate(c, seat_context, setup_enc)
+                    for c in candidates
+                ]
             )
 
             # Use policy logits for selection when actor-critic is enabled,

@@ -242,14 +242,16 @@ def _compute_setup_scores_and_probs(
     Returns ``(margins, probs)`` where ``margins`` is the raw per-choice score
     vector and ``probs`` is the softmax distribution, both aligned to
     ``decision.choices``."""
-    context = setup_model.SetupContext.from_state(eng.state)
+    context = setup_model.SetupContext.from_state(eng.state, decision.dealt_bonus)
 
     # Encode each choice using the same candidate → feature-vector path the
     # training pipeline uses, which guarantees alignment with the saved weights.
     vecs = np.stack(
         [
             setup_model.encode_setup_candidate(
-                setup_model.SetupCandidate.from_setup_choice(choice), context
+                setup_model.SetupCandidate.from_setup_choice(choice),
+                context,
+                net_instance.encoding,
             )
             for choice in decision.choices
         ]

@@ -601,7 +601,7 @@ def test_arch_diagram_setup_param_count_matches_net():
         main_arch=cfg.arch,
     )
     net = setup_net.SetupNet(
-        feature_dim=setup_model.SETUP_FEATURE_DIM,
+        encoding=setup_model.SetupEncoding(),
         arch=cfg.setup_arch,
         main_arch=cfg.arch,
     )

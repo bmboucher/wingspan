@@ -21,18 +21,21 @@ from wingspan.training import artifacts, config
 class SetupConfig(pydantic.BaseModel):
     """The setup network descriptor written to ``setup_config.json``.
 
-    Carries the encoder feature width the net was trained against, its complete
+    Carries the encoding layout the net was trained against, its complete
     :class:`wingspan.setup_model.SetupArchitecture`, and the main
     :class:`wingspan.architecture.ModelArchitecture` whose embedder copies it
     reads — so the file both summarizes the setup network and fully
     reconstitutes it (``SetupNet.from_setup_config``). ``main_arch`` defaults to
     a bare descriptor so JSON files that predate the shared embedders still
     deserialize. The setup weight-compatibility signature
-    ``TrainConfig.setup_architecture_key`` is derived from exactly these
-    fields."""
+    ``TrainConfig.setup_architecture_key`` is derived from exactly these fields.
+
+    ``setup_encoding`` defaults to ``SetupEncoding()`` (both splits off, 308
+    dims) so pre-0.2 ``setup_config.json`` files that lack the field deserialize
+    correctly — the old 308-dim layout is reproduced by construction."""
 
     run_name: str
-    setup_feature_dim: int
+    setup_encoding: setup_model.SetupEncoding = setup_model.SetupEncoding()
     setup_arch: setup_model.SetupArchitecture
     main_arch: architecture.ModelArchitecture = architecture.ModelArchitecture()
     # The artifact-compatibility version the run was written at; defaults so
@@ -44,7 +47,7 @@ def write_setup_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.
     """Write (overwriting) ``setup_config.json`` for ``cfg`` and return its path."""
     descriptor = SetupConfig(
         run_name=cfg.run_name,
-        setup_feature_dim=setup_model.SETUP_FEATURE_DIM,
+        setup_encoding=cfg.setup_encoding,
         setup_arch=cfg.setup_arch,
         main_arch=cfg.arch,
         version=version.MODEL_VERSION,

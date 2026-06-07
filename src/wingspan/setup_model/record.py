@@ -81,18 +81,22 @@ class SetupDataStore:
         with open(self._path, "a", encoding="utf-8") as handle:
             handle.write(rows)
 
-    def iter_samples(self) -> typing.Iterator[SetupSample]:
+    def iter_samples(
+        self, expected_dim: int | None = None
+    ) -> typing.Iterator[SetupSample]:
         """Yield every recorded sample (features rehydrated to a float32 array).
 
-        Rows whose feature length differs from the current
-        ``encode.SETUP_FEATURE_DIM`` are skipped: they were recorded under an
-        older encoding layout and cannot be stacked with (or scored by) the
-        current network, so a store that survived a layout change degrades to
-        its still-valid rows instead of crashing the offline fit."""
+        Rows whose feature length differs from ``expected_dim`` (defaults to
+        the legacy ``encode.SETUP_FEATURE_DIM``) are skipped: they were
+        recorded under an older encoding layout and cannot be stacked with (or
+        scored by) the current network, so a store that survived a layout
+        change degrades to its still-valid rows instead of crashing the offline
+        fit."""
         # Imported lazily to keep the store importable without the encoder chain
         # (mirrors how the package splits torch-free pieces from the network).
         from wingspan.setup_model import encode
 
+        dim = expected_dim if expected_dim is not None else encode.SETUP_FEATURE_DIM
         if not self._path.exists():
             return
         with open(self._path, "r", encoding="utf-8") as handle:
@@ -101,7 +105,7 @@ class SetupDataStore:
                 if not line:
                     continue
                 row = _SetupRow.model_validate_json(line)
-                if len(row.features) != encode.SETUP_FEATURE_DIM:
+                if len(row.features) != dim:
                     continue
                 yield SetupSample(
                     features=np.array(row.features, dtype=np.float32),

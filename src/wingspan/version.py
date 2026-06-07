@@ -28,8 +28,16 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "0.1"
+MODEL_VERSION = "0.2"
 """The current artifact-compatibility version (the only place it is defined).
+
+0.2 makes the setup input vector dynamic: ``kept_foods`` is omitted when
+``split_setup_food=True``; ``kept_bonus`` + ``kept_bonus_value`` are replaced by
+``bonus_cards`` (multi-hot of available bonuses) + ``bonus_card_affinity``
+(min/max qualifier counts, 2 dims) when ``split_setup_bonus=True``.  The vector
+size changes with the flags (308 / 303 / 306 / 301 depending on config).  Pre-0.2
+setup artifacts load as ``SetupEncoding(split_food=False, split_bonus=False)``
+(the old 308-dim layout) via Pydantic defaults — no explicit shim needed.
 
 0.1 reshaped the choice vector (landing-slot placement encoding, the single
 ``bird_id`` index column, the dedicated ``kept_multihot`` stripe); pre-0.1
