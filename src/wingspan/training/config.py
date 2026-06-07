@@ -248,9 +248,12 @@ class TrainConfig(pydantic.BaseModel):
     # Schedule (cumulative/lifetime iterations): below ``record_start`` setups are
     # random and unrecorded; in ``[record_start, train)`` they are random and
     # recorded; at ``train`` the net is fit once offline and then drives selection
-    # and trains on-policy. ``train`` must exceed ``record_start``.
-    setup_record_start_iter: typing.Annotated[int, pydantic.Field(ge=0)] = 1000
-    setup_train_iter: typing.Annotated[int, pydantic.Field(ge=1)] = 2000
+    # and trains on-policy.  Setting both to 0 (the default) is the "train from
+    # start" sentinel: no warmup phases, the setup model is MODEL_DRIVEN from
+    # iteration 0 and trains on-policy with REINFORCE immediately.  When either
+    # is non-zero, ``train`` must exceed ``record_start``.
+    setup_record_start_iter: typing.Annotated[int, pydantic.Field(ge=0)] = 0
+    setup_train_iter: typing.Annotated[int, pydantic.Field(ge=0)] = 0
     # Random-generation knobs (per batch): joint keep-combos sampled, food keeps
     # per kept hand, and joint setup tuples sampled (= games per shared-deal batch).
     setup_hand_combos: typing.Annotated[int, pydantic.Field(ge=1)] = 10
@@ -313,11 +316,18 @@ class TrainConfig(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _check_setup_schedule(self) -> TrainConfig:
-        """The setup model must start recording before it is fit/deployed, so the
-        offline-fit window is non-empty. Enforced as a normal validation error so
-        the configurator rejects an inconsistent edit the same way it rejects an
-        out-of-range scalar."""
-        if self.setup_train_iter <= self.setup_record_start_iter:
+        """Validate the setup-model warmup schedule.
+
+        ``(0, 0)`` is the "train from start" sentinel and is always valid.
+        For any other non-zero configuration the recording window must be
+        non-empty: ``setup_train_iter`` must strictly exceed
+        ``setup_record_start_iter``.
+        """
+        # Allow (0, 0): no warmup phases, MODEL_DRIVEN from iteration 0.
+        if (
+            self.setup_train_iter > 0
+            and self.setup_train_iter <= self.setup_record_start_iter
+        ):
             raise ValueError(
                 "setup_train_iter must exceed setup_record_start_iter "
                 f"(got {self.setup_train_iter} <= {self.setup_record_start_iter})"

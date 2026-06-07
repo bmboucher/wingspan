@@ -96,7 +96,9 @@ def _write_main_checkpoint(tmp_path: pathlib.Path, cfg: config.TrainConfig) -> N
 def test_stale_feature_dim_starts_setup_fresh_and_clears_store(
     tmp_path: pathlib.Path,
 ):
-    cfg = _cfg(tmp_path, resume=True)
+    # Use the legacy warmup schedule so the fresh setup net requires an
+    # offline fit (setup_train_iter > 0 → _setup_fit_done starts False).
+    cfg = _cfg(tmp_path, resume=True, setup_record_start_iter=100, setup_train_iter=200)
     _write_main_checkpoint(tmp_path, cfg)
     # A setup checkpoint recorded under the old 477-wide layout: the saved
     # config validates to the *current* key (both sides recompute from current
@@ -129,7 +131,8 @@ def test_incompatible_weights_fall_back_fresh(tmp_path: pathlib.Path):
     """Belt-and-suspenders: a payload that passes the key check but whose
     weights cannot load (foreign state dict) rebuilds the setup net fresh and
     clears the store rather than crashing."""
-    cfg = _cfg(tmp_path, resume=True)
+    # Legacy warmup schedule: fresh restart requires an offline fit.
+    cfg = _cfg(tmp_path, resume=True, setup_record_start_iter=100, setup_train_iter=200)
     _write_main_checkpoint(tmp_path, cfg)
     bad_payload: dict[str, object] = {
         "setup_config": cfg.model_dump(),

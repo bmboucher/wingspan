@@ -677,19 +677,43 @@ effort:
   these structured terms — DECISIONS.md §2.9).
 - **Treat `setup` as its own model** (now the default, DECISIONS.md §2.13): it
   is rare, high-variance, high-dimensional, and game-defining. The separate
-  value-regression setup net realizes this, with its random-generation
-  bootstrap phase standing in for the heuristic objective.
+  setup net realizes this; it trains on-policy with REINFORCE from iteration 0
+  by default, and can optionally use a random-generation bootstrap phase as
+  an initializer (legacy warmup knobs, see §6.5).
 
-### 6.5 The setup model's actor-critic training option
+### 6.5 The setup model's training schedule and actor-critic mode
 
-The default `SetupNet` is trained purely by MSE regression: the value head learns
-to predict `final_margin / score_norm` from the chosen candidate's features, using
-both the bootstrap RANDOM_RECORD samples (offline fit) and subsequent MODEL_DRIVEN
-games (on-policy MSE). The problem is that **the regression target is high-variance
-and provides no gradient to the selection mechanism** — the value head learns what
-a good setup looks like, but the sampling distribution that picks setups during
-collection only improves via the greedy re-rank from the value scores, never via
-direct policy-gradient flow.
+#### Default: MODEL_DRIVEN from iteration 0
+
+By default (`setup_record_start_iter=0, setup_train_iter=0`) the setup model is
+in MODEL_DRIVEN mode from iteration 0 and trains on-policy with REINFORCE
+immediately. No burn-in or offline-fit warmup occurs; the value and policy heads
+learn purely from the games the setup net itself played. This is the "train from
+start" regime and is the right choice when REINFORCE is enabled
+(`setup_use_actor_critic=True`) because the policy gradient provides a useful
+learning signal even from random-weight initializations.
+
+#### Legacy warmup schedule (opt-in)
+
+Set `setup_record_start_iter > 0` and `setup_train_iter > setup_record_start_iter`
+to restore the three-phase warmup:
+
+| Phase | Condition | Behaviour |
+|---|---|---|
+| RANDOM_NO_RECORD | `iter < setup_record_start_iter` | Random setups, nothing recorded (burn-in) |
+| RANDOM_RECORD | `setup_record_start_iter ≤ iter < setup_train_iter` | Random setups recorded to disk |
+| MODEL_DRIVEN | `iter ≥ setup_train_iter` | One-time offline MSE fit, then on-policy updates |
+
+This was the original regime, designed for pure MSE regression where the value
+head needed a stable bootstrap dataset before driving selection.
+
+#### Actor-critic mode
+
+The default `SetupNet` with only a value head is trained by MSE regression.
+The problem is that **the regression target is high-variance and provides no
+gradient to the selection mechanism** — the value head learns what a good setup
+looks like, but the sampling distribution only improves via greedy re-ranking,
+never via direct policy-gradient flow.
 
 Set `setup_use_actor_critic = true` in the training config to enable an opt-in
 actor-critic mode that adds a policy head and trains it with REINFORCE.

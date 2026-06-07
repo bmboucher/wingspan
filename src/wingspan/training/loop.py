@@ -102,7 +102,10 @@ class TrainingLoop:
         self._setup_net: setup_net.SetupNet | None = None
         self._setup_optimizer: optim.Optimizer | None = None
         self._setup_store: setup_model.SetupDataStore | None = None
-        self._setup_fit_done = False
+        # Pre-mark the offline fit done when there is no warmup schedule
+        # (setup_train_iter == 0 means MODEL_DRIVEN from iteration 0 — no
+        # offline fit window was ever recorded, so the one-time fit is skipped).
+        self._setup_fit_done = cfg.setup_train_iter == 0
         if cfg.use_setup_model:
             self._setup_net, self._setup_optimizer = loop_setup.build_setup_net(self)
             self._setup_store = setup_model.SetupDataStore(
