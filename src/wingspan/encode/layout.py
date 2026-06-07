@@ -305,12 +305,31 @@ _NEST_BASE_TYPES = [
     cards.NestType.PLATFORM,
 ]
 
-# Bonus-card index keyed by printed name, so a bird's ``bonus_categories`` (the
-# cards it statically qualifies for) can be encoded as a multi-hot aligned to the
-# same ``cards.bonus_index`` space the bonus-progress stripes use. Built once
-# from the canonical (lru-cached) bonus list.
+# Curated subset of bonus cards whose qualifying condition is intrinsic to the
+# card (not state-dependent at game-end, not already captured by another stripe).
+# Ordered stably; the dense 0..N-1 index here is independent of cards.bonus_index().
+#
+# Dropped:
+#   state-dependent  — Breeding Manager, Ecologist, Oologist, Visionary Leader
+#   covered by food_cost stripe — Bird Feeder, Fishery Manager, Food Web Expert,
+#       Omnivore Specialist, Rodentologist, Viticulturalist
+#   covered by nest stripe — Enclosure Builder, Nest Box Builder, Platform Builder,
+#       Wildlife Gardener
+#   covered by habitats stripe — Forester, Prairie Manager, Wetland Scientist,
+#       Bird Bander (multi-habitat = sum of habitat bits > 1)
+#   covered by flocking/predator flags — Bird Counter, Falconer
+#   fan-made — Caprimulgiform Specialist
+_KEPT_BONUS_NAMES: tuple[str, ...] = (
+    "Anatomist",
+    "Backyard Birder",
+    "Cartographer",
+    "Historian",
+    "Large Bird Specialist",
+    "Passerine Specialist",
+    "Photographer",
+)
 _BONUS_NAME_TO_INDEX: dict[str, int] = {
-    bonus_card.name: cards.bonus_index(bonus_card) for bonus_card in cards.load_all()[1]
+    name: index for index, name in enumerate(_KEPT_BONUS_NAMES)
 }
 
 # Rich per-card attribute vector (the ``N`` half of each slot's identity+attrs
@@ -326,15 +345,18 @@ _OFF_ATTR_WINGSPAN = _OFF_ATTR_PRED + 1
 _OFF_ATTR_EGG_LIMIT = _OFF_ATTR_WINGSPAN + 1
 _OFF_ATTR_COLOR = _OFF_ATTR_EGG_LIMIT + 1
 _OFF_ATTR_PLAYS_BIRD = _OFF_ATTR_COLOR + len(_COLORS)
-_OFF_ATTR_BONUS_CATS = _OFF_ATTR_PLAYS_BIRD + 1
-_BIRD_ATTR_DIM = _OFF_ATTR_BONUS_CATS + _BONUS_ID_DIM  # 49
+_OFF_ATTR_CACHES_FOOD = _OFF_ATTR_PLAYS_BIRD + 1
+_BONUS_CATS_DIM = len(_KEPT_BONUS_NAMES)  # 7 curated categories (was 26)
+_OFF_ATTR_BONUS_CATS = _OFF_ATTR_CACHES_FOOD + 1
+_OFF_ATTR_POWER_EX = _OFF_ATTR_BONUS_CATS + _BONUS_CATS_DIM
+_BIRD_ATTR_DIM = _OFF_ATTR_POWER_EX + _EXCHANGE_DIM  # 44 (was 49)
 
 # The model's card encoder consumes, per card, this attribute vector concatenated
 # with the card's identity one-hot, and outputs the shared ``[181, D]`` card table
 # that every board / tray / hand / choice slot looks up. Defined here beside the
 # attribute layout it builds on, so the encoder-input builder
 # (``state_encode.card_feature_matrix``) and the model read one constant.
-CARD_FEATURE_DIM = _BIRD_ATTR_DIM + _BIRD_ID_DIM  # 49 + 180 = 229
+CARD_FEATURE_DIM = _BIRD_ATTR_DIM + _BIRD_ID_DIM  # 44 + 180 = 224 (was 229)
 
 # Per-board-slot continuous block: mutable per-slot state only, with NO identity
 # and NO attribute vector. The bird's identity is emitted separately as an integer

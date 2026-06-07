@@ -213,13 +213,21 @@ def build_model_summary_html(
 
 def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
     """The per-layer / per-block parameter accounting for ``descriptor``'s net,
-    with the choice-encoder input width era-routed so the totals match the
-    actual checkpoint — ``sum(p.numel())`` of the net
+    with both the choice-encoder and card-encoder input widths era-routed so the
+    totals match the actual checkpoint — ``sum(p.numel())`` of the net
     ``model.PolicyValueNet.from_model_config`` reconstitutes."""
+    from wingspan.compat import v0_1  # local: compat imports the model package
+
     arch = descriptor.architecture
+    # Pre-0.2 checkpoints have a 229-wide card encoder; use the frozen dim.
+    card_feat_in = (
+        v0_1.CARD_FEATURE_DIM_V01
+        if v0_1.uses_v0_1_card_feature_encoding(descriptor.version)
+        else encode.CARD_FEATURE_DIM
+    )
     return architecture.count_parameters(
         arch,
-        card_feat_in=encode.CARD_FEATURE_DIM,
+        card_feat_in=card_feat_in,
         trunk_in=encode.trunk_input_dim(
             descriptor.state_dim,
             arch.card_embed_dim,

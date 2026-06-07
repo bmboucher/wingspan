@@ -8,8 +8,10 @@ never config flags — and the whole package is deleted wholesale at a MAJOR bum
 
 * ``v0_0`` — the pre-0.1 choice-vector geometry (habitat stripe, 180-wide
   ``bird_id`` one-hot / setup multi-hot, no landing-slot marks).
+* ``v0_1`` — the pre-0.2 card-feature geometry (229-wide input: 23 attr dims +
+  26-wide bonus-categories multi-hot + 180 bird-identity one-hot).
 """
 
-from wingspan.compat import v0_0
+from wingspan.compat import v0_0, v0_1
 
-__all__ = ["v0_0"]
+__all__ = ["v0_0", "v0_1"]

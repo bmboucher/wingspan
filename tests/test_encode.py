@@ -541,12 +541,13 @@ def test_board_bird_food_cost_encoded():
 
 
 def test_board_bird_bonus_category_test_flags_encoded():
-    """A bird's static bonus-card qualifications (the "test" flags such as 'named
-    after a person') are encoded in its attribute vector — the multi-hot the card
-    encoder reads to learn bonus-relevant card value."""
+    """A bird's static bonus-card qualifications (the 'test' flags such as 'named
+    after a person') are encoded in its attribute vector — the 7-wide multi-hot
+    of curated intrinsic-property categories the card encoder reads.
+    Uses 'Photographer' (a kept category) to verify the bit is set."""
     _eng, birds, *_ = engine.Engine.create(seed=43)
     plain = birds[0].model_copy(update={"bonus_categories": ()})
-    tagged = birds[0].model_copy(update={"bonus_categories": ("Bird Feeder",)})
+    tagged = birds[0].model_copy(update={"bonus_categories": ("Photographer",)})
     assert not np.array_equal(
         state_encode._bird_attr_vector(plain), state_encode._bird_attr_vector(tagged)
     )

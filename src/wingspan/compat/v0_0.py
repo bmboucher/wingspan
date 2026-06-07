@@ -48,10 +48,11 @@ import numpy as np
 import torch
 
 from wingspan import architecture, cards, decisions, encode, version
+from wingspan.compat import v0_1
 from wingspan.encode import layout
 from wingspan.encode.stripes import choice as stripes_choice
 from wingspan.encode.stripes import descriptors, embed_rules
-from wingspan.model import core, mlp
+from wingspan.model import mlp
 
 if typing.TYPE_CHECKING:
     from wingspan import state
@@ -202,19 +203,20 @@ def encode_choices(
     return rows
 
 
-class PolicyValueNetV00(core.PolicyValueNet):
+class PolicyValueNetV00(v0_1.PolicyValueNetV01):
     """A :class:`~wingspan.model.core.PolicyValueNet` frozen to the v0.0 choice
     geometry, for checkpoints written before artifact version 0.1.
 
-    State-side behaviour is identical to the base net (the 0.1 reshape touched
-    only the choice vector); the three overrides keep the choice path in the
-    frozen era: rows arrive via this module's :func:`encode_choices` transform,
-    the choice encoder is sized by the pre-0.1 :func:`choice_input_dim`
-    formula, and ``_embed_choices`` slices the frozen card regions (the
-    180-wide bird one-hot / multi-hot and the board-index block at their v0.0
-    offsets). Constructed by the version-routing loaders
-    (``PolicyValueNet.from_model_config``, ``players.loaders.load_policy_net``)
-    — never by the training pipeline, which always runs the live era.
+    Inherits from :class:`~wingspan.compat.v0_1.PolicyValueNetV01` to also
+    pin the card encoder to the frozen 229-wide input — v0.0 artifacts predate
+    both the 0.1 choice reshape and the 0.2 card-feature reshape. The three
+    overrides keep the choice path in the frozen era: rows arrive via this
+    module's :func:`encode_choices` transform, the choice encoder is sized by
+    the pre-0.1 :func:`choice_input_dim` formula, and ``_embed_choices`` slices
+    the frozen card regions (the 180-wide bird one-hot / multi-hot and the
+    board-index block at their v0.0 offsets). Constructed by the
+    version-routing loaders (``PolicyValueNet.from_model_config``,
+    ``players.loaders.load_policy_net``) — never by the training pipeline.
     """
 
     def __init__(

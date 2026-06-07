@@ -16,7 +16,34 @@ Update this file in the same commit that bumps `MODEL_VERSION`.
 
 ## Changelog
 
-### v0.1 — choice-vector encoding redesign (current)
+### v0.2 — card feature vector redesign (current)
+
+**FRESH change** — reshaped the card feature vector (`CARD_FEATURE_DIM` 229 → 224)
+in three ways:
+
+1. **`bonus_categories` pruned** — trimmed from 26 dims (one per bonus card, keyed
+   to `cards.bonus_index()`) to 7 dims covering only intrinsic-property categories
+   not already expressed by other stripes: Anatomist, Backyard Birder, Cartographer,
+   Historian, Large Bird Specialist, Passerine Specialist, Photographer. Dropped:
+   state-dependent (Breeding Manager, Ecologist, Oologist, Visionary Leader),
+   food-cost duplicates (Bird Feeder, Fishery Manager, Food Web Expert, Omnivore
+   Specialist, Rodentologist, Viticulturalist), nest duplicates (Enclosure Builder,
+   Nest Box Builder, Platform Builder, Wildlife Gardener), habitat duplicates
+   (Forester, Prairie Manager, Wetland Scientist, Bird Bander), and flag duplicates
+   (Bird Counter, Falconer).
+2. **`caches_food` flag added** — 1-dim binary flag set when any power effect
+   caches food on the bird (CACHE_FOOD, GAIN_FOOD_FEEDER_MAY_CACHE,
+   ROLL_NOT_IN_FEEDER_CACHE, PINK_GAIN_FOOD_CACHE).
+3. **`power_exchange` stripe added** — 13-dim vector encoding the bird's power's
+   resource exchange, using the same slot semantics and `_EXCHANGE_SCALE` as the
+   choice-row exchange stripe.
+
+Shim: `wingspan.compat.v0_1` — `PolicyValueNetV01` (frozen 229-wide card encoder
+with v0.1 feature table), `card_feature_matrix()` (v0.1 [181, 229] feature table).
+
+Fixture set: `tests/data/compat/v0.2/` — carries `version: "0.2"` explicitly.
+
+### v0.1 — choice-vector encoding redesign
 
 **FRESH change** — reshaped choice row layout in three ways:
 

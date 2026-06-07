@@ -30,8 +30,8 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import model, version  # noqa: E402
-from wingspan.compat import v0_0  # noqa: E402
-from wingspan.training import collect, runmeta, setup_net, setup_runmeta  # noqa: E402
+from wingspan.compat import v0_0, v0_1  # noqa: E402
+from wingspan.training import collect, runmeta, setup_runmeta  # noqa: E402
 
 FIXTURE_DIR = pathlib.Path(__file__).parent / "data" / "compat" / "v0.0"
 
@@ -104,7 +104,9 @@ def test_policy_net_loads_state_dict(
 
 def test_setup_net_loads_state_dict(setup_payload: dict[str, typing.Any]):
     descriptor = setup_runmeta.read_setup_config(str(FIXTURE_DIR))
-    net = setup_net.SetupNet.from_setup_config(descriptor)
+    # v0.0 artifacts have a 229-wide card encoder (CARD_FEATURE_DIM was 229
+    # before the 0.2 change), so reconstruct via the frozen v0.1 shim.
+    net = v0_1.SetupNetV01.from_setup_config(descriptor)
     net.load_state_dict(
         typing.cast("dict[str, torch.Tensor]", setup_payload["setup_model"])
     )

@@ -210,14 +210,41 @@ def _card_attr_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
             "Set for PLAY_ADDITIONAL_BIRD and PLAY_ADDITIONAL_BIRD_HERE effects.",
         ),
         (
+            "caches_food",
+            layout._OFF_ATTR_CACHES_FOOD,
+            1,
+            "scalar",
+            "{0, 1}",
+            "Whether the bird's power includes a food-caching effect.",
+            "Set for CACHE_FOOD, GAIN_FOOD_FEEDER_MAY_CACHE, "
+            "ROLL_NOT_IN_FEEDER_CACHE, and PINK_GAIN_FOOD_CACHE.",
+        ),
+        (
             "bonus_categories",
             layout._OFF_ATTR_BONUS_CATS,
-            layout._BONUS_ID_DIM,
+            layout._BONUS_CATS_DIM,
             "multi-hot",
             "{0, 1}",
-            "Bonus cards the bird statically qualifies for.",
-            "The 'test' predicates (e.g. named after a person, wingspan "
-            "threshold), aligned to cards.bonus_index.",
+            "Curated bonus cards the bird statically qualifies for.",
+            "7 intrinsic-property categories (lexical or numeric threshold — "
+            "not state-dependent, not covered by another stripe). "
+            "Order: Anatomist, Backyard Birder, Cartographer, Historian, "
+            "Large Bird Specialist, Passerine Specialist, Photographer. "
+            "Dense 0..6 indices (independent of cards.bonus_index).",
+        ),
+        (
+            "power_exchange",
+            layout._OFF_ATTR_POWER_EX,
+            layout._EXCHANGE_DIM,
+            "vector",
+            "[0, ~1]",
+            "Resource exchange encoding what the bird's power does.",
+            "13 slots matching the choice-row exchange stripe semantics: "
+            "[cards_to_discard, food_to_pay, eggs_to_pay, food_to_gain, "
+            "eggs_to_gain, cards_to_draw, cards_to_tuck, opp_food_to_gain, "
+            "opp_eggs_to_gain, opp_cards_to_draw, opp_cards_to_tuck, "
+            f"plays_to_gain, cache_to_gain]. Normalized ÷ "
+            f"{int(layout._EXCHANGE_SCALE)}. Zero for UNIMPLEMENTED powers.",
         ),
     ]
     return tuple(

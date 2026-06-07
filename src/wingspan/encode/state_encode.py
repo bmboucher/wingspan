@@ -207,14 +207,14 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
     ``N`` half of each board/tray slot's ``(identity one-hot, attributes)``
     encoding.
 
-    Layout (``layout._BIRD_ATTR_DIM`` dims): victory points; food cost 6-vector (5
-    specific foods then wild); nest 4-one-hot (a STAR nest is a wildcard encoded
-    all-ones, NONE all-zeros); habitat multi-hot; flocking and predator flags;
-    wingspan; egg limit; power-color one-hot (NONE => all-zero); plays-another-bird
-    flag; and a 26-wide multi-hot of the bonus-card categories the bird
-    statically qualifies for (the "test" predicates such as 'named after a
-    person' or a wingspan threshold), keyed to the same ``bonus_index`` space as
-    the bonus-progress stripes."""
+    Layout (``layout._BIRD_ATTR_DIM`` dims): victory points; food cost 6-vector
+    (5 specific foods then wild); nest 4-one-hot (STAR wildcard = all-ones, NONE
+    = all-zeros); habitat multi-hot; flocking and predator flags; wingspan; egg
+    limit; power-color one-hot (NONE => all-zero); plays-another-bird flag;
+    caches-food flag (1 when any power effect caches food); 7-wide multi-hot of
+    curated bonus categories; 13-dim power-exchange vector (what the bird's
+    ability does in resource terms — same slot semantics as the choice exchange
+    stripe, normalized by ``layout._EXCHANGE_SCALE``)."""
     vec = np.zeros(layout._BIRD_ATTR_DIM, dtype=np.float32)
 
     # Victory points and the printed food cost (6-vector: 5 specific, then wild).
@@ -245,18 +245,25 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
     vec[layout._OFF_ATTR_WINGSPAN] = bird.wingspan_cm / layout._WINGSPAN_SCALE
     vec[layout._OFF_ATTR_EGG_LIMIT] = bird.egg_limit / layout._EGG_LIMIT_SCALE
 
-    # Power color (one-hot; NONE leaves all zero) and plays-another-bird flag.
+    # Power color (one-hot; NONE leaves all zero), plays-another-bird, caches-food.
     for i, color in enumerate(layout._COLORS):
         if bird.color == color:
             vec[layout._OFF_ATTR_COLOR + i] = 1.0
             break
     vec[layout._OFF_ATTR_PLAYS_BIRD] = 1.0 if bird.plays_another_bird else 0.0
+    vec[layout._OFF_ATTR_CACHES_FOOD] = 1.0 if _is_caching_bird(bird) else 0.0
 
-    # "Test" predicates: the bonus cards this bird statically qualifies for.
+    # Curated bonus categories: 7-wide multi-hot over the intrinsic-property
+    # subset. Unknown names (dropped categories) return None and are no-ops.
     for category in bird.bonus_categories:
         idx = layout._BONUS_NAME_TO_INDEX.get(category)
         if idx is not None:
             vec[layout._OFF_ATTR_BONUS_CATS + idx] = 1.0
+
+    # Power exchange: what the bird's ability does in resource terms.
+    vec[
+        layout._OFF_ATTR_POWER_EX : layout._OFF_ATTR_POWER_EX + layout._EXCHANGE_DIM
+    ] = _bird_power_exchange_vector(bird)
 
     return vec
 
@@ -304,7 +311,7 @@ def card_feature_matrix() -> np.ndarray:
 
     Row 0 is all zeros — the padding / empty-slot row (``cards.bird_index + 1`` with
     0 meaning "no card"). Row ``bird_index + 1`` is that bird's static attribute
-    vector concatenated with its identity one-hot: ``[_bird_attr_vector(bird) (49) ⊕
+    vector concatenated with its identity one-hot: ``[_bird_attr_vector(bird) (44) ⊕
     one_hot(bird_index) (180)]``. The encoder maps this fixed matrix to the shared
     ``[181, card_embed_dim]`` card table every board / tray / hand / choice slot
     looks up, so a card has exactly one representation, derived from both its
@@ -435,3 +442,165 @@ def _encode_decision_type(
     if decision is not None:
         out[layout._DECISION_TYPE_INDEX[type(decision)]] = 1.0
     return out
+
+
+#### Power-feature helpers ####
+
+# EffectKinds whose presence means the bird caches food as part of its power.
+_CACHE_EFFECT_KINDS: frozenset[cards.EffectKind] = frozenset(
+    [
+        cards.EffectKind.CACHE_FOOD,
+        cards.EffectKind.GAIN_FOOD_FEEDER_MAY_CACHE,
+        cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE,
+        cards.EffectKind.PINK_GAIN_FOOD_CACHE,
+    ]
+)
+
+
+def _is_caching_bird(bird: cards.Bird) -> bool:
+    return any(effect.kind in _CACHE_EFFECT_KINDS for effect in bird.power.effects)
+
+
+def _bird_power_exchange_vector(bird: cards.Bird) -> np.ndarray:
+    """Build the 13-dim power-exchange vector for ``bird``.
+
+    Accumulates each effect's resource contribution into the same slot layout
+    as the choice-row exchange stripe, then normalizes by ``_EXCHANGE_SCALE``.
+    UNIMPLEMENTED and unknown effects contribute zero (correct default)."""
+    vec = np.zeros(layout._EXCHANGE_DIM, dtype=np.float32)
+    for effect in bird.power.effects:
+        _accumulate_effect_exchange(vec, effect)
+    return vec / layout._EXCHANGE_SCALE
+
+
+def _accumulate_effect_exchange(vec: np.ndarray, effect: cards.Effect) -> None:
+    """Add one effect's resource exchange to ``vec`` (unnormalized).
+
+    Each EffectKind maps to zero or more exchange slots; compound kinds (e.g.
+    TUCK_FROM_HAND_THEN_DRAW) set both cost and gain slots. Pink reactive kinds
+    use the self-gain slots (the reacting player's perspective). Conditional
+    or partial-probability effects (PREDATOR_HUNT, FEWEST_*, ROLL_NOT_IN_FEEDER_*)
+    are mapped by their nominal exchange — the model learns to discount uncertain
+    outcomes via training, not by zeroing the signal here."""
+    amount = effect.amount
+    kind = effect.kind
+
+    # Food gains (from supply, feeder, die, or compound tuck-then-gain)
+    if kind in (
+        cards.EffectKind.GAIN_FOOD_SUPPLY,
+        cards.EffectKind.GAIN_FOOD_BIRDFEEDER,
+        cards.EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE,
+        cards.EffectKind.GAIN_DIE_ANY,
+        cards.EffectKind.GAIN_ALL_FOOD_FEEDER,
+        cards.EffectKind.FEWEST_FOREST_GAINS_DIE,
+        cards.EffectKind.FEWEST_WETLAND_DRAWS_CARD,
+    ):
+        vec[layout._EXCHANGE_FOOD_TO_GAIN] += amount
+
+    elif kind in (
+        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE,
+    ):
+        vec[layout._EXCHANGE_CARDS_TO_DISCARD] += 1
+        vec[layout._EXCHANGE_FOOD_TO_GAIN] += amount
+
+    # Cache gains (food cached on the bird itself)
+    elif kind in (
+        cards.EffectKind.CACHE_FOOD,
+        cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE,
+        cards.EffectKind.GAIN_FOOD_FEEDER_MAY_CACHE,
+        cards.EffectKind.PINK_GAIN_FOOD_CACHE,
+    ):
+        vec[layout._EXCHANGE_CACHE_TO_GAIN] += amount
+
+    # Egg gains
+    elif kind in (
+        cards.EffectKind.LAY_EGG_ON_THIS,
+        cards.EffectKind.LAY_EGG_ANY,
+    ):
+        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
+
+    elif kind in (
+        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ON_THIS,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ANY,
+    ):
+        vec[layout._EXCHANGE_CARDS_TO_DISCARD] += 1
+        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
+
+    # Card draws
+    elif kind in (
+        cards.EffectKind.DRAW_CARDS,
+        cards.EffectKind.DRAW_FROM_TRAY_ALL,
+        cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT,
+        cards.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT,
+    ):
+        vec[layout._EXCHANGE_CARDS_TO_DRAW] += amount
+
+    elif kind == cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW:
+        vec[layout._EXCHANGE_CARDS_TO_DISCARD] += 1
+        vec[layout._EXCHANGE_CARDS_TO_DRAW] += amount
+
+    # Cards tucked (from deck onto a bird)
+    elif kind in (
+        cards.EffectKind.TUCK_FROM_DECK,
+        cards.EffectKind.TUCK_FROM_DECK_PAID,
+    ):
+        if kind == cards.EffectKind.TUCK_FROM_DECK_PAID:
+            vec[layout._EXCHANGE_EGGS_TO_PAY] += 1
+        vec[layout._EXCHANGE_CARDS_TO_TUCK] += amount
+
+    # Cards discarded from hand (tuck-from-hand as a cost with no secondary)
+    elif kind == cards.EffectKind.TUCK_FROM_HAND:
+        vec[layout._EXCHANGE_CARDS_TO_DISCARD] += 1
+
+    # Egg-cost exchanges
+    elif kind == cards.EffectKind.DISCARD_EGG_FOR_CARDS:
+        vec[layout._EXCHANGE_EGGS_TO_PAY] += 1
+        vec[layout._EXCHANGE_CARDS_TO_DRAW] += amount
+
+    elif kind == cards.EffectKind.DISCARD_EGG_FOR_WILD:
+        vec[layout._EXCHANGE_EGGS_TO_PAY] += 1
+        vec[layout._EXCHANGE_FOOD_TO_GAIN] += 1
+
+    # Wild food trade (net zero food but signals a conversion power)
+    elif kind == cards.EffectKind.TRADE_WILD_FOOD:
+        vec[layout._EXCHANGE_FOOD_TO_PAY] += 1
+        vec[layout._EXCHANGE_FOOD_TO_GAIN] += 1
+
+    # Extra bird plays
+    elif kind in (
+        cards.EffectKind.PLAY_ADDITIONAL_BIRD,
+        cards.EffectKind.PLAY_ADDITIONAL_BIRD_HERE,
+    ):
+        vec[layout._EXCHANGE_PLAYS_TO_GAIN] += 1
+
+    # All-players effects: self-gain + opponent-gain
+    elif kind == cards.EffectKind.ALL_PLAYERS_GAIN_FOOD:
+        vec[layout._EXCHANGE_FOOD_TO_GAIN] += amount
+        vec[layout._EXCHANGE_OPP_FOOD_TO_GAIN] += amount
+
+    elif kind == cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER:
+        vec[layout._EXCHANGE_FOOD_TO_GAIN] += 1
+        vec[layout._EXCHANGE_OPP_FOOD_TO_GAIN] += 1
+
+    elif kind == cards.EffectKind.ALL_PLAYERS_DRAW:
+        vec[layout._EXCHANGE_CARDS_TO_DRAW] += amount
+        vec[layout._EXCHANGE_OPP_CARDS_TO_DRAW] += amount
+
+    elif kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST:
+        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
+        vec[layout._EXCHANGE_OPP_EGGS_TO_GAIN] += amount
+
+    elif kind == cards.EffectKind.LAY_EGG_ALL_NEST:
+        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
+        vec[layout._EXCHANGE_OPP_EGGS_TO_GAIN] += amount
+
+    # Pink reactive effects (reacting player's gain)
+    elif kind == cards.EffectKind.PINK_PLAY_BIRD_GAIN:
+        vec[layout._EXCHANGE_FOOD_TO_GAIN] += amount
+
+    elif kind == cards.EffectKind.PINK_PLAY_BIRD_TUCK:
+        vec[layout._EXCHANGE_CARDS_TO_TUCK] += amount
+
+    elif kind == cards.EffectKind.PINK_LAY_EGG_ON_NEST:
+        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount

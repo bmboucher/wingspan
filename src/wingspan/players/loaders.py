@@ -10,7 +10,8 @@ Two sanctioned, self-describing load paths exist and both live here:
   also what run discovery checks without unpickling torch payloads).
 
 Both enforce the hard artifact-version check and route pre-0.1 artifacts to
-the frozen ``compat.v0_0`` era. :func:`load_setup_net` loads the optional
+the frozen ``compat.v0_0`` era, and 0.1 artifacts to the frozen ``compat.v0_1``
+era. :func:`load_setup_net` loads the optional
 separately-trained setup model from a run directory. The encoding-key helpers
 (:func:`encoding_key`, :func:`descriptor_encoding_key`,
 :func:`expected_encoding_key`) define the compatibility signature both paths
@@ -25,7 +26,7 @@ import typing
 import torch
 
 from wingspan import decisions, encode, model, version
-from wingspan.compat import v0_0
+from wingspan.compat import v0_0, v0_1
 from wingspan.training import artifacts, config, runmeta
 from wingspan.training import setup_net as setup_net_module
 from wingspan.training import setup_runmeta
@@ -68,13 +69,17 @@ def load_policy_net(
     # encoding layout (state/choice feature dims and the family head order),
     # since freshly-encoded states are fed into the net at inference. A net
     # trained with a different topology is still perfectly usable here.
-    # Pre-0.1 payloads route to the frozen-era compat net, whose encoding the
-    # agent then uses automatically (``net.encode_state`` / ``encode_choices``).
+    # Version routing selects the right compat subclass so the net's card-encoder
+    # or choice-encoder geometry matches its weights automatically.
     saved = config.TrainConfig.model_validate(payload["config"])
     if v0_0.uses_v0_0_choice_encoding(artifact_version):
         net: model.PolicyValueNet = v0_0.PolicyValueNetV00(
             arch=saved.arch, spec=saved.encoding_spec
         ).to(device)
+    elif v0_1.uses_v0_1_card_feature_encoding(artifact_version):
+        net = v0_1.PolicyValueNetV01(arch=saved.arch, spec=saved.encoding_spec).to(
+            device
+        )
     else:
         current = config.TrainConfig()
         if encoding_key(saved) != encoding_key(current):
@@ -138,11 +143,18 @@ def load_setup_net(
         torch.load(ckpt_path, map_location=device, weights_only=False),
     )
     # Payloads that predate the version stamp read as the pre-versioning era.
+    artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
     version.check_artifact_compatible(
-        str(payload.get("version", version.PRE_VERSIONING_VERSION)),
+        artifact_version,
         what=f"setup checkpoint at {ckpt_path}",
     )
-    net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
+    # Pre-0.2 setup nets have a 229-wide card encoder; route to the frozen shim.
+    if v0_1.uses_v0_1_card_feature_encoding(artifact_version):
+        net_instance: setup_net_module.SetupNet = v0_1.SetupNetV01.from_setup_config(
+            descriptor
+        )
+    else:
+        net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
     net_instance.load_state_dict(payload["setup_model"])
     net_instance.eval()
     return net_instance.to(device)

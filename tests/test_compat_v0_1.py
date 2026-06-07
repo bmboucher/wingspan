@@ -3,10 +3,12 @@
 Loads the real run snapshot committed under ``tests/data/compat/v0.1/`` (see
 its README for provenance; the checkpoints are gzip-compressed and LFS-tracked)
 through the production loaders and proves the artifact-version contract:
-same-MAJOR artifacts must load and play games. Unlike the v0.0 set, these
-files carry an explicit ``version: "0.1"`` stamp, so every load here exercises
-the stamped-version path — and the nets reconstruct as the *live* era (the
-choice-vector reshape that 0.1 introduced), never the ``compat.v0_0`` shim.
+same-MAJOR artifacts must load and play games. These files carry an explicit
+``version: "0.1"`` stamp; since artifact version 0.2 reshaped the card feature
+vector (CARD_FEATURE_DIM 229 → 224), v0.1 nets now reconstruct as
+``compat.v0_1.PolicyValueNetV01`` (frozen 229-wide card encoder) — not as the
+live era's net. Choice encoding and state encoding are unchanged between 0.1 and
+0.2, so game play still uses the live encoders for those paths.
 
 Heavy (a ~12 MB checkpoint load plus a full self-play game), so the nets are
 loaded once per module and the file is front-loaded via ``_HEAVY_TEST_FILES``.
@@ -28,8 +30,8 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import encode, model, version  # noqa: E402
-from wingspan.compat import v0_0  # noqa: E402
-from wingspan.training import collect, runmeta, setup_net, setup_runmeta  # noqa: E402
+from wingspan.compat import v0_0, v0_1  # noqa: E402
+from wingspan.training import collect, runmeta, setup_runmeta  # noqa: E402
 
 FIXTURE_DIR = pathlib.Path(__file__).parent / "data" / "compat" / "v0.1"
 
@@ -83,10 +85,12 @@ def test_setup_config_carries_the_explicit_version():
     version.check_artifact_compatible(descriptor.version, what="v0.1 fixture")
 
 
-def test_v0_1_net_is_the_live_era(loaded_net: model.PolicyValueNet):
-    """A 0.1 descriptor reconstructs as the live net at the live choice dims —
-    the compat shim is exclusively for artifacts older than the reshape."""
+def test_v0_1_net_uses_compat_shim(loaded_net: model.PolicyValueNet):
+    """A 0.1 descriptor reconstructs as PolicyValueNetV01 (frozen 229-wide card
+    encoder) — not the live net (which has a 224-wide card encoder since 0.2).
+    Choice encoding is unchanged between eras so choice_dim still matches live."""
     assert not isinstance(loaded_net, v0_0.PolicyValueNetV00)
+    assert isinstance(loaded_net, v0_1.PolicyValueNetV01)
     assert loaded_net.choice_dim == encode.choice_feature_dim(loaded_net.spec)
 
 
@@ -107,7 +111,9 @@ def test_policy_net_loads_state_dict(
 
 def test_setup_net_loads_state_dict(setup_payload: dict[str, typing.Any]):
     descriptor = setup_runmeta.read_setup_config(str(FIXTURE_DIR))
-    net = setup_net.SetupNet.from_setup_config(descriptor)
+    # v0.1 artifacts have a 229-wide card encoder (CARD_FEATURE_DIM changed in
+    # 0.2), so reconstruct via the frozen shim.
+    net = v0_1.SetupNetV01.from_setup_config(descriptor)
     net.load_state_dict(
         typing.cast("dict[str, torch.Tensor]", setup_payload["setup_model"])
     )

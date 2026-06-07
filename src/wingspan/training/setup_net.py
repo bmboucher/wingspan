@@ -87,15 +87,9 @@ class SetupNet(nn.Module):
         # The frozen single-card embedder copy: recipe identical to the main
         # net's card encoder so its state_dict syncs exactly. Frozen always —
         # the main net trains it; this net only reads its table.
-        self.card_encoder, _ = mlp.build_body(
-            encode.CARD_FEATURE_DIM,
-            main_arch.card_encoder_layers + (main_arch.card_embed_dim,),
-            activation=main_arch.activation,
-            dropout=main_arch.dropout,
-            layernorm=main_arch.layernorm,
-            final_activation=main_arch.encoder_final_activation,
-        )
-        self.card_encoder.requires_grad_(False)
+        # Delegated to _build_card_encoder so compat subclasses can pin a
+        # previous CARD_FEATURE_DIM without touching any other block.
+        self._build_card_encoder(main_arch)
 
         # The multi-card set embedder copy (the main net's hand encoder). Frozen
         # + synced when the main architecture actually has one; otherwise this is
@@ -115,14 +109,6 @@ class SetupNet(nn.Module):
 
         # Constant card tables (``persistent=False`` keeps them out of the
         # checkpoint / broadcast payloads — they rebuild from the catalog).
-        self.register_buffer(
-            "card_features",
-            torch.tensor(encode.card_feature_matrix(), dtype=torch.float32),
-            persistent=False,
-        )
-        pad_mask = torch.ones(encode.HAND_MULTIHOT_DIM + 1, 1)
-        pad_mask[0] = 0.0
-        self.register_buffer("card_pad_mask", pad_mask, persistent=False)
         self.register_buffer(
             "card_summary_matrix",
             torch.tensor(encode.card_summary_matrix(), dtype=torch.float32),
@@ -151,6 +137,30 @@ class SetupNet(nn.Module):
             if arch.use_policy_head
             else None
         )
+
+    def _build_card_encoder(self, main_arch: architecture.ModelArchitecture) -> None:
+        """Build the frozen card encoder and register ``card_features`` / ``card_pad_mask``.
+
+        Overridden by compat subclasses (e.g. ``compat.v0_1.SetupNetV01``) to
+        pin the card-encoder input width and feature table to a prior artifact
+        era's geometry without touching any other block."""
+        self.card_encoder, _ = mlp.build_body(
+            encode.CARD_FEATURE_DIM,
+            main_arch.card_encoder_layers + (main_arch.card_embed_dim,),
+            activation=main_arch.activation,
+            dropout=main_arch.dropout,
+            layernorm=main_arch.layernorm,
+            final_activation=main_arch.encoder_final_activation,
+        )
+        self.card_encoder.requires_grad_(False)
+        self.register_buffer(
+            "card_features",
+            torch.tensor(encode.card_feature_matrix(), dtype=torch.float32),
+            persistent=False,
+        )
+        pad_mask = torch.ones(encode.HAND_MULTIHOT_DIM + 1, 1)
+        pad_mask[0] = 0.0
+        self.register_buffer("card_pad_mask", pad_mask, persistent=False)
 
     @classmethod
     def from_setup_config(cls, descriptor: "setup_runmeta.SetupConfig") -> "SetupNet":

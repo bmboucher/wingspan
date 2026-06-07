@@ -118,17 +118,20 @@ class PolicyValueNet(nn.Module):
         """Rebuild a net matching a saved ``model_config.json`` descriptor — its
         full topology plus the encoding dims and family-head count it was trained
         under. The returned net has fresh weights in the saved shape, ready for
-        ``load_state_dict`` from the run's checkpoint. Descriptors written
-        before the 0.1 choice-vector reshape come back as the frozen-era
-        ``compat.v0_0.PolicyValueNetV00``, so every caller gets a net whose
-        choice geometry matches its weights without consulting the version."""
-        from wingspan.compat import v0_0  # local: compat subclasses this net
+        ``load_state_dict`` from the run's checkpoint.
 
-        net_cls: type[PolicyValueNet] = (
-            v0_0.PolicyValueNetV00
-            if v0_0.uses_v0_0_choice_encoding(descriptor.version)
-            else cls
-        )
+        The version routing selects the right compat subclass so every caller
+        gets a net whose geometry matches its weights without consulting the
+        version: pre-0.1 → ``v0_0.PolicyValueNetV00`` (frozen choice encoding);
+        0.1 → ``v0_1.PolicyValueNetV01`` (frozen 229-wide card encoder)."""
+        from wingspan.compat import v0_0, v0_1  # local: compat subclasses this net
+
+        if v0_0.uses_v0_0_choice_encoding(descriptor.version):
+            net_cls: type[PolicyValueNet] = v0_0.PolicyValueNetV00
+        elif v0_1.uses_v0_1_card_feature_encoding(descriptor.version):
+            net_cls = v0_1.PolicyValueNetV01
+        else:
+            net_cls = cls
         return net_cls(
             state_dim=descriptor.state_dim,
             choice_dim=descriptor.choice_dim,
