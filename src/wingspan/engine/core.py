@@ -148,6 +148,7 @@ class Engine:
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
         eng.log_section("=== GAME START ===")
         eng.instrumentation.game_start(engine=eng)
+        log_format.log_game_setup(eng)
         eng._setup_phase(agents, defer_bonus=split_setup_bonus)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
@@ -174,6 +175,7 @@ class Engine:
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
         eng.log_section("=== GAME START ===")
         eng.instrumentation.game_start(engine=eng)
+        log_format.log_game_setup(eng)
         eng._setup_phase_fixed(choose_setups)
         for round_idx in range(4):
             eng._play_round(round_idx, agents)
@@ -402,6 +404,7 @@ class Engine:
                 self.log_section(
                     f"=== SETUP: {player.name} CHOOSING BIRDS, FOOD, AND BONUS CARD ==="
                 )
+            log_format.log_dealt_hand(self, player, dealt_cards)
             self._resolve_setup_choice(
                 player, agents, dealt_cards, dealt_bonus, defer_bonus=defer_bonus
             )
@@ -422,6 +425,7 @@ class Engine:
             dealt_cards, dealt_bonus = dealt[player.id]
             sc = keeps[player.id].to_setup_choice()
             self.log_section(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
+            log_format.log_dealt_hand(self, player, dealt_cards)
             self._apply_setup_choice(player, dealt_cards, dealt_bonus, sc)
             self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, sc)
             self._log_setup_result(player)

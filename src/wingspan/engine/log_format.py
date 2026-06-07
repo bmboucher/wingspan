@@ -3,6 +3,9 @@
 Provides :func:`log_turn_summary`, called once at the top of every turn from
 ``engine.core._take_turn``, to print a detailed snapshot of the game state so
 a reader of the log does not need to reconstruct context from the event stream.
+
+Also provides :func:`log_game_setup` (called once after ``=== GAME START ===``)
+and :func:`log_dealt_hand` (called once per player inside each SETUP block).
 """
 
 from __future__ import annotations
@@ -23,6 +26,41 @@ _SCORE_HEADERS = ["Birds", "Eggs", "Tuck", "Cache", "Bonus", "Goals", "TOTAL"]
 # Column headers for the food table (aligned to cards.ALL_FOODS order), plus
 # the birdfeeder's inv/seed choice-face column shown on the Feeder row.
 _FOOD_HEADERS = ["Inv", "Seed", "Fish", "Berry", "Rod", "Inv/Seed"]
+
+
+def log_game_setup(engine: "core.Engine") -> None:
+    """Emit the initial shared board state once, immediately after GAME START.
+
+    Logs the face-up tray (3 birds with full stat + power lines), the
+    birdfeeder die state on a single line, and all four round goals with their
+    2-player VP payouts."""
+    gs = engine.state
+
+    _log_tray(engine, gs)
+    engine.log("")
+    engine.log(f"Birdfeeder: {gs.birdfeeder.format()}")
+    engine.log("")
+
+    # All four round goals with their per-round 2P payouts (1st/2nd VP).
+    engine.log("Round Goals:")
+    for round_idx, (goal, payout) in enumerate(
+        zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS_2P)
+    ):
+        first, second = payout
+        engine.log(f"  Round {round_idx + 1} ({first}/{second} VP): {goal.description}")
+
+
+def log_dealt_hand(
+    engine: "core.Engine", player: state.Player, dealt_cards: list[cards.Bird]
+) -> None:
+    """Log a player's full dealt hand at the start of their SETUP block.
+
+    Shows every dealt bird (including cards the player will later discard) with
+    the same stat + power text format used elsewhere in the log."""
+    engine.log(f"Dealt hand ({len(dealt_cards)}):")
+    for bird in dealt_cards:
+        bird_text = display.format_bird_full(bird, indent="        ")
+        _log_multiline(engine, bird_text, indent="  ")
 
 
 def log_turn_summary(engine: "core.Engine") -> None:
@@ -97,7 +135,7 @@ def _log_tray(engine: "core.Engine", gs: state.GameState) -> None:
 #### Score + food tables ####
 
 
-def _score_row(player: state.Player) -> list[int]:
+def _score_row(player: state.Player) -> list[int | str]:
     """Compute the 7 score columns for one player."""
     bird_pts = sum(pb.bird.points for row in player.board.values() for pb in row)
     bonus_pts = sum(scoring.bonus_score(player, bc) for bc in player.bonus_cards)
@@ -162,8 +200,7 @@ def _table_lines(
     )
     header_line = f"{''.ljust(name_width)} │ {header_cells}"
     data_lines = [
-        _format_row(row_labels[row_idx], rows[row_idx])
-        for row_idx in range(len(rows))
+        _format_row(row_labels[row_idx], rows[row_idx]) for row_idx in range(len(rows))
     ]
     return [header_line] + data_lines
 
