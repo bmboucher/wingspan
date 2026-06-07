@@ -163,7 +163,9 @@ def build_setup_net(
     synced from the main net and never stepped by this optimizer.
     """
     net = setup_net.SetupNet(
-        arch=training_loop.config.setup_arch, main_arch=training_loop.config.arch
+        encoding=training_loop.config.setup_encoding,
+        arch=training_loop.config.setup_arch,
+        main_arch=training_loop.config.arch,
     ).to(training_loop.device)
     optimizer = optim.Adam(
         [param for param in net.parameters() if param.requires_grad],
