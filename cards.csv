@@ -1,0 +1,181 @@
+name,power_text,points,food_cost_invertebrate,food_cost_seed,food_cost_fish,food_cost_fruit,food_cost_rodent,food_cost_wild,nest_bowl,nest_cavity,nest_ground,nest_platform,habitat_forest,habitat_grassland,habitat_wetland,flocking,predator,wingspan,egg_limit,color_brown,color_white,color_pink,color_yellow,plays_another_bird,caches_food,bonus_anatomist,bonus_backyard_birder,bonus_cartographer,bonus_historian,bonus_large_bird_specialist,bonus_passerine_specialist,bonus_photographer,px_cards_to_discard,px_food_to_pay,px_eggs_to_pay,px_food_to_gain,px_eggs_to_gain,px_cards_to_draw,px_cards_to_tuck,px_opp_food_to_gain,px_opp_eggs_to_gain,px_opp_cards_to_draw,px_opp_cards_to_tuck,px_plays_to_gain,px_cache_to_gain
+Acorn Woodpecker,"Gain 1 seed from the birdfeeder, if available. You may cache it on this bird.",5,0,3,0,0,0,0,0,1,0,0,1,0,0,0,0,46,4,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+American Avocet,"When another player takes the “lay eggs” action, lay 1 egg on another bird with a ground nest.",6,2,1,0,0,0,0,0,0,1,0,0,0,1,0,0,79,2,0,0,1,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+American Bittern,Player(s) with the fewest birds in their wetland draw 1 card.,7,1,0,1,0,1,0,0,0,0,1,0,0,1,0,0,107,2,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+American Coot,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",3,0,1,0,0,0,1,0,0,0,1,0,0,1,1,0,61,5,1,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0
+American Crow,Discard 1 egg from any of your other birds to gain 1 wild from the supply.,4,0,0,0,0,0,1,0,0,0,1,1,1,1,0,0,99,2,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0
+American Goldfinch,Gain 3 seed from the supply.,3,0,2,0,0,0,0,1,0,0,0,0,1,0,0,0,23,3,0,1,0,0,0,0,0,1,1,0,0,1,1,0,0,0,3,0,0,0,0,0,0,0,0,0
+American Kestrel,"Roll all dice not in birdfeeder. If any are rodent, cache 1 rodent from the supply on this bird.",5,1,0,0,0,1,0,0,1,0,0,0,1,0,0,1,56,3,1,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+American Oystercatcher,"Draw card equal to the number of players +1. Starting with you and proceeding clockwise, each player selects 1 of those cards and places it in their hand. You keep the extra card.",5,2,0,0,0,0,0,0,0,1,0,0,0,1,0,0,81,2,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+American Redstart,Gain 1 die from the birdfeeder.,4,1,0,0,1,0,0,1,0,0,0,1,0,0,0,0,20,2,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0
+American Robin,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",1,1,0,0,1,0,0,1,0,0,0,1,1,0,1,0,43,4,1,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0
+American White Pelican,Discard 1 fish to tuck 2 card from the deck behind this bird.,5,0,0,2,0,0,0,0,0,1,0,0,0,1,1,0,274,1,1,0,0,0,0,0,0,0,1,0,1,0,1,0,0,1,0,0,0,2,0,0,0,0,0,0
+American Woodcock,,9,2,1,0,0,0,0,0,0,1,0,1,1,0,0,0,46,2,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Anhinga,"Roll all dice not in birdfeeder. If any are fish, cache 1 fish from the supply on this bird.",6,0,0,2,0,0,0,0,0,0,1,0,0,1,0,1,114,2,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Anna's Hummingbird,"Each player gains 1 die from the birdfeeder, starting with the player of your choice.",4,0,0,0,0,0,1,1,0,0,0,1,1,1,0,0,13,2,1,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0
+Ash-Throated Flycatcher,Lay 1 egg on each of your birds with a cavity nest.,4,2,0,0,1,0,0,0,1,0,0,0,1,0,0,0,30,4,0,1,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0,0,1,0,0,0,0
+Atlantic Puffin,Draw 2 new bonus cards and keep 1.,8,0,0,3,0,0,0,1,1,1,1,0,0,1,0,0,53,1,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Baird's Sparrow,Lay 1 egg on any bird.,3,1,1,0,0,0,0,0,0,1,0,0,1,0,0,0,23,2,1,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0
+Bald Eagle,Gain all fish that are in the birdfeeder.,9,0,0,2,0,1,0,0,0,0,1,0,0,1,0,0,203,1,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Baltimore Oriole,All players gain 1 fruit from the supply.,9,1,0,0,2,0,0,1,1,1,1,1,0,0,0,0,30,2,1,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0
+Barn Owl,"Roll all dice not in birdfeeder. If any are rodent, cache 1 rodent from the supply on this bird.",5,0,0,0,0,2,0,0,1,0,0,1,1,1,0,1,107,4,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Barn Swallow,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",1,1,0,0,0,0,0,1,1,1,1,0,1,1,1,0,38,3,1,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0
+Barred Owl,"Look at a card from the deck. If less than 75cm, tuck it behind this bird. If not, discard it.",3,0,0,0,0,1,0,0,1,0,0,1,0,0,0,1,107,2,1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Barrow's Goldeneye,"When another player takes the “lay eggs” action, lay 1 egg on another bird with a cavity nest.",5,1,1,1,0,0,0,0,1,0,0,0,0,1,0,0,71,4,0,0,1,0,0,0,1,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Bell's Vireo,Draw 2 new bonus cards and keep 1.,4,2,0,0,0,0,0,1,1,1,1,1,1,0,0,0,18,2,0,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Belted Kingfisher,"When another player plays a bird in their wetland, gain 1 fish from the supply.",4,0,0,1,0,0,1,1,1,1,1,0,0,1,0,0,53,4,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0
+Bewick's Wren,"If this bird is to the right of all other birds in its habitat, move it to another habitat.",4,2,1,0,0,0,0,0,1,0,0,1,1,1,0,0,18,3,1,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Black Skimmer,"Roll all dice not in birdfeeder. If any are fish, cache 1 fish from the supply on this bird.",6,0,0,2,0,0,0,0,0,1,0,0,0,1,0,1,112,2,1,0,0,0,0,1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+Black Tern,"Draw 1 card. If you do, discard 1 card from your hand at the end of your turn.",4,1,0,1,0,0,0,1,1,1,1,0,0,1,0,0,61,2,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0
+Black Vulture,"When another player's predator succeeds, gain 1 die from the birdfeeder.",2,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,150,1,0,0,1,0,0,0,0,1,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Black-Bellied Whistling-Duck,Discard 1 seed to tuck 2 card from the deck behind this bird.,2,0,2,0,0,0,0,0,1,0,0,0,0,1,1,0,76,5,1,0,0,0,0,0,1,1,0,0,1,0,1,0,0,1,0,0,0,2,0,0,0,0,0,0
+Black-Billed Magpie,"When another player's predator succeeds, gain 1 die from the birdfeeder.",3,0,0,0,0,0,2,1,1,1,1,0,1,0,0,0,64,3,0,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Black-Chinned Hummingbird,All players gain 1 fruit from the supply.,4,0,0,0,0,0,1,1,0,0,0,1,1,1,0,0,8,2,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,0,0,1,0,0,0,0,0
+Black-Crowned Night-Heron,Discard 1 egg from any of your other birds to gain 1 wild from the supply.,9,1,0,1,0,1,0,0,0,0,1,0,0,1,0,0,112,2,1,0,0,0,0,0,1,0,0,0,1,0,1,0,0,1,1,0,0,0,0,0,0,0,0,0
+Black-Necked Stilt,Draw 2 card.,4,2,0,0,0,0,0,0,0,1,0,0,0,1,0,0,74,2,0,1,0,0,0,0,1,0,0,0,1,0,1,0,0,0,0,0,2,0,0,0,0,0,0,0
+Blue Grosbeak,"If this bird is to the right of all other birds in its habitat, move it to another habitat.",4,1,2,0,0,0,0,1,0,0,0,1,1,1,0,0,28,3,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Blue Jay,"Gain 1 seed from the birdfeeder, if available. You may cache it on this bird.",3,0,1,0,0,0,1,1,0,0,0,1,0,0,0,0,41,2,1,0,0,0,0,1,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+Blue-Gray Gnatcatcher,Gain 1 invertebrate from the supply.,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,15,3,1,0,0,0,0,0,0,1,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0
+Blue-Winged Warbler,,8,2,0,0,0,0,0,1,0,0,0,1,1,0,0,0,20,2,0,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Bobolink,Lay 1 egg on each of your birds with a ground nest.,4,1,2,0,0,0,0,0,0,1,0,0,1,0,0,0,30,3,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0
+Brant,Draw the 3 face-up card in the bird tray.,3,0,1,0,0,0,1,0,0,1,0,0,0,1,0,0,114,2,0,1,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0
+Brewer's Blackbird,"Tuck 1 card from your hand behind this bird. If you do, you may also lay 1 egg on this bird.",3,0,1,0,0,0,1,1,0,0,0,0,1,0,1,0,41,3,1,0,0,0,0,0,0,1,0,1,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0
+Broad-Winged Hawk,"Roll all dice not in birdfeeder. If any are rodent, cache 1 rodent from the supply on this bird.",4,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,85,2,1,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Bronzed Cowbird,"When another player takes the “lay eggs” action, lay 1 egg on a bird with a bowl nest.",5,1,1,0,0,0,0,0,0,0,0,0,1,0,0,0,36,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Brown Pelican,Gain 3 fish from the supply.,4,0,0,2,0,0,0,0,0,0,1,0,0,1,0,0,201,2,0,1,0,0,0,0,0,0,0,0,1,0,1,0,0,0,3,0,0,0,0,0,0,0,0,0
+Brown-Headed Cowbird,"When another player takes the “lay eggs” action, lay 1 egg on a bird with a bowl nest.",3,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,30,0,0,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Burrowing Owl,"Roll all dice not in birdfeeder. If any are rodent, cache 1 rodent from the supply on this bird.",5,1,0,0,0,1,0,1,1,1,1,0,1,0,0,1,53,4,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Bushtit,"Tuck 1 card from your hand behind this bird. If you do, you may also lay 1 egg on this bird.",2,1,1,0,0,0,0,1,1,1,1,1,1,1,1,0,15,5,1,0,0,0,0,0,0,1,0,0,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0
+California Condor,Draw 2 new bonus cards and keep 1.,1,0,0,0,0,0,0,0,0,1,0,1,1,1,0,0,277,1,0,1,0,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+California Quail,Lay 1 egg on this bird.,3,1,2,0,0,0,0,0,0,1,0,1,1,0,0,0,36,6,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0
+Canada Goose,Discard 1 seed to tuck 2 card from the deck behind this bird.,3,0,2,0,0,0,0,0,0,1,0,0,1,1,1,0,132,3,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,0,0,0,2,0,0,0,0,0,0
+Canvasback,All players draw 1 card from the deck.,4,0,1,0,0,0,1,1,1,1,1,0,0,1,0,0,82,4,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0
+Carolina Chickadee,Cache 1 seed from the supply on this bird.,2,1,1,0,0,0,0,0,1,0,0,1,0,0,0,0,20,3,1,0,0,0,0,1,0,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Carolina Wren,Draw 2 card.,1,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0,20,5,0,1,0,0,0,0,0,1,1,0,0,1,0,0,0,0,0,0,2,0,0,0,0,0,0,0
+Cassin's Finch,Draw 2 new bonus cards and keep 1.,4,0,1,0,1,0,0,1,0,0,0,1,0,0,0,0,30,3,0,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Cassin's Sparrow,Lay 1 egg on any bird.,3,1,1,0,0,0,0,0,0,1,0,0,1,0,0,0,20,2,1,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0
+Cedar Waxwing,"Tuck 1 card from your hand behind this bird. If you do, gain 1 fruit from the supply.",3,0,0,0,2,0,0,1,0,0,0,1,1,0,1,0,25,3,1,0,0,0,0,0,1,1,0,0,0,1,0,1,0,0,1,0,0,0,0,0,0,0,0,0
+Cerulean Warbler,Draw 2 new bonus cards and keep 1.,4,1,1,0,0,0,0,1,0,0,0,1,0,0,0,0,20,2,0,1,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Chestnut-Collared Longspur,Draw 2 new bonus cards and keep 1.,5,1,2,0,0,0,0,0,0,1,0,0,1,0,0,0,25,4,0,1,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Chihuahuan Raven,Discard 1 egg from any of your other birds to gain 2 wild from the supply.,4,0,0,0,0,1,2,0,0,0,1,0,1,0,0,0,112,3,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0
+Chimney Swift,"If this bird is to the right of all other birds in its habitat, move it to another habitat.",3,2,0,0,0,0,0,1,1,1,1,1,1,1,0,0,36,2,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Chipping Sparrow,Lay 1 egg on any bird.,1,1,1,0,0,0,0,1,0,0,0,1,1,0,0,0,23,3,1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0
+Clark's Grebe,"Draw 1 card. If you do, discard 1 card from your hand at the end of your turn.",5,0,0,1,0,0,0,1,1,1,1,0,0,1,0,0,61,2,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0
+Clark's Nutcracker,"Gain 1 seed from the birdfeeder, if available. You may cache it on this bird.",5,0,2,0,0,0,1,0,0,0,1,1,0,0,0,0,61,2,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Common Grackle,"Tuck 1 card from your hand behind this bird. If you do, you may also lay 1 egg on this bird.",3,0,1,0,0,0,1,1,0,0,0,1,1,1,1,0,43,3,1,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0
+Common Loon,Player(s) with the fewest birds in their wetland draw 1 card.,6,0,0,1,0,0,1,0,0,1,0,0,0,1,0,0,117,1,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Common Merganser,"Roll all dice not in birdfeeder. If any are fish, cache 1 fish from the supply on this bird.",5,0,0,1,0,0,1,0,1,0,0,0,0,1,0,1,86,4,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Common Nighthawk,"If this bird is to the right of all other birds in its habitat, move it to another habitat.",3,2,0,0,0,0,0,0,0,1,0,1,1,1,0,0,56,2,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Common Raven,Discard 1 egg from any of your other birds to gain 2 wild from the supply.,5,0,0,0,0,1,2,0,0,0,1,1,1,1,0,0,135,2,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0
+Common Yellowthroat,"Draw 2 card. If you do, discard 1 card from your hand at the end of your turn.",1,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,18,4,1,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,2,0,0,0,0,0,0,0
+Cooper's Hawk,"Look at a card from the deck. If less than 75cm, tuck it behind this bird. If not, discard it.",3,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,79,2,1,0,0,0,0,0,0,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Dark-Eyed Junco,"Tuck 1 card from your hand behind this bird. If you do, gain 1 seed from the supply.",3,1,1,0,0,0,0,0,0,1,0,1,1,0,1,0,23,3,1,0,0,0,0,0,1,1,0,0,0,1,0,1,0,0,1,0,0,0,0,0,0,0,0,0
+Dickcissel,"Tuck 1 card from your hand behind this bird. If you do, you may also lay 1 egg on this bird.",4,1,2,0,0,0,0,0,0,1,0,0,1,0,1,0,25,3,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0
+Double-Crested Cormorant,Discard 1 fish to tuck 2 card from the deck behind this bird.,3,0,0,1,0,0,1,0,0,0,1,0,0,1,1,0,132,3,1,0,0,0,0,0,1,1,0,0,1,0,0,0,0,1,0,0,0,2,0,0,0,0,0,0
+Downy Woodpecker,Play an additional bird in your forest. Pay its normal cost.,3,1,1,0,1,0,0,0,1,0,0,1,0,0,0,0,30,2,0,1,0,0,1,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0
+Eastern Bluebird,Play an additional bird in your grassland. Pay its normal cost.,4,1,0,0,1,0,0,0,1,0,0,0,1,0,0,0,33,5,0,1,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0
+Eastern Kingbird,"When another player plays a bird in their forest, gain 1 invertebrate from the supply.",2,1,0,0,1,0,0,1,0,0,0,1,1,1,0,0,38,2,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0
+Eastern Phoebe,All players gain 1 invertebrate from the supply.,3,1,0,0,1,0,0,1,1,1,1,1,1,1,0,0,28,4,1,0,0,0,0,0,0,1,1,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0
+Eastern Screech-Owl,"Roll all dice not in birdfeeder. If any are rodent, cache 1 rodent from the supply on this bird.",4,1,0,0,0,1,0,0,1,0,0,1,0,0,0,1,51,2,1,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Ferruginous Hawk,"Roll all dice not in birdfeeder. If any are rodent, cache 1 rodent from the supply on this bird.",6,0,0,0,0,2,0,0,0,0,1,0,1,0,0,1,142,2,1,0,0,0,0,1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+Fish Crow,Discard 1 egg from any of your other birds to gain 1 wild from the supply.,6,0,0,1,0,0,1,0,0,0,1,1,1,1,0,0,91,2,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0
+Forster's Tern,"Draw 1 card. If you do, discard 1 card from your hand at the end of your turn.",4,1,0,1,0,0,0,1,1,1,1,0,0,1,0,0,79,2,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0
+Franklin's Gull,Discard 1 egg to draw 2 card.,3,0,0,1,0,0,1,1,1,1,1,0,1,1,0,0,91,2,1,0,0,0,0,0,0,1,0,1,1,0,0,0,0,1,0,0,2,0,0,0,0,0,0,0
+Golden Eagle,"Look at a card from the deck. If less than 100cm, tuck it behind this bird. If not, discard it.",8,0,0,0,0,3,0,0,0,0,1,0,1,1,0,1,201,1,1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Grasshopper Sparrow,Lay 1 egg on any bird.,2,1,1,0,0,0,0,0,0,1,0,0,1,0,0,0,20,2,1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0
+Gray Catbird,Repeat a brown power on another bird in this habitat.,5,1,0,0,2,0,0,1,0,0,0,1,1,1,0,0,28,3,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Great Blue Heron,Play an additional bird in your wetland. Pay its normal cost.,5,1,0,1,0,0,0,0,0,0,1,0,0,1,0,0,183,2,0,1,0,0,1,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0
+Great Crested Flycatcher,"Gain 1 invertebrate from the birdfeeder, if available.",5,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0,33,3,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0
+Great Egret,Play an additional bird in your wetland. Pay its normal cost.,7,0,0,2,0,1,0,0,0,0,1,0,0,1,0,0,130,3,0,1,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0
+Great Horned Owl,"Look at a card from the deck. If less than 100cm, tuck it behind this bird. If not, discard it.",8,0,0,0,0,3,0,0,0,0,1,1,0,0,0,1,112,2,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Greater Prairie-Chicken,Draw 2 new bonus cards and keep 1.,5,1,2,0,0,0,0,0,0,1,0,0,1,0,0,0,71,4,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Greater Roadrunner,"Look at a card from the deck. If less than 50cm, tuck it behind this bird. If not, discard it.",7,1,0,0,0,1,1,0,0,0,1,0,1,0,0,1,56,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Green Heron,Trade 1 wild for any other type from the supply.,4,1,0,1,0,0,0,0,0,0,1,0,0,1,0,0,66,3,1,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0
+Hermit Thrush,Player(s) with the fewest birds in their forest gain 1 die from birdfeeder.,7,1,0,0,2,0,0,1,1,1,1,1,0,0,0,0,30,2,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Hooded Merganser,Repeat 1 predator power in this habitat.,5,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,61,4,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Hooded Warbler,,7,2,0,0,0,0,0,1,0,0,0,1,0,0,0,0,18,3,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Horned Lark,"When another player plays a bird in their grassland, tuck 1 card from your hand behind this bird.",5,1,1,0,0,0,0,0,0,1,0,0,1,0,1,0,30,4,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0
+House Finch,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",3,0,1,0,1,0,0,1,0,0,0,1,1,1,1,0,25,6,1,0,0,0,0,0,0,1,0,0,0,1,0,1,0,0,0,0,1,0,0,0,0,0,0,0
+House Wren,Play an additional bird in this bird's habitat. Pay its normal cost.,1,1,0,0,0,0,0,0,1,0,0,1,1,0,0,0,15,5,0,1,0,0,1,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0
+Inca Dove,Lay 1 egg on each of your birds with a platform nest.,2,0,2,0,0,0,0,0,0,0,1,0,1,0,0,0,28,4,0,1,0,0,0,0,0,1,1,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0
+Indigo Bunting,"Gain 1 invertebrate or fruit from the birdfeeder, if available.",5,1,1,0,1,0,0,1,0,0,0,1,1,0,0,0,20,3,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0
+Juniper Titmouse,Cache 1 seed from the supply on this bird.,4,1,1,0,0,0,0,0,1,0,0,1,0,0,0,0,23,3,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Killdeer,Discard 1 egg to draw 2 card.,1,1,1,0,0,0,0,0,0,1,0,0,1,1,0,0,46,3,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,2,0,0,0,0,0,0,0
+King Rail,Draw 2 new bonus cards and keep 1.,4,1,0,1,0,0,1,0,0,0,1,0,0,1,0,0,51,6,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Lazuli Bunting,All players lay 1 egg on any 1 bowl bird. You may lay 1 egg on 1 additional bowl bird.,4,1,1,0,1,0,0,1,0,0,0,0,1,0,0,0,23,4,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,0,1,0,0,0,0
+Lincoln's Sparrow,"If this bird is to the right of all other birds in its habitat, move it to another habitat.",3,1,1,0,0,0,0,0,0,1,0,1,1,1,0,0,20,2,1,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Loggerhead Shrike,"When another player takes the “gain food” action, if they gain any number of rodent, cache 1 rodent from the supply on this bird.",3,1,0,0,0,1,0,1,0,0,0,0,1,1,0,0,30,4,0,0,1,0,0,1,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Mallard,Draw 1 card.,0,1,1,0,0,0,0,0,0,1,0,0,0,1,0,0,89,4,1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0
+Mississippi Kite,"Roll all dice not in birdfeeder. If any are rodent, cache 1 rodent from the supply on this bird.",4,1,0,0,0,1,0,0,0,0,1,1,1,0,0,1,79,1,1,0,0,0,0,1,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Mountain Bluebird,Play an additional bird in your grassland. Pay its normal cost.,4,1,0,0,1,0,0,0,1,0,0,0,1,0,0,0,36,5,0,1,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0
+Mountain Chickadee,Cache 1 seed from the supply on this bird.,2,1,1,0,0,0,0,0,1,0,0,1,0,0,0,0,23,3,1,0,0,0,0,1,0,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Mourning Dove,Lay 1 egg on this bird.,0,0,1,0,0,0,0,0,0,0,1,1,1,1,0,0,46,5,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0
+Northern Bobwhite,Lay 1 egg on this bird.,5,0,3,0,0,0,0,0,0,1,0,0,1,0,0,0,33,6,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0
+Northern Cardinal,Gain 1 fruit from the supply.,3,0,1,0,1,0,0,1,0,0,0,1,0,0,0,0,30,5,1,0,0,0,0,0,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0
+Northern Flicker,Gain all invertebrate that are in the birdfeeder.,2,1,1,0,1,0,0,0,1,0,0,1,1,0,0,0,51,4,0,1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Northern Harrier,"Look at a card from the deck. If less than 75cm, tuck it behind this bird. If not, discard it.",3,0,0,0,0,1,0,0,0,0,1,0,1,1,0,1,109,2,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Northern Mockingbird,Repeat a brown power on another bird in this habitat.,2,1,0,0,1,0,0,1,0,0,0,1,1,1,0,0,36,4,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Northern Shoveler,All players draw 1 card from the deck.,7,1,2,0,0,0,0,0,0,1,0,0,0,1,0,0,76,4,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0
+Osprey,All players gain 1 fish from the supply.,5,0,0,1,0,0,0,0,0,0,1,0,0,1,0,0,160,2,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0
+Painted Bunting,Draw 2 new bonus cards and keep 1.,5,1,2,0,0,0,0,1,0,0,0,0,1,0,0,0,23,4,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Painted Whitestart,Gain 1 invertebrate from the supply.,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,22,3,1,0,0,0,0,0,0,1,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0
+Peregrine Falcon,"Look at a card from the deck. If less than 100cm, tuck it behind this bird. If not, discard it.",5,0,0,0,0,2,0,0,0,0,1,0,1,1,0,1,104,2,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Pied-Billed Grebe,"Draw 2 card. If you do, discard 1 card from your hand at the end of your turn.",0,1,0,1,0,0,0,0,0,0,1,0,0,1,0,0,41,4,1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0
+Pileated Woodpecker,All players lay 1 egg on any 1 cavity bird. You may lay 1 egg on 1 additional cavity bird.,4,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0,74,2,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0
+Pine Siskin,"Tuck 1 card from your hand behind this bird. If you do, gain 1 seed from the supply.",3,0,2,0,0,0,0,1,0,0,0,1,0,0,1,0,23,2,1,0,0,0,0,0,0,1,0,0,0,1,0,1,0,0,1,0,0,0,0,0,0,0,0,0
+Prothonotary Warbler,,8,2,1,0,0,0,0,0,1,0,0,1,0,1,0,0,23,4,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Purple Gallinule,All players draw 1 card from the deck.,7,0,1,0,1,0,1,0,0,0,1,0,0,1,0,0,56,4,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0
+Purple Martin,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",2,1,0,0,0,0,0,0,1,0,0,0,1,1,1,0,46,3,1,0,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0,0,0,0,0,0
+Pygmy Nuthatch,"Tuck 1 card from your hand behind this bird. If you do, gain 1 invertebrate or seed from the supply.",2,1,1,0,0,0,0,0,1,0,0,1,0,0,1,0,20,4,1,0,0,0,0,0,0,1,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0
+Red Crossbill,All players gain 1 seed from the supply.,6,0,2,0,0,0,0,1,0,0,0,1,0,0,0,0,28,2,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,0,0,1,0,0,0,0,0
+Red-Bellied Woodpecker,"Gain 1 seed from the birdfeeder, if available. You may cache it on this bird.",1,1,1,0,0,0,0,0,1,0,0,1,0,0,0,0,41,3,1,0,0,0,0,1,1,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+Red-Breasted Merganser,"Draw 2 card. If you do, discard 1 card from your hand at the end of your turn.",3,1,0,1,0,0,0,0,0,1,0,0,0,1,0,0,78,4,1,0,0,0,0,0,1,1,0,0,1,0,1,0,0,0,0,0,2,0,0,0,0,0,0,0
+Red-Breasted Nuthatch,Cache 1 seed from the supply on this bird.,2,1,1,0,0,0,0,0,1,0,0,1,0,0,0,0,23,3,1,0,0,0,0,1,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+Red-Cockaded Woodpecker,Draw 2 new bonus cards and keep 1.,4,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0,36,2,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Red-Eyed Vireo,Play an additional bird in your forest. Pay its normal cost.,3,1,0,0,1,0,0,1,1,1,1,1,0,0,0,0,25,2,0,1,0,0,1,0,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0
+Red-Headed Woodpecker,"Gain 1 seed from the birdfeeder, if available. You may cache it on this bird.",4,1,1,0,0,0,1,0,1,0,0,1,1,1,0,0,43,3,1,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+Red-Shouldered Hawk,"Look at a card from the deck. If less than 75cm, tuck it behind this bird. If not, discard it.",3,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,102,2,1,0,0,0,0,0,1,1,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Red-Tailed Hawk,"Look at a card from the deck. If less than 75cm, tuck it behind this bird. If not, discard it.",5,0,0,0,0,2,0,0,0,0,1,1,1,1,0,1,124,2,1,0,0,0,0,0,1,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Red-Winged Blackbird,"Tuck 1 card from your hand behind this bird. If you do, you may also lay 1 egg on this bird.",2,0,1,0,0,0,0,1,0,0,0,0,1,1,1,0,33,3,1,0,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0
+Ring-Billed Gull,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",4,0,0,0,0,0,2,0,0,1,0,0,0,1,1,0,122,2,1,0,0,0,0,0,1,0,0,0,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0
+Rose-Breasted Grosbeak,"Gain 1 seed or fruit from the birdfeeder, if available.",6,1,1,0,1,0,0,1,0,0,0,1,0,0,0,0,33,3,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0
+Roseate Spoonbill,Draw 2 new bonus cards and keep 1.,6,1,1,1,0,0,0,0,0,0,1,0,0,1,0,0,127,2,0,1,0,0,0,0,1,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Ruby-Crowned Kinglet,Play an additional bird in your forest. Pay its normal cost.,2,1,1,0,1,0,0,1,0,0,0,1,0,0,0,0,20,3,0,1,0,0,1,0,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0
+Ruby-Throated Hummingbird,"Each player gains 1 die from the birdfeeder, starting with the player of your choice.",4,0,0,0,0,0,1,1,0,0,0,1,1,1,0,0,10,2,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,0,0,1,0,0,0,0,0
+Ruddy Duck,"Draw 2 card. If you do, discard 1 card from your hand at the end of your turn.",0,1,1,0,0,0,0,0,0,0,1,0,0,1,0,0,48,5,1,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,2,0,0,0,0,0,0,0
+Sandhill Crane,Discard 1 seed to tuck 2 card from the deck behind this bird.,5,0,2,0,0,0,1,0,0,1,0,0,1,1,1,0,196,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,0,0,0,2,0,0,0,0,0,0
+Savannah Sparrow,Play an additional bird in your grassland. Pay its normal cost.,2,1,1,0,0,0,0,0,0,1,0,0,1,0,0,0,18,3,0,1,0,0,1,0,0,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0
+Say's Phoebe,Lay 1 egg on each of your birds with a bowl nest.,5,3,0,0,0,0,0,1,0,0,0,0,1,0,0,0,33,3,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0
+Scaled Quail,Lay 1 egg on this bird.,0,0,1,0,0,0,0,0,0,1,0,0,1,0,0,0,36,6,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0
+Scissor-Tailed Flycatcher,All players gain 1 invertebrate from the supply.,8,2,0,0,1,0,0,1,0,0,0,0,1,0,0,0,38,2,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0
+Snowy Egret,"Roll all dice not in birdfeeder. If any are fish, cache 1 fish from the supply on this bird.",4,1,0,1,0,0,0,0,0,0,1,0,0,1,0,1,104,2,1,0,0,0,0,1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+Song Sparrow,"If this bird is to the right of all other birds in its habitat, move it to another habitat.",0,1,1,0,1,0,0,1,0,0,0,1,1,1,0,0,20,5,1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Spotted Owl,Draw 2 new bonus cards and keep 1.,5,0,0,0,0,2,0,0,1,0,0,1,0,0,0,0,102,1,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Spotted Sandpiper,All players draw 1 card from the deck.,5,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,38,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0
+Spotted Towhee,Gain 1 seed from the supply.,0,1,1,0,1,0,0,0,0,1,0,1,1,0,0,0,28,4,1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0
+Sprague's Pipit,Draw 2 new bonus cards and keep 1.,3,1,1,0,0,0,0,0,0,1,0,0,1,0,0,0,25,3,0,1,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Steller's Jay,"Gain 1 seed from the birdfeeder, if available. You may cache it on this bird.",5,0,2,0,0,0,1,1,0,0,0,1,0,0,0,0,48,2,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Swainson's Hawk,"Look at a card from the deck. If less than 75cm, tuck it behind this bird. If not, discard it.",5,1,0,0,0,1,0,0,0,0,1,0,1,0,0,1,130,2,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Tree Swallow,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",3,1,0,0,1,0,0,0,1,0,0,0,0,1,1,0,38,4,1,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0
+Trumpeter Swan,,9,0,2,0,0,0,1,0,0,1,0,0,0,1,0,0,203,2,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Tufted Titmouse,Play an additional bird in your forest. Pay its normal cost.,2,1,1,0,1,0,0,0,1,0,0,1,0,0,0,0,25,3,0,1,0,0,1,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0
+Turkey Vulture,"When another player's predator succeeds, gain 1 die from the birdfeeder.",1,0,0,0,0,0,0,0,1,0,0,1,1,1,0,0,170,1,0,0,1,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Vaux's Swift,"Tuck 1 card from your hand behind this bird. If you do, gain 1 invertebrate from the supply.",2,1,0,0,0,0,0,0,1,0,0,1,0,0,1,0,31,3,1,0,0,0,0,0,0,1,0,1,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0
+Violet-Green Swallow,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",3,2,0,0,0,0,0,0,1,0,0,1,1,1,1,0,36,3,1,0,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0,0,0,0,0,0
+Western Meadowlark,All players lay 1 egg on any 1 ground bird. You may lay 1 egg on 1 additional ground bird.,2,1,1,0,0,0,0,0,0,1,0,0,1,0,0,0,38,4,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0
+Western Tanager,"Gain 1 invertebrate or fruit from the birdfeeder, if available.",6,2,0,0,1,0,0,1,0,0,0,1,0,0,0,0,30,2,1,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0
+White-Breasted Nuthatch,Cache 1 seed from the supply on this bird.,2,1,1,0,0,0,0,0,1,0,0,1,0,0,0,0,28,3,1,0,0,0,0,1,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+White-Crowned Sparrow,"If this bird is to the right of all other birds in its habitat, move it to another habitat.",2,1,1,0,0,0,0,0,0,1,0,1,1,1,0,0,25,5,1,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+White-Faced Ibis,"Roll all dice not in birdfeeder. If any are fish, cache 1 fish from the supply on this bird.",8,2,0,1,0,0,0,0,0,0,1,0,0,1,0,1,91,2,1,0,0,0,0,1,1,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+White-Throated Swift,"Tuck 1 card from your hand behind this bird. If you do, lay 1 egg on any bird.",2,1,0,0,0,0,0,0,1,0,0,0,1,0,1,0,38,2,1,0,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0
+Whooping Crane,Draw 2 new bonus cards and keep 1.,6,0,0,0,0,0,3,0,0,1,0,0,0,1,0,0,221,1,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Wild Turkey,,8,0,2,0,1,0,0,0,0,1,0,1,1,0,0,0,135,5,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Willet,"Roll all dice not in birdfeeder. If any are fish, cache 1 fish from the supply on this bird.",4,1,0,1,0,0,0,0,0,1,0,0,0,1,0,1,66,2,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+Wilson's Snipe,All players draw 1 card from the deck.,5,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,41,2,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0
+Wood Duck,"Draw 2 card. If you do, discard 1 card from your hand at the end of your turn.",4,0,2,0,1,0,0,0,1,0,0,1,0,1,0,0,76,4,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0
+Wood Stork,Draw 2 new bonus cards and keep 1.,6,0,0,1,0,1,1,0,0,0,1,0,0,1,0,0,155,2,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+Yellow-Bellied Sapsucker,Gain 1 invertebrate from the supply.,3,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0,41,3,1,0,0,0,0,0,1,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0
+Yellow-Billed Cuckoo,"When another player takes the “lay eggs” action, lay 1 egg on a bird with a bowl nest.",5,2,0,0,0,0,1,0,0,0,1,1,0,0,0,0,46,2,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Yellow-Breasted Chat,"If this bird is to the right of all other birds in its habitat, move it to another habitat.",5,1,0,0,2,0,0,1,0,0,0,1,1,1,0,0,25,3,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+Yellow-Headed Blackbird,"Tuck 1 card from your hand behind this bird. If you do, you may also lay 1 egg on this bird.",4,1,1,0,0,0,0,1,0,0,0,0,0,1,1,0,38,3,1,0,0,0,0,0,1,0,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0
+Yellow-Rumped Warbler,"Tuck 1 card from your hand behind this bird. If you do, draw 1 card.",1,1,1,0,1,0,0,1,0,0,0,1,0,0,1,0,23,4,1,0,0,0,0,0,1,1,0,0,0,1,1,1,0,0,0,0,1,0,0,0,0,0,0,0
