@@ -272,8 +272,10 @@ def generate_html_report(
                 "Setup Vector",
                 _ACCENT_SETUP,
                 input_note=(
-                    "raw network input — multi-hot / one-hot / count blocks, "
-                    "no card embedding"
+                    "post-embedding network input — raw candidate features after "
+                    "the kept-card multi-hot and tray indices are replaced by "
+                    "frozen encoder embeddings (matches the arch diagram's "
+                    "‘in N’)"
                 ),
                 annotation=setup_annotation,
             ),

@@ -1,9 +1,9 @@
 """Post-embedding rewrite rules for card-index / identity stripes.
 
 ``_embed_layout`` rewrites a raw :class:`~descriptors.VectorLayout` into the
-network's post-embedding input view; ``_state_embed_rules`` and
-``_choice_embed_rules`` supply the per-run expansion dicts for the state and
-choice layouts respectively.
+network's post-embedding input view; ``state_embed_rules``,
+``choice_embed_rules``, and ``setup_embed_rules`` supply the per-run expansion
+dicts for the state, choice, and setup layouts respectively.
 """
 
 from __future__ import annotations
@@ -152,6 +152,44 @@ def state_embed_rules(
             ),
         )
     return rules
+
+
+def setup_embed_rules(
+    card_embed_dim: int, hand_embed_width: int
+) -> dict[str, _EmbedRule]:
+    """The kept-cards multi-hot and tray integer-index stripes of the setup vector,
+    shown at their post-embedding widths.
+
+    The setup readout MLP receives ``kept_cards`` as one set vector from the
+    frozen hand encoder, and each tray slot as a card-table embedding plus one
+    tray-set embedding.  Everything else passes through unchanged.
+    """
+    tray = state.TRAY_SIZE
+    kept_dim = layout.HAND_MULTIHOT_DIM
+    return {
+        "kept_cards": _EmbedRule(
+            new_size=hand_embed_width,
+            encoding="card-set-embedding (hand encoder)",
+            value_range="learned",
+            notes=(
+                f"Kept-card multi-hot ({kept_dim} dims) -> one {hand_embed_width}-dim "
+                "set embedding via the frozen copy of the main net's hand encoder."
+            ),
+        ),
+        "tray": _EmbedRule(
+            new_size=tray * card_embed_dim + hand_embed_width,
+            encoding="card-embedding + card-set-embedding",
+            value_range="learned",
+            notes=(
+                f"{tray} tray slots -> one {card_embed_dim}-dim shared card embedding "
+                f"each ({tray}×{card_embed_dim}) plus one {hand_embed_width}-dim "
+                "tray-set embedding from the frozen hand encoder "
+                f"({tray}×{card_embed_dim} + {hand_embed_width} = "
+                f"{tray * card_embed_dim + hand_embed_width} total). "
+                f"Raw encoding stores {tray} integer indices."
+            ),
+        ),
+    }
 
 
 def choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:

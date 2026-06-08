@@ -3,20 +3,27 @@
 # deliberate intra-package coupling identical to encode/stripes.py's convention)
 """Programmatic stripe registry for the setup model's input vector.
 
-The setup analogue of :mod:`wingspan.encode.stripes`: :func:`setup_stripe_layout`
-returns a :class:`wingspan.encode.stripes.VectorLayout` naming every block of the
-:func:`wingspan.setup_model.encode.encode_setup_candidate` feature vector, with
-offsets and sizes derived from the same constants the encoder uses. The registry
-reflects the *active* layout for the given
-:class:`~wingspan.setup_model.architecture.SetupEncoding` — the stripes and total
-size change when the split flags are on. The default (no args) reproduces the
-pre-0.2 layout (308 dims, both splits off).
+Two layouts are available:
+
+* :func:`setup_stripe_layout` — the **raw** pre-embedding vector (``total_dim``
+  elements, the bytes the encoder actually writes).  Use this when you need to
+  document or inspect the encoder output itself.
+
+* :func:`setup_readout_stripe_layout` — the **post-embedding** view that the
+  setup readout MLP's first ``Linear`` layer actually receives, after the frozen
+  card-table and hand-encoder copies replace the kept-cards multi-hot and tray
+  integer-index columns with their learned embeddings.  This is the setup
+  analogue of :func:`wingspan.encode.stripes.state_stripe_layout` / ``choice_stripe_layout``
+  and is what the HTML model-summary report should display.
+
+The default (no args to either) reproduces the pre-0.2 all-splits-off layout.
 """
 
 from __future__ import annotations
 
-from wingspan import cards, encode
+from wingspan import architecture, cards, encode
 from wingspan.encode import stripes as encode_stripes
+from wingspan.encode.stripes import embed_rules
 from wingspan.setup_model import architecture as arch_module
 from wingspan.setup_model import encode as setup_encode
 
@@ -260,6 +267,47 @@ def setup_stripe_layout(
     )
     return encode_stripes.VectorLayout(
         total_size=encoding.total_dim, stripes=tuple(stripes)
+    )
+
+
+_DEFAULT_ARCH = architecture.ModelArchitecture()
+
+
+def setup_readout_stripe_layout(
+    encoding: arch_module.SetupEncoding | None = None,
+    card_embed_dim: int = _DEFAULT_ARCH.card_embed_dim,
+    hand_embed_width: int = _DEFAULT_ARCH.hand_embed_width,
+) -> encode_stripes.VectorLayout:
+    """Build the post-embedding stripe registry for the setup readout MLP's input.
+
+    The setup readout MLP does not receive the raw candidate feature vector
+    directly; it receives an embedded version where the kept-cards multi-hot and
+    the tray integer-index columns are replaced by learned embeddings from the
+    frozen encoder copies.  This function applies those rewrites so the stripe
+    breakdown sums to ``setup_readout_input_dim`` — the same total that the arch
+    diagram shows as ``in N``.
+
+    ``card_embed_dim`` and ``hand_embed_width`` must match the main net the setup
+    net was built alongside.  Defaults reproduce the default
+    :class:`~wingspan.architecture.ModelArchitecture` (64-dim card embedding,
+    hand encoder output = card embed dim).
+    """
+    if encoding is None:
+        encoding = arch_module.SetupEncoding()
+    raw = setup_stripe_layout(encoding)
+    main_arch = architecture.ModelArchitecture(
+        card_embed_dim=card_embed_dim,
+        # When hand_embed_width != card_embed_dim, set hand_embed_dim explicitly
+        # so ModelArchitecture.hand_embed_width resolves correctly.
+        hand_embed_dim=(
+            hand_embed_width if hand_embed_width != card_embed_dim else None
+        ),
+    )
+    expected = arch_module.setup_readout_input_dim(encoding.total_dim, main_arch)
+    return embed_rules.embed_layout(
+        raw,
+        embed_rules.setup_embed_rules(card_embed_dim, hand_embed_width),
+        expected,
     )
 
 

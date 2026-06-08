@@ -82,7 +82,13 @@ _SCROLL_MORE_DOWN = "  ▼ more"
 
 # Which selected field lights up a whole BOX (gold border + title).
 _BOX_FOCUS_ATTRS: dict[str, set[str]] = {
-    "setup": {"setup_hidden_layers", "use_setup_model"},
+    "setup": {"setup_hidden_layers", "use_setup_model", "setup_use_actor_critic"},
+    "setup_value": {"setup_hidden_layers", "use_setup_model", "setup_use_actor_critic"},
+    "setup_policy": {
+        "setup_hidden_layers",
+        "use_setup_model",
+        "setup_use_actor_critic",
+    },
     "embed": {"card_embed_dim", "card_encoder_layers"},
     "trunk": {"trunk_layers"},
     "choice": {"choice_layers"},
@@ -220,7 +226,15 @@ def _diagram_rows(
         rows.extend(block_rows)
 
     if cfg.use_setup_model:
-        add("setup", _setup_box(view, content_w))
+        if cfg.setup_use_actor_critic:
+            add("setup", _setup_input_box(view, content_w))
+            block_start["setup_value"] = len(rows)
+            block_start["setup_policy"] = len(rows)
+            rows.extend(_fanout_rows(content_w, left_center, right_center))
+            add("setup_value", _setup_heads_region(view, content_w))
+            block_start["setup_policy"] = block_start["setup_value"]
+        else:
+            add("setup", _setup_box(view, content_w))
     else:
         add("setup", [_setup_off_line()])
     rows.append(_blank())
@@ -281,11 +295,11 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
     trunk_in = _trunk_in(cfg)
     choice_in = _choice_in(cfg)
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
-    setup_chain = (
-        _chain(_setup_readout_in(cfg), (*cfg.setup_hidden_layers, 1))
-        if cfg.use_setup_model
-        else "off"
-    )
+    if cfg.use_setup_model:
+        chain = _chain(_setup_readout_in(cfg), (*cfg.setup_hidden_layers, 1))
+        setup_chain = f"V:{chain} P:{chain}" if cfg.setup_use_actor_critic else chain
+    else:
+        setup_chain = "off"
     rows = [
         _compact_line("SETUP", setup_chain),
         _compact_line(
@@ -345,7 +359,7 @@ def _setup_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]
     caption = [
         (
             f"in {_setup_readout_in(cfg)} "
-            f"(embedded {cfg.setup_encoding.total_dim}-dim candidate)",
+            f"(from {cfg.setup_encoding.total_dim}-dim raw candidate)",
             theme.TEXT_DIM2,
         )
     ]
@@ -370,6 +384,113 @@ def _setup_off_line() -> text.Text:
     line.append("off", style=theme.TEXT_DIM2)
     line.append("  (keep handled by the in-game policy)", style=theme.TEXT_MUTED)
     return line
+
+
+def _setup_input_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
+    """Actor-critic mode: the full-width shared-embedder input box.
+
+    Shows only the embedder parameter cost (``block.extra``) and the embedded
+    candidate input dim; the two readout head boxes are drawn below by
+    :func:`_setup_heads_region`.
+    """
+    cfg = view.working
+    block = _setup_block(view)
+    caption = [
+        (
+            f"in {_setup_readout_in(cfg)} "
+            f"(from {cfg.setup_encoding.total_dim}-dim raw candidate)",
+            theme.TEXT_DIM2,
+        )
+    ]
+    return _model_block(
+        view,
+        section="setup",
+        title="SETUP INPUT · shared embedder",
+        in_caption=caption,
+        entries=[],
+        sigma_total=block.extra,
+        out_caption=None,
+        width=content_w,
+        tap=True,
+        dashed=False,
+    )
+
+
+def _setup_heads_region(
+    view: state.ConfiguratorState, content_w: int
+) -> list[text.Text]:
+    """Actor-critic mode: value and policy readout-head columns, side by side."""
+    col_w, right_w, _, _ = _columns(content_w)
+    block = _setup_block(view)
+    left = _setup_value_column(view, col_w, block)
+    right = _setup_policy_column(view, right_w, block)
+    height = max(len(left), len(right))
+    left, right = _align_bottoms(left, height), _align_bottoms(right, height)
+    return text_helpers.join_columns([(left, col_w), (right, right_w)], _COL_GAP)
+
+
+def _setup_value_column(
+    view: state.ConfiguratorState, width: int, block: architecture.BlockParam
+) -> list[text.Text]:
+    """The value readout head of the setup net (actor-critic mode)."""
+    cfg = view.working
+    n_layers = len(cfg.setup_hidden_layers) + 1
+    head_layers = block.layers[:n_layers]
+    per_head = sum(layer.params for layer in head_layers)
+    entries = _block_op_entries(
+        view,
+        (*cfg.setup_hidden_layers, 1),
+        _BlockKind.READOUT,
+        head_layers,
+        _SETUP_OP_FIELDS,
+        activation=str(cfg.setup_activation),
+        dropout=cfg.setup_dropout,
+        layernorm=False,
+    )
+    return _model_block(
+        view,
+        section="setup_value",
+        title="SETUP VALUE",
+        in_caption=[],
+        entries=entries,
+        sigma_total=per_head,
+        out_caption=("→ ", "1"),
+        width=width,
+        tap=False,
+        dashed=False,
+    )
+
+
+def _setup_policy_column(
+    view: state.ConfiguratorState, width: int, block: architecture.BlockParam
+) -> list[text.Text]:
+    """The policy readout head of the setup net (actor-critic mode)."""
+    cfg = view.working
+    n_layers = len(cfg.setup_hidden_layers) + 1
+    head_layers = block.layers[n_layers:]
+    per_head = sum(layer.params for layer in head_layers)
+    entries = _block_op_entries(
+        view,
+        (*cfg.setup_hidden_layers, 1),
+        _BlockKind.READOUT,
+        head_layers,
+        _SETUP_OP_FIELDS,
+        activation=str(cfg.setup_activation),
+        dropout=cfg.setup_dropout,
+        layernorm=False,
+    )
+    return _model_block(
+        view,
+        section="setup_policy",
+        title="SETUP POLICY",
+        in_caption=[],
+        entries=entries,
+        sigma_total=per_head,
+        out_caption=("→ ", "1"),
+        width=width,
+        tap=False,
+        dashed=False,
+    )
 
 
 def _card_encoder_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
@@ -1066,7 +1187,7 @@ def _box_focused(view: state.ConfiguratorState, section: str) -> bool:
 
 def _section_accent(section: str, dashed: bool) -> str:
     """The unfocused border color for a structural box."""
-    if section == "setup":
+    if section in ("setup", "setup_value", "setup_policy"):
         return _SETUP_BORDER
     if section == "embed":
         return _CARD_BORDER
@@ -1123,6 +1244,7 @@ class _StaticConfig:
     setup_hidden_layers: architecture.Widths
     setup_activation: architecture.ActivationName
     setup_dropout: float
+    setup_use_actor_critic: bool = False
     use_setup_model: bool = False
 
 
@@ -1191,6 +1313,7 @@ def render_static(
         setup_hidden_layers=resolved_setup_arch.hidden_layers,
         setup_activation=resolved_setup_arch.activation,
         setup_dropout=resolved_setup_arch.dropout,
+        setup_use_actor_critic=resolved_setup_arch.use_policy_head,
         use_setup_model=use_setup_model,
     )
     view = _StaticView(working=cfg)

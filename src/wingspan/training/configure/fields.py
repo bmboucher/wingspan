@@ -966,16 +966,34 @@ FIELD_SPECS: list[FieldSpec] = [
         visible_when=lambda cfg: cfg.use_setup_model,
         help="Adam step size for the setup net's MSE updates (its own optimizer).",
     ),
+    ChoiceField(
+        attr="setup_use_actor_critic",
+        label="actor-critic",
+        section=ConfigSection.SETUP,
+        group="network",
+        choices=["True", "False"],
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.use_setup_model,
+        help="Add a policy head to the setup net and train with REINFORCE + value "
+        "baseline + entropy bonus instead of plain MSE. Adds a second readout MLP "
+        "of identical shape — setup-FRESH (invalidates setup.pt). Greedy and "
+        "temperature controls disappear in this mode; the policy head provides "
+        "its own exploration via logits + entropy.",
+    ),
     FloatField(
         attr="setup_policy_temperature",
         label="setup temperature",
         section=ConfigSection.SETUP,
         group="network",
         step=0.05,
-        visible_when=lambda cfg: cfg.use_setup_model and not cfg.setup_policy_greedy,
+        visible_when=lambda cfg: (
+            cfg.use_setup_model
+            and not cfg.setup_policy_greedy
+            and not cfg.setup_use_actor_critic
+        ),
         help="Softmax temperature over the 504 candidates' predicted margins when "
         "sampling a setup during collection (eval takes the argmax). Ignored when "
-        "setup greedy is True.",
+        "setup greedy is True or actor-critic is on.",
     ),
     ChoiceField(
         attr="setup_policy_greedy",
@@ -984,10 +1002,45 @@ FIELD_SPECS: list[FieldSpec] = [
         group="network",
         choices=["True", "False"],
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.use_setup_model and not cfg.setup_use_actor_critic,
         help="When True, collection takes the hard argmax over predicted margins "
         "instead of softmax sampling — trains the in-game model on the best "
-        "setup the setup net knows. Eval always uses argmax regardless.",
+        "setup the setup net knows. Eval always uses argmax regardless. Hidden "
+        "in actor-critic mode (the policy head drives selection).",
+    ),
+    FloatField(
+        attr="setup_pg_coef",
+        label="PG coef",
+        section=ConfigSection.SETUP,
+        group="actor-critic",
+        step=0.1,
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model and cfg.setup_use_actor_critic,
+        help="Policy-gradient loss weight for the setup actor-critic update "
+        "(REINFORCE term).",
+    ),
+    FloatField(
+        attr="setup_value_coef",
+        label="value coef",
+        section=ConfigSection.SETUP,
+        group="actor-critic",
+        step=0.1,
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model and cfg.setup_use_actor_critic,
+        help="Value-head MSE loss weight for the setup actor-critic update "
+        "(baseline regression term).",
+    ),
+    FloatField(
+        attr="setup_entropy_coef",
+        label="entropy coef",
+        section=ConfigSection.SETUP,
+        group="actor-critic",
+        step=0.005,
+        scientific=True,
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.use_setup_model and cfg.setup_use_actor_critic,
+        help="Entropy-bonus weight for the setup actor-critic update (encourages "
+        "exploration; 0 disables).",
     ),
     IntField(
         attr="setup_record_start_iter",

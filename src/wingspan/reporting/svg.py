@@ -140,6 +140,13 @@ _X_HAND_SETUP_SRC = 30
 _X_TRUNK_DECISION_SRC = 55
 _X_TRUNK_DECISION_DST = -30
 
+# Dual-mode (actor-critic) setup column geometry: the 290px column is split
+# into a shared header block at full width plus two 135px sub-blocks with a
+# 10px gap between them and 20px of vertical space for the Y-split arrow.
+_DUAL_SPLIT_GAP = 20
+_DUAL_SUB_W = 135
+_DUAL_SUB_GAP = 10
+
 
 def build_arch_svg(
     arch: architecture.ModelArchitecture,
@@ -253,6 +260,10 @@ class _Unit(pydantic.BaseModel):
     # the parameter-table block the unit's parameter counts jump to.
     panel: str | None = None
     params_key: str | None = None
+    # When set, this unit is rendered as a header-only input box that fans out
+    # to two side-by-side sub-units (actor-critic setup mode).  The outer unit
+    # provides the shared embedder input box; ``dual`` provides the two heads.
+    dual: tuple["_Unit", "_Unit"] | None = None
 
 
 class _Units(pydantic.BaseModel):
@@ -320,7 +331,7 @@ def _build_units(
         hand=_hand_unit(arch, param_report),
         trunk=_trunk_unit(arch, param_report),
         choice=_choice_unit(arch, param_report),
-        setup=_setup_unit(setup_param, setup_arch, use_setup_model),
+        setup=_build_setup_unit(setup_param, setup_arch, use_setup_model),
         value=_value_unit(arch, param_report),
         decision=_decision_unit(arch, param_report, family_order),
     )
@@ -473,6 +484,86 @@ def _setup_unit(
     )
 
 
+def _build_setup_unit(
+    setup_param: architecture.BlockParam,
+    setup_arch: setup_model.SetupArchitecture,
+    use_setup_model: bool,
+) -> _Unit:
+    """The setup column unit: single block normally, dual-head block when actor-critic.
+
+    When ``setup_arch.use_policy_head`` is False, delegates to ``_setup_unit``
+    unchanged.  When True, returns a header ``_Unit`` (shared embedder, no
+    layer rows) with a ``dual`` pair of narrow sub-units — SETUP VALUE on the
+    left, SETUP POLICY on the right — that ``_draw_dual_unit`` renders side by
+    side below the header.
+    """
+    if not setup_arch.use_policy_head:
+        return _setup_unit(setup_param, setup_arch, use_setup_model)
+
+    # Split the doubled layer list back into value/policy halves.
+    n_layers = len(setup_arch.hidden_layers) + 1
+    value_layers = setup_param.layers[:n_layers]
+    policy_layers = setup_param.layers[n_layers:]
+    value_params = sum(layer.params for layer in value_layers)
+    policy_params = sum(layer.params for layer in policy_layers)
+    in_dim = setup_param.layers[0].in_features
+    status = "active" if use_setup_model else "off"
+
+    value_unit = _Unit(
+        x=_SVG_COL_X[2],
+        accent=_ACCENT_SETUP,
+        title="SETUP VALUE",
+        rows=_op_rows(value_layers, setup_arch.activation.value, is_trunk=False),
+        sigma_text=_count_text(value_params),
+        in_label="setup input",
+        in_count=in_dim,
+        out_label="score margin",
+        out_count=1,
+        tooltip=(
+            f"Setup Value Head · {_count_text(value_params)} params · {in_dim} → 1 "
+            "(predicted end-game score margin)"
+        ),
+        dashed=not use_setup_model,
+        params_key=PARAMS_BLOCK_TOTAL,
+    )
+    policy_unit = _Unit(
+        x=_SVG_COL_X[2] + _DUAL_SUB_W + _DUAL_SUB_GAP,
+        accent=_ACCENT_SETUP,
+        title="SETUP POLICY",
+        rows=_op_rows(policy_layers, setup_arch.activation.value, is_trunk=False),
+        sigma_text=_count_text(policy_params),
+        in_label="setup input",
+        in_count=in_dim,
+        out_label="log policy",
+        out_count=1,
+        tooltip=(
+            f"Setup Policy Head · {_count_text(policy_params)} params · {in_dim} → 1 "
+            "(log-probabilities over kept-card subsets)"
+        ),
+        dashed=not use_setup_model,
+        params_key=PARAMS_BLOCK_TOTAL,
+    )
+    return _Unit(
+        x=_SVG_COL_X[2],
+        accent=_ACCENT_SETUP,
+        title="SETUP INPUT · shared embedder",
+        rows=(),
+        sigma_text=_count_text(setup_param.extra),
+        in_label="setup input",
+        in_count=in_dim,
+        out_label="",  # not rendered — outputs come from the dual sub-units
+        out_count=0,
+        tooltip=(
+            f"Setup Model ({status}) · {_count_text(setup_param.total)} params incl. "
+            "frozen card/hand encoder copies · actor-critic mode"
+        ),
+        dashed=not use_setup_model,
+        panel=PANEL_SETUP,
+        params_key=PARAMS_BLOCK_TOTAL,
+        dual=(value_unit, policy_unit),
+    )
+
+
 def _value_unit(
     arch: architecture.ModelArchitecture, param_report: architecture.ParamReport
 ) -> _Unit:
@@ -604,6 +695,22 @@ def _unit_h(num_rows: int) -> int:
     return _SVG_IO_H + _SVG_IO_GAP + _block_body_h(num_rows) + _SVG_IO_GAP + _SVG_IO_H
 
 
+def _setup_col_h(unit: _Unit) -> int:
+    """Pixel height of the setup column, accounting for dual (actor-critic) mode.
+
+    In dual mode the column holds a shared-embedder header block at the top, a
+    vertical gap for the Y-split arrow, and two narrow sub-blocks side by side
+    below — each a full ``_unit_h`` in its own right (no inner input box, but
+    an output box is drawn for each head).
+    """
+    if unit.dual is None:
+        return _unit_h(len(unit.rows))
+    # Header contributes: input IO box + IO gap + block body (no layer rows).
+    header_h = _SVG_IO_H + _SVG_IO_GAP + _block_body_h(0)
+    sub_h = max(_unit_h(len(unit.dual[0].rows)), _unit_h(len(unit.dual[1].rows)))
+    return header_h + _DUAL_SPLIT_GAP + sub_h
+
+
 def _resolve_geometry(units: _Units) -> _Geom:
     """Stack the three block rows and two connector bands top to bottom; every
     block in a visual row stretches to the row's tallest unit."""
@@ -611,7 +718,7 @@ def _resolve_geometry(units: _Units) -> _Geom:
     row2_h = max(
         _unit_h(len(units.trunk.rows)),
         _unit_h(len(units.choice.rows)),
-        _unit_h(len(units.setup.rows)),
+        _setup_col_h(units.setup),
     )
     row3_h = max(_unit_h(len(units.value.rows)), _unit_h(len(units.decision.rows)))
     row1_y = _SVG_TOP
@@ -792,7 +899,11 @@ def _conn_svg(conn: _Conn) -> tuple[str, str]:
 def _draw_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
     """One block with its input box above and output box below, grouped under a
     shared hover tooltip. A unit with a ``panel`` gets its input box wrapped in
-    the ``arch-click`` group the report's script opens that panel from."""
+    the ``arch-click`` group the report's script opens that panel from.
+    A unit with ``dual`` set is rendered as a header-only input box that fans
+    out to two side-by-side sub-units below."""
+    if unit.dual is not None:
+        return _draw_dual_unit(unit, top_y, unit_h)
     body_h = unit_h - 2 * (_SVG_IO_H + _SVG_IO_GAP)
     block_y = top_y + _SVG_IO_H + _SVG_IO_GAP
     in_box = _io_box(
@@ -822,11 +933,103 @@ def _draw_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
     return "\n".join(parts)
 
 
-def _draw_block(unit: _Unit, y: int, body_h: int) -> str:
+def _draw_dual_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
+    """Actor-critic setup column: full-width header input block → Y-split arrow
+    → two narrow sub-blocks (SETUP VALUE left, SETUP POLICY right) with their
+    own output IO boxes.
+
+    Layout (top to bottom within the allocated ``unit_h``):
+    * Input IO box at full column width (clickable to the setup panel).
+    * Block body at full width, title "SETUP INPUT", sigma = embedder params,
+      no layer rows.
+    * ``_DUAL_SPLIT_GAP`` pixels of vertical space with a Y-shaped connector.
+    * Two ``_DUAL_SUB_W``-wide block bodies (value left, policy right), each
+      sharing the remaining height with their output IO box at the bottom.
+    """
+    assert unit.dual is not None
+    value_unit, policy_unit = unit.dual
+
+    # Header block occupies the top of the allocated column height.
+    header_body_h = _block_body_h(0)
+    header_block_y = top_y + _SVG_IO_H + _SVG_IO_GAP
+    header_bottom = header_block_y + header_body_h
+
+    # Sub-units fill the remaining space below the split gap.
+    sub_top_y = header_bottom + _DUAL_SPLIT_GAP
+    sub_h = top_y + unit_h - sub_top_y
+
+    # Center x-coordinates for the Y-split connector.
+    header_cx = unit.x + _SVG_COL_W // 2
+    value_cx = value_unit.x + _DUAL_SUB_W // 2
+    policy_cx = policy_unit.x + _DUAL_SUB_W // 2
+    split_mid_y = header_bottom + _DUAL_SPLIT_GAP // 2
+
+    # Shared embedder input box (full width, clickable to the setup panel).
+    in_box = _io_box(
+        unit.x,
+        top_y,
+        f"{unit.in_label} · {_count_text(unit.in_count)}",
+        dashed=unit.dashed,
+        col_w=_SVG_COL_W,
+    )
+    if unit.panel is not None:
+        in_box = (
+            f'<g class="arch-click" data-panel="{html_lib.escape(unit.panel)}">'
+            f"<title>Click to inspect this vector</title>\n{in_box}\n</g>"
+        )
+
+    # Y-split: two L-shaped polylines sharing the vertical stem, each ending
+    # with an arrowhead at the top of its sub-block.
+    def _branch(dst_cx: int) -> str:
+        pts = (
+            f"{header_cx},{header_bottom} {header_cx},{split_mid_y} "
+            f"{dst_cx},{split_mid_y} {dst_cx},{sub_top_y}"
+        )
+        return (
+            f'<polyline points="{pts}" fill="none" stroke="{_SVG_ARROW}" '
+            f'stroke-width="{_STROKE_SINGLE}" marker-end="url(#arr)"/>'
+        )
+
+    y_split = f"{_branch(value_cx)}\n{_branch(policy_cx)}"
+
+    # Sub-block drawing helper: block body + output IO box, no input IO box.
+    def _draw_sub(sub: _Unit) -> str:
+        sub_body_h = sub_h - _SVG_IO_GAP - _SVG_IO_H
+        sub_body_y = sub_top_y
+        out_y = sub_top_y + sub_h - _SVG_IO_H
+        return "\n".join(
+            [
+                f"<g><title>{html_lib.escape(sub.tooltip)}</title>",
+                _draw_block(sub, sub_body_y, sub_body_h, col_w=_DUAL_SUB_W),
+                _io_box(
+                    sub.x,
+                    out_y,
+                    f"{sub.out_label} · {_count_text(sub.out_count)}",
+                    dashed=sub.dashed,
+                    col_w=_DUAL_SUB_W,
+                ),
+                "</g>",
+            ]
+        )
+
+    parts = [
+        "<g>",
+        f"<title>{html_lib.escape(unit.tooltip)}</title>",
+        in_box,
+        _draw_block(unit, header_block_y, header_body_h, col_w=_SVG_COL_W),
+        y_split,
+        _draw_sub(value_unit),
+        _draw_sub(policy_unit),
+        "</g>",
+    ]
+    return "\n".join(parts)
+
+
+def _draw_block(unit: _Unit, y: int, body_h: int, *, col_w: int = _SVG_COL_W) -> str:
     """The block body: bordered rect with accent bar, centered title/subtitle,
     mini-rows, the ×N stack effect, and the parameter-total border legend."""
     x = unit.x
-    width = _SVG_COL_W
+    width = col_w
     parts: list[str] = []
 
     # Shadow rects for the ×N stacked-card effect (largest offset first).
@@ -877,6 +1080,7 @@ def _draw_block(unit: _Unit, y: int, body_h: int) -> str:
             x,
             y + _SVG_BLK_PAD_T + _SVG_BLK_HDR_H + _SVG_BLK_HDR_GAP,
             params_key=unit.params_key,
+            col_w=width,
         )
     )
 
@@ -899,13 +1103,18 @@ def _draw_block(unit: _Unit, y: int, body_h: int) -> str:
 
 
 def _draw_op_rows(
-    rows: tuple[_OpRow, ...], x: int, rows_y0: int, *, params_key: str | None
+    rows: tuple[_OpRow, ...],
+    x: int,
+    rows_y0: int,
+    *,
+    params_key: str | None,
+    col_w: int = _SVG_COL_W,
 ) -> str:
     """The mini-rows: centered operation label, with each Linear's parameter
     count overlaid on its bottom-right border (clickable to the parameter
     table's ``params_key`` block)."""
     row_x = x + _SVG_ACCENT_W + 8
-    row_w = _SVG_COL_W - _SVG_ACCENT_W - 16
+    row_w = col_w - _SVG_ACCENT_W - 16
     parts: list[str] = []
     for idx, row in enumerate(rows):
         ry = rows_y0 + idx * _SVG_ROW_STRIDE
@@ -948,10 +1157,12 @@ def _param_click_group(inner_svg: str, params_key: str | None) -> str:
     )
 
 
-def _io_box(x_col: int, top_y: int, text: str, *, dashed: bool) -> str:
+def _io_box(
+    x_col: int, top_y: int, text: str, *, dashed: bool, col_w: int = _SVG_COL_W
+) -> str:
     """A tinted input/output vector box with its centered ``name · count`` label."""
     box_x = x_col + _SVG_IO_INSET
-    box_w = _SVG_COL_W - 2 * _SVG_IO_INSET
+    box_w = col_w - 2 * _SVG_IO_INSET
     dash = ' stroke-dasharray="4,3"' if dashed else ""
     rect = (
         f'<rect x="{box_x}" y="{top_y}" width="{box_w}" height="{_SVG_IO_H}" '
@@ -959,7 +1170,7 @@ def _io_box(x_col: int, top_y: int, text: str, *, dashed: bool) -> str:
         f'stroke-width="1"{dash}/>'
     )
     label = (
-        f'<text x="{x_col + _SVG_COL_W // 2}" y="{top_y + 17}" font-family="{_FONT_MONO}" '
+        f'<text x="{x_col + col_w // 2}" y="{top_y + 17}" font-family="{_FONT_MONO}" '
         f'font-size="11" font-weight="600" fill="{_SVG_IO_TEXT}" text-anchor="middle">'
         f"{html_lib.escape(text)}</text>"
     )
