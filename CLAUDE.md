@@ -16,6 +16,7 @@ Load these when working in the relevant area. Update them in the same commit tha
 | `src/wingspan/*/INDEX.md` | Per-subpackage module detail: classes, key methods, state | Adding or renaming a module within a subpackage |
 | `docs/DECISIONS.md` | Decision/choice taxonomy, `ALL_DECISION_CLASSES` ordering, choice-vector stripes, engine call sites | Adding a `Decision`/`Choice` subclass; changing a featurizer; reordering `ALL_DECISION_CLASSES` |
 | `docs/BIRDS.md` | All 180 birds + 26 bonus cards: `EffectKind` patterns, handler mappings, implementation gaps | Adding an `EffectKind` variant, a matcher, or a power handler |
+| `docs/BONUSES.md` | All 26 bonus cards and 16 round goals: scoring rules, state/choice encoding, what advances each | Adding a bonus category, a goal category, or changing the delta/encoding logic |
 | `docs/TRAINING.md` | Training program, hyperparameter guidance, Phase 0–3 roadmap | Changing the training approach, convergence criteria, or phased plan |
 | `docs/RESEARCH.md` | Research agenda, per-project feasibility verdicts | Adding/completing a research project; updating a feasibility gap assessment |
 | `docs/VERSIONING.md` | Artifact version changelog, FRESH/REGIME distinction, compat shim rules | Bumping `MODEL_VERSION`; adding a compat shim; capturing a new fixture set |
