@@ -10,12 +10,10 @@ legal option) are not annotated. When sampling (not greedy) an
 ``[<player> chose: ...]`` line follows the ranked list to record which option
 was actually sampled.
 
-:func:`resolve_split_setup_bonus` derives the opening-bonus regime from the
-``TrainConfig`` stored in each loaded checkpoint so games mirror how the nets
-were trained: a checkpoint trained under the ``split_setup_bonus`` regime gets
-a bonus-free ``SetupDecision`` with the bonus deferred to the in-game
-``CHOOSE_BONUS`` pick, exactly as in training. Config-free (human/random)
-matchups keep the engine's combined default.
+:func:`resolve_split_setup_bonus` and :func:`resolve_split_setup_food` derive
+the opening-bonus and opening-food regimes from the ``TrainConfig`` stored in
+each loaded checkpoint so games mirror how the nets were trained. Config-free
+(human/random) matchups keep the engine's combined default.
 """
 
 from __future__ import annotations
@@ -86,6 +84,27 @@ def resolve_split_setup_bonus(
             "trained with the opening bonus deferred to the in-game CHOOSE_BONUS "
             "pick, the other with it baked into the setup keep. The seats cannot "
             "mirror both in one game — pick checkpoints from the same regime."
+        )
+    return next(iter(flags), False)
+
+
+def resolve_split_setup_food(
+    configs: typing.Sequence[config.TrainConfig | None],
+) -> bool:
+    """Whether the games should run the ``split_setup_food`` regime (the opening
+    food pick deferred out of the ``SetupDecision`` to sequential in-game
+    GAIN_FOOD/SPEND_FOOD decisions), derived from the loaded checkpoints' configs
+    so play mirrors how the nets were trained. Config-free (human/random) seats
+    express no preference; with no AI seat at all the engine's combined default
+    applies. Two checkpoints trained under different regimes raise rather than
+    silently mis-modelling one seat's opening."""
+    flags = {cfg.split_setup_food_active for cfg in configs if cfg is not None}
+    if len(flags) > 1:
+        raise ValueError(
+            "Checkpoints disagree on the split_setup_food regime: one was "
+            "trained with the opening food pick deferred to in-game food "
+            "decisions, the other with it baked into the setup keep. The seats "
+            "cannot mirror both in one game — pick checkpoints from the same regime."
         )
     return next(iter(flags), False)
 

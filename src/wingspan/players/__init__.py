@@ -14,7 +14,7 @@ It is deliberately separate from the lean, torch-free ``wingspan.agents``
 package: seating a trained model pulls in torch and the training stack.
 """
 
-from wingspan.players.factory import build_agent, resolve_split_setup_bonus
+from wingspan.players.factory import build_agent, resolve_split_setup_bonus, resolve_split_setup_food
 from wingspan.players.loaders import (
     descriptor_encoding_key,
     encoding_key,
@@ -43,4 +43,5 @@ __all__ = [
     "load_setup_net",
     "parse_player_spec",
     "resolve_split_setup_bonus",
+    "resolve_split_setup_food",
 ]

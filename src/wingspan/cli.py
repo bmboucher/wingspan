@@ -53,12 +53,18 @@ def main_play(argv: list[str] | None = None) -> int:
         agent_a, config_a = players.build_agent(spec_a, device, rng, args.greedy)
         agent_b, config_b = players.build_agent(spec_b, device, rng, args.greedy)
         split_setup_bonus = players.resolve_split_setup_bonus((config_a, config_b))
+        split_setup_food = players.resolve_split_setup_food((config_a, config_b))
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error loading agent: {exc}", file=sys.stderr)
         return 1
 
     if not args.quiet:
-        regime = "  |  opening bonus: split (CHOOSE_BONUS)" if split_setup_bonus else ""
+        regime_parts: list[str] = []
+        if split_setup_bonus:
+            regime_parts.append("bonus: split (CHOOSE_BONUS)")
+        if split_setup_food:
+            regime_parts.append("food: split (GAIN/SPEND_FOOD)")
+        regime = "  |  opening " + ", ".join(regime_parts) if regime_parts else ""
         print(f"Seed: {seed}  |  P0: {args.p0}  vs  P1: {args.p1}{regime}")
 
     instrumentation = _open_instrumentation(args, seed)
@@ -70,6 +76,7 @@ def main_play(argv: list[str] | None = None) -> int:
                 (agent_a, agent_b),
                 instrumentation=instrumentation,
                 split_setup_bonus=split_setup_bonus,
+                split_setup_food=split_setup_food,
             )
             scores = [player.final_score for player in eng.state.players]
             if not args.quiet:
