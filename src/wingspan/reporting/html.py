@@ -201,7 +201,7 @@ def generate_html_report(
     param_report: architecture.ParamReport,
     arch: architecture.ModelArchitecture,
     *,
-    setup_layout: encode_stripes.VectorLayout,
+    setup_encoding: setup_model.SetupEncoding,
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
     state_dim: int,
@@ -218,12 +218,24 @@ def generate_html_report(
     breakdown and the parameter table start as hidden panels it reveals.
 
     The separately-trained setup model is always documented — its input-vector
-    breakdown (``setup_layout``) and its block in the architecture diagram
-    (``setup_arch``) — even when ``use_setup_model`` is False (the section and
-    block are then annotated as inactive rather than omitted).
+    breakdown and its block in the architecture diagram (``setup_arch``) — even
+    when ``use_setup_model`` is False (the section and block are then annotated
+    as inactive rather than omitted). ``setup_encoding`` supplies both the raw
+    feature-vector dimension for parameter accounting and the post-embedding
+    layout for the vector breakdown table.
     """
+    # The post-embedding layout is what the readout MLP actually receives (and
+    # what the breakdown table displays). The raw total_dim is what
+    # count_setup_parameters expects as feature_dim — passing the post-embedding
+    # size instead would double-apply the embedding transform, inflating the
+    # reported input count.
+    setup_layout = setup_model.setup_readout_stripe_layout(
+        setup_encoding,
+        arch.card_embed_dim,
+        arch.hand_embed_width,
+    )
     setup_param = setup_model.count_setup_parameters(
-        setup_arch, feature_dim=setup_layout.total_size, main_arch=arch
+        setup_arch, feature_dim=setup_encoding.total_dim, main_arch=arch
     )
     setup_annotation = (
         ""

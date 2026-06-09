@@ -200,11 +200,7 @@ def build_model_summary_html(
         choice_layout_for(descriptor),
         param_report_for(descriptor),
         descriptor.architecture,
-        setup_layout=setup_model.setup_readout_stripe_layout(
-            enc,
-            descriptor.architecture.card_embed_dim,
-            descriptor.architecture.hand_embed_width,
-        ),
+        setup_encoding=enc,
         setup_arch=setup_arch,
         use_setup_model=not descriptor.include_setup,
         state_dim=descriptor.state_dim,

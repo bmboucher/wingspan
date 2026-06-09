@@ -258,8 +258,9 @@ def _compute_setup_scores_and_probs(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Score every choice in ``decision`` through the setup net.
 
-    Returns ``(margins, probs)`` where ``margins`` is the raw per-choice score
-    vector and ``probs`` is the softmax distribution, both aligned to
+    Returns ``(scores, probs)`` where ``scores`` is the raw per-choice score
+    vector — policy logits in actor-critic mode, value margins in value-only
+    mode — and ``probs`` is the softmax distribution, both aligned to
     ``decision.choices``."""
     context = setup_model.SetupContext.from_state(eng.state, decision.dealt_bonus)
 
@@ -276,9 +277,16 @@ def _compute_setup_scores_and_probs(
         ]
     )
     feats = torch.tensor(vecs, dtype=torch.float32, device=device)
-    with torch.no_grad():
-        margins = net_instance(feats).cpu().numpy()
 
-    shifted = margins - margins.max()
+    # Mirror collect.py: actor-critic nets use policy logits for selection;
+    # value-only nets use the predicted score margins.
+    with torch.no_grad():
+        if net_instance.arch.use_policy_head:
+            policy_logits, _ = net_instance.policy_and_value(feats)
+            scores = policy_logits.cpu().numpy()
+        else:
+            scores = net_instance(feats).cpu().numpy()
+
+    shifted = scores - scores.max()
     weights = np.exp(shifted)
-    return margins, weights / weights.sum()
+    return scores, weights / weights.sum()

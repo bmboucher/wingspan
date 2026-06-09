@@ -124,7 +124,7 @@ def _report_html(use_setup_model: bool) -> str:
         encode_stripes.choice_stripe_layout(spec, arch.card_embed_dim),
         param_report,
         arch,
-        setup_layout=setup_model.setup_stripe_layout(),
+        setup_encoding=setup_model.SetupEncoding(),
         setup_arch=setup_model.SetupArchitecture(),
         use_setup_model=use_setup_model,
         state_dim=state_dim,
