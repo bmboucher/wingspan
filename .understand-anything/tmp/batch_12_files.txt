@@ -1,0 +1,4 @@
+  1. `scripts/auto_merge_worktree.sh` (139 lines, language: `shell`, fileCategory: `script`)
+  2. `scripts/create_worktree.sh` (98 lines, language: `shell`, fileCategory: `script`)
+  3. `scripts/merge_worktree.sh` (155 lines, language: `shell`, fileCategory: `script`)
+  4. `scripts/quality_gate.sh` (349 lines, language: `shell`, fileCategory: `script`)

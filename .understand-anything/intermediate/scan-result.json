@@ -1,0 +1,2939 @@
+{
+  "name": "wingspan",
+  "description": "Wingspan board-game simulator and RL training pipeline — a two-player core-set game engine with a self-play reinforcement-learning training pipeline powered by PyTorch, a live TUI dashboard, and a round-robin tournament system. Note: this project has over 100 source files; consider scoping analysis to a subdirectory for faster results.",
+  "languages": [
+    "csv",
+    "dockerfile",
+    "html",
+    "json",
+    "markdown",
+    "python",
+    "shell",
+    "terraform",
+    "toml",
+    "txt",
+    "yaml"
+  ],
+  "frameworks": [
+    "Docker",
+    "Pydantic",
+    "PyTorch",
+    "Terraform",
+    "pytest"
+  ],
+  "files": [
+    {
+      "path": ".dockerignore",
+      "language": "unknown",
+      "sizeLines": 19,
+      "fileCategory": "infra"
+    },
+    {
+      "path": ".gitattributes",
+      "language": "unknown",
+      "sizeLines": 11,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 35,
+      "fileCategory": "code"
+    },
+    {
+      "path": "cards.csv",
+      "language": "csv",
+      "sizeLines": 181,
+      "fileCategory": "data"
+    },
+    {
+      "path": "CLAUDE.md",
+      "language": "markdown",
+      "sizeLines": 110,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "coverage_baseline.txt",
+      "language": "txt",
+      "sizeLines": 1,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "deploy/ecs-task-def.json",
+      "language": "json",
+      "sizeLines": 31,
+      "fileCategory": "config"
+    },
+    {
+      "path": "deploy/main.tf",
+      "language": "terraform",
+      "sizeLines": 158,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "deploy/README.md",
+      "language": "markdown",
+      "sizeLines": 82,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "deploy/run.example.yaml",
+      "language": "yaml",
+      "sizeLines": 48,
+      "fileCategory": "config"
+    },
+    {
+      "path": "Dockerfile",
+      "language": "dockerfile",
+      "sizeLines": 36,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "docs/BIRDS.md",
+      "language": "markdown",
+      "sizeLines": 918,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/BONUSES.md",
+      "language": "markdown",
+      "sizeLines": 631,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/DECISIONS.md",
+      "language": "markdown",
+      "sizeLines": 735,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/PROJECT.md",
+      "language": "markdown",
+      "sizeLines": 50,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/QUALITY.md",
+      "language": "markdown",
+      "sizeLines": 101,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/RESEARCH.md",
+      "language": "markdown",
+      "sizeLines": 174,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/TRAINING.md",
+      "language": "markdown",
+      "sizeLines": 1019,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/VERSIONING.md",
+      "language": "markdown",
+      "sizeLines": 166,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "export_card_attrs.py",
+      "language": "python",
+      "sizeLines": 139,
+      "fileCategory": "code"
+    },
+    {
+      "path": "main.html",
+      "language": "html",
+      "sizeLines": 332,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "pyproject.toml",
+      "language": "toml",
+      "sizeLines": 104,
+      "fileCategory": "config"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 164,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "scripts/auto_merge_worktree.sh",
+      "language": "shell",
+      "sizeLines": 139,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/check_mp_collect.py",
+      "language": "python",
+      "sizeLines": 60,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/create_worktree.sh",
+      "language": "shell",
+      "sizeLines": 98,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/gen_arch_experiment.py",
+      "language": "python",
+      "sizeLines": 228,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/measure_ipc.py",
+      "language": "python",
+      "sizeLines": 115,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/merge_worktree.sh",
+      "language": "shell",
+      "sizeLines": 155,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/profile_collection.py",
+      "language": "python",
+      "sizeLines": 212,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/quality_gate.sh",
+      "language": "shell",
+      "sizeLines": 349,
+      "fileCategory": "script"
+    },
+    {
+      "path": "src/wingspan/__init__.py",
+      "language": "python",
+      "sizeLines": 3,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/__main__.py",
+      "language": "python",
+      "sizeLines": 87,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/__init__.py",
+      "language": "python",
+      "sizeLines": 20,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/base.py",
+      "language": "python",
+      "sizeLines": 34,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/cli.py",
+      "language": "python",
+      "sizeLines": 234,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/display.py",
+      "language": "python",
+      "sizeLines": 584,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 25,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/agents/interactive.py",
+      "language": "python",
+      "sizeLines": 432,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/architecture.py",
+      "language": "python",
+      "sizeLines": 389,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/__init__.py",
+      "language": "python",
+      "sizeLines": 78,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 35,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/cards/parse/__init__.py",
+      "language": "python",
+      "sizeLines": 65,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/catalog.py",
+      "language": "python",
+      "sizeLines": 57,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/fields.py",
+      "language": "python",
+      "sizeLines": 161,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 48,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/cards/parse/loader.py",
+      "language": "python",
+      "sizeLines": 93,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/matchers.py",
+      "language": "python",
+      "sizeLines": 779,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/pink_matchers.py",
+      "language": "python",
+      "sizeLines": 117,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/power.py",
+      "language": "python",
+      "sizeLines": 59,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/registry.py",
+      "language": "python",
+      "sizeLines": 40,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/tags.py",
+      "language": "python",
+      "sizeLines": 38,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/schema.py",
+      "language": "python",
+      "sizeLines": 476,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cli.py",
+      "language": "python",
+      "sizeLines": 200,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/__init__.py",
+      "language": "python",
+      "sizeLines": 33,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/__main__.py",
+      "language": "python",
+      "sizeLines": 104,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 34,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/cloud/monitor.py",
+      "language": "python",
+      "sizeLines": 159,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/runfile.py",
+      "language": "python",
+      "sizeLines": 100,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/runner.py",
+      "language": "python",
+      "sizeLines": 287,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/s3sync.py",
+      "language": "python",
+      "sizeLines": 240,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/status.py",
+      "language": "python",
+      "sizeLines": 145,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/compat/__init__.py",
+      "language": "python",
+      "sizeLines": 17,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/compat/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 25,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/compat/v0_0.py",
+      "language": "python",
+      "sizeLines": 557,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/compat/v0_1.py",
+      "language": "python",
+      "sizeLines": 195,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/data/bonus.json",
+      "language": "json",
+      "sizeLines": 1029,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/data/general.json",
+      "language": "json",
+      "sizeLines": 171,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/data/goals.json",
+      "language": "json",
+      "sizeLines": 618,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/data/master.json",
+      "language": "json",
+      "sizeLines": 57534,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/data/parameters.json",
+      "language": "json",
+      "sizeLines": 4,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/decisions.py",
+      "language": "python",
+      "sizeLines": 737,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/__init__.py",
+      "language": "python",
+      "sizeLines": 106,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/choice_encode.py",
+      "language": "python",
+      "sizeLines": 975,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 41,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/encode/layout.py",
+      "language": "python",
+      "sizeLines": 626,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/state_encode.py",
+      "language": "python",
+      "sizeLines": 606,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/__init__.py",
+      "language": "python",
+      "sizeLines": 51,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/card_feature.py",
+      "language": "python",
+      "sizeLines": 261,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/choice.py",
+      "language": "python",
+      "sizeLines": 683,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/descriptors.py",
+      "language": "python",
+      "sizeLines": 133,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/embed_rules.py",
+      "language": "python",
+      "sizeLines": 232,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 40,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/state.py",
+      "language": "python",
+      "sizeLines": 711,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/__init__.py",
+      "language": "python",
+      "sizeLines": 20,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/actions.py",
+      "language": "python",
+      "sizeLines": 829,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/core.py",
+      "language": "python",
+      "sizeLines": 820,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/helpers.py",
+      "language": "python",
+      "sizeLines": 128,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 54,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/engine/log_format.py",
+      "language": "python",
+      "sizeLines": 243,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/__init__.py",
+      "language": "python",
+      "sizeLines": 52,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/dispatch.py",
+      "language": "python",
+      "sizeLines": 181,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/drafting.py",
+      "language": "python",
+      "sizeLines": 209,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/egg_trade.py",
+      "language": "python",
+      "sizeLines": 187,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/grants.py",
+      "language": "python",
+      "sizeLines": 847,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 57,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/engine/powers/multi_actor.py",
+      "language": "python",
+      "sizeLines": 290,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/nest_aggregate.py",
+      "language": "python",
+      "sizeLines": 144,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/predator_repeat.py",
+      "language": "python",
+      "sizeLines": 224,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/registry.py",
+      "language": "python",
+      "sizeLines": 51,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/tray_trade.py",
+      "language": "python",
+      "sizeLines": 261,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/reactors.py",
+      "language": "python",
+      "sizeLines": 313,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/scoring.py",
+      "language": "python",
+      "sizeLines": 834,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/__init__.py",
+      "language": "python",
+      "sizeLines": 26,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/config.py",
+      "language": "python",
+      "sizeLines": 148,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/dispatcher.py",
+      "language": "python",
+      "sizeLines": 231,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/events.py",
+      "language": "python",
+      "sizeLines": 283,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/__init__.py",
+      "language": "python",
+      "sizeLines": 21,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/card_visits.py",
+      "language": "python",
+      "sizeLines": 58,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/decision_logger.py",
+      "language": "python",
+      "sizeLines": 56,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 51,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/instrumentation/registry.py",
+      "language": "python",
+      "sizeLines": 57,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/model/__init__.py",
+      "language": "python",
+      "sizeLines": 11,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/model/core.py",
+      "language": "python",
+      "sizeLines": 515,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/model/hand_model.py",
+      "language": "python",
+      "sizeLines": 76,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/model/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 41,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/model/mlp.py",
+      "language": "python",
+      "sizeLines": 86,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/players/__init__.py",
+      "language": "python",
+      "sizeLines": 51,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/players/factory.py",
+      "language": "python",
+      "sizeLines": 292,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/players/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 37,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/players/loaders.py",
+      "language": "python",
+      "sizeLines": 220,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/players/spec.py",
+      "language": "python",
+      "sizeLines": 83,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/reporting/__init__.py",
+      "language": "python",
+      "sizeLines": 13,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/reporting/html.py",
+      "language": "python",
+      "sizeLines": 761,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/reporting/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 28,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/reporting/inspect_cli.py",
+      "language": "python",
+      "sizeLines": 436,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/reporting/svg.py",
+      "language": "python",
+      "sizeLines": 1298,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/__init__.py",
+      "language": "python",
+      "sizeLines": 65,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/architecture.py",
+      "language": "python",
+      "sizeLines": 229,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/candidates.py",
+      "language": "python",
+      "sizeLines": 148,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/encode.py",
+      "language": "python",
+      "sizeLines": 290,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/generate.py",
+      "language": "python",
+      "sizeLines": 211,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 48,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/setup_model/record.py",
+      "language": "python",
+      "sizeLines": 126,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/stripes.py",
+      "language": "python",
+      "sizeLines": 460,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/state.py",
+      "language": "python",
+      "sizeLines": 679,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/__init__.py",
+      "language": "python",
+      "sizeLines": 31,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/app.py",
+      "language": "python",
+      "sizeLines": 319,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/config.py",
+      "language": "python",
+      "sizeLines": 63,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/dashboard.py",
+      "language": "python",
+      "sizeLines": 165,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/elo.py",
+      "language": "python",
+      "sizeLines": 71,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 52,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/tournament/participants.py",
+      "language": "python",
+      "sizeLines": 199,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/picker.py",
+      "language": "python",
+      "sizeLines": 172,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/results.py",
+      "language": "python",
+      "sizeLines": 211,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/runner.py",
+      "language": "python",
+      "sizeLines": 222,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/schedule.py",
+      "language": "python",
+      "sizeLines": 107,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/state.py",
+      "language": "python",
+      "sizeLines": 197,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/__init__.py",
+      "language": "python",
+      "sizeLines": 37,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/__main__.py",
+      "language": "python",
+      "sizeLines": 8,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/app.py",
+      "language": "python",
+      "sizeLines": 362,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/artifacts.py",
+      "language": "python",
+      "sizeLines": 76,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/batched_collect.py",
+      "language": "python",
+      "sizeLines": 356,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/__init__.py",
+      "language": "python",
+      "sizeLines": 34,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/braille.py",
+      "language": "python",
+      "sizeLines": 79,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/convergence_chart.py",
+      "language": "python",
+      "sizeLines": 642,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/geometry.py",
+      "language": "python",
+      "sizeLines": 24,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/histogram.py",
+      "language": "python",
+      "sizeLines": 110,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 40,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/training/charts/insets.py",
+      "language": "python",
+      "sizeLines": 270,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/text_helpers.py",
+      "language": "python",
+      "sizeLines": 84,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/collect.py",
+      "language": "python",
+      "sizeLines": 554,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/COLLECTORS.md",
+      "language": "markdown",
+      "sizeLines": 36,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/training/config.py",
+      "language": "python",
+      "sizeLines": 528,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/__init__.py",
+      "language": "python",
+      "sizeLines": 19,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/arch_diagram.py",
+      "language": "python",
+      "sizeLines": 1321,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/controller.py",
+      "language": "python",
+      "sizeLines": 577,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/fields.py",
+      "language": "python",
+      "sizeLines": 1125,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 61,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/training/configure/keys.py",
+      "language": "python",
+      "sizeLines": 193,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/runs.py",
+      "language": "python",
+      "sizeLines": 313,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/screen.py",
+      "language": "python",
+      "sizeLines": 648,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/state.py",
+      "language": "python",
+      "sizeLines": 121,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/convergence.py",
+      "language": "python",
+      "sizeLines": 206,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/dashboard.py",
+      "language": "python",
+      "sizeLines": 820,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/evaluate.py",
+      "language": "python",
+      "sizeLines": 263,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/INDEX.md",
+      "language": "markdown",
+      "sizeLines": 161,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/training/learner.py",
+      "language": "python",
+      "sizeLines": 206,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_checkpoint.py",
+      "language": "python",
+      "sizeLines": 239,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_collect.py",
+      "language": "python",
+      "sizeLines": 183,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_eval.py",
+      "language": "python",
+      "sizeLines": 256,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_metrics.py",
+      "language": "python",
+      "sizeLines": 164,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_resume.py",
+      "language": "python",
+      "sizeLines": 200,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_setup.py",
+      "language": "python",
+      "sizeLines": 323,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_target.py",
+      "language": "python",
+      "sizeLines": 137,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop.py",
+      "language": "python",
+      "sizeLines": 327,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/metrics_log.py",
+      "language": "python",
+      "sizeLines": 79,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/metrics.py",
+      "language": "python",
+      "sizeLines": 312,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/mp_collect.py",
+      "language": "python",
+      "sizeLines": 666,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/policy.py",
+      "language": "python",
+      "sizeLines": 154,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/runmeta.py",
+      "language": "python",
+      "sizeLines": 368,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/runstate.py",
+      "language": "python",
+      "sizeLines": 680,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/setup_learner.py",
+      "language": "python",
+      "sizeLines": 302,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/setup_net.py",
+      "language": "python",
+      "sizeLines": 285,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/setup_runmeta.py",
+      "language": "python",
+      "sizeLines": 72,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/steps.py",
+      "language": "python",
+      "sizeLines": 27,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/sysmon.py",
+      "language": "python",
+      "sizeLines": 60,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/theme.py",
+      "language": "python",
+      "sizeLines": 202,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/version.py",
+      "language": "python",
+      "sizeLines": 130,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/conftest.py",
+      "language": "python",
+      "sizeLines": 72,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/data/compat/v0.0/model_config.json",
+      "language": "json",
+      "sizeLines": 49,
+      "fileCategory": "config"
+    },
+    {
+      "path": "tests/data/compat/v0.0/README.md",
+      "language": "markdown",
+      "sizeLines": 29,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "tests/data/compat/v0.0/setup_config.json",
+      "language": "json",
+      "sizeLines": 41,
+      "fileCategory": "config"
+    },
+    {
+      "path": "tests/data/compat/v0.1/model_config.json",
+      "language": "json",
+      "sizeLines": 48,
+      "fileCategory": "config"
+    },
+    {
+      "path": "tests/data/compat/v0.1/README.md",
+      "language": "markdown",
+      "sizeLines": 28,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "tests/data/compat/v0.1/setup_config.json",
+      "language": "json",
+      "sizeLines": 40,
+      "fileCategory": "config"
+    },
+    {
+      "path": "tests/test_activation_log.py",
+      "language": "python",
+      "sizeLines": 182,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_birdfeeder.py",
+      "language": "python",
+      "sizeLines": 312,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_birds_no_eggs_integration.py",
+      "language": "python",
+      "sizeLines": 170,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_bonus_categories.py",
+      "language": "python",
+      "sizeLines": 200,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_bonus_linear_value.py",
+      "language": "python",
+      "sizeLines": 110,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_card_table_cache.py",
+      "language": "python",
+      "sizeLines": 137,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_choice_landing_slot.py",
+      "language": "python",
+      "sizeLines": 193,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_cloud_runfile.py",
+      "language": "python",
+      "sizeLines": 78,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_cloud_s3sync.py",
+      "language": "python",
+      "sizeLines": 77,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_cloud_status.py",
+      "language": "python",
+      "sizeLines": 104,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_commit_row_pricing.py",
+      "language": "python",
+      "sizeLines": 236,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_compat_shim_v0_0.py",
+      "language": "python",
+      "sizeLines": 327,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_compat_v0_0.py",
+      "language": "python",
+      "sizeLines": 177,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_compat_v0_1.py",
+      "language": "python",
+      "sizeLines": 176,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_convergence_charts.py",
+      "language": "python",
+      "sizeLines": 258,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_decision_families.py",
+      "language": "python",
+      "sizeLines": 172,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_decision_shapes.py",
+      "language": "python",
+      "sizeLines": 827,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_discard_egg_for_wild.py",
+      "language": "python",
+      "sizeLines": 164,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_dynamic_bonus_scoring.py",
+      "language": "python",
+      "sizeLines": 105,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_egg_goal_delta.py",
+      "language": "python",
+      "sizeLines": 268,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_encode_spec.py",
+      "language": "python",
+      "sizeLines": 158,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_encode.py",
+      "language": "python",
+      "sizeLines": 1120,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_engine_agent_dispatch.py",
+      "language": "python",
+      "sizeLines": 115,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_evaluate_core.py",
+      "language": "python",
+      "sizeLines": 87,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_extra_play.py",
+      "language": "python",
+      "sizeLines": 248,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_food_payment.py",
+      "language": "python",
+      "sizeLines": 207,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_gain_food_choice.py",
+      "language": "python",
+      "sizeLines": 284,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_habitat_action_track.py",
+      "language": "python",
+      "sizeLines": 539,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_inspect_era.py",
+      "language": "python",
+      "sizeLines": 209,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_instrumentation_config.py",
+      "language": "python",
+      "sizeLines": 85,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_instrumentation_dispatch.py",
+      "language": "python",
+      "sizeLines": 213,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_instrumentation_validation.py",
+      "language": "python",
+      "sizeLines": 49,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_main_action.py",
+      "language": "python",
+      "sizeLines": 164,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_metrics_log.py",
+      "language": "python",
+      "sizeLines": 107,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_model_and_self_play.py",
+      "language": "python",
+      "sizeLines": 316,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_move_goal_delta.py",
+      "language": "python",
+      "sizeLines": 201,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_mp_collect.py",
+      "language": "python",
+      "sizeLines": 154,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_play_bird_payment.py",
+      "language": "python",
+      "sizeLines": 176,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_play_cli.py",
+      "language": "python",
+      "sizeLines": 83,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_players_factory.py",
+      "language": "python",
+      "sizeLines": 120,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_players_spec.py",
+      "language": "python",
+      "sizeLines": 65,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_power_coverage.py",
+      "language": "python",
+      "sizeLines": 55,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_power_dispatch_edge_cases.py",
+      "language": "python",
+      "sizeLines": 130,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_all_lay_egg.py",
+      "language": "python",
+      "sizeLines": 574,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_cache_food.py",
+      "language": "python",
+      "sizeLines": 78,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_coverage_batch.py",
+      "language": "python",
+      "sizeLines": 663,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_each_player_die.py",
+      "language": "python",
+      "sizeLines": 255,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_misc_unique.py",
+      "language": "python",
+      "sizeLines": 932,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_pink_reactive.py",
+      "language": "python",
+      "sizeLines": 327,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_tuck_conditional.py",
+      "language": "python",
+      "sizeLines": 568,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_report_panels.py",
+      "language": "python",
+      "sizeLines": 153,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_round_goal_coverage.py",
+      "language": "python",
+      "sizeLines": 107,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_round_goal_freeze.py",
+      "language": "python",
+      "sizeLines": 134,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_round_goal_scoring.py",
+      "language": "python",
+      "sizeLines": 98,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_run_metadata.py",
+      "language": "python",
+      "sizeLines": 161,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_actor_critic.py",
+      "language": "python",
+      "sizeLines": 322,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_arch_key_restart.py",
+      "language": "python",
+      "sizeLines": 177,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_candidates.py",
+      "language": "python",
+      "sizeLines": 102,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_collect.py",
+      "language": "python",
+      "sizeLines": 128,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_data_store_guard.py",
+      "language": "python",
+      "sizeLines": 59,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_embedders.py",
+      "language": "python",
+      "sizeLines": 169,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_encode_pricing.py",
+      "language": "python",
+      "sizeLines": 166,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_encode.py",
+      "language": "python",
+      "sizeLines": 126,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_feature_off.py",
+      "language": "python",
+      "sizeLines": 41,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_generate.py",
+      "language": "python",
+      "sizeLines": 62,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_net.py",
+      "language": "python",
+      "sizeLines": 50,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_state_construction.py",
+      "language": "python",
+      "sizeLines": 78,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_stripes.py",
+      "language": "python",
+      "sizeLines": 135,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_train_cpu.py",
+      "language": "python",
+      "sizeLines": 87,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_smoke.py",
+      "language": "python",
+      "sizeLines": 29,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_split_setup_bonus.py",
+      "language": "python",
+      "sizeLines": 137,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_split_setup_food.py",
+      "language": "python",
+      "sizeLines": 170,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_dashboard.py",
+      "language": "python",
+      "sizeLines": 122,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_discovery.py",
+      "language": "python",
+      "sizeLines": 113,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_elo.py",
+      "language": "python",
+      "sizeLines": 71,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_results.py",
+      "language": "python",
+      "sizeLines": 95,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_schedule.py",
+      "language": "python",
+      "sizeLines": 67,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_smoke.py",
+      "language": "python",
+      "sizeLines": 73,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_training_configurator.py",
+      "language": "python",
+      "sizeLines": 899,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_training_dashboard.py",
+      "language": "python",
+      "sizeLines": 505,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tray_refill.py",
+      "language": "python",
+      "sizeLines": 377,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tray_set_embedding.py",
+      "language": "python",
+      "sizeLines": 203,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_version.py",
+      "language": "python",
+      "sizeLines": 105,
+      "fileCategory": "code"
+    },
+    {
+      "path": "TODO.md",
+      "language": "markdown",
+      "sizeLines": 43,
+      "fileCategory": "docs"
+    }
+  ],
+  "totalFiles": 290,
+  "filteredByIgnore": 0,
+  "estimatedComplexity": "large",
+  "importMap": {
+    ".dockerignore": [],
+    ".gitattributes": [],
+    ".understand-anything/.understandignore": [],
+    "cards.csv": [],
+    "CLAUDE.md": [],
+    "coverage_baseline.txt": [],
+    "deploy/ecs-task-def.json": [],
+    "deploy/main.tf": [],
+    "deploy/README.md": [],
+    "deploy/run.example.yaml": [],
+    "Dockerfile": [],
+    "docs/BIRDS.md": [],
+    "docs/BONUSES.md": [],
+    "docs/DECISIONS.md": [],
+    "docs/PROJECT.md": [],
+    "docs/QUALITY.md": [],
+    "docs/RESEARCH.md": [],
+    "docs/TRAINING.md": [],
+    "docs/VERSIONING.md": [],
+    "export_card_attrs.py": [],
+    "main.html": [],
+    "pyproject.toml": [],
+    "README.md": [],
+    "scripts/auto_merge_worktree.sh": [],
+    "scripts/check_mp_collect.py": [],
+    "scripts/create_worktree.sh": [],
+    "scripts/gen_arch_experiment.py": [],
+    "scripts/measure_ipc.py": [],
+    "scripts/merge_worktree.sh": [],
+    "scripts/profile_collection.py": [],
+    "scripts/quality_gate.sh": [],
+    "src/wingspan/__init__.py": [],
+    "src/wingspan/__main__.py": [],
+    "src/wingspan/agents/__init__.py": [
+      "src/wingspan/agents/base.py",
+      "src/wingspan/agents/cli.py"
+    ],
+    "src/wingspan/agents/base.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py"
+    ],
+    "src/wingspan/agents/cli.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/agents/display.py",
+      "src/wingspan/agents/interactive.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/agents/display.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/engine/helpers.py",
+      "src/wingspan/engine/scoring.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/agents/INDEX.md": [],
+    "src/wingspan/agents/interactive.py": [],
+    "src/wingspan/architecture.py": [],
+    "src/wingspan/cards/__init__.py": [
+      "src/wingspan/cards/parse/__init__.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/INDEX.md": [],
+    "src/wingspan/cards/parse/__init__.py": [
+      "src/wingspan/cards/parse/__init__.py",
+      "src/wingspan/cards/parse/catalog.py",
+      "src/wingspan/cards/parse/fields.py",
+      "src/wingspan/cards/parse/loader.py",
+      "src/wingspan/cards/parse/matchers.py",
+      "src/wingspan/cards/parse/pink_matchers.py",
+      "src/wingspan/cards/parse/power.py",
+      "src/wingspan/cards/parse/tags.py"
+    ],
+    "src/wingspan/cards/parse/catalog.py": [
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/cards/parse/__init__.py",
+      "src/wingspan/cards/parse/loader.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/parse/fields.py": [
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/parse/INDEX.md": [],
+    "src/wingspan/cards/parse/loader.py": [
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/parse/matchers.py": [
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/cards/parse/__init__.py",
+      "src/wingspan/cards/parse/registry.py",
+      "src/wingspan/cards/parse/tags.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/parse/pink_matchers.py": [
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/cards/parse/__init__.py",
+      "src/wingspan/cards/parse/registry.py",
+      "src/wingspan/cards/parse/tags.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/parse/power.py": [
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/cards/parse/__init__.py",
+      "src/wingspan/cards/parse/registry.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/parse/registry.py": [
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/parse/tags.py": [
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/cards/schema.py"
+    ],
+    "src/wingspan/cards/schema.py": [],
+    "src/wingspan/cli.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/agents/display.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/instrumentation/dispatcher.py",
+      "src/wingspan/players/__init__.py"
+    ],
+    "src/wingspan/cloud/__init__.py": [
+      "src/wingspan/cloud/__init__.py",
+      "src/wingspan/cloud/monitor.py",
+      "src/wingspan/cloud/runfile.py",
+      "src/wingspan/cloud/runner.py",
+      "src/wingspan/cloud/s3sync.py",
+      "src/wingspan/cloud/status.py"
+    ],
+    "src/wingspan/cloud/__main__.py": [
+      "src/wingspan/cloud/__init__.py",
+      "src/wingspan/cloud/runfile.py",
+      "src/wingspan/cloud/runner.py",
+      "src/wingspan/cloud/s3sync.py"
+    ],
+    "src/wingspan/cloud/INDEX.md": [],
+    "src/wingspan/cloud/monitor.py": [
+      "src/wingspan/cloud/__init__.py",
+      "src/wingspan/cloud/runfile.py",
+      "src/wingspan/cloud/s3sync.py",
+      "src/wingspan/cloud/status.py"
+    ],
+    "src/wingspan/cloud/runfile.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/config.py"
+    ],
+    "src/wingspan/cloud/runner.py": [
+      "src/wingspan/cloud/__init__.py",
+      "src/wingspan/cloud/runfile.py",
+      "src/wingspan/cloud/s3sync.py",
+      "src/wingspan/cloud/status.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/loop.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/cloud/s3sync.py": [
+      "src/wingspan/cloud/__init__.py",
+      "src/wingspan/cloud/runfile.py",
+      "src/wingspan/cloud/status.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py"
+    ],
+    "src/wingspan/cloud/status.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/compat/__init__.py": [
+      "src/wingspan/compat/__init__.py",
+      "src/wingspan/compat/v0_0.py",
+      "src/wingspan/compat/v0_1.py"
+    ],
+    "src/wingspan/compat/INDEX.md": [],
+    "src/wingspan/compat/v0_0.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/compat/__init__.py",
+      "src/wingspan/compat/v0_1.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/encode/stripes/__init__.py",
+      "src/wingspan/encode/stripes/descriptors.py",
+      "src/wingspan/encode/stripes/embed_rules.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/model/mlp.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/compat/v0_1.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/model/core.py",
+      "src/wingspan/model/mlp.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/data/bonus.json": [],
+    "src/wingspan/data/general.json": [],
+    "src/wingspan/data/goals.json": [],
+    "src/wingspan/data/master.json": [],
+    "src/wingspan/data/parameters.json": [],
+    "src/wingspan/decisions.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/encode/__init__.py": [
+      "src/wingspan/encode/choice_encode.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/encode/state_encode.py"
+    ],
+    "src/wingspan/encode/choice_encode.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/encode/INDEX.md": [],
+    "src/wingspan/encode/layout.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/encode/state_encode.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/encode/stripes/__init__.py": [
+      "src/wingspan/encode/stripes/card_feature.py",
+      "src/wingspan/encode/stripes/choice.py",
+      "src/wingspan/encode/stripes/descriptors.py",
+      "src/wingspan/encode/stripes/state.py"
+    ],
+    "src/wingspan/encode/stripes/card_feature.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/encode/stripes/__init__.py",
+      "src/wingspan/encode/stripes/descriptors.py"
+    ],
+    "src/wingspan/encode/stripes/choice.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/encode/stripes/__init__.py",
+      "src/wingspan/encode/stripes/descriptors.py",
+      "src/wingspan/encode/stripes/embed_rules.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/encode/stripes/descriptors.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py"
+    ],
+    "src/wingspan/encode/stripes/embed_rules.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/encode/stripes/__init__.py",
+      "src/wingspan/encode/stripes/descriptors.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/encode/stripes/INDEX.md": [],
+    "src/wingspan/encode/stripes/state.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/encode/stripes/__init__.py",
+      "src/wingspan/encode/stripes/descriptors.py",
+      "src/wingspan/encode/stripes/embed_rules.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/__init__.py": [
+      "src/wingspan/engine/core.py"
+    ],
+    "src/wingspan/engine/actions.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/engine/helpers.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/reactors.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/core.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/engine/actions.py",
+      "src/wingspan/engine/log_format.py",
+      "src/wingspan/engine/scoring.py",
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/instrumentation/dispatcher.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/helpers.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/INDEX.md": [],
+    "src/wingspan/engine/log_format.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/agents/display.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/engine/scoring.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/__init__.py": [
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/dispatch.py",
+      "src/wingspan/engine/powers/drafting.py",
+      "src/wingspan/engine/powers/egg_trade.py",
+      "src/wingspan/engine/powers/grants.py",
+      "src/wingspan/engine/powers/multi_actor.py",
+      "src/wingspan/engine/powers/nest_aggregate.py",
+      "src/wingspan/engine/powers/predator_repeat.py",
+      "src/wingspan/engine/powers/tray_trade.py"
+    ],
+    "src/wingspan/engine/powers/dispatch.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/registry.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/drafting.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/registry.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/egg_trade.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/registry.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/grants.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/dispatch.py",
+      "src/wingspan/engine/powers/registry.py",
+      "src/wingspan/engine/reactors.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/INDEX.md": [],
+    "src/wingspan/engine/powers/multi_actor.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/dispatch.py",
+      "src/wingspan/engine/powers/registry.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/nest_aggregate.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/dispatch.py",
+      "src/wingspan/engine/powers/registry.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/predator_repeat.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/dispatch.py",
+      "src/wingspan/engine/powers/registry.py",
+      "src/wingspan/engine/reactors.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/registry.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/powers/tray_trade.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/powers/__init__.py",
+      "src/wingspan/engine/powers/dispatch.py",
+      "src/wingspan/engine/powers/registry.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/reactors.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/engine/scoring.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/instrumentation/__init__.py": [
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/instrumentation/config.py",
+      "src/wingspan/instrumentation/dispatcher.py",
+      "src/wingspan/instrumentation/events.py",
+      "src/wingspan/instrumentation/handlers/__init__.py",
+      "src/wingspan/instrumentation/registry.py"
+    ],
+    "src/wingspan/instrumentation/config.py": [
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/instrumentation/dispatcher.py",
+      "src/wingspan/instrumentation/registry.py"
+    ],
+    "src/wingspan/instrumentation/dispatcher.py": [
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/instrumentation/events.py"
+    ],
+    "src/wingspan/instrumentation/events.py": [],
+    "src/wingspan/instrumentation/handlers/__init__.py": [
+      "src/wingspan/instrumentation/handlers/__init__.py",
+      "src/wingspan/instrumentation/handlers/card_visits.py",
+      "src/wingspan/instrumentation/handlers/decision_logger.py"
+    ],
+    "src/wingspan/instrumentation/handlers/card_visits.py": [
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/instrumentation/events.py",
+      "src/wingspan/instrumentation/registry.py"
+    ],
+    "src/wingspan/instrumentation/handlers/decision_logger.py": [
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/instrumentation/events.py",
+      "src/wingspan/instrumentation/registry.py"
+    ],
+    "src/wingspan/instrumentation/INDEX.md": [],
+    "src/wingspan/instrumentation/registry.py": [
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/instrumentation/events.py"
+    ],
+    "src/wingspan/model/__init__.py": [
+      "src/wingspan/model/core.py"
+    ],
+    "src/wingspan/model/core.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/model/hand_model.py",
+      "src/wingspan/model/mlp.py"
+    ],
+    "src/wingspan/model/hand_model.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/encode/__init__.py"
+    ],
+    "src/wingspan/model/INDEX.md": [],
+    "src/wingspan/model/mlp.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py"
+    ],
+    "src/wingspan/players/__init__.py": [
+      "src/wingspan/players/factory.py",
+      "src/wingspan/players/loaders.py",
+      "src/wingspan/players/spec.py"
+    ],
+    "src/wingspan/players/factory.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/players/__init__.py",
+      "src/wingspan/players/loaders.py",
+      "src/wingspan/players/spec.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/policy.py"
+    ],
+    "src/wingspan/players/INDEX.md": [],
+    "src/wingspan/players/loaders.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/compat/__init__.py",
+      "src/wingspan/compat/v0_0.py",
+      "src/wingspan/compat/v0_1.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/runmeta.py",
+      "src/wingspan/training/setup_runmeta.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/players/spec.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py"
+    ],
+    "src/wingspan/reporting/__init__.py": [
+      "src/wingspan/reporting/html.py",
+      "src/wingspan/reporting/inspect_cli.py"
+    ],
+    "src/wingspan/reporting/html.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/reporting/__init__.py",
+      "src/wingspan/reporting/html.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/charts/text_helpers.py"
+    ],
+    "src/wingspan/reporting/INDEX.md": [],
+    "src/wingspan/reporting/inspect_cli.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/charts/text_helpers.py",
+      "src/wingspan/training/configure/__init__.py",
+      "src/wingspan/training/configure/arch_diagram.py",
+      "src/wingspan/training/runmeta.py",
+      "src/wingspan/training/setup_runmeta.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/reporting/svg.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/reporting/html.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/setup_model/__init__.py": [
+      "src/wingspan/setup_model/architecture.py",
+      "src/wingspan/setup_model/candidates.py",
+      "src/wingspan/setup_model/encode.py",
+      "src/wingspan/setup_model/generate.py",
+      "src/wingspan/setup_model/record.py",
+      "src/wingspan/setup_model/stripes.py"
+    ],
+    "src/wingspan/setup_model/architecture.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/setup_model/candidates.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py"
+    ],
+    "src/wingspan/setup_model/encode.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/layout.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/setup_model/candidates.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/setup_model/generate.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/engine/helpers.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/setup_model/candidates.py",
+      "src/wingspan/setup_model/encode.py",
+      "src/wingspan/state.py"
+    ],
+    "src/wingspan/setup_model/INDEX.md": [],
+    "src/wingspan/setup_model/record.py": [],
+    "src/wingspan/setup_model/stripes.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/encode/stripes/__init__.py",
+      "src/wingspan/encode/stripes/embed_rules.py",
+      "src/wingspan/setup_model/__init__.py"
+    ],
+    "src/wingspan/state.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py"
+    ],
+    "src/wingspan/tournament/__init__.py": [
+      "src/wingspan/tournament/app.py",
+      "src/wingspan/tournament/config.py",
+      "src/wingspan/tournament/participants.py",
+      "src/wingspan/tournament/results.py",
+      "src/wingspan/tournament/runner.py"
+    ],
+    "src/wingspan/tournament/app.py": [
+      "src/wingspan/tournament/__init__.py",
+      "src/wingspan/tournament/config.py",
+      "src/wingspan/tournament/dashboard.py",
+      "src/wingspan/tournament/participants.py",
+      "src/wingspan/tournament/picker.py",
+      "src/wingspan/tournament/results.py",
+      "src/wingspan/tournament/runner.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/configure/__init__.py",
+      "src/wingspan/training/configure/keys.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/tournament/config.py": [
+      "src/wingspan/tournament/__init__.py",
+      "src/wingspan/tournament/participants.py"
+    ],
+    "src/wingspan/tournament/dashboard.py": [
+      "src/wingspan/tournament/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/charts/text_helpers.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/tournament/elo.py": [],
+    "src/wingspan/tournament/INDEX.md": [],
+    "src/wingspan/tournament/participants.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/players/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/configure/__init__.py",
+      "src/wingspan/training/configure/runs.py",
+      "src/wingspan/training/policy.py",
+      "src/wingspan/training/runmeta.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/tournament/picker.py": [
+      "src/wingspan/tournament/__init__.py",
+      "src/wingspan/tournament/participants.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/configure/__init__.py",
+      "src/wingspan/training/configure/keys.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/tournament/results.py": [
+      "src/wingspan/tournament/__init__.py",
+      "src/wingspan/tournament/config.py",
+      "src/wingspan/tournament/elo.py",
+      "src/wingspan/tournament/schedule.py"
+    ],
+    "src/wingspan/tournament/runner.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/tournament/__init__.py",
+      "src/wingspan/tournament/config.py",
+      "src/wingspan/tournament/participants.py",
+      "src/wingspan/tournament/results.py",
+      "src/wingspan/tournament/schedule.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/collect.py"
+    ],
+    "src/wingspan/tournament/schedule.py": [
+      "src/wingspan/tournament/__init__.py",
+      "src/wingspan/tournament/participants.py"
+    ],
+    "src/wingspan/tournament/state.py": [
+      "src/wingspan/tournament/__init__.py",
+      "src/wingspan/tournament/config.py",
+      "src/wingspan/tournament/elo.py",
+      "src/wingspan/tournament/results.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/training/__init__.py": [
+      "src/wingspan/training/app.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/loop.py"
+    ],
+    "src/wingspan/training/__main__.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/app.py"
+    ],
+    "src/wingspan/training/app.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/configure/__init__.py",
+      "src/wingspan/training/configure/keys.py",
+      "src/wingspan/training/dashboard.py",
+      "src/wingspan/training/loop.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/training/artifacts.py": [],
+    "src/wingspan/training/batched_collect.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/policy.py",
+      "src/wingspan/training/steps.py"
+    ],
+    "src/wingspan/training/charts/__init__.py": [
+      "src/wingspan/training/charts/braille.py",
+      "src/wingspan/training/charts/convergence_chart.py",
+      "src/wingspan/training/charts/histogram.py",
+      "src/wingspan/training/charts/text_helpers.py"
+    ],
+    "src/wingspan/training/charts/braille.py": [],
+    "src/wingspan/training/charts/convergence_chart.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/charts/braille.py",
+      "src/wingspan/training/charts/geometry.py",
+      "src/wingspan/training/charts/insets.py",
+      "src/wingspan/training/charts/text_helpers.py",
+      "src/wingspan/training/convergence.py",
+      "src/wingspan/training/metrics_log.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/runstate.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/training/charts/geometry.py": [],
+    "src/wingspan/training/charts/histogram.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/charts/text_helpers.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/training/charts/INDEX.md": [],
+    "src/wingspan/training/charts/insets.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/charts/geometry.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/runstate.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/training/charts/text_helpers.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/training/collect.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/cards/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/engine/scoring.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/state.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/policy.py",
+      "src/wingspan/training/setup_net.py"
+    ],
+    "src/wingspan/training/COLLECTORS.md": [],
+    "src/wingspan/training/config.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/instrumentation/__init__.py",
+      "src/wingspan/setup_model/__init__.py"
+    ],
+    "src/wingspan/training/configure/__init__.py": [
+      "src/wingspan/training/configure/controller.py"
+    ],
+    "src/wingspan/training/configure/arch_diagram.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/charts/text_helpers.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/training/configure/controller.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/configure/__init__.py",
+      "src/wingspan/training/configure/fields.py",
+      "src/wingspan/training/configure/keys.py",
+      "src/wingspan/training/configure/runs.py",
+      "src/wingspan/training/configure/screen.py",
+      "src/wingspan/training/configure/state.py"
+    ],
+    "src/wingspan/training/configure/fields.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/config.py"
+    ],
+    "src/wingspan/training/configure/INDEX.md": [],
+    "src/wingspan/training/configure/keys.py": [],
+    "src/wingspan/training/configure/runs.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/training/configure/screen.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/configure/__init__.py",
+      "src/wingspan/training/configure/arch_diagram.py",
+      "src/wingspan/training/configure/fields.py",
+      "src/wingspan/training/configure/runs.py",
+      "src/wingspan/training/configure/state.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/training/configure/state.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/configure/__init__.py",
+      "src/wingspan/training/configure/fields.py",
+      "src/wingspan/training/configure/runs.py"
+    ],
+    "src/wingspan/training/convergence.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/metrics.py"
+    ],
+    "src/wingspan/training/dashboard.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/charts/__init__.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/runstate.py",
+      "src/wingspan/training/theme.py"
+    ],
+    "src/wingspan/training/evaluate.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/policy.py"
+    ],
+    "src/wingspan/training/INDEX.md": [],
+    "src/wingspan/training/learner.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/steps.py"
+    ],
+    "src/wingspan/training/loop_checkpoint.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/learner.py",
+      "src/wingspan/training/loop_eval.py",
+      "src/wingspan/training/loop_metrics.py",
+      "src/wingspan/training/loop_setup.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/runstate.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/training/loop_collect.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/batched_collect.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/loop_metrics.py",
+      "src/wingspan/training/mp_collect.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/training/loop_eval.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/evaluate.py",
+      "src/wingspan/training/loop_checkpoint.py",
+      "src/wingspan/training/loop_collect.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/runstate.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/training/loop_metrics.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/learner.py",
+      "src/wingspan/training/metrics.py"
+    ],
+    "src/wingspan/training/loop_resume.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/loop_checkpoint.py",
+      "src/wingspan/training/loop_eval.py",
+      "src/wingspan/training/runmeta.py",
+      "src/wingspan/training/runstate.py",
+      "src/wingspan/training/setup_runmeta.py"
+    ],
+    "src/wingspan/training/loop_setup.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/loop_checkpoint.py",
+      "src/wingspan/training/loop_metrics.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/runstate.py",
+      "src/wingspan/training/setup_learner.py",
+      "src/wingspan/training/setup_net.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/training/loop_target.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/evaluate.py",
+      "src/wingspan/training/loop_checkpoint.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/training/loop.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/learner.py",
+      "src/wingspan/training/loop_checkpoint.py",
+      "src/wingspan/training/loop_collect.py",
+      "src/wingspan/training/loop_eval.py",
+      "src/wingspan/training/loop_metrics.py",
+      "src/wingspan/training/loop_resume.py",
+      "src/wingspan/training/loop_setup.py",
+      "src/wingspan/training/loop_target.py",
+      "src/wingspan/training/mp_collect.py",
+      "src/wingspan/training/runstate.py",
+      "src/wingspan/training/setup_net.py",
+      "src/wingspan/training/sysmon.py"
+    ],
+    "src/wingspan/training/metrics_log.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/metrics.py"
+    ],
+    "src/wingspan/training/metrics.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/decisions.py"
+    ],
+    "src/wingspan/training/mp_collect.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/agents/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/collect.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/evaluate.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/setup_net.py"
+    ],
+    "src/wingspan/training/policy.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/decisions.py",
+      "src/wingspan/engine/__init__.py",
+      "src/wingspan/model/__init__.py"
+    ],
+    "src/wingspan/training/runmeta.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/reporting/__init__.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/training/runstate.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/metrics.py"
+    ],
+    "src/wingspan/training/setup_learner.py": [
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/setup_model/record.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/setup_net.py"
+    ],
+    "src/wingspan/training/setup_net.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/encode/__init__.py",
+      "src/wingspan/model/__init__.py",
+      "src/wingspan/model/hand_model.py",
+      "src/wingspan/model/mlp.py",
+      "src/wingspan/setup_model/__init__.py"
+    ],
+    "src/wingspan/training/setup_runmeta.py": [
+      "src/wingspan/__init__.py",
+      "src/wingspan/architecture.py",
+      "src/wingspan/setup_model/__init__.py",
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/artifacts.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/version.py"
+    ],
+    "src/wingspan/training/steps.py": [],
+    "src/wingspan/training/sysmon.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/metrics.py"
+    ],
+    "src/wingspan/training/theme.py": [
+      "src/wingspan/training/__init__.py",
+      "src/wingspan/training/runstate.py"
+    ],
+    "src/wingspan/version.py": [],
+    "tests/conftest.py": [],
+    "tests/data/compat/v0.0/model_config.json": [],
+    "tests/data/compat/v0.0/README.md": [],
+    "tests/data/compat/v0.0/setup_config.json": [],
+    "tests/data/compat/v0.1/model_config.json": [],
+    "tests/data/compat/v0.1/README.md": [],
+    "tests/data/compat/v0.1/setup_config.json": [],
+    "tests/test_activation_log.py": [],
+    "tests/test_birdfeeder.py": [],
+    "tests/test_birds_no_eggs_integration.py": [],
+    "tests/test_bonus_categories.py": [],
+    "tests/test_bonus_linear_value.py": [],
+    "tests/test_card_table_cache.py": [],
+    "tests/test_choice_landing_slot.py": [],
+    "tests/test_cloud_runfile.py": [],
+    "tests/test_cloud_s3sync.py": [],
+    "tests/test_cloud_status.py": [],
+    "tests/test_commit_row_pricing.py": [],
+    "tests/test_compat_shim_v0_0.py": [],
+    "tests/test_compat_v0_0.py": [],
+    "tests/test_compat_v0_1.py": [],
+    "tests/test_convergence_charts.py": [],
+    "tests/test_decision_families.py": [],
+    "tests/test_decision_shapes.py": [],
+    "tests/test_discard_egg_for_wild.py": [],
+    "tests/test_dynamic_bonus_scoring.py": [],
+    "tests/test_egg_goal_delta.py": [],
+    "tests/test_encode_spec.py": [],
+    "tests/test_encode.py": [],
+    "tests/test_engine_agent_dispatch.py": [],
+    "tests/test_evaluate_core.py": [],
+    "tests/test_extra_play.py": [],
+    "tests/test_food_payment.py": [],
+    "tests/test_gain_food_choice.py": [],
+    "tests/test_habitat_action_track.py": [],
+    "tests/test_inspect_era.py": [],
+    "tests/test_instrumentation_config.py": [],
+    "tests/test_instrumentation_dispatch.py": [],
+    "tests/test_instrumentation_validation.py": [],
+    "tests/test_main_action.py": [],
+    "tests/test_metrics_log.py": [],
+    "tests/test_model_and_self_play.py": [],
+    "tests/test_move_goal_delta.py": [],
+    "tests/test_mp_collect.py": [],
+    "tests/test_play_bird_payment.py": [],
+    "tests/test_play_cli.py": [],
+    "tests/test_players_factory.py": [],
+    "tests/test_players_spec.py": [],
+    "tests/test_power_coverage.py": [],
+    "tests/test_power_dispatch_edge_cases.py": [],
+    "tests/test_powers_all_lay_egg.py": [],
+    "tests/test_powers_cache_food.py": [],
+    "tests/test_powers_coverage_batch.py": [],
+    "tests/test_powers_each_player_die.py": [],
+    "tests/test_powers_misc_unique.py": [],
+    "tests/test_powers_pink_reactive.py": [],
+    "tests/test_powers_tuck_conditional.py": [],
+    "tests/test_report_panels.py": [],
+    "tests/test_round_goal_coverage.py": [],
+    "tests/test_round_goal_freeze.py": [],
+    "tests/test_round_goal_scoring.py": [],
+    "tests/test_run_metadata.py": [],
+    "tests/test_setup_actor_critic.py": [],
+    "tests/test_setup_arch_key_restart.py": [],
+    "tests/test_setup_candidates.py": [],
+    "tests/test_setup_collect.py": [],
+    "tests/test_setup_data_store_guard.py": [],
+    "tests/test_setup_embedders.py": [],
+    "tests/test_setup_encode_pricing.py": [],
+    "tests/test_setup_encode.py": [],
+    "tests/test_setup_feature_off.py": [],
+    "tests/test_setup_generate.py": [],
+    "tests/test_setup_net.py": [],
+    "tests/test_setup_state_construction.py": [],
+    "tests/test_setup_stripes.py": [],
+    "tests/test_setup_train_cpu.py": [],
+    "tests/test_smoke.py": [],
+    "tests/test_split_setup_bonus.py": [],
+    "tests/test_split_setup_food.py": [],
+    "tests/test_tournament_dashboard.py": [],
+    "tests/test_tournament_discovery.py": [],
+    "tests/test_tournament_elo.py": [],
+    "tests/test_tournament_results.py": [],
+    "tests/test_tournament_schedule.py": [],
+    "tests/test_tournament_smoke.py": [],
+    "tests/test_training_configurator.py": [],
+    "tests/test_training_dashboard.py": [],
+    "tests/test_tray_refill.py": [],
+    "tests/test_tray_set_embedding.py": [],
+    "tests/test_version.py": [],
+    "TODO.md": []
+  }
+}

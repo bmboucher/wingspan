@@ -1,0 +1,5 @@
+  1. `src/wingspan/data/bonus.json` (1029 lines, language: `json`, fileCategory: `config`)
+  2. `src/wingspan/data/general.json` (171 lines, language: `json`, fileCategory: `config`)
+  3. `src/wingspan/data/goals.json` (618 lines, language: `json`, fileCategory: `config`)
+  4. `src/wingspan/data/master.json` (57534 lines, language: `json`, fileCategory: `config`)
+  5. `src/wingspan/data/parameters.json` (4 lines, language: `json`, fileCategory: `config`)

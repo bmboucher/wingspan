@@ -1,0 +1,8 @@
+  1. `docs/BIRDS.md` (918 lines, language: `markdown`, fileCategory: `docs`)
+  2. `docs/BONUSES.md` (631 lines, language: `markdown`, fileCategory: `docs`)
+  3. `docs/DECISIONS.md` (735 lines, language: `markdown`, fileCategory: `docs`)
+  4. `docs/PROJECT.md` (50 lines, language: `markdown`, fileCategory: `docs`)
+  5. `docs/QUALITY.md` (101 lines, language: `markdown`, fileCategory: `docs`)
+  6. `docs/RESEARCH.md` (174 lines, language: `markdown`, fileCategory: `docs`)
+  7. `docs/TRAINING.md` (1019 lines, language: `markdown`, fileCategory: `docs`)
+  8. `docs/VERSIONING.md` (166 lines, language: `markdown`, fileCategory: `docs`)

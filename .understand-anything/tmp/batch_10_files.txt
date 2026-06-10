@@ -1,0 +1,4 @@
+  1. `deploy/README.md` (82 lines, language: `markdown`, fileCategory: `docs`)
+  2. `deploy/ecs-task-def.json` (31 lines, language: `json`, fileCategory: `config`)
+  3. `deploy/main.tf` (158 lines, language: `terraform`, fileCategory: `infra`)
+  4. `deploy/run.example.yaml` (48 lines, language: `yaml`, fileCategory: `config`)

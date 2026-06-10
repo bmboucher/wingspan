@@ -1,0 +1,2 @@
+  1. `.dockerignore` (19 lines, language: `unknown`, fileCategory: `infra`)
+  2. `Dockerfile` (36 lines, language: `dockerfile`, fileCategory: `infra`)

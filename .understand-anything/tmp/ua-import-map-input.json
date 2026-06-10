@@ -1,0 +1,1455 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "language": "unknown",
+      "fileCategory": "infra"
+    },
+    {
+      "path": ".gitattributes",
+      "language": "unknown",
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "fileCategory": "code"
+    },
+    {
+      "path": "cards.csv",
+      "language": "csv",
+      "fileCategory": "data"
+    },
+    {
+      "path": "CLAUDE.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "coverage_baseline.txt",
+      "language": "txt",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "deploy/ecs-task-def.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "deploy/main.tf",
+      "language": "terraform",
+      "fileCategory": "infra"
+    },
+    {
+      "path": "deploy/README.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "deploy/run.example.yaml",
+      "language": "yaml",
+      "fileCategory": "config"
+    },
+    {
+      "path": "Dockerfile",
+      "language": "dockerfile",
+      "fileCategory": "infra"
+    },
+    {
+      "path": "docs/BIRDS.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/BONUSES.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/DECISIONS.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/PROJECT.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/QUALITY.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/RESEARCH.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/TRAINING.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/VERSIONING.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "export_card_attrs.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "main.html",
+      "language": "html",
+      "fileCategory": "markup"
+    },
+    {
+      "path": "pyproject.toml",
+      "language": "toml",
+      "fileCategory": "config"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "scripts/auto_merge_worktree.sh",
+      "language": "shell",
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/check_mp_collect.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/create_worktree.sh",
+      "language": "shell",
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/gen_arch_experiment.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/measure_ipc.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/merge_worktree.sh",
+      "language": "shell",
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/profile_collection.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/quality_gate.sh",
+      "language": "shell",
+      "fileCategory": "script"
+    },
+    {
+      "path": "src/wingspan/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/__main__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/base.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/cli.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/display.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/agents/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/agents/interactive.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/architecture.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/cards/parse/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/catalog.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/fields.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/cards/parse/loader.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/matchers.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/pink_matchers.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/power.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/registry.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/parse/tags.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cards/schema.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cli.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/__main__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/cloud/monitor.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/runfile.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/runner.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/s3sync.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/cloud/status.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/compat/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/compat/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/compat/v0_0.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/compat/v0_1.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/data/bonus.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/data/general.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/data/goals.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/data/master.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/data/parameters.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/wingspan/decisions.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/choice_encode.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/encode/layout.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/state_encode.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/card_feature.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/choice.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/descriptors.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/embed_rules.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/encode/stripes/state.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/actions.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/core.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/helpers.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/engine/log_format.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/dispatch.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/drafting.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/egg_trade.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/grants.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/engine/powers/multi_actor.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/nest_aggregate.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/predator_repeat.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/registry.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/powers/tray_trade.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/reactors.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/engine/scoring.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/config.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/dispatcher.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/events.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/card_visits.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/decision_logger.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/instrumentation/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/instrumentation/registry.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/model/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/model/core.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/model/hand_model.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/model/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/model/mlp.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/players/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/players/factory.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/players/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/players/loaders.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/players/spec.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/reporting/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/reporting/html.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/reporting/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/reporting/inspect_cli.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/reporting/svg.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/architecture.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/candidates.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/encode.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/generate.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/setup_model/record.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/setup_model/stripes.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/state.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/app.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/config.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/dashboard.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/elo.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/tournament/participants.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/picker.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/results.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/runner.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/schedule.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/tournament/state.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/__main__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/app.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/artifacts.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/batched_collect.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/braille.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/convergence_chart.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/geometry.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/histogram.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/training/charts/insets.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/charts/text_helpers.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/collect.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/COLLECTORS.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/training/config.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/__init__.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/arch_diagram.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/controller.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/fields.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/training/configure/keys.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/runs.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/screen.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/configure/state.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/convergence.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/dashboard.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/evaluate.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/wingspan/training/learner.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_checkpoint.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_collect.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_eval.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_metrics.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_resume.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_setup.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop_target.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/loop.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/metrics_log.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/metrics.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/mp_collect.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/policy.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/runmeta.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/runstate.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/setup_learner.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/setup_net.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/setup_runmeta.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/steps.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/sysmon.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/training/theme.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/wingspan/version.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/conftest.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/data/compat/v0.0/model_config.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "tests/data/compat/v0.0/README.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "tests/data/compat/v0.0/setup_config.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "tests/data/compat/v0.1/model_config.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "tests/data/compat/v0.1/README.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    },
+    {
+      "path": "tests/data/compat/v0.1/setup_config.json",
+      "language": "json",
+      "fileCategory": "config"
+    },
+    {
+      "path": "tests/test_activation_log.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_birdfeeder.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_birds_no_eggs_integration.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_bonus_categories.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_bonus_linear_value.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_card_table_cache.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_choice_landing_slot.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_cloud_runfile.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_cloud_s3sync.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_cloud_status.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_commit_row_pricing.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_compat_shim_v0_0.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_compat_v0_0.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_compat_v0_1.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_convergence_charts.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_decision_families.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_decision_shapes.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_discard_egg_for_wild.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_dynamic_bonus_scoring.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_egg_goal_delta.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_encode_spec.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_encode.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_engine_agent_dispatch.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_evaluate_core.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_extra_play.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_food_payment.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_gain_food_choice.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_habitat_action_track.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_inspect_era.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_instrumentation_config.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_instrumentation_dispatch.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_instrumentation_validation.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_main_action.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_metrics_log.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_model_and_self_play.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_move_goal_delta.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_mp_collect.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_play_bird_payment.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_play_cli.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_players_factory.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_players_spec.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_power_coverage.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_power_dispatch_edge_cases.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_all_lay_egg.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_cache_food.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_coverage_batch.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_each_player_die.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_misc_unique.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_pink_reactive.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_powers_tuck_conditional.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_report_panels.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_round_goal_coverage.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_round_goal_freeze.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_round_goal_scoring.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_run_metadata.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_actor_critic.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_arch_key_restart.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_candidates.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_collect.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_data_store_guard.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_embedders.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_encode_pricing.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_encode.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_feature_off.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_generate.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_net.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_state_construction.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_stripes.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_setup_train_cpu.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_smoke.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_split_setup_bonus.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_split_setup_food.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_dashboard.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_discovery.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_elo.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_results.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_schedule.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tournament_smoke.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_training_configurator.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_training_dashboard.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tray_refill.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tray_set_embedding.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_version.py",
+      "language": "python",
+      "fileCategory": "code"
+    },
+    {
+      "path": "TODO.md",
+      "language": "markdown",
+      "fileCategory": "docs"
+    }
+  ]
+}

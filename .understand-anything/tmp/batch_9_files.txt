@@ -1,0 +1,7 @@
+  1. `CLAUDE.md` (110 lines, language: `markdown`, fileCategory: `docs`)
+  2. `README.md` (164 lines, language: `markdown`, fileCategory: `docs`)
+  3. `TODO.md` (43 lines, language: `markdown`, fileCategory: `docs`)
+  4. `cards.csv` (181 lines, language: `csv`, fileCategory: `data`)
+  5. `coverage_baseline.txt` (1 lines, language: `txt`, fileCategory: `docs`)
+  6. `main.html` (332 lines, language: `html`, fileCategory: `markup`)
+  7. `pyproject.toml` (104 lines, language: `toml`, fileCategory: `config`)

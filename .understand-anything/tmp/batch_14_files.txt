@@ -1,0 +1,3 @@
+  1. `tests/data/compat/v0.0/README.md` (29 lines, language: `markdown`, fileCategory: `docs`)
+  2. `tests/data/compat/v0.0/model_config.json` (49 lines, language: `json`, fileCategory: `config`)
+  3. `tests/data/compat/v0.0/setup_config.json` (41 lines, language: `json`, fileCategory: `config`)
