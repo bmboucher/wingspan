@@ -1,0 +1,101 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 2,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": ".dockerignore",
+      "language": "unknown",
+      "fileCategory": "infra",
+      "totalLines": 19,
+      "nonEmptyLines": 19,
+      "metrics": {}
+    },
+    {
+      "path": "Dockerfile",
+      "language": "dockerfile",
+      "fileCategory": "infra",
+      "totalLines": 36,
+      "nonEmptyLines": 30,
+      "services": [
+        {
+          "name": "amazonlinux",
+          "image": "amazonlinux:2023",
+          "ports": [],
+          "startLine": 6,
+          "endLine": 37
+        }
+      ],
+      "steps": [
+        {
+          "name": "FROM amazonlinux:2023",
+          "startLine": 6,
+          "endLine": 6
+        },
+        {
+          "name": "RUN dnf install -y python3.12 python3.12-pip git tar gzip \\",
+          "startLine": 11,
+          "endLine": 11
+        },
+        {
+          "name": "WORKDIR /app",
+          "startLine": 15,
+          "endLine": 15
+        },
+        {
+          "name": "RUN python3.12 -m pip install --no-cache-dir \\",
+          "startLine": 19,
+          "endLine": 19
+        },
+        {
+          "name": "COPY pyproject.toml README.md ./",
+          "startLine": 23,
+          "endLine": 23
+        },
+        {
+          "name": "COPY src ./src",
+          "startLine": 24,
+          "endLine": 24
+        },
+        {
+          "name": "RUN python3.12 -m pip install --no-cache-dir .",
+          "startLine": 25,
+          "endLine": 25
+        },
+        {
+          "name": "RUN useradd --create-home --uid 10001 flyway \\",
+          "startLine": 29,
+          "endLine": 29
+        },
+        {
+          "name": "USER flyway",
+          "startLine": 32,
+          "endLine": 32
+        },
+        {
+          "name": "WORKDIR /work",
+          "startLine": 33,
+          "endLine": 33
+        },
+        {
+          "name": "ENTRYPOINT [\"python3.12\", \"-m\", \"wingspan.cloud\"]",
+          "startLine": 35,
+          "endLine": 35
+        },
+        {
+          "name": "CMD [\"--config\", \"/config/run.yaml\"]",
+          "startLine": 36,
+          "endLine": 36
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "serviceCount": 1,
+        "stepCount": 12
+      }
+    }
+  ]
+}

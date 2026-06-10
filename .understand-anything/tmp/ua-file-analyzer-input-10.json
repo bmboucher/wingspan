@@ -1,0 +1,15 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "deploy/README.md", "language": "markdown", "sizeLines": 82, "fileCategory": "docs"},
+    {"path": "deploy/ecs-task-def.json", "language": "json", "sizeLines": 31, "fileCategory": "config"},
+    {"path": "deploy/main.tf", "language": "terraform", "sizeLines": 158, "fileCategory": "infra"},
+    {"path": "deploy/run.example.yaml", "language": "yaml", "sizeLines": 48, "fileCategory": "config"}
+  ],
+  "batchImportData": {
+    "deploy/README.md": [],
+    "deploy/ecs-task-def.json": [],
+    "deploy/main.tf": [],
+    "deploy/run.example.yaml": []
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "src/wingspan/tournament/__init__.py", "language": "python", "sizeLines": 31, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/app.py", "language": "python", "sizeLines": 319, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/config.py", "language": "python", "sizeLines": 63, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/elo.py", "language": "python", "sizeLines": 71, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/participants.py", "language": "python", "sizeLines": 199, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/picker.py", "language": "python", "sizeLines": 172, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/results.py", "language": "python", "sizeLines": 211, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/runner.py", "language": "python", "sizeLines": 222, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/schedule.py", "language": "python", "sizeLines": 107, "fileCategory": "code"},
+    {"path": "src/wingspan/tournament/state.py", "language": "python", "sizeLines": 197, "fileCategory": "code"},
+    {"path": "src/wingspan/training/config.py", "language": "python", "sizeLines": 528, "fileCategory": "code"},
+    {"path": "src/wingspan/training/configure/__init__.py", "language": "python", "sizeLines": 19, "fileCategory": "code"},
+    {"path": "src/wingspan/training/configure/controller.py", "language": "python", "sizeLines": 577, "fileCategory": "code"},
+    {"path": "src/wingspan/training/configure/fields.py", "language": "python", "sizeLines": 1125, "fileCategory": "code"},
+    {"path": "src/wingspan/training/configure/keys.py", "language": "python", "sizeLines": 193, "fileCategory": "code"},
+    {"path": "src/wingspan/training/configure/runs.py", "language": "python", "sizeLines": 313, "fileCategory": "code"},
+    {"path": "src/wingspan/training/configure/screen.py", "language": "python", "sizeLines": 648, "fileCategory": "code"},
+    {"path": "src/wingspan/training/configure/state.py", "language": "python", "sizeLines": 121, "fileCategory": "code"}
+  ],
+  "batchImportData": {
+    "src/wingspan/tournament/__init__.py": ["src/wingspan/tournament/app.py", "src/wingspan/tournament/config.py", "src/wingspan/tournament/participants.py", "src/wingspan/tournament/results.py", "src/wingspan/tournament/runner.py", "src/wingspan/tournament/schedule.py", "src/wingspan/tournament/state.py"],
+    "src/wingspan/tournament/app.py": ["src/wingspan/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/tournament/__init__.py", "src/wingspan/tournament/config.py", "src/wingspan/tournament/dashboard.py", "src/wingspan/tournament/elo.py", "src/wingspan/tournament/participants.py", "src/wingspan/tournament/results.py", "src/wingspan/tournament/runner.py", "src/wingspan/tournament/schedule.py", "src/wingspan/tournament/state.py"],
+    "src/wingspan/tournament/config.py": ["src/wingspan/__init__.py", "src/wingspan/players/__init__.py"],
+    "src/wingspan/tournament/elo.py": [],
+    "src/wingspan/tournament/participants.py": ["src/wingspan/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/players/spec.py", "src/wingspan/tournament/config.py"],
+    "src/wingspan/tournament/picker.py": ["src/wingspan/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/tournament/config.py", "src/wingspan/tournament/participants.py"],
+    "src/wingspan/tournament/results.py": ["src/wingspan/__init__.py", "src/wingspan/tournament/config.py", "src/wingspan/tournament/elo.py", "src/wingspan/tournament/state.py"],
+    "src/wingspan/tournament/runner.py": ["src/wingspan/__init__.py", "src/wingspan/engine/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/tournament/config.py", "src/wingspan/tournament/state.py"],
+    "src/wingspan/tournament/schedule.py": ["src/wingspan/__init__.py", "src/wingspan/tournament/config.py", "src/wingspan/tournament/state.py"],
+    "src/wingspan/tournament/state.py": ["src/wingspan/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/tournament/config.py"],
+    "src/wingspan/training/config.py": ["src/wingspan/__init__.py", "src/wingspan/architecture.py", "src/wingspan/training/__init__.py", "src/wingspan/training/steps.py"],
+    "src/wingspan/training/configure/__init__.py": ["src/wingspan/training/configure/__init__.py", "src/wingspan/training/configure/controller.py", "src/wingspan/training/configure/fields.py", "src/wingspan/training/configure/runs.py", "src/wingspan/training/configure/screen.py", "src/wingspan/training/configure/state.py"],
+    "src/wingspan/training/configure/controller.py": ["src/wingspan/__init__.py", "src/wingspan/training/__init__.py", "src/wingspan/training/artifacts.py", "src/wingspan/training/config.py", "src/wingspan/training/configure/__init__.py", "src/wingspan/training/configure/fields.py", "src/wingspan/training/configure/runs.py", "src/wingspan/training/configure/screen.py", "src/wingspan/training/configure/state.py", "src/wingspan/training/runmeta.py", "src/wingspan/training/runstate.py", "src/wingspan/training/setup_runmeta.py"],
+    "src/wingspan/training/configure/fields.py": ["src/wingspan/__init__.py", "src/wingspan/architecture.py", "src/wingspan/training/__init__.py", "src/wingspan/training/config.py", "src/wingspan/training/configure/__init__.py", "src/wingspan/training/configure/keys.py", "src/wingspan/training/configure/state.py"],
+    "src/wingspan/training/configure/keys.py": [],
+    "src/wingspan/training/configure/runs.py": ["src/wingspan/__init__.py", "src/wingspan/training/__init__.py", "src/wingspan/training/artifacts.py", "src/wingspan/training/config.py", "src/wingspan/training/configure/__init__.py", "src/wingspan/training/configure/state.py", "src/wingspan/training/runmeta.py"],
+    "src/wingspan/training/configure/screen.py": ["src/wingspan/__init__.py", "src/wingspan/training/__init__.py", "src/wingspan/training/config.py", "src/wingspan/training/configure/__init__.py", "src/wingspan/training/configure/controller.py", "src/wingspan/training/configure/fields.py", "src/wingspan/training/configure/keys.py", "src/wingspan/training/configure/runs.py", "src/wingspan/training/configure/state.py", "src/wingspan/training/dashboard.py", "src/wingspan/training/runmeta.py", "src/wingspan/training/runstate.py"],
+    "src/wingspan/training/configure/state.py": []
+  }
+}

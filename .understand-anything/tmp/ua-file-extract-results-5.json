@@ -1,0 +1,5657 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 18,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "src/wingspan/agents/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 20,
+      "nonEmptyLines": 15,
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/agents/base.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 34,
+      "nonEmptyLines": 24,
+      "functions": [
+        {
+          "name": "random_agent",
+          "startLine": 20,
+          "endLine": 34,
+          "params": [
+            "rng"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "random_agent",
+          "line": 20,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "random_agent",
+          "callee": "random.Random",
+          "lineNumber": 26
+        },
+        {
+          "caller": "agent",
+          "callee": "chooser.choice",
+          "lineNumber": 32
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/agents/cli.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 234,
+      "nonEmptyLines": 202,
+      "functions": [
+        {
+          "name": "cli_agent",
+          "startLine": 21,
+          "endLine": 69,
+          "params": []
+        },
+        {
+          "name": "_format_choice_line",
+          "startLine": 75,
+          "endLine": 109,
+          "params": [
+            "idx",
+            "choice",
+            "player"
+          ]
+        },
+        {
+          "name": "_cli_resolve_setup_choice",
+          "startLine": 112,
+          "endLine": 142,
+          "params": [
+            "decision",
+            "tray"
+          ]
+        },
+        {
+          "name": "_cli_pick_hand_and_bonus",
+          "startLine": 145,
+          "endLine": 202,
+          "params": [
+            "dealt_cards",
+            "dealt_bonus",
+            "tray"
+          ]
+        },
+        {
+          "name": "_cli_pick_kept_foods",
+          "startLine": 205,
+          "endLine": 234,
+          "params": [
+            "kept_cards"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "cli_agent",
+          "line": 21,
+          "isDefault": false
+        },
+        {
+          "name": "_format_choice_line",
+          "line": 75,
+          "isDefault": false
+        },
+        {
+          "name": "_cli_resolve_setup_choice",
+          "line": 112,
+          "isDefault": false
+        },
+        {
+          "name": "_cli_pick_hand_and_bonus",
+          "line": 145,
+          "isDefault": false
+        },
+        {
+          "name": "_cli_pick_kept_foods",
+          "line": 205,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "cli_agent",
+          "callee": "interactive.enable_ansi",
+          "lineNumber": 23
+        },
+        {
+          "caller": "agent",
+          "callee": "isinstance",
+          "lineNumber": 29
+        },
+        {
+          "caller": "agent",
+          "callee": "typing.cast",
+          "lineNumber": 33
+        },
+        {
+          "caller": "agent",
+          "callee": "_cli_resolve_setup_choice",
+          "lineNumber": 35
+        },
+        {
+          "caller": "agent",
+          "callee": "isinstance",
+          "lineNumber": 43
+        },
+        {
+          "caller": "agent",
+          "callee": "print",
+          "lineNumber": 47
+        },
+        {
+          "caller": "agent",
+          "callee": "print",
+          "lineNumber": 48
+        },
+        {
+          "caller": "agent",
+          "callee": "display.format_board",
+          "lineNumber": 49
+        },
+        {
+          "caller": "agent",
+          "callee": "print",
+          "lineNumber": 53
+        },
+        {
+          "caller": "agent",
+          "callee": "print",
+          "lineNumber": 54
+        },
+        {
+          "caller": "agent",
+          "callee": "enumerate",
+          "lineNumber": 56
+        },
+        {
+          "caller": "agent",
+          "callee": "print",
+          "lineNumber": 57
+        },
+        {
+          "caller": "agent",
+          "callee": "_format_choice_line",
+          "lineNumber": 57
+        },
+        {
+          "caller": "agent",
+          "callee": "input(\"choice> \").strip",
+          "lineNumber": 59
+        },
+        {
+          "caller": "agent",
+          "callee": "input",
+          "lineNumber": 59
+        },
+        {
+          "caller": "agent",
+          "callee": "int",
+          "lineNumber": 61
+        },
+        {
+          "caller": "agent",
+          "callee": "print",
+          "lineNumber": 63
+        },
+        {
+          "caller": "agent",
+          "callee": "len",
+          "lineNumber": 65
+        },
+        {
+          "caller": "agent",
+          "callee": "typing.cast",
+          "lineNumber": 66
+        },
+        {
+          "caller": "agent",
+          "callee": "print",
+          "lineNumber": 67
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "isinstance",
+          "lineNumber": 86
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "isinstance",
+          "lineNumber": 91
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "display.format_food_pool",
+          "lineNumber": 94
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "isinstance",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "display.format_bird_full",
+          "lineNumber": 96
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "isinstance",
+          "lineNumber": 97
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "display.format_bonus",
+          "lineNumber": 98
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "display.format_bonus_score_now",
+          "lineNumber": 101
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "isinstance",
+          "lineNumber": 103
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "display.format_played_bird",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "isinstance",
+          "lineNumber": 105
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "display.format_bird_full",
+          "lineNumber": 107
+        },
+        {
+          "caller": "_format_choice_line",
+          "callee": "choice.display_label",
+          "lineNumber": 109
+        },
+        {
+          "caller": "_cli_resolve_setup_choice",
+          "callee": "print",
+          "lineNumber": 126
+        },
+        {
+          "caller": "_cli_resolve_setup_choice",
+          "callee": "print",
+          "lineNumber": 127
+        },
+        {
+          "caller": "_cli_resolve_setup_choice",
+          "callee": "_cli_pick_hand_and_bonus",
+          "lineNumber": 129
+        },
+        {
+          "caller": "_cli_resolve_setup_choice",
+          "callee": "_cli_pick_kept_foods",
+          "lineNumber": 130
+        },
+        {
+          "caller": "_cli_resolve_setup_choice",
+          "callee": "AssertionError",
+          "lineNumber": 139
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "max",
+          "lineNumber": 158
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "len",
+          "lineNumber": 158
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "display.format_bird_full",
+          "lineNumber": 160
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "interactive.Section",
+          "lineNumber": 164
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "max",
+          "lineNumber": 171
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "len",
+          "lineNumber": 171
+        },
+        {
+          "caller": "render_bonus",
+          "callee": "display.format_bonus_with_setup_help",
+          "lineNumber": 175
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "sections.append",
+          "lineNumber": 181
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "interactive.Section",
+          "lineNumber": 182
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "render_bonus",
+          "lineNumber": 184
+        },
+        {
+          "caller": "_live",
+          "callee": "render_bonus",
+          "lineNumber": 193
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "interactive.select_form",
+          "lineNumber": 197
+        },
+        {
+          "caller": "_cli_pick_hand_and_bonus",
+          "callee": "tuple",
+          "lineNumber": 200
+        },
+        {
+          "caller": "_cli_pick_kept_foods",
+          "callee": "len",
+          "lineNumber": 216
+        },
+        {
+          "caller": "_cli_pick_kept_foods",
+          "callee": "len",
+          "lineNumber": 216
+        },
+        {
+          "caller": "_cli_pick_kept_foods",
+          "callee": "interactive.Section",
+          "lineNumber": 217
+        },
+        {
+          "caller": "_can_play_footer",
+          "callee": "display.format_can_play",
+          "lineNumber": 224
+        },
+        {
+          "caller": "_cli_pick_kept_foods",
+          "callee": "interactive.select_form",
+          "lineNumber": 226
+        },
+        {
+          "caller": "_cli_pick_kept_foods",
+          "callee": "tuple",
+          "lineNumber": 234
+        }
+      ],
+      "metrics": {
+        "importCount": 5,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/agents/interactive.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 432,
+      "nonEmptyLines": 355,
+      "functions": [
+        {
+          "name": "select_form",
+          "startLine": 78,
+          "endLine": 148,
+          "params": [
+            "sections",
+            "header",
+            "instructions",
+            "live_options",
+            "live_footer"
+          ]
+        },
+        {
+          "name": "_initial_selection",
+          "startLine": 156,
+          "endLine": 160,
+          "params": [
+            "sec"
+          ]
+        },
+        {
+          "name": "_toggle",
+          "startLine": 163,
+          "endLine": 179,
+          "params": [
+            "sections",
+            "selections",
+            "pos"
+          ]
+        },
+        {
+          "name": "_form_accepts",
+          "startLine": 182,
+          "endLine": 197,
+          "params": [
+            "sections",
+            "selections"
+          ]
+        },
+        {
+          "name": "_form_status",
+          "startLine": 200,
+          "endLine": 216,
+          "params": [
+            "sections",
+            "selections"
+          ]
+        },
+        {
+          "name": "_form_frame",
+          "startLine": 222,
+          "endLine": 256,
+          "params": [
+            "sections",
+            "option_texts",
+            "selections",
+            "positions",
+            "focus",
+            "header",
+            "footer",
+            "status",
+            "instructions"
+          ]
+        },
+        {
+          "name": "_entry_prefix",
+          "startLine": 259,
+          "endLine": 263,
+          "params": [
+            "cursor",
+            "mode",
+            "selected"
+          ]
+        },
+        {
+          "name": "_with_prefix",
+          "startLine": 266,
+          "endLine": 274,
+          "params": [
+            "prefix",
+            "text"
+          ]
+        },
+        {
+          "name": "_draw",
+          "startLine": 280,
+          "endLine": 293,
+          "params": [
+            "lines",
+            "prev_line_count"
+          ]
+        },
+        {
+          "name": "_read_key",
+          "startLine": 296,
+          "endLine": 323,
+          "params": []
+        },
+        {
+          "name": "_normalize_ascii",
+          "startLine": 326,
+          "endLine": 334,
+          "params": [
+            "ch"
+          ]
+        },
+        {
+          "name": "_interactive_supported",
+          "startLine": 337,
+          "endLine": 339,
+          "params": []
+        },
+        {
+          "name": "enable_ansi",
+          "startLine": 342,
+          "endLine": 360,
+          "params": []
+        },
+        {
+          "name": "_select_form_fallback",
+          "startLine": 366,
+          "endLine": 385,
+          "params": [
+            "sections",
+            "header"
+          ]
+        },
+        {
+          "name": "_read_multi_fallback",
+          "startLine": 388,
+          "endLine": 400,
+          "params": [
+            "n_options",
+            "required"
+          ]
+        },
+        {
+          "name": "_read_single_fallback",
+          "startLine": 403,
+          "endLine": 416,
+          "params": [
+            "n_options"
+          ]
+        },
+        {
+          "name": "_parse_index_list",
+          "startLine": 419,
+          "endLine": 432,
+          "params": [
+            "raw",
+            "n_options"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "Mode",
+          "startLine": 54,
+          "endLine": 58,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "Section",
+          "startLine": 61,
+          "endLine": 75,
+          "methods": [],
+          "properties": [
+            "title",
+            "options",
+            "mode",
+            "required_count"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "Mode",
+          "line": 54,
+          "isDefault": false
+        },
+        {
+          "name": "Section",
+          "line": 61,
+          "isDefault": false
+        },
+        {
+          "name": "select_form",
+          "line": 78,
+          "isDefault": false
+        },
+        {
+          "name": "_initial_selection",
+          "line": 156,
+          "isDefault": false
+        },
+        {
+          "name": "_toggle",
+          "line": 163,
+          "isDefault": false
+        },
+        {
+          "name": "_form_accepts",
+          "line": 182,
+          "isDefault": false
+        },
+        {
+          "name": "_form_status",
+          "line": 200,
+          "isDefault": false
+        },
+        {
+          "name": "_form_frame",
+          "line": 222,
+          "isDefault": false
+        },
+        {
+          "name": "_entry_prefix",
+          "line": 259,
+          "isDefault": false
+        },
+        {
+          "name": "_with_prefix",
+          "line": 266,
+          "isDefault": false
+        },
+        {
+          "name": "_draw",
+          "line": 280,
+          "isDefault": false
+        },
+        {
+          "name": "_read_key",
+          "line": 296,
+          "isDefault": false
+        },
+        {
+          "name": "_normalize_ascii",
+          "line": 326,
+          "isDefault": false
+        },
+        {
+          "name": "_interactive_supported",
+          "line": 337,
+          "isDefault": false
+        },
+        {
+          "name": "enable_ansi",
+          "line": 342,
+          "isDefault": false
+        },
+        {
+          "name": "_select_form_fallback",
+          "line": 366,
+          "isDefault": false
+        },
+        {
+          "name": "_read_multi_fallback",
+          "line": 388,
+          "isDefault": false
+        },
+        {
+          "name": "_read_single_fallback",
+          "line": 403,
+          "isDefault": false
+        },
+        {
+          "name": "_parse_index_list",
+          "line": 419,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "select_form",
+          "callee": "_interactive_supported",
+          "lineNumber": 104
+        },
+        {
+          "caller": "select_form",
+          "callee": "_select_form_fallback",
+          "lineNumber": 105
+        },
+        {
+          "caller": "select_form",
+          "callee": "enable_ansi",
+          "lineNumber": 107
+        },
+        {
+          "caller": "select_form",
+          "callee": "_initial_selection",
+          "lineNumber": 108
+        },
+        {
+          "caller": "select_form",
+          "callee": "enumerate",
+          "lineNumber": 110
+        },
+        {
+          "caller": "select_form",
+          "callee": "range",
+          "lineNumber": 110
+        },
+        {
+          "caller": "select_form",
+          "callee": "len",
+          "lineNumber": 110
+        },
+        {
+          "caller": "select_form",
+          "callee": "sorted",
+          "lineNumber": 113
+        },
+        {
+          "caller": "select_form",
+          "callee": "live_options",
+          "lineNumber": 121
+        },
+        {
+          "caller": "select_form",
+          "callee": "list",
+          "lineNumber": 123
+        },
+        {
+          "caller": "select_form",
+          "callee": "live_footer",
+          "lineNumber": 125
+        },
+        {
+          "caller": "select_form",
+          "callee": "_form_status",
+          "lineNumber": 126
+        },
+        {
+          "caller": "select_form",
+          "callee": "_form_frame",
+          "lineNumber": 127
+        },
+        {
+          "caller": "select_form",
+          "callee": "_draw",
+          "lineNumber": 138
+        },
+        {
+          "caller": "select_form",
+          "callee": "_read_key",
+          "lineNumber": 139
+        },
+        {
+          "caller": "select_form",
+          "callee": "_form_accepts",
+          "lineNumber": 141
+        },
+        {
+          "caller": "select_form",
+          "callee": "sorted",
+          "lineNumber": 142
+        },
+        {
+          "caller": "select_form",
+          "callee": "len",
+          "lineNumber": 144
+        },
+        {
+          "caller": "select_form",
+          "callee": "len",
+          "lineNumber": 146
+        },
+        {
+          "caller": "select_form",
+          "callee": "_toggle",
+          "lineNumber": 148
+        },
+        {
+          "caller": "_initial_selection",
+          "callee": "set",
+          "lineNumber": 160
+        },
+        {
+          "caller": "_toggle",
+          "callee": "sel.discard",
+          "lineNumber": 177
+        },
+        {
+          "caller": "_toggle",
+          "callee": "len",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_toggle",
+          "callee": "sel.add",
+          "lineNumber": 179
+        },
+        {
+          "caller": "_form_accepts",
+          "callee": "enumerate",
+          "lineNumber": 187
+        },
+        {
+          "caller": "_form_accepts",
+          "callee": "len",
+          "lineNumber": 188
+        },
+        {
+          "caller": "_form_status",
+          "callee": "enumerate",
+          "lineNumber": 206
+        },
+        {
+          "caller": "_form_status",
+          "callee": "len",
+          "lineNumber": 207
+        },
+        {
+          "caller": "_form_status",
+          "callee": "issues.append",
+          "lineNumber": 209
+        },
+        {
+          "caller": "_form_status",
+          "callee": "issues.append",
+          "lineNumber": 215
+        },
+        {
+          "caller": "_form_status",
+          "callee": "\" · \".join",
+          "lineNumber": 216
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "enumerate",
+          "lineNumber": 242
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "lines.append",
+          "lineNumber": 244
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "enumerate",
+          "lineNumber": 245
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "_entry_prefix",
+          "lineNumber": 248
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "_with_prefix",
+          "lineNumber": 249
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "lines.extend",
+          "lineNumber": 252
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "lines.append",
+          "lineNumber": 253
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "lines.extend",
+          "lineNumber": 254
+        },
+        {
+          "caller": "_form_frame",
+          "callee": "lines.extend",
+          "lineNumber": 255
+        },
+        {
+          "caller": "_with_prefix",
+          "callee": "text.split",
+          "lineNumber": 272
+        },
+        {
+          "caller": "_with_prefix",
+          "callee": "len",
+          "lineNumber": 273
+        },
+        {
+          "caller": "_draw",
+          "callee": "chunks.append",
+          "lineNumber": 288
+        },
+        {
+          "caller": "_draw",
+          "callee": "_CURSOR_UP.format",
+          "lineNumber": 288
+        },
+        {
+          "caller": "_draw",
+          "callee": "chunks.append",
+          "lineNumber": 289
+        },
+        {
+          "caller": "_draw",
+          "callee": "chunks.append",
+          "lineNumber": 290
+        },
+        {
+          "caller": "_draw",
+          "callee": "\"\\n\".join",
+          "lineNumber": 290
+        },
+        {
+          "caller": "_draw",
+          "callee": "sys.stdout.write",
+          "lineNumber": 291
+        },
+        {
+          "caller": "_draw",
+          "callee": "\"\".join",
+          "lineNumber": 291
+        },
+        {
+          "caller": "_draw",
+          "callee": "sys.stdout.flush",
+          "lineNumber": 292
+        },
+        {
+          "caller": "_draw",
+          "callee": "len",
+          "lineNumber": 293
+        },
+        {
+          "caller": "_read_key",
+          "callee": "msvcrt.getwch",
+          "lineNumber": 306
+        },
+        {
+          "caller": "_read_key",
+          "callee": "_WIN_ARROWS.get",
+          "lineNumber": 308
+        },
+        {
+          "caller": "_read_key",
+          "callee": "msvcrt.getwch",
+          "lineNumber": 308
+        },
+        {
+          "caller": "_read_key",
+          "callee": "_normalize_ascii",
+          "lineNumber": 309
+        },
+        {
+          "caller": "_read_key",
+          "callee": "sys.stdin.fileno",
+          "lineNumber": 314
+        },
+        {
+          "caller": "_read_key",
+          "callee": "termios.tcgetattr",
+          "lineNumber": 315
+        },
+        {
+          "caller": "_read_key",
+          "callee": "tty.setraw",
+          "lineNumber": 317
+        },
+        {
+          "caller": "_read_key",
+          "callee": "sys.stdin.read",
+          "lineNumber": 318
+        },
+        {
+          "caller": "_read_key",
+          "callee": "_UNIX_ARROWS.get",
+          "lineNumber": 320
+        },
+        {
+          "caller": "_read_key",
+          "callee": "sys.stdin.read",
+          "lineNumber": 320
+        },
+        {
+          "caller": "_read_key",
+          "callee": "_normalize_ascii",
+          "lineNumber": 321
+        },
+        {
+          "caller": "_read_key",
+          "callee": "termios.tcsetattr",
+          "lineNumber": 323
+        },
+        {
+          "caller": "_interactive_supported",
+          "callee": "sys.stdin.isatty",
+          "lineNumber": 339
+        },
+        {
+          "caller": "_interactive_supported",
+          "callee": "sys.stdout.isatty",
+          "lineNumber": 339
+        },
+        {
+          "caller": "enable_ansi",
+          "callee": "kernel32.GetStdHandle",
+          "lineNumber": 356
+        },
+        {
+          "caller": "enable_ansi",
+          "callee": "ctypes.c_uint",
+          "lineNumber": 357
+        },
+        {
+          "caller": "enable_ansi",
+          "callee": "kernel32.GetConsoleMode",
+          "lineNumber": 358
+        },
+        {
+          "caller": "enable_ansi",
+          "callee": "ctypes.byref",
+          "lineNumber": 358
+        },
+        {
+          "caller": "enable_ansi",
+          "callee": "kernel32.SetConsoleMode",
+          "lineNumber": 359
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "print",
+          "lineNumber": 371
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "print",
+          "lineNumber": 375
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "enumerate",
+          "lineNumber": 376
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "_with_prefix",
+          "lineNumber": 377
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "print",
+          "lineNumber": 378
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "out.append",
+          "lineNumber": 380
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "sorted",
+          "lineNumber": 380
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "_read_single_fallback",
+          "lineNumber": 380
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "len",
+          "lineNumber": 380
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "out.append",
+          "lineNumber": 382
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "sorted",
+          "lineNumber": 383
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "_read_multi_fallback",
+          "lineNumber": 383
+        },
+        {
+          "caller": "_select_form_fallback",
+          "callee": "len",
+          "lineNumber": 383
+        },
+        {
+          "caller": "_read_multi_fallback",
+          "callee": "_parse_index_list",
+          "lineNumber": 391
+        },
+        {
+          "caller": "_read_multi_fallback",
+          "callee": "input(\"keep (space-separated numbers)> \").strip",
+          "lineNumber": 392
+        },
+        {
+          "caller": "_read_multi_fallback",
+          "callee": "input",
+          "lineNumber": 392
+        },
+        {
+          "caller": "_read_multi_fallback",
+          "callee": "print",
+          "lineNumber": 395
+        },
+        {
+          "caller": "_read_multi_fallback",
+          "callee": "len",
+          "lineNumber": 397
+        },
+        {
+          "caller": "_read_multi_fallback",
+          "callee": "print",
+          "lineNumber": 398
+        },
+        {
+          "caller": "_read_single_fallback",
+          "callee": "input(\"choice> \").strip",
+          "lineNumber": 406
+        },
+        {
+          "caller": "_read_single_fallback",
+          "callee": "input",
+          "lineNumber": 406
+        },
+        {
+          "caller": "_read_single_fallback",
+          "callee": "int",
+          "lineNumber": 410
+        },
+        {
+          "caller": "_read_single_fallback",
+          "callee": "print",
+          "lineNumber": 412
+        },
+        {
+          "caller": "_read_single_fallback",
+          "callee": "print",
+          "lineNumber": 416
+        },
+        {
+          "caller": "_parse_index_list",
+          "callee": "set",
+          "lineNumber": 422
+        },
+        {
+          "caller": "_parse_index_list",
+          "callee": "set",
+          "lineNumber": 423
+        },
+        {
+          "caller": "_parse_index_list",
+          "callee": "raw.split",
+          "lineNumber": 424
+        },
+        {
+          "caller": "_parse_index_list",
+          "callee": "int",
+          "lineNumber": 426
+        },
+        {
+          "caller": "_parse_index_list",
+          "callee": "out.add",
+          "lineNumber": 431
+        }
+      ],
+      "metrics": {
+        "importCount": 6,
+        "exportCount": 19,
+        "functionCount": 17,
+        "classCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/engine/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 20,
+      "nonEmptyLines": 16,
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/model/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 11,
+      "nonEmptyLines": 7,
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/players/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 51,
+      "nonEmptyLines": 46,
+      "metrics": {
+        "importCount": 4,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/players/factory.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 292,
+      "nonEmptyLines": 254,
+      "functions": [
+        {
+          "name": "build_agent",
+          "startLine": 43,
+          "endLine": 66,
+          "params": [
+            "player_spec",
+            "device",
+            "rng",
+            "greedy"
+          ]
+        },
+        {
+          "name": "resolve_split_setup_bonus",
+          "startLine": 69,
+          "endLine": 88,
+          "params": [
+            "configs"
+          ]
+        },
+        {
+          "name": "resolve_split_setup_food",
+          "startLine": 91,
+          "endLine": 109,
+          "params": [
+            "configs"
+          ]
+        },
+        {
+          "name": "_logged_policy_agent",
+          "startLine": 118,
+          "endLine": 144,
+          "params": [
+            "net",
+            "device",
+            "rng",
+            "greedy",
+            "setup_net"
+          ]
+        },
+        {
+          "name": "_handle_setup_decision",
+          "startLine": 147,
+          "endLine": 175,
+          "params": [
+            "eng",
+            "decision",
+            "setup_net",
+            "device",
+            "greedy",
+            "rng"
+          ]
+        },
+        {
+          "name": "_handle_main_decision",
+          "startLine": 178,
+          "endLine": 210,
+          "params": [
+            "eng",
+            "decision",
+            "net",
+            "device",
+            "greedy",
+            "rng"
+          ]
+        },
+        {
+          "name": "_log_distribution",
+          "startLine": 213,
+          "endLine": 247,
+          "params": [
+            "eng",
+            "decision",
+            "probs",
+            "greedy",
+            "scores"
+          ]
+        },
+        {
+          "name": "_compute_setup_scores_and_probs",
+          "startLine": 253,
+          "endLine": 292,
+          "params": [
+            "net_instance",
+            "decision",
+            "eng",
+            "device"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "build_agent",
+          "line": 43,
+          "isDefault": false
+        },
+        {
+          "name": "resolve_split_setup_bonus",
+          "line": 69,
+          "isDefault": false
+        },
+        {
+          "name": "resolve_split_setup_food",
+          "line": 91,
+          "isDefault": false
+        },
+        {
+          "name": "_logged_policy_agent",
+          "line": 118,
+          "isDefault": false
+        },
+        {
+          "name": "_handle_setup_decision",
+          "line": 147,
+          "isDefault": false
+        },
+        {
+          "name": "_handle_main_decision",
+          "line": 178,
+          "isDefault": false
+        },
+        {
+          "name": "_log_distribution",
+          "line": 213,
+          "isDefault": false
+        },
+        {
+          "name": "_compute_setup_scores_and_probs",
+          "line": 253,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "build_agent",
+          "callee": "agents.cli_agent",
+          "lineNumber": 57
+        },
+        {
+          "caller": "build_agent",
+          "callee": "agents.random_agent",
+          "lineNumber": 59
+        },
+        {
+          "caller": "build_agent",
+          "callee": "loaders.load_policy_net",
+          "lineNumber": 63
+        },
+        {
+          "caller": "build_agent",
+          "callee": "loaders.load_setup_net",
+          "lineNumber": 64
+        },
+        {
+          "caller": "build_agent",
+          "callee": "_logged_policy_agent",
+          "lineNumber": 65
+        },
+        {
+          "caller": "resolve_split_setup_bonus",
+          "callee": "len",
+          "lineNumber": 81
+        },
+        {
+          "caller": "resolve_split_setup_bonus",
+          "callee": "ValueError",
+          "lineNumber": 82
+        },
+        {
+          "caller": "resolve_split_setup_bonus",
+          "callee": "next",
+          "lineNumber": 88
+        },
+        {
+          "caller": "resolve_split_setup_bonus",
+          "callee": "iter",
+          "lineNumber": 88
+        },
+        {
+          "caller": "resolve_split_setup_food",
+          "callee": "len",
+          "lineNumber": 102
+        },
+        {
+          "caller": "resolve_split_setup_food",
+          "callee": "ValueError",
+          "lineNumber": 103
+        },
+        {
+          "caller": "resolve_split_setup_food",
+          "callee": "next",
+          "lineNumber": 109
+        },
+        {
+          "caller": "resolve_split_setup_food",
+          "callee": "iter",
+          "lineNumber": 109
+        },
+        {
+          "caller": "agent",
+          "callee": "len",
+          "lineNumber": 138
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.is_setup_decision",
+          "lineNumber": 140
+        },
+        {
+          "caller": "agent",
+          "callee": "_handle_setup_decision",
+          "lineNumber": 141
+        },
+        {
+          "caller": "agent",
+          "callee": "_handle_main_decision",
+          "lineNumber": 142
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "decisions.random_choice",
+          "lineNumber": 157
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "eng.log",
+          "lineNumber": 158
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "eng.state.me",
+          "lineNumber": 158
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "typing.cast",
+          "lineNumber": 160
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "_compute_setup_scores_and_probs",
+          "lineNumber": 161
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "_log_distribution",
+          "lineNumber": 164
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "len",
+          "lineNumber": 165
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "int",
+          "lineNumber": 167
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "np.argmax",
+          "lineNumber": 167
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "policy.sample_index_from_probs",
+          "lineNumber": 169
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "eng.log",
+          "lineNumber": 171
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "eng.state.me",
+          "lineNumber": 172
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "chosen.display_label",
+          "lineNumber": 172
+        },
+        {
+          "caller": "_handle_setup_decision",
+          "callee": "float",
+          "lineNumber": 173
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "decisions.family_index_for",
+          "lineNumber": 189
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "type",
+          "lineNumber": 189
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "net.encode_state",
+          "lineNumber": 190
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "net.encode_choices",
+          "lineNumber": 191
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "policy.policy_logits_and_probs",
+          "lineNumber": 192
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "_log_distribution",
+          "lineNumber": 195
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "len",
+          "lineNumber": 200
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "int",
+          "lineNumber": 202
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "np.argmax",
+          "lineNumber": 202
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "policy.sample_index_from_probs",
+          "lineNumber": 204
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "eng.log",
+          "lineNumber": 206
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "eng.state.me",
+          "lineNumber": 207
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "chosen.display_label",
+          "lineNumber": 207
+        },
+        {
+          "caller": "_handle_main_decision",
+          "callee": "float",
+          "lineNumber": 208
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "len",
+          "lineNumber": 227
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "sorted",
+          "lineNumber": 228
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "range",
+          "lineNumber": 228
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "float",
+          "lineNumber": 228
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "decisions.is_setup_decision",
+          "lineNumber": 229
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "float",
+          "lineNumber": 233
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "eng.state.me",
+          "lineNumber": 237
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "eng.log",
+          "lineNumber": 239
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "type",
+          "lineNumber": 239
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "enumerate",
+          "lineNumber": 240
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "float",
+          "lineNumber": 241
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "float",
+          "lineNumber": 243
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "decision.choices[option_idx].display_label",
+          "lineNumber": 245
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "eng.log",
+          "lineNumber": 246
+        },
+        {
+          "caller": "_log_distribution",
+          "callee": "eng.log",
+          "lineNumber": 247
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "setup_model.SetupContext.from_state",
+          "lineNumber": 265
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "np.stack",
+          "lineNumber": 269
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "setup_model.encode_setup_candidate",
+          "lineNumber": 271
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "setup_model.SetupCandidate.from_setup_choice",
+          "lineNumber": 272
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "torch.tensor",
+          "lineNumber": 279
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "torch.no_grad",
+          "lineNumber": 283
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "net_instance.policy_and_value",
+          "lineNumber": 285
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "policy_logits.cpu().numpy",
+          "lineNumber": 286
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "policy_logits.cpu",
+          "lineNumber": 286
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "net_instance(feats).cpu().numpy",
+          "lineNumber": 288
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "net_instance(feats).cpu",
+          "lineNumber": 288
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "net_instance",
+          "lineNumber": 288
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "scores.max",
+          "lineNumber": 290
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "np.exp",
+          "lineNumber": 291
+        },
+        {
+          "caller": "_compute_setup_scores_and_probs",
+          "callee": "weights.sum",
+          "lineNumber": 292
+        }
+      ],
+      "metrics": {
+        "importCount": 10,
+        "exportCount": 8,
+        "functionCount": 8,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/players/spec.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 83,
+      "nonEmptyLines": 67,
+      "functions": [
+        {
+          "name": "parse_player_spec",
+          "startLine": 53,
+          "endLine": 83,
+          "params": [
+            "raw",
+            "checkpoint_dir"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "PlayerKind",
+          "startLine": 30,
+          "endLine": 35,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "PlayerSpec",
+          "startLine": 38,
+          "endLine": 50,
+          "methods": [],
+          "properties": [
+            "kind",
+            "raw",
+            "checkpoint_path",
+            "run_dir"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "PlayerKind",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "PlayerSpec",
+          "line": 38,
+          "isDefault": false
+        },
+        {
+          "name": "parse_player_spec",
+          "line": 53,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "parse_player_spec",
+          "callee": "PlayerSpec",
+          "lineNumber": 63
+        },
+        {
+          "caller": "parse_player_spec",
+          "callee": "PlayerSpec",
+          "lineNumber": 65
+        },
+        {
+          "caller": "parse_player_spec",
+          "callee": "PlayerSpec",
+          "lineNumber": 67
+        },
+        {
+          "caller": "parse_player_spec",
+          "callee": "pathlib.Path",
+          "lineNumber": 73
+        },
+        {
+          "caller": "parse_player_spec",
+          "callee": "path.is_dir",
+          "lineNumber": 74
+        },
+        {
+          "caller": "parse_player_spec",
+          "callee": "PlayerSpec",
+          "lineNumber": 75
+        },
+        {
+          "caller": "parse_player_spec",
+          "callee": "PlayerSpec",
+          "lineNumber": 81
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 3,
+        "functionCount": 1,
+        "classCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/training/batched_collect.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 356,
+      "nonEmptyLines": 304,
+      "functions": [
+        {
+          "name": "collect_games",
+          "startLine": 65,
+          "endLine": 107,
+          "params": [
+            "net",
+            "device",
+            "seeds",
+            "on_game_done",
+            "should_stop",
+            "max_concurrent",
+            "vs_random"
+          ]
+        },
+        {
+          "name": "_run_wave",
+          "startLine": 216,
+          "endLine": 247,
+          "params": [
+            "net",
+            "device",
+            "server",
+            "seeds",
+            "indices",
+            "results",
+            "on_game_done",
+            "done_lock",
+            "vs_random"
+          ]
+        },
+        {
+          "name": "_play_one_game",
+          "startLine": 250,
+          "endLine": 280,
+          "params": [
+            "net",
+            "device",
+            "server",
+            "seed",
+            "vs_random"
+          ]
+        },
+        {
+          "name": "_batched_recording_agent",
+          "startLine": 283,
+          "endLine": 316,
+          "params": [
+            "server",
+            "rng",
+            "record_into"
+          ]
+        },
+        {
+          "name": "_fill_probs_batch",
+          "startLine": 319,
+          "endLine": 356,
+          "params": [
+            "net",
+            "device",
+            "batch"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "_InferenceRequest",
+          "startLine": 113,
+          "endLine": 129,
+          "methods": [
+            "__init__"
+          ],
+          "properties": []
+        },
+        {
+          "name": "_BatchInferenceServer",
+          "startLine": 135,
+          "endLine": 213,
+          "methods": [
+            "__init__",
+            "spec",
+            "start",
+            "stop",
+            "register",
+            "unregister",
+            "infer",
+            "_serve"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "collect_games",
+          "line": 65,
+          "isDefault": false
+        },
+        {
+          "name": "_InferenceRequest",
+          "line": 113,
+          "isDefault": false
+        },
+        {
+          "name": "_BatchInferenceServer",
+          "line": 135,
+          "isDefault": false
+        },
+        {
+          "name": "_run_wave",
+          "line": 216,
+          "isDefault": false
+        },
+        {
+          "name": "_play_one_game",
+          "line": 250,
+          "isDefault": false
+        },
+        {
+          "name": "_batched_recording_agent",
+          "line": 283,
+          "isDefault": false
+        },
+        {
+          "name": "_fill_probs_batch",
+          "line": 319,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "collect_games",
+          "callee": "_BatchInferenceServer",
+          "lineNumber": 84
+        },
+        {
+          "caller": "collect_games",
+          "callee": "server.start",
+          "lineNumber": 85
+        },
+        {
+          "caller": "collect_games",
+          "callee": "len",
+          "lineNumber": 86
+        },
+        {
+          "caller": "collect_games",
+          "callee": "threading.Lock",
+          "lineNumber": 87
+        },
+        {
+          "caller": "collect_games",
+          "callee": "max",
+          "lineNumber": 89
+        },
+        {
+          "caller": "collect_games",
+          "callee": "min",
+          "lineNumber": 89
+        },
+        {
+          "caller": "collect_games",
+          "callee": "len",
+          "lineNumber": 89
+        },
+        {
+          "caller": "collect_games",
+          "callee": "range",
+          "lineNumber": 90
+        },
+        {
+          "caller": "collect_games",
+          "callee": "len",
+          "lineNumber": 90
+        },
+        {
+          "caller": "collect_games",
+          "callee": "should_stop",
+          "lineNumber": 91
+        },
+        {
+          "caller": "collect_games",
+          "callee": "list",
+          "lineNumber": 93
+        },
+        {
+          "caller": "collect_games",
+          "callee": "range",
+          "lineNumber": 93
+        },
+        {
+          "caller": "collect_games",
+          "callee": "min",
+          "lineNumber": 93
+        },
+        {
+          "caller": "collect_games",
+          "callee": "len",
+          "lineNumber": 93
+        },
+        {
+          "caller": "collect_games",
+          "callee": "_run_wave",
+          "lineNumber": 94
+        },
+        {
+          "caller": "collect_games",
+          "callee": "server.stop",
+          "lineNumber": 106
+        },
+        {
+          "caller": "__init__",
+          "callee": "threading.Event",
+          "lineNumber": 129
+        },
+        {
+          "caller": "__init__",
+          "callee": "threading.Condition",
+          "lineNumber": 147
+        },
+        {
+          "caller": "__init__",
+          "callee": "threading.Thread",
+          "lineNumber": 151
+        },
+        {
+          "caller": "start",
+          "callee": "self._thread.start",
+          "lineNumber": 162
+        },
+        {
+          "caller": "stop",
+          "callee": "self._cond.notify_all",
+          "lineNumber": 169
+        },
+        {
+          "caller": "stop",
+          "callee": "self._thread.join",
+          "lineNumber": 170
+        },
+        {
+          "caller": "unregister",
+          "callee": "self._cond.notify_all",
+          "lineNumber": 181
+        },
+        {
+          "caller": "infer",
+          "callee": "_InferenceRequest",
+          "lineNumber": 187
+        },
+        {
+          "caller": "infer",
+          "callee": "self._pending.append",
+          "lineNumber": 189
+        },
+        {
+          "caller": "infer",
+          "callee": "len",
+          "lineNumber": 193
+        },
+        {
+          "caller": "infer",
+          "callee": "self._cond.notify_all",
+          "lineNumber": 194
+        },
+        {
+          "caller": "infer",
+          "callee": "request.done.wait",
+          "lineNumber": 195
+        },
+        {
+          "caller": "_serve",
+          "callee": "len",
+          "lineNumber": 204
+        },
+        {
+          "caller": "_serve",
+          "callee": "self._cond.wait",
+          "lineNumber": 206
+        },
+        {
+          "caller": "_serve",
+          "callee": "_fill_probs_batch",
+          "lineNumber": 211
+        },
+        {
+          "caller": "_serve",
+          "callee": "request.done.set",
+          "lineNumber": 213
+        },
+        {
+          "caller": "run_one",
+          "callee": "server.register",
+          "lineNumber": 230
+        },
+        {
+          "caller": "run_one",
+          "callee": "_play_one_game",
+          "lineNumber": 232
+        },
+        {
+          "caller": "run_one",
+          "callee": "server.unregister",
+          "lineNumber": 234
+        },
+        {
+          "caller": "run_one",
+          "callee": "on_game_done",
+          "lineNumber": 238
+        },
+        {
+          "caller": "_run_wave",
+          "callee": "threading.Thread",
+          "lineNumber": 241
+        },
+        {
+          "caller": "_run_wave",
+          "callee": "thread.start",
+          "lineNumber": 245
+        },
+        {
+          "caller": "_run_wave",
+          "callee": "thread.join",
+          "lineNumber": 247
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "collect.new_engine",
+          "lineNumber": 261
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "random.Random",
+          "lineNumber": 263
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "_batched_recording_agent",
+          "lineNumber": 264
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "agents.random_agent",
+          "lineNumber": 266
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "random.Random",
+          "lineNumber": 266
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "engine.Engine.play_one_game",
+          "lineNumber": 270
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "collect.player_breakdown",
+          "lineNumber": 273
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "collect.player_breakdown",
+          "lineNumber": 274
+        },
+        {
+          "caller": "_play_one_game",
+          "callee": "collect.GameRecord",
+          "lineNumber": 278
+        },
+        {
+          "caller": "agent",
+          "callee": "len",
+          "lineNumber": 296
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.is_setup_decision",
+          "lineNumber": 298
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.random_choice",
+          "lineNumber": 299
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.family_index_for",
+          "lineNumber": 300
+        },
+        {
+          "caller": "agent",
+          "callee": "type",
+          "lineNumber": 300
+        },
+        {
+          "caller": "agent",
+          "callee": "encode.encode_state",
+          "lineNumber": 301
+        },
+        {
+          "caller": "agent",
+          "callee": "encode.encode_choices",
+          "lineNumber": 302
+        },
+        {
+          "caller": "agent",
+          "callee": "server.infer",
+          "lineNumber": 303
+        },
+        {
+          "caller": "agent",
+          "callee": "policy.sample_index_from_probs",
+          "lineNumber": 304
+        },
+        {
+          "caller": "agent",
+          "callee": "record_into.append",
+          "lineNumber": 305
+        },
+        {
+          "caller": "agent",
+          "callee": "steps.Step",
+          "lineNumber": 306
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "len",
+          "lineNumber": 329
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "max",
+          "lineNumber": 330
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "np.zeros",
+          "lineNumber": 334
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "np.zeros",
+          "lineNumber": 335
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "np.zeros",
+          "lineNumber": 336
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "np.zeros",
+          "lineNumber": 337
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "enumerate",
+          "lineNumber": 338
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "torch.no_grad",
+          "lineNumber": 345
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "net",
+          "lineNumber": 346
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "torch.tensor",
+          "lineNumber": 347
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "torch.tensor",
+          "lineNumber": 348
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "torch.tensor",
+          "lineNumber": 349
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "torch.tensor",
+          "lineNumber": 350
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "F.softmax(logits, dim=-1).cpu().numpy",
+          "lineNumber": 352
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "F.softmax(logits, dim=-1).cpu",
+          "lineNumber": 352
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "F.softmax",
+          "lineNumber": 352
+        },
+        {
+          "caller": "_fill_probs_batch",
+          "callee": "enumerate",
+          "lineNumber": 354
+        }
+      ],
+      "metrics": {
+        "importCount": 11,
+        "exportCount": 7,
+        "functionCount": 5,
+        "classCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/training/collect.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 554,
+      "nonEmptyLines": 481,
+      "functions": [
+        {
+          "name": "build_setup_specs",
+          "startLine": 115,
+          "endLine": 151,
+          "params": [
+            "cfg",
+            "iteration",
+            "phase"
+          ]
+        },
+        {
+          "name": "play_game",
+          "startLine": 154,
+          "endLine": 185,
+          "params": [
+            "net",
+            "device",
+            "rng",
+            "seed",
+            "opponent_agent"
+          ]
+        },
+        {
+          "name": "play_game_with_setup",
+          "startLine": 188,
+          "endLine": 321,
+          "params": [
+            "net",
+            "device",
+            "spec",
+            "generator",
+            "setup_policy_net",
+            "setup_temperature",
+            "opponent_agent",
+            "split_setup_bonus",
+            "split_setup_food",
+            "setup_greedy",
+            "use_actor_critic"
+          ]
+        },
+        {
+          "name": "player_breakdown",
+          "startLine": 324,
+          "endLine": 337,
+          "params": [
+            "player"
+          ]
+        },
+        {
+          "name": "new_engine",
+          "startLine": 340,
+          "endLine": 344,
+          "params": [
+            "seed"
+          ]
+        },
+        {
+          "name": "_catalog",
+          "startLine": 351,
+          "endLine": 355,
+          "params": []
+        },
+        {
+          "name": "_recording_agent",
+          "startLine": 358,
+          "endLine": 398,
+          "params": [
+            "net",
+            "device",
+            "rng",
+            "record_into"
+          ]
+        },
+        {
+          "name": "_choose_setups",
+          "startLine": 414,
+          "endLine": 515,
+          "params": [
+            "spec",
+            "dealt",
+            "context",
+            "setup_enc",
+            "net_seats",
+            "generator",
+            "setup_policy_net",
+            "setup_temperature",
+            "setup_rng",
+            "device",
+            "defer_bonus",
+            "defer_food",
+            "setup_greedy",
+            "use_actor_critic"
+          ]
+        },
+        {
+          "name": "_strip_bonus",
+          "startLine": 518,
+          "endLine": 524,
+          "params": [
+            "candidate"
+          ]
+        },
+        {
+          "name": "_strip_food",
+          "startLine": 527,
+          "endLine": 533,
+          "params": [
+            "candidate"
+          ]
+        },
+        {
+          "name": "_setup_predict",
+          "startLine": 536,
+          "endLine": 543,
+          "params": [
+            "setup_policy_net",
+            "device",
+            "features"
+          ]
+        },
+        {
+          "name": "_setup_policy_logits",
+          "startLine": 546,
+          "endLine": 554,
+          "params": [
+            "setup_policy_net",
+            "device",
+            "features"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "GameRecord",
+          "startLine": 59,
+          "endLine": 80,
+          "methods": [
+            "scores"
+          ],
+          "properties": [
+            "steps",
+            "breakdowns",
+            "winner",
+            "seed",
+            "setup_samples"
+          ]
+        },
+        {
+          "name": "SetupPhase",
+          "startLine": 83,
+          "endLine": 94,
+          "methods": [
+            "records"
+          ],
+          "properties": []
+        },
+        {
+          "name": "SetupGameSpec",
+          "startLine": 97,
+          "endLine": 112,
+          "methods": [],
+          "properties": [
+            "phase",
+            "deal_seed",
+            "continuation_seed",
+            "tuple_index",
+            "iteration"
+          ]
+        },
+        {
+          "name": "_KeepResult",
+          "startLine": 401,
+          "endLine": 411,
+          "methods": [],
+          "properties": [
+            "candidate",
+            "chosen_idx",
+            "all_candidates"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "GameRecord",
+          "line": 59,
+          "isDefault": false
+        },
+        {
+          "name": "SetupPhase",
+          "line": 83,
+          "isDefault": false
+        },
+        {
+          "name": "SetupGameSpec",
+          "line": 97,
+          "isDefault": false
+        },
+        {
+          "name": "build_setup_specs",
+          "line": 115,
+          "isDefault": false
+        },
+        {
+          "name": "play_game",
+          "line": 154,
+          "isDefault": false
+        },
+        {
+          "name": "play_game_with_setup",
+          "line": 188,
+          "isDefault": false
+        },
+        {
+          "name": "player_breakdown",
+          "line": 324,
+          "isDefault": false
+        },
+        {
+          "name": "new_engine",
+          "line": 340,
+          "isDefault": false
+        },
+        {
+          "name": "_catalog",
+          "line": 350,
+          "isDefault": false
+        },
+        {
+          "name": "_recording_agent",
+          "line": 358,
+          "isDefault": false
+        },
+        {
+          "name": "_KeepResult",
+          "line": 401,
+          "isDefault": false
+        },
+        {
+          "name": "_choose_setups",
+          "line": 414,
+          "isDefault": false
+        },
+        {
+          "name": "_strip_bonus",
+          "line": 518,
+          "isDefault": false
+        },
+        {
+          "name": "_strip_food",
+          "line": 527,
+          "isDefault": false
+        },
+        {
+          "name": "_setup_predict",
+          "line": 536,
+          "isDefault": false
+        },
+        {
+          "name": "_setup_policy_logits",
+          "line": 546,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "scores",
+          "callee": "round",
+          "lineNumber": 80
+        },
+        {
+          "caller": "scores",
+          "callee": "round",
+          "lineNumber": 80
+        },
+        {
+          "caller": "build_setup_specs",
+          "callee": "range",
+          "lineNumber": 128
+        },
+        {
+          "caller": "build_setup_specs",
+          "callee": "specs.append",
+          "lineNumber": 131
+        },
+        {
+          "caller": "build_setup_specs",
+          "callee": "SetupGameSpec",
+          "lineNumber": 132
+        },
+        {
+          "caller": "build_setup_specs",
+          "callee": "specs.append",
+          "lineNumber": 142
+        },
+        {
+          "caller": "build_setup_specs",
+          "callee": "SetupGameSpec",
+          "lineNumber": 143
+        },
+        {
+          "caller": "play_game",
+          "callee": "new_engine",
+          "lineNumber": 169
+        },
+        {
+          "caller": "play_game",
+          "callee": "_recording_agent",
+          "lineNumber": 171
+        },
+        {
+          "caller": "play_game",
+          "callee": "engine.Engine.play_one_game",
+          "lineNumber": 177
+        },
+        {
+          "caller": "play_game",
+          "callee": "player_breakdown",
+          "lineNumber": 180
+        },
+        {
+          "caller": "play_game",
+          "callee": "player_breakdown",
+          "lineNumber": 181
+        },
+        {
+          "caller": "play_game",
+          "callee": "GameRecord",
+          "lineNumber": 185
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "new_engine",
+          "lineNumber": 222
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "random.Random",
+          "lineNumber": 223
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "_recording_agent",
+          "lineNumber": 225
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "random.Random",
+          "lineNumber": 233
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "setup_model.SetupEncoding",
+          "lineNumber": 243
+        },
+        {
+          "caller": "choose_setups",
+          "callee": "setup_model.SetupContext.from_state",
+          "lineNumber": 255
+        },
+        {
+          "caller": "choose_setups",
+          "callee": "_choose_setups",
+          "lineNumber": 256
+        },
+        {
+          "caller": "choose_setups",
+          "callee": "base_context.model_copy",
+          "lineNumber": 276
+        },
+        {
+          "caller": "choose_setups",
+          "callee": "tuple",
+          "lineNumber": 277
+        },
+        {
+          "caller": "choose_setups",
+          "callee": "setup_model.encode_setup_candidate",
+          "lineNumber": 279
+        },
+        {
+          "caller": "choose_setups",
+          "callee": "pending_setups.append",
+          "lineNumber": 282
+        },
+        {
+          "caller": "choose_setups",
+          "callee": "random.Random",
+          "lineNumber": 288
+        },
+        {
+          "caller": "choose_setups",
+          "callee": "chooser_engine.state.rng.shuffle",
+          "lineNumber": 291
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "engine.Engine.play_one_game_with_setups",
+          "lineNumber": 294
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "player_breakdown",
+          "lineNumber": 299
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "player_breakdown",
+          "lineNumber": 300
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "setup_model.SetupSample",
+          "lineNumber": 306
+        },
+        {
+          "caller": "play_game_with_setup",
+          "callee": "GameRecord",
+          "lineNumber": 315
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "sum",
+          "lineNumber": 328
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "player.board.values",
+          "lineNumber": 328
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "sum",
+          "lineNumber": 329
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 329
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 330
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "float",
+          "lineNumber": 331
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "float",
+          "lineNumber": 332
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "float",
+          "lineNumber": 333
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "float",
+          "lineNumber": 334
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "float",
+          "lineNumber": 335
+        },
+        {
+          "caller": "player_breakdown",
+          "callee": "float",
+          "lineNumber": 336
+        },
+        {
+          "caller": "new_engine",
+          "callee": "_catalog",
+          "lineNumber": 342
+        },
+        {
+          "caller": "new_engine",
+          "callee": "state.new_game",
+          "lineNumber": 343
+        },
+        {
+          "caller": "new_engine",
+          "callee": "random.Random",
+          "lineNumber": 343
+        },
+        {
+          "caller": "new_engine",
+          "callee": "list",
+          "lineNumber": 343
+        },
+        {
+          "caller": "new_engine",
+          "callee": "list",
+          "lineNumber": 343
+        },
+        {
+          "caller": "new_engine",
+          "callee": "list",
+          "lineNumber": 343
+        },
+        {
+          "caller": "new_engine",
+          "callee": "engine.Engine",
+          "lineNumber": 344
+        },
+        {
+          "caller": "_catalog",
+          "callee": "cards.load_all",
+          "lineNumber": 355
+        },
+        {
+          "caller": "agent",
+          "callee": "len",
+          "lineNumber": 372
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.is_setup_decision",
+          "lineNumber": 374
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.random_choice",
+          "lineNumber": 380
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.family_index_for",
+          "lineNumber": 381
+        },
+        {
+          "caller": "agent",
+          "callee": "type",
+          "lineNumber": 381
+        },
+        {
+          "caller": "agent",
+          "callee": "net.encode_state",
+          "lineNumber": 382
+        },
+        {
+          "caller": "agent",
+          "callee": "net.encode_choices",
+          "lineNumber": 383
+        },
+        {
+          "caller": "agent",
+          "callee": "policy.sample_action",
+          "lineNumber": 384
+        },
+        {
+          "caller": "agent",
+          "callee": "record_into.append",
+          "lineNumber": 387
+        },
+        {
+          "caller": "agent",
+          "callee": "training_steps.Step",
+          "lineNumber": 388
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "generator.generate",
+          "lineNumber": 455
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "len",
+          "lineNumber": 456
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "enumerate",
+          "lineNumber": 458
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "_strip_bonus",
+          "lineNumber": 461
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "_strip_food",
+          "lineNumber": 463
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "results.append",
+          "lineNumber": 464
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "_KeepResult",
+          "lineNumber": 464
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "context.model_copy",
+          "lineNumber": 474
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "tuple",
+          "lineNumber": 475
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "setup_model.enumerate_setup_candidates",
+          "lineNumber": 477
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "np.stack",
+          "lineNumber": 483
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "setup_model.encode_setup_candidate",
+          "lineNumber": 485
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "_setup_policy_logits",
+          "lineNumber": 493
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "_setup_predict",
+          "lineNumber": 495
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "setup_model.select_by_margins",
+          "lineNumber": 497
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "keeps.append",
+          "lineNumber": 498
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "_KeepResult",
+          "lineNumber": 499
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "keeps.append",
+          "lineNumber": 506
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "_KeepResult",
+          "lineNumber": 507
+        },
+        {
+          "caller": "_choose_setups",
+          "callee": "generator.generate_one",
+          "lineNumber": 508
+        },
+        {
+          "caller": "_strip_bonus",
+          "callee": "candidate.model_copy",
+          "lineNumber": 524
+        },
+        {
+          "caller": "_strip_food",
+          "callee": "candidate.model_copy",
+          "lineNumber": 533
+        },
+        {
+          "caller": "_setup_predict",
+          "callee": "torch.no_grad",
+          "lineNumber": 541
+        },
+        {
+          "caller": "_setup_predict",
+          "callee": "torch.tensor",
+          "lineNumber": 542
+        },
+        {
+          "caller": "_setup_predict",
+          "callee": "setup_policy_net(feats_t).cpu().numpy",
+          "lineNumber": 543
+        },
+        {
+          "caller": "_setup_predict",
+          "callee": "setup_policy_net(feats_t).cpu",
+          "lineNumber": 543
+        },
+        {
+          "caller": "_setup_predict",
+          "callee": "setup_policy_net",
+          "lineNumber": 543
+        },
+        {
+          "caller": "_setup_policy_logits",
+          "callee": "torch.no_grad",
+          "lineNumber": 551
+        },
+        {
+          "caller": "_setup_policy_logits",
+          "callee": "torch.tensor",
+          "lineNumber": 552
+        },
+        {
+          "caller": "_setup_policy_logits",
+          "callee": "setup_policy_net.policy_and_value",
+          "lineNumber": 553
+        },
+        {
+          "caller": "_setup_policy_logits",
+          "callee": "policy_logits.cpu().numpy",
+          "lineNumber": 554
+        },
+        {
+          "caller": "_setup_policy_logits",
+          "callee": "policy_logits.cpu",
+          "lineNumber": 554
+        }
+      ],
+      "metrics": {
+        "importCount": 12,
+        "exportCount": 16,
+        "functionCount": 12,
+        "classCount": 4
+      }
+    },
+    {
+      "path": "src/wingspan/training/evaluate.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 263,
+      "nonEmptyLines": 231,
+      "functions": [
+        {
+          "name": "evaluate_vs_opponent",
+          "startLine": 42,
+          "endLine": 84,
+          "params": [
+            "net",
+            "opponent_net",
+            "device",
+            "n_pairs",
+            "seed",
+            "opponent_generation",
+            "on_progress",
+            "split_setup_bonus",
+            "split_setup_food"
+          ]
+        },
+        {
+          "name": "play_eval_game",
+          "startLine": 87,
+          "endLine": 122,
+          "params": [
+            "net",
+            "opponent_net",
+            "device",
+            "seed",
+            "net_seat",
+            "split_setup_bonus",
+            "split_setup_food"
+          ]
+        },
+        {
+          "name": "run_final_self_play_eval",
+          "startLine": 125,
+          "endLine": 195,
+          "params": [
+            "net",
+            "device",
+            "n_games",
+            "seed",
+            "at_iteration",
+            "on_progress",
+            "split_setup_bonus",
+            "split_setup_food"
+          ]
+        },
+        {
+          "name": "summarize_eval",
+          "startLine": 198,
+          "endLine": 226,
+          "params": [
+            "margins",
+            "opponent_generation"
+          ]
+        },
+        {
+          "name": "_greedy_agent",
+          "startLine": 232,
+          "endLine": 238,
+          "params": [
+            "net",
+            "device"
+          ]
+        },
+        {
+          "name": "_counting_greedy_agent",
+          "startLine": 241,
+          "endLine": 263,
+          "params": [
+            "net",
+            "device",
+            "counter"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "evaluate_vs_opponent",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "play_eval_game",
+          "line": 87,
+          "isDefault": false
+        },
+        {
+          "name": "run_final_self_play_eval",
+          "line": 125,
+          "isDefault": false
+        },
+        {
+          "name": "summarize_eval",
+          "line": 198,
+          "isDefault": false
+        },
+        {
+          "name": "_greedy_agent",
+          "line": 232,
+          "isDefault": false
+        },
+        {
+          "name": "_counting_greedy_agent",
+          "line": 241,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "evaluate_vs_opponent",
+          "callee": "range",
+          "lineNumber": 68
+        },
+        {
+          "caller": "evaluate_vs_opponent",
+          "callee": "margins.append",
+          "lineNumber": 71
+        },
+        {
+          "caller": "evaluate_vs_opponent",
+          "callee": "play_eval_game",
+          "lineNumber": 72
+        },
+        {
+          "caller": "evaluate_vs_opponent",
+          "callee": "on_progress",
+          "lineNumber": 83
+        },
+        {
+          "caller": "evaluate_vs_opponent",
+          "callee": "len",
+          "lineNumber": 83
+        },
+        {
+          "caller": "evaluate_vs_opponent",
+          "callee": "summarize_eval",
+          "lineNumber": 84
+        },
+        {
+          "caller": "play_eval_game",
+          "callee": "collect.new_engine",
+          "lineNumber": 103
+        },
+        {
+          "caller": "play_eval_game",
+          "callee": "_greedy_agent",
+          "lineNumber": 104
+        },
+        {
+          "caller": "play_eval_game",
+          "callee": "agents.random_agent",
+          "lineNumber": 106
+        },
+        {
+          "caller": "play_eval_game",
+          "callee": "random.Random",
+          "lineNumber": 107
+        },
+        {
+          "caller": "play_eval_game",
+          "callee": "_greedy_agent",
+          "lineNumber": 110
+        },
+        {
+          "caller": "play_eval_game",
+          "callee": "engine.Engine.play_one_game",
+          "lineNumber": 113
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 149
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "range",
+          "lineNumber": 155
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "_counting_greedy_agent",
+          "lineNumber": 160
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "collect.new_engine",
+          "lineNumber": 161
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "engine.Engine.play_one_game",
+          "lineNumber": 162
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "collect.player_breakdown",
+          "lineNumber": 168
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "collect.player_breakdown",
+          "lineNumber": 169
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "round",
+          "lineNumber": 171
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "round",
+          "lineNumber": 171
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "abs",
+          "lineNumber": 179
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "on_progress",
+          "lineNumber": 182
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "max",
+          "lineNumber": 184
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "metrics.FinalEvalStats",
+          "lineNumber": 185
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "breakdown_sum.scaled",
+          "lineNumber": 187
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "winner_breakdown_sum.scaled",
+          "lineNumber": 188
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "max",
+          "lineNumber": 189
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "max",
+          "lineNumber": 191
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "max",
+          "lineNumber": 192
+        },
+        {
+          "caller": "run_final_self_play_eval",
+          "callee": "max",
+          "lineNumber": 193
+        },
+        {
+          "caller": "summarize_eval",
+          "callee": "len",
+          "lineNumber": 206
+        },
+        {
+          "caller": "summarize_eval",
+          "callee": "metrics.EvalResult",
+          "lineNumber": 208
+        },
+        {
+          "caller": "summarize_eval",
+          "callee": "sum",
+          "lineNumber": 215
+        },
+        {
+          "caller": "summarize_eval",
+          "callee": "math.sqrt",
+          "lineNumber": 219
+        },
+        {
+          "caller": "summarize_eval",
+          "callee": "max",
+          "lineNumber": 219
+        },
+        {
+          "caller": "summarize_eval",
+          "callee": "metrics.EvalResult",
+          "lineNumber": 220
+        },
+        {
+          "caller": "summarize_eval",
+          "callee": "sum",
+          "lineNumber": 224
+        },
+        {
+          "caller": "_greedy_agent",
+          "callee": "policy.greedy_agent",
+          "lineNumber": 238
+        },
+        {
+          "caller": "agent",
+          "callee": "len",
+          "lineNumber": 252
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.is_setup_decision",
+          "lineNumber": 254
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.random_choice",
+          "lineNumber": 255
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.family_index_for",
+          "lineNumber": 257
+        },
+        {
+          "caller": "agent",
+          "callee": "type",
+          "lineNumber": 257
+        },
+        {
+          "caller": "agent",
+          "callee": "net.encode_state",
+          "lineNumber": 258
+        },
+        {
+          "caller": "agent",
+          "callee": "net.encode_choices",
+          "lineNumber": 259
+        },
+        {
+          "caller": "agent",
+          "callee": "policy.greedy_action",
+          "lineNumber": 260
+        }
+      ],
+      "metrics": {
+        "importCount": 9,
+        "exportCount": 6,
+        "functionCount": 6,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/training/learner.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 206,
+      "nonEmptyLines": 173,
+      "functions": [
+        {
+          "name": "update",
+          "startLine": 55,
+          "endLine": 126,
+          "params": [
+            "net",
+            "optimizer",
+            "records",
+            "cfg",
+            "device"
+          ]
+        },
+        {
+          "name": "_flatten",
+          "startLine": 132,
+          "endLine": 150,
+          "params": [
+            "records",
+            "score_norm"
+          ]
+        },
+        {
+          "name": "_bucketize",
+          "startLine": 153,
+          "endLine": 159,
+          "params": [
+            "flat_steps"
+          ]
+        },
+        {
+          "name": "_bucket_edge",
+          "startLine": 162,
+          "endLine": 166,
+          "params": [
+            "n_choices"
+          ]
+        },
+        {
+          "name": "_forward_bucket",
+          "startLine": 169,
+          "endLine": 206,
+          "params": [
+            "net",
+            "device",
+            "flat_steps",
+            "bucket"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "UpdateStats",
+          "startLine": 42,
+          "endLine": 52,
+          "methods": [],
+          "properties": [
+            "loss",
+            "policy_loss",
+            "value_loss",
+            "entropy",
+            "grad_norm",
+            "advantage_mean",
+            "advantage_std",
+            "n_steps"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "UpdateStats",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "update",
+          "line": 55,
+          "isDefault": false
+        },
+        {
+          "name": "_flatten",
+          "line": 132,
+          "isDefault": false
+        },
+        {
+          "name": "_bucketize",
+          "line": 153,
+          "isDefault": false
+        },
+        {
+          "name": "_bucket_edge",
+          "line": 162,
+          "isDefault": false
+        },
+        {
+          "name": "_forward_bucket",
+          "line": 169,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "update",
+          "callee": "_flatten",
+          "lineNumber": 63
+        },
+        {
+          "caller": "update",
+          "callee": "UpdateStats",
+          "lineNumber": 65
+        },
+        {
+          "caller": "update",
+          "callee": "_bucketize",
+          "lineNumber": 82
+        },
+        {
+          "caller": "update",
+          "callee": "_forward_bucket",
+          "lineNumber": 83
+        },
+        {
+          "caller": "update",
+          "callee": "chosen_logps.append",
+          "lineNumber": 84
+        },
+        {
+          "caller": "update",
+          "callee": "values.append",
+          "lineNumber": 85
+        },
+        {
+          "caller": "update",
+          "callee": "entropies.append",
+          "lineNumber": 86
+        },
+        {
+          "caller": "update",
+          "callee": "returns_parts.append",
+          "lineNumber": 87
+        },
+        {
+          "caller": "update",
+          "callee": "torch.tensor",
+          "lineNumber": 88
+        },
+        {
+          "caller": "update",
+          "callee": "torch.cat",
+          "lineNumber": 93
+        },
+        {
+          "caller": "update",
+          "callee": "torch.cat",
+          "lineNumber": 94
+        },
+        {
+          "caller": "update",
+          "callee": "torch.cat",
+          "lineNumber": 95
+        },
+        {
+          "caller": "update",
+          "callee": "torch.cat",
+          "lineNumber": 96
+        },
+        {
+          "caller": "update",
+          "callee": "value_all.detach",
+          "lineNumber": 99
+        },
+        {
+          "caller": "update",
+          "callee": "advantage.mean",
+          "lineNumber": 100
+        },
+        {
+          "caller": "update",
+          "callee": "advantage.std",
+          "lineNumber": 101
+        },
+        {
+          "caller": "update",
+          "callee": "(logp_all * norm_advantage).mean",
+          "lineNumber": 104
+        },
+        {
+          "caller": "update",
+          "callee": "F.mse_loss",
+          "lineNumber": 105
+        },
+        {
+          "caller": "update",
+          "callee": "entropy_all.mean",
+          "lineNumber": 106
+        },
+        {
+          "caller": "update",
+          "callee": "optimizer.zero_grad",
+          "lineNumber": 109
+        },
+        {
+          "caller": "update",
+          "callee": "loss.backward",
+          "lineNumber": 113
+        },
+        {
+          "caller": "update",
+          "callee": "torch.nn.utils.clip_grad_norm_",
+          "lineNumber": 114
+        },
+        {
+          "caller": "update",
+          "callee": "net.parameters",
+          "lineNumber": 114
+        },
+        {
+          "caller": "update",
+          "callee": "optimizer.step",
+          "lineNumber": 115
+        },
+        {
+          "caller": "update",
+          "callee": "UpdateStats",
+          "lineNumber": 117
+        },
+        {
+          "caller": "update",
+          "callee": "float",
+          "lineNumber": 118
+        },
+        {
+          "caller": "update",
+          "callee": "loss.detach",
+          "lineNumber": 118
+        },
+        {
+          "caller": "update",
+          "callee": "float",
+          "lineNumber": 119
+        },
+        {
+          "caller": "update",
+          "callee": "policy_loss.detach",
+          "lineNumber": 119
+        },
+        {
+          "caller": "update",
+          "callee": "float",
+          "lineNumber": 120
+        },
+        {
+          "caller": "update",
+          "callee": "value_loss.detach",
+          "lineNumber": 120
+        },
+        {
+          "caller": "update",
+          "callee": "float",
+          "lineNumber": 121
+        },
+        {
+          "caller": "update",
+          "callee": "entropy.detach",
+          "lineNumber": 121
+        },
+        {
+          "caller": "update",
+          "callee": "float",
+          "lineNumber": 122
+        },
+        {
+          "caller": "update",
+          "callee": "float",
+          "lineNumber": 123
+        },
+        {
+          "caller": "update",
+          "callee": "adv_mean.detach",
+          "lineNumber": 123
+        },
+        {
+          "caller": "update",
+          "callee": "float",
+          "lineNumber": 124
+        },
+        {
+          "caller": "update",
+          "callee": "adv_std.detach",
+          "lineNumber": 124
+        },
+        {
+          "caller": "update",
+          "callee": "len",
+          "lineNumber": 125
+        },
+        {
+          "caller": "_flatten",
+          "callee": "flat_steps.append",
+          "lineNumber": 148
+        },
+        {
+          "caller": "_flatten",
+          "callee": "returns.append",
+          "lineNumber": 149
+        },
+        {
+          "caller": "_bucketize",
+          "callee": "enumerate",
+          "lineNumber": 156
+        },
+        {
+          "caller": "_bucketize",
+          "callee": "_bucket_edge",
+          "lineNumber": 157
+        },
+        {
+          "caller": "_bucketize",
+          "callee": "by_edge.setdefault(edge, []).append",
+          "lineNumber": 158
+        },
+        {
+          "caller": "_bucketize",
+          "callee": "by_edge.setdefault",
+          "lineNumber": 158
+        },
+        {
+          "caller": "_bucketize",
+          "callee": "sorted",
+          "lineNumber": 159
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "max",
+          "lineNumber": 177
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "len",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "np.stack",
+          "lineNumber": 179
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "np.zeros",
+          "lineNumber": 180
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "np.zeros",
+          "lineNumber": 181
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "enumerate",
+          "lineNumber": 182
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "torch.tensor",
+          "lineNumber": 187
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "torch.tensor",
+          "lineNumber": 188
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "torch.tensor",
+          "lineNumber": 189
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "torch.tensor",
+          "lineNumber": 190
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "torch.tensor",
+          "lineNumber": 193
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "net",
+          "lineNumber": 197
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "F.log_softmax",
+          "lineNumber": 198
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "logp.gather(1, idx_t.unsqueeze(1)).squeeze",
+          "lineNumber": 199
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "logp.gather",
+          "lineNumber": 199
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "idx_t.unsqueeze",
+          "lineNumber": 199
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "torch.zeros_like",
+          "lineNumber": 202
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "torch.where",
+          "lineNumber": 203
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "torch.where",
+          "lineNumber": 204
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "logp.exp",
+          "lineNumber": 204
+        },
+        {
+          "caller": "_forward_bucket",
+          "callee": "(legal_p * legal_logp).sum",
+          "lineNumber": 205
+        }
+      ],
+      "metrics": {
+        "importCount": 5,
+        "exportCount": 6,
+        "functionCount": 5,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "src/wingspan/training/loop_collect.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 183,
+      "nonEmptyLines": 162,
+      "functions": [
+        {
+          "name": "collect_games",
+          "startLine": 33,
+          "endLine": 70,
+          "params": [
+            "training_loop",
+            "iteration",
+            "setup_phase"
+          ]
+        },
+        {
+          "name": "collect_with_setup",
+          "startLine": 73,
+          "endLine": 96,
+          "params": [
+            "training_loop",
+            "iteration",
+            "setup_phase",
+            "vs_random"
+          ]
+        },
+        {
+          "name": "collect_with_setup_sequential",
+          "startLine": 99,
+          "endLine": 142,
+          "params": [
+            "training_loop",
+            "specs",
+            "vs_random"
+          ]
+        },
+        {
+          "name": "collect_multiprocess",
+          "startLine": 145,
+          "endLine": 159,
+          "params": [
+            "training_loop",
+            "seeds",
+            "vs_random"
+          ]
+        },
+        {
+          "name": "ensure_collector",
+          "startLine": 162,
+          "endLine": 169,
+          "params": [
+            "training_loop"
+          ]
+        },
+        {
+          "name": "record_collected_game",
+          "startLine": 172,
+          "endLine": 183,
+          "params": [
+            "training_loop",
+            "record"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "collect_games",
+          "line": 33,
+          "isDefault": false
+        },
+        {
+          "name": "collect_with_setup",
+          "line": 73,
+          "isDefault": false
+        },
+        {
+          "name": "collect_with_setup_sequential",
+          "line": 99,
+          "isDefault": false
+        },
+        {
+          "name": "collect_multiprocess",
+          "line": 145,
+          "isDefault": false
+        },
+        {
+          "name": "ensure_collector",
+          "line": 162,
+          "isDefault": false
+        },
+        {
+          "name": "record_collected_game",
+          "line": 172,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "collect_games",
+          "callee": "collect_with_setup",
+          "lineNumber": 53
+        },
+        {
+          "caller": "collect_games",
+          "callee": "range",
+          "lineNumber": 56
+        },
+        {
+          "caller": "collect_games",
+          "callee": "collect_multiprocess",
+          "lineNumber": 62
+        },
+        {
+          "caller": "collect_games",
+          "callee": "batched_collect.collect_games",
+          "lineNumber": 63
+        },
+        {
+          "caller": "collect_games",
+          "callee": "record_collected_game",
+          "lineNumber": 67
+        },
+        {
+          "caller": "collect_with_setup",
+          "callee": "collect.build_setup_specs",
+          "lineNumber": 85
+        },
+        {
+          "caller": "collect_with_setup",
+          "callee": "ensure_collector(training_loop).collect_games_with_setup",
+          "lineNumber": 87
+        },
+        {
+          "caller": "collect_with_setup",
+          "callee": "ensure_collector",
+          "lineNumber": 87
+        },
+        {
+          "caller": "collect_with_setup",
+          "callee": "record_collected_game",
+          "lineNumber": 92
+        },
+        {
+          "caller": "collect_with_setup",
+          "callee": "collect_with_setup_sequential",
+          "lineNumber": 96
+        },
+        {
+          "caller": "collect_with_setup_sequential",
+          "callee": "setup_model.RandomSetupGenerator",
+          "lineNumber": 105
+        },
+        {
+          "caller": "collect_with_setup_sequential",
+          "callee": "training_loop._stop.is_set",
+          "lineNumber": 113
+        },
+        {
+          "caller": "collect_with_setup_sequential",
+          "callee": "agents.random_agent",
+          "lineNumber": 116
+        },
+        {
+          "caller": "collect_with_setup_sequential",
+          "callee": "random.Random",
+          "lineNumber": 117
+        },
+        {
+          "caller": "collect_with_setup_sequential",
+          "callee": "collect.play_game_with_setup",
+          "lineNumber": 127
+        },
+        {
+          "caller": "collect_with_setup_sequential",
+          "callee": "records.append",
+          "lineNumber": 140
+        },
+        {
+          "caller": "collect_with_setup_sequential",
+          "callee": "record_collected_game",
+          "lineNumber": 141
+        },
+        {
+          "caller": "collect_multiprocess",
+          "callee": "ensure_collector(training_loop).collect_games",
+          "lineNumber": 152
+        },
+        {
+          "caller": "collect_multiprocess",
+          "callee": "ensure_collector",
+          "lineNumber": 152
+        },
+        {
+          "caller": "collect_multiprocess",
+          "callee": "record_collected_game",
+          "lineNumber": 156
+        },
+        {
+          "caller": "ensure_collector",
+          "callee": "mp_collect.ProcessCollector",
+          "lineNumber": 168
+        },
+        {
+          "caller": "record_collected_game",
+          "callee": "training_loop.state.record_game",
+          "lineNumber": 177
+        },
+        {
+          "caller": "record_collected_game",
+          "callee": "len",
+          "lineNumber": 179
+        },
+        {
+          "caller": "record_collected_game",
+          "callee": "loop_metrics.family_counts",
+          "lineNumber": 180
+        }
+      ],
+      "metrics": {
+        "importCount": 7,
+        "exportCount": 6,
+        "functionCount": 6,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/training/loop_metrics.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 164,
+      "nonEmptyLines": 142,
+      "functions": [
+        {
+          "name": "family_counts",
+          "startLine": 15,
+          "endLine": 20,
+          "params": [
+            "record"
+          ]
+        },
+        {
+          "name": "build_game_outcomes",
+          "startLine": 23,
+          "endLine": 38,
+          "params": [
+            "records",
+            "iteration"
+          ]
+        },
+        {
+          "name": "pop_std",
+          "startLine": 41,
+          "endLine": 44,
+          "params": [
+            "sum_sq",
+            "mean",
+            "n"
+          ]
+        },
+        {
+          "name": "avg_points",
+          "startLine": 47,
+          "endLine": 52,
+          "params": [
+            "records"
+          ]
+        },
+        {
+          "name": "collection_win_rate",
+          "startLine": 55,
+          "endLine": 65,
+          "params": [
+            "records"
+          ]
+        },
+        {
+          "name": "build_iteration_metrics",
+          "startLine": 68,
+          "endLine": 154,
+          "params": [
+            "iteration",
+            "total_games",
+            "records",
+            "stats",
+            "eval_result",
+            "collect_seconds",
+            "update_seconds",
+            "eval_seconds",
+            "win_rate",
+            "setup_phase",
+            "setup_stats"
+          ]
+        },
+        {
+          "name": "mean_setup_margin",
+          "startLine": 157,
+          "endLine": 164,
+          "params": [
+            "samples"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "family_counts",
+          "line": 15,
+          "isDefault": false
+        },
+        {
+          "name": "build_game_outcomes",
+          "line": 23,
+          "isDefault": false
+        },
+        {
+          "name": "pop_std",
+          "line": 41,
+          "isDefault": false
+        },
+        {
+          "name": "avg_points",
+          "line": 47,
+          "isDefault": false
+        },
+        {
+          "name": "collection_win_rate",
+          "line": 55,
+          "isDefault": false
+        },
+        {
+          "name": "build_iteration_metrics",
+          "line": 68,
+          "isDefault": false
+        },
+        {
+          "name": "mean_setup_margin",
+          "line": 157,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "family_counts",
+          "callee": "metrics.FamilyCounts",
+          "lineNumber": 17
+        },
+        {
+          "caller": "family_counts",
+          "callee": "counts.bump",
+          "lineNumber": 19
+        },
+        {
+          "caller": "build_game_outcomes",
+          "callee": "metrics.GameOutcome",
+          "lineNumber": 29
+        },
+        {
+          "caller": "build_game_outcomes",
+          "callee": "len",
+          "lineNumber": 33
+        },
+        {
+          "caller": "build_game_outcomes",
+          "callee": "family_counts",
+          "lineNumber": 35
+        },
+        {
+          "caller": "pop_std",
+          "callee": "max",
+          "lineNumber": 43
+        },
+        {
+          "caller": "avg_points",
+          "callee": "sum",
+          "lineNumber": 51
+        },
+        {
+          "caller": "avg_points",
+          "callee": "len",
+          "lineNumber": 52
+        },
+        {
+          "caller": "collection_win_rate",
+          "callee": "sum",
+          "lineNumber": 63
+        },
+        {
+          "caller": "collection_win_rate",
+          "callee": "sum",
+          "lineNumber": 64
+        },
+        {
+          "caller": "collection_win_rate",
+          "callee": "len",
+          "lineNumber": 65
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "len",
+          "lineNumber": 82
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 83
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 84
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "metrics.FamilyCounts",
+          "lineNumber": 86
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "abs",
+          "lineNumber": 101
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "len",
+          "lineNumber": 105
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "family_counts",
+          "lineNumber": 108
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "max",
+          "lineNumber": 110
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "max",
+          "lineNumber": 111
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "metrics.IterationMetrics",
+          "lineNumber": 116
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "sum_breakdown.scaled",
+          "lineNumber": 129
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "winner_breakdown.scaled",
+          "lineNumber": 131
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "max",
+          "lineNumber": 131
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "pop_std",
+          "lineNumber": 133
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "pop_std",
+          "lineNumber": 134
+        },
+        {
+          "caller": "build_iteration_metrics",
+          "callee": "pop_std",
+          "lineNumber": 135
+        },
+        {
+          "caller": "mean_setup_margin",
+          "callee": "sum",
+          "lineNumber": 164
+        },
+        {
+          "caller": "mean_setup_margin",
+          "callee": "len",
+          "lineNumber": 164
+        }
+      ],
+      "metrics": {
+        "importCount": 6,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/training/mp_collect.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 666,
+      "nonEmptyLines": 590,
+      "functions": [
+        {
+          "name": "_default_worker_count",
+          "startLine": 395,
+          "endLine": 400,
+          "params": [
+            "games_per_iter"
+          ]
+        },
+        {
+          "name": "_save_state_atomic",
+          "startLine": 403,
+          "endLine": 406,
+          "params": [
+            "path",
+            "net"
+          ]
+        },
+        {
+          "name": "_save_module_state_atomic",
+          "startLine": 409,
+          "endLine": 418,
+          "params": [
+            "path",
+            "module"
+          ]
+        },
+        {
+          "name": "_worker_init",
+          "startLine": 445,
+          "endLine": 490,
+          "params": [
+            "arch"
+          ]
+        },
+        {
+          "name": "_worker_play",
+          "startLine": 493,
+          "endLine": 506,
+          "params": [
+            "task"
+          ]
+        },
+        {
+          "name": "_worker_play_setup",
+          "startLine": 509,
+          "endLine": 554,
+          "params": [
+            "task"
+          ]
+        },
+        {
+          "name": "_worker_eval",
+          "startLine": 557,
+          "endLine": 576,
+          "params": [
+            "task"
+          ]
+        },
+        {
+          "name": "_compact",
+          "startLine": 579,
+          "endLine": 601,
+          "params": [
+            "record"
+          ]
+        },
+        {
+          "name": "_maybe_reload_weights",
+          "startLine": 604,
+          "endLine": 620,
+          "params": [
+            "net",
+            "device",
+            "path",
+            "version"
+          ]
+        },
+        {
+          "name": "_maybe_reload_setup_weights",
+          "startLine": 623,
+          "endLine": 637,
+          "params": [
+            "net",
+            "device",
+            "path",
+            "version"
+          ]
+        },
+        {
+          "name": "_ensure_worker_opponent",
+          "startLine": 640,
+          "endLine": 666,
+          "params": [
+            "task",
+            "device"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "_WorkerArch",
+          "startLine": 78,
+          "endLine": 113,
+          "methods": [],
+          "properties": [
+            "state_dim",
+            "choice_dim",
+            "arch",
+            "include_setup",
+            "setup_enabled",
+            "setup_arch",
+            "setup_encoding",
+            "setup_hand_combos",
+            "setup_food_sets",
+            "setup_tuples_per_batch",
+            "setup_temperature",
+            "setup_greedy",
+            "split_setup_bonus",
+            "split_setup_food",
+            "setup_use_actor_critic"
+          ]
+        },
+        {
+          "name": "_GameTask",
+          "startLine": 116,
+          "endLine": 127,
+          "methods": [],
+          "properties": [
+            "weights_path",
+            "weights_version",
+            "seed",
+            "vs_random"
+          ]
+        },
+        {
+          "name": "_SetupGameTask",
+          "startLine": 130,
+          "endLine": 142,
+          "methods": [],
+          "properties": [
+            "weights_path",
+            "weights_version",
+            "setup_weights_path",
+            "setup_weights_version",
+            "spec",
+            "vs_random"
+          ]
+        },
+        {
+          "name": "_EvalTask",
+          "startLine": 145,
+          "endLine": 159,
+          "methods": [],
+          "properties": [
+            "weights_path",
+            "weights_version",
+            "opponent_path",
+            "opponent_version",
+            "opponent_is_random",
+            "pair_seed",
+            "net_seat"
+          ]
+        },
+        {
+          "name": "ProcessCollector",
+          "startLine": 162,
+          "endLine": 392,
+          "methods": [
+            "__init__",
+            "num_workers",
+            "collect_games",
+            "collect_games_with_setup",
+            "evaluate_games",
+            "close",
+            "_ensure_pool",
+            "_broadcast_weights",
+            "_broadcast_opponent",
+            "_broadcast_setup_weights"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_WorkerArch",
+          "line": 78,
+          "isDefault": false
+        },
+        {
+          "name": "_GameTask",
+          "line": 116,
+          "isDefault": false
+        },
+        {
+          "name": "_SetupGameTask",
+          "line": 130,
+          "isDefault": false
+        },
+        {
+          "name": "_EvalTask",
+          "line": 145,
+          "isDefault": false
+        },
+        {
+          "name": "ProcessCollector",
+          "line": 162,
+          "isDefault": false
+        },
+        {
+          "name": "_default_worker_count",
+          "line": 395,
+          "isDefault": false
+        },
+        {
+          "name": "_save_state_atomic",
+          "line": 403,
+          "isDefault": false
+        },
+        {
+          "name": "_save_module_state_atomic",
+          "line": 409,
+          "isDefault": false
+        },
+        {
+          "name": "_worker_init",
+          "line": 445,
+          "isDefault": false
+        },
+        {
+          "name": "_worker_play",
+          "line": 493,
+          "isDefault": false
+        },
+        {
+          "name": "_worker_play_setup",
+          "line": 509,
+          "isDefault": false
+        },
+        {
+          "name": "_worker_eval",
+          "line": 557,
+          "isDefault": false
+        },
+        {
+          "name": "_compact",
+          "line": 579,
+          "isDefault": false
+        },
+        {
+          "name": "_maybe_reload_weights",
+          "line": 604,
+          "isDefault": false
+        },
+        {
+          "name": "_maybe_reload_setup_weights",
+          "line": 623,
+          "isDefault": false
+        },
+        {
+          "name": "_ensure_worker_opponent",
+          "line": 640,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "__init__",
+          "callee": "_WorkerArch",
+          "lineNumber": 172
+        },
+        {
+          "caller": "__init__",
+          "callee": "pathlib.Path",
+          "lineNumber": 191
+        },
+        {
+          "caller": "__init__",
+          "callee": "pathlib.Path",
+          "lineNumber": 192
+        },
+        {
+          "caller": "__init__",
+          "callee": "pathlib.Path",
+          "lineNumber": 194
+        },
+        {
+          "caller": "__init__",
+          "callee": "_default_worker_count",
+          "lineNumber": 196
+        },
+        {
+          "caller": "collect_games",
+          "callee": "self._ensure_pool",
+          "lineNumber": 227
+        },
+        {
+          "caller": "collect_games",
+          "callee": "self._broadcast_weights",
+          "lineNumber": 229
+        },
+        {
+          "caller": "collect_games",
+          "callee": "_GameTask",
+          "lineNumber": 231
+        },
+        {
+          "caller": "collect_games",
+          "callee": "str",
+          "lineNumber": 232
+        },
+        {
+          "caller": "collect_games",
+          "callee": "pool.submit",
+          "lineNumber": 241
+        },
+        {
+          "caller": "collect_games",
+          "callee": "futures.as_completed",
+          "lineNumber": 242
+        },
+        {
+          "caller": "collect_games",
+          "callee": "future.result",
+          "lineNumber": 243
+        },
+        {
+          "caller": "collect_games",
+          "callee": "results.append",
+          "lineNumber": 244
+        },
+        {
+          "caller": "collect_games",
+          "callee": "on_game_done",
+          "lineNumber": 246
+        },
+        {
+          "caller": "collect_games",
+          "callee": "should_stop",
+          "lineNumber": 247
+        },
+        {
+          "caller": "collect_games",
+          "callee": "other.cancel",
+          "lineNumber": 249
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "self._ensure_pool",
+          "lineNumber": 269
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "self._broadcast_weights",
+          "lineNumber": 271
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "any",
+          "lineNumber": 272
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "self._broadcast_setup_weights",
+          "lineNumber": 277
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "_SetupGameTask",
+          "lineNumber": 279
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "str",
+          "lineNumber": 280
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "str",
+          "lineNumber": 282
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "pool.submit",
+          "lineNumber": 291
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "futures.as_completed",
+          "lineNumber": 292
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "future.result",
+          "lineNumber": 293
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "results.append",
+          "lineNumber": 294
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "on_game_done",
+          "lineNumber": 296
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "should_stop",
+          "lineNumber": 297
+        },
+        {
+          "caller": "collect_games_with_setup",
+          "callee": "other.cancel",
+          "lineNumber": 299
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "evaluate.summarize_eval",
+          "lineNumber": 321
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "self._ensure_pool",
+          "lineNumber": 322
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "self._broadcast_weights",
+          "lineNumber": 324
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "self._broadcast_opponent",
+          "lineNumber": 327
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "_EvalTask",
+          "lineNumber": 329
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "str",
+          "lineNumber": 330
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "str",
+          "lineNumber": 332
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "range",
+          "lineNumber": 338
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "futures.as_completed",
+          "lineNumber": 344
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "pool.submit",
+          "lineNumber": 345
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "margins.append",
+          "lineNumber": 347
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "future.result",
+          "lineNumber": 347
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "on_progress",
+          "lineNumber": 349
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "len",
+          "lineNumber": 349
+        },
+        {
+          "caller": "evaluate_games",
+          "callee": "evaluate.summarize_eval",
+          "lineNumber": 350
+        },
+        {
+          "caller": "close",
+          "callee": "self._pool.shutdown",
+          "lineNumber": 356
+        },
+        {
+          "caller": "close",
+          "callee": "self._weights_path.unlink",
+          "lineNumber": 358
+        },
+        {
+          "caller": "close",
+          "callee": "self._opponent_path.unlink",
+          "lineNumber": 359
+        },
+        {
+          "caller": "close",
+          "callee": "self._setup_weights_path.unlink",
+          "lineNumber": 360
+        },
+        {
+          "caller": "_ensure_pool",
+          "callee": "futures.ProcessPoolExecutor",
+          "lineNumber": 366
+        },
+        {
+          "caller": "_broadcast_weights",
+          "callee": "_save_state_atomic",
+          "lineNumber": 376
+        },
+        {
+          "caller": "_broadcast_opponent",
+          "callee": "_save_state_atomic",
+          "lineNumber": 386
+        },
+        {
+          "caller": "_broadcast_setup_weights",
+          "callee": "_save_module_state_atomic",
+          "lineNumber": 392
+        },
+        {
+          "caller": "_default_worker_count",
+          "callee": "os.cpu_count",
+          "lineNumber": 398
+        },
+        {
+          "caller": "_default_worker_count",
+          "callee": "max",
+          "lineNumber": 399
+        },
+        {
+          "caller": "_default_worker_count",
+          "callee": "min",
+          "lineNumber": 399
+        },
+        {
+          "caller": "_default_worker_count",
+          "callee": "max",
+          "lineNumber": 400
+        },
+        {
+          "caller": "_default_worker_count",
+          "callee": "min",
+          "lineNumber": 400
+        },
+        {
+          "caller": "_save_state_atomic",
+          "callee": "_save_module_state_atomic",
+          "lineNumber": 406
+        },
+        {
+          "caller": "_save_module_state_atomic",
+          "callee": "path.parent.mkdir",
+          "lineNumber": 412
+        },
+        {
+          "caller": "_save_module_state_atomic",
+          "callee": "tensor.detach().to",
+          "lineNumber": 414
+        },
+        {
+          "caller": "_save_module_state_atomic",
+          "callee": "tensor.detach",
+          "lineNumber": 414
+        },
+        {
+          "caller": "_save_module_state_atomic",
+          "callee": "module.state_dict().items",
+          "lineNumber": 414
+        },
+        {
+          "caller": "_save_module_state_atomic",
+          "callee": "module.state_dict",
+          "lineNumber": 414
+        },
+        {
+          "caller": "_save_module_state_atomic",
+          "callee": "path.with_suffix",
+          "lineNumber": 416
+        },
+        {
+          "caller": "_save_module_state_atomic",
+          "callee": "torch.save",
+          "lineNumber": 417
+        },
+        {
+          "caller": "_save_module_state_atomic",
+          "callee": "os.replace",
+          "lineNumber": 418
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "torch.set_num_threads",
+          "lineNumber": 452
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "torch.device",
+          "lineNumber": 454
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "model.PolicyValueNet(\r\n        state_dim=arch.state_dim,\r\n        choice_dim=arch.choice_dim,\r\n        arch=arch.arch,\r\n        spec=encode.EncodingSpec(include_setup=arch.include_setup),\r\n    ).to",
+          "lineNumber": 455
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 455
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "encode.EncodingSpec",
+          "lineNumber": 459
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "_worker_net.eval",
+          "lineNumber": 461
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "setup_net.SetupNet(\r\n            encoding=arch.setup_encoding,\r\n            arch=arch.setup_arch,\r\n            main_arch=arch.arch,\r\n        ).to",
+          "lineNumber": 468
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "setup_net.SetupNet",
+          "lineNumber": 468
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "_worker_setup_net.eval",
+          "lineNumber": 473
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "setup_model.RandomSetupGenerator",
+          "lineNumber": 478
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "logging.getLogger().addHandler",
+          "lineNumber": 490
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "logging.getLogger",
+          "lineNumber": 490
+        },
+        {
+          "caller": "_worker_init",
+          "callee": "logging.NullHandler",
+          "lineNumber": 490
+        },
+        {
+          "caller": "_worker_play",
+          "callee": "_maybe_reload_weights",
+          "lineNumber": 499
+        },
+        {
+          "caller": "_worker_play",
+          "callee": "random.Random",
+          "lineNumber": 500
+        },
+        {
+          "caller": "_worker_play",
+          "callee": "agents.random_agent",
+          "lineNumber": 502
+        },
+        {
+          "caller": "_worker_play",
+          "callee": "random.Random",
+          "lineNumber": 502
+        },
+        {
+          "caller": "_worker_play",
+          "callee": "_compact",
+          "lineNumber": 506
+        },
+        {
+          "caller": "_worker_play",
+          "callee": "collect.play_game",
+          "lineNumber": 506
+        },
+        {
+          "caller": "_worker_play_setup",
+          "callee": "_maybe_reload_weights",
+          "lineNumber": 521
+        },
+        {
+          "caller": "_worker_play_setup",
+          "callee": "_maybe_reload_setup_weights",
+          "lineNumber": 527
+        },
+        {
+          "caller": "_worker_play_setup",
+          "callee": "agents.random_agent",
+          "lineNumber": 534
+        },
+        {
+          "caller": "_worker_play_setup",
+          "callee": "random.Random",
+          "lineNumber": 535
+        },
+        {
+          "caller": "_worker_play_setup",
+          "callee": "_compact",
+          "lineNumber": 540
+        },
+        {
+          "caller": "_worker_play_setup",
+          "callee": "collect.play_game_with_setup",
+          "lineNumber": 541
+        },
+        {
+          "caller": "_worker_eval",
+          "callee": "_maybe_reload_weights",
+          "lineNumber": 566
+        },
+        {
+          "caller": "_worker_eval",
+          "callee": "_ensure_worker_opponent",
+          "lineNumber": 567
+        },
+        {
+          "caller": "_worker_eval",
+          "callee": "evaluate.play_eval_game",
+          "lineNumber": 568
+        },
+        {
+          "caller": "_compact",
+          "callee": "step.state.astype",
+          "lineNumber": 592
+        },
+        {
+          "caller": "_compact",
+          "callee": "step.choices.astype",
+          "lineNumber": 593
+        },
+        {
+          "caller": "_compact",
+          "callee": "sample.features.astype",
+          "lineNumber": 598
+        },
+        {
+          "caller": "_compact",
+          "callee": "sample.all_candidates.astype",
+          "lineNumber": 600
+        },
+        {
+          "caller": "_maybe_reload_weights",
+          "callee": "typing.cast",
+          "lineNumber": 614
+        },
+        {
+          "caller": "_maybe_reload_weights",
+          "callee": "torch.load",
+          "lineNumber": 616
+        },
+        {
+          "caller": "_maybe_reload_weights",
+          "callee": "net.load_state_dict",
+          "lineNumber": 618
+        },
+        {
+          "caller": "_maybe_reload_weights",
+          "callee": "net.eval",
+          "lineNumber": 619
+        },
+        {
+          "caller": "_maybe_reload_setup_weights",
+          "callee": "typing.cast",
+          "lineNumber": 631
+        },
+        {
+          "caller": "_maybe_reload_setup_weights",
+          "callee": "torch.load",
+          "lineNumber": 633
+        },
+        {
+          "caller": "_maybe_reload_setup_weights",
+          "callee": "net.load_state_dict",
+          "lineNumber": 635
+        },
+        {
+          "caller": "_maybe_reload_setup_weights",
+          "callee": "net.eval",
+          "lineNumber": 636
+        },
+        {
+          "caller": "_ensure_worker_opponent",
+          "callee": "model.PolicyValueNet(\r\n            state_dim=_worker_arch.state_dim,\r\n            choice_dim=_worker_arch.choice_dim,\r\n            arch=_worker_arch.arch,\r\n            spec=encode.EncodingSpec(include_setup=_worker_arch.include_setup),\r\n        ).to",
+          "lineNumber": 651
+        },
+        {
+          "caller": "_ensure_worker_opponent",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 651
+        },
+        {
+          "caller": "_ensure_worker_opponent",
+          "callee": "encode.EncodingSpec",
+          "lineNumber": 655
+        },
+        {
+          "caller": "_ensure_worker_opponent",
+          "callee": "_worker_opponent_net.eval",
+          "lineNumber": 657
+        },
+        {
+          "caller": "_ensure_worker_opponent",
+          "callee": "typing.cast",
+          "lineNumber": 659
+        },
+        {
+          "caller": "_ensure_worker_opponent",
+          "callee": "torch.load",
+          "lineNumber": 661
+        },
+        {
+          "caller": "_ensure_worker_opponent",
+          "callee": "_worker_opponent_net.load_state_dict",
+          "lineNumber": 663
+        },
+        {
+          "caller": "_ensure_worker_opponent",
+          "callee": "_worker_opponent_net.eval",
+          "lineNumber": 664
+        }
+      ],
+      "metrics": {
+        "importCount": 12,
+        "exportCount": 16,
+        "functionCount": 11,
+        "classCount": 5
+      }
+    },
+    {
+      "path": "src/wingspan/training/policy.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 154,
+      "nonEmptyLines": 126,
+      "functions": [
+        {
+          "name": "sample_action",
+          "startLine": 35,
+          "endLine": 45,
+          "params": [
+            "net",
+            "device",
+            "state_vec",
+            "choice_feats",
+            "family_idx",
+            "rng"
+          ]
+        },
+        {
+          "name": "greedy_action",
+          "startLine": 48,
+          "endLine": 57,
+          "params": [
+            "net",
+            "device",
+            "state_vec",
+            "choice_feats",
+            "family_idx"
+          ]
+        },
+        {
+          "name": "greedy_agent",
+          "startLine": 60,
+          "endLine": 86,
+          "params": [
+            "net",
+            "device"
+          ]
+        },
+        {
+          "name": "sample_index_from_probs",
+          "startLine": 89,
+          "endLine": 99,
+          "params": [
+            "probs",
+            "n_choices",
+            "rng"
+          ]
+        },
+        {
+          "name": "policy_logits_and_probs",
+          "startLine": 102,
+          "endLine": 127,
+          "params": [
+            "net",
+            "device",
+            "state_vec",
+            "choice_feats",
+            "family_idx"
+          ]
+        },
+        {
+          "name": "policy_probs",
+          "startLine": 130,
+          "endLine": 139,
+          "params": [
+            "net",
+            "device",
+            "state_vec",
+            "choice_feats",
+            "family_idx"
+          ]
+        },
+        {
+          "name": "_weighted_index",
+          "startLine": 145,
+          "endLine": 154,
+          "params": [
+            "rng",
+            "weights"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "sample_action",
+          "line": 35,
+          "isDefault": false
+        },
+        {
+          "name": "greedy_action",
+          "line": 48,
+          "isDefault": false
+        },
+        {
+          "name": "greedy_agent",
+          "line": 60,
+          "isDefault": false
+        },
+        {
+          "name": "sample_index_from_probs",
+          "line": 89,
+          "isDefault": false
+        },
+        {
+          "name": "policy_logits_and_probs",
+          "line": 102,
+          "isDefault": false
+        },
+        {
+          "name": "policy_probs",
+          "line": 130,
+          "isDefault": false
+        },
+        {
+          "name": "_weighted_index",
+          "line": 145,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "sample_action",
+          "callee": "policy_probs",
+          "lineNumber": 44
+        },
+        {
+          "caller": "sample_action",
+          "callee": "sample_index_from_probs",
+          "lineNumber": 45
+        },
+        {
+          "caller": "greedy_action",
+          "callee": "policy_probs",
+          "lineNumber": 56
+        },
+        {
+          "caller": "greedy_action",
+          "callee": "int",
+          "lineNumber": 57
+        },
+        {
+          "caller": "greedy_action",
+          "callee": "np.argmax",
+          "lineNumber": 57
+        },
+        {
+          "caller": "agent",
+          "callee": "len",
+          "lineNumber": 76
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.is_setup_decision",
+          "lineNumber": 78
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.random_choice",
+          "lineNumber": 79
+        },
+        {
+          "caller": "agent",
+          "callee": "decisions.family_index_for",
+          "lineNumber": 80
+        },
+        {
+          "caller": "agent",
+          "callee": "type",
+          "lineNumber": 80
+        },
+        {
+          "caller": "agent",
+          "callee": "net.encode_state",
+          "lineNumber": 81
+        },
+        {
+          "caller": "agent",
+          "callee": "net.encode_choices",
+          "lineNumber": 82
+        },
+        {
+          "caller": "agent",
+          "callee": "greedy_action",
+          "lineNumber": 83
+        },
+        {
+          "caller": "sample_index_from_probs",
+          "callee": "float",
+          "lineNumber": 96
+        },
+        {
+          "caller": "sample_index_from_probs",
+          "callee": "probs.sum",
+          "lineNumber": 96
+        },
+        {
+          "caller": "sample_index_from_probs",
+          "callee": "np.isfinite",
+          "lineNumber": 97
+        },
+        {
+          "caller": "sample_index_from_probs",
+          "callee": "rng.randrange",
+          "lineNumber": 98
+        },
+        {
+          "caller": "sample_index_from_probs",
+          "callee": "_weighted_index",
+          "lineNumber": 99
+        },
+        {
+          "caller": "sample_index_from_probs",
+          "callee": "(probs / total).tolist",
+          "lineNumber": 99
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "torch.no_grad",
+          "lineNumber": 115
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "torch.tensor(state_vec, dtype=torch.float32, device=device).unsqueeze",
+          "lineNumber": 116
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "torch.tensor",
+          "lineNumber": 116
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "torch.tensor(\r\n            choice_feats, dtype=torch.float32, device=device\r\n        ).unsqueeze",
+          "lineNumber": 119
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "torch.tensor",
+          "lineNumber": 119
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "torch.ones",
+          "lineNumber": 122
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "torch.tensor",
+          "lineNumber": 123
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "net",
+          "lineNumber": 124
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "logits.squeeze(0).cpu().numpy",
+          "lineNumber": 125
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "logits.squeeze(0).cpu",
+          "lineNumber": 125
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "logits.squeeze",
+          "lineNumber": 125
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "F.softmax(logits, dim=-1).squeeze(0).cpu().numpy",
+          "lineNumber": 126
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "F.softmax(logits, dim=-1).squeeze(0).cpu",
+          "lineNumber": 126
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "F.softmax(logits, dim=-1).squeeze",
+          "lineNumber": 126
+        },
+        {
+          "caller": "policy_logits_and_probs",
+          "callee": "F.softmax",
+          "lineNumber": 126
+        },
+        {
+          "caller": "policy_probs",
+          "callee": "policy_logits_and_probs",
+          "lineNumber": 139
+        },
+        {
+          "caller": "_weighted_index",
+          "callee": "rng.random",
+          "lineNumber": 148
+        },
+        {
+          "caller": "_weighted_index",
+          "callee": "enumerate",
+          "lineNumber": 150
+        },
+        {
+          "caller": "_weighted_index",
+          "callee": "len",
+          "lineNumber": 154
+        }
+      ],
+      "metrics": {
+        "importCount": 7,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/training/steps.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 27,
+      "nonEmptyLines": 19,
+      "classes": [
+        {
+          "name": "Step",
+          "startLine": 14,
+          "endLine": 27,
+          "methods": [],
+          "properties": [
+            "state",
+            "choices",
+            "chosen_idx",
+            "player_id",
+            "family_idx"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "Step",
+          "line": 14,
+          "isDefault": false
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 1,
+        "functionCount": 0,
+        "classCount": 1
+      }
+    }
+  ]
+}

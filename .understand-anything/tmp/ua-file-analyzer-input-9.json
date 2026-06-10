@@ -1,0 +1,21 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "CLAUDE.md", "language": "markdown", "sizeLines": 110, "fileCategory": "docs"},
+    {"path": "README.md", "language": "markdown", "sizeLines": 164, "fileCategory": "docs"},
+    {"path": "TODO.md", "language": "markdown", "sizeLines": 43, "fileCategory": "docs"},
+    {"path": "cards.csv", "language": "csv", "sizeLines": 181, "fileCategory": "data"},
+    {"path": "coverage_baseline.txt", "language": "txt", "sizeLines": 1, "fileCategory": "docs"},
+    {"path": "main.html", "language": "html", "sizeLines": 332, "fileCategory": "markup"},
+    {"path": "pyproject.toml", "language": "toml", "sizeLines": 104, "fileCategory": "config"}
+  ],
+  "batchImportData": {
+    "CLAUDE.md": [],
+    "README.md": [],
+    "TODO.md": [],
+    "cards.csv": [],
+    "coverage_baseline.txt": [],
+    "main.html": [],
+    "pyproject.toml": []
+  }
+}

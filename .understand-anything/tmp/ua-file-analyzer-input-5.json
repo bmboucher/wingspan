@@ -1,0 +1,43 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "src/wingspan/agents/__init__.py", "language": "python", "sizeLines": 20, "fileCategory": "code"},
+    {"path": "src/wingspan/agents/base.py", "language": "python", "sizeLines": 34, "fileCategory": "code"},
+    {"path": "src/wingspan/agents/cli.py", "language": "python", "sizeLines": 234, "fileCategory": "code"},
+    {"path": "src/wingspan/agents/interactive.py", "language": "python", "sizeLines": 432, "fileCategory": "code"},
+    {"path": "src/wingspan/engine/__init__.py", "language": "python", "sizeLines": 20, "fileCategory": "code"},
+    {"path": "src/wingspan/model/__init__.py", "language": "python", "sizeLines": 11, "fileCategory": "code"},
+    {"path": "src/wingspan/players/__init__.py", "language": "python", "sizeLines": 51, "fileCategory": "code"},
+    {"path": "src/wingspan/players/factory.py", "language": "python", "sizeLines": 292, "fileCategory": "code"},
+    {"path": "src/wingspan/players/spec.py", "language": "python", "sizeLines": 83, "fileCategory": "code"},
+    {"path": "src/wingspan/training/batched_collect.py", "language": "python", "sizeLines": 356, "fileCategory": "code"},
+    {"path": "src/wingspan/training/collect.py", "language": "python", "sizeLines": 554, "fileCategory": "code"},
+    {"path": "src/wingspan/training/evaluate.py", "language": "python", "sizeLines": 263, "fileCategory": "code"},
+    {"path": "src/wingspan/training/learner.py", "language": "python", "sizeLines": 206, "fileCategory": "code"},
+    {"path": "src/wingspan/training/loop_collect.py", "language": "python", "sizeLines": 183, "fileCategory": "code"},
+    {"path": "src/wingspan/training/loop_metrics.py", "language": "python", "sizeLines": 164, "fileCategory": "code"},
+    {"path": "src/wingspan/training/mp_collect.py", "language": "python", "sizeLines": 666, "fileCategory": "code"},
+    {"path": "src/wingspan/training/policy.py", "language": "python", "sizeLines": 154, "fileCategory": "code"},
+    {"path": "src/wingspan/training/steps.py", "language": "python", "sizeLines": 27, "fileCategory": "code"}
+  ],
+  "batchImportData": {
+    "src/wingspan/agents/__init__.py": ["src/wingspan/agents/base.py", "src/wingspan/agents/cli.py"],
+    "src/wingspan/agents/base.py": ["src/wingspan/__init__.py", "src/wingspan/decisions.py", "src/wingspan/state.py"],
+    "src/wingspan/agents/cli.py": ["src/wingspan/__init__.py", "src/wingspan/agents/base.py", "src/wingspan/cards/__init__.py", "src/wingspan/decisions.py", "src/wingspan/state.py"],
+    "src/wingspan/agents/interactive.py": ["src/wingspan/__init__.py", "src/wingspan/agents/base.py", "src/wingspan/agents/cli.py", "src/wingspan/cards/__init__.py", "src/wingspan/decisions.py", "src/wingspan/state.py"],
+    "src/wingspan/engine/__init__.py": ["src/wingspan/engine/__init__.py", "src/wingspan/engine/core.py"],
+    "src/wingspan/model/__init__.py": ["src/wingspan/model/__init__.py", "src/wingspan/model/core.py"],
+    "src/wingspan/players/__init__.py": ["src/wingspan/players/__init__.py", "src/wingspan/players/factory.py", "src/wingspan/players/loaders.py", "src/wingspan/players/spec.py"],
+    "src/wingspan/players/factory.py": ["src/wingspan/__init__.py", "src/wingspan/agents/__init__.py", "src/wingspan/cards/__init__.py", "src/wingspan/decisions.py", "src/wingspan/model/core.py", "src/wingspan/players/loaders.py", "src/wingspan/players/spec.py", "src/wingspan/setup_model/__init__.py", "src/wingspan/state.py", "src/wingspan/training/policy.py"],
+    "src/wingspan/players/spec.py": ["src/wingspan/__init__.py", "src/wingspan/players/__init__.py"],
+    "src/wingspan/training/batched_collect.py": ["src/wingspan/__init__.py", "src/wingspan/cards/__init__.py", "src/wingspan/decisions.py", "src/wingspan/engine/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/state.py", "src/wingspan/training/__init__.py", "src/wingspan/training/collect.py", "src/wingspan/training/config.py", "src/wingspan/training/metrics.py", "src/wingspan/training/policy.py"],
+    "src/wingspan/training/collect.py": ["src/wingspan/__init__.py", "src/wingspan/agents/__init__.py", "src/wingspan/cards/__init__.py", "src/wingspan/decisions.py", "src/wingspan/engine/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/setup_model/__init__.py", "src/wingspan/state.py", "src/wingspan/training/__init__.py", "src/wingspan/training/config.py", "src/wingspan/training/metrics.py", "src/wingspan/training/policy.py"],
+    "src/wingspan/training/evaluate.py": ["src/wingspan/__init__.py", "src/wingspan/engine/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/state.py", "src/wingspan/training/__init__.py", "src/wingspan/training/collect.py", "src/wingspan/training/config.py", "src/wingspan/training/metrics.py", "src/wingspan/training/policy.py"],
+    "src/wingspan/training/learner.py": ["src/wingspan/__init__.py", "src/wingspan/model/core.py", "src/wingspan/training/__init__.py", "src/wingspan/training/config.py", "src/wingspan/training/metrics.py"],
+    "src/wingspan/training/loop_collect.py": ["src/wingspan/__init__.py", "src/wingspan/training/__init__.py", "src/wingspan/training/config.py", "src/wingspan/training/metrics.py", "src/wingspan/training/mp_collect.py", "src/wingspan/training/runmeta.py", "src/wingspan/training/runstate.py"],
+    "src/wingspan/training/loop_metrics.py": ["src/wingspan/__init__.py", "src/wingspan/training/__init__.py", "src/wingspan/training/metrics.py", "src/wingspan/training/metrics_log.py", "src/wingspan/training/runmeta.py", "src/wingspan/training/runstate.py"],
+    "src/wingspan/training/mp_collect.py": ["src/wingspan/__init__.py", "src/wingspan/cards/__init__.py", "src/wingspan/decisions.py", "src/wingspan/engine/__init__.py", "src/wingspan/players/__init__.py", "src/wingspan/state.py", "src/wingspan/training/__init__.py", "src/wingspan/training/batched_collect.py", "src/wingspan/training/collect.py", "src/wingspan/training/config.py", "src/wingspan/training/metrics.py", "src/wingspan/training/policy.py"],
+    "src/wingspan/training/policy.py": ["src/wingspan/__init__.py", "src/wingspan/decisions.py", "src/wingspan/model/core.py", "src/wingspan/setup_model/__init__.py", "src/wingspan/state.py", "src/wingspan/training/__init__.py", "src/wingspan/training/config.py"],
+    "src/wingspan/training/steps.py": []
+  }
+}

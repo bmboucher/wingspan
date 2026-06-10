@@ -1,0 +1,1394 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 9,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "src/wingspan/cli.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 200,
+      "nonEmptyLines": 172,
+      "functions": [
+        {
+          "name": "main_play",
+          "startLine": 34,
+          "endLine": 94,
+          "params": [
+            "argv"
+          ]
+        },
+        {
+          "name": "_build_parser",
+          "startLine": 103,
+          "endLine": 156,
+          "params": []
+        },
+        {
+          "name": "_open_instrumentation",
+          "startLine": 162,
+          "endLine": 190,
+          "params": [
+            "args",
+            "seed"
+          ]
+        },
+        {
+          "name": "_write_log",
+          "startLine": 196,
+          "endLine": 200,
+          "params": [
+            "path",
+            "lines"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "main_play",
+          "line": 34,
+          "isDefault": false
+        },
+        {
+          "name": "_build_parser",
+          "line": 103,
+          "isDefault": false
+        },
+        {
+          "name": "_open_instrumentation",
+          "line": 162,
+          "isDefault": false
+        },
+        {
+          "name": "_write_log",
+          "line": 196,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "main_play",
+          "callee": "_build_parser().parse_args",
+          "lineNumber": 40
+        },
+        {
+          "caller": "main_play",
+          "callee": "_build_parser",
+          "lineNumber": 40
+        },
+        {
+          "caller": "main_play",
+          "callee": "random.randint",
+          "lineNumber": 42
+        },
+        {
+          "caller": "main_play",
+          "callee": "random.Random",
+          "lineNumber": 43
+        },
+        {
+          "caller": "main_play",
+          "callee": "pathlib.Path",
+          "lineNumber": 44
+        },
+        {
+          "caller": "main_play",
+          "callee": "torch.device",
+          "lineNumber": 45
+        },
+        {
+          "caller": "main_play",
+          "callee": "players.parse_player_spec",
+          "lineNumber": 51
+        },
+        {
+          "caller": "main_play",
+          "callee": "players.parse_player_spec",
+          "lineNumber": 52
+        },
+        {
+          "caller": "main_play",
+          "callee": "players.build_agent",
+          "lineNumber": 53
+        },
+        {
+          "caller": "main_play",
+          "callee": "players.build_agent",
+          "lineNumber": 54
+        },
+        {
+          "caller": "main_play",
+          "callee": "players.resolve_split_setup_bonus",
+          "lineNumber": 55
+        },
+        {
+          "caller": "main_play",
+          "callee": "players.resolve_split_setup_food",
+          "lineNumber": 56
+        },
+        {
+          "caller": "main_play",
+          "callee": "print",
+          "lineNumber": 58
+        },
+        {
+          "caller": "main_play",
+          "callee": "regime_parts.append",
+          "lineNumber": 64
+        },
+        {
+          "caller": "main_play",
+          "callee": "regime_parts.append",
+          "lineNumber": 66
+        },
+        {
+          "caller": "main_play",
+          "callee": "\", \".join",
+          "lineNumber": 67
+        },
+        {
+          "caller": "main_play",
+          "callee": "print",
+          "lineNumber": 68
+        },
+        {
+          "caller": "main_play",
+          "callee": "_open_instrumentation",
+          "lineNumber": 70
+        },
+        {
+          "caller": "main_play",
+          "callee": "range",
+          "lineNumber": 72
+        },
+        {
+          "caller": "main_play",
+          "callee": "engine.Engine.create",
+          "lineNumber": 73
+        },
+        {
+          "caller": "main_play",
+          "callee": "engine.Engine.play_one_game",
+          "lineNumber": 74
+        },
+        {
+          "caller": "main_play",
+          "callee": "print",
+          "lineNumber": 83
+        },
+        {
+          "caller": "main_play",
+          "callee": "len",
+          "lineNumber": 85
+        },
+        {
+          "caller": "main_play",
+          "callee": "_write_log",
+          "lineNumber": 89
+        },
+        {
+          "caller": "main_play",
+          "callee": "print",
+          "lineNumber": 91
+        },
+        {
+          "caller": "main_play",
+          "callee": "instrumentation.close",
+          "lineNumber": 93
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 107
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 117
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 118
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 119
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 122
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 123
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 124
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 125
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 132
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 135
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 141
+        },
+        {
+          "caller": "_build_parser",
+          "callee": "parser.add_argument",
+          "lineNumber": 148
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "pathlib.Path(args.instrument).read_text",
+          "lineNumber": 171
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "pathlib.Path",
+          "lineNumber": 171
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "instrumentation_config.InstrumentationConfig.model_validate",
+          "lineNumber": 172
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "yaml.safe_load",
+          "lineNumber": 173
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "pathlib.Path",
+          "lineNumber": 176
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "pathlib.Path",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "out_dir.mkdir",
+          "lineNumber": 180
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "cfg.build",
+          "lineNumber": 181
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "instrumentation.open",
+          "lineNumber": 182
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "instrumentation_config.RunContext",
+          "lineNumber": 183
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "str",
+          "lineNumber": 187
+        },
+        {
+          "caller": "_open_instrumentation",
+          "callee": "str",
+          "lineNumber": 187
+        },
+        {
+          "caller": "_write_log",
+          "callee": "open",
+          "lineNumber": 198
+        },
+        {
+          "caller": "_write_log",
+          "callee": "log_file.write",
+          "lineNumber": 200
+        },
+        {
+          "caller": "_write_log",
+          "callee": "display.strip_ansi",
+          "lineNumber": 200
+        }
+      ],
+      "metrics": {
+        "importCount": 9,
+        "exportCount": 4,
+        "functionCount": 4,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 26,
+      "nonEmptyLines": 22,
+      "metrics": {
+        "importCount": 6,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/config.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 148,
+      "nonEmptyLines": 123,
+      "functions": [
+        {
+          "name": "_resolve_handler",
+          "startLine": 130,
+          "endLine": 148,
+          "params": [
+            "name",
+            "raw"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "RunContext",
+          "startLine": 40,
+          "endLine": 53,
+          "methods": [],
+          "properties": [
+            "output_dir",
+            "run_name",
+            "seed",
+            "matchup",
+            "worker_id"
+          ]
+        },
+        {
+          "name": "InstrumentationConfig",
+          "startLine": 56,
+          "endLine": 124,
+          "methods": [
+            "_resolve_handlers",
+            "_serialize_handlers",
+            "_check_assignment",
+            "build"
+          ],
+          "properties": [
+            "handlers",
+            "events"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "RunContext",
+          "line": 40,
+          "isDefault": false
+        },
+        {
+          "name": "InstrumentationConfig",
+          "line": 56,
+          "isDefault": false
+        },
+        {
+          "name": "_resolve_handler",
+          "line": 130,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_resolve_handlers",
+          "callee": "isinstance",
+          "lineNumber": 76
+        },
+        {
+          "caller": "_resolve_handlers",
+          "callee": "typing.cast",
+          "lineNumber": 78
+        },
+        {
+          "caller": "_resolve_handlers",
+          "callee": "_resolve_handler",
+          "lineNumber": 79
+        },
+        {
+          "caller": "_resolve_handlers",
+          "callee": "raw_handlers.items",
+          "lineNumber": 79
+        },
+        {
+          "caller": "_serialize_handlers",
+          "callee": "handlers.items",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_serialize_handlers",
+          "callee": "registry.name_for",
+          "lineNumber": 89
+        },
+        {
+          "caller": "_serialize_handlers",
+          "callee": "type",
+          "lineNumber": 89
+        },
+        {
+          "caller": "_serialize_handlers",
+          "callee": "ValueError",
+          "lineNumber": 91
+        },
+        {
+          "caller": "_serialize_handlers",
+          "callee": "type",
+          "lineNumber": 92
+        },
+        {
+          "caller": "_serialize_handlers",
+          "callee": "handler.model_dump",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_check_assignment",
+          "callee": "self.events.items",
+          "lineNumber": 102
+        },
+        {
+          "caller": "_check_assignment",
+          "callee": "self.handlers.get",
+          "lineNumber": 105
+        },
+        {
+          "caller": "_check_assignment",
+          "callee": "ValueError",
+          "lineNumber": 107
+        },
+        {
+          "caller": "_check_assignment",
+          "callee": "isinstance",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_check_assignment",
+          "callee": "ValueError",
+          "lineNumber": 111
+        },
+        {
+          "caller": "_check_assignment",
+          "callee": "type",
+          "lineNumber": 112
+        },
+        {
+          "caller": "build",
+          "callee": "self.events.items",
+          "lineNumber": 122
+        },
+        {
+          "caller": "build",
+          "callee": "dispatcher.Instrumentation",
+          "lineNumber": 124
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "isinstance",
+          "lineNumber": 134
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "isinstance",
+          "lineNumber": 136
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "ValueError",
+          "lineNumber": 137
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "type",
+          "lineNumber": 139
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "dict",
+          "lineNumber": 141
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "typing.cast",
+          "lineNumber": 141
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "spec.pop",
+          "lineNumber": 142
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "isinstance",
+          "lineNumber": 143
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "ValueError",
+          "lineNumber": 144
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "registry.handler_class_for",
+          "lineNumber": 145
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "ValueError",
+          "lineNumber": 147
+        },
+        {
+          "caller": "_resolve_handler",
+          "callee": "handler_class.model_validate",
+          "lineNumber": 148
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 3,
+        "functionCount": 1,
+        "classCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/dispatcher.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 231,
+      "nonEmptyLines": 196,
+      "classes": [
+        {
+          "name": "Instrumentation",
+          "startLine": 32,
+          "endLine": 227,
+          "methods": [
+            "__init__",
+            "open",
+            "close",
+            "game_start",
+            "game_end",
+            "round_start",
+            "round_end",
+            "turn_start",
+            "turn_end",
+            "making_decision",
+            "made_decision",
+            "bird_placed",
+            "food_gained",
+            "eggs_laid",
+            "cards_drawn",
+            "round_goal_scored",
+            "player_final_scored",
+            "setup_applied",
+            "_for",
+            "_unique_handlers"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "Instrumentation",
+          "line": 32,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "open",
+          "callee": "self._unique_handlers",
+          "lineNumber": 55
+        },
+        {
+          "caller": "open",
+          "callee": "handler.open",
+          "lineNumber": 56
+        },
+        {
+          "caller": "close",
+          "callee": "self._unique_handlers",
+          "lineNumber": 60
+        },
+        {
+          "caller": "close",
+          "callee": "handler.close",
+          "lineNumber": 61
+        },
+        {
+          "caller": "game_start",
+          "callee": "self._for",
+          "lineNumber": 68
+        },
+        {
+          "caller": "game_start",
+          "callee": "typing.cast(events.GameStartHandler, handler).game_start",
+          "lineNumber": 69
+        },
+        {
+          "caller": "game_start",
+          "callee": "typing.cast",
+          "lineNumber": 69
+        },
+        {
+          "caller": "game_end",
+          "callee": "self._for",
+          "lineNumber": 72
+        },
+        {
+          "caller": "game_end",
+          "callee": "typing.cast(events.GameEndHandler, handler).game_end",
+          "lineNumber": 73
+        },
+        {
+          "caller": "game_end",
+          "callee": "typing.cast",
+          "lineNumber": 73
+        },
+        {
+          "caller": "round_start",
+          "callee": "self._for",
+          "lineNumber": 76
+        },
+        {
+          "caller": "round_start",
+          "callee": "typing.cast(events.RoundStartHandler, handler).round_start",
+          "lineNumber": 77
+        },
+        {
+          "caller": "round_start",
+          "callee": "typing.cast",
+          "lineNumber": 77
+        },
+        {
+          "caller": "round_end",
+          "callee": "self._for",
+          "lineNumber": 82
+        },
+        {
+          "caller": "round_end",
+          "callee": "typing.cast(events.RoundEndHandler, handler).round_end",
+          "lineNumber": 83
+        },
+        {
+          "caller": "round_end",
+          "callee": "typing.cast",
+          "lineNumber": 83
+        },
+        {
+          "caller": "turn_start",
+          "callee": "self._for",
+          "lineNumber": 88
+        },
+        {
+          "caller": "turn_start",
+          "callee": "typing.cast(events.TurnStartHandler, handler).turn_start",
+          "lineNumber": 89
+        },
+        {
+          "caller": "turn_start",
+          "callee": "typing.cast",
+          "lineNumber": 89
+        },
+        {
+          "caller": "turn_end",
+          "callee": "self._for",
+          "lineNumber": 94
+        },
+        {
+          "caller": "turn_end",
+          "callee": "typing.cast(events.TurnEndHandler, handler).turn_end",
+          "lineNumber": 95
+        },
+        {
+          "caller": "turn_end",
+          "callee": "typing.cast",
+          "lineNumber": 95
+        },
+        {
+          "caller": "making_decision",
+          "callee": "self._for",
+          "lineNumber": 102
+        },
+        {
+          "caller": "making_decision",
+          "callee": "typing.cast(events.MakingDecisionHandler, handler).making_decision",
+          "lineNumber": 103
+        },
+        {
+          "caller": "making_decision",
+          "callee": "typing.cast",
+          "lineNumber": 103
+        },
+        {
+          "caller": "made_decision",
+          "callee": "self._for",
+          "lineNumber": 114
+        },
+        {
+          "caller": "made_decision",
+          "callee": "typing.cast(events.MadeDecisionHandler, handler).made_decision",
+          "lineNumber": 115
+        },
+        {
+          "caller": "made_decision",
+          "callee": "typing.cast",
+          "lineNumber": 115
+        },
+        {
+          "caller": "bird_placed",
+          "callee": "self._for",
+          "lineNumber": 128
+        },
+        {
+          "caller": "bird_placed",
+          "callee": "typing.cast(events.BirdPlacedHandler, handler).bird_placed",
+          "lineNumber": 129
+        },
+        {
+          "caller": "bird_placed",
+          "callee": "typing.cast",
+          "lineNumber": 129
+        },
+        {
+          "caller": "food_gained",
+          "callee": "self._for",
+          "lineNumber": 140
+        },
+        {
+          "caller": "food_gained",
+          "callee": "typing.cast(events.FoodGainedHandler, handler).food_gained",
+          "lineNumber": 141
+        },
+        {
+          "caller": "food_gained",
+          "callee": "typing.cast",
+          "lineNumber": 141
+        },
+        {
+          "caller": "eggs_laid",
+          "callee": "self._for",
+          "lineNumber": 148
+        },
+        {
+          "caller": "eggs_laid",
+          "callee": "typing.cast(events.EggsLaidHandler, handler).eggs_laid",
+          "lineNumber": 149
+        },
+        {
+          "caller": "eggs_laid",
+          "callee": "typing.cast",
+          "lineNumber": 149
+        },
+        {
+          "caller": "cards_drawn",
+          "callee": "self._for",
+          "lineNumber": 156
+        },
+        {
+          "caller": "cards_drawn",
+          "callee": "typing.cast(events.CardsDrawnHandler, handler).cards_drawn",
+          "lineNumber": 157
+        },
+        {
+          "caller": "cards_drawn",
+          "callee": "typing.cast",
+          "lineNumber": 157
+        },
+        {
+          "caller": "round_goal_scored",
+          "callee": "self._for",
+          "lineNumber": 169
+        },
+        {
+          "caller": "round_goal_scored",
+          "callee": "typing.cast(events.RoundGoalScoredHandler, handler).round_goal_scored",
+          "lineNumber": 170
+        },
+        {
+          "caller": "round_goal_scored",
+          "callee": "typing.cast",
+          "lineNumber": 170
+        },
+        {
+          "caller": "player_final_scored",
+          "callee": "self._for",
+          "lineNumber": 187
+        },
+        {
+          "caller": "player_final_scored",
+          "callee": "typing.cast(events.PlayerFinalScoredHandler, handler).player_final_scored",
+          "lineNumber": 188
+        },
+        {
+          "caller": "player_final_scored",
+          "callee": "typing.cast",
+          "lineNumber": 188
+        },
+        {
+          "caller": "setup_applied",
+          "callee": "self._for",
+          "lineNumber": 207
+        },
+        {
+          "caller": "setup_applied",
+          "callee": "typing.cast(events.SetupAppliedHandler, handler).setup_applied",
+          "lineNumber": 208
+        },
+        {
+          "caller": "setup_applied",
+          "callee": "typing.cast",
+          "lineNumber": 208
+        },
+        {
+          "caller": "_for",
+          "callee": "self.by_event.get",
+          "lineNumber": 218
+        },
+        {
+          "caller": "_unique_handlers",
+          "callee": "self.by_event.values",
+          "lineNumber": 224
+        },
+        {
+          "caller": "_unique_handlers",
+          "callee": "seen.setdefault",
+          "lineNumber": 226
+        },
+        {
+          "caller": "_unique_handlers",
+          "callee": "id",
+          "lineNumber": 226
+        },
+        {
+          "caller": "_unique_handlers",
+          "callee": "list",
+          "lineNumber": 227
+        },
+        {
+          "caller": "_unique_handlers",
+          "callee": "seen.values",
+          "lineNumber": 227
+        }
+      ],
+      "metrics": {
+        "importCount": 7,
+        "exportCount": 1,
+        "functionCount": 0,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/events.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 283,
+      "nonEmptyLines": 221,
+      "classes": [
+        {
+          "name": "EventName",
+          "startLine": 34,
+          "endLine": 56,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "CallbackHandler",
+          "startLine": 59,
+          "endLine": 77,
+          "methods": [
+            "open",
+            "close"
+          ],
+          "properties": []
+        },
+        {
+          "name": "GameStartHandler",
+          "startLine": 80,
+          "endLine": 85,
+          "methods": [
+            "game_start"
+          ],
+          "properties": []
+        },
+        {
+          "name": "GameEndHandler",
+          "startLine": 88,
+          "endLine": 93,
+          "methods": [
+            "game_end"
+          ],
+          "properties": []
+        },
+        {
+          "name": "RoundStartHandler",
+          "startLine": 96,
+          "endLine": 102,
+          "methods": [
+            "round_start"
+          ],
+          "properties": []
+        },
+        {
+          "name": "RoundEndHandler",
+          "startLine": 105,
+          "endLine": 110,
+          "methods": [
+            "round_end"
+          ],
+          "properties": []
+        },
+        {
+          "name": "TurnStartHandler",
+          "startLine": 113,
+          "endLine": 119,
+          "methods": [
+            "turn_start"
+          ],
+          "properties": []
+        },
+        {
+          "name": "TurnEndHandler",
+          "startLine": 122,
+          "endLine": 127,
+          "methods": [
+            "turn_end"
+          ],
+          "properties": []
+        },
+        {
+          "name": "MakingDecisionHandler",
+          "startLine": 130,
+          "endLine": 138,
+          "methods": [
+            "making_decision"
+          ],
+          "properties": []
+        },
+        {
+          "name": "MadeDecisionHandler",
+          "startLine": 141,
+          "endLine": 154,
+          "methods": [
+            "made_decision"
+          ],
+          "properties": []
+        },
+        {
+          "name": "BirdPlacedHandler",
+          "startLine": 157,
+          "endLine": 171,
+          "methods": [
+            "bird_placed"
+          ],
+          "properties": []
+        },
+        {
+          "name": "FoodGainedHandler",
+          "startLine": 174,
+          "endLine": 187,
+          "methods": [
+            "food_gained"
+          ],
+          "properties": []
+        },
+        {
+          "name": "EggsLaidHandler",
+          "startLine": 190,
+          "endLine": 198,
+          "methods": [
+            "eggs_laid"
+          ],
+          "properties": []
+        },
+        {
+          "name": "CardsDrawnHandler",
+          "startLine": 201,
+          "endLine": 209,
+          "methods": [
+            "cards_drawn"
+          ],
+          "properties": []
+        },
+        {
+          "name": "RoundGoalScoredHandler",
+          "startLine": 212,
+          "endLine": 225,
+          "methods": [
+            "round_goal_scored"
+          ],
+          "properties": []
+        },
+        {
+          "name": "PlayerFinalScoredHandler",
+          "startLine": 228,
+          "endLine": 246,
+          "methods": [
+            "player_final_scored"
+          ],
+          "properties": []
+        },
+        {
+          "name": "SetupAppliedHandler",
+          "startLine": 249,
+          "endLine": 261,
+          "methods": [
+            "setup_applied"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "EventName",
+          "line": 34,
+          "isDefault": false
+        },
+        {
+          "name": "CallbackHandler",
+          "line": 59,
+          "isDefault": false
+        },
+        {
+          "name": "GameStartHandler",
+          "line": 80,
+          "isDefault": false
+        },
+        {
+          "name": "GameEndHandler",
+          "line": 88,
+          "isDefault": false
+        },
+        {
+          "name": "RoundStartHandler",
+          "line": 96,
+          "isDefault": false
+        },
+        {
+          "name": "RoundEndHandler",
+          "line": 105,
+          "isDefault": false
+        },
+        {
+          "name": "TurnStartHandler",
+          "line": 113,
+          "isDefault": false
+        },
+        {
+          "name": "TurnEndHandler",
+          "line": 122,
+          "isDefault": false
+        },
+        {
+          "name": "MakingDecisionHandler",
+          "line": 130,
+          "isDefault": false
+        },
+        {
+          "name": "MadeDecisionHandler",
+          "line": 141,
+          "isDefault": false
+        },
+        {
+          "name": "BirdPlacedHandler",
+          "line": 157,
+          "isDefault": false
+        },
+        {
+          "name": "FoodGainedHandler",
+          "line": 174,
+          "isDefault": false
+        },
+        {
+          "name": "EggsLaidHandler",
+          "line": 190,
+          "isDefault": false
+        },
+        {
+          "name": "CardsDrawnHandler",
+          "line": 201,
+          "isDefault": false
+        },
+        {
+          "name": "RoundGoalScoredHandler",
+          "line": 212,
+          "isDefault": false
+        },
+        {
+          "name": "PlayerFinalScoredHandler",
+          "line": 228,
+          "isDefault": false
+        },
+        {
+          "name": "SetupAppliedHandler",
+          "line": 249,
+          "isDefault": false
+        }
+      ],
+      "metrics": {
+        "importCount": 4,
+        "exportCount": 17,
+        "functionCount": 0,
+        "classCount": 17
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 21,
+      "nonEmptyLines": 16,
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/card_visits.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 58,
+      "nonEmptyLines": 44,
+      "classes": [
+        {
+          "name": "CardVisitRecorder",
+          "startLine": 26,
+          "endLine": 58,
+          "methods": [
+            "open",
+            "bird_placed",
+            "game_end",
+            "close"
+          ],
+          "properties": [
+            "output_path",
+            "_counts",
+            "_file"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "CardVisitRecorder",
+          "line": 25,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "open",
+          "callee": "(context.output_dir / self.output_path).open",
+          "lineNumber": 36
+        },
+        {
+          "caller": "bird_placed",
+          "callee": "self._counts.get",
+          "lineNumber": 47
+        },
+        {
+          "caller": "game_end",
+          "callee": "self._file.write",
+          "lineNumber": 51
+        },
+        {
+          "caller": "game_end",
+          "callee": "json.dumps",
+          "lineNumber": 51
+        },
+        {
+          "caller": "game_end",
+          "callee": "self._file.flush",
+          "lineNumber": 52
+        },
+        {
+          "caller": "close",
+          "callee": "self._file.close",
+          "lineNumber": 57
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 1,
+        "functionCount": 0,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/handlers/decision_logger.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 56,
+      "nonEmptyLines": 43,
+      "classes": [
+        {
+          "name": "DecisionLogger",
+          "startLine": 25,
+          "endLine": 56,
+          "methods": [
+            "open",
+            "made_decision",
+            "close"
+          ],
+          "properties": [
+            "output_path",
+            "_file"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "DecisionLogger",
+          "line": 24,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "open",
+          "callee": "(context.output_dir / self.output_path).open",
+          "lineNumber": 33
+        },
+        {
+          "caller": "made_decision",
+          "callee": "type",
+          "lineNumber": 46
+        },
+        {
+          "caller": "made_decision",
+          "callee": "len",
+          "lineNumber": 48
+        },
+        {
+          "caller": "made_decision",
+          "callee": "choice.display_label",
+          "lineNumber": 49
+        },
+        {
+          "caller": "made_decision",
+          "callee": "self._file.write",
+          "lineNumber": 51
+        },
+        {
+          "caller": "made_decision",
+          "callee": "json.dumps",
+          "lineNumber": 51
+        },
+        {
+          "caller": "close",
+          "callee": "self._file.close",
+          "lineNumber": 55
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 1,
+        "functionCount": 0,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/registry.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 57,
+      "nonEmptyLines": 43,
+      "functions": [
+        {
+          "name": "register",
+          "startLine": 26,
+          "endLine": 47,
+          "params": [
+            "name"
+          ]
+        },
+        {
+          "name": "handler_class_for",
+          "startLine": 50,
+          "endLine": 52,
+          "params": [
+            "name"
+          ]
+        },
+        {
+          "name": "name_for",
+          "startLine": 55,
+          "endLine": 57,
+          "params": [
+            "handler_class"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "register",
+          "line": 26,
+          "isDefault": false
+        },
+        {
+          "name": "handler_class_for",
+          "line": 50,
+          "isDefault": false
+        },
+        {
+          "name": "name_for",
+          "line": 55,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "decorator",
+          "callee": "_REGISTRY.get",
+          "lineNumber": 37
+        },
+        {
+          "caller": "decorator",
+          "callee": "ValueError",
+          "lineNumber": 39
+        },
+        {
+          "caller": "handler_class_for",
+          "callee": "_REGISTRY.get",
+          "lineNumber": 52
+        },
+        {
+          "caller": "name_for",
+          "callee": "_NAMES.get",
+          "lineNumber": 57
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    }
+  ]
+}

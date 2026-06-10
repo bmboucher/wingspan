@@ -1,0 +1,290 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 7,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "CLAUDE.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 110,
+      "nonEmptyLines": 72,
+      "sections": [
+        {
+          "heading": "CLAUDE.md",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "What this project is",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "Documentation files",
+          "level": 2,
+          "line": 9
+        },
+        {
+          "heading": "Making changes: the worktree workflow",
+          "level": 2,
+          "line": 25
+        },
+        {
+          "heading": "Steps",
+          "level": 3,
+          "line": 33
+        },
+        {
+          "heading": "Hard rules",
+          "level": 3,
+          "line": 61
+        },
+        {
+          "heading": "Architectural patterns to preserve",
+          "level": 2,
+          "line": 67
+        },
+        {
+          "heading": "Decision/choice system",
+          "level": 3,
+          "line": 69
+        },
+        {
+          "heading": "Engine = orchestrator; sibling modules = free functions",
+          "level": 3,
+          "line": 77
+        },
+        {
+          "heading": "The Agent protocol",
+          "level": 3,
+          "line": 81
+        },
+        {
+          "heading": "Bird powers: parser + dispatcher pair",
+          "level": 3,
+          "line": 85
+        },
+        {
+          "heading": "Network topology and versioning",
+          "level": 3,
+          "line": 89
+        },
+        {
+          "heading": "Constants and per-turn scratch state",
+          "level": 3,
+          "line": 93
+        },
+        {
+          "heading": "Test conventions",
+          "level": 2,
+          "line": 97
+        },
+        {
+          "heading": "Things to avoid",
+          "level": 2,
+          "line": 102
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 15
+      }
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 164,
+      "nonEmptyLines": 131,
+      "sections": [
+        {
+          "heading": "Wingspan",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Setup",
+          "level": 2,
+          "line": 10
+        },
+        {
+          "heading": "Play games",
+          "level": 2,
+          "line": 30
+        },
+        {
+          "heading": "Train an agent",
+          "level": 2,
+          "line": 61
+        },
+        {
+          "heading": "Run a tournament",
+          "level": 2,
+          "line": 105
+        },
+        {
+          "heading": "Installed commands",
+          "level": 2,
+          "line": 129
+        },
+        {
+          "heading": "Tests",
+          "level": 2,
+          "line": 146
+        },
+        {
+          "heading": "Further reading",
+          "level": 2,
+          "line": 156
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 8
+      }
+    },
+    {
+      "path": "TODO.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 44,
+      "nonEmptyLines": 28,
+      "sections": [
+        {
+          "heading": "Issues with the detailed game log from `wingspan play --log`",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Training feature - bootstrap against pre-trained opponent",
+          "level": 1,
+          "line": 29
+        },
+        {
+          "heading": "Modeling - use one-hots for round number and cube count",
+          "level": 1,
+          "line": 34
+        },
+        {
+          "heading": "General investigation - these don't require action, just write detailed reports in the docs folder for each",
+          "level": 1,
+          "line": 38
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 4
+      }
+    },
+    {
+      "path": "cards.csv",
+      "language": "csv",
+      "fileCategory": "data",
+      "totalLines": 181,
+      "nonEmptyLines": 181,
+      "metrics": {}
+    },
+    {
+      "path": "coverage_baseline.txt",
+      "language": "txt",
+      "fileCategory": "docs",
+      "totalLines": 1,
+      "nonEmptyLines": 1,
+      "metrics": {}
+    },
+    {
+      "path": "main.html",
+      "language": "html",
+      "fileCategory": "markup",
+      "totalLines": 332,
+      "nonEmptyLines": 326,
+      "metrics": {}
+    },
+    {
+      "path": "pyproject.toml",
+      "language": "toml",
+      "fileCategory": "config",
+      "totalLines": 104,
+      "nonEmptyLines": 91,
+      "sections": [
+        {
+          "heading": "build-system",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "project",
+          "level": 1,
+          "line": 5
+        },
+        {
+          "heading": "project.optional-dependencies",
+          "level": 2,
+          "line": 22
+        },
+        {
+          "heading": "project.scripts",
+          "level": 2,
+          "line": 34
+        },
+        {
+          "heading": "tool.setuptools.packages.find",
+          "level": 4,
+          "line": 37
+        },
+        {
+          "heading": "tool.setuptools.package-data",
+          "level": 3,
+          "line": 40
+        },
+        {
+          "heading": "tool.pyright",
+          "level": 2,
+          "line": 49
+        },
+        {
+          "heading": "tool.black",
+          "level": 2,
+          "line": 60
+        },
+        {
+          "heading": "tool.isort",
+          "level": 2,
+          "line": 64
+        },
+        {
+          "heading": "tool.coverage.run",
+          "level": 3,
+          "line": 77
+        },
+        {
+          "heading": "tool.coverage.report",
+          "level": 3,
+          "line": 95
+        },
+        {
+          "heading": "tool.coverage.html",
+          "level": 3,
+          "line": 103
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 12
+      }
+    }
+  ]
+}

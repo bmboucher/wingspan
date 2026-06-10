@@ -1,0 +1,8 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": ".dockerignore", "language": "unknown", "sizeLines": 19, "fileCategory": "infra"},
+    {"path": "Dockerfile", "language": "dockerfile", "sizeLines": 36, "fileCategory": "infra"}
+  ],
+  "batchImportData": {".dockerignore": [], "Dockerfile": []}
+}
