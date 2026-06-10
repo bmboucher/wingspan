@@ -47,6 +47,7 @@ wingspan play --p0 random --p1 random --games 5 --log games.log  # quick automat
 wingspan play --p0 best --p1 opponent --games 10        # best vs the frozen ladder rung
 wingspan play --p0 best --p1 best --greedy --log ai.log # best vs itself, argmax play
 wingspan play --p0 runs/exp/last.pt --p1 random         # a checkpoint by path
+wingspan play --p0 best --p1 best --html game.html      # navigable HTML game-log viewer
 ```
 
 A `human` seat gets a numbered menu for every choice the rules require — pick a
@@ -57,6 +58,11 @@ log into a move-by-move readout of what the network was "thinking", and
 `--greedy` makes AI seats take the argmax option instead of sampling. `--games
 N` plays a series (game *i* deals with `--seed + i`), `--log` writes the full
 action-by-action log per game, and `--quiet` suppresses the per-game summary.
+`--html FILE` additionally writes a self-contained HTML viewer that replays the
+game one phase/turn at a time — prev/next arrows, a `P0 / P1 / both` seat toggle,
+3x5 board grids pinned at the top, and a collapsible decision log beneath (for a
+`--games` series the game index is inserted before the extension, `game.html ->
+game.0.html`).
 
 ## Train an agent
 

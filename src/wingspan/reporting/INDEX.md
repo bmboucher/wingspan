@@ -16,6 +16,25 @@ from `encode.stripes`), parameter count breakdown, and training config table.
 Also `build_model_summary_html(descriptor, report) -> str` — the pure string
 variant consumed by `training.runmeta`'s reporting seam.
 
+**`game_log_html.py`** — the HTML *game*-log viewer (vs `html.py`'s *model*
+report). `render_game_log_html(report: GameLogReport) -> str` /
+`write_game_log_html(report, out_path)` produce a self-contained, asset-free
+page that replays one `wingspan play` game phase-by-phase: a sticky state panel
+(3x5 board grids, hands, tray, food, scores, bonus cards, round goals), prev/next
+arrows, a `P0 / P1 / both` seat toggle, and a collapsible decision log. The data
+model (`GameLogReport`, `PhaseRecord`, `PlayerPanel`, `BirdCellInfo`, …) holds
+**primitives only** — no engine or torch types — so the page renders from a plain
+JSON dump embedded in the document and drawn client-side by an inline script.
+
+**`game_log_capture.py`** — the engine-aware half of the game-log feature.
+`capture_phase(engine, …) -> PhaseRecord` flattens the live `GameState` (both
+seats' boards/hands/food/scores, the shared tray/feeder/goals) into the
+primitive display models; `build_report(…)` splits the engine's interleaved text
+log into one decision-narration block per phase (on `=== ... ===` headers,
+dropping each turn's verbose state-summary prefix) and assembles the
+`GameLogReport`. Imported lazily by the `GameLogHtml` instrumentation handler so
+its `engine` dependency stays off the import-time path.
+
 **`svg.py`** — SVG architecture-diagram builder. `build_arch_svg(arch:
 ModelArchitecture) -> str` renders the trunk / choice-encoder / scorer-head /
 value-head topology as an SVG string, embedded by `html.py`. Widths are drawn

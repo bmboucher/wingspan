@@ -49,3 +49,16 @@ at game end. Useful for coverage reports and card-popularity analytics.
 appends a JSONL row for every `DecisionMadeEvent`. Each row contains the encoded
 state vector, encoded choice matrix, and the chosen index — the primary source
 of training data for offline supervised learning.
+
+**`handlers/game_log_html.py`** — `GameLogHtml` (`GameLogHtmlHandler`): records
+each game as a navigable, self-contained HTML log viewer (the `wingspan play
+--html` flag). Subscribes to `game_start` / `setup_applied` / `round_start` /
+`turn_start` / `game_end`; those five events fire once per `=== ... ===` log
+header, so its per-phase state snapshots zip one-to-one with the text log's
+segments. Config: `output_path` (resolved under the run output dir) and
+`index_suffix` (insert the game index before `.html` for a multi-game series).
+At `game_end` it builds a `GameLogReport` and writes the file. The
+state→model conversion and narration slicing live in
+`reporting.game_log_capture`, imported lazily inside the event methods so the
+engine-dependent code never closes the `engine` ↔ `instrumentation` import
+cycle.

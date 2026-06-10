@@ -29,6 +29,7 @@ from wingspan import engine, players, state
 from wingspan.agents import display
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
+from wingspan.instrumentation import events as instrumentation_events
 
 
 def main_play(argv: list[str] | None = None) -> int:
@@ -94,6 +95,10 @@ def main_play(argv: list[str] | None = None) -> int:
                     _write_split_logs(log_path, eng.state.log_entries)
                     if not args.quiet:
                         print(f"  log -> {log_path}_p0.log, {log_path}_p1.log")
+            if args.html and not args.quiet:
+                # The HTML file itself is written by the instrumentation
+                # handler on game end; report where it landed.
+                print(f"  html -> {_html_game_path(args.html, game_idx, args.games)}")
     finally:
         instrumentation.close()
     return 0
@@ -123,6 +128,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--games", type=int, default=1, help="Number of games to play.")
     parser.add_argument(
         "--log", type=str, default=None, help="Path to write detailed game log(s)."
+    )
+    parser.add_argument(
+        "--html",
+        type=str,
+        default=None,
+        help="Path to write a navigable HTML game-log viewer (one phase/turn at "
+        "a time, P0/P1/both toggle, 3x5 board grids). For a --games series the "
+        "game index is inserted before the extension (out.html -> out.0.html).",
     )
     parser.add_argument(
         "--collate",
@@ -170,18 +183,44 @@ def _build_parser() -> argparse.ArgumentParser:
 #### Instrumentation ####
 
 
+# The handler name and the events the HTML game-log recorder subscribes to.
+# These five events fire once per ``=== ... ===`` header in the log, so the
+# handler's per-phase snapshots align one-to-one with the log segments.
+_HTML_HANDLER_NAME = "__game_log_html__"
+_HTML_HANDLER_EVENTS = (
+    instrumentation_events.EventName.GAME_START,
+    instrumentation_events.EventName.SETUP_APPLIED,
+    instrumentation_events.EventName.ROUND_START,
+    instrumentation_events.EventName.TURN_START,
+    instrumentation_events.EventName.GAME_END,
+)
+
+
 def _open_instrumentation(
     args: argparse.Namespace, seed: int
 ) -> dispatcher.Instrumentation:
-    """Build and open the event-callback router from ``--instrument`` — the
-    standalone instrumentation config (same shape as ``TrainConfig.instrumentation``).
-    Returns the no-op ``EMPTY`` router when the flag is absent. The caller must
-    ``close`` whatever this returns when the run ends."""
-    if args.instrument is None:
+    """Build and open the event-callback router for this run.
+
+    Combines the standalone ``--instrument`` config (same shape as
+    ``TrainConfig.instrumentation``) with the built-in HTML game-log recorder
+    attached by ``--html``. Returns the no-op ``EMPTY`` router when neither flag
+    is given. The caller must ``close`` whatever this returns when the run
+    ends."""
+    if args.instrument is None and args.html is None:
         return dispatcher.EMPTY
-    text = pathlib.Path(args.instrument).read_text(encoding="utf-8")
+
+    handlers, events_map = _instrument_file_spec(args)
+    if args.html is not None:
+        handlers[_HTML_HANDLER_NAME] = {
+            "class": "GameLogHtml",
+            "output_path": args.html,
+            "index_suffix": args.games > 1,
+        }
+        for event in _HTML_HANDLER_EVENTS:
+            events_map.setdefault(event, []).append(_HTML_HANDLER_NAME)
+
     cfg = instrumentation_config.InstrumentationConfig.model_validate(
-        yaml.safe_load(text)
+        {"handlers": handlers, "events": events_map}
     )
     out_dir = (
         pathlib.Path(args.instrument_out)
@@ -201,7 +240,38 @@ def _open_instrumentation(
     return instrumentation
 
 
+def _instrument_file_spec(
+    args: argparse.Namespace,
+) -> tuple[dict[str, object], dict[instrumentation_events.EventName, list[str]]]:
+    """The handler-instance map and event assignment from ``--instrument``.
+
+    Returns already-resolved handler instances (which the config validator
+    passes through untouched) plus a mutable copy of the event assignment, so
+    the ``--html`` recorder can be merged on top. Empty when ``--instrument`` is
+    absent."""
+    if args.instrument is None:
+        return {}, {}
+    text = pathlib.Path(args.instrument).read_text(encoding="utf-8")
+    cfg = instrumentation_config.InstrumentationConfig.model_validate(
+        yaml.safe_load(text)
+    )
+    handlers: dict[str, object] = dict(cfg.handlers)
+    events_map = {event: list(names) for event, names in cfg.events.items()}
+    return handlers, events_map
+
+
 #### Log file output ####
+
+
+def _html_game_path(base: str, game_idx: int, games: int) -> str:
+    """The HTML file path for one game, matching the handler's naming: ``base``
+    for a single game, else the game index inserted before the extension
+    (``out.html`` -> ``out.0.html``)."""
+    if games == 1:
+        return base
+    path = pathlib.Path(base)
+    suffix = path.suffix or ".html"
+    return str(path.with_name(f"{path.stem}.{game_idx}{suffix}"))
 
 
 def _write_log(path: str, lines: list[str]) -> None:

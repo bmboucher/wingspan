@@ -1,0 +1,249 @@
+"""Convert live game state and the engine's text log into a game-log report.
+
+This is the engine-aware half of the HTML game-log feature: it reads a
+``GameState`` (and the bonus-scoring helpers) to flatten each phase into the
+primitive display models in :mod:`wingspan.reporting.game_log_html`, and it
+splits the engine's interleaved text log into one decision-narration block per
+phase. It is imported lazily by
+:class:`wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler` —
+never at import time — so its dependence on ``engine`` does not close the
+``engine`` ↔ ``instrumentation`` import cycle.
+
+Public API: :func:`capture_phase` (one narration-less snapshot) and
+:func:`build_report` (attach narration from the log and assemble the report).
+"""
+
+from __future__ import annotations
+
+import typing
+
+from wingspan import cards, state
+from wingspan.agents import display
+from wingspan.engine import scoring
+from wingspan.reporting import game_log_html
+
+if typing.TYPE_CHECKING:
+    from wingspan.engine import core
+
+# Marks a phase boundary in the interleaved log: the engine writes one such
+# header per captured phase, in the same order the capture events fire.
+_HEADER_PREFIX = "==="
+
+# Display labels for the three habitat rows, in board order.
+_HABITAT_LABELS: dict[cards.Habitat, str] = {
+    cards.Habitat.FOREST: "Forest",
+    cards.Habitat.GRASSLAND: "Grassland",
+    cards.Habitat.WETLAND: "Wetland",
+}
+
+
+def capture_phase(
+    engine: core.Engine, *, index: int, title: str, kind: str, active: int | None
+) -> game_log_html.PhaseRecord:
+    """Snapshot the current game state as a narration-less phase record.
+
+    The narration is filled in later by :func:`build_report` once the whole log
+    is available; everything else (both seats' boards, hands, food, scores,
+    bonus cards, the shared tray / birdfeeder / round goals) is read from the
+    live state now."""
+    gs = engine.state
+    return game_log_html.PhaseRecord(
+        index=index,
+        title=title,
+        kind=kind,
+        round_idx=gs.round_idx,
+        active_player_id=active,
+        panels=[_player_panel(player) for player in gs.players],
+        tray=[_bird_cell_info(bird) for bird in gs.tray],
+        feeder_text=gs.birdfeeder.format(),
+        round_goals=_round_goal_infos(gs),
+        narration=[],
+    )
+
+
+def build_report(
+    *,
+    engine: core.Engine,
+    phases: list[game_log_html.PhaseRecord],
+    seed: int | None,
+    matchup: tuple[str, str] | None,
+) -> game_log_html.GameLogReport:
+    """Attach each log segment's narration to its phase and assemble the report.
+
+    Segments and phases are paired in order; any count mismatch (no engine path
+    produces one) degrades gracefully by pairing the common prefix."""
+    segments = _split_log_into_segments(engine.state.log_entries)
+    for phase, segment in zip(phases, segments):
+        phase.narration = _segment_narration(segment, is_turn=phase.kind == "turn")
+    final_scores = [player.final_score for player in engine.state.players]
+    return game_log_html.GameLogReport(
+        seed=seed,
+        matchup=matchup,
+        player_names=[player.name for player in engine.state.players],
+        final_scores=(
+            [score for score in final_scores if score is not None]
+            if all(score is not None for score in final_scores)
+            else None
+        ),
+        phases=phases,
+    )
+
+
+###### PRIVATE #######
+
+
+#### State -> reporting-model conversion (primitives only) ####
+
+
+def _player_panel(player: state.Player) -> game_log_html.PlayerPanel:
+    """Flatten one player's full visible state into a display panel."""
+    return game_log_html.PlayerPanel(
+        player_id=player.id,
+        name=player.name,
+        action_cubes_left=player.action_cubes_left,
+        rows=[_habitat_row(player, habitat) for habitat in cards.ALL_HABITATS],
+        hand_names=[bird.name for bird in player.hand],
+        food=[
+            game_log_html.FoodCount(label=food.value, count=player.food[food])
+            for food in cards.ALL_FOODS
+        ],
+        score=_score_breakdown(player),
+        bonus_cards=[_bonus_card_info(player, bc) for bc in player.bonus_cards],
+    )
+
+
+def _habitat_row(
+    player: state.Player, habitat: cards.Habitat
+) -> game_log_html.HabitatRow:
+    """One habitat row padded to a fixed ``BOARD_COLUMNS`` width."""
+    cells = [
+        game_log_html.BoardCell(bird=_bird_cell_info(pb.bird, played=pb))
+        for pb in player.board[habitat]
+    ]
+    while len(cells) < game_log_html.BOARD_COLUMNS:
+        cells.append(game_log_html.BoardCell(bird=None))
+    return game_log_html.HabitatRow(label=_HABITAT_LABELS[habitat], cells=cells)
+
+
+def _bird_cell_info(
+    bird: cards.Bird | None, played: state.PlayedBird | None = None
+) -> game_log_html.BirdCellInfo | None:
+    """Flatten a bird (and, when on the board, its per-game state) to a cell."""
+    if bird is None:
+        return None
+    return game_log_html.BirdCellInfo(
+        name=bird.name,
+        vp=bird.points,
+        nest=bird.nest.value,
+        habitats="/".join(habitat.value for habitat in bird.habitats),
+        food_cost=display.format_cost(bird.food_cost),
+        egg_limit=bird.egg_limit,
+        eggs=played.eggs if played is not None else 0,
+        tucked=played.tucked_cards if played is not None else 0,
+        cached=played.cached_food.total() if played is not None else 0,
+        power_color=bird.power.color.value,
+        power_text=bird.plain_power_text,
+    )
+
+
+def _score_breakdown(player: state.Player) -> game_log_html.ScoreBreakdown:
+    """The seven score columns, matching the game log's score table."""
+    bird_pts = sum(pb.bird.points for row in player.board.values() for pb in row)
+    bonus_pts = sum(scoring.bonus_score(player, bc) for bc in player.bonus_cards)
+    total = (
+        bird_pts
+        + bonus_pts
+        + player.total_eggs
+        + player.total_tucked
+        + player.total_cached
+        + player.round_goal_points
+    )
+    return game_log_html.ScoreBreakdown(
+        birds=bird_pts,
+        eggs=player.total_eggs,
+        tucked=player.total_tucked,
+        cached=player.total_cached,
+        bonus=bonus_pts,
+        goals=player.round_goal_points,
+        total=total,
+    )
+
+
+def _bonus_card_info(
+    player: state.Player, bc: cards.BonusCard
+) -> game_log_html.BonusCardInfo:
+    """A held bonus card with its current VP for this player."""
+    return game_log_html.BonusCardInfo(
+        name=bc.name,
+        text=display.strip_ansi(bc.vp_text),
+        vp_now=scoring.bonus_score(player, bc),
+    )
+
+
+def _round_goal_infos(gs: state.GameState) -> list[game_log_html.RoundGoalInfo]:
+    """All four round goals with their 2-player payouts and scored flags."""
+    infos: list[game_log_html.RoundGoalInfo] = []
+    for round_num, (goal, payout) in enumerate(
+        zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS_2P)
+    ):
+        first_vp, second_vp = payout
+        infos.append(
+            game_log_html.RoundGoalInfo(
+                round_num=round_num + 1,
+                description=goal.description,
+                first_vp=first_vp,
+                second_vp=second_vp,
+                scored=len(gs.scored_goals) > round_num,
+            )
+        )
+    return infos
+
+
+#### Log segmentation ####
+
+
+def _split_log_into_segments(
+    entries: list[state.LogEntry],
+) -> list[list[state.LogEntry]]:
+    """Split the interleaved log into one segment per ``=== ... ===`` header.
+
+    Each segment starts at a header line and runs up to (excluding) the next
+    one. Any lines before the first header are dropped (there are none in
+    practice — the log opens with the GAME START banner)."""
+    segments: list[list[state.LogEntry]] = []
+    for entry in entries:
+        if entry.text.startswith(_HEADER_PREFIX):
+            segments.append([entry])
+        elif segments:
+            segments[-1].append(entry)
+    return segments
+
+
+def _segment_narration(
+    segment: list[state.LogEntry], *, is_turn: bool
+) -> list[game_log_html.NarrationLine]:
+    """The decision lines of one phase: the segment minus its header (the title
+    already shows it) and, for a turn, minus the verbose state-summary block.
+
+    A turn segment opens with ``log_turn_summary``'s board / hand / tray / score
+    / bonus lines, terminated by the single blank line the engine logs before
+    the action; that whole prefix is dropped because the pinned panel already
+    shows the same state structurally."""
+    body = segment[1:]
+    if is_turn:
+        body = _drop_summary_block(body)
+    return [
+        game_log_html.NarrationLine(
+            player_id=entry.player_id, text=display.strip_ansi(entry.text)
+        )
+        for entry in body
+    ]
+
+
+def _drop_summary_block(body: list[state.LogEntry]) -> list[state.LogEntry]:
+    """Drop everything up to and including the first blank line — the turn-start
+    state summary. Returns ``body`` unchanged if no blank line is present."""
+    for index, entry in enumerate(body):
+        if entry.text == "":
+            return body[index + 1 :]
+    return body
