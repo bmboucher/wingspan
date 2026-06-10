@@ -1,0 +1,1321 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 6,
+  "filesSkipped": [
+    "tests/test_tournament_runner.py",
+    "tests/test_training_config.py",
+    "tests/test_powers_brown_play.py",
+    "tests/test_powers_white_draw.py",
+    "tests/test_powers_white_egg.py"
+  ],
+  "results": [
+    {
+      "path": "tests/test_tournament_dashboard.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 122,
+      "nonEmptyLines": 103,
+      "functions": [
+        {
+          "name": "_render_dashboard",
+          "startLine": 33,
+          "endLine": 45,
+          "params": [
+            "live",
+            "colorize"
+          ]
+        },
+        {
+          "name": "_cfg",
+          "startLine": 48,
+          "endLine": 57,
+          "params": []
+        },
+        {
+          "name": "test_dashboard_renders_empty_state",
+          "startLine": 60,
+          "endLine": 63,
+          "params": []
+        },
+        {
+          "name": "test_dashboard_renders_populated_state",
+          "startLine": 66,
+          "endLine": 88,
+          "params": []
+        },
+        {
+          "name": "test_picker_renders",
+          "startLine": 91,
+          "endLine": 122,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_render_dashboard",
+          "line": 33,
+          "isDefault": false
+        },
+        {
+          "name": "_cfg",
+          "line": 48,
+          "isDefault": false
+        },
+        {
+          "name": "test_dashboard_renders_empty_state",
+          "line": 60,
+          "isDefault": false
+        },
+        {
+          "name": "test_dashboard_renders_populated_state",
+          "line": 66,
+          "isDefault": false
+        },
+        {
+          "name": "test_picker_renders",
+          "line": 91,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_render_dashboard",
+          "callee": "io.StringIO",
+          "lineNumber": 34
+        },
+        {
+          "caller": "_render_dashboard",
+          "callee": "rich_console.Console",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_render_dashboard",
+          "callee": "dashboard.build_layout",
+          "lineNumber": 42
+        },
+        {
+          "caller": "_render_dashboard",
+          "callee": "dashboard.render",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_render_dashboard",
+          "callee": "term.print",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_render_dashboard",
+          "callee": "buffer.getvalue",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_cfg",
+          "callee": "participants.ParticipantSpec",
+          "lineNumber": 50
+        },
+        {
+          "caller": "_cfg",
+          "callee": "range",
+          "lineNumber": 55
+        },
+        {
+          "caller": "_cfg",
+          "callee": "config.TournamentConfig",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_dashboard_renders_empty_state",
+          "callee": "state_module.new_tournament_state",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_dashboard_renders_empty_state",
+          "callee": "_cfg",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_dashboard_renders_empty_state",
+          "callee": "len",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_dashboard_renders_empty_state",
+          "callee": "_render_dashboard",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_dashboard_renders_empty_state",
+          "callee": "_render_dashboard",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_dashboard_renders_populated_state",
+          "callee": "state_module.new_tournament_state",
+          "lineNumber": 67
+        },
+        {
+          "caller": "test_dashboard_renders_populated_state",
+          "callee": "_cfg",
+          "lineNumber": 67
+        },
+        {
+          "caller": "test_dashboard_renders_populated_state",
+          "callee": "live.record_game",
+          "lineNumber": 68
+        },
+        {
+          "caller": "test_dashboard_renders_populated_state",
+          "callee": "results.GameResult",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_dashboard_renders_populated_state",
+          "callee": "live.push_event",
+          "lineNumber": 80
+        },
+        {
+          "caller": "test_dashboard_renders_populated_state",
+          "callee": "live.standings",
+          "lineNumber": 82
+        },
+        {
+          "caller": "test_dashboard_renders_populated_state",
+          "callee": "_render_dashboard",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "picker._Item",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "participants.ParticipantSpec",
+          "lineNumber": 94
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "picker._Item",
+          "lineNumber": 102
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "participants.random_spec",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "picker._render",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "io.StringIO",
+          "lineNumber": 114
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "rich_console.Console",
+          "lineNumber": 115
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "term.print",
+          "lineNumber": 118
+        },
+        {
+          "caller": "test_picker_renders",
+          "callee": "buffer.getvalue",
+          "lineNumber": 119
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_tournament_discovery.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 113,
+      "nonEmptyLines": 88,
+      "functions": [
+        {
+          "name": "_make_run",
+          "startLine": 25,
+          "endLine": 34,
+          "params": [
+            "directory",
+            "iteration"
+          ]
+        },
+        {
+          "name": "_write_descriptor",
+          "startLine": 37,
+          "endLine": 57,
+          "params": [
+            "directory",
+            "choice_dim_offset"
+          ]
+        },
+        {
+          "name": "test_discover_finds_active_and_archived_runs",
+          "startLine": 60,
+          "endLine": 73,
+          "params": [
+            "tmp_path"
+          ]
+        },
+        {
+          "name": "test_discover_never_raises_on_unreadable_checkpoint",
+          "startLine": 76,
+          "endLine": 85,
+          "params": [
+            "tmp_path"
+          ]
+        },
+        {
+          "name": "test_discover_empty_dir_returns_nothing",
+          "startLine": 88,
+          "endLine": 89,
+          "params": [
+            "tmp_path"
+          ]
+        },
+        {
+          "name": "test_stale_encoding_not_discovered_and_fails_seating",
+          "startLine": 92,
+          "endLine": 113,
+          "params": [
+            "tmp_path"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_make_run",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "_write_descriptor",
+          "line": 37,
+          "isDefault": false
+        },
+        {
+          "name": "test_discover_finds_active_and_archived_runs",
+          "line": 60,
+          "isDefault": false
+        },
+        {
+          "name": "test_discover_never_raises_on_unreadable_checkpoint",
+          "line": 76,
+          "isDefault": false
+        },
+        {
+          "name": "test_discover_empty_dir_returns_nothing",
+          "line": 88,
+          "isDefault": false
+        },
+        {
+          "name": "test_stale_encoding_not_discovered_and_fails_seating",
+          "line": 92,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_make_run",
+          "callee": "directory.mkdir",
+          "lineNumber": 27
+        },
+        {
+          "caller": "_make_run",
+          "callee": "torch.save",
+          "lineNumber": 33
+        },
+        {
+          "caller": "_make_run",
+          "callee": "_write_descriptor",
+          "lineNumber": 34
+        },
+        {
+          "caller": "_write_descriptor",
+          "callee": "config.TrainConfig",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_write_descriptor",
+          "callee": "runmeta.ModelConfig",
+          "lineNumber": 46
+        },
+        {
+          "caller": "_write_descriptor",
+          "callee": "(directory / artifacts.MODEL_CONFIG_JSON).write_text",
+          "lineNumber": 55
+        },
+        {
+          "caller": "_write_descriptor",
+          "callee": "descriptor.model_dump_json",
+          "lineNumber": 56
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "_make_run",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "_make_run",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "no_descriptor.mkdir",
+          "lineNumber": 67
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "torch.save",
+          "lineNumber": 68
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "participants.discover_runs",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "str",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "str",
+          "lineNumber": 71
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "str",
+          "lineNumber": 72
+        },
+        {
+          "caller": "test_discover_finds_active_and_archived_runs",
+          "callee": "str",
+          "lineNumber": 73
+        },
+        {
+          "caller": "test_discover_never_raises_on_unreadable_checkpoint",
+          "callee": "bad.mkdir",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_discover_never_raises_on_unreadable_checkpoint",
+          "callee": "(bad / artifacts.LAST_CKPT).write_bytes",
+          "lineNumber": 80
+        },
+        {
+          "caller": "test_discover_never_raises_on_unreadable_checkpoint",
+          "callee": "(bad / artifacts.MODEL_CONFIG_JSON).write_text",
+          "lineNumber": 81
+        },
+        {
+          "caller": "test_discover_never_raises_on_unreadable_checkpoint",
+          "callee": "participants.discover_runs",
+          "lineNumber": 84
+        },
+        {
+          "caller": "test_discover_never_raises_on_unreadable_checkpoint",
+          "callee": "str",
+          "lineNumber": 84
+        },
+        {
+          "caller": "test_discover_never_raises_on_unreadable_checkpoint",
+          "callee": "str",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_discover_empty_dir_returns_nothing",
+          "callee": "participants.discover_runs",
+          "lineNumber": 89
+        },
+        {
+          "caller": "test_discover_empty_dir_returns_nothing",
+          "callee": "str",
+          "lineNumber": 89
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "_make_run",
+          "lineNumber": 100
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "stale.mkdir",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "torch.save",
+          "lineNumber": 104
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "_write_descriptor",
+          "lineNumber": 105
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "participants.discover_runs",
+          "lineNumber": 107
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "str",
+          "lineNumber": 107
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "str",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "str",
+          "lineNumber": 109
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "participants.spec_from_dir",
+          "lineNumber": 111
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "str",
+          "lineNumber": 111
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "pytest.raises",
+          "lineNumber": 112
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "participants.load_player",
+          "lineNumber": 113
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "torch.device",
+          "lineNumber": 113
+        },
+        {
+          "caller": "test_stale_encoding_not_discovered_and_fails_seating",
+          "callee": "random.Random",
+          "lineNumber": 113
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 6,
+        "functionCount": 6,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_tournament_elo.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 71,
+      "nonEmptyLines": 58,
+      "functions": [
+        {
+          "name": "test_expected_scores_are_symmetric_and_fair_when_equal",
+          "startLine": 19,
+          "endLine": 22,
+          "params": []
+        },
+        {
+          "name": "test_update_moves_pair_by_equal_and_opposite_amounts",
+          "startLine": 25,
+          "endLine": 33,
+          "params": []
+        },
+        {
+          "name": "_game",
+          "startLine": 36,
+          "endLine": 54,
+          "params": [
+            "round_index",
+            "pair_index",
+            "orientation",
+            "player_a",
+            "player_b",
+            "a_score",
+            "b_score"
+          ]
+        },
+        {
+          "name": "test_replay_is_order_independent",
+          "startLine": 57,
+          "endLine": 71,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "test_expected_scores_are_symmetric_and_fair_when_equal",
+          "line": 19,
+          "isDefault": false
+        },
+        {
+          "name": "test_update_moves_pair_by_equal_and_opposite_amounts",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "_game",
+          "line": 36,
+          "isDefault": false
+        },
+        {
+          "name": "test_replay_is_order_independent",
+          "line": 57,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "test_expected_scores_are_symmetric_and_fair_when_equal",
+          "callee": "elo.EloTable.initial",
+          "lineNumber": 20
+        },
+        {
+          "caller": "test_expected_scores_are_symmetric_and_fair_when_equal",
+          "callee": "abs",
+          "lineNumber": 21
+        },
+        {
+          "caller": "test_expected_scores_are_symmetric_and_fair_when_equal",
+          "callee": "table.expected",
+          "lineNumber": 21
+        },
+        {
+          "caller": "test_expected_scores_are_symmetric_and_fair_when_equal",
+          "callee": "table.expected",
+          "lineNumber": 21
+        },
+        {
+          "caller": "test_expected_scores_are_symmetric_and_fair_when_equal",
+          "callee": "abs",
+          "lineNumber": 22
+        },
+        {
+          "caller": "test_expected_scores_are_symmetric_and_fair_when_equal",
+          "callee": "table.expected",
+          "lineNumber": 22
+        },
+        {
+          "caller": "test_update_moves_pair_by_equal_and_opposite_amounts",
+          "callee": "elo.EloTable.initial",
+          "lineNumber": 26
+        },
+        {
+          "caller": "test_update_moves_pair_by_equal_and_opposite_amounts",
+          "callee": "table.update",
+          "lineNumber": 27
+        },
+        {
+          "caller": "test_update_moves_pair_by_equal_and_opposite_amounts",
+          "callee": "abs",
+          "lineNumber": 31
+        },
+        {
+          "caller": "test_update_moves_pair_by_equal_and_opposite_amounts",
+          "callee": "abs",
+          "lineNumber": 33
+        },
+        {
+          "caller": "_game",
+          "callee": "results.GameResult",
+          "lineNumber": 45
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "_game",
+          "lineNumber": 59
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "_game",
+          "lineNumber": 60
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "_game",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "_game",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "_game",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "_game",
+          "lineNumber": 64
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "elo.replay",
+          "lineNumber": 67
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "list",
+          "lineNumber": 68
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "random.Random(7).shuffle",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "random.Random",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_replay_is_order_independent",
+          "callee": "elo.replay",
+          "lineNumber": 70
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 4,
+        "functionCount": 4,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_tournament_results.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 95,
+      "nonEmptyLines": 75,
+      "functions": [
+        {
+          "name": "_cfg",
+          "startLine": 18,
+          "endLine": 27,
+          "params": [
+            "ids"
+          ]
+        },
+        {
+          "name": "_two_game_pair",
+          "startLine": 30,
+          "endLine": 53,
+          "params": []
+        },
+        {
+          "name": "test_matchup_splits_bucket_by_who_went_first",
+          "startLine": 56,
+          "endLine": 77,
+          "params": []
+        },
+        {
+          "name": "test_participant_records_and_elo_ordering",
+          "startLine": 80,
+          "endLine": 89,
+          "params": []
+        },
+        {
+          "name": "test_report_round_trips_through_json",
+          "startLine": 92,
+          "endLine": 95,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_cfg",
+          "line": 18,
+          "isDefault": false
+        },
+        {
+          "name": "_two_game_pair",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "test_matchup_splits_bucket_by_who_went_first",
+          "line": 56,
+          "isDefault": false
+        },
+        {
+          "name": "test_participant_records_and_elo_ordering",
+          "line": 80,
+          "isDefault": false
+        },
+        {
+          "name": "test_report_round_trips_through_json",
+          "line": 92,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_cfg",
+          "callee": "participants.ParticipantSpec",
+          "lineNumber": 20
+        },
+        {
+          "caller": "_cfg",
+          "callee": "config.TournamentConfig",
+          "lineNumber": 27
+        },
+        {
+          "caller": "_two_game_pair",
+          "callee": "results.GameResult",
+          "lineNumber": 33
+        },
+        {
+          "caller": "_two_game_pair",
+          "callee": "results.GameResult",
+          "lineNumber": 43
+        },
+        {
+          "caller": "test_matchup_splits_bucket_by_who_went_first",
+          "callee": "results.aggregate",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_matchup_splits_bucket_by_who_went_first",
+          "callee": "_cfg",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_matchup_splits_bucket_by_who_went_first",
+          "callee": "_two_game_pair",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_matchup_splits_bucket_by_who_went_first",
+          "callee": "len",
+          "lineNumber": 58
+        },
+        {
+          "caller": "test_participant_records_and_elo_ordering",
+          "callee": "results.aggregate",
+          "lineNumber": 81
+        },
+        {
+          "caller": "test_participant_records_and_elo_ordering",
+          "callee": "_cfg",
+          "lineNumber": 81
+        },
+        {
+          "caller": "test_participant_records_and_elo_ordering",
+          "callee": "_two_game_pair",
+          "lineNumber": 81
+        },
+        {
+          "caller": "test_report_round_trips_through_json",
+          "callee": "results.aggregate",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_report_round_trips_through_json",
+          "callee": "_cfg",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_report_round_trips_through_json",
+          "callee": "_two_game_pair",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_report_round_trips_through_json",
+          "callee": "results.TournamentReport.model_validate_json",
+          "lineNumber": 94
+        },
+        {
+          "caller": "test_report_round_trips_through_json",
+          "callee": "report.model_dump_json",
+          "lineNumber": 94
+        },
+        {
+          "caller": "test_report_round_trips_through_json",
+          "callee": "restored.model_dump_json",
+          "lineNumber": 95
+        },
+        {
+          "caller": "test_report_round_trips_through_json",
+          "callee": "report.model_dump_json",
+          "lineNumber": 95
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_tournament_schedule.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 67,
+      "nonEmptyLines": 52,
+      "functions": [
+        {
+          "name": "_random_specs",
+          "startLine": 19,
+          "endLine": 27,
+          "params": [
+            "count"
+          ]
+        },
+        {
+          "name": "test_schedule_total_game_count",
+          "startLine": 30,
+          "endLine": 33,
+          "params": []
+        },
+        {
+          "name": "test_each_pair_balanced_across_seats",
+          "startLine": 36,
+          "endLine": 46,
+          "params": []
+        },
+        {
+          "name": "test_mirrored_orientations_share_deal_seed",
+          "startLine": 49,
+          "endLine": 60,
+          "params": []
+        },
+        {
+          "name": "test_a_seat_tracks_orientation",
+          "startLine": 63,
+          "endLine": 67,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_random_specs",
+          "line": 19,
+          "isDefault": false
+        },
+        {
+          "name": "test_schedule_total_game_count",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "test_each_pair_balanced_across_seats",
+          "line": 36,
+          "isDefault": false
+        },
+        {
+          "name": "test_mirrored_orientations_share_deal_seed",
+          "line": 49,
+          "isDefault": false
+        },
+        {
+          "name": "test_a_seat_tracks_orientation",
+          "line": 63,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_random_specs",
+          "callee": "participants.ParticipantSpec",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_random_specs",
+          "callee": "range",
+          "lineNumber": 26
+        },
+        {
+          "caller": "test_schedule_total_game_count",
+          "callee": "schedule.build_schedule",
+          "lineNumber": 31
+        },
+        {
+          "caller": "test_schedule_total_game_count",
+          "callee": "_random_specs",
+          "lineNumber": 31
+        },
+        {
+          "caller": "test_schedule_total_game_count",
+          "callee": "len",
+          "lineNumber": 33
+        },
+        {
+          "caller": "test_each_pair_balanced_across_seats",
+          "callee": "schedule.build_schedule",
+          "lineNumber": 37
+        },
+        {
+          "caller": "test_each_pair_balanced_across_seats",
+          "callee": "_random_specs",
+          "lineNumber": 37
+        },
+        {
+          "caller": "test_each_pair_balanced_across_seats",
+          "callee": "per_pair.setdefault",
+          "lineNumber": 40
+        },
+        {
+          "caller": "test_each_pair_balanced_across_seats",
+          "callee": "collections.Counter",
+          "lineNumber": 40
+        },
+        {
+          "caller": "test_each_pair_balanced_across_seats",
+          "callee": "len",
+          "lineNumber": 43
+        },
+        {
+          "caller": "test_each_pair_balanced_across_seats",
+          "callee": "per_pair.values",
+          "lineNumber": 44
+        },
+        {
+          "caller": "test_mirrored_orientations_share_deal_seed",
+          "callee": "schedule.build_schedule",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_mirrored_orientations_share_deal_seed",
+          "callee": "_random_specs",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_mirrored_orientations_share_deal_seed",
+          "callee": "by_deal.setdefault((task.pair_index, task.round_index), []).append",
+          "lineNumber": 53
+        },
+        {
+          "caller": "test_mirrored_orientations_share_deal_seed",
+          "callee": "by_deal.setdefault",
+          "lineNumber": 53
+        },
+        {
+          "caller": "test_mirrored_orientations_share_deal_seed",
+          "callee": "by_deal.values",
+          "lineNumber": 54
+        },
+        {
+          "caller": "test_mirrored_orientations_share_deal_seed",
+          "callee": "len",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_a_seat_tracks_orientation",
+          "callee": "schedule.build_schedule",
+          "lineNumber": 64
+        },
+        {
+          "caller": "test_a_seat_tracks_orientation",
+          "callee": "_random_specs",
+          "lineNumber": 65
+        },
+        {
+          "caller": "test_a_seat_tracks_orientation",
+          "callee": "int",
+          "lineNumber": 67
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_version.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 105,
+      "nonEmptyLines": 79,
+      "functions": [
+        {
+          "name": "test_parse_version_accepts_major_minor",
+          "startLine": 22,
+          "endLine": 29,
+          "params": []
+        },
+        {
+          "name": "test_parse_version_rejects_garbage",
+          "startLine": 32,
+          "endLine": 35,
+          "params": []
+        },
+        {
+          "name": "test_model_version_constant_parses",
+          "startLine": 38,
+          "endLine": 40,
+          "params": []
+        },
+        {
+          "name": "test_check_artifact_compatible_same_version_passes",
+          "startLine": 43,
+          "endLine": 44,
+          "params": []
+        },
+        {
+          "name": "test_check_artifact_compatible_refuses_different_major",
+          "startLine": 47,
+          "endLine": 51,
+          "params": []
+        },
+        {
+          "name": "test_check_artifact_compatible_refuses_newer_minor",
+          "startLine": 54,
+          "endLine": 58,
+          "params": []
+        },
+        {
+          "name": "test_check_artifact_compatible_error_names_the_artifact",
+          "startLine": 61,
+          "endLine": 66,
+          "params": []
+        },
+        {
+          "name": "test_adapt_encoding_seam_validates_its_input",
+          "startLine": 69,
+          "endLine": 74,
+          "params": []
+        },
+        {
+          "name": "test_model_config_explicit_version_round_trips",
+          "startLine": 77,
+          "endLine": 89,
+          "params": []
+        },
+        {
+          "name": "test_model_config_defaults_missing_version",
+          "startLine": 92,
+          "endLine": 105,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "test_parse_version_accepts_major_minor",
+          "line": 22,
+          "isDefault": false
+        },
+        {
+          "name": "test_parse_version_rejects_garbage",
+          "line": 32,
+          "isDefault": false
+        },
+        {
+          "name": "test_model_version_constant_parses",
+          "line": 38,
+          "isDefault": false
+        },
+        {
+          "name": "test_check_artifact_compatible_same_version_passes",
+          "line": 43,
+          "isDefault": false
+        },
+        {
+          "name": "test_check_artifact_compatible_refuses_different_major",
+          "line": 47,
+          "isDefault": false
+        },
+        {
+          "name": "test_check_artifact_compatible_refuses_newer_minor",
+          "line": 54,
+          "isDefault": false
+        },
+        {
+          "name": "test_check_artifact_compatible_error_names_the_artifact",
+          "line": 61,
+          "isDefault": false
+        },
+        {
+          "name": "test_adapt_encoding_seam_validates_its_input",
+          "line": 69,
+          "isDefault": false
+        },
+        {
+          "name": "test_model_config_explicit_version_round_trips",
+          "line": 77,
+          "isDefault": false
+        },
+        {
+          "name": "test_model_config_defaults_missing_version",
+          "line": 92,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "test_parse_version_accepts_major_minor",
+          "callee": "version.parse_version",
+          "lineNumber": 23
+        },
+        {
+          "caller": "test_parse_version_accepts_major_minor",
+          "callee": "str",
+          "lineNumber": 25
+        },
+        {
+          "caller": "test_parse_version_accepts_major_minor",
+          "callee": "version.parse_version",
+          "lineNumber": 27
+        },
+        {
+          "caller": "test_parse_version_accepts_major_minor",
+          "callee": "version.parse_version",
+          "lineNumber": 28
+        },
+        {
+          "caller": "test_parse_version_rejects_garbage",
+          "callee": "pytest.raises",
+          "lineNumber": 34
+        },
+        {
+          "caller": "test_parse_version_rejects_garbage",
+          "callee": "version.parse_version",
+          "lineNumber": 35
+        },
+        {
+          "caller": "test_model_version_constant_parses",
+          "callee": "version.parse_version",
+          "lineNumber": 40
+        },
+        {
+          "caller": "test_check_artifact_compatible_same_version_passes",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 44
+        },
+        {
+          "caller": "test_check_artifact_compatible_refuses_different_major",
+          "callee": "version.parse_version",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_check_artifact_compatible_refuses_different_major",
+          "callee": "pytest.raises",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_check_artifact_compatible_refuses_different_major",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 51
+        },
+        {
+          "caller": "test_check_artifact_compatible_refuses_newer_minor",
+          "callee": "version.parse_version",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_check_artifact_compatible_refuses_newer_minor",
+          "callee": "pytest.raises",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_check_artifact_compatible_refuses_newer_minor",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 58
+        },
+        {
+          "caller": "test_check_artifact_compatible_error_names_the_artifact",
+          "callee": "version.parse_version",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_check_artifact_compatible_error_names_the_artifact",
+          "callee": "pytest.raises",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_check_artifact_compatible_error_names_the_artifact",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 64
+        },
+        {
+          "caller": "test_adapt_encoding_seam_validates_its_input",
+          "callee": "version.adapt_encoding_for_version",
+          "lineNumber": 72
+        },
+        {
+          "caller": "test_adapt_encoding_seam_validates_its_input",
+          "callee": "pytest.raises",
+          "lineNumber": 73
+        },
+        {
+          "caller": "test_adapt_encoding_seam_validates_its_input",
+          "callee": "version.adapt_encoding_for_version",
+          "lineNumber": 74
+        },
+        {
+          "caller": "test_model_config_explicit_version_round_trips",
+          "callee": "runmeta.ModelConfig",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_model_config_explicit_version_round_trips",
+          "callee": "architecture.ModelArchitecture",
+          "lineNumber": 84
+        },
+        {
+          "caller": "test_model_config_explicit_version_round_trips",
+          "callee": "runmeta.ModelConfig.model_validate_json",
+          "lineNumber": 88
+        },
+        {
+          "caller": "test_model_config_explicit_version_round_trips",
+          "callee": "descriptor.model_dump_json",
+          "lineNumber": 88
+        },
+        {
+          "caller": "test_model_config_defaults_missing_version",
+          "callee": "runmeta.ModelConfig",
+          "lineNumber": 95
+        },
+        {
+          "caller": "test_model_config_defaults_missing_version",
+          "callee": "architecture.ModelArchitecture",
+          "lineNumber": 100
+        },
+        {
+          "caller": "test_model_config_defaults_missing_version",
+          "callee": "descriptor.model_dump_json",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_model_config_defaults_missing_version",
+          "callee": "runmeta.ModelConfig.model_validate_json",
+          "lineNumber": 105
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 10,
+        "functionCount": 10,
+        "classCount": 0
+      }
+    }
+  ]
+}

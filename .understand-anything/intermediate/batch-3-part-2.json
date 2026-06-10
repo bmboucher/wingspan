@@ -1,0 +1,730 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/training/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/training/__init__.py",
+      "summary": "Package init for the training module, re-exporting the main app entry point and serving as the module barrel for consumers like the cloud runner.",
+      "tags": ["entry-point", "barrel", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/__main__.py",
+      "type": "file",
+      "name": "__main__.py",
+      "filePath": "src/wingspan/training/__main__.py",
+      "summary": "Minimal Python __main__ that invokes the training app entry point when the training package is run directly via python -m wingspan.training.",
+      "tags": ["entry-point", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/app.py",
+      "type": "file",
+      "name": "app.py",
+      "filePath": "src/wingspan/training/app.py",
+      "summary": "Training application entry point: parses CLI args, builds TrainConfig, launches a TrainingLoop in a worker thread, runs the Rich terminal dashboard, and prints a completion summary.",
+      "tags": ["entry-point", "training", "service", "cli"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/artifacts.py",
+      "type": "file",
+      "name": "artifacts.py",
+      "filePath": "src/wingspan/training/artifacts.py",
+      "summary": "Utility functions for generating canonical checkpoint and final-eval artifact filenames from iteration numbers, used by the training loop for consistent artifact naming.",
+      "tags": ["utility", "training", "serialization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/charts/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/training/charts/__init__.py",
+      "summary": "Package init for the training charts subpackage, re-exporting braille canvas, convergence chart, histogram, and inset renderable classes.",
+      "tags": ["entry-point", "barrel", "training", "component"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/charts/braille.py",
+      "type": "file",
+      "name": "braille.py",
+      "filePath": "src/wingspan/training/charts/braille.py",
+      "summary": "BrailleCanvas class for terminal-based dot-matrix plotting using Unicode Braille characters, with a Bresenham line-drawing algorithm for rendering line series.",
+      "tags": ["component", "utility", "training"],
+      "complexity": "moderate",
+      "languageNotes": "Encodes pixel dots into Braille Unicode code points (U+2800 block) using a 2x4 dot-per-cell grid; Bresenham's algorithm handles sub-cell interpolation."
+    },
+    {
+      "id": "file:src/wingspan/training/charts/convergence_chart.py",
+      "type": "file",
+      "name": "convergence_chart.py",
+      "filePath": "src/wingspan/training/charts/convergence_chart.py",
+      "summary": "GettingBetterChart Rich renderable that displays a side-by-side Braille convergence chart with win-rate and score/margin plot blocks, axis labels, inset histograms, and phase markers for the training dashboard.",
+      "tags": ["component", "training", "monitoring"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/charts/geometry.py",
+      "type": "file",
+      "name": "geometry.py",
+      "filePath": "src/wingspan/training/charts/geometry.py",
+      "summary": "Chart size constants defining pixel-to-braille-cell dimensions and layout proportions used across convergence and inset chart renderers.",
+      "tags": ["configuration", "training", "component"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/charts/histogram.py",
+      "type": "file",
+      "name": "histogram.py",
+      "filePath": "src/wingspan/training/charts/histogram.py",
+      "summary": "FamilyHistogram Rich renderable displaying a bar chart of decision-family usage counts for the training dashboard inset, with color-coded tier bars and a total-decisions footer.",
+      "tags": ["component", "training", "monitoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "class",
+      "name": "BrailleCanvas",
+      "filePath": "src/wingspan/training/charts/braille.py",
+      "lineRange": [20, 56],
+      "summary": "2D canvas that maps pixel coordinates to Braille Unicode character cells, supporting set_dot, line-drawing via Bresenham, and cell retrieval for terminal chart rendering.",
+      "tags": ["component", "utility", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/training/charts/convergence_chart.py:GettingBetterChart",
+      "type": "class",
+      "name": "GettingBetterChart",
+      "filePath": "src/wingspan/training/charts/convergence_chart.py",
+      "lineRange": [17, 90],
+      "summary": "Rich __rich_console__ renderable composing win-rate and score-margin Braille plot blocks, optional eval insets, and per-iteration axis annotations into the main training dashboard chart.",
+      "tags": ["component", "training", "monitoring"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/training/charts/histogram.py:FamilyHistogram",
+      "type": "class",
+      "name": "FamilyHistogram",
+      "filePath": "src/wingspan/training/charts/histogram.py",
+      "lineRange": [14, 92],
+      "summary": "Rich renderable that renders a horizontal bar chart of decision-family counts with color-coded tier bars and a total-decisions summary line, used as an inset in the training dashboard.",
+      "tags": ["component", "training", "monitoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/app.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "src/wingspan/training/app.py",
+      "lineRange": [43, 67],
+      "summary": "Training CLI entry point: parses args, optionally runs the interactive GPU configurator, and dispatches to _run_training.",
+      "tags": ["entry-point", "cli", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/app.py:_run_training",
+      "type": "function",
+      "name": "_run_training",
+      "filePath": "src/wingspan/training/app.py",
+      "lineRange": [73, 98],
+      "summary": "Runs a complete training session: resolves device, configures logging, starts the TrainingLoop in a thread, drives the dashboard UI, joins the worker, prints a summary, and optionally archives the run.",
+      "tags": ["service", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/app.py:_run_dashboard",
+      "type": "function",
+      "name": "_run_dashboard",
+      "filePath": "src/wingspan/training/app.py",
+      "lineRange": [128, 178],
+      "summary": "Main UI event loop for the training dashboard: drives a Rich Live display with keyboard input polling, pause/generation-target hotkeys, and stop-on-Escape.",
+      "tags": ["service", "training", "component"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/app.py:_handle_pause_key",
+      "type": "function",
+      "name": "_handle_pause_key",
+      "filePath": "src/wingspan/training/app.py",
+      "lineRange": [181, 207],
+      "summary": "Processes keyboard events during the training dashboard: digits accumulate a target-generation buffer, space/enter commit it, and other keys reset.",
+      "tags": ["event-handler", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/app.py:_print_summary",
+      "type": "function",
+      "name": "_print_summary",
+      "filePath": "src/wingspan/training/app.py",
+      "lineRange": [210, 245],
+      "summary": "Prints a post-training summary to the terminal including elapsed time, games-per-second throughput, decision breakdown, and final win rate.",
+      "tags": ["reporting", "training", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/app.py:_parse_args",
+      "type": "function",
+      "name": "_parse_args",
+      "filePath": "src/wingspan/training/app.py",
+      "lineRange": [248, 317],
+      "summary": "Defines the full training CLI argument parser with options for device, iterations, architecture layers, learning rate, checkpoint paths, and experimental flags.",
+      "tags": ["cli", "utility", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/app.py:_config_from_namespace",
+      "type": "function",
+      "name": "_config_from_namespace",
+      "filePath": "src/wingspan/training/app.py",
+      "lineRange": [320, 345],
+      "summary": "Converts a parsed argparse Namespace into a TrainConfig Pydantic model, parsing layer tuples and activation names from string arguments.",
+      "tags": ["factory", "training", "configuration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/convergence_chart.py:_winrate_block",
+      "type": "function",
+      "name": "_winrate_block",
+      "filePath": "src/wingspan/training/charts/convergence_chart.py",
+      "lineRange": [125, 194],
+      "summary": "Renders the win-rate Braille plot block: draws the EWMA series split above/below the threshold, overlays phase-change markers, and returns labeled grid lines.",
+      "tags": ["component", "training", "monitoring"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/convergence_chart.py:_score_margin_block",
+      "type": "function",
+      "name": "_score_margin_block",
+      "filePath": "src/wingspan/training/charts/convergence_chart.py",
+      "lineRange": [197, 240],
+      "summary": "Renders the score-margin Braille plot block: draws score and margin EWMA series on a dual-axis grid and returns labeled grid lines.",
+      "tags": ["component", "training", "monitoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/convergence_chart.py:_render_plot_grid",
+      "type": "function",
+      "name": "_render_plot_grid",
+      "filePath": "src/wingspan/training/charts/convergence_chart.py",
+      "lineRange": [298, 354],
+      "summary": "Converts a BrailleCanvas into a list of Rich Text lines with left-axis label gutters, beacon highlight, target line, phase markers, and baseline annotation.",
+      "tags": ["component", "training", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/convergence_chart.py:_render_dual_axis_grid",
+      "type": "function",
+      "name": "_render_dual_axis_grid",
+      "filePath": "src/wingspan/training/charts/convergence_chart.py",
+      "lineRange": [357, 396],
+      "summary": "Converts a BrailleCanvas into Rich Text lines with left and right label gutters, a beacon highlight, and a zero-row marker for dual-axis score/margin plots.",
+      "tags": ["component", "training", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/convergence_chart.py:_draw_series",
+      "type": "function",
+      "name": "_draw_series",
+      "filePath": "src/wingspan/training/charts/convergence_chart.py",
+      "lineRange": [449, 468],
+      "summary": "Plots a data series onto a BrailleCanvas by converting (iteration, value) points to canvas coordinates and drawing connected line segments.",
+      "tags": ["utility", "training", "component"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/convergence_chart.py:_draw_series_split",
+      "type": "function",
+      "name": "_draw_series_split",
+      "filePath": "src/wingspan/training/charts/convergence_chart.py",
+      "lineRange": [471, 518],
+      "summary": "Plots a split-color win-rate series onto a BrailleCanvas: segments above the win threshold use one color series and segments below use another, with interpolated crossing points.",
+      "tags": ["utility", "training", "component"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/artifacts.py:final_ckpt_name",
+      "type": "function",
+      "name": "final_ckpt_name",
+      "filePath": "src/wingspan/training/artifacts.py",
+      "lineRange": [58, 64],
+      "summary": "Returns the canonical filename for a final checkpoint artifact at a given iteration number.",
+      "tags": ["utility", "training", "serialization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/artifacts.py:final_eval_name",
+      "type": "function",
+      "name": "final_eval_name",
+      "filePath": "src/wingspan/training/artifacts.py",
+      "lineRange": [67, 76],
+      "summary": "Returns the canonical filename for a final evaluation artifact at a given iteration number.",
+      "tags": ["utility", "training", "serialization"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/training/__init__.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/__init__.py",
+      "target": "file:src/wingspan/training/app.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/__main__.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/training/loop.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/training/loop_checkpoint.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/training/loop_resume.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/training/loop_setup.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/artifacts.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/__init__.py",
+      "target": "file:src/wingspan/training/charts/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/__init__.py",
+      "target": "file:src/wingspan/training/charts/braille.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/__init__.py",
+      "target": "file:src/wingspan/training/charts/convergence_chart.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/__init__.py",
+      "target": "file:src/wingspan/training/charts/histogram.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/__init__.py",
+      "target": "file:src/wingspan/training/charts/insets.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/charts/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/charts/braille.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/charts/geometry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/charts/histogram.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/charts/insets.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/charts/text_helpers.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "file:src/wingspan/training/theme.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/histogram.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/histogram.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/histogram.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/histogram.py",
+      "target": "file:src/wingspan/training/theme.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "function:src/wingspan/training/app.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "function:src/wingspan/training/app.py:_run_training",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "function:src/wingspan/training/app.py:_run_dashboard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "function:src/wingspan/training/app.py:_handle_pause_key",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "function:src/wingspan/training/app.py:_print_summary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "function:src/wingspan/training/app.py:_parse_args",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "function:src/wingspan/training/app.py:_config_from_namespace",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/artifacts.py",
+      "target": "function:src/wingspan/training/artifacts.py:final_ckpt_name",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/artifacts.py",
+      "target": "function:src/wingspan/training/artifacts.py:final_eval_name",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/braille.py",
+      "target": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "class:src/wingspan/training/charts/convergence_chart.py:GettingBetterChart",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/histogram.py",
+      "target": "class:src/wingspan/training/charts/histogram.py:FamilyHistogram",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "function:src/wingspan/training/charts/convergence_chart.py:_winrate_block",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "function:src/wingspan/training/charts/convergence_chart.py:_score_margin_block",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "function:src/wingspan/training/charts/convergence_chart.py:_render_plot_grid",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "function:src/wingspan/training/charts/convergence_chart.py:_render_dual_axis_grid",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "function:src/wingspan/training/charts/convergence_chart.py:_draw_series",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "function:src/wingspan/training/charts/convergence_chart.py:_draw_series_split",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/app.py",
+      "target": "function:src/wingspan/training/app.py:main",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/artifacts.py",
+      "target": "function:src/wingspan/training/artifacts.py:final_ckpt_name",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/artifacts.py",
+      "target": "function:src/wingspan/training/artifacts.py:final_eval_name",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/braille.py",
+      "target": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/convergence_chart.py",
+      "target": "class:src/wingspan/training/charts/convergence_chart.py:GettingBetterChart",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/histogram.py",
+      "target": "class:src/wingspan/training/charts/histogram.py:FamilyHistogram",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/app.py:_run_training",
+      "target": "file:src/wingspan/training/loop.py",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/app.py:_run_training",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/charts/convergence_chart.py:_winrate_block",
+      "target": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/charts/convergence_chart.py:_score_margin_block",
+      "target": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/charts/convergence_chart.py:_render_plot_grid",
+      "target": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/charts/convergence_chart.py:_render_dual_axis_grid",
+      "target": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/charts/convergence_chart.py:_draw_series",
+      "target": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/charts/convergence_chart.py:_draw_series_split",
+      "target": "class:src/wingspan/training/charts/braille.py:BrailleCanvas",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/__init__.py",
+      "target": "file:src/wingspan/training/app.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ]
+}

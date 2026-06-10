@@ -1,0 +1,1120 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 8,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "docs/BIRDS.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 918,
+      "nonEmptyLines": 702,
+      "sections": [
+        {
+          "heading": "BIRDS.md — How every bird power is implemented",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Conventions that apply everywhere",
+          "level": 2,
+          "line": 19
+        },
+        {
+          "heading": "1. Birds with no power (6 birds)",
+          "level": 2,
+          "line": 72
+        },
+        {
+          "heading": "2. Gain food from the supply (7 birds)",
+          "level": 2,
+          "line": 84
+        },
+        {
+          "heading": "3. \"All players gain 1 [food] from the supply\" (6 birds)",
+          "level": 2,
+          "line": 104
+        },
+        {
+          "heading": "4. Gain a specific food from the birdfeeder (7 birds)",
+          "level": 2,
+          "line": 125
+        },
+        {
+          "heading": "4a. Gain and optionally cache (6 birds)",
+          "level": 3,
+          "line": 127
+        },
+        {
+          "heading": "4b. Gain only (1 bird)",
+          "level": 3,
+          "line": 151
+        },
+        {
+          "heading": "5. Gain one of two foods from the birdfeeder (3 birds)",
+          "level": 2,
+          "line": 162
+        },
+        {
+          "heading": "6. Gain 1 die of your choice (1 bird)",
+          "level": 2,
+          "line": 181
+        },
+        {
+          "heading": "7. Gain ALL of a food from the birdfeeder (2 birds)",
+          "level": 2,
+          "line": 193
+        },
+        {
+          "heading": "8. Each player gains a die, you pick who starts (2 birds)",
+          "level": 2,
+          "line": 210
+        },
+        {
+          "heading": "9. \"Player(s) with the fewest…\" (3 birds)",
+          "level": 2,
+          "line": 230
+        },
+        {
+          "heading": "10. Cache a food on this bird (18 birds)",
+          "level": 2,
+          "line": 265
+        },
+        {
+          "heading": "10a. Unconditional cachers (5 birds)",
+          "level": 3,
+          "line": 270
+        },
+        {
+          "heading": "10b. Dice-rolling predators (13 birds)",
+          "level": 3,
+          "line": 282
+        },
+        {
+          "heading": "11. Lay 1 egg on this bird (4 birds)",
+          "level": 2,
+          "line": 314
+        },
+        {
+          "heading": "12. Lay 1 egg on any bird (4 birds)",
+          "level": 2,
+          "line": 332
+        },
+        {
+          "heading": "13. Lay 1 egg on each bird with a given nest (4 birds)",
+          "level": 2,
+          "line": 353
+        },
+        {
+          "heading": "14. All players lay an egg on a nest type (3 birds)",
+          "level": 2,
+          "line": 371
+        },
+        {
+          "heading": "15. Draw cards (13 birds)",
+          "level": 2,
+          "line": 402
+        },
+        {
+          "heading": "15a. Plain draws (3 birds)",
+          "level": 3,
+          "line": 410
+        },
+        {
+          "heading": "15b. Draw, then discard at end of turn (8 birds)",
+          "level": 3,
+          "line": 423
+        },
+        {
+          "heading": "15c. Pay an egg to draw (2 birds)",
+          "level": 3,
+          "line": 445
+        },
+        {
+          "heading": "16. All players draw (5 birds)",
+          "level": 2,
+          "line": 462
+        },
+        {
+          "heading": "17. Brant (1 bird)",
+          "level": 2,
+          "line": 480
+        },
+        {
+          "heading": "18. American Oystercatcher (1 bird)",
+          "level": 2,
+          "line": 493
+        },
+        {
+          "heading": "19. Draw 2 bonus cards, keep 1 (15 birds)",
+          "level": 2,
+          "line": 520
+        },
+        {
+          "heading": "20. Tuck a card from hand (22 birds)",
+          "level": 2,
+          "line": 538
+        },
+        {
+          "heading": "20a. Tuck → gain choice of two supply foods (1 bird)",
+          "level": 3,
+          "line": 546
+        },
+        {
+          "heading": "20b. Tuck → draw 1 (9 birds)",
+          "level": 3,
+          "line": 558
+        },
+        {
+          "heading": "20c. Tuck → lay an egg on this bird (6 birds)",
+          "level": 3,
+          "line": 572
+        },
+        {
+          "heading": "20d. Tuck → lay an egg on any bird (1 bird)",
+          "level": 3,
+          "line": 588
+        },
+        {
+          "heading": "20e. Tuck → gain a fixed food from the supply (4 birds)",
+          "level": 3,
+          "line": 599
+        },
+        {
+          "heading": "20f. Horned Lark — see §27 (its tuck is a pink reaction).",
+          "level": 3,
+          "line": 613
+        },
+        {
+          "heading": "21. Spend a food to tuck 2 from the deck (5 birds)",
+          "level": 2,
+          "line": 617
+        },
+        {
+          "heading": "22. Predator hunts — look at a deck card (10 birds)",
+          "level": 2,
+          "line": 637
+        },
+        {
+          "heading": "23. Repeat another bird's power (3 birds)",
+          "level": 2,
+          "line": 670
+        },
+        {
+          "heading": "23a. Repeat a brown power",
+          "level": 3,
+          "line": 672
+        },
+        {
+          "heading": "23b. Repeat a predator power",
+          "level": 3,
+          "line": 691
+        },
+        {
+          "heading": "24. Move if rightmost (8 birds)",
+          "level": 2,
+          "line": 706
+        },
+        {
+          "heading": "25. Play an additional bird (10 birds)",
+          "level": 2,
+          "line": 726
+        },
+        {
+          "heading": "25a. Named habitat (9 birds)",
+          "level": 3,
+          "line": 728
+        },
+        {
+          "heading": "25b. House Wren",
+          "level": 3,
+          "line": 761
+        },
+        {
+          "heading": "26. Trade and convert powers (6 birds)",
+          "level": 2,
+          "line": 771
+        },
+        {
+          "heading": "26a. Discard an egg for wild food (5 birds)",
+          "level": 3,
+          "line": 773
+        },
+        {
+          "heading": "26b. Green Heron",
+          "level": 3,
+          "line": 794
+        },
+        {
+          "heading": "27. Pink powers — reactions to the opponent (12 birds)",
+          "level": 2,
+          "line": 811
+        },
+        {
+          "heading": "27a. When the opponent lays eggs (5 birds)",
+          "level": 3,
+          "line": 818
+        },
+        {
+          "heading": "27b. When the opponent's predator succeeds (3 birds)",
+          "level": 3,
+          "line": 845
+        },
+        {
+          "heading": "27c. When the opponent plays a bird in a habitat → gain food (2 birds)",
+          "level": 3,
+          "line": 857
+        },
+        {
+          "heading": "27d. Horned Lark",
+          "level": 3,
+          "line": 870
+        },
+        {
+          "heading": "27e. Loggerhead Shrike",
+          "level": 3,
+          "line": 881
+        },
+        {
+          "heading": "Gaps and deviations",
+          "level": 2,
+          "line": 893
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 54
+      }
+    },
+    {
+      "path": "docs/BONUSES.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 631,
+      "nonEmptyLines": 447,
+      "sections": [
+        {
+          "heading": "BONUSES.md — Bonus cards and end-of-round goals",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Bonus Cards",
+          "level": 2,
+          "line": 14
+        },
+        {
+          "heading": "Acquiring bonus cards",
+          "level": 3,
+          "line": 16
+        },
+        {
+          "heading": "Scoring",
+          "level": 3,
+          "line": 28
+        },
+        {
+          "heading": "State encoding — bonus progress stripe",
+          "level": 3,
+          "line": 41
+        },
+        {
+          "heading": "Choice encoding — bonus delta",
+          "level": 3,
+          "line": 61
+        },
+        {
+          "heading": "Choice encoding — bonus card identity",
+          "level": 3,
+          "line": 83
+        },
+        {
+          "heading": "Bird attribute encoding for bonus categories",
+          "level": 3,
+          "line": 99
+        },
+        {
+          "heading": "Bonus card groups",
+          "level": 2,
+          "line": 119
+        },
+        {
+          "heading": "Group 1 — Food diet (6 cards)",
+          "level": 3,
+          "line": 121
+        },
+        {
+          "heading": "Group 2 — Nest type (4 cards)",
+          "level": 3,
+          "line": 149
+        },
+        {
+          "heading": "Group 3 — Habitat specialty (3 cards)",
+          "level": 3,
+          "line": 176
+        },
+        {
+          "heading": "Group 4 — Wingspan class (2 cards)",
+          "level": 3,
+          "line": 201
+        },
+        {
+          "heading": "Group 5 — Power type (2 cards)",
+          "level": 3,
+          "line": 226
+        },
+        {
+          "heading": "Group 6 — Name-based (4 cards)",
+          "level": 3,
+          "line": 249
+        },
+        {
+          "heading": "Group 7 — Printed stats (2 cards)",
+          "level": 3,
+          "line": 273
+        },
+        {
+          "heading": "Group 8 — Dynamic cards (4 cards)",
+          "level": 3,
+          "line": 296
+        },
+        {
+          "heading": "Breeding Manager",
+          "level": 4,
+          "line": 303
+        },
+        {
+          "heading": "Ecologist",
+          "level": 4,
+          "line": 323
+        },
+        {
+          "heading": "Oologist",
+          "level": 4,
+          "line": 347
+        },
+        {
+          "heading": "Visionary Leader",
+          "level": 4,
+          "line": 364
+        },
+        {
+          "heading": "End-of-Round Goals",
+          "level": 2,
+          "line": 385
+        },
+        {
+          "heading": "Setup and tile structure",
+          "level": 3,
+          "line": 387
+        },
+        {
+          "heading": "Payout structure",
+          "level": 3,
+          "line": 398
+        },
+        {
+          "heading": "State encoding — round goal stripe",
+          "level": 3,
+          "line": 413
+        },
+        {
+          "heading": "Choice encoding — goal delta",
+          "level": 3,
+          "line": 429
+        },
+        {
+          "heading": "Interaction with the `birds_no_eggs` anti-goal",
+          "level": 3,
+          "line": 446
+        },
+        {
+          "heading": "End-of-round goal groups",
+          "level": 2,
+          "line": 457
+        },
+        {
+          "heading": "Group A — Birds in habitat (3 goals, tile_ids 0–2 front side)",
+          "level": 3,
+          "line": 459
+        },
+        {
+          "heading": "Group B — Eggs in habitat (3 goals, tile_ids 0–2 reverse side)",
+          "level": 3,
+          "line": 482
+        },
+        {
+          "heading": "Group C — Eggs on nest type (4 goals, tile_ids 3–6 reverse side)",
+          "level": 3,
+          "line": 504
+        },
+        {
+          "heading": "Group D — Birds with eggs by nest type (4 goals, tile_ids 3–6 front side)",
+          "level": 3,
+          "line": 529
+        },
+        {
+          "heading": "Group E — Composite goals (2 goals, tile_id 7)",
+          "level": 3,
+          "line": 555
+        },
+        {
+          "heading": "Total birds (category `total_birds`)",
+          "level": 4,
+          "line": 557
+        },
+        {
+          "heading": "Egg sets (3 habitats) (category `egg_sets_3habitats`)",
+          "level": 4,
+          "line": 568
+        },
+        {
+          "heading": "Cross-cutting notes",
+          "level": 2,
+          "line": 590
+        },
+        {
+          "heading": "Tile pairing and goal selection",
+          "level": 3,
+          "line": 592
+        },
+        {
+          "heading": "Bonus–goal alignment",
+          "level": 3,
+          "line": 603
+        },
+        {
+          "heading": "Gap — scoring-only categories",
+          "level": 3,
+          "line": 621
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 39
+      }
+    },
+    {
+      "path": "docs/DECISIONS.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 735,
+      "nonEmptyLines": 631,
+      "sections": [
+        {
+          "heading": "DECISIONS.md — the decision-model families",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "0. How a decision reaches a head",
+          "level": 2,
+          "line": 24
+        },
+        {
+          "heading": "1. The choice vector at a glance",
+          "level": 2,
+          "line": 80
+        },
+        {
+          "heading": "2. The families",
+          "level": 2,
+          "line": 115
+        },
+        {
+          "heading": "2.1 `MAIN_ACTION` — which action gets this turn's cube",
+          "level": 3,
+          "line": 119
+        },
+        {
+          "heading": "2.2 `DRAW_BIRD` — which bird to take",
+          "level": 3,
+          "line": 145
+        },
+        {
+          "heading": "2.3 `DISCARD_BIRD` — which bird to give up",
+          "level": 3,
+          "line": 180
+        },
+        {
+          "heading": "2.4 `GAIN_FOOD` — which food advances the plan",
+          "level": 3,
+          "line": 228
+        },
+        {
+          "heading": "2.5 `SPEND_FOOD` — which food to part with",
+          "level": 3,
+          "line": 276
+        },
+        {
+          "heading": "2.6 `LAY_EGG` — which bird gets the egg",
+          "level": 3,
+          "line": 323
+        },
+        {
+          "heading": "2.7 `PAY_EGG` — which egg to lose",
+          "level": 3,
+          "line": 373
+        },
+        {
+          "heading": "2.8 `SKIP_OPTIONAL` — should I do this optional thing, or skip it?",
+          "level": 3,
+          "line": 401
+        },
+        {
+          "heading": "2.9 `CHOOSE_BONUS` — which bonus card fits the plan",
+          "level": 3,
+          "line": 478
+        },
+        {
+          "heading": "2.10 `MISC_RARE` — the pooled rare structural picks",
+          "level": 3,
+          "line": 508
+        },
+        {
+          "heading": "2.11 `PLAY_BIRD` — which bird, into which habitat",
+          "level": 3,
+          "line": 551
+        },
+        {
+          "heading": "2.12 `RESET_BIRDFEEDER` — is a fresh roll worth more than what's showing?",
+          "level": 3,
+          "line": 584
+        },
+        {
+          "heading": "2.13 `SETUP` — the opening keep, and where the bonus pick lives",
+          "level": 3,
+          "line": 618
+        },
+        {
+          "heading": "3. Maintaining this document",
+          "level": 2,
+          "line": 694
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 18
+      }
+    },
+    {
+      "path": "docs/PROJECT.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 50,
+      "nonEmptyLines": 41,
+      "sections": [
+        {
+          "heading": "Project layout",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "What's modelled",
+          "level": 2,
+          "line": 6
+        },
+        {
+          "heading": "How it's organized",
+          "level": 2,
+          "line": 14
+        },
+        {
+          "heading": "Root-level modules",
+          "level": 2,
+          "line": 20
+        },
+        {
+          "heading": "Subpackages",
+          "level": 2,
+          "line": 34
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 5
+      }
+    },
+    {
+      "path": "docs/QUALITY.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 101,
+      "nonEmptyLines": 77,
+      "sections": [
+        {
+          "heading": "Quality gate reference",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "What the gate does",
+          "level": 2,
+          "line": 8
+        },
+        {
+          "heading": "Exit codes",
+          "level": 2,
+          "line": 27
+        },
+        {
+          "heading": "Section flags (targeted runs)",
+          "level": 2,
+          "line": 39
+        },
+        {
+          "heading": "Coverage regression check",
+          "level": 2,
+          "line": 57
+        },
+        {
+          "heading": "merge_worktree.sh exit codes",
+          "level": 2,
+          "line": 83
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 6
+      }
+    },
+    {
+      "path": "docs/RESEARCH.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 175,
+      "nonEmptyLines": 132,
+      "sections": [
+        {
+          "heading": "Related to Model Training",
+          "level": 1,
+          "line": 3
+        },
+        {
+          "heading": "Project: General architecture exploration",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "Project: Impact of RNG",
+          "level": 2,
+          "line": 12
+        },
+        {
+          "heading": "Project: Impact of Card Embedding dimensions",
+          "level": 2,
+          "line": 19
+        },
+        {
+          "heading": "Project: Extra-Long Training Run",
+          "level": 2,
+          "line": 22
+        },
+        {
+          "heading": "Related to Model Function",
+          "level": 1,
+          "line": 25
+        },
+        {
+          "heading": "Project: Does the main action model know \"which\" card it wants to play?",
+          "level": 2,
+          "line": 27
+        },
+        {
+          "heading": "Project: Does the model learn not to add eggs when it can't?",
+          "level": 2,
+          "line": 31
+        },
+        {
+          "heading": "Using the Model for Card Valuation / Game Analysis",
+          "level": 1,
+          "line": 34
+        },
+        {
+          "heading": "Project: Setup card stats",
+          "level": 2,
+          "line": 36
+        },
+        {
+          "heading": "Project: General card stats",
+          "level": 2,
+          "line": 43
+        },
+        {
+          "heading": "Project: Are there \"low-scoring\" and \"high-scoring\" games?",
+          "level": 2,
+          "line": 48
+        },
+        {
+          "heading": "Addendum: Infrastructure capacity & gap analysis (2026-06-02, revised 2026-06-06)",
+          "level": 1,
+          "line": 53
+        },
+        {
+          "heading": "What we can build on today",
+          "level": 2,
+          "line": 57
+        },
+        {
+          "heading": "Per-project verdict & gaps",
+          "level": 2,
+          "line": 72
+        },
+        {
+          "heading": "Project: General architecture exploration — ⚠️ needs sweep orchestration",
+          "level": 3,
+          "line": 74
+        },
+        {
+          "heading": "Project: Does the main-action model know which card it wants? — ⚠️ primitives exist, harness does not",
+          "level": 3,
+          "line": 87
+        },
+        {
+          "heading": "Project: Does the model learn not to add eggs when it can't? — ⚠️ handler + analysis script needed",
+          "level": 3,
+          "line": 93
+        },
+        {
+          "heading": "Project: Setup card stats — ✅ closest to runnable; ⚠️ \"impact on outcome\" is the expensive half",
+          "level": 3,
+          "line": 106
+        },
+        {
+          "heading": "Project: General card stats (GIH / GOB win rate, per-slot) — ⚠️ engine hooks exist, handler + aggregation needed",
+          "level": 3,
+          "line": 114
+        },
+        {
+          "heading": "Project: Are there low/high-scoring games? — ✅ runnable now (analysis script only)",
+          "level": 3,
+          "line": 129
+        },
+        {
+          "heading": "Cross-cutting gaps (shared by several projects)",
+          "level": 2,
+          "line": 136
+        },
+        {
+          "heading": "Offloading to AWS (reusing the cloud stack)",
+          "level": 2,
+          "line": 142
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 23
+      }
+    },
+    {
+      "path": "docs/TRAINING.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 1019,
+      "nonEmptyLines": 833,
+      "sections": [
+        {
+          "heading": "TRAINING.md",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "0. TL;DR — the program in one page",
+          "level": 2,
+          "line": 42
+        },
+        {
+          "heading": "1. Where the time and memory actually go (the measured profile)",
+          "level": 2,
+          "line": 84
+        },
+        {
+          "heading": "1.1 Feature and parameter sizes",
+          "level": 3,
+          "line": 89
+        },
+        {
+          "heading": "1.2 A game's decisions, by judgment family",
+          "level": 3,
+          "line": 119
+        },
+        {
+          "heading": "1.3 Choice-set sizes, and the padding problem",
+          "level": 3,
+          "line": 158
+        },
+        {
+          "heading": "1.4 Throughput: collection dominates, the update is trivial",
+          "level": 3,
+          "line": 193
+        },
+        {
+          "heading": "2. A five-minute RL vocabulary",
+          "level": 2,
+          "line": 209
+        },
+        {
+          "heading": "3. The training loop we should run",
+          "level": 2,
+          "line": 249
+        },
+        {
+          "heading": "3.1 The shape of one iteration",
+          "level": 3,
+          "line": 251
+        },
+        {
+          "heading": "3.2 How big should an \"epoch\" be?",
+          "level": 3,
+          "line": 272
+        },
+        {
+          "heading": "3.3 How — and how often — to update the weights",
+          "level": 3,
+          "line": 315
+        },
+        {
+          "heading": "3.4 The algorithm upgrade path",
+          "level": 3,
+          "line": 371
+        },
+        {
+          "heading": "4. Making the GPU earn its keep (throughput and memory)",
+          "level": 2,
+          "line": 419
+        },
+        {
+          "heading": "4.1 Decouple actors from the learner; parallelize collection",
+          "level": 3,
+          "line": 424
+        },
+        {
+          "heading": "4.2 Kill the padding (the 42× memory win)",
+          "level": 3,
+          "line": 471
+        },
+        {
+          "heading": "4.3 Remove the choice-count crash",
+          "level": 3,
+          "line": 493
+        },
+        {
+          "heading": "4.4 Headroom for later",
+          "level": 3,
+          "line": 513
+        },
+        {
+          "heading": "5. Checkpointing and reproducibility",
+          "level": 2,
+          "line": 530
+        },
+        {
+          "heading": "5.1 What a checkpoint must contain",
+          "level": 3,
+          "line": 536
+        },
+        {
+          "heading": "5.2 Cadence, retention, and safety",
+          "level": 3,
+          "line": 580
+        },
+        {
+          "heading": "6. Choosing and growing the architecture",
+          "level": 2,
+          "line": 600
+        },
+        {
+          "heading": "6.1 The meta-point: capacity is not this project's bottleneck",
+          "level": 3,
+          "line": 606
+        },
+        {
+          "heading": "6.2 The procedure (model-agnostic, and the answer to \"when do I add neurons?\")",
+          "level": 3,
+          "line": 614
+        },
+        {
+          "heading": "6.3 If/when you do scale, in priority order for *this* network",
+          "level": 3,
+          "line": 641
+        },
+        {
+          "heading": "6.4 The starved and singular heads",
+          "level": 3,
+          "line": 660
+        },
+        {
+          "heading": "6.5 The setup model's training schedule and actor-critic mode",
+          "level": 3,
+          "line": 684
+        },
+        {
+          "heading": "Default: MODEL_DRIVEN from iteration 0",
+          "level": 4,
+          "line": 686
+        },
+        {
+          "heading": "Legacy warmup schedule (opt-in)",
+          "level": 4,
+          "line": 696
+        },
+        {
+          "heading": "Actor-critic mode",
+          "level": 4,
+          "line": 710
+        },
+        {
+          "heading": "How it works",
+          "level": 4,
+          "line": 721
+        },
+        {
+          "heading": "6.6 Setup-split knobs: deferring bonus and food picks to in-game heads",
+          "level": 3,
+          "line": 780
+        },
+        {
+          "heading": "7. Evaluating out-of-sample performance",
+          "level": 2,
+          "line": 819
+        },
+        {
+          "heading": "7.1 Why the current metric is empty",
+          "level": 3,
+          "line": 824
+        },
+        {
+          "heading": "7.2 What \"out-of-sample\" means here",
+          "level": 3,
+          "line": 831
+        },
+        {
+          "heading": "7.3 The evaluation harness",
+          "level": 3,
+          "line": 840
+        },
+        {
+          "heading": "7.4 What overfitting looks like in self-play (and how to catch it)",
+          "level": 3,
+          "line": 875
+        },
+        {
+          "heading": "8. What to log (the proportionate MLOps slice)",
+          "level": 2,
+          "line": 894
+        },
+        {
+          "heading": "9. A phased program with exit criteria",
+          "level": 2,
+          "line": 917
+        },
+        {
+          "heading": "10. Summary of concrete recommendations",
+          "level": 2,
+          "line": 960
+        },
+        {
+          "heading": "11. Glossary",
+          "level": 2,
+          "line": 979
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 41
+      }
+    },
+    {
+      "path": "docs/VERSIONING.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 166,
+      "nonEmptyLines": 130,
+      "sections": [
+        {
+          "heading": "Artifact versioning and checkpoint compatibility",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Changelog",
+          "level": 2,
+          "line": 17
+        },
+        {
+          "heading": "v0.2 — card feature vector redesign (current)",
+          "level": 3,
+          "line": 19
+        },
+        {
+          "heading": "v0.1 — choice-vector encoding redesign",
+          "level": 3,
+          "line": 46
+        },
+        {
+          "heading": "v0.0 — initial versioned era",
+          "level": 3,
+          "line": 70
+        },
+        {
+          "heading": "The guarantee: load + play",
+          "level": 2,
+          "line": 82
+        },
+        {
+          "heading": "Compat shims — the one sanctioned mechanism",
+          "level": 2,
+          "line": 104
+        },
+        {
+          "heading": "MINOR bumps (FRESH changes)",
+          "level": 2,
+          "line": 116
+        },
+        {
+          "heading": "MAJOR bumps (escape hatch)",
+          "level": 2,
+          "line": 128
+        },
+        {
+          "heading": "FRESH vs REGIME",
+          "level": 2,
+          "line": 134
+        },
+        {
+          "heading": "Format rules",
+          "level": 2,
+          "line": 143
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 11
+      }
+    }
+  ]
+}

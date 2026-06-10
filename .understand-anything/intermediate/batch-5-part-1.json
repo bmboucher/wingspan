@@ -1,0 +1,1054 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/agents/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/agents/__init__.py",
+      "summary": "Package entry point for the agents subpackage, re-exporting the primary agent constructors (random_agent and cli_agent) for use throughout the training and play pipelines.",
+      "tags": ["entry-point", "barrel", "agents"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/agents/base.py",
+      "type": "file",
+      "name": "base.py",
+      "filePath": "src/wingspan/agents/base.py",
+      "summary": "Defines the reference random agent — a factory returning a closure that satisfies the Agent protocol by sampling uniformly from the offered choices using a provided RNG.",
+      "tags": ["agents", "factory", "utility"],
+      "complexity": "simple",
+      "languageNotes": "Uses a closure pattern to bind the RNG into the returned agent callable, matching the generic Agent protocol without subclassing."
+    },
+    {
+      "id": "function:src/wingspan/agents/base.py:random_agent",
+      "type": "function",
+      "name": "random_agent",
+      "filePath": "src/wingspan/agents/base.py",
+      "lineRange": [20, 34],
+      "summary": "Factory that returns a uniform-random agent closure bound to the given RNG, serving as the baseline reference agent for evaluations and opponent play.",
+      "tags": ["factory", "agents", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/agents/cli.py",
+      "type": "file",
+      "name": "cli.py",
+      "filePath": "src/wingspan/agents/cli.py",
+      "summary": "Provides the CLI agent factory and its supporting formatting/input helpers, enabling a human player to interactively select choices at the terminal with rendered board state.",
+      "tags": ["agents", "cli", "interactive"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/agents/cli.py:cli_agent",
+      "type": "function",
+      "name": "cli_agent",
+      "filePath": "src/wingspan/agents/cli.py",
+      "lineRange": [21, 69],
+      "summary": "Factory returning a CLI agent closure that presents decisions to a human player at the terminal, rendering board state and dispatching setup decisions to dedicated sub-handlers.",
+      "tags": ["factory", "agents", "interactive"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/agents/interactive.py",
+      "type": "file",
+      "name": "interactive.py",
+      "filePath": "src/wingspan/agents/interactive.py",
+      "summary": "Low-level interactive terminal UI library providing keyboard-driven multi-section selection forms with ANSI rendering, used by the CLI agent for setup card/food picking.",
+      "tags": ["interactive", "cli", "utility"],
+      "complexity": "complex",
+      "languageNotes": "Platform-conditional keyboard reading: msvcrt on Windows and termios/tty on Unix, with automatic fallback when TTY is unavailable."
+    },
+    {
+      "id": "class:src/wingspan/agents/interactive.py:Section",
+      "type": "class",
+      "name": "Section",
+      "filePath": "src/wingspan/agents/interactive.py",
+      "lineRange": [61, 75],
+      "summary": "Data class describing a labeled group of selectable options within the interactive form, carrying mode (single/multi) and a required count constraint.",
+      "tags": ["data-model", "interactive"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/agents/interactive.py:select_form",
+      "type": "function",
+      "name": "select_form",
+      "filePath": "src/wingspan/agents/interactive.py",
+      "lineRange": [78, 148],
+      "summary": "Interactive terminal form that renders multi-section option lists and drives keyboard navigation, returning the user's selections when constraints are satisfied or falling back to line-input mode.",
+      "tags": ["interactive", "cli", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/engine/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/engine/__init__.py",
+      "summary": "Package entry point for the engine subpackage, re-exporting the Engine class from the core module for use across training, evaluation, and play components.",
+      "tags": ["entry-point", "barrel"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/model/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/model/__init__.py",
+      "summary": "Package entry point for the model subpackage, re-exporting the core PolicyValueNet and related types for use across the training pipeline.",
+      "tags": ["entry-point", "barrel"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/players/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/players/__init__.py",
+      "summary": "Package entry point for the players subpackage, re-exporting the player factory, spec parser, and loaders that assemble agents for use in training and evaluation.",
+      "tags": ["entry-point", "barrel"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/players/factory.py",
+      "type": "file",
+      "name": "factory.py",
+      "filePath": "src/wingspan/players/factory.py",
+      "summary": "Constructs typed agent callables from PlayerSpec configurations, wiring together policy networks, setup models, and logging for use in training collection and self-play evaluation.",
+      "tags": ["factory", "agents", "service"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/players/factory.py:build_agent",
+      "type": "function",
+      "name": "build_agent",
+      "filePath": "src/wingspan/players/factory.py",
+      "lineRange": [43, 66],
+      "summary": "Dispatches on PlayerSpec kind to return the appropriate agent: cli_agent, random_agent, or a logged policy agent backed by loaded network weights.",
+      "tags": ["factory", "agents"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/players/factory.py:resolve_split_setup_bonus",
+      "type": "function",
+      "name": "resolve_split_setup_bonus",
+      "filePath": "src/wingspan/players/factory.py",
+      "lineRange": [69, 88],
+      "summary": "Inspects a list of PlayerSpec configs and resolves whether any player uses a split setup bonus model, returning the relevant spec or None.",
+      "tags": ["factory", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/players/factory.py:resolve_split_setup_food",
+      "type": "function",
+      "name": "resolve_split_setup_food",
+      "filePath": "src/wingspan/players/factory.py",
+      "lineRange": [91, 109],
+      "summary": "Inspects a list of PlayerSpec configs and resolves whether any player uses a split setup food model, returning the relevant spec or None.",
+      "tags": ["factory", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/players/spec.py",
+      "type": "file",
+      "name": "spec.py",
+      "filePath": "src/wingspan/players/spec.py",
+      "summary": "Defines the PlayerKind enum and PlayerSpec Pydantic model, plus a parser that converts a raw string specification (random/cli/checkpoint path) into a typed PlayerSpec.",
+      "tags": ["data-model", "configuration", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/players/spec.py:PlayerSpec",
+      "type": "class",
+      "name": "PlayerSpec",
+      "filePath": "src/wingspan/players/spec.py",
+      "lineRange": [38, 50],
+      "summary": "Pydantic model capturing a player's kind, raw spec string, optional checkpoint path, and optional run directory for loading neural network weights.",
+      "tags": ["data-model", "configuration"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/batched_collect.py",
+      "type": "file",
+      "name": "batched_collect.py",
+      "filePath": "src/wingspan/training/batched_collect.py",
+      "summary": "Implements batched inference self-play collection: a _BatchInferenceServer accumulates per-step inference requests from concurrent game threads and processes them as a single GPU batch, amortizing inference overhead.",
+      "tags": ["training", "data-pipeline", "service"],
+      "complexity": "complex",
+      "languageNotes": "Uses threading (Condition + Events) to synchronize game worker threads with the single inference server thread, forming a producer/consumer barrier."
+    },
+    {
+      "id": "class:src/wingspan/training/batched_collect.py:_BatchInferenceServer",
+      "type": "class",
+      "name": "_BatchInferenceServer",
+      "filePath": "src/wingspan/training/batched_collect.py",
+      "lineRange": [135, 213],
+      "summary": "Background server thread that batches incoming inference requests from concurrent game workers and dispatches them together through the policy network for throughput.",
+      "tags": ["service", "training", "data-pipeline"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/batched_collect.py:collect_games",
+      "type": "function",
+      "name": "collect_games",
+      "filePath": "src/wingspan/training/batched_collect.py",
+      "lineRange": [65, 107],
+      "summary": "Runs waves of concurrent game threads against a shared batch inference server, collecting game records until all seeds are consumed or a stop condition fires.",
+      "tags": ["training", "data-pipeline"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/training/collect.py",
+      "type": "file",
+      "name": "collect.py",
+      "filePath": "src/wingspan/training/collect.py",
+      "summary": "Core single-process game collection logic: plays individual Wingspan games with optional setup-phase tree sampling, recording per-step state/choice/action tuples as training data.",
+      "tags": ["training", "data-pipeline", "service"],
+      "complexity": "complex",
+      "languageNotes": "Central module consumed by both single-process and multiprocess collection paths; defines GameRecord, SetupGameSpec, and the play_game/play_game_with_setup entry points."
+    },
+    {
+      "id": "class:src/wingspan/training/collect.py:GameRecord",
+      "type": "class",
+      "name": "GameRecord",
+      "filePath": "src/wingspan/training/collect.py",
+      "lineRange": [59, 80],
+      "summary": "Pydantic model capturing a completed game's per-step training tuples, per-player score breakdowns, winner index, random seed, and any setup phase samples.",
+      "tags": ["data-model", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/collect.py:play_game",
+      "type": "function",
+      "name": "play_game",
+      "filePath": "src/wingspan/training/collect.py",
+      "lineRange": [154, 185],
+      "summary": "Plays a single Wingspan game, recording all per-step policy inputs and the chosen action indices for later REINFORCE/AC training.",
+      "tags": ["training", "data-pipeline"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/collect.py:play_game_with_setup",
+      "type": "function",
+      "name": "play_game_with_setup",
+      "filePath": "src/wingspan/training/collect.py",
+      "lineRange": [188, 321],
+      "summary": "Plays a game with the full setup-phase sampling pipeline, running the setup policy to choose initial cards and food before the main game begins, and recording setup samples for training.",
+      "tags": ["training", "data-pipeline"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/evaluate.py",
+      "type": "file",
+      "name": "evaluate.py",
+      "filePath": "src/wingspan/training/evaluate.py",
+      "summary": "Evaluation harness that runs a trained policy network against an opponent or in self-play, computing win margins and summary statistics for use in the training loop quality gate.",
+      "tags": ["training", "evaluation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/evaluate.py:evaluate_vs_opponent",
+      "type": "function",
+      "name": "evaluate_vs_opponent",
+      "filePath": "src/wingspan/training/evaluate.py",
+      "lineRange": [42, 84],
+      "summary": "Runs n_pairs evaluation games between two networks (each playing both seats), accumulates score margins, and returns a summary EvalResult.",
+      "tags": ["training", "evaluation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/evaluate.py:run_final_self_play_eval",
+      "type": "function",
+      "name": "run_final_self_play_eval",
+      "filePath": "src/wingspan/training/evaluate.py",
+      "lineRange": [125, 195],
+      "summary": "Runs a comprehensive self-play evaluation suite tracking win rates, average scores, and per-category breakdowns across n_games games, producing FinalEvalStats.",
+      "tags": ["training", "evaluation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/learner.py",
+      "type": "file",
+      "name": "learner.py",
+      "filePath": "src/wingspan/training/learner.py",
+      "summary": "Implements the REINFORCE/actor-critic gradient update step: flattens collected game records, bucketizes steps by choice count for efficient batched forward passes, and applies policy + value loss with gradient clipping.",
+      "tags": ["training", "service"],
+      "complexity": "complex",
+      "languageNotes": "Steps are grouped into buckets by their legal-action count so forward passes use uniform-size choice tensors, avoiding padding overhead for variable-length choice sets."
+    },
+    {
+      "id": "class:src/wingspan/training/learner.py:UpdateStats",
+      "type": "class",
+      "name": "UpdateStats",
+      "filePath": "src/wingspan/training/learner.py",
+      "lineRange": [42, 52],
+      "summary": "Pydantic model holding a single gradient-update result: per-component losses, entropy, gradient norm, advantage statistics, and step count.",
+      "tags": ["data-model", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/learner.py:update",
+      "type": "function",
+      "name": "update",
+      "filePath": "src/wingspan/training/learner.py",
+      "lineRange": [55, 126],
+      "summary": "Performs one full gradient update on the policy network from a batch of GameRecords: flattens steps, bucketizes by choice width, runs forward passes, computes combined policy/value loss, and clips gradients.",
+      "tags": ["training", "service"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/agents/__init__.py",
+      "target": "file:src/wingspan/agents/base.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/__init__.py",
+      "target": "file:src/wingspan/agents/cli.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/base.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/base.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/base.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/cli.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/cli.py",
+      "target": "file:src/wingspan/agents/base.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/cli.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/cli.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/cli.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "file:src/wingspan/agents/base.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "file:src/wingspan/agents/cli.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/__init__.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/__init__.py",
+      "target": "file:src/wingspan/engine/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/__init__.py",
+      "target": "file:src/wingspan/model/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/__init__.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/__init__.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/__init__.py",
+      "target": "file:src/wingspan/players/factory.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/__init__.py",
+      "target": "file:src/wingspan/players/loaders.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/__init__.py",
+      "target": "file:src/wingspan/players/spec.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/agents/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/players/loaders.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/players/spec.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/setup_model/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "file:src/wingspan/training/policy.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/spec.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/spec.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/training/collect.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "file:src/wingspan/training/policy.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/agents/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/setup_model/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "file:src/wingspan/training/policy.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/training/collect.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "file:src/wingspan/training/policy.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/base.py",
+      "target": "function:src/wingspan/agents/base.py:random_agent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/base.py",
+      "target": "function:src/wingspan/agents/base.py:random_agent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/agents/cli.py",
+      "target": "function:src/wingspan/agents/cli.py:cli_agent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/cli.py",
+      "target": "function:src/wingspan/agents/cli.py:cli_agent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "class:src/wingspan/agents/interactive.py:Section",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "class:src/wingspan/agents/interactive.py:Section",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "function:src/wingspan/agents/interactive.py:select_form",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/interactive.py",
+      "target": "function:src/wingspan/agents/interactive.py:select_form",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "function:src/wingspan/players/factory.py:build_agent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "function:src/wingspan/players/factory.py:build_agent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "function:src/wingspan/players/factory.py:resolve_split_setup_bonus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/factory.py",
+      "target": "function:src/wingspan/players/factory.py:resolve_split_setup_food",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/spec.py",
+      "target": "class:src/wingspan/players/spec.py:PlayerSpec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/spec.py",
+      "target": "class:src/wingspan/players/spec.py:PlayerSpec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "class:src/wingspan/training/batched_collect.py:_BatchInferenceServer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "function:src/wingspan/training/batched_collect.py:collect_games",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/batched_collect.py",
+      "target": "function:src/wingspan/training/batched_collect.py:collect_games",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "class:src/wingspan/training/collect.py:GameRecord",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "class:src/wingspan/training/collect.py:GameRecord",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "function:src/wingspan/training/collect.py:play_game",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "function:src/wingspan/training/collect.py:play_game",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "function:src/wingspan/training/collect.py:play_game_with_setup",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/collect.py",
+      "target": "function:src/wingspan/training/collect.py:play_game_with_setup",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "function:src/wingspan/training/evaluate.py:evaluate_vs_opponent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "function:src/wingspan/training/evaluate.py:evaluate_vs_opponent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "function:src/wingspan/training/evaluate.py:run_final_self_play_eval",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/evaluate.py",
+      "target": "function:src/wingspan/training/evaluate.py:run_final_self_play_eval",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "class:src/wingspan/training/learner.py:UpdateStats",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "class:src/wingspan/training/learner.py:UpdateStats",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "function:src/wingspan/training/learner.py:update",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/learner.py",
+      "target": "function:src/wingspan/training/learner.py:update",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/players/factory.py:build_agent",
+      "target": "function:src/wingspan/agents/base.py:random_agent",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/players/factory.py:build_agent",
+      "target": "function:src/wingspan/agents/cli.py:cli_agent",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/collect.py:play_game",
+      "target": "function:src/wingspan/training/policy.py:sample_action",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/evaluate.py:evaluate_vs_opponent",
+      "target": "function:src/wingspan/training/evaluate.py:run_final_self_play_eval",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

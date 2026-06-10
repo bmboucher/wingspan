@@ -1,0 +1,289 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 4,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "deploy/README.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 82,
+      "nonEmptyLines": 64,
+      "sections": [
+        {
+          "heading": "Cloud training (containerized, S3-persisted, Spot-friendly)",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "How it works",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "Build the image",
+          "level": 2,
+          "line": 33
+        },
+        {
+          "heading": "Run locally (or for a smoke test against MinIO)",
+          "level": 2,
+          "line": 39
+        },
+        {
+          "heading": "Run on ECS Fargate Spot",
+          "level": 2,
+          "line": 50
+        },
+        {
+          "heading": "Monitor all runs",
+          "level": 2,
+          "line": 74
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 6
+      }
+    },
+    {
+      "path": "deploy/ecs-task-def.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 31,
+      "nonEmptyLines": 31,
+      "sections": [
+        {
+          "heading": "comment",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "family",
+          "level": 1,
+          "line": 3
+        },
+        {
+          "heading": "requiresCompatibilities",
+          "level": 1,
+          "line": 4
+        },
+        {
+          "heading": "networkMode",
+          "level": 1,
+          "line": 5
+        },
+        {
+          "heading": "cpu",
+          "level": 1,
+          "line": 6
+        },
+        {
+          "heading": "memory",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "runtimePlatform",
+          "level": 1,
+          "line": 8
+        },
+        {
+          "heading": "executionRoleArn",
+          "level": 1,
+          "line": 12
+        },
+        {
+          "heading": "taskRoleArn",
+          "level": 1,
+          "line": 13
+        },
+        {
+          "heading": "containerDefinitions",
+          "level": 1,
+          "line": 14
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 10
+      }
+    },
+    {
+      "path": "deploy/main.tf",
+      "language": "terraform",
+      "fileCategory": "infra",
+      "totalLines": 158,
+      "nonEmptyLines": 131,
+      "definitions": [
+        {
+          "name": "region",
+          "kind": "variable",
+          "fields": [],
+          "startLine": 19,
+          "endLine": 22
+        },
+        {
+          "name": "bucket_name",
+          "kind": "variable",
+          "fields": [],
+          "startLine": 24,
+          "endLine": 28
+        },
+        {
+          "name": "runs_prefix",
+          "kind": "variable",
+          "fields": [],
+          "startLine": 30,
+          "endLine": 34
+        },
+        {
+          "name": "image",
+          "kind": "variable",
+          "fields": [],
+          "startLine": 36,
+          "endLine": 39
+        },
+        {
+          "name": "cluster",
+          "kind": "output",
+          "fields": [],
+          "startLine": 148,
+          "endLine": 150
+        },
+        {
+          "name": "task_family",
+          "kind": "output",
+          "fields": [],
+          "startLine": 152,
+          "endLine": 154
+        },
+        {
+          "name": "bucket",
+          "kind": "output",
+          "fields": [],
+          "startLine": 156,
+          "endLine": 158
+        }
+      ],
+      "resources": [
+        {
+          "name": "aws_s3_bucket.runs",
+          "kind": "aws_s3_bucket",
+          "startLine": 47,
+          "endLine": 49
+        },
+        {
+          "name": "aws_ecs_cluster.wingspan",
+          "kind": "aws_ecs_cluster",
+          "startLine": 53,
+          "endLine": 55
+        },
+        {
+          "name": "aws_ecs_cluster_capacity_providers.wingspan",
+          "kind": "aws_ecs_cluster_capacity_providers",
+          "startLine": 57,
+          "endLine": 65
+        },
+        {
+          "name": "aws_cloudwatch_log_group.trainer",
+          "kind": "aws_cloudwatch_log_group",
+          "startLine": 67,
+          "endLine": 70
+        },
+        {
+          "name": "aws_iam_role.task_execution",
+          "kind": "aws_iam_role",
+          "startLine": 84,
+          "endLine": 87
+        },
+        {
+          "name": "aws_iam_role_policy_attachment.task_execution",
+          "kind": "aws_iam_role_policy_attachment",
+          "startLine": 89,
+          "endLine": 92
+        },
+        {
+          "name": "aws_iam_role.task",
+          "kind": "aws_iam_role",
+          "startLine": 96,
+          "endLine": 99
+        },
+        {
+          "name": "aws_iam_role_policy.task_s3",
+          "kind": "aws_iam_role_policy",
+          "startLine": 112,
+          "endLine": 116
+        },
+        {
+          "name": "aws_ecs_task_definition.trainer",
+          "kind": "aws_ecs_task_definition",
+          "startLine": 120,
+          "endLine": 146
+        },
+        {
+          "name": "data.aws_iam_policy_document.ecs_assume",
+          "kind": "data.aws_iam_policy_document",
+          "startLine": 74,
+          "endLine": 82
+        },
+        {
+          "name": "data.aws_iam_policy_document.task_s3",
+          "kind": "data.aws_iam_policy_document",
+          "startLine": 101,
+          "endLine": 110
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "definitionCount": 7,
+        "resourceCount": 11
+      }
+    },
+    {
+      "path": "deploy/run.example.yaml",
+      "language": "yaml",
+      "fileCategory": "config",
+      "totalLines": 48,
+      "nonEmptyLines": 44,
+      "sections": [
+        {
+          "heading": "run_name",
+          "level": 1,
+          "line": 13
+        },
+        {
+          "heading": "s3",
+          "level": 1,
+          "line": 15
+        },
+        {
+          "heading": "sync",
+          "level": 1,
+          "line": 21
+        },
+        {
+          "heading": "train",
+          "level": 1,
+          "line": 31
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 4
+      }
+    }
+  ]
+}

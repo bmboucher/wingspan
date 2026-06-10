@@ -1,0 +1,812 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/training/config.py",
+      "type": "file",
+      "name": "config.py",
+      "filePath": "src/wingspan/training/config.py",
+      "summary": "Defines TrainConfig, the authoritative Pydantic model for all training hyperparameters covering the main network, setup model, ELO evaluation, encoding dims, and architecture key derivation.",
+      "tags": ["config", "data-model", "training", "entry-point"],
+      "complexity": "complex",
+      "languageNotes": "TrainConfig is the single source of truth for architecture topology — its arch/setup_arch properties build ModelArchitecture/SetupArchitecture from the config fields, and architecture_key identifies encoding-shape changes for checkpoint compat."
+    },
+    {
+      "id": "file:src/wingspan/training/configure/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/training/configure/__init__.py",
+      "summary": "Package barrel for the training configurator sub-package, re-exporting from controller, fields, runs, screen, and state modules.",
+      "tags": ["entry-point", "barrel", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/configure/controller.py",
+      "type": "file",
+      "name": "controller.py",
+      "filePath": "src/wingspan/training/configure/controller.py",
+      "summary": "Implements the input-handling controller for the interactive training configurator, dispatching keyboard events to navigate fields, edit values, confirm actions, and launch/archive training runs.",
+      "tags": ["controller", "training", "interactive", "event-handler"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/configure/fields.py",
+      "type": "file",
+      "name": "fields.py",
+      "filePath": "src/wingspan/training/configure/fields.py",
+      "summary": "Defines the FieldSpec type hierarchy (IntField, FloatField, ChoiceField, LayersField, etc.) and all TrainConfig field descriptors, plus read/format/commit/nudge operations for the configurator UI.",
+      "tags": ["config", "data-model", "training", "ui"],
+      "complexity": "complex",
+      "languageNotes": "Defines ~1100 lines of field metadata for every TrainConfig attribute, including visibility predicates (visible_when), grouping, help text, and step sizes — the single source of truth for the config form layout."
+    },
+    {
+      "id": "file:src/wingspan/training/configure/keys.py",
+      "type": "file",
+      "name": "keys.py",
+      "filePath": "src/wingspan/training/configure/keys.py",
+      "summary": "Cross-platform keyboard input abstraction providing KeyReader (context manager), KeyEvent/KeyKind models, and decode helpers for Windows msvcrt and POSIX termios input.",
+      "tags": ["utility", "ui", "platform", "input-handling"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/training/configure/runs.py",
+      "type": "file",
+      "name": "runs.py",
+      "filePath": "src/wingspan/training/configure/runs.py",
+      "summary": "Provides RunSummary inspection, archive/clear operations, and status resolution for training run checkpoint directories, supporting the configurator's run management workflow.",
+      "tags": ["utility", "training", "service", "file-management"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/configure/screen.py",
+      "type": "file",
+      "name": "screen.py",
+      "filePath": "src/wingspan/training/configure/screen.py",
+      "summary": "Renders the full interactive training configuration screen using Rich, building the form panel, architecture summary, run info, field detail panel, and footer from ConfiguratorState.",
+      "tags": ["ui", "training", "rendering", "component"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/configure/state.py",
+      "type": "file",
+      "name": "state.py",
+      "filePath": "src/wingspan/training/configure/state.py",
+      "summary": "Defines ConfiguratorState and related Pydantic models (ConfirmPrompt, ConfirmOption) representing the complete view-model for the training configurator TUI.",
+      "tags": ["state-management", "training", "data-model"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/training/config.py:TrainConfig",
+      "type": "class",
+      "name": "TrainConfig",
+      "filePath": "src/wingspan/training/config.py",
+      "lineRange": [31, 528],
+      "summary": "Master Pydantic config for the training pipeline with ~70 fields covering game collection, network topology, setup model, ELO evaluation, device, seeding, and architecture key computation.",
+      "tags": ["config", "data-model", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/training/configure/keys.py:KeyReader",
+      "type": "class",
+      "name": "KeyReader",
+      "filePath": "src/wingspan/training/configure/keys.py",
+      "lineRange": [116, 193],
+      "summary": "Context manager that puts the terminal into raw mode and provides a non-blocking poll() method returning KeyEvent objects, with platform-specific Windows (msvcrt) and POSIX (termios) backends.",
+      "tags": ["utility", "ui", "platform", "input-handling"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/training/configure/runs.py:RunSummary",
+      "type": "class",
+      "name": "RunSummary",
+      "filePath": "src/wingspan/training/configure/runs.py",
+      "lineRange": [84, 111],
+      "summary": "Pydantic model capturing a snapshot of a training run directory: config, iteration, win rate, artifact presence flags, archive list, and modification time.",
+      "tags": ["data-model", "training", "state-management"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/runs.py:inspect_run",
+      "type": "function",
+      "name": "inspect_run",
+      "filePath": "src/wingspan/training/configure/runs.py",
+      "lineRange": [114, 138],
+      "summary": "Reads a checkpoint directory and populates a RunSummary by checking for artifact files and loading the last checkpoint payload if available.",
+      "tags": ["utility", "training", "service"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/runs.py:archive_run",
+      "type": "function",
+      "name": "archive_run",
+      "filePath": "src/wingspan/training/configure/runs.py",
+      "lineRange": [189, 208],
+      "summary": "Moves training run artifacts into a timestamped archive subdirectory, returning an ArchiveResult indicating which files were moved and any OS errors encountered.",
+      "tags": ["utility", "training", "file-management"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/controller.py:run_configurator",
+      "type": "function",
+      "name": "run_configurator",
+      "filePath": "src/wingspan/training/configure/controller.py",
+      "lineRange": [43, 54],
+      "summary": "Entry point for the interactive training configurator: checks TTY availability, builds initial state, and runs the event loop, returning the final TrainConfig on exit.",
+      "tags": ["entry-point", "training", "interactive", "controller"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/controller.py:dispatch",
+      "type": "function",
+      "name": "dispatch",
+      "filePath": "src/wingspan/training/configure/controller.py",
+      "lineRange": [107, 116],
+      "summary": "Routes a keyboard event to the appropriate handler based on the current configurator mode (confirm, edit, or navigate).",
+      "tags": ["event-handler", "controller", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/controller.py:build_initial_state",
+      "type": "function",
+      "name": "build_initial_state",
+      "filePath": "src/wingspan/training/configure/controller.py",
+      "lineRange": [57, 72],
+      "summary": "Constructs the initial ConfiguratorState by inspecting the run directory and seeding the working config from any existing checkpoint.",
+      "tags": ["factory", "training", "controller"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/training/configure/fields.py:FieldSpec",
+      "type": "class",
+      "name": "FieldSpec",
+      "filePath": "src/wingspan/training/configure/fields.py",
+      "lineRange": [78, 94],
+      "summary": "Base Pydantic model for a TrainConfig field descriptor, carrying label, section, help text, unit, change impact, group, and optional visibility predicate.",
+      "tags": ["data-model", "training", "config"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/fields.py:editable_attrs",
+      "type": "function",
+      "name": "editable_attrs",
+      "filePath": "src/wingspan/training/configure/fields.py",
+      "lineRange": [152, 166],
+      "summary": "Returns the ordered list of TrainConfig attribute names visible in the configurator form for a given config state, filtering by each field's visibility predicate.",
+      "tags": ["utility", "training", "config"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/fields.py:commit",
+      "type": "function",
+      "name": "commit",
+      "filePath": "src/wingspan/training/configure/fields.py",
+      "lineRange": [222, 232],
+      "summary": "Parses a raw string value for a field and validates it against the TrainConfig model, returning a validation error string on failure or None on success.",
+      "tags": ["validation", "training", "config"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/fields.py:nudge",
+      "type": "function",
+      "name": "nudge",
+      "filePath": "src/wingspan/training/configure/fields.py",
+      "lineRange": [235, 272],
+      "summary": "Increments or decrements a field value by its step size (or cycles a choice field), updating the config in place with validation.",
+      "tags": ["utility", "training", "config"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/screen.py:build",
+      "type": "function",
+      "name": "build",
+      "filePath": "src/wingspan/training/configure/screen.py",
+      "lineRange": [88, 109],
+      "summary": "Assembles the full configurator terminal layout from state and frame dimensions, compositing header, form panel, arch panel, detail panel, run info, and footer.",
+      "tags": ["ui", "rendering", "training", "entry-point"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/training/config.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/config.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/config.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/config.py",
+      "target": "file:src/wingspan/training/steps.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/__init__.py",
+      "target": "file:src/wingspan/training/configure/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/__init__.py",
+      "target": "file:src/wingspan/training/configure/controller.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/__init__.py",
+      "target": "file:src/wingspan/training/configure/fields.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/__init__.py",
+      "target": "file:src/wingspan/training/configure/runs.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/__init__.py",
+      "target": "file:src/wingspan/training/configure/screen.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/__init__.py",
+      "target": "file:src/wingspan/training/configure/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/artifacts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/configure/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/configure/fields.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/configure/runs.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/configure/screen.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/configure/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "file:src/wingspan/training/setup_runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "file:src/wingspan/training/configure/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "file:src/wingspan/training/configure/keys.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "file:src/wingspan/training/configure/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "file:src/wingspan/training/artifacts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "file:src/wingspan/training/configure/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "file:src/wingspan/training/configure/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/configure/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/configure/controller.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/configure/fields.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/configure/keys.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/configure/runs.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/configure/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/dashboard.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/config.py",
+      "target": "class:src/wingspan/training/config.py:TrainConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/config.py",
+      "target": "class:src/wingspan/training/config.py:TrainConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/keys.py",
+      "target": "class:src/wingspan/training/configure/keys.py:KeyReader",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/keys.py",
+      "target": "class:src/wingspan/training/configure/keys.py:KeyReader",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "class:src/wingspan/training/configure/runs.py:RunSummary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "class:src/wingspan/training/configure/runs.py:RunSummary",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "function:src/wingspan/training/configure/runs.py:inspect_run",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "function:src/wingspan/training/configure/runs.py:inspect_run",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "function:src/wingspan/training/configure/runs.py:archive_run",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "function:src/wingspan/training/configure/runs.py:archive_run",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/controller.py:run_configurator",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/controller.py:run_configurator",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/controller.py:dispatch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/controller.py:dispatch",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/controller.py:build_initial_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/controller.py:build_initial_state",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "class:src/wingspan/training/configure/fields.py:FieldSpec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "class:src/wingspan/training/configure/fields.py:FieldSpec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "function:src/wingspan/training/configure/fields.py:editable_attrs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "function:src/wingspan/training/configure/fields.py:editable_attrs",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "function:src/wingspan/training/configure/fields.py:commit",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "function:src/wingspan/training/configure/fields.py:commit",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "function:src/wingspan/training/configure/fields.py:nudge",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "function:src/wingspan/training/configure/fields.py:nudge",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "function:src/wingspan/training/configure/screen.py:build",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "function:src/wingspan/training/configure/screen.py:build",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/configure/controller.py:run_configurator",
+      "target": "function:src/wingspan/training/configure/controller.py:build_initial_state",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/configure/controller.py:run_configurator",
+      "target": "function:src/wingspan/training/configure/screen.py:build",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/configure/controller.py:build_initial_state",
+      "target": "function:src/wingspan/training/configure/runs.py:inspect_run",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/training/configure/controller.py:build_initial_state",
+      "target": "function:src/wingspan/training/configure/fields.py:editable_attrs",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/fields.py:commit",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/fields.py:nudge",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/controller.py",
+      "target": "function:src/wingspan/training/configure/runs.py:archive_run",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/fields.py",
+      "target": "class:src/wingspan/training/config.py:TrainConfig",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/runs.py",
+      "target": "class:src/wingspan/training/config.py:TrainConfig",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/screen.py",
+      "target": "function:src/wingspan/training/configure/fields.py:editable_attrs",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/config.py",
+      "target": "file:src/wingspan/training/learner.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/wingspan/training/config.py",
+      "target": "file:src/wingspan/training/collect.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

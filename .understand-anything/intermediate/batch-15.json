@@ -1,0 +1,56 @@
+{
+  "nodes": [
+    {
+      "id": "document:tests/data/compat/v0.1/README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "tests/data/compat/v0.1/README.md",
+      "summary": "Documents the v0.1 backwards-compatibility fixture set: a pinned snapshot of a real training run captured when MODEL_VERSION was bumped to 0.1, used by tests/test_compat_v0_1.py to guarantee that v0.1 artifacts continue to load and play games under future code. Describes the capture methodology, Git LFS storage of compressed checkpoints, and the policy for retaining fixture sets across MINOR version bumps.",
+      "tags": ["documentation", "compatibility", "versioning", "testing", "data-pipeline"],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:tests/data/compat/v0.1/model_config.json",
+      "type": "config",
+      "name": "model_config.json",
+      "filePath": "tests/data/compat/v0.1/model_config.json",
+      "summary": "Pinned v0.1 main network architecture configuration used as a backwards-compatibility test fixture. Captures the 12-family decision ordering, state_dim=771, choice_dim=215, and the full ModelArchitecture descriptor (trunk/choice/head layers, card embedding, distinct hand model, tray set embedding) that defines the v0.1 encoding contract.",
+      "tags": ["configuration", "compatibility", "schema-definition", "data-pipeline"],
+      "complexity": "simple",
+      "languageNotes": "Carries an explicit version: \"0.1\" field, exercising the stamped-version load path in the compat test suite."
+    },
+    {
+      "id": "config:tests/data/compat/v0.1/setup_config.json",
+      "type": "config",
+      "name": "setup_config.json",
+      "filePath": "tests/data/compat/v0.1/setup_config.json",
+      "summary": "Pinned v0.1 setup network configuration used as a backwards-compatibility test fixture alongside model_config.json. Records setup_feature_dim=308, the setup model's hidden-layer architecture, and an embedded copy of the main network architecture descriptor, all tagged with version: \"0.1\".",
+      "tags": ["configuration", "compatibility", "schema-definition", "data-pipeline"],
+      "complexity": "simple",
+      "languageNotes": "Contains both a setup_arch block (shallow MLP for the initial bird-selection phase) and a full main_arch block, reflecting the dual-model design at v0.1."
+    }
+  ],
+  "edges": [
+    {
+      "source": "document:tests/data/compat/v0.1/README.md",
+      "target": "config:tests/data/compat/v0.1/model_config.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:tests/data/compat/v0.1/README.md",
+      "target": "config:tests/data/compat/v0.1/setup_config.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "config:tests/data/compat/v0.1/setup_config.json",
+      "target": "config:tests/data/compat/v0.1/model_config.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

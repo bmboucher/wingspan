@@ -1,0 +1,406 @@
+{
+  "nodes": [
+    {
+      "id": "file:tests/test_powers_misc_unique.py",
+      "type": "file",
+      "name": "test_powers_misc_unique.py",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "summary": "Comprehensive test suite for miscellaneous unique bird powers including draw-from-tray-all, trade-wild-food, fewest-habitat-gains-die, draw-n-plus-one-draft, all-players-draw, predator hunt, move-bird, and repeat-predator-power mechanics.",
+      "tags": ["test", "bird-powers", "engine", "validation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:_make_engine_with_bird",
+      "type": "function",
+      "name": "_make_engine_with_bird",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [35, 54],
+      "summary": "Test helper that constructs a game engine with a single bird placed on the board, using a custom power text and habitat color.",
+      "tags": ["test", "utility", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_draw_from_tray_all_takes_all_three_no_mid_turn_refill",
+      "type": "function",
+      "name": "test_draw_from_tray_all_takes_all_three_no_mid_turn_refill",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [115, 128],
+      "summary": "Verifies that the draw-from-tray-all power takes all three tray cards without triggering a mid-turn refill.",
+      "tags": ["test", "bird-powers", "card-draw"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_trade_wild_food_swaps_one_food",
+      "type": "function",
+      "name": "test_trade_wild_food_swaps_one_food",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [135, 171],
+      "summary": "Tests that the trade-wild-food power correctly swaps one food token, presenting the player with a forced lose-then-gain decision.",
+      "tags": ["test", "bird-powers", "food-economy"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_trade_wild_food_no_food_no_op",
+      "type": "function",
+      "name": "test_trade_wild_food_no_food_no_op",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [174, 191],
+      "summary": "Verifies that trade-wild-food is a no-op when the player has no food to trade.",
+      "tags": ["test", "bird-powers", "edge-case"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_trade_wild_food_is_a_forced_lose_then_gain_chain",
+      "type": "function",
+      "name": "test_trade_wild_food_is_a_forced_lose_then_gain_chain",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [194, 241],
+      "summary": "Tests the full decision chain for trade-wild-food: forced food loss followed by a forced wild-food gain in sequence.",
+      "tags": ["test", "bird-powers", "decision-chain"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_fewest_forest_gains_die_only_min_player_gets_food",
+      "type": "function",
+      "name": "test_fewest_forest_gains_die_only_min_player_gets_food",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [248, 297],
+      "summary": "Verifies that the fewest-birds-in-forest power grants a die roll food only to the player with the fewest forest birds.",
+      "tags": ["test", "bird-powers", "multi-player"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_fewest_forest_gains_die_ties_each_gets_one",
+      "type": "function",
+      "name": "test_fewest_forest_gains_die_ties_each_gets_one",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [300, 355],
+      "summary": "Tests that when two players tie for fewest forest birds, both receive a die food gain.",
+      "tags": ["test", "bird-powers", "tie-breaking"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_fewest_forest_gains_die_refills_empty_feeder",
+      "type": "function",
+      "name": "test_fewest_forest_gains_die_refills_empty_feeder",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [358, 390],
+      "summary": "Verifies that the fewest-forest power triggers a birdfeeder refill when the feeder is empty before granting food.",
+      "tags": ["test", "bird-powers", "birdfeeder"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_fewest_forest_auto_skips_when_active_player_not_fewest",
+      "type": "function",
+      "name": "test_fewest_forest_auto_skips_when_active_player_not_fewest",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [393, 418],
+      "summary": "Tests that the fewest-forest power auto-skips when the active player is not the one with fewest forest birds.",
+      "tags": ["test", "bird-powers", "auto-skip"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_fewest_wetland_draws_card_strict_min",
+      "type": "function",
+      "name": "test_fewest_wetland_draws_card_strict_min",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [443, 458],
+      "summary": "Verifies that the fewest-wetland-birds power draws a card only when one player strictly has fewer wetland birds.",
+      "tags": ["test", "bird-powers", "card-draw"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_fewest_wetland_draws_card_tied_accepted",
+      "type": "function",
+      "name": "test_fewest_wetland_draws_card_tied_accepted",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [461, 500],
+      "summary": "Tests that fewest-wetland power offers a veto when tied and grants a card draw when accepted.",
+      "tags": ["test", "bird-powers", "veto-decision"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_fewest_wetland_draws_card_tied_skipped",
+      "type": "function",
+      "name": "test_fewest_wetland_draws_card_tied_skipped",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [503, 531],
+      "summary": "Verifies that when the fewest-wetland power is tied and declined, no card draw occurs.",
+      "tags": ["test", "bird-powers", "veto-decision"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_fewest_wetland_auto_skips_when_active_not_fewest",
+      "type": "function",
+      "name": "test_fewest_wetland_auto_skips_when_active_not_fewest",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [534, 547],
+      "summary": "Tests that fewest-wetland power auto-skips when the active player does not have the fewest wetland birds.",
+      "tags": ["test", "bird-powers", "auto-skip"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_draw_n_plus_one_draft_each_player_picks_one_active_keeps_rest",
+      "type": "function",
+      "name": "test_draw_n_plus_one_draft_each_player_picks_one_active_keeps_rest",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [570, 597],
+      "summary": "Tests the draw-n-plus-one-draft power: each other player picks one card and the active player keeps the remainder.",
+      "tags": ["test", "bird-powers", "drafting"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_draw_n_plus_one_draft_empty_deck_no_op",
+      "type": "function",
+      "name": "test_draw_n_plus_one_draft_empty_deck_no_op",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [600, 627],
+      "summary": "Verifies that draw-n-plus-one-draft power is a no-op when the bird deck is empty.",
+      "tags": ["test", "bird-powers", "edge-case"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_all_players_draw_each_player_gets_card_from_deck",
+      "type": "function",
+      "name": "test_all_players_draw_each_player_gets_card_from_deck",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [634, 668],
+      "summary": "Tests the all-players-draw power ensuring every player receives a card drawn from the deck.",
+      "tags": ["test", "bird-powers", "card-draw"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_all_players_draw_veto_skips_entire_draw",
+      "type": "function",
+      "name": "test_all_players_draw_veto_skips_entire_draw",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [671, 696],
+      "summary": "Verifies that when the all-players-draw veto is taken, the entire draw sequence is skipped for all players.",
+      "tags": ["test", "bird-powers", "veto-decision"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_target_birds_parse_to_expected_kinds",
+      "type": "function",
+      "name": "test_target_birds_parse_to_expected_kinds",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [703, 717],
+      "summary": "Validates parser output: target-bird effect texts parse to the expected EffectKind values.",
+      "tags": ["test", "parser", "effect-kinds"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_play_additional_bird_wrong_habitat_does_not_grant_extra_play",
+      "type": "function",
+      "name": "test_play_additional_bird_wrong_habitat_does_not_grant_extra_play",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [724, 751],
+      "summary": "Tests that a play-additional-bird power fires only for the matching habitat and not for incorrect ones.",
+      "tags": ["test", "bird-powers", "habitat-filter"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_predator_hunt_empty_deck_logs_and_skips",
+      "type": "function",
+      "name": "test_predator_hunt_empty_deck_logs_and_skips",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [758, 777],
+      "summary": "Verifies that predator hunt logs a message and skips cleanly when the bird deck is empty.",
+      "tags": ["test", "bird-powers", "predator"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_move_bird_if_rightmost_no_other_habitat_space_skips",
+      "type": "function",
+      "name": "test_move_bird_if_rightmost_no_other_habitat_space_skips",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [780, 807],
+      "summary": "Tests that move-bird-if-rightmost power skips when there is no available space in any other habitat.",
+      "tags": ["test", "bird-powers", "move-bird"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_repeat_predator_power_fires_the_target_predators_hunt",
+      "type": "function",
+      "name": "test_repeat_predator_power_fires_the_target_predators_hunt",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [810, 867],
+      "summary": "Tests that a repeat-predator power correctly re-fires a specified target bird's predator hunt sequence.",
+      "tags": ["test", "bird-powers", "predator", "repeat-power"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:tests/test_powers_misc_unique.py:test_repeat_predator_power_fires_a_dice_roll_predator",
+      "type": "function",
+      "name": "test_repeat_predator_power_fires_a_dice_roll_predator",
+      "filePath": "tests/test_powers_misc_unique.py",
+      "lineRange": [870, 932],
+      "summary": "Tests that a repeat-predator power can re-fire a dice-roll-based predator hunt, verifying the full hunt sequence including die roll.",
+      "tags": ["test", "bird-powers", "predator", "dice-roll"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:_make_engine_with_bird",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_draw_from_tray_all_takes_all_three_no_mid_turn_refill",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_trade_wild_food_swaps_one_food",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_trade_wild_food_no_food_no_op",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_trade_wild_food_is_a_forced_lose_then_gain_chain",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_fewest_forest_gains_die_only_min_player_gets_food",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_fewest_forest_gains_die_ties_each_gets_one",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_fewest_forest_gains_die_refills_empty_feeder",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_fewest_forest_auto_skips_when_active_player_not_fewest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_fewest_wetland_draws_card_strict_min",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_fewest_wetland_draws_card_tied_accepted",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_fewest_wetland_draws_card_tied_skipped",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_fewest_wetland_auto_skips_when_active_not_fewest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_draw_n_plus_one_draft_each_player_picks_one_active_keeps_rest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_draw_n_plus_one_draft_empty_deck_no_op",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_all_players_draw_each_player_gets_card_from_deck",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_all_players_draw_veto_skips_entire_draw",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_target_birds_parse_to_expected_kinds",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_play_additional_bird_wrong_habitat_does_not_grant_extra_play",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_predator_hunt_empty_deck_logs_and_skips",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_move_bird_if_rightmost_no_other_habitat_space_skips",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_repeat_predator_power_fires_the_target_predators_hunt",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_misc_unique.py",
+      "target": "function:tests/test_powers_misc_unique.py:test_repeat_predator_power_fires_a_dice_roll_predator",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    }
+  ]
+}

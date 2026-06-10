@@ -1,0 +1,2072 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 22,
+  "filesSkipped": [
+    "src/wingspan/introspect.py",
+    "src/wingspan/report.py",
+    "src/wingspan/report_svg.py"
+  ],
+  "results": [
+    {
+      "path": ".gitattributes",
+      "language": "unknown",
+      "fileCategory": "config",
+      "totalLines": 11,
+      "nonEmptyLines": 10,
+      "metrics": {}
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "fileCategory": "config",
+      "totalLines": 35,
+      "nonEmptyLines": 30,
+      "metrics": {}
+    },
+    {
+      "path": "export_card_attrs.py",
+      "language": "python",
+      "fileCategory": "script",
+      "totalLines": 139,
+      "nonEmptyLines": 111,
+      "functions": [
+        {
+          "name": "_fmt",
+          "startLine": 67,
+          "endLine": 69,
+          "params": [
+            "value"
+          ]
+        },
+        {
+          "name": "_nest_bits",
+          "startLine": 72,
+          "endLine": 76,
+          "params": [
+            "bird"
+          ]
+        },
+        {
+          "name": "_color_bits",
+          "startLine": 79,
+          "endLine": 81,
+          "params": [
+            "bird"
+          ]
+        },
+        {
+          "name": "_bird_row",
+          "startLine": 84,
+          "endLine": 115,
+          "params": [
+            "bird"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 118,
+          "endLine": 135,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_fmt",
+          "line": 67,
+          "isDefault": false
+        },
+        {
+          "name": "_nest_bits",
+          "line": 72,
+          "isDefault": false
+        },
+        {
+          "name": "_color_bits",
+          "line": 79,
+          "isDefault": false
+        },
+        {
+          "name": "_bird_row",
+          "line": 84,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 118,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_fmt",
+          "callee": "str",
+          "lineNumber": 69
+        },
+        {
+          "caller": "_fmt",
+          "callee": "int",
+          "lineNumber": 69
+        },
+        {
+          "caller": "_fmt",
+          "callee": "int",
+          "lineNumber": 69
+        },
+        {
+          "caller": "_fmt",
+          "callee": "str",
+          "lineNumber": 69
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "list",
+          "lineNumber": 89
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "state_encode._bird_power_exchange_vector",
+          "lineNumber": 93
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "_nest_bits",
+          "lineNumber": 99
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "int",
+          "lineNumber": 101
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "int",
+          "lineNumber": 101
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "_color_bits",
+          "lineNumber": 103
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "int",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "int",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "state_encode._is_caching_bird",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "_fmt",
+          "lineNumber": 106
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "exchange_raw.tolist",
+          "lineNumber": 106
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "zip",
+          "lineNumber": 113
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "_fmt",
+          "lineNumber": 114
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "float",
+          "lineNumber": 114
+        },
+        {
+          "caller": "_bird_row",
+          "callee": "isinstance",
+          "lineNumber": 114
+        },
+        {
+          "caller": "main",
+          "callee": "cards.load_all",
+          "lineNumber": 120
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 122
+        },
+        {
+          "caller": "main",
+          "callee": "open",
+          "lineNumber": 124
+        },
+        {
+          "caller": "main",
+          "callee": "csv.DictWriter",
+          "lineNumber": 129
+        },
+        {
+          "caller": "main",
+          "callee": "writer.writeheader",
+          "lineNumber": 130
+        },
+        {
+          "caller": "main",
+          "callee": "writer.writerow",
+          "lineNumber": 132
+        },
+        {
+          "caller": "main",
+          "callee": "_bird_row",
+          "lineNumber": 132
+        },
+        {
+          "caller": "main",
+          "callee": "file_obj.close",
+          "lineNumber": 135
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/check_mp_collect.py",
+      "language": "python",
+      "fileCategory": "script",
+      "totalLines": 60,
+      "nonEmptyLines": 45,
+      "functions": [
+        {
+          "name": "main",
+          "startLine": 23,
+          "endLine": 56,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "main",
+          "line": 23,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "main",
+          "callee": "torch.set_num_threads",
+          "lineNumber": 24
+        },
+        {
+          "caller": "main",
+          "callee": "torch.device",
+          "lineNumber": 25
+        },
+        {
+          "caller": "main",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 26
+        },
+        {
+          "caller": "main",
+          "callee": "net.eval",
+          "lineNumber": 27
+        },
+        {
+          "caller": "main",
+          "callee": "config.TrainConfig",
+          "lineNumber": 28
+        },
+        {
+          "caller": "main",
+          "callee": "range",
+          "lineNumber": 31
+        },
+        {
+          "caller": "main",
+          "callee": "mp_collect.ProcessCollector",
+          "lineNumber": 32
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 33
+        },
+        {
+          "caller": "main",
+          "callee": "collector.collect_games",
+          "lineNumber": 37
+        },
+        {
+          "caller": "main",
+          "callee": "time.perf_counter",
+          "lineNumber": 39
+        },
+        {
+          "caller": "main",
+          "callee": "collector.collect_games",
+          "lineNumber": 40
+        },
+        {
+          "caller": "main",
+          "callee": "done.append",
+          "lineNumber": 41
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 41
+        },
+        {
+          "caller": "main",
+          "callee": "time.perf_counter",
+          "lineNumber": 43
+        },
+        {
+          "caller": "main",
+          "callee": "collector.close",
+          "lineNumber": 44
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 46
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 46
+        },
+        {
+          "caller": "main",
+          "callee": "all",
+          "lineNumber": 47
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 47
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 48
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 48
+        },
+        {
+          "caller": "main",
+          "callee": "sum",
+          "lineNumber": 49
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 49
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 51
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 51
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 52
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 53
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 53
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 54
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 55
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 56
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/gen_arch_experiment.py",
+      "language": "python",
+      "fileCategory": "script",
+      "totalLines": 228,
+      "nonEmptyLines": 179,
+      "functions": [
+        {
+          "name": "_represent_list",
+          "startLine": 78,
+          "endLine": 85,
+          "params": [
+            "dumper",
+            "data"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 98,
+          "endLine": 127,
+          "params": []
+        },
+        {
+          "name": "_parse_args",
+          "startLine": 133,
+          "endLine": 153,
+          "params": []
+        },
+        {
+          "name": "_build_experiments",
+          "startLine": 156,
+          "endLine": 180,
+          "params": [
+            "prefix"
+          ]
+        },
+        {
+          "name": "_runfile_dict",
+          "startLine": 183,
+          "endLine": 202,
+          "params": [
+            "run_name",
+            "overrides",
+            "max_iterations",
+            "games_per_iter",
+            "s3"
+          ]
+        },
+        {
+          "name": "_s3_block",
+          "startLine": 205,
+          "endLine": 214,
+          "params": [
+            "args"
+          ]
+        },
+        {
+          "name": "_print_tournament_command",
+          "startLine": 217,
+          "endLine": 224,
+          "params": [
+            "experiments"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "_PrettyDumper",
+          "startLine": 88,
+          "endLine": 89,
+          "methods": [],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_represent_list",
+          "line": 78,
+          "isDefault": false
+        },
+        {
+          "name": "_PrettyDumper",
+          "line": 88,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 98,
+          "isDefault": false
+        },
+        {
+          "name": "_parse_args",
+          "line": 133,
+          "isDefault": false
+        },
+        {
+          "name": "_build_experiments",
+          "line": 156,
+          "isDefault": false
+        },
+        {
+          "name": "_runfile_dict",
+          "line": 183,
+          "isDefault": false
+        },
+        {
+          "name": "_s3_block",
+          "line": 205,
+          "isDefault": false
+        },
+        {
+          "name": "_print_tournament_command",
+          "line": 217,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_represent_list",
+          "callee": "isinstance",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_represent_list",
+          "callee": "bool",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_represent_list",
+          "callee": "all",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_represent_list",
+          "callee": "isinstance",
+          "lineNumber": 81
+        },
+        {
+          "caller": "_represent_list",
+          "callee": "dumper.represent_sequence",
+          "lineNumber": 83
+        },
+        {
+          "caller": "main",
+          "callee": "_parse_args",
+          "lineNumber": 100
+        },
+        {
+          "caller": "main",
+          "callee": "pathlib.Path",
+          "lineNumber": 102
+        },
+        {
+          "caller": "main",
+          "callee": "out_dir.mkdir",
+          "lineNumber": 103
+        },
+        {
+          "caller": "main",
+          "callee": "math.ceil",
+          "lineNumber": 106
+        },
+        {
+          "caller": "main",
+          "callee": "_s3_block",
+          "lineNumber": 107
+        },
+        {
+          "caller": "main",
+          "callee": "_build_experiments",
+          "lineNumber": 108
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 111
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 111
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 112
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 116
+        },
+        {
+          "caller": "main",
+          "callee": "_runfile_dict",
+          "lineNumber": 118
+        },
+        {
+          "caller": "main",
+          "callee": "out_path.open",
+          "lineNumber": 120
+        },
+        {
+          "caller": "main",
+          "callee": "yaml.dump",
+          "lineNumber": 121
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 125
+        },
+        {
+          "caller": "main",
+          "callee": "_print_tournament_command",
+          "lineNumber": 127
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 135
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 139
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 141
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 143
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 145
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 147
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 149
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 151
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.parse_args",
+          "lineNumber": 153
+        },
+        {
+          "caller": "_build_experiments",
+          "callee": "dict",
+          "lineNumber": 170
+        },
+        {
+          "caller": "_build_experiments",
+          "callee": "dict",
+          "lineNumber": 175
+        },
+        {
+          "caller": "_build_experiments",
+          "callee": "experiments.append",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_runfile_dict",
+          "callee": "train.update",
+          "lineNumber": 197
+        },
+        {
+          "caller": "_print_tournament_command",
+          "callee": "print",
+          "lineNumber": 220
+        },
+        {
+          "caller": "_print_tournament_command",
+          "callee": "print",
+          "lineNumber": 221
+        },
+        {
+          "caller": "_print_tournament_command",
+          "callee": "print",
+          "lineNumber": 223
+        },
+        {
+          "caller": "_print_tournament_command",
+          "callee": "print",
+          "lineNumber": 224
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 8,
+        "functionCount": 7,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "scripts/measure_ipc.py",
+      "language": "python",
+      "fileCategory": "script",
+      "totalLines": 115,
+      "nonEmptyLines": 91,
+      "functions": [
+        {
+          "name": "main",
+          "startLine": 40,
+          "endLine": 49,
+          "params": []
+        },
+        {
+          "name": "_play",
+          "startLine": 52,
+          "endLine": 56,
+          "params": [
+            "net",
+            "device",
+            "games"
+          ]
+        },
+        {
+          "name": "_measure_pickle",
+          "startLine": 59,
+          "endLine": 84,
+          "params": [
+            "records",
+            "games"
+          ]
+        },
+        {
+          "name": "_measure_sparsity",
+          "startLine": 87,
+          "endLine": 105,
+          "params": [
+            "records"
+          ]
+        },
+        {
+          "name": "_parse_args",
+          "startLine": 108,
+          "endLine": 111,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "main",
+          "line": 40,
+          "isDefault": false
+        },
+        {
+          "name": "_play",
+          "line": 52,
+          "isDefault": false
+        },
+        {
+          "name": "_measure_pickle",
+          "line": 59,
+          "isDefault": false
+        },
+        {
+          "name": "_measure_sparsity",
+          "line": 87,
+          "isDefault": false
+        },
+        {
+          "name": "_parse_args",
+          "line": 108,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "main",
+          "callee": "_parse_args",
+          "lineNumber": 41
+        },
+        {
+          "caller": "main",
+          "callee": "torch.set_num_threads",
+          "lineNumber": 42
+        },
+        {
+          "caller": "main",
+          "callee": "torch.device",
+          "lineNumber": 43
+        },
+        {
+          "caller": "main",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 44
+        },
+        {
+          "caller": "main",
+          "callee": "net.eval",
+          "lineNumber": 45
+        },
+        {
+          "caller": "main",
+          "callee": "_play",
+          "lineNumber": 47
+        },
+        {
+          "caller": "main",
+          "callee": "_measure_pickle",
+          "lineNumber": 48
+        },
+        {
+          "caller": "main",
+          "callee": "_measure_sparsity",
+          "lineNumber": 49
+        },
+        {
+          "caller": "_play",
+          "callee": "random.Random",
+          "lineNumber": 55
+        },
+        {
+          "caller": "_play",
+          "callee": "collect.play_game",
+          "lineNumber": 56
+        },
+        {
+          "caller": "_play",
+          "callee": "range",
+          "lineNumber": 56
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "time.perf_counter",
+          "lineNumber": 62
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "pickle.dumps",
+          "lineNumber": 63
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "time.perf_counter",
+          "lineNumber": 64
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "time.perf_counter",
+          "lineNumber": 66
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "pickle.loads",
+          "lineNumber": 68
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "time.perf_counter",
+          "lineNumber": 69
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "sum",
+          "lineNumber": 71
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "len",
+          "lineNumber": 71
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "sum",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "len",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 73
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 74
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 75
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 76
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 77
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 78
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "max",
+          "lineNumber": 78
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 79
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 81
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 82
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "print",
+          "lineNumber": 83
+        },
+        {
+          "caller": "_measure_pickle",
+          "callee": "b\"\".join",
+          "lineNumber": 84
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "int",
+          "lineNumber": 94
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "np.count_nonzero",
+          "lineNumber": 94
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "max",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "max",
+          "lineNumber": 96
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 97
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 98
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 99
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 100
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 101
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 102
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 103
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_measure_sparsity",
+          "callee": "print",
+          "lineNumber": 105
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 109
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.parse_args",
+          "lineNumber": 111
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/profile_collection.py",
+      "language": "python",
+      "fileCategory": "script",
+      "totalLines": 212,
+      "nonEmptyLines": 170,
+      "functions": [
+        {
+          "name": "main",
+          "startLine": 56,
+          "endLine": 65,
+          "params": []
+        },
+        {
+          "name": "_measure_sequential",
+          "startLine": 68,
+          "endLine": 97,
+          "params": [
+            "net",
+            "device",
+            "games"
+          ]
+        },
+        {
+          "name": "_measure_batched",
+          "startLine": 100,
+          "endLine": 119,
+          "params": [
+            "net",
+            "device",
+            "games",
+            "seq_gps"
+          ]
+        },
+        {
+          "name": "_measure_attribution",
+          "startLine": 122,
+          "endLine": 142,
+          "params": [
+            "net",
+            "device",
+            "games",
+            "sort"
+          ]
+        },
+        {
+          "name": "_parse_args",
+          "startLine": 195,
+          "endLine": 208,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "_EncodeTimer",
+          "startLine": 145,
+          "endLine": 192,
+          "methods": [
+            "__init__",
+            "total",
+            "patch",
+            "__enter__",
+            "__exit__"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "main",
+          "line": 56,
+          "isDefault": false
+        },
+        {
+          "name": "_measure_sequential",
+          "line": 68,
+          "isDefault": false
+        },
+        {
+          "name": "_measure_batched",
+          "line": 100,
+          "isDefault": false
+        },
+        {
+          "name": "_measure_attribution",
+          "line": 122,
+          "isDefault": false
+        },
+        {
+          "name": "_EncodeTimer",
+          "line": 145,
+          "isDefault": false
+        },
+        {
+          "name": "_parse_args",
+          "line": 195,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "main",
+          "callee": "_parse_args",
+          "lineNumber": 57
+        },
+        {
+          "caller": "main",
+          "callee": "torch.set_num_threads",
+          "lineNumber": 58
+        },
+        {
+          "caller": "main",
+          "callee": "torch.device",
+          "lineNumber": 59
+        },
+        {
+          "caller": "main",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 60
+        },
+        {
+          "caller": "main",
+          "callee": "net.eval",
+          "lineNumber": 61
+        },
+        {
+          "caller": "main",
+          "callee": "_measure_sequential",
+          "lineNumber": 63
+        },
+        {
+          "caller": "main",
+          "callee": "_measure_batched",
+          "lineNumber": 64
+        },
+        {
+          "caller": "main",
+          "callee": "_measure_attribution",
+          "lineNumber": 65
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "random.Random",
+          "lineNumber": 71
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "collect.play_game",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "_EncodeTimer",
+          "lineNumber": 77
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "encode_seconds.patch",
+          "lineNumber": 79
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "time.perf_counter",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "range",
+          "lineNumber": 81
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "len",
+          "lineNumber": 82
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "collect.play_game",
+          "lineNumber": 82
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "time.perf_counter",
+          "lineNumber": 83
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 86
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 87
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 89
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 90
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 91
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "max",
+          "lineNumber": 91
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 92
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 93
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 94
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "max",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_measure_sequential",
+          "callee": "print",
+          "lineNumber": 96
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "range",
+          "lineNumber": 103
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "batched_collect.collect_games",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "time.perf_counter",
+          "lineNumber": 106
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "batched_collect.collect_games",
+          "lineNumber": 107
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "time.perf_counter",
+          "lineNumber": 108
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "sum",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "len",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "len",
+          "lineNumber": 111
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "print",
+          "lineNumber": 112
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "print",
+          "lineNumber": 113
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "print",
+          "lineNumber": 114
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "print",
+          "lineNumber": 115
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "len",
+          "lineNumber": 115
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "print",
+          "lineNumber": 116
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "print",
+          "lineNumber": 117
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "max",
+          "lineNumber": 117
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "len",
+          "lineNumber": 117
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "print",
+          "lineNumber": 118
+        },
+        {
+          "caller": "_measure_batched",
+          "callee": "print",
+          "lineNumber": 119
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "random.Random",
+          "lineNumber": 125
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "range",
+          "lineNumber": 126
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "collect.play_game",
+          "lineNumber": 127
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "cProfile.Profile",
+          "lineNumber": 129
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "profiler.enable",
+          "lineNumber": 130
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "collect.play_game",
+          "lineNumber": 132
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "profiler.disable",
+          "lineNumber": 133
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "io.StringIO",
+          "lineNumber": 135
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "pstats.Stats(profiler, stream=buffer).strip_dirs",
+          "lineNumber": 136
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "pstats.Stats",
+          "lineNumber": 136
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "stats.sort_stats",
+          "lineNumber": 137
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "stats.print_stats",
+          "lineNumber": 138
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "print",
+          "lineNumber": 139
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "print",
+          "lineNumber": 140
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "print",
+          "lineNumber": 141
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "print",
+          "lineNumber": 142
+        },
+        {
+          "caller": "_measure_attribution",
+          "callee": "buffer.getvalue",
+          "lineNumber": 142
+        },
+        {
+          "caller": "__init__",
+          "callee": "threading.Lock",
+          "lineNumber": 152
+        },
+        {
+          "caller": "timed_state",
+          "callee": "time.perf_counter",
+          "lineNumber": 168
+        },
+        {
+          "caller": "timed_state",
+          "callee": "orig_state",
+          "lineNumber": 170
+        },
+        {
+          "caller": "timed_state",
+          "callee": "time.perf_counter",
+          "lineNumber": 173
+        },
+        {
+          "caller": "timed_choices",
+          "callee": "time.perf_counter",
+          "lineNumber": 176
+        },
+        {
+          "caller": "timed_choices",
+          "callee": "orig_choices",
+          "lineNumber": 178
+        },
+        {
+          "caller": "timed_choices",
+          "callee": "time.perf_counter",
+          "lineNumber": 181
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 196
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 197
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 198
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 199
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.add_argument",
+          "lineNumber": 202
+        },
+        {
+          "caller": "_parse_args",
+          "callee": "parser.parse_args",
+          "lineNumber": 208
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 6,
+        "functionCount": 5,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "src/wingspan/agents/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 25,
+      "nonEmptyLines": 18,
+      "sections": [
+        {
+          "heading": "agents — Agent implementations",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 6
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/cards/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 35,
+      "nonEmptyLines": 29,
+      "sections": [
+        {
+          "heading": "cards — Immutable card definitions",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "Subpackage",
+          "level": 2,
+          "line": 32
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 3
+      }
+    },
+    {
+      "path": "src/wingspan/cards/parse/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 48,
+      "nonEmptyLines": 38,
+      "sections": [
+        {
+          "heading": "cards.parse — JSON loader + power-text parser",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 8
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/cloud/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 34,
+      "nonEmptyLines": 26,
+      "sections": [
+        {
+          "heading": "cloud — Containerized training runs + monitor",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 7
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/encode/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 41,
+      "nonEmptyLines": 33,
+      "sections": [
+        {
+          "heading": "encode — State/choice tensor encoders",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "Subpackage",
+          "level": 2,
+          "line": 37
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 3
+      }
+    },
+    {
+      "path": "src/wingspan/encode/stripes/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 40,
+      "nonEmptyLines": 31,
+      "sections": [
+        {
+          "heading": "encode.stripes — Programmatic stripe registry",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 11
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/engine/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 54,
+      "nonEmptyLines": 43,
+      "sections": [
+        {
+          "heading": "engine — Game engine",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 9
+        },
+        {
+          "heading": "Subpackage",
+          "level": 2,
+          "line": 50
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 3
+      }
+    },
+    {
+      "path": "src/wingspan/engine/powers/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 57,
+      "nonEmptyLines": 45,
+      "sections": [
+        {
+          "heading": "engine.powers — Bird-power dispatch",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 9
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/instrumentation/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 51,
+      "nonEmptyLines": 39,
+      "sections": [
+        {
+          "heading": "instrumentation — Event-callback instrumentation",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 8
+        },
+        {
+          "heading": "handlers/ subpackage",
+          "level": 2,
+          "line": 38
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 3
+      }
+    },
+    {
+      "path": "src/wingspan/model/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 41,
+      "nonEmptyLines": 35,
+      "sections": [
+        {
+          "heading": "model — PyTorch policy-value network",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 8
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/players/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 37,
+      "nonEmptyLines": 31,
+      "sections": [
+        {
+          "heading": "players — Seat players from CLI specs",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 7
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/reporting/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 28,
+      "nonEmptyLines": 22,
+      "sections": [
+        {
+          "heading": "reporting — Model introspection + HTML reports",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 8
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/setup_model/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 48,
+      "nonEmptyLines": 39,
+      "sections": [
+        {
+          "heading": "setup_model — Setup model (value-regression bandit)",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 9
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/tournament/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 52,
+      "nonEmptyLines": 39,
+      "sections": [
+        {
+          "heading": "tournament — Round-robin tournament runner",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 6
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/__main__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 87,
+      "nonEmptyLines": 68,
+      "functions": [
+        {
+          "name": "main",
+          "startLine": 29,
+          "endLine": 66,
+          "params": [
+            "argv"
+          ]
+        },
+        {
+          "name": "_print_help",
+          "startLine": 72,
+          "endLine": 83,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "main",
+          "line": 29,
+          "isDefault": false
+        },
+        {
+          "name": "_print_help",
+          "line": 72,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "main",
+          "callee": "list",
+          "lineNumber": 31
+        },
+        {
+          "caller": "main",
+          "callee": "_print_help",
+          "lineNumber": 33
+        },
+        {
+          "caller": "main",
+          "callee": "cli.main_play",
+          "lineNumber": 40
+        },
+        {
+          "caller": "main",
+          "callee": "training_app.main",
+          "lineNumber": 44
+        },
+        {
+          "caller": "main",
+          "callee": "tournament_app.main",
+          "lineNumber": 48
+        },
+        {
+          "caller": "main",
+          "callee": "cloud_entry.main",
+          "lineNumber": 52
+        },
+        {
+          "caller": "main",
+          "callee": "cloud_monitor.main",
+          "lineNumber": 56
+        },
+        {
+          "caller": "main",
+          "callee": "introspect.main_inspect",
+          "lineNumber": 60
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 62
+        },
+        {
+          "caller": "_print_help",
+          "callee": "max",
+          "lineNumber": 74
+        },
+        {
+          "caller": "_print_help",
+          "callee": "len",
+          "lineNumber": 74
+        },
+        {
+          "caller": "_print_help",
+          "callee": "_VERBS.items",
+          "lineNumber": 79
+        },
+        {
+          "caller": "_print_help",
+          "callee": "print",
+          "lineNumber": 83
+        },
+        {
+          "caller": "_print_help",
+          "callee": "\"\\n\".join",
+          "lineNumber": 83
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 2,
+        "functionCount": 2,
+        "classCount": 0
+      }
+    }
+  ]
+}

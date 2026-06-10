@@ -1,0 +1,298 @@
+{
+  "nodes": [
+    {
+      "id": "file:tests/test_tournament_dashboard.py",
+      "type": "file",
+      "name": "test_tournament_dashboard.py",
+      "filePath": "tests/test_tournament_dashboard.py",
+      "summary": "Tests the tournament dashboard rendering module, verifying that the live state panel and model-picker UI render correctly for empty, populated, and interactive states.",
+      "tags": ["test", "tournament", "ui", "rendering"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_tournament_dashboard.py:_render_dashboard",
+      "type": "function",
+      "name": "_render_dashboard",
+      "filePath": "tests/test_tournament_dashboard.py",
+      "lineRange": [33, 45],
+      "summary": "Test helper that renders the tournament dashboard into a StringIO buffer via a Rich console and returns the captured output string.",
+      "tags": ["utility", "test", "rendering"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_tournament_dashboard.py:test_dashboard_renders_populated_state",
+      "type": "function",
+      "name": "test_dashboard_renders_populated_state",
+      "filePath": "tests/test_tournament_dashboard.py",
+      "lineRange": [66, 88],
+      "summary": "Verifies that after recording a game result and pushing an event the dashboard renders without error and that standings are non-empty.",
+      "tags": ["test", "tournament", "rendering"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_tournament_dashboard.py:test_picker_renders",
+      "type": "function",
+      "name": "test_picker_renders",
+      "filePath": "tests/test_tournament_dashboard.py",
+      "lineRange": [91, 122],
+      "summary": "Verifies that the model-picker UI renders both a named spec item and a random-agent spec item without errors.",
+      "tags": ["test", "tournament", "ui"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_tournament_discovery.py",
+      "type": "file",
+      "name": "test_tournament_discovery.py",
+      "filePath": "tests/test_tournament_discovery.py",
+      "summary": "Tests the participant/run discovery logic, covering active and archived run detection, graceful handling of unreadable checkpoints, empty directories, and rejection of stale-encoded runs.",
+      "tags": ["test", "tournament", "discovery", "versioning"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_tournament_discovery.py:_write_descriptor",
+      "type": "function",
+      "name": "_write_descriptor",
+      "filePath": "tests/test_tournament_discovery.py",
+      "lineRange": [37, 57],
+      "summary": "Test helper that writes a MODEL_CONFIG_JSON descriptor file into a temporary run directory, with a configurable choice_dim_offset to simulate stale encodings.",
+      "tags": ["utility", "test", "versioning"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_tournament_discovery.py:test_discover_finds_active_and_archived_runs",
+      "type": "function",
+      "name": "test_discover_finds_active_and_archived_runs",
+      "filePath": "tests/test_tournament_discovery.py",
+      "lineRange": [60, 73],
+      "summary": "Creates two valid run directories (one active, one archived) plus one without a descriptor and asserts that discover_runs returns exactly the valid two.",
+      "tags": ["test", "tournament", "discovery"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_tournament_discovery.py:test_stale_encoding_not_discovered_and_fails_seating",
+      "type": "function",
+      "name": "test_stale_encoding_not_discovered_and_fails_seating",
+      "filePath": "tests/test_tournament_discovery.py",
+      "lineRange": [92, 113],
+      "summary": "Asserts that a run with a mismatched choice dimension is excluded from discovery and that attempting to load it as a player raises an error.",
+      "tags": ["test", "tournament", "versioning", "error-handling"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_tournament_elo.py",
+      "type": "file",
+      "name": "test_tournament_elo.py",
+      "filePath": "tests/test_tournament_elo.py",
+      "summary": "Tests the ELO rating system used by the tournament, covering expected-score symmetry, zero-sum update invariants, and order-independence of batch replays.",
+      "tags": ["test", "tournament", "elo", "rating"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_tournament_elo.py:_game",
+      "type": "function",
+      "name": "_game",
+      "filePath": "tests/test_tournament_elo.py",
+      "lineRange": [36, 54],
+      "summary": "Test factory that constructs a GameResult fixture given round/pair indices, orientation, player identifiers, and scores.",
+      "tags": ["utility", "test", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_tournament_elo.py:test_replay_is_order_independent",
+      "type": "function",
+      "name": "test_replay_is_order_independent",
+      "filePath": "tests/test_tournament_elo.py",
+      "lineRange": [57, 71],
+      "summary": "Verifies that replaying a shuffled list of game results produces the same final ELO table as replaying them in original order.",
+      "tags": ["test", "tournament", "elo"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_tournament_results.py",
+      "type": "file",
+      "name": "test_tournament_results.py",
+      "filePath": "tests/test_tournament_results.py",
+      "summary": "Tests the tournament results aggregation module, verifying matchup bucketing by seat, per-participant record and ELO ordering, and JSON round-trip serialization of TournamentReport.",
+      "tags": ["test", "tournament", "results", "serialization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_tournament_results.py:_two_game_pair",
+      "type": "function",
+      "name": "_two_game_pair",
+      "filePath": "tests/test_tournament_results.py",
+      "lineRange": [30, 53],
+      "summary": "Test fixture builder that creates two mirrored GameResult objects representing a balanced pair of games between the same two players.",
+      "tags": ["utility", "test", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_tournament_results.py:test_matchup_splits_bucket_by_who_went_first",
+      "type": "function",
+      "name": "test_matchup_splits_bucket_by_who_went_first",
+      "filePath": "tests/test_tournament_results.py",
+      "lineRange": [56, 77],
+      "summary": "Checks that the aggregate function correctly partitions game results into separate buckets based on which participant occupied the A seat.",
+      "tags": ["test", "tournament", "results"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_tournament_schedule.py",
+      "type": "file",
+      "name": "test_tournament_schedule.py",
+      "filePath": "tests/test_tournament_schedule.py",
+      "summary": "Tests the tournament schedule builder, verifying total game counts, balanced seating across all pairs, shared deal seeds for mirrored orientations, and A-seat orientation tracking.",
+      "tags": ["test", "tournament", "scheduling"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_tournament_schedule.py:test_each_pair_balanced_across_seats",
+      "type": "function",
+      "name": "test_each_pair_balanced_across_seats",
+      "filePath": "tests/test_tournament_schedule.py",
+      "lineRange": [36, 46],
+      "summary": "Asserts that for every pair in the schedule each participant sits in each seat the same number of times.",
+      "tags": ["test", "tournament", "scheduling"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_tournament_schedule.py:test_mirrored_orientations_share_deal_seed",
+      "type": "function",
+      "name": "test_mirrored_orientations_share_deal_seed",
+      "filePath": "tests/test_tournament_schedule.py",
+      "lineRange": [49, 60],
+      "summary": "Verifies that mirrored game tasks within the same pair and round share an identical deal seed to ensure fair comparison.",
+      "tags": ["test", "tournament", "scheduling"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_version.py",
+      "type": "file",
+      "name": "test_version.py",
+      "filePath": "tests/test_version.py",
+      "summary": "Tests the artifact versioning system, covering parse_version, check_artifact_compatible compatibility enforcement, adapt_encoding_for_version validation, and ModelConfig JSON round-trips with and without explicit version fields.",
+      "tags": ["test", "versioning", "serialization", "compat"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_version.py:test_model_config_explicit_version_round_trips",
+      "type": "function",
+      "name": "test_model_config_explicit_version_round_trips",
+      "filePath": "tests/test_version.py",
+      "lineRange": [77, 89],
+      "summary": "Builds a ModelConfig with an explicit version string, serializes it to JSON, and asserts the deserialized descriptor is identical.",
+      "tags": ["test", "versioning", "serialization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_version.py:test_model_config_defaults_missing_version",
+      "type": "function",
+      "name": "test_model_config_defaults_missing_version",
+      "filePath": "tests/test_version.py",
+      "lineRange": [92, 105],
+      "summary": "Verifies that a ModelConfig serialized without a version field is deserialized correctly by applying the default version from the compat shim.",
+      "tags": ["test", "versioning", "compat"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:tests/test_tournament_dashboard.py",
+      "target": "function:tests/test_tournament_dashboard.py:_render_dashboard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_dashboard.py",
+      "target": "function:tests/test_tournament_dashboard.py:test_dashboard_renders_populated_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_dashboard.py",
+      "target": "function:tests/test_tournament_dashboard.py:test_picker_renders",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_discovery.py",
+      "target": "function:tests/test_tournament_discovery.py:_write_descriptor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_discovery.py",
+      "target": "function:tests/test_tournament_discovery.py:test_discover_finds_active_and_archived_runs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_discovery.py",
+      "target": "function:tests/test_tournament_discovery.py:test_stale_encoding_not_discovered_and_fails_seating",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_elo.py",
+      "target": "function:tests/test_tournament_elo.py:_game",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_elo.py",
+      "target": "function:tests/test_tournament_elo.py:test_replay_is_order_independent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_results.py",
+      "target": "function:tests/test_tournament_results.py:_two_game_pair",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_results.py",
+      "target": "function:tests/test_tournament_results.py:test_matchup_splits_bucket_by_who_went_first",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_schedule.py",
+      "target": "function:tests/test_tournament_schedule.py:test_each_pair_balanced_across_seats",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_tournament_schedule.py",
+      "target": "function:tests/test_tournament_schedule.py:test_mirrored_orientations_share_deal_seed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_version.py",
+      "target": "function:tests/test_version.py:test_model_config_explicit_version_round_trips",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_version.py",
+      "target": "function:tests/test_version.py:test_model_config_defaults_missing_version",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    }
+  ]
+}

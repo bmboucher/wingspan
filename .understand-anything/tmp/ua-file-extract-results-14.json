@@ -1,0 +1,110 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 3,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "tests/data/compat/v0.0/README.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 29,
+      "nonEmptyLines": 24,
+      "sections": [
+        {
+          "heading": "v0.0 backwards-compatibility fixtures",
+          "level": 1,
+          "line": 1
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 1
+      }
+    },
+    {
+      "path": "tests/data/compat/v0.0/model_config.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 50,
+      "nonEmptyLines": 50,
+      "sections": [
+        {
+          "heading": "run_name",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "state_dim",
+          "level": 1,
+          "line": 3
+        },
+        {
+          "heading": "choice_dim",
+          "level": 1,
+          "line": 4
+        },
+        {
+          "heading": "family_order",
+          "level": 1,
+          "line": 5
+        },
+        {
+          "heading": "architecture",
+          "level": 1,
+          "line": 19
+        },
+        {
+          "heading": "include_setup",
+          "level": 1,
+          "line": 49
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 6
+      }
+    },
+    {
+      "path": "tests/data/compat/v0.0/setup_config.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 42,
+      "nonEmptyLines": 42,
+      "sections": [
+        {
+          "heading": "run_name",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "setup_feature_dim",
+          "level": 1,
+          "line": 3
+        },
+        {
+          "heading": "setup_arch",
+          "level": 1,
+          "line": 4
+        },
+        {
+          "heading": "main_arch",
+          "level": 1,
+          "line": 12
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 4
+      }
+    }
+  ]
+}

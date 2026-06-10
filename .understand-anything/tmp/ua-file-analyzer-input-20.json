@@ -1,0 +1,29 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "tests/test_tournament_dashboard.py", "language": "python", "sizeLines": 66, "fileCategory": "code"},
+    {"path": "tests/test_tournament_discovery.py", "language": "python", "sizeLines": 73, "fileCategory": "code"},
+    {"path": "tests/test_tournament_elo.py", "language": "python", "sizeLines": 57, "fileCategory": "code"},
+    {"path": "tests/test_tournament_results.py", "language": "python", "sizeLines": 80, "fileCategory": "code"},
+    {"path": "tests/test_tournament_schedule.py", "language": "python", "sizeLines": 71, "fileCategory": "code"},
+    {"path": "tests/test_tournament_runner.py", "language": "python", "sizeLines": 79, "fileCategory": "code"},
+    {"path": "tests/test_training_config.py", "language": "python", "sizeLines": 88, "fileCategory": "code"},
+    {"path": "tests/test_version.py", "language": "python", "sizeLines": 48, "fileCategory": "code"},
+    {"path": "tests/test_powers_brown_play.py", "language": "python", "sizeLines": 66, "fileCategory": "code"},
+    {"path": "tests/test_powers_white_draw.py", "language": "python", "sizeLines": 78, "fileCategory": "code"},
+    {"path": "tests/test_powers_white_egg.py", "language": "python", "sizeLines": 55, "fileCategory": "code"}
+  ],
+  "batchImportData": {
+    "tests/test_tournament_dashboard.py": [],
+    "tests/test_tournament_discovery.py": [],
+    "tests/test_tournament_elo.py": [],
+    "tests/test_tournament_results.py": [],
+    "tests/test_tournament_schedule.py": [],
+    "tests/test_tournament_runner.py": [],
+    "tests/test_training_config.py": [],
+    "tests/test_version.py": [],
+    "tests/test_powers_brown_play.py": [],
+    "tests/test_powers_white_draw.py": [],
+    "tests/test_powers_white_egg.py": []
+  }
+}

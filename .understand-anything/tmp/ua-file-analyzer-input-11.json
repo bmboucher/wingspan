@@ -1,0 +1,14 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "docs/BIRDS.md", "language": "markdown", "sizeLines": 918, "fileCategory": "docs"},
+    {"path": "docs/BONUSES.md", "language": "markdown", "sizeLines": 631, "fileCategory": "docs"},
+    {"path": "docs/DECISIONS.md", "language": "markdown", "sizeLines": 735, "fileCategory": "docs"},
+    {"path": "docs/PROJECT.md", "language": "markdown", "sizeLines": 50, "fileCategory": "docs"},
+    {"path": "docs/QUALITY.md", "language": "markdown", "sizeLines": 101, "fileCategory": "docs"},
+    {"path": "docs/RESEARCH.md", "language": "markdown", "sizeLines": 174, "fileCategory": "docs"},
+    {"path": "docs/TRAINING.md", "language": "markdown", "sizeLines": 1019, "fileCategory": "docs"},
+    {"path": "docs/VERSIONING.md", "language": "markdown", "sizeLines": 166, "fileCategory": "docs"}
+  ],
+  "batchImportData": {"docs/BIRDS.md": [], "docs/BONUSES.md": [], "docs/DECISIONS.md": [], "docs/PROJECT.md": [], "docs/QUALITY.md": [], "docs/RESEARCH.md": [], "docs/TRAINING.md": [], "docs/VERSIONING.md": []}
+}

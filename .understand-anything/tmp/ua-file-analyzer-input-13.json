@@ -1,0 +1,17 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "src/wingspan/data/bonus.json", "language": "json", "sizeLines": 1029, "fileCategory": "config"},
+    {"path": "src/wingspan/data/general.json", "language": "json", "sizeLines": 171, "fileCategory": "config"},
+    {"path": "src/wingspan/data/goals.json", "language": "json", "sizeLines": 618, "fileCategory": "config"},
+    {"path": "src/wingspan/data/master.json", "language": "json", "sizeLines": 57534, "fileCategory": "config"},
+    {"path": "src/wingspan/data/parameters.json", "language": "json", "sizeLines": 4, "fileCategory": "config"}
+  ],
+  "batchImportData": {
+    "src/wingspan/data/bonus.json": [],
+    "src/wingspan/data/general.json": [],
+    "src/wingspan/data/goals.json": [],
+    "src/wingspan/data/master.json": [],
+    "src/wingspan/data/parameters.json": []
+  }
+}

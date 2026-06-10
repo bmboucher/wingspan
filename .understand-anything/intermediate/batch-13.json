@@ -1,0 +1,53 @@
+{
+  "nodes": [
+    {
+      "id": "config:src/wingspan/data/bonus.json",
+      "type": "config",
+      "name": "bonus.json",
+      "filePath": "src/wingspan/data/bonus.json",
+      "summary": "Complete definition database for all 26 Wingspan bonus cards, including scoring conditions, VP thresholds, rulings, and expansion set membership. Each entry carries human-readable condition text, percentile statistics, and official FAQ rulings used by the engine's bonus scoring logic.",
+      "tags": ["data", "game-data", "schema-definition", "configuration"],
+      "complexity": "moderate",
+      "languageNotes": "Records mix core and expansion cards (core, americas, asia, oceania, european); VP field encodes bracket thresholds as a formatted string (e.g. '2 to 3 birds: 3[point]; 4+ birds: 7[point]') that the parser must decode."
+    },
+    {
+      "id": "config:src/wingspan/data/general.json",
+      "type": "config",
+      "name": "general.json",
+      "filePath": "src/wingspan/data/general.json",
+      "summary": "Indexed collection of 34 official Wingspan game rulings and clarifications, each with a name, explanatory text, and source URL. Provides the authoritative text for edge-case mechanics such as pink power timing, end-of-round goal counting, and birdfeeder reroll rules used across the engine.",
+      "tags": ["data", "game-data", "configuration", "documentation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "config:src/wingspan/data/goals.json",
+      "type": "config",
+      "name": "goals.json",
+      "filePath": "src/wingspan/data/goals.json",
+      "summary": "Full definitions for all 16 Wingspan round-goal tiles used in 2-player games, including goal text, expansion set, per-rank VP scores (ranks 1-4 for up to 4 players), reverse-side goal text, and numeric tile and goal IDs. Consumed by the engine's round-goal scoring and encoding layers.",
+      "tags": ["data", "game-data", "schema-definition", "configuration"],
+      "complexity": "moderate",
+      "languageNotes": "Rank scores of -1 indicate a rank is unreachable at that player count; the set field identifies which expansion introduced each goal tile."
+    },
+    {
+      "id": "config:src/wingspan/data/master.json",
+      "type": "config",
+      "name": "master.json",
+      "filePath": "src/wingspan/data/master.json",
+      "summary": "Canonical database of all 180 Wingspan bird cards (plus expansion cards), containing every attribute the engine and encoder need: habitat eligibility, food costs, nest type, egg limit, wingspan, victory points, power text, color, bonus-card qualifiers, rulings, and set membership. This is the single source of truth for card definitions loaded by the card parser.",
+      "tags": ["data", "game-data", "schema-definition", "configuration"],
+      "complexity": "complex",
+      "languageNotes": "Each bird entry flags membership in all 26 bonus card categories (e.g. 'Anatomist', 'Cartographer') as null or 'X', enabling O(1) bonus scoring lookups. Power text is raw English prose that the card parser's regex matchers must parse into EffectKind variants."
+    },
+    {
+      "id": "config:src/wingspan/data/parameters.json",
+      "type": "config",
+      "name": "parameters.json",
+      "filePath": "src/wingspan/data/parameters.json",
+      "summary": "Minimal runtime display-parameter configuration with a single key controlling whether bonus-card match symbols are shown in the UI. Provides default values that can be overridden at runtime.",
+      "tags": ["configuration", "ui-settings"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": []
+}

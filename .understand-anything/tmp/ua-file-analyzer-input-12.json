@@ -1,0 +1,15 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "scripts/auto_merge_worktree.sh", "language": "shell", "sizeLines": 139, "fileCategory": "script"},
+    {"path": "scripts/create_worktree.sh", "language": "shell", "sizeLines": 98, "fileCategory": "script"},
+    {"path": "scripts/merge_worktree.sh", "language": "shell", "sizeLines": 155, "fileCategory": "script"},
+    {"path": "scripts/quality_gate.sh", "language": "shell", "sizeLines": 349, "fileCategory": "script"}
+  ],
+  "batchImportData": {
+    "scripts/auto_merge_worktree.sh": [],
+    "scripts/create_worktree.sh": [],
+    "scripts/merge_worktree.sh": [],
+    "scripts/quality_gate.sh": []
+  }
+}

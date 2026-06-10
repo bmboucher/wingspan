@@ -1,0 +1,627 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/cards/parse/matchers.py",
+      "type": "file",
+      "name": "matchers.py",
+      "filePath": "src/wingspan/cards/parse/matchers.py",
+      "summary": "Contains 40 regex-based matcher functions for brown/white bird power text, each registering a specific EffectKind pattern via the parse registry decorator.",
+      "tags": ["parsing", "cards", "pattern-matching", "factory"],
+      "complexity": "complex",
+      "languageNotes": "Each matcher is registered using a @registry.pattern decorator, mapping power text regex to an EffectKind variant."
+    },
+    {
+      "id": "file:src/wingspan/cards/parse/pink_matchers.py",
+      "type": "file",
+      "name": "pink_matchers.py",
+      "filePath": "src/wingspan/cards/parse/pink_matchers.py",
+      "summary": "Contains 5 regex-based matcher functions for pink (when-activated) bird powers, registered via the parse registry's pink_pattern decorator.",
+      "tags": ["parsing", "cards", "pattern-matching", "event-handler"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/cards/parse/power.py",
+      "type": "file",
+      "name": "power.py",
+      "filePath": "src/wingspan/cards/parse/power.py",
+      "summary": "Orchestrates bird power text parsing, extracting one or more Effect objects from raw power text by normalizing and dispatching to registered matchers.",
+      "tags": ["parsing", "cards", "orchestration"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cards/parse/power.py:parse_power",
+      "type": "function",
+      "name": "parse_power",
+      "filePath": "src/wingspan/cards/parse/power.py",
+      "lineRange": [15, 28],
+      "summary": "Entry point for bird power parsing, normalizes raw power text and returns a Power object with parsed effects and reactive flag.",
+      "tags": ["parsing", "entry-point"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/cards/parse/registry.py",
+      "type": "file",
+      "name": "registry.py",
+      "filePath": "src/wingspan/cards/parse/registry.py",
+      "summary": "Provides the pattern and pink_pattern decorator-based registry for bird power matchers, mapping regex patterns to EffectKind constructors.",
+      "tags": ["registry", "factory", "parsing"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/cards/parse/tags.py",
+      "type": "file",
+      "name": "tags.py",
+      "filePath": "src/wingspan/cards/parse/tags.py",
+      "summary": "Defines tag constants and a to_int utility for mapping string tags from raw card JSON to integer indices used in encoding.",
+      "tags": ["utility", "cards", "encoding"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/cards/schema.py",
+      "type": "file",
+      "name": "schema.py",
+      "filePath": "src/wingspan/cards/schema.py",
+      "summary": "Core Pydantic data models and StrEnum types for all card domain objects: Habitat, Food, NestType, EffectKind, BirdCost, Effect, Power, Bird, BonusCard, EndRoundGoal, and their raw JSON record counterparts.",
+      "tags": ["data-model", "schema-definition", "cards", "type-definition"],
+      "complexity": "complex",
+      "languageNotes": "EffectKind is the central taxonomy of all implemented bird power types (60+ variants); BirdCost has rich helper methods for payment logic."
+    },
+    {
+      "id": "class:src/wingspan/cards/schema.py:EffectKind",
+      "type": "class",
+      "name": "EffectKind",
+      "filePath": "src/wingspan/cards/schema.py",
+      "lineRange": [88, 152],
+      "summary": "StrEnum with 60+ variants enumerating every implemented bird power effect type, serving as the central taxonomy for the power dispatcher.",
+      "tags": ["data-model", "type-definition", "cards"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/cards/schema.py:BirdCost",
+      "type": "class",
+      "name": "BirdCost",
+      "filePath": "src/wingspan/cards/schema.py",
+      "lineRange": [159, 199],
+      "summary": "Pydantic model representing a bird's food cost with methods for computing specific and wild food requirements and checking payment feasibility.",
+      "tags": ["data-model", "cards", "validation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/cards/schema.py:Bird",
+      "type": "class",
+      "name": "Bird",
+      "filePath": "src/wingspan/cards/schema.py",
+      "lineRange": [253, 296],
+      "summary": "Core Pydantic model for a bird card including name, habitats, food cost, nest type, power, wingspan, and point value.",
+      "tags": ["data-model", "cards"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/cards/schema.py:BonusCard",
+      "type": "class",
+      "name": "BonusCard",
+      "filePath": "src/wingspan/cards/schema.py",
+      "lineRange": [299, 325],
+      "summary": "Pydantic model for a bonus card including its scoring category, qualifying criteria, and point threshold table.",
+      "tags": ["data-model", "cards", "scoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/cards/schema.py:BirdRecord",
+      "type": "class",
+      "name": "BirdRecord",
+      "filePath": "src/wingspan/cards/schema.py",
+      "lineRange": [360, 427],
+      "summary": "Pydantic model for raw bird JSON records with a load() factory method that parses it into a Bird domain object.",
+      "tags": ["data-model", "parsing", "factory"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/decisions.py",
+      "type": "file",
+      "name": "decisions.py",
+      "filePath": "src/wingspan/decisions.py",
+      "summary": "Defines the complete Decision/Choice type hierarchy used across the game engine: 41 Choice subclasses and corresponding Decision[C] containers covering every agent decision point from setup through end-of-round.",
+      "tags": ["data-model", "type-definition", "decisions", "agent"],
+      "complexity": "complex",
+      "languageNotes": "ALL_DECISION_CLASSES ordering is stable and append-only; SetupDecision must remain last. Generic Decision[C: Choice] with Protocol-based Agent is the core extensibility contract."
+    },
+    {
+      "id": "class:src/wingspan/decisions.py:Choice",
+      "type": "class",
+      "name": "Choice",
+      "filePath": "src/wingspan/decisions.py",
+      "lineRange": [67, 82],
+      "summary": "Abstract Pydantic base class for all agent choice variants with a display_label method.",
+      "tags": ["data-model", "type-definition"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/decisions.py:Decision",
+      "type": "class",
+      "name": "Decision",
+      "filePath": "src/wingspan/decisions.py",
+      "lineRange": [302, 313],
+      "summary": "Generic Pydantic container Decision[C: Choice] pairing a list of offered choices with the active player ID; consumed by the Agent protocol.",
+      "tags": ["data-model", "type-definition", "agent"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/decisions.py:SetupChoice",
+      "type": "class",
+      "name": "SetupChoice",
+      "filePath": "src/wingspan/decisions.py",
+      "lineRange": [254, 290],
+      "summary": "Choice subclass for the setup phase representing the selection of initial birds, bonus card, and food tokens with a display_label method.",
+      "tags": ["data-model", "setup"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/decisions.py:AcceptExchangeDecision",
+      "type": "class",
+      "name": "AcceptExchangeDecision",
+      "filePath": "src/wingspan/decisions.py",
+      "lineRange": [427, 441],
+      "summary": "Decision for optional-then-commit effects; carry the full exchange ledger in the accept choice so agents can evaluate the trade before committing.",
+      "tags": ["data-model", "decisions"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/decisions.py:DecisionFamily",
+      "type": "class",
+      "name": "DecisionFamily",
+      "filePath": "src/wingspan/decisions.py",
+      "lineRange": [582, 603],
+      "summary": "Groups related Decision subclasses into a named family for the RL encoder's one-hot decision-type stripe.",
+      "tags": ["data-model", "encoding", "type-definition"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/encode/choice_encode.py",
+      "type": "file",
+      "name": "choice_encode.py",
+      "filePath": "src/wingspan/encode/choice_encode.py",
+      "summary": "Encodes agent choice vectors for every Decision subclass into fixed-size float32 tensors for the RL policy network, including board-impact deltas for scoring and bonus goals.",
+      "tags": ["encoding", "rl-training", "data-model", "service"],
+      "complexity": "complex",
+      "languageNotes": "encode_choices is the main entry; each _featurize_* function handles one Choice subclass; _fill_* helpers populate bonus/goal delta stripes encoding expected score impact of each choice."
+    },
+    {
+      "id": "function:src/wingspan/encode/choice_encode.py:encode_choices",
+      "type": "function",
+      "name": "encode_choices",
+      "filePath": "src/wingspan/encode/choice_encode.py",
+      "lineRange": [30, 92],
+      "summary": "Main encoding entry point: iterates over all offered choices for a Decision, calling per-type featurizers to fill a (n_choices, choice_dim) tensor.",
+      "tags": ["encoding", "entry-point", "rl-training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/encode/choice_encode.py:_featurize_setup",
+      "type": "function",
+      "name": "_featurize_setup",
+      "filePath": "src/wingspan/encode/choice_encode.py",
+      "lineRange": [468, 533],
+      "summary": "Featurizes SetupChoice vectors including bird identity, bonus delta, goal delta, and food selection for the setup phase.",
+      "tags": ["encoding", "setup"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/encode/choice_encode.py:_fill_bonus_delta",
+      "type": "function",
+      "name": "_fill_bonus_delta",
+      "filePath": "src/wingspan/encode/choice_encode.py",
+      "lineRange": [597, 638],
+      "summary": "Computes and fills the expected bonus VP delta stripe for a choice, accounting for egg, hand, and placement impacts on all active bonus cards.",
+      "tags": ["encoding", "scoring", "bonus"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/encode/choice_encode.py:_fill_goal_delta",
+      "type": "function",
+      "name": "_fill_goal_delta",
+      "filePath": "src/wingspan/encode/choice_encode.py",
+      "lineRange": [641, 666],
+      "summary": "Computes and fills the expected round goal VP delta stripe for a choice, dispatching per goal category.",
+      "tags": ["encoding", "scoring", "round-goals"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/encode/choice_encode.py:_fill_board_slots",
+      "type": "function",
+      "name": "_fill_board_slots",
+      "filePath": "src/wingspan/encode/choice_encode.py",
+      "lineRange": [937, 975],
+      "summary": "Fills the board slots section of a choice vector with habitat occupancy, egg counts, and wingspan values for the landing slot.",
+      "tags": ["encoding", "board-state"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/cards/parse/matchers.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/matchers.py",
+      "target": "file:src/wingspan/cards/parse/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/matchers.py",
+      "target": "file:src/wingspan/cards/parse/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/matchers.py",
+      "target": "file:src/wingspan/cards/parse/tags.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/matchers.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/pink_matchers.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/pink_matchers.py",
+      "target": "file:src/wingspan/cards/parse/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/pink_matchers.py",
+      "target": "file:src/wingspan/cards/parse/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/pink_matchers.py",
+      "target": "file:src/wingspan/cards/parse/tags.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/pink_matchers.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/power.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/power.py",
+      "target": "file:src/wingspan/cards/parse/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/power.py",
+      "target": "file:src/wingspan/cards/parse/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/power.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/power.py",
+      "target": "function:src/wingspan/cards/parse/power.py:parse_power",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/power.py",
+      "target": "function:src/wingspan/cards/parse/power.py:parse_power",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/registry.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/registry.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/tags.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/tags.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:EffectKind",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:BirdCost",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:Bird",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:BonusCard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:BirdRecord",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:EffectKind",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:BirdCost",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:Bird",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:BonusCard",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/schema.py",
+      "target": "class:src/wingspan/cards/schema.py:BirdRecord",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:Choice",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:Decision",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:SetupChoice",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:AcceptExchangeDecision",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:DecisionFamily",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:Choice",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:Decision",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:SetupChoice",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:AcceptExchangeDecision",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/decisions.py",
+      "target": "class:src/wingspan/decisions.py:DecisionFamily",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "function:src/wingspan/encode/choice_encode.py:encode_choices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "function:src/wingspan/encode/choice_encode.py:_featurize_setup",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "function:src/wingspan/encode/choice_encode.py:_fill_bonus_delta",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "function:src/wingspan/encode/choice_encode.py:_fill_goal_delta",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "function:src/wingspan/encode/choice_encode.py:_fill_board_slots",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/choice_encode.py",
+      "target": "function:src/wingspan/encode/choice_encode.py:encode_choices",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

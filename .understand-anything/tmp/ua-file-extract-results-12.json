@@ -1,0 +1,79 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 4,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "scripts/auto_merge_worktree.sh",
+      "language": "shell",
+      "fileCategory": "script",
+      "totalLines": 139,
+      "nonEmptyLines": 116,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/create_worktree.sh",
+      "language": "shell",
+      "fileCategory": "script",
+      "totalLines": 98,
+      "nonEmptyLines": 79,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/merge_worktree.sh",
+      "language": "shell",
+      "fileCategory": "script",
+      "totalLines": 155,
+      "nonEmptyLines": 132,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/quality_gate.sh",
+      "language": "shell",
+      "fileCategory": "script",
+      "totalLines": 349,
+      "nonEmptyLines": 310,
+      "functions": [
+        {
+          "name": "infra_error",
+          "startLine": 65,
+          "endLine": 72,
+          "params": []
+        },
+        {
+          "name": "usage",
+          "startLine": 76,
+          "endLine": 78,
+          "params": []
+        },
+        {
+          "name": "header",
+          "startLine": 153,
+          "endLine": 159,
+          "params": []
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    }
+  ]
+}

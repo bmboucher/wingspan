@@ -1,0 +1,37 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "tests/test_powers_misc_unique.py", "language": "python", "sizeLines": 85, "fileCategory": "code"},
+    {"path": "tests/test_powers_pink_reactive.py", "language": "python", "sizeLines": 103, "fileCategory": "code"},
+    {"path": "tests/test_powers_tuck_conditional.py", "language": "python", "sizeLines": 68, "fileCategory": "code"},
+    {"path": "tests/test_report_panels.py", "language": "python", "sizeLines": 74, "fileCategory": "code"},
+    {"path": "tests/test_round_goal_coverage.py", "language": "python", "sizeLines": 69, "fileCategory": "code"},
+    {"path": "tests/test_setup_model.py", "language": "python", "sizeLines": 100, "fileCategory": "code"},
+    {"path": "tests/test_setup_self_play.py", "language": "python", "sizeLines": 88, "fileCategory": "code"},
+    {"path": "tests/test_smoke.py", "language": "python", "sizeLines": 66, "fileCategory": "code"},
+    {"path": "tests/test_decision_families.py", "language": "python", "sizeLines": 74, "fileCategory": "code"},
+    {"path": "tests/test_decision_shapes.py", "language": "python", "sizeLines": 81, "fileCategory": "code"},
+    {"path": "tests/test_discard_egg_for_wild.py", "language": "python", "sizeLines": 92, "fileCategory": "code"},
+    {"path": "tests/test_dynamic_bonus_scoring.py", "language": "python", "sizeLines": 80, "fileCategory": "code"},
+    {"path": "tests/test_egg_goal_delta.py", "language": "python", "sizeLines": 95, "fileCategory": "code"},
+    {"path": "tests/test_encode.py", "language": "python", "sizeLines": 138, "fileCategory": "code"},
+    {"path": "tests/test_encode_spec.py", "language": "python", "sizeLines": 88, "fileCategory": "code"}
+  ],
+  "batchImportData": {
+    "tests/test_powers_misc_unique.py": [],
+    "tests/test_powers_pink_reactive.py": [],
+    "tests/test_powers_tuck_conditional.py": [],
+    "tests/test_report_panels.py": [],
+    "tests/test_round_goal_coverage.py": [],
+    "tests/test_setup_model.py": [],
+    "tests/test_setup_self_play.py": [],
+    "tests/test_smoke.py": [],
+    "tests/test_decision_families.py": [],
+    "tests/test_decision_shapes.py": [],
+    "tests/test_discard_egg_for_wild.py": [],
+    "tests/test_dynamic_bonus_scoring.py": [],
+    "tests/test_egg_goal_delta.py": [],
+    "tests/test_encode.py": [],
+    "tests/test_encode_spec.py": []
+  }
+}

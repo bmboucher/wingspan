@@ -1,0 +1,1011 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/__init__.py",
+      "summary": "Top-level package initializer for the wingspan simulator; currently minimal (2 non-empty lines) but marks the root package boundary.",
+      "tags": ["entry-point", "barrel"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/architecture.py",
+      "type": "file",
+      "name": "architecture.py",
+      "filePath": "src/wingspan/architecture.py",
+      "summary": "Defines the canonical neural network topology descriptor `ModelArchitecture` and supporting parameter-counting utilities (`count_parameters`, `ParamReport`) used by `PolicyValueNet` and the HTML report to describe and size every model block.",
+      "tags": ["data-model", "configuration", "utility"],
+      "complexity": "complex",
+      "languageNotes": "Uses Pydantic models (`ModelArchitecture`, `LayerParam`, `BlockParam`, `ParamReport`) for all architecture configuration; `ActivationName` is a `StrEnum`."
+    },
+    {
+      "id": "class:src/wingspan/architecture.py:ModelArchitecture",
+      "type": "class",
+      "name": "ModelArchitecture",
+      "filePath": "src/wingspan/architecture.py",
+      "lineRange": [64, 190],
+      "summary": "Pydantic model that is the single source of truth for all neural network topology hyperparameters — layer widths, activation, dropout, card embedding dim, hand encoder config, and tray set embedding mode.",
+      "tags": ["data-model", "configuration"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/architecture.py:ParamReport",
+      "type": "class",
+      "name": "ParamReport",
+      "filePath": "src/wingspan/architecture.py",
+      "lineRange": [229, 258],
+      "summary": "Aggregates parameter counts broken out by model block (embed, trunk, choice, scorer, value, hand) for display in the HTML architecture report.",
+      "tags": ["data-model", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/architecture.py:count_parameters",
+      "type": "function",
+      "name": "count_parameters",
+      "filePath": "src/wingspan/architecture.py",
+      "lineRange": [261, 319],
+      "summary": "Computes a detailed `ParamReport` by summing parameter counts for each model block given an architecture descriptor and input dimensions.",
+      "tags": ["utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/compat/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/compat/__init__.py",
+      "summary": "Package initializer for the backward-compatibility shim layer; imports from `v0_0` and `v0_1` to expose version-routing helpers at the `compat` namespace level.",
+      "tags": ["entry-point", "barrel"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/compat/v0_0.py",
+      "type": "file",
+      "name": "v0_0.py",
+      "filePath": "src/wingspan/compat/v0_0.py",
+      "summary": "Backward-compatibility shim for artifact version 0.0: provides the legacy choice encoding layout, `PolicyValueNetV00` subclass that uses the old flat choice encoder, and reconstruction helpers that translate old encoded tensors to the current layout.",
+      "tags": ["service", "utility"],
+      "complexity": "complex",
+      "languageNotes": "Reconstructs the old v0.0 choice stripe layout from scratch using private helpers so that old checkpoint tensors can be loaded and adapted to the live model."
+    },
+    {
+      "id": "class:src/wingspan/compat/v0_0.py:PolicyValueNetV00",
+      "type": "class",
+      "name": "PolicyValueNetV00",
+      "filePath": "src/wingspan/compat/v0_0.py",
+      "lineRange": [206, 282],
+      "summary": "Subclass of PolicyValueNet that overrides choice encoding and embedding to use the v0.0 flat encoder layout, enabling old checkpoints to be loaded and evaluated.",
+      "tags": ["service", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/compat/v0_1.py",
+      "type": "file",
+      "name": "v0_1.py",
+      "filePath": "src/wingspan/compat/v0_1.py",
+      "summary": "Backward-compatibility shim for artifact version 0.1: provides the legacy card-feature matrix layout (without current bonus embeddings) and `PolicyValueNetV01` / `SetupNetV01` subclasses that override the card encoder to use the old feature matrix.",
+      "tags": ["service", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/compat/v0_1.py:PolicyValueNetV01",
+      "type": "class",
+      "name": "PolicyValueNetV01",
+      "filePath": "src/wingspan/compat/v0_1.py",
+      "lineRange": [100, 131],
+      "summary": "Overrides `_build_card_encoder` to use the v0.1 card feature matrix (fixed-size feature rows from a pre-computed buffer) rather than the current learned embedding.",
+      "tags": ["service", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/compat/v0_1.py:SetupNetV01",
+      "type": "class",
+      "name": "SetupNetV01",
+      "filePath": "src/wingspan/compat/v0_1.py",
+      "lineRange": [134, 164],
+      "summary": "Mirrors `PolicyValueNetV01` for the setup model: overrides `_build_card_encoder` to register the v0.1 card feature buffers.",
+      "tags": ["service", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/encode/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/encode/__init__.py",
+      "summary": "Package initializer and public API facade for the encoder subsystem; re-exports `encode_state`, `encode_choices`, `card_feature_matrix`, `card_summary_matrix`, `trunk_input_dim`, `choice_input_dim`, `EncodingSpec`, `state_size`, and `choice_feature_dim` from submodules.",
+      "tags": ["entry-point", "barrel"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/encode/layout.py",
+      "type": "file",
+      "name": "layout.py",
+      "filePath": "src/wingspan/encode/layout.py",
+      "summary": "Defines `EncodingSpec` (the selector between main-game and setup encoding) and computes all top-level dimension constants — trunk input, choice input, choice feature, state feature, decision-type, and family counts — that wire together the stripe layout and the neural network input layers.",
+      "tags": ["configuration", "data-model", "utility"],
+      "complexity": "complex",
+      "languageNotes": "Acts as the central dimension registry; downstream modules query `layout.trunk_input_dim`, `layout.choice_feature_dim`, etc. rather than computing dims independently."
+    },
+    {
+      "id": "class:src/wingspan/encode/layout.py:EncodingSpec",
+      "type": "class",
+      "name": "EncodingSpec",
+      "filePath": "src/wingspan/encode/layout.py",
+      "lineRange": [35, 53],
+      "summary": "Pydantic model that selects between game-play encoding and setup-phase encoding, controlling which stripe layouts and dimension constants apply.",
+      "tags": ["data-model", "configuration"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/encode/layout.py:trunk_input_dim",
+      "type": "function",
+      "name": "trunk_input_dim",
+      "filePath": "src/wingspan/encode/layout.py",
+      "lineRange": [463, 509],
+      "summary": "Computes the total trunk input width by summing the state stripe dimension after applying card embedding substitutions, hand encoder output, and tray set embedding widths.",
+      "tags": ["utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/encode/state_encode.py",
+      "type": "file",
+      "name": "state_encode.py",
+      "filePath": "src/wingspan/encode/state_encode.py",
+      "summary": "Converts a `GameState` snapshot into a flat float32 numpy array suitable for neural network input, assembling board slots, food, hand, bonus progress, round goals, birdfeeder, and decision-type stripes.",
+      "tags": ["serialization", "utility"],
+      "complexity": "complex",
+      "languageNotes": "~2381-dim output; `encode_state` is the primary entry point, delegating to ~15 private stripe helpers that each handle one semantic region of the state vector."
+    },
+    {
+      "id": "function:src/wingspan/encode/state_encode.py:encode_state",
+      "type": "function",
+      "name": "encode_state",
+      "filePath": "src/wingspan/encode/state_encode.py",
+      "lineRange": [18, 61],
+      "summary": "Top-level state encoder: assembles all game-state stripes (food, board slots, summaries, bonus progress, birdfeeder, round goals, card indices, decision type) into a single concatenated float32 array.",
+      "tags": ["serialization", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/encode/state_encode.py:card_feature_matrix",
+      "type": "function",
+      "name": "card_feature_matrix",
+      "filePath": "src/wingspan/encode/state_encode.py",
+      "lineRange": [308, 325],
+      "summary": "Builds the static (n_birds × feature_dim) matrix of per-bird attribute vectors, used as the card encoder's input buffer and cached for inference.",
+      "tags": ["utility", "data-model"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/encode/stripes/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/encode/stripes/__init__.py",
+      "summary": "Package barrel for the stripes subpackage; re-exports `StripeDescriptor`, `SubFieldDescriptor`, `VectorLayout`, and the four layout functions from sibling modules.",
+      "tags": ["entry-point", "barrel"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/encode/stripes/card_feature.py",
+      "type": "file",
+      "name": "card_feature.py",
+      "filePath": "src/wingspan/encode/stripes/card_feature.py",
+      "summary": "Produces `VectorLayout` descriptors for the card-feature stripe (all 180 bird attribute sub-fields) and the hand-encoder input stripe, used by the HTML report and the compat shim to document and validate vector shapes.",
+      "tags": ["data-model", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/encode/stripes/choice.py",
+      "type": "file",
+      "name": "choice.py",
+      "filePath": "src/wingspan/encode/stripes/choice.py",
+      "summary": "Defines the complete choice encoding vector layout: `raw_choice_stripe_layout` emits per-decision-class stripes with sub-field descriptors for kind, gain-food, payment, board-target, exchange, bonus/goal deltas, and setup aggregates; `choice_stripe_layout` wraps it with embedding substitution.",
+      "tags": ["data-model", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/encode/stripes/choice.py:raw_choice_stripe_layout",
+      "type": "function",
+      "name": "raw_choice_stripe_layout",
+      "filePath": "src/wingspan/encode/stripes/choice.py",
+      "lineRange": [48, 365],
+      "summary": "Builds the complete per-decision-family choice stripe layout, iterating over all active decision classes and emitting a `StripeDescriptor` with detailed sub-fields for each semantic region of the choice vector.",
+      "tags": ["data-model", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "file",
+      "name": "descriptors.py",
+      "filePath": "src/wingspan/encode/stripes/descriptors.py",
+      "summary": "Defines the three Pydantic descriptor types — `SubFieldDescriptor`, `StripeDescriptor`, and `VectorLayout` — that form the self-documenting layer layout schema used by the HTML report and compat shims.",
+      "tags": ["data-model", "type-definition"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/encode/stripes/descriptors.py:StripeDescriptor",
+      "type": "class",
+      "name": "StripeDescriptor",
+      "filePath": "src/wingspan/encode/stripes/descriptors.py",
+      "lineRange": [53, 80],
+      "summary": "Describes one named stripe within a vector layout, including its byte offset, size, encoding type, value range, and ordered list of sub-fields.",
+      "tags": ["data-model", "type-definition"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/encode/stripes/descriptors.py:VectorLayout",
+      "type": "class",
+      "name": "VectorLayout",
+      "filePath": "src/wingspan/encode/stripes/descriptors.py",
+      "lineRange": [83, 89],
+      "summary": "Container for the full ordered sequence of `StripeDescriptor` objects and the total vector size, representing the complete layout of a state or choice tensor.",
+      "tags": ["data-model", "type-definition"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/encode/stripes/embed_rules.py",
+      "type": "file",
+      "name": "embed_rules.py",
+      "filePath": "src/wingspan/encode/stripes/embed_rules.py",
+      "summary": "Provides `_EmbedRule` descriptor and the four rule-set factory functions (`state_embed_rules`, `setup_embed_rules`, `choice_embed_rules`) plus `embed_layout` which applies rules to a raw `VectorLayout`, replacing card-index stripes with embedding-dimension placeholders for the network's actual input.",
+      "tags": ["data-model", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/encode/stripes/state.py",
+      "type": "file",
+      "name": "state.py",
+      "filePath": "src/wingspan/encode/stripes/state.py",
+      "summary": "Defines `state_stripe_layout`, the authoritative `VectorLayout` descriptor for the full game-state tensor covering food, board slots, board summaries, hand, bonus progress, birdfeeder, misc scalars, round goals, card indices, and decision-type stripes.",
+      "tags": ["data-model", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/encode/stripes/state.py:state_stripe_layout",
+      "type": "function",
+      "name": "state_stripe_layout",
+      "filePath": "src/wingspan/encode/stripes/state.py",
+      "lineRange": [21, 430],
+      "summary": "Constructs the complete annotated state vector layout, assembling ~20+ `StripeDescriptor` entries covering every semantic region of the ~2381-dim state encoding.",
+      "tags": ["data-model", "utility"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/__init__.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/__init__.py",
+      "target": "file:src/wingspan/compat/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/__init__.py",
+      "target": "file:src/wingspan/compat/v0_0.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/__init__.py",
+      "target": "file:src/wingspan/compat/v0_1.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/compat/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/compat/v0_1.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/encode/stripes/card_feature.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/encode/stripes/choice.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/encode/stripes/embed_rules.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/encode/stripes/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/compat/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/encode/stripes/card_feature.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/setup_model/stripes.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/__init__.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/__init__.py",
+      "target": "file:src/wingspan/encode/choice_encode.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/__init__.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/__init__.py",
+      "target": "file:src/wingspan/encode/state_encode.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/encode/stripes/card_feature.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/encode/stripes/choice.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/encode/stripes/embed_rules.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/encode/stripes/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/setup_model/stripes.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "file:src/wingspan/encode/stripes/card_feature.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "file:src/wingspan/encode/stripes/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/__init__.py",
+      "target": "file:src/wingspan/encode/stripes/card_feature.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/__init__.py",
+      "target": "file:src/wingspan/encode/stripes/choice.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/__init__.py",
+      "target": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/__init__.py",
+      "target": "file:src/wingspan/encode/stripes/embed_rules.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/__init__.py",
+      "target": "file:src/wingspan/encode/stripes/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/card_feature.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/card_feature.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/card_feature.py",
+      "target": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/card_feature.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/choice.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/choice.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/choice.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/choice.py",
+      "target": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/choice.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/descriptors.py",
+      "target": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/embed_rules.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/embed_rules.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/embed_rules.py",
+      "target": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/embed_rules.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/state.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/state.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/state.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/state.py",
+      "target": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/state.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/architecture.py",
+      "target": "class:src/wingspan/architecture.py:ModelArchitecture",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/architecture.py",
+      "target": "class:src/wingspan/architecture.py:ParamReport",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/architecture.py",
+      "target": "function:src/wingspan/architecture.py:count_parameters",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/architecture.py",
+      "target": "class:src/wingspan/architecture.py:ModelArchitecture",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/architecture.py",
+      "target": "class:src/wingspan/architecture.py:ParamReport",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/architecture.py",
+      "target": "function:src/wingspan/architecture.py:count_parameters",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "class:src/wingspan/compat/v0_0.py:PolicyValueNetV00",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_0.py",
+      "target": "class:src/wingspan/compat/v0_0.py:PolicyValueNetV00",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "class:src/wingspan/compat/v0_1.py:PolicyValueNetV01",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "class:src/wingspan/compat/v0_1.py:SetupNetV01",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "class:src/wingspan/compat/v0_1.py:PolicyValueNetV01",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/compat/v0_1.py",
+      "target": "class:src/wingspan/compat/v0_1.py:SetupNetV01",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "class:src/wingspan/encode/layout.py:EncodingSpec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "function:src/wingspan/encode/layout.py:trunk_input_dim",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "class:src/wingspan/encode/layout.py:EncodingSpec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/layout.py",
+      "target": "function:src/wingspan/encode/layout.py:trunk_input_dim",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "function:src/wingspan/encode/state_encode.py:encode_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "function:src/wingspan/encode/state_encode.py:card_feature_matrix",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "function:src/wingspan/encode/state_encode.py:encode_state",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/state_encode.py",
+      "target": "function:src/wingspan/encode/state_encode.py:card_feature_matrix",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/choice.py",
+      "target": "function:src/wingspan/encode/stripes/choice.py:raw_choice_stripe_layout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/choice.py",
+      "target": "function:src/wingspan/encode/stripes/choice.py:raw_choice_stripe_layout",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/descriptors.py",
+      "target": "class:src/wingspan/encode/stripes/descriptors.py:StripeDescriptor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/descriptors.py",
+      "target": "class:src/wingspan/encode/stripes/descriptors.py:VectorLayout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/descriptors.py",
+      "target": "class:src/wingspan/encode/stripes/descriptors.py:StripeDescriptor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/descriptors.py",
+      "target": "class:src/wingspan/encode/stripes/descriptors.py:VectorLayout",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/state.py",
+      "target": "function:src/wingspan/encode/stripes/state.py:state_stripe_layout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/encode/stripes/state.py",
+      "target": "function:src/wingspan/encode/stripes/state.py:state_stripe_layout",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/wingspan/compat/v0_0.py:PolicyValueNetV00",
+      "target": "class:src/wingspan/model/core.py:PolicyValueNet",
+      "type": "inherits",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "class:src/wingspan/compat/v0_1.py:PolicyValueNetV01",
+      "target": "class:src/wingspan/model/core.py:PolicyValueNet",
+      "type": "inherits",
+      "direction": "forward",
+      "weight": 0.9
+    }
+  ]
+}

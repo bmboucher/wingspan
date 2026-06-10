@@ -1,0 +1,181 @@
+{
+  "nodes": [
+    {
+      "id": "document:deploy/README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "deploy/README.md",
+      "summary": "Comprehensive guide (6 sections) for running Wingspan self-play training unattended in a container: describes the cloud architecture (S3-persisted, Spot-interruptible), image build steps, local smoke-test instructions, ECS Fargate Spot launch procedure, and the live monitoring command.",
+      "tags": ["documentation", "deployment", "infrastructure", "ci-cd", "cloud"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "config:deploy/ecs-task-def.json",
+      "type": "config",
+      "name": "ecs-task-def.json",
+      "filePath": "deploy/ecs-task-def.json",
+      "summary": "Standalone AWS ECS Fargate task definition for the wingspan-trainer container: allocates 2 vCPU / 8 GB, wires execution and task IAM roles, routes logs to CloudWatch under /wingspan/trainer, and sets a 120-second stop timeout for graceful Spot-reclaim handling.",
+      "tags": ["configuration", "deployment", "infrastructure", "containerization"],
+      "complexity": "simple",
+      "languageNotes": "Template file — three placeholders (<ACCOUNT>, <REGION>) must be substituted before registering; designed as a Terraform-free alternative to main.tf for registering the task definition via the AWS CLI."
+    },
+    {
+      "id": "resource:deploy/main.tf",
+      "type": "resource",
+      "name": "main.tf",
+      "filePath": "deploy/main.tf",
+      "summary": "Terraform configuration that provisions the full durable AWS infrastructure for cloud training: an S3 bucket for run persistence, an ECS cluster with Fargate Spot as the default capacity provider, IAM execution and task roles scoped to the bucket prefix, a CloudWatch log group, and the ECS task definition for the trainer container.",
+      "tags": ["infrastructure", "deployment", "configuration", "cloud"],
+      "complexity": "complex",
+      "languageNotes": "Outputs cluster name, task family, and bucket name for scripted follow-on commands. The task definition's `command` is intentionally omitted so the per-run S3 config URI can be injected via `run-task --overrides` without re-registering the task definition."
+    },
+    {
+      "id": "resource:deploy/main.tf:aws_s3_bucket.runs",
+      "type": "resource",
+      "name": "aws_s3_bucket.runs",
+      "filePath": "deploy/main.tf",
+      "summary": "S3 bucket that stores all training run artifacts: checkpoints, metrics, game logs, and status files, keyed under a configurable prefix.",
+      "tags": ["infrastructure", "deployment", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "resource:deploy/main.tf:aws_ecs_cluster.wingspan",
+      "type": "resource",
+      "name": "aws_ecs_cluster.wingspan",
+      "filePath": "deploy/main.tf",
+      "summary": "ECS cluster named 'wingspan' that hosts trainer tasks, configured to prefer Fargate Spot capacity for cost-efficient preemptible training.",
+      "tags": ["infrastructure", "deployment", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "resource:deploy/main.tf:aws_ecs_task_definition.trainer",
+      "type": "resource",
+      "name": "aws_ecs_task_definition.trainer",
+      "filePath": "deploy/main.tf",
+      "summary": "Fargate task definition for the wingspan-trainer container: 2 vCPU / 8 GB, awsvpc networking, 120-second stop timeout, CloudWatch log driver, wired to execution and task IAM roles.",
+      "tags": ["infrastructure", "deployment", "containerization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "resource:deploy/main.tf:aws_iam_role.task",
+      "type": "resource",
+      "name": "aws_iam_role.task",
+      "filePath": "deploy/main.tf",
+      "summary": "IAM role assumed by the running trainer container, granting scoped S3 GetObject, PutObject, and ListBucket permissions on the runs bucket.",
+      "tags": ["infrastructure", "security", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "resource:deploy/main.tf:aws_iam_role.task_execution",
+      "type": "resource",
+      "name": "aws_iam_role.task_execution",
+      "filePath": "deploy/main.tf",
+      "summary": "ECS task execution IAM role granting Fargate the AmazonECSTaskExecutionRolePolicy permissions needed to pull the container image from ECR and ship logs to CloudWatch.",
+      "tags": ["infrastructure", "security", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:deploy/run.example.yaml",
+      "type": "config",
+      "name": "run.example.yaml",
+      "filePath": "deploy/run.example.yaml",
+      "summary": "Example cloud training run-file that configures a single named experiment: S3 bucket/prefix/region for persistence, sync cadences (status heartbeat, checkpoint upload, game-log chunking), and a full TrainConfig block with hyperparameters for a 5000-iteration self-play run.",
+      "tags": ["configuration", "deployment", "infrastructure"],
+      "complexity": "moderate",
+      "languageNotes": "The `train` block maps 1:1 onto wingspan.training.config.TrainConfig; omitted fields use TrainConfig defaults. No credentials are embedded — authentication is delegated to the AWS standard chain (IAM task role on Fargate, ~/.aws locally)."
+    }
+  ],
+  "edges": [
+    {
+      "source": "document:deploy/README.md",
+      "target": "resource:deploy/main.tf",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:deploy/README.md",
+      "target": "config:deploy/ecs-task-def.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:deploy/README.md",
+      "target": "config:deploy/run.example.yaml",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "resource:deploy/main.tf",
+      "target": "resource:deploy/main.tf:aws_s3_bucket.runs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "resource:deploy/main.tf",
+      "target": "resource:deploy/main.tf:aws_ecs_cluster.wingspan",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "resource:deploy/main.tf",
+      "target": "resource:deploy/main.tf:aws_ecs_task_definition.trainer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "resource:deploy/main.tf",
+      "target": "resource:deploy/main.tf:aws_iam_role.task",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "resource:deploy/main.tf",
+      "target": "resource:deploy/main.tf:aws_iam_role.task_execution",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "resource:deploy/main.tf:aws_ecs_task_definition.trainer",
+      "target": "resource:deploy/main.tf:aws_s3_bucket.runs",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "resource:deploy/main.tf:aws_ecs_task_definition.trainer",
+      "target": "resource:deploy/main.tf:aws_iam_role.task",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "resource:deploy/main.tf:aws_ecs_task_definition.trainer",
+      "target": "resource:deploy/main.tf:aws_iam_role.task_execution",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:deploy/ecs-task-def.json",
+      "target": "resource:deploy/main.tf:aws_ecs_cluster.wingspan",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "config:deploy/run.example.yaml",
+      "target": "resource:deploy/main.tf:aws_s3_bucket.runs",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

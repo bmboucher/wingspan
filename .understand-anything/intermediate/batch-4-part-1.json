@@ -1,0 +1,1018 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/training/charts/insets.py",
+      "type": "file",
+      "name": "insets.py",
+      "filePath": "src/wingspan/training/charts/insets.py",
+      "summary": "Renders rich text inset and strip widgets for the training dashboard, displaying eval and collect phase metrics (win-rate EWMA, margin, game counts) as formatted terminal panels.",
+      "tags": ["component", "utility", "training", "visualization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/insets.py:eval_inset",
+      "type": "function",
+      "name": "eval_inset",
+      "filePath": "src/wingspan/training/charts/insets.py",
+      "lineRange": [14, 67],
+      "summary": "Builds a multi-section rich text inset panel summarizing the latest eval result including win rate, opponent, score margins, and timing.",
+      "tags": ["component", "visualization", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/insets.py:collect_inset",
+      "type": "function",
+      "name": "collect_inset",
+      "filePath": "src/wingspan/training/charts/insets.py",
+      "lineRange": [189, 235],
+      "summary": "Builds a rich text inset panel for the collection phase, showing win-rate EWMA, score margin stats, and game count details.",
+      "tags": ["component", "visualization", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/insets.py:eval_strip",
+      "type": "function",
+      "name": "eval_strip",
+      "filePath": "src/wingspan/training/charts/insets.py",
+      "lineRange": [165, 186],
+      "summary": "Renders a compact single-line strip showing the latest eval win percentage and iteration for use in compact dashboard layouts.",
+      "tags": ["component", "visualization", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/insets.py:collect_strip",
+      "type": "function",
+      "name": "collect_strip",
+      "filePath": "src/wingspan/training/charts/insets.py",
+      "lineRange": [238, 261],
+      "summary": "Renders a compact single-line strip for the collect phase showing win rate and margin EMWAs.",
+      "tags": ["component", "visualization", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/training/charts/text_helpers.py",
+      "type": "file",
+      "name": "text_helpers.py",
+      "filePath": "src/wingspan/training/charts/text_helpers.py",
+      "summary": "Provides low-level text rendering utilities for terminal chart components: Unicode sparkline generation, eighth-block bar rendering, human-readable number formatting, and multi-column layout joining.",
+      "tags": ["utility", "visualization", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/text_helpers.py:sparkline",
+      "type": "function",
+      "name": "sparkline",
+      "filePath": "src/wingspan/training/charts/text_helpers.py",
+      "lineRange": [19, 32],
+      "summary": "Converts a list of float values into a Unicode sparkline string using block characters, scaled to the given width.",
+      "tags": ["utility", "visualization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/text_helpers.py:eighth_bar",
+      "type": "function",
+      "name": "eighth_bar",
+      "filePath": "src/wingspan/training/charts/text_helpers.py",
+      "lineRange": [35, 49],
+      "summary": "Renders a fractional progress bar using Unicode eighth-block characters for sub-cell precision.",
+      "tags": ["utility", "visualization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/charts/text_helpers.py:join_columns",
+      "type": "function",
+      "name": "join_columns",
+      "filePath": "src/wingspan/training/charts/text_helpers.py",
+      "lineRange": [62, 84],
+      "summary": "Horizontally joins multiple lists of Rich Text rows into a single column-aligned output, padding shorter columns to equal height.",
+      "tags": ["utility", "visualization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/training/configure/arch_diagram.py",
+      "type": "file",
+      "name": "arch_diagram.py",
+      "filePath": "src/wingspan/training/configure/arch_diagram.py",
+      "summary": "Renders an interactive and static terminal architecture diagram of the PolicyValueNet and SetupNet, showing layer shapes, parameter counts, and data flow using Rich Text box-drawing primitives.",
+      "tags": ["visualization", "component", "service", "training"],
+      "complexity": "complex",
+      "languageNotes": "This is an unusually large rendering module (1321 lines) built entirely from Rich Text primitives — no external diagram library. The ArchitectureDiagram class implements __rich_console__ for Live display integration."
+    },
+    {
+      "id": "class:src/wingspan/training/configure/arch_diagram.py:ArchitectureDiagram",
+      "type": "class",
+      "name": "ArchitectureDiagram",
+      "filePath": "src/wingspan/training/configure/arch_diagram.py",
+      "lineRange": [180, 205],
+      "summary": "Rich renderable class that implements __rich_console__ to output a scrollable, interactive terminal architecture diagram for the PolicyValueNet.",
+      "tags": ["component", "visualization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/configure/arch_diagram.py:render_static",
+      "type": "function",
+      "name": "render_static",
+      "filePath": "src/wingspan/training/configure/arch_diagram.py",
+      "lineRange": [1259, 1321],
+      "summary": "Constructs a _StaticConfig and _StaticView from raw architecture parameters and returns the full list of diagram rows for non-interactive (static) rendering.",
+      "tags": ["visualization", "component"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/convergence.py",
+      "type": "file",
+      "name": "convergence.py",
+      "filePath": "src/wingspan/training/convergence.py",
+      "summary": "Computes EWMA series and axis ranges for training convergence charts, including win-rate, score, and margin curves with regime-aware data point handling.",
+      "tags": ["utility", "training", "visualization", "data-model"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/convergence.py:winrate_ewma_points",
+      "type": "function",
+      "name": "winrate_ewma_points",
+      "filePath": "src/wingspan/training/convergence.py",
+      "lineRange": [96, 128],
+      "summary": "Computes exponential moving average win-rate data points across training history, handling training regime transitions as separate EWMA series.",
+      "tags": ["utility", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/convergence.py:margin_ewma_points",
+      "type": "function",
+      "name": "margin_ewma_points",
+      "filePath": "src/wingspan/training/convergence.py",
+      "lineRange": [166, 196],
+      "summary": "Computes EWMA data points for score margin history, handling regime transitions by splitting series at regime change boundaries.",
+      "tags": ["utility", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/convergence.py:setup_transition_iterations",
+      "type": "function",
+      "name": "setup_transition_iterations",
+      "filePath": "src/wingspan/training/convergence.py",
+      "lineRange": [79, 93],
+      "summary": "Identifies the training iteration indices at which the setup model phase transitioned, used to annotate convergence charts.",
+      "tags": ["utility", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/dashboard.py",
+      "type": "file",
+      "name": "dashboard.py",
+      "filePath": "src/wingspan/training/dashboard.py",
+      "summary": "Implements the real-time terminal training dashboard using Rich layouts, rendering header stats, production metrics, learning charts, health indicators, and a pause/command panel.",
+      "tags": ["component", "visualization", "training", "monitoring"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/dashboard.py:build_layout",
+      "type": "function",
+      "name": "build_layout",
+      "filePath": "src/wingspan/training/dashboard.py",
+      "lineRange": [46, 67],
+      "summary": "Constructs and returns the Rich Layout tree defining the training dashboard panels (header, produce, learning, headline, health, timer, events).",
+      "tags": ["component", "visualization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/dashboard.py:render",
+      "type": "function",
+      "name": "render",
+      "filePath": "src/wingspan/training/dashboard.py",
+      "lineRange": [70, 83],
+      "summary": "Updates all layout panels in a single frame render, dispatching to each section's rendering function with the current RunState.",
+      "tags": ["component", "visualization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/dashboard.py:_health_rows",
+      "type": "function",
+      "name": "_health_rows",
+      "filePath": "src/wingspan/training/dashboard.py",
+      "lineRange": [506, 550],
+      "summary": "Generates Rich text rows for the health panel by computing learning health metrics (loss, gradient, entropy) and performance stats.",
+      "tags": ["component", "visualization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/dashboard.py:_pause_panel",
+      "type": "function",
+      "name": "_pause_panel",
+      "filePath": "src/wingspan/training/dashboard.py",
+      "lineRange": [756, 811],
+      "summary": "Renders the interactive pause/command panel that displays key bindings, current command input buffer, and recent game statistics while the loop is paused.",
+      "tags": ["component", "visualization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/loop.py",
+      "type": "file",
+      "name": "loop.py",
+      "filePath": "src/wingspan/training/loop.py",
+      "summary": "Defines the TrainingLoop class orchestrating the RL self-play training cycle: game collection, model updates, evaluation, checkpointing, and system monitoring across all training phases.",
+      "tags": ["service", "training", "entry-point"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/training/loop.py:TrainingLoop",
+      "type": "class",
+      "name": "TrainingLoop",
+      "filePath": "src/wingspan/training/loop.py",
+      "lineRange": [68, 327],
+      "summary": "Main training loop controller that initializes network, optimizer, learner, and collectors, then drives the iteration loop with setup phase management, self-play collection, weight updates, evaluation, and checkpointing.",
+      "tags": ["service", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/loop_checkpoint.py",
+      "type": "file",
+      "name": "loop_checkpoint.py",
+      "filePath": "src/wingspan/training/loop_checkpoint.py",
+      "summary": "Handles iteration-level checkpointing and artifact persistence: saving model weights, game history logs, metrics, and writing final run summaries to disk atomically.",
+      "tags": ["service", "training", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_checkpoint.py:commit_iteration",
+      "type": "function",
+      "name": "commit_iteration",
+      "filePath": "src/wingspan/training/loop_checkpoint.py",
+      "lineRange": [41, 93],
+      "summary": "Commits all per-iteration artifacts (metrics, history, optional checkpoint) and updates run state progress after each training iteration.",
+      "tags": ["training", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_checkpoint.py:checkpoint",
+      "type": "function",
+      "name": "checkpoint",
+      "filePath": "src/wingspan/training/loop_checkpoint.py",
+      "lineRange": [96, 160],
+      "summary": "Writes a full checkpoint bundle including model weights, run state, metrics history, and HTML summary to the checkpoint directory.",
+      "tags": ["training", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/loop_eval.py",
+      "type": "file",
+      "name": "loop_eval.py",
+      "filePath": "src/wingspan/training/loop_eval.py",
+      "summary": "Manages periodic evaluation against a frozen opponent, opponent promotion logic (graduation from random phase, advancing to stronger opponent snapshots), and eval result recording.",
+      "tags": ["service", "training", "evaluation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_eval.py:maybe_evaluate",
+      "type": "function",
+      "name": "maybe_evaluate",
+      "filePath": "src/wingspan/training/loop_eval.py",
+      "lineRange": [32, 83],
+      "summary": "Checks whether an eval is due, runs evaluate_vs_opponent against the current frozen opponent, and records the results into run state and the eval history log.",
+      "tags": ["training", "evaluation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_eval.py:maybe_advance_opponent",
+      "type": "function",
+      "name": "maybe_advance_opponent",
+      "filePath": "src/wingspan/training/loop_eval.py",
+      "lineRange": [135, 194],
+      "summary": "Promotes the frozen opponent to the most recent checkpoint when win rate exceeds the advancement threshold, loading the new opponent and recording the transition event.",
+      "tags": ["training", "evaluation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/loop_resume.py",
+      "type": "file",
+      "name": "loop_resume.py",
+      "filePath": "src/wingspan/training/loop_resume.py",
+      "summary": "Handles training run resumption from checkpoints: loading saved weights and optimizer state, initializing phase, target, and history logs for fresh or resumed runs.",
+      "tags": ["service", "training", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_resume.py:maybe_resume",
+      "type": "function",
+      "name": "maybe_resume",
+      "filePath": "src/wingspan/training/loop_resume.py",
+      "lineRange": [35, 82],
+      "summary": "Loads a saved checkpoint if one exists and is architecture-compatible, restoring network weights, optimizer state, and run progress.",
+      "tags": ["training", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_resume.py:write_run_metadata",
+      "type": "function",
+      "name": "write_run_metadata",
+      "filePath": "src/wingspan/training/loop_resume.py",
+      "lineRange": [139, 170],
+      "summary": "Writes model config JSON, session record, and inspect report to disk at run start, capturing architecture and encoding parameters for the run.",
+      "tags": ["training", "serialization"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "function:src/wingspan/training/charts/insets.py:eval_inset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "function:src/wingspan/training/charts/insets.py:eval_inset",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "function:src/wingspan/training/charts/insets.py:collect_inset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "function:src/wingspan/training/charts/insets.py:collect_inset",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "function:src/wingspan/training/charts/insets.py:eval_strip",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "function:src/wingspan/training/charts/insets.py:eval_strip",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "function:src/wingspan/training/charts/insets.py:collect_strip",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "function:src/wingspan/training/charts/insets.py:collect_strip",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "file:src/wingspan/training/charts/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "file:src/wingspan/training/charts/geometry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/insets.py",
+      "target": "file:src/wingspan/training/theme.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/charts/text_helpers.py",
+      "target": "function:src/wingspan/training/charts/text_helpers.py:sparkline",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/text_helpers.py",
+      "target": "function:src/wingspan/training/charts/text_helpers.py:sparkline",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/text_helpers.py",
+      "target": "function:src/wingspan/training/charts/text_helpers.py:eighth_bar",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/text_helpers.py",
+      "target": "function:src/wingspan/training/charts/text_helpers.py:eighth_bar",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/charts/text_helpers.py",
+      "target": "function:src/wingspan/training/charts/text_helpers.py:join_columns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/charts/text_helpers.py",
+      "target": "function:src/wingspan/training/charts/text_helpers.py:join_columns",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "class:src/wingspan/training/configure/arch_diagram.py:ArchitectureDiagram",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "class:src/wingspan/training/configure/arch_diagram.py:ArchitectureDiagram",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "function:src/wingspan/training/configure/arch_diagram.py:render_static",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "function:src/wingspan/training/configure/arch_diagram.py:render_static",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/configure/arch_diagram.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "function:src/wingspan/training/convergence.py:winrate_ewma_points",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "function:src/wingspan/training/convergence.py:winrate_ewma_points",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "function:src/wingspan/training/convergence.py:margin_ewma_points",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "function:src/wingspan/training/convergence.py:margin_ewma_points",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "function:src/wingspan/training/convergence.py:setup_transition_iterations",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "function:src/wingspan/training/convergence.py:setup_transition_iterations",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/convergence.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "function:src/wingspan/training/dashboard.py:build_layout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "function:src/wingspan/training/dashboard.py:build_layout",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "function:src/wingspan/training/dashboard.py:render",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "function:src/wingspan/training/dashboard.py:render",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "function:src/wingspan/training/dashboard.py:_health_rows",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "function:src/wingspan/training/dashboard.py:_pause_panel",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "file:src/wingspan/training/charts/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "file:src/wingspan/training/configure/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/dashboard.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "class:src/wingspan/training/loop.py:TrainingLoop",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "class:src/wingspan/training/loop.py:TrainingLoop",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/loop_checkpoint.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/loop_collect.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/loop_eval.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/loop_metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/loop_target.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "function:src/wingspan/training/loop_checkpoint.py:commit_iteration",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "function:src/wingspan/training/loop_checkpoint.py:commit_iteration",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "function:src/wingspan/training/loop_checkpoint.py:checkpoint",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "function:src/wingspan/training/loop_checkpoint.py:checkpoint",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_checkpoint.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "function:src/wingspan/training/loop_eval.py:maybe_evaluate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "function:src/wingspan/training/loop_eval.py:maybe_evaluate",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "function:src/wingspan/training/loop_eval.py:maybe_advance_opponent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "function:src/wingspan/training/loop_eval.py:maybe_advance_opponent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "file:src/wingspan/training/evaluate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "function:src/wingspan/training/loop_resume.py:maybe_resume",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "function:src/wingspan/training/loop_resume.py:maybe_resume",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "function:src/wingspan/training/loop_resume.py:write_run_metadata",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "function:src/wingspan/training/loop_resume.py:write_run_metadata",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_resume.py",
+      "target": "file:src/wingspan/training/setup_net.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    }
+  ]
+}

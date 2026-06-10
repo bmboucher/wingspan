@@ -1,0 +1,930 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/model/core.py",
+      "type": "file",
+      "name": "core.py",
+      "filePath": "src/wingspan/model/core.py",
+      "summary": "Defines `PolicyValueNet`, the primary PyTorch model for gameplay: builds a card encoder, optional hand encoder, state trunk, per-family choice scorer, and value head from a `ModelArchitecture` config; exposes `encode_state`, `encode_choices`, and `forward` for the training/inference pipeline.",
+      "tags": ["service", "data-model"],
+      "complexity": "complex",
+      "languageNotes": "Card encoder runs in eval mode during training (frozen weights); a cached `card_table()` matrix is invalidated on train/eval mode switch. Compat shims subclass this to override `_build_card_encoder` or `encode_choices`."
+    },
+    {
+      "id": "class:src/wingspan/model/core.py:PolicyValueNet",
+      "type": "class",
+      "name": "PolicyValueNet",
+      "filePath": "src/wingspan/model/core.py",
+      "lineRange": [45, 515],
+      "summary": "Main actor-critic network: encodes game state through a card encoder + trunk, encodes each choice through a choice encoder, then scores per decision-family logits and a scalar value estimate.",
+      "tags": ["service", "data-model"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/model/hand_model.py",
+      "type": "file",
+      "name": "hand_model.py",
+      "filePath": "src/wingspan/model/hand_model.py",
+      "summary": "Provides four tensor-manipulation helpers (`multihot_from_indices`, `set_summary_from_indices`, `set_summary_from_multihot`, `embed_card_set`) for converting card index tensors into multi-hot or summary-row representations fed into the hand encoder.",
+      "tags": ["utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/model/mlp.py",
+      "type": "file",
+      "name": "mlp.py",
+      "filePath": "src/wingspan/model/mlp.py",
+      "summary": "Provides `build_body` and `build_readout` factory functions that construct `nn.Sequential` MLP blocks from layer width lists, activation, dropout, and LayerNorm settings, used by all neural network components in the project.",
+      "tags": ["utility", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/model/mlp.py:build_body",
+      "type": "function",
+      "name": "build_body",
+      "filePath": "src/wingspan/model/mlp.py",
+      "lineRange": [33, 63],
+      "summary": "Constructs a multi-layer perceptron body as `nn.Sequential`, supporting configurable activation (via `ActivationName`), optional LayerNorm, and optional dropout between layers.",
+      "tags": ["utility", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/reporting/html.py",
+      "type": "file",
+      "name": "html.py",
+      "filePath": "src/wingspan/reporting/html.py",
+      "summary": "Generates a self-contained HTML architecture report page from the model's encoding layouts, architecture config, and parameter count report, including stripe tables, architecture diagram (embedded SVG), and parameter breakdown.",
+      "tags": ["utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/reporting/html.py:generate_html_report",
+      "type": "function",
+      "name": "generate_html_report",
+      "filePath": "src/wingspan/reporting/html.py",
+      "lineRange": [198, 302],
+      "summary": "Entry point for HTML report generation: assembles architecture section (SVG diagram), state/choice vector sections (stripe tables), card-feature and hand-encoder sections, and parameter breakdown into a full HTML page.",
+      "tags": ["utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/reporting/svg.py",
+      "type": "file",
+      "name": "svg.py",
+      "filePath": "src/wingspan/reporting/svg.py",
+      "summary": "Renders the neural-network architecture as an inline SVG diagram with labeled blocks, op rows (Linear/LayerNorm/Activation/Dropout), IO boxes, connector bands between rows, and parameter count badges; entry point is `build_arch_svg`.",
+      "tags": ["utility"],
+      "complexity": "complex",
+      "languageNotes": "Entirely string-template based SVG generation with no external SVG library; uses private Pydantic models (`_Unit`, `_Conn`, `_Geom`, `_OpRow`) to describe the diagram geometry before rendering."
+    },
+    {
+      "id": "function:src/wingspan/reporting/svg.py:build_arch_svg",
+      "type": "function",
+      "name": "build_arch_svg",
+      "filePath": "src/wingspan/reporting/svg.py",
+      "lineRange": [151, 216],
+      "summary": "Top-level SVG builder: assembles architecture units, resolves geometry, draws units and connectors, and concatenates all SVG fragments into the final inline string.",
+      "tags": ["utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/setup_model/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/setup_model/__init__.py",
+      "summary": "Package initializer and public API barrel for the setup model subsystem; re-exports `SetupEncoding`, `SetupArchitecture`, `setup_readout_input_dim`, `count_setup_parameters`, `SetupNet`, `generate`, and `record` from submodules.",
+      "tags": ["entry-point", "barrel"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/setup_model/architecture.py",
+      "type": "file",
+      "name": "architecture.py",
+      "filePath": "src/wingspan/setup_model/architecture.py",
+      "summary": "Defines `SetupEncoding` (the feature vector structure for game-setup candidates) and `SetupArchitecture` (the neural network config for the setup net), plus `count_setup_parameters` for parameter reporting.",
+      "tags": ["data-model", "configuration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/setup_model/architecture.py:SetupEncoding",
+      "type": "class",
+      "name": "SetupEncoding",
+      "filePath": "src/wingspan/setup_model/architecture.py",
+      "lineRange": [49, 121],
+      "summary": "Pydantic model that describes the dimensionality and layout of the setup-phase candidate feature vector, with properties computing offsets and sizes for each semantic region (kept cards, food, tray, feeder, goals, bonus values).",
+      "tags": ["data-model", "configuration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/setup_model/architecture.py:SetupArchitecture",
+      "type": "class",
+      "name": "SetupArchitecture",
+      "filePath": "src/wingspan/setup_model/architecture.py",
+      "lineRange": [130, 162],
+      "summary": "Pydantic model for setup network hyperparameters: hidden layer widths, activation function, dropout, and whether to use a policy head (actor-critic mode).",
+      "tags": ["data-model", "configuration"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/setup_model/candidates.py",
+      "type": "file",
+      "name": "candidates.py",
+      "filePath": "src/wingspan/setup_model/candidates.py",
+      "summary": "Defines `SetupCandidate` (the typed representation of one possible initial-setup selection) and `enumerate_setup_candidates` / `select_by_margins` for generating and sampling from the combinatorial space of card+food+bonus choices.",
+      "tags": ["data-model", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/setup_model/candidates.py:SetupCandidate",
+      "type": "class",
+      "name": "SetupCandidate",
+      "filePath": "src/wingspan/setup_model/candidates.py",
+      "lineRange": [26, 56],
+      "summary": "Pydantic model representing one candidate initial setup: which bird cards to keep, which food tokens to take, and which bonus card to select.",
+      "tags": ["data-model"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/setup_model/encode.py",
+      "type": "file",
+      "name": "encode.py",
+      "filePath": "src/wingspan/setup_model/encode.py",
+      "summary": "Converts a `SetupCandidate` and game context into a fixed-length float32 feature vector for the setup net, encoding kept cards, food, bonus affinity, tray indices, birdfeeder state, and round-goal affinity stripes.",
+      "tags": ["serialization", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/setup_model/encode.py:SetupContext",
+      "type": "class",
+      "name": "SetupContext",
+      "filePath": "src/wingspan/setup_model/encode.py",
+      "lineRange": [100, 142],
+      "summary": "Snapshot of the shared game context needed to encode a setup candidate: tray birds, birdfeeder counts, round goal categories, and dealt bonus cards.",
+      "tags": ["data-model"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/setup_model/encode.py:encode_setup_candidate",
+      "type": "function",
+      "name": "encode_setup_candidate",
+      "filePath": "src/wingspan/setup_model/encode.py",
+      "lineRange": [145, 229],
+      "summary": "Fills a zero-initialized float32 array with the encoded representation of a setup candidate, writing kept-card indices, food counts, bonus block, tray indices, birdfeeder, round goals, bonus values, and goal affinity.",
+      "tags": ["serialization", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/setup_model/generate.py",
+      "type": "file",
+      "name": "generate.py",
+      "filePath": "src/wingspan/setup_model/generate.py",
+      "summary": "Provides `RandomSetupGenerator`, which samples training-data setup instances by randomly dealing and selecting initial cards and food, using softmax-weighted sampling to create realistic and diverse training data.",
+      "tags": ["utility", "factory"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/setup_model/generate.py:RandomSetupGenerator",
+      "type": "class",
+      "name": "RandomSetupGenerator",
+      "filePath": "src/wingspan/setup_model/generate.py",
+      "lineRange": [44, 181],
+      "summary": "Generates randomized setup instances for training data collection, dealing cards and food at random, scoring food options via bird compatibility, and sampling diverse candidate selections.",
+      "tags": ["utility", "factory"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/setup_model/record.py",
+      "type": "file",
+      "name": "record.py",
+      "filePath": "src/wingspan/setup_model/record.py",
+      "summary": "Provides `SetupSample` (training record with features, margin, and candidate array) and `SetupDataStore` (append-only JSONL file store with iteration, count, and clear operations) for setup model training data persistence.",
+      "tags": ["data-model", "service"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/setup_model/record.py:SetupDataStore",
+      "type": "class",
+      "name": "SetupDataStore",
+      "filePath": "src/wingspan/setup_model/record.py",
+      "lineRange": [61, 126],
+      "summary": "Append-only JSONL file store for setup training samples, supporting iteration, sample count, and file-level clearing; serializes `_SetupRow` records via Pydantic's `model_dump_json`.",
+      "tags": ["service", "data-model"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/setup_model/stripes.py",
+      "type": "file",
+      "name": "stripes.py",
+      "filePath": "src/wingspan/setup_model/stripes.py",
+      "summary": "Produces annotated `VectorLayout` descriptors for the setup candidate input vector (`setup_stripe_layout`) and the setup-net readout input after embedding substitution (`setup_readout_stripe_layout`), mirroring the structure of `encode/stripes/state.py` for the setup domain.",
+      "tags": ["data-model", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/setup_learner.py",
+      "type": "file",
+      "name": "setup_learner.py",
+      "filePath": "src/wingspan/training/setup_learner.py",
+      "summary": "Implements offline (batch-MSE) and online (per-game actor-critic) training update functions for the setup net: `offline_fit` trains from a stored JSONL dataset, `online_update` from a live sample list, and `actor_critic_update` runs a policy-gradient + value loss update over grouped samples.",
+      "tags": ["service", "utility"],
+      "complexity": "complex",
+      "languageNotes": "Actor-critic mode groups samples by iteration key and computes a combined policy (log-softmax) + value (MSE) loss per group; gradient clipping is applied after each backward pass."
+    },
+    {
+      "id": "function:src/wingspan/training/setup_learner.py:actor_critic_update",
+      "type": "function",
+      "name": "actor_critic_update",
+      "filePath": "src/wingspan/training/setup_learner.py",
+      "lineRange": [78, 151],
+      "summary": "Performs a single actor-critic gradient update on the setup net: groups samples by iteration, computes policy+value loss per group via `_ac_group_loss`, clips gradients, and returns `SetupUpdateStats`.",
+      "tags": ["service", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/setup_net.py",
+      "type": "file",
+      "name": "setup_net.py",
+      "filePath": "src/wingspan/training/setup_net.py",
+      "summary": "Defines `SetupNet`, the PyTorch model for predicting setup quality margins: builds a frozen card encoder, an optional hand encoder, and a readout MLP (with optional policy head for actor-critic mode) from `SetupArchitecture` and `ModelArchitecture` configs.",
+      "tags": ["service", "data-model"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/training/setup_net.py:SetupNet",
+      "type": "class",
+      "name": "SetupNet",
+      "filePath": "src/wingspan/training/setup_net.py",
+      "lineRange": [51, 285],
+      "summary": "Neural network for game-setup quality prediction: encodes bird cards via a frozen card encoder, embeds the hand-summary vector via an optional hand encoder, concatenates with tabular features, and outputs a scalar margin (or policy + value pair in AC mode).",
+      "tags": ["service", "data-model"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/model/hand_model.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/model/mlp.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/hand_model.py",
+      "target": "file:src/wingspan/model/mlp.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/version.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "file:src/wingspan/encode/layout.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/__init__.py",
+      "target": "file:src/wingspan/setup_model/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/__init__.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/__init__.py",
+      "target": "file:src/wingspan/setup_model/generate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/__init__.py",
+      "target": "file:src/wingspan/setup_model/record.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/architecture.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/architecture.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/architecture.py",
+      "target": "file:src/wingspan/setup_model/stripes.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/architecture.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/candidates.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/candidates.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/candidates.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/candidates.py",
+      "target": "file:src/wingspan/setup_model/stripes.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/candidates.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "file:src/wingspan/setup_model/stripes.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/generate.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/generate.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/generate.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/record.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/record.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/record.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/stripes.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/stripes.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/stripes.py",
+      "target": "file:src/wingspan/encode/stripes/descriptors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/stripes.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/setup_model/stripes.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "file:src/wingspan/setup_model/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "file:src/wingspan/setup_model/encode.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "file:src/wingspan/setup_model/record.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_net.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_net.py",
+      "target": "file:src/wingspan/setup_model/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_net.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_net.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "class:src/wingspan/model/core.py:PolicyValueNet",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/model/core.py",
+      "target": "class:src/wingspan/model/core.py:PolicyValueNet",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/model/mlp.py",
+      "target": "function:src/wingspan/model/mlp.py:build_body",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/model/mlp.py",
+      "target": "function:src/wingspan/model/mlp.py:build_body",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "function:src/wingspan/reporting/html.py:generate_html_report",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "function:src/wingspan/reporting/html.py:generate_html_report",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "function:src/wingspan/reporting/svg.py:build_arch_svg",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/svg.py",
+      "target": "function:src/wingspan/reporting/svg.py:build_arch_svg",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/setup_model/architecture.py",
+      "target": "class:src/wingspan/setup_model/architecture.py:SetupEncoding",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/setup_model/architecture.py",
+      "target": "class:src/wingspan/setup_model/architecture.py:SetupArchitecture",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/setup_model/architecture.py",
+      "target": "class:src/wingspan/setup_model/architecture.py:SetupEncoding",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/setup_model/architecture.py",
+      "target": "class:src/wingspan/setup_model/architecture.py:SetupArchitecture",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/setup_model/candidates.py",
+      "target": "class:src/wingspan/setup_model/candidates.py:SetupCandidate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/setup_model/candidates.py",
+      "target": "class:src/wingspan/setup_model/candidates.py:SetupCandidate",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "class:src/wingspan/setup_model/encode.py:SetupContext",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "function:src/wingspan/setup_model/encode.py:encode_setup_candidate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "class:src/wingspan/setup_model/encode.py:SetupContext",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/setup_model/encode.py",
+      "target": "function:src/wingspan/setup_model/encode.py:encode_setup_candidate",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/setup_model/generate.py",
+      "target": "class:src/wingspan/setup_model/generate.py:RandomSetupGenerator",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/setup_model/generate.py",
+      "target": "class:src/wingspan/setup_model/generate.py:RandomSetupGenerator",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/setup_model/record.py",
+      "target": "class:src/wingspan/setup_model/record.py:SetupDataStore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/setup_model/record.py",
+      "target": "class:src/wingspan/setup_model/record.py:SetupDataStore",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "function:src/wingspan/training/setup_learner.py:actor_critic_update",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "function:src/wingspan/training/setup_learner.py:actor_critic_update",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/setup_net.py",
+      "target": "class:src/wingspan/training/setup_net.py:SetupNet",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/setup_net.py",
+      "target": "class:src/wingspan/training/setup_net.py:SetupNet",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/reporting/html.py",
+      "target": "file:src/wingspan/reporting/svg.py",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/setup_learner.py",
+      "target": "file:src/wingspan/training/setup_net.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ]
+}

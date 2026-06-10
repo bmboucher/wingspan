@@ -1,0 +1,32 @@
+{
+  "nodes": [
+    {
+      "id": "service:Dockerfile",
+      "type": "service",
+      "name": "Dockerfile",
+      "filePath": "Dockerfile",
+      "summary": "Single-stage Amazon Linux 2023 Docker image that installs CPU-only PyTorch and the wingspan package, then runs the cloud training entrypoint (`wingspan.cloud`) as an unprivileged user. Designed for CPU-only self-play training with artifacts shipped to S3.",
+      "tags": ["containerization", "infrastructure", "deployment", "training"],
+      "complexity": "moderate",
+      "languageNotes": "Installs CPU-only torch via a dedicated index URL before the project install to avoid pulling the multi-GB CUDA wheel; runs under a fixed UID non-root user (flyway) for security."
+    },
+    {
+      "id": "config:.dockerignore",
+      "type": "config",
+      "name": ".dockerignore",
+      "filePath": ".dockerignore",
+      "summary": "Docker build-context filter that restricts the image build to only `pyproject.toml`, `README.md`, and `src/`, explicitly excluding VCS metadata, virtual environments, checkpoints, tests, docs, and large artifact files to keep the image lean.",
+      "tags": ["configuration", "containerization", "infrastructure", "build-system"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "config:.dockerignore",
+      "target": "service:Dockerfile",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ]
+}

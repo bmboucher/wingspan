@@ -1,0 +1,9 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "tests/data/compat/v0.1/README.md", "language": "markdown", "sizeLines": 5, "fileCategory": "docs"},
+    {"path": "tests/data/compat/v0.1/model_config.json", "language": "json", "sizeLines": 33, "fileCategory": "config"},
+    {"path": "tests/data/compat/v0.1/setup_config.json", "language": "json", "sizeLines": 25, "fileCategory": "config"}
+  ],
+  "batchImportData": {"tests/data/compat/v0.1/README.md": [], "tests/data/compat/v0.1/model_config.json": [], "tests/data/compat/v0.1/setup_config.json": []}
+}

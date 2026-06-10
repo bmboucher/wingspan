@@ -1,0 +1,6479 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 18,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "src/wingspan/training/configure/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 61,
+      "nonEmptyLines": 51,
+      "sections": [
+        {
+          "heading": "training.configure — Interactive \"FLIGHT PLAN\" configurator",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Modules",
+          "level": 2,
+          "line": 7
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 2
+      }
+    },
+    {
+      "path": "src/wingspan/training/INDEX.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 161,
+      "nonEmptyLines": 121,
+      "sections": [
+        {
+          "heading": "training — Live training + monitoring dashboard",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Entry points",
+          "level": 2,
+          "line": 8
+        },
+        {
+          "heading": "Config and metadata",
+          "level": 2,
+          "line": 14
+        },
+        {
+          "heading": "Training loop orchestrator",
+          "level": 2,
+          "line": 46
+        },
+        {
+          "heading": "Collection",
+          "level": 2,
+          "line": 83
+        },
+        {
+          "heading": "Learning",
+          "level": 2,
+          "line": 106
+        },
+        {
+          "heading": "Evaluation + metrics",
+          "level": 2,
+          "line": 120
+        },
+        {
+          "heading": "Dashboard + theme",
+          "level": 2,
+          "line": 141
+        },
+        {
+          "heading": "Subpackages",
+          "level": 2,
+          "line": 153
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 9
+      }
+    },
+    {
+      "path": "tests/conftest.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 72,
+      "nonEmptyLines": 59,
+      "functions": [
+        {
+          "name": "pytest_collection_modifyitems",
+          "startLine": 54,
+          "endLine": 58,
+          "params": [
+            "items"
+          ]
+        },
+        {
+          "name": "restore_torch_thread_cap",
+          "startLine": 62,
+          "endLine": 72,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "pytest_collection_modifyitems",
+          "line": 54,
+          "isDefault": false
+        },
+        {
+          "name": "restore_torch_thread_cap",
+          "line": 61,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "pytest_collection_modifyitems",
+          "callee": "items.sort",
+          "lineNumber": 58
+        },
+        {
+          "caller": "restore_torch_thread_cap",
+          "callee": "torch.set_num_threads",
+          "lineNumber": 72
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 2,
+        "functionCount": 2,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_activation_log.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 182,
+      "nonEmptyLines": 140,
+      "functions": [
+        {
+          "name": "_raising_agent",
+          "startLine": 25,
+          "endLine": 28,
+          "params": [
+            "_eng",
+            "decision"
+          ]
+        },
+        {
+          "name": "_engine_with_agents",
+          "startLine": 31,
+          "endLine": 35,
+          "params": [
+            "seed"
+          ]
+        },
+        {
+          "name": "_find_by_effect",
+          "startLine": 38,
+          "endLine": 45,
+          "params": [
+            "birds",
+            "kind",
+            "color"
+          ]
+        },
+        {
+          "name": "test_plain_power_text_strips_icon_brackets",
+          "startLine": 52,
+          "endLine": 60,
+          "params": []
+        },
+        {
+          "name": "test_row_activation_logs_header_for_every_bird_rightmost_first",
+          "startLine": 67,
+          "endLine": 91,
+          "params": []
+        },
+        {
+          "name": "test_tuck_power_with_empty_hand_logs_no_choices",
+          "startLine": 98,
+          "endLine": 113,
+          "params": []
+        },
+        {
+          "name": "test_lay_one_egg_with_no_room_logs_no_choices",
+          "startLine": 116,
+          "endLine": 127,
+          "params": []
+        },
+        {
+          "name": "test_ask_single_choice_logs_label_and_skips_agent",
+          "startLine": 134,
+          "endLine": 155,
+          "params": []
+        },
+        {
+          "name": "test_forced_feeder_take_logs_only_one_choice",
+          "startLine": 158,
+          "endLine": 182,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_raising_agent",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "_engine_with_agents",
+          "line": 31,
+          "isDefault": false
+        },
+        {
+          "name": "_find_by_effect",
+          "line": 38,
+          "isDefault": false
+        },
+        {
+          "name": "test_plain_power_text_strips_icon_brackets",
+          "line": 52,
+          "isDefault": false
+        },
+        {
+          "name": "test_row_activation_logs_header_for_every_bird_rightmost_first",
+          "line": 67,
+          "isDefault": false
+        },
+        {
+          "name": "test_tuck_power_with_empty_hand_logs_no_choices",
+          "line": 98,
+          "isDefault": false
+        },
+        {
+          "name": "test_lay_one_egg_with_no_room_logs_no_choices",
+          "line": 116,
+          "isDefault": false
+        },
+        {
+          "name": "test_ask_single_choice_logs_label_and_skips_agent",
+          "line": 134,
+          "isDefault": false
+        },
+        {
+          "name": "test_forced_feeder_take_logs_only_one_choice",
+          "line": 158,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_raising_agent",
+          "callee": "AssertionError",
+          "lineNumber": 28
+        },
+        {
+          "caller": "_raising_agent",
+          "callee": "type",
+          "lineNumber": 28
+        },
+        {
+          "caller": "_engine_with_agents",
+          "callee": "cards.load_all",
+          "lineNumber": 32
+        },
+        {
+          "caller": "_engine_with_agents",
+          "callee": "random.Random",
+          "lineNumber": 33
+        },
+        {
+          "caller": "_engine_with_agents",
+          "callee": "state.new_game",
+          "lineNumber": 34
+        },
+        {
+          "caller": "_engine_with_agents",
+          "callee": "engine.Engine",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_find_by_effect",
+          "callee": "next",
+          "lineNumber": 41
+        },
+        {
+          "caller": "_find_by_effect",
+          "callee": "any",
+          "lineNumber": 44
+        },
+        {
+          "caller": "test_plain_power_text_strips_icon_brackets",
+          "callee": "_engine_with_agents",
+          "lineNumber": 54
+        },
+        {
+          "caller": "test_plain_power_text_strips_icon_brackets",
+          "callee": "next",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_row_activation_logs_header_for_every_bird_rightmost_first",
+          "callee": "_engine_with_agents",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_row_activation_logs_header_for_every_bird_rightmost_first",
+          "callee": "_find_by_effect",
+          "lineNumber": 74
+        },
+        {
+          "caller": "test_row_activation_logs_header_for_every_bird_rightmost_first",
+          "callee": "next",
+          "lineNumber": 77
+        },
+        {
+          "caller": "test_row_activation_logs_header_for_every_bird_rightmost_first",
+          "callee": "state.PlayedBird",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_row_activation_logs_header_for_every_bird_rightmost_first",
+          "callee": "state.PlayedBird",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_row_activation_logs_header_for_every_bird_rightmost_first",
+          "callee": "actions.activate_row_powers",
+          "lineNumber": 82
+        },
+        {
+          "caller": "test_tuck_power_with_empty_hand_logs_no_choices",
+          "callee": "_engine_with_agents",
+          "lineNumber": 101
+        },
+        {
+          "caller": "test_tuck_power_with_empty_hand_logs_no_choices",
+          "callee": "next",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_tuck_power_with_empty_hand_logs_no_choices",
+          "callee": "state.PlayedBird",
+          "lineNumber": 104
+        },
+        {
+          "caller": "test_tuck_power_with_empty_hand_logs_no_choices",
+          "callee": "powers.dispatch_power",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_lay_one_egg_with_no_room_logs_no_choices",
+          "callee": "_engine_with_agents",
+          "lineNumber": 118
+        },
+        {
+          "caller": "test_lay_one_egg_with_no_room_logs_no_choices",
+          "callee": "state.PlayedBird",
+          "lineNumber": 121
+        },
+        {
+          "caller": "test_lay_one_egg_with_no_room_logs_no_choices",
+          "callee": "actions.lay_one_egg",
+          "lineNumber": 124
+        },
+        {
+          "caller": "test_ask_single_choice_logs_label_and_skips_agent",
+          "callee": "_engine_with_agents",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_ask_single_choice_logs_label_and_skips_agent",
+          "callee": "decisions.BoardTargetChoice",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_ask_single_choice_logs_label_and_skips_agent",
+          "callee": "decisions.LayEggDecision",
+          "lineNumber": 143
+        },
+        {
+          "caller": "test_ask_single_choice_logs_label_and_skips_agent",
+          "callee": "eng.ask",
+          "lineNumber": 149
+        },
+        {
+          "caller": "test_forced_feeder_take_logs_only_one_choice",
+          "callee": "_engine_with_agents",
+          "lineNumber": 162
+        },
+        {
+          "caller": "test_forced_feeder_take_logs_only_one_choice",
+          "callee": "state.FoodPool.from_dict",
+          "lineNumber": 164
+        },
+        {
+          "caller": "test_forced_feeder_take_logs_only_one_choice",
+          "callee": "actions.take_one_from_feeder",
+          "lineNumber": 169
+        },
+        {
+          "caller": "test_forced_feeder_take_logs_only_one_choice",
+          "callee": "len",
+          "lineNumber": 181
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 9,
+        "functionCount": 9,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_birdfeeder.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 312,
+      "nonEmptyLines": 243,
+      "functions": [
+        {
+          "name": "_new_game",
+          "startLine": 24,
+          "endLine": 26,
+          "params": [
+            "seed"
+          ]
+        },
+        {
+          "name": "_empty_feeder",
+          "startLine": 29,
+          "endLine": 34,
+          "params": [
+            "gs"
+          ]
+        },
+        {
+          "name": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "startLine": 37,
+          "endLine": 53,
+          "params": []
+        },
+        {
+          "name": "test_choice_die_offers_invertebrate_or_seed_only",
+          "startLine": 56,
+          "endLine": 62,
+          "params": []
+        },
+        {
+          "name": "test_take_choice_die_as_seed_consumes_it",
+          "startLine": 65,
+          "endLine": 70,
+          "params": []
+        },
+        {
+          "name": "test_take_prefers_a_single_face_over_a_choice_die",
+          "startLine": 73,
+          "endLine": 79,
+          "params": []
+        },
+        {
+          "name": "test_take_unavailable_food_raises",
+          "startLine": 82,
+          "endLine": 86,
+          "params": []
+        },
+        {
+          "name": "test_gain_options_lists_plain_and_choice_die_separately",
+          "startLine": 89,
+          "endLine": 99,
+          "params": []
+        },
+        {
+          "name": "test_take_from_choice_die_spends_the_choice_die_not_a_plain_face",
+          "startLine": 102,
+          "endLine": 108,
+          "params": []
+        },
+        {
+          "name": "test_take_from_choice_die_raises_without_one",
+          "startLine": 111,
+          "endLine": 115,
+          "params": []
+        },
+        {
+          "name": "test_total_and_distinct_faces_include_choice_dice",
+          "startLine": 118,
+          "endLine": 125,
+          "params": []
+        },
+        {
+          "name": "_skip_any_reset",
+          "startLine": 136,
+          "endLine": 142,
+          "params": [
+            "decision"
+          ]
+        },
+        {
+          "name": "test_gain_feeder_die_rerolls_when_the_take_empties_the_feeder",
+          "startLine": 145,
+          "endLine": 157,
+          "params": []
+        },
+        {
+          "name": "test_gain_feeder_die_leaves_a_nonempty_feeder_alone",
+          "startLine": 160,
+          "endLine": 171,
+          "params": []
+        },
+        {
+          "name": "test_offer_reset_auto_rerolls_an_empty_feeder",
+          "startLine": 174,
+          "endLine": 191,
+          "params": []
+        },
+        {
+          "name": "test_offer_reset_asks_on_a_single_food_face_and_respects_decline",
+          "startLine": 194,
+          "endLine": 214,
+          "params": []
+        },
+        {
+          "name": "test_offer_reset_asks_when_all_dice_show_the_choice_face",
+          "startLine": 217,
+          "endLine": 237,
+          "params": []
+        },
+        {
+          "name": "test_offer_reset_not_offered_on_mixed_faces",
+          "startLine": 240,
+          "endLine": 256,
+          "params": []
+        },
+        {
+          "name": "test_offer_reset_accept_rerolls_the_feeder",
+          "startLine": 259,
+          "endLine": 279,
+          "params": []
+        },
+        {
+          "name": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "startLine": 282,
+          "endLine": 312,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_new_game",
+          "line": 24,
+          "isDefault": false
+        },
+        {
+          "name": "_empty_feeder",
+          "line": 29,
+          "isDefault": false
+        },
+        {
+          "name": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "line": 37,
+          "isDefault": false
+        },
+        {
+          "name": "test_choice_die_offers_invertebrate_or_seed_only",
+          "line": 56,
+          "isDefault": false
+        },
+        {
+          "name": "test_take_choice_die_as_seed_consumes_it",
+          "line": 65,
+          "isDefault": false
+        },
+        {
+          "name": "test_take_prefers_a_single_face_over_a_choice_die",
+          "line": 73,
+          "isDefault": false
+        },
+        {
+          "name": "test_take_unavailable_food_raises",
+          "line": 82,
+          "isDefault": false
+        },
+        {
+          "name": "test_gain_options_lists_plain_and_choice_die_separately",
+          "line": 89,
+          "isDefault": false
+        },
+        {
+          "name": "test_take_from_choice_die_spends_the_choice_die_not_a_plain_face",
+          "line": 102,
+          "isDefault": false
+        },
+        {
+          "name": "test_take_from_choice_die_raises_without_one",
+          "line": 111,
+          "isDefault": false
+        },
+        {
+          "name": "test_total_and_distinct_faces_include_choice_dice",
+          "line": 118,
+          "isDefault": false
+        },
+        {
+          "name": "_skip_any_reset",
+          "line": 136,
+          "isDefault": false
+        },
+        {
+          "name": "test_gain_feeder_die_rerolls_when_the_take_empties_the_feeder",
+          "line": 145,
+          "isDefault": false
+        },
+        {
+          "name": "test_gain_feeder_die_leaves_a_nonempty_feeder_alone",
+          "line": 160,
+          "isDefault": false
+        },
+        {
+          "name": "test_offer_reset_auto_rerolls_an_empty_feeder",
+          "line": 174,
+          "isDefault": false
+        },
+        {
+          "name": "test_offer_reset_asks_on_a_single_food_face_and_respects_decline",
+          "line": 194,
+          "isDefault": false
+        },
+        {
+          "name": "test_offer_reset_asks_when_all_dice_show_the_choice_face",
+          "line": 217,
+          "isDefault": false
+        },
+        {
+          "name": "test_offer_reset_not_offered_on_mixed_faces",
+          "line": 240,
+          "isDefault": false
+        },
+        {
+          "name": "test_offer_reset_accept_rerolls_the_feeder",
+          "line": 259,
+          "isDefault": false
+        },
+        {
+          "name": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "line": 282,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_new_game",
+          "callee": "cards.load_all",
+          "lineNumber": 25
+        },
+        {
+          "caller": "_new_game",
+          "callee": "state.new_game",
+          "lineNumber": 26
+        },
+        {
+          "caller": "_new_game",
+          "callee": "random.Random",
+          "lineNumber": 26
+        },
+        {
+          "caller": "_empty_feeder",
+          "callee": "feeder.counts.zero",
+          "lineNumber": 32
+        },
+        {
+          "caller": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "callee": "random.Random",
+          "lineNumber": 38
+        },
+        {
+          "caller": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "callee": "Counter",
+          "lineNumber": 40
+        },
+        {
+          "caller": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 41
+        },
+        {
+          "caller": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "callee": "range",
+          "lineNumber": 42
+        },
+        {
+          "caller": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "callee": "feeder.reroll",
+          "lineNumber": 43
+        },
+        {
+          "caller": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "callee": "feeder.total",
+          "lineNumber": 44
+        },
+        {
+          "caller": "test_reroll_yields_five_dice_over_six_equally_likely_faces",
+          "callee": "abs",
+          "lineNumber": 53
+        },
+        {
+          "caller": "test_choice_die_offers_invertebrate_or_seed_only",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_choice_die_offers_invertebrate_or_seed_only",
+          "callee": "feeder.gainable_foods",
+          "lineNumber": 59
+        },
+        {
+          "caller": "test_take_choice_die_as_seed_consumes_it",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 66
+        },
+        {
+          "caller": "test_take_choice_die_as_seed_consumes_it",
+          "callee": "feeder.take",
+          "lineNumber": 68
+        },
+        {
+          "caller": "test_take_choice_die_as_seed_consumes_it",
+          "callee": "feeder.is_empty",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_take_prefers_a_single_face_over_a_choice_die",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 74
+        },
+        {
+          "caller": "test_take_prefers_a_single_face_over_a_choice_die",
+          "callee": "feeder.take",
+          "lineNumber": 77
+        },
+        {
+          "caller": "test_take_unavailable_food_raises",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_take_unavailable_food_raises",
+          "callee": "pytest.raises",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_take_unavailable_food_raises",
+          "callee": "feeder.take",
+          "lineNumber": 86
+        },
+        {
+          "caller": "test_gain_options_lists_plain_and_choice_die_separately",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 92
+        },
+        {
+          "caller": "test_gain_options_lists_plain_and_choice_die_separately",
+          "callee": "feeder.gain_options",
+          "lineNumber": 95
+        },
+        {
+          "caller": "test_take_from_choice_die_spends_the_choice_die_not_a_plain_face",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_take_from_choice_die_spends_the_choice_die_not_a_plain_face",
+          "callee": "feeder.take",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_take_from_choice_die_raises_without_one",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 112
+        },
+        {
+          "caller": "test_take_from_choice_die_raises_without_one",
+          "callee": "pytest.raises",
+          "lineNumber": 114
+        },
+        {
+          "caller": "test_take_from_choice_die_raises_without_one",
+          "callee": "feeder.take",
+          "lineNumber": 115
+        },
+        {
+          "caller": "test_total_and_distinct_faces_include_choice_dice",
+          "callee": "state.Birdfeeder",
+          "lineNumber": 119
+        },
+        {
+          "caller": "test_total_and_distinct_faces_include_choice_dice",
+          "callee": "feeder.total",
+          "lineNumber": 122
+        },
+        {
+          "caller": "test_total_and_distinct_faces_include_choice_dice",
+          "callee": "feeder.distinct_faces",
+          "lineNumber": 123
+        },
+        {
+          "caller": "test_total_and_distinct_faces_include_choice_dice",
+          "callee": "feeder.gainable_count",
+          "lineNumber": 124
+        },
+        {
+          "caller": "test_total_and_distinct_faces_include_choice_dice",
+          "callee": "feeder.gainable_count",
+          "lineNumber": 125
+        },
+        {
+          "caller": "_skip_any_reset",
+          "callee": "isinstance",
+          "lineNumber": 138
+        },
+        {
+          "caller": "_skip_any_reset",
+          "callee": "isinstance",
+          "lineNumber": 140
+        },
+        {
+          "caller": "_skip_any_reset",
+          "callee": "typing.cast",
+          "lineNumber": 141
+        },
+        {
+          "caller": "_skip_any_reset",
+          "callee": "typing.cast",
+          "lineNumber": 142
+        },
+        {
+          "caller": "test_gain_feeder_die_rerolls_when_the_take_empties_the_feeder",
+          "callee": "_new_game",
+          "lineNumber": 147
+        },
+        {
+          "caller": "test_gain_feeder_die_rerolls_when_the_take_empties_the_feeder",
+          "callee": "_empty_feeder",
+          "lineNumber": 148
+        },
+        {
+          "caller": "test_gain_feeder_die_rerolls_when_the_take_empties_the_feeder",
+          "callee": "engine.Engine",
+          "lineNumber": 150
+        },
+        {
+          "caller": "test_gain_feeder_die_rerolls_when_the_take_empties_the_feeder",
+          "callee": "actions.gain_feeder_die",
+          "lineNumber": 154
+        },
+        {
+          "caller": "test_gain_feeder_die_rerolls_when_the_take_empties_the_feeder",
+          "callee": "feeder.total",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_gain_feeder_die_leaves_a_nonempty_feeder_alone",
+          "callee": "_new_game",
+          "lineNumber": 162
+        },
+        {
+          "caller": "test_gain_feeder_die_leaves_a_nonempty_feeder_alone",
+          "callee": "_empty_feeder",
+          "lineNumber": 163
+        },
+        {
+          "caller": "test_gain_feeder_die_leaves_a_nonempty_feeder_alone",
+          "callee": "engine.Engine",
+          "lineNumber": 165
+        },
+        {
+          "caller": "test_gain_feeder_die_leaves_a_nonempty_feeder_alone",
+          "callee": "actions.gain_feeder_die",
+          "lineNumber": 168
+        },
+        {
+          "caller": "test_gain_feeder_die_leaves_a_nonempty_feeder_alone",
+          "callee": "feeder.total",
+          "lineNumber": 171
+        },
+        {
+          "caller": "test_offer_reset_auto_rerolls_an_empty_feeder",
+          "callee": "_new_game",
+          "lineNumber": 178
+        },
+        {
+          "caller": "test_offer_reset_auto_rerolls_an_empty_feeder",
+          "callee": "_empty_feeder",
+          "lineNumber": 179
+        },
+        {
+          "caller": "test_offer_reset_auto_rerolls_an_empty_feeder",
+          "callee": "engine.Engine",
+          "lineNumber": 180
+        },
+        {
+          "caller": "agent",
+          "callee": "isinstance",
+          "lineNumber": 186
+        },
+        {
+          "caller": "agent",
+          "callee": "typing.cast",
+          "lineNumber": 187
+        },
+        {
+          "caller": "agent",
+          "callee": "_skip_any_reset",
+          "lineNumber": 187
+        },
+        {
+          "caller": "test_offer_reset_auto_rerolls_an_empty_feeder",
+          "callee": "actions.offer_birdfeeder_reset",
+          "lineNumber": 189
+        },
+        {
+          "caller": "test_offer_reset_auto_rerolls_an_empty_feeder",
+          "callee": "feeder.total",
+          "lineNumber": 191
+        },
+        {
+          "caller": "test_offer_reset_asks_on_a_single_food_face_and_respects_decline",
+          "callee": "_new_game",
+          "lineNumber": 196
+        },
+        {
+          "caller": "test_offer_reset_asks_on_a_single_food_face_and_respects_decline",
+          "callee": "_empty_feeder",
+          "lineNumber": 197
+        },
+        {
+          "caller": "test_offer_reset_asks_on_a_single_food_face_and_respects_decline",
+          "callee": "engine.Engine",
+          "lineNumber": 199
+        },
+        {
+          "caller": "agent",
+          "callee": "isinstance",
+          "lineNumber": 207
+        },
+        {
+          "caller": "agent",
+          "callee": "typing.cast",
+          "lineNumber": 208
+        },
+        {
+          "caller": "agent",
+          "callee": "_skip_any_reset",
+          "lineNumber": 208
+        },
+        {
+          "caller": "test_offer_reset_asks_on_a_single_food_face_and_respects_decline",
+          "callee": "actions.offer_birdfeeder_reset",
+          "lineNumber": 210
+        },
+        {
+          "caller": "test_offer_reset_asks_on_a_single_food_face_and_respects_decline",
+          "callee": "feeder.total",
+          "lineNumber": 214
+        },
+        {
+          "caller": "test_offer_reset_asks_when_all_dice_show_the_choice_face",
+          "callee": "_new_game",
+          "lineNumber": 220
+        },
+        {
+          "caller": "test_offer_reset_asks_when_all_dice_show_the_choice_face",
+          "callee": "_empty_feeder",
+          "lineNumber": 221
+        },
+        {
+          "caller": "test_offer_reset_asks_when_all_dice_show_the_choice_face",
+          "callee": "engine.Engine",
+          "lineNumber": 223
+        },
+        {
+          "caller": "agent",
+          "callee": "isinstance",
+          "lineNumber": 231
+        },
+        {
+          "caller": "agent",
+          "callee": "typing.cast",
+          "lineNumber": 232
+        },
+        {
+          "caller": "agent",
+          "callee": "_skip_any_reset",
+          "lineNumber": 232
+        },
+        {
+          "caller": "test_offer_reset_asks_when_all_dice_show_the_choice_face",
+          "callee": "actions.offer_birdfeeder_reset",
+          "lineNumber": 234
+        },
+        {
+          "caller": "test_offer_reset_not_offered_on_mixed_faces",
+          "callee": "_new_game",
+          "lineNumber": 242
+        },
+        {
+          "caller": "test_offer_reset_not_offered_on_mixed_faces",
+          "callee": "_empty_feeder",
+          "lineNumber": 243
+        },
+        {
+          "caller": "test_offer_reset_not_offered_on_mixed_faces",
+          "callee": "engine.Engine",
+          "lineNumber": 246
+        },
+        {
+          "caller": "agent",
+          "callee": "AssertionError",
+          "lineNumber": 252
+        },
+        {
+          "caller": "test_offer_reset_not_offered_on_mixed_faces",
+          "callee": "actions.offer_birdfeeder_reset",
+          "lineNumber": 254
+        },
+        {
+          "caller": "test_offer_reset_not_offered_on_mixed_faces",
+          "callee": "feeder.total",
+          "lineNumber": 256
+        },
+        {
+          "caller": "test_offer_reset_accept_rerolls_the_feeder",
+          "callee": "_new_game",
+          "lineNumber": 262
+        },
+        {
+          "caller": "test_offer_reset_accept_rerolls_the_feeder",
+          "callee": "_empty_feeder",
+          "lineNumber": 263
+        },
+        {
+          "caller": "test_offer_reset_accept_rerolls_the_feeder",
+          "callee": "engine.Engine",
+          "lineNumber": 265
+        },
+        {
+          "caller": "agent",
+          "callee": "isinstance",
+          "lineNumber": 271
+        },
+        {
+          "caller": "agent",
+          "callee": "isinstance",
+          "lineNumber": 273
+        },
+        {
+          "caller": "agent",
+          "callee": "typing.cast",
+          "lineNumber": 274
+        },
+        {
+          "caller": "agent",
+          "callee": "AssertionError",
+          "lineNumber": 275
+        },
+        {
+          "caller": "test_offer_reset_accept_rerolls_the_feeder",
+          "callee": "actions.offer_birdfeeder_reset",
+          "lineNumber": 277
+        },
+        {
+          "caller": "test_offer_reset_accept_rerolls_the_feeder",
+          "callee": "feeder.total",
+          "lineNumber": 279
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "_new_game",
+          "lineNumber": 286
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "next",
+          "lineNumber": 291
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "player.board[cards.Habitat.FOREST].append",
+          "lineNumber": 297
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "state.PlayedBird",
+          "lineNumber": 297
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "_empty_feeder",
+          "lineNumber": 298
+        },
+        {
+          "caller": "agent",
+          "callee": "_skip_any_reset",
+          "lineNumber": 304
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "engine.Engine",
+          "lineNumber": 306
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "actions.do_gain_food",
+          "lineNumber": 307
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "feeder.total",
+          "lineNumber": 311
+        },
+        {
+          "caller": "test_main_gain_food_does_not_auto_reroll_a_declined_single_face",
+          "callee": "feeder.total",
+          "lineNumber": 312
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 20,
+        "functionCount": 20,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_birds_no_eggs_integration.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 170,
+      "nonEmptyLines": 140,
+      "functions": [
+        {
+          "name": "_no_eggs_game",
+          "startLine": 43,
+          "endLine": 49,
+          "params": []
+        },
+        {
+          "name": "test_category_fills_the_last_one_hot_slot",
+          "startLine": 52,
+          "endLine": 60,
+          "params": []
+        },
+        {
+          "name": "test_state_round_goal_identity_is_visible",
+          "startLine": 63,
+          "endLine": 68,
+          "params": []
+        },
+        {
+          "name": "test_bird_rows_price_the_eggless_newcomer",
+          "startLine": 71,
+          "endLine": 84,
+          "params": []
+        },
+        {
+          "name": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "startLine": 91,
+          "endLine": 130,
+          "params": []
+        },
+        {
+          "name": "test_lay_egg_any_no_room_offers_no_gate",
+          "startLine": 133,
+          "endLine": 170,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "_Approx",
+          "startLine": 31,
+          "endLine": 40,
+          "methods": [
+            "__init__",
+            "__eq__"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_Approx",
+          "line": 31,
+          "isDefault": false
+        },
+        {
+          "name": "_no_eggs_game",
+          "line": 43,
+          "isDefault": false
+        },
+        {
+          "name": "test_category_fills_the_last_one_hot_slot",
+          "line": 52,
+          "isDefault": false
+        },
+        {
+          "name": "test_state_round_goal_identity_is_visible",
+          "line": 63,
+          "isDefault": false
+        },
+        {
+          "name": "test_bird_rows_price_the_eggless_newcomer",
+          "line": 71,
+          "isDefault": false
+        },
+        {
+          "name": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "line": 91,
+          "isDefault": false
+        },
+        {
+          "name": "test_lay_egg_any_no_room_offers_no_gate",
+          "line": 133,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "__eq__",
+          "callee": "isinstance",
+          "lineNumber": 38
+        },
+        {
+          "caller": "__eq__",
+          "callee": "math.isclose",
+          "lineNumber": 38
+        },
+        {
+          "caller": "__eq__",
+          "callee": "float",
+          "lineNumber": 39
+        },
+        {
+          "caller": "_no_eggs_game",
+          "callee": "state.new_game",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_no_eggs_game",
+          "callee": "random.Random",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_no_eggs_game",
+          "callee": "cards.EndRoundGoal",
+          "lineNumber": 45
+        },
+        {
+          "caller": "test_category_fills_the_last_one_hot_slot",
+          "callee": "all",
+          "lineNumber": 58
+        },
+        {
+          "caller": "test_category_fills_the_last_one_hot_slot",
+          "callee": "layout.GOAL_CATEGORIES.index",
+          "lineNumber": 59
+        },
+        {
+          "caller": "test_category_fills_the_last_one_hot_slot",
+          "callee": "len",
+          "lineNumber": 60
+        },
+        {
+          "caller": "test_state_round_goal_identity_is_visible",
+          "callee": "_no_eggs_game",
+          "lineNumber": 66
+        },
+        {
+          "caller": "test_state_round_goal_identity_is_visible",
+          "callee": "state_encode._round_goals_all_rounds",
+          "lineNumber": 67
+        },
+        {
+          "caller": "test_state_round_goal_identity_is_visible",
+          "callee": "float",
+          "lineNumber": 68
+        },
+        {
+          "caller": "test_state_round_goal_identity_is_visible",
+          "callee": "layout.GOAL_CATEGORIES.index",
+          "lineNumber": 68
+        },
+        {
+          "caller": "test_bird_rows_price_the_eggless_newcomer",
+          "callee": "_no_eggs_game",
+          "lineNumber": 74
+        },
+        {
+          "caller": "test_bird_rows_price_the_eggless_newcomer",
+          "callee": "decisions.BirdPowerTuckFromHandDecision",
+          "lineNumber": 76
+        },
+        {
+          "caller": "test_bird_rows_price_the_eggless_newcomer",
+          "callee": "decisions.BirdChoice",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_bird_rows_price_the_eggless_newcomer",
+          "callee": "encode.encode_choices",
+          "lineNumber": 81
+        },
+        {
+          "caller": "test_bird_rows_price_the_eggless_newcomer",
+          "callee": "float",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_bird_rows_price_the_eggless_newcomer",
+          "callee": "_Approx",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_bird_rows_price_the_eggless_newcomer",
+          "callee": "float",
+          "lineNumber": 84
+        },
+        {
+          "caller": "test_bird_rows_price_the_eggless_newcomer",
+          "callee": "_Approx",
+          "lineNumber": 84
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "cards.EndRoundGoal",
+          "lineNumber": 95
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "state.new_game",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "random.Random",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "list",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "list",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "list",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "engine.Engine",
+          "lineNumber": 101
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "gs.me",
+          "lineNumber": 102
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "next",
+          "lineNumber": 105
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "any",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "next",
+          "lineNumber": 110
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "state.PlayedBird",
+          "lineNumber": 111
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "state.PlayedBird",
+          "lineNumber": 112
+        },
+        {
+          "caller": "skip_agent",
+          "callee": "typing.cast",
+          "lineNumber": 118
+        },
+        {
+          "caller": "skip_agent",
+          "callee": "next",
+          "lineNumber": 120
+        },
+        {
+          "caller": "skip_agent",
+          "callee": "isinstance",
+          "lineNumber": 120
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "powers.dispatch_power",
+          "lineNumber": 124
+        },
+        {
+          "caller": "test_lay_egg_any_anti_egg_goal_skip_adds_no_egg",
+          "callee": "sum",
+          "lineNumber": 127
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "cards.EndRoundGoal",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "state.new_game",
+          "lineNumber": 141
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "random.Random",
+          "lineNumber": 141
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "list",
+          "lineNumber": 141
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "list",
+          "lineNumber": 141
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "list",
+          "lineNumber": 141
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "engine.Engine",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "gs.me",
+          "lineNumber": 145
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "next",
+          "lineNumber": 148
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "any",
+          "lineNumber": 151
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "next",
+          "lineNumber": 153
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "state.PlayedBird",
+          "lineNumber": 154
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "state.PlayedBird",
+          "lineNumber": 155
+        },
+        {
+          "caller": "no_agent",
+          "callee": "AssertionError",
+          "lineNumber": 161
+        },
+        {
+          "caller": "no_agent",
+          "callee": "type",
+          "lineNumber": 162
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "powers.dispatch_power",
+          "lineNumber": 166
+        },
+        {
+          "caller": "test_lay_egg_any_no_room_offers_no_gate",
+          "callee": "sum",
+          "lineNumber": 169
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 7,
+        "functionCount": 6,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "tests/test_bonus_categories.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 200,
+      "nonEmptyLines": 160,
+      "functions": [
+        {
+          "name": "_bonus",
+          "startLine": 36,
+          "endLine": 37,
+          "params": [
+            "bonuses",
+            "name"
+          ]
+        },
+        {
+          "name": "_player_with_board",
+          "startLine": 40,
+          "endLine": 48,
+          "params": [
+            "bonus",
+            "board_birds"
+          ]
+        },
+        {
+          "name": "test_omnivore_specialist_tags_wild_cost_birds",
+          "startLine": 54,
+          "endLine": 63,
+          "params": []
+        },
+        {
+          "name": "test_only_dynamic_bonus_cards_have_no_tagged_birds",
+          "startLine": 66,
+          "endLine": 75,
+          "params": []
+        },
+        {
+          "name": "test_per_bird_payout_is_parsed",
+          "startLine": 81,
+          "endLine": 90,
+          "params": []
+        },
+        {
+          "name": "test_per_bird_bonus_scores_points_per_bird",
+          "startLine": 93,
+          "endLine": 99,
+          "params": []
+        },
+        {
+          "name": "test_omnivore_specialist_scores_end_to_end",
+          "startLine": 102,
+          "endLine": 109,
+          "params": []
+        },
+        {
+          "name": "test_tiered_bonus_still_scores",
+          "startLine": 112,
+          "endLine": 119,
+          "params": []
+        },
+        {
+          "name": "test_tiered_bonus_scores_higher_plateau",
+          "startLine": 122,
+          "endLine": 130,
+          "params": []
+        },
+        {
+          "name": "test_multiple_bonus_cards_sum",
+          "startLine": 133,
+          "endLine": 166,
+          "params": []
+        },
+        {
+          "name": "test_setup_help_line_shows_counts_and_deck_share",
+          "startLine": 172,
+          "endLine": 189,
+          "params": []
+        },
+        {
+          "name": "test_setup_help_line_absent_for_dynamic_card",
+          "startLine": 192,
+          "endLine": 200,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_bonus",
+          "line": 36,
+          "isDefault": false
+        },
+        {
+          "name": "_player_with_board",
+          "line": 40,
+          "isDefault": false
+        },
+        {
+          "name": "test_omnivore_specialist_tags_wild_cost_birds",
+          "line": 54,
+          "isDefault": false
+        },
+        {
+          "name": "test_only_dynamic_bonus_cards_have_no_tagged_birds",
+          "line": 66,
+          "isDefault": false
+        },
+        {
+          "name": "test_per_bird_payout_is_parsed",
+          "line": 81,
+          "isDefault": false
+        },
+        {
+          "name": "test_per_bird_bonus_scores_points_per_bird",
+          "line": 93,
+          "isDefault": false
+        },
+        {
+          "name": "test_omnivore_specialist_scores_end_to_end",
+          "line": 102,
+          "isDefault": false
+        },
+        {
+          "name": "test_tiered_bonus_still_scores",
+          "line": 112,
+          "isDefault": false
+        },
+        {
+          "name": "test_tiered_bonus_scores_higher_plateau",
+          "line": 122,
+          "isDefault": false
+        },
+        {
+          "name": "test_multiple_bonus_cards_sum",
+          "line": 133,
+          "isDefault": false
+        },
+        {
+          "name": "test_setup_help_line_shows_counts_and_deck_share",
+          "line": 172,
+          "isDefault": false
+        },
+        {
+          "name": "test_setup_help_line_absent_for_dynamic_card",
+          "line": 192,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_bonus",
+          "callee": "next",
+          "lineNumber": 37
+        },
+        {
+          "caller": "_player_with_board",
+          "callee": "state.Player",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_player_with_board",
+          "callee": "state.PlayedBird",
+          "lineNumber": 46
+        },
+        {
+          "caller": "test_omnivore_specialist_tags_wild_cost_birds",
+          "callee": "cards.load_all",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_only_dynamic_bonus_cards_have_no_tagged_birds",
+          "callee": "cards.load_all",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_only_dynamic_bonus_cards_have_no_tagged_birds",
+          "callee": "any",
+          "lineNumber": 73
+        },
+        {
+          "caller": "test_per_bird_payout_is_parsed",
+          "callee": "cards.load_all",
+          "lineNumber": 84
+        },
+        {
+          "caller": "test_per_bird_payout_is_parsed",
+          "callee": "_bonus",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_per_bird_payout_is_parsed",
+          "callee": "_bonus",
+          "lineNumber": 86
+        },
+        {
+          "caller": "test_per_bird_bonus_scores_points_per_bird",
+          "callee": "cards.load_all",
+          "lineNumber": 95
+        },
+        {
+          "caller": "test_per_bird_bonus_scores_points_per_bird",
+          "callee": "_bonus",
+          "lineNumber": 96
+        },
+        {
+          "caller": "test_per_bird_bonus_scores_points_per_bird",
+          "callee": "_player_with_board",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_per_bird_bonus_scores_points_per_bird",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 99
+        },
+        {
+          "caller": "test_per_bird_bonus_scores_points_per_bird",
+          "callee": "len",
+          "lineNumber": 99
+        },
+        {
+          "caller": "test_omnivore_specialist_scores_end_to_end",
+          "callee": "cards.load_all",
+          "lineNumber": 105
+        },
+        {
+          "caller": "test_omnivore_specialist_scores_end_to_end",
+          "callee": "_bonus",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_omnivore_specialist_scores_end_to_end",
+          "callee": "_player_with_board",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_omnivore_specialist_scores_end_to_end",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 109
+        },
+        {
+          "caller": "test_omnivore_specialist_scores_end_to_end",
+          "callee": "len",
+          "lineNumber": 109
+        },
+        {
+          "caller": "test_tiered_bonus_still_scores",
+          "callee": "cards.load_all",
+          "lineNumber": 115
+        },
+        {
+          "caller": "test_tiered_bonus_still_scores",
+          "callee": "_bonus",
+          "lineNumber": 116
+        },
+        {
+          "caller": "test_tiered_bonus_still_scores",
+          "callee": "_player_with_board",
+          "lineNumber": 118
+        },
+        {
+          "caller": "test_tiered_bonus_still_scores",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 119
+        },
+        {
+          "caller": "test_tiered_bonus_scores_higher_plateau",
+          "callee": "cards.load_all",
+          "lineNumber": 125
+        },
+        {
+          "caller": "test_tiered_bonus_scores_higher_plateau",
+          "callee": "_bonus",
+          "lineNumber": 126
+        },
+        {
+          "caller": "test_tiered_bonus_scores_higher_plateau",
+          "callee": "len",
+          "lineNumber": 128
+        },
+        {
+          "caller": "test_tiered_bonus_scores_higher_plateau",
+          "callee": "_player_with_board",
+          "lineNumber": 129
+        },
+        {
+          "caller": "test_tiered_bonus_scores_higher_plateau",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 130
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "cards.load_all",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "_bonus",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "_bonus",
+          "lineNumber": 139
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "len",
+          "lineNumber": 153
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "len",
+          "lineNumber": 154
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "state.Player",
+          "lineNumber": 156
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "state.PlayedBird",
+          "lineNumber": 158
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "state.PlayedBird",
+          "lineNumber": 161
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 164
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 165
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "sum",
+          "lineNumber": 166
+        },
+        {
+          "caller": "test_multiple_bonus_cards_sum",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 166
+        },
+        {
+          "caller": "test_setup_help_line_shows_counts_and_deck_share",
+          "callee": "cards.load_all",
+          "lineNumber": 175
+        },
+        {
+          "caller": "test_setup_help_line_shows_counts_and_deck_share",
+          "callee": "_bonus",
+          "lineNumber": 176
+        },
+        {
+          "caller": "test_setup_help_line_shows_counts_and_deck_share",
+          "callee": "round",
+          "lineNumber": 178
+        },
+        {
+          "caller": "test_setup_help_line_shows_counts_and_deck_share",
+          "callee": "len",
+          "lineNumber": 178
+        },
+        {
+          "caller": "test_setup_help_line_shows_counts_and_deck_share",
+          "callee": "len",
+          "lineNumber": 178
+        },
+        {
+          "caller": "test_setup_help_line_shows_counts_and_deck_share",
+          "callee": "display.format_bonus_with_setup_help",
+          "lineNumber": 180
+        },
+        {
+          "caller": "test_setup_help_line_shows_counts_and_deck_share",
+          "callee": "rendered.splitlines",
+          "lineNumber": 186
+        },
+        {
+          "caller": "test_setup_help_line_absent_for_dynamic_card",
+          "callee": "cards.load_all",
+          "lineNumber": 194
+        },
+        {
+          "caller": "test_setup_help_line_absent_for_dynamic_card",
+          "callee": "_bonus",
+          "lineNumber": 195
+        },
+        {
+          "caller": "test_setup_help_line_absent_for_dynamic_card",
+          "callee": "display.format_bonus_with_setup_help",
+          "lineNumber": 196
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 12,
+        "functionCount": 12,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_bonus_linear_value.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 110,
+      "nonEmptyLines": 90,
+      "functions": [
+        {
+          "name": "_bonus",
+          "startLine": 22,
+          "endLine": 23,
+          "params": [
+            "bonuses",
+            "name"
+          ]
+        },
+        {
+          "name": "_player_with_board",
+          "startLine": 26,
+          "endLine": 34,
+          "params": [
+            "bonus",
+            "board_birds"
+          ]
+        },
+        {
+          "name": "test_bird_feeder_linear_interpolation",
+          "startLine": 37,
+          "endLine": 48,
+          "params": []
+        },
+        {
+          "name": "test_per_bird_card_is_linear",
+          "startLine": 51,
+          "endLine": 63,
+          "params": []
+        },
+        {
+          "name": "test_linear_value_flat_tail_holds_max",
+          "startLine": 66,
+          "endLine": 74,
+          "params": []
+        },
+        {
+          "name": "test_bonus_value_for_count_matches_player_form",
+          "startLine": 77,
+          "endLine": 94,
+          "params": []
+        },
+        {
+          "name": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "startLine": 97,
+          "endLine": 110,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_bonus",
+          "line": 22,
+          "isDefault": false
+        },
+        {
+          "name": "_player_with_board",
+          "line": 26,
+          "isDefault": false
+        },
+        {
+          "name": "test_bird_feeder_linear_interpolation",
+          "line": 37,
+          "isDefault": false
+        },
+        {
+          "name": "test_per_bird_card_is_linear",
+          "line": 51,
+          "isDefault": false
+        },
+        {
+          "name": "test_linear_value_flat_tail_holds_max",
+          "line": 66,
+          "isDefault": false
+        },
+        {
+          "name": "test_bonus_value_for_count_matches_player_form",
+          "line": 77,
+          "isDefault": false
+        },
+        {
+          "name": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "line": 97,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_bonus",
+          "callee": "next",
+          "lineNumber": 23
+        },
+        {
+          "caller": "_player_with_board",
+          "callee": "state.Player",
+          "lineNumber": 30
+        },
+        {
+          "caller": "_player_with_board",
+          "callee": "state.PlayedBird",
+          "lineNumber": 32
+        },
+        {
+          "caller": "test_bird_feeder_linear_interpolation",
+          "callee": "cards.load_all",
+          "lineNumber": 40
+        },
+        {
+          "caller": "test_bird_feeder_linear_interpolation",
+          "callee": "_bonus",
+          "lineNumber": 41
+        },
+        {
+          "caller": "test_bird_feeder_linear_interpolation",
+          "callee": "len",
+          "lineNumber": 43
+        },
+        {
+          "caller": "test_bird_feeder_linear_interpolation",
+          "callee": "expected.items",
+          "lineNumber": 46
+        },
+        {
+          "caller": "test_bird_feeder_linear_interpolation",
+          "callee": "_player_with_board",
+          "lineNumber": 47
+        },
+        {
+          "caller": "test_bird_feeder_linear_interpolation",
+          "callee": "math.isclose",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_bird_feeder_linear_interpolation",
+          "callee": "scoring.bonus_linear_value",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "cards.load_all",
+          "lineNumber": 54
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "_bonus",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "len",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "_player_with_board",
+          "lineNumber": 58
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "math.isclose",
+          "lineNumber": 59
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "scoring.bonus_linear_value",
+          "lineNumber": 59
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "math.isclose",
+          "lineNumber": 60
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "scoring.bonus_linear_value",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "float",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_per_bird_card_is_linear",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_linear_value_flat_tail_holds_max",
+          "callee": "cards.load_all",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_linear_value_flat_tail_holds_max",
+          "callee": "_bonus",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_linear_value_flat_tail_holds_max",
+          "callee": "len",
+          "lineNumber": 72
+        },
+        {
+          "caller": "test_linear_value_flat_tail_holds_max",
+          "callee": "_player_with_board",
+          "lineNumber": 73
+        },
+        {
+          "caller": "test_linear_value_flat_tail_holds_max",
+          "callee": "math.isclose",
+          "lineNumber": 74
+        },
+        {
+          "caller": "test_linear_value_flat_tail_holds_max",
+          "callee": "scoring.bonus_linear_value",
+          "lineNumber": 74
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "cards.load_all",
+          "lineNumber": 80
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "cases.items",
+          "lineNumber": 82
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "_bonus",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "len",
+          "lineNumber": 86
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "_player_with_board",
+          "lineNumber": 87
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "scoring.bonus_score_for_count",
+          "lineNumber": 88
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "scoring.bonus_score",
+          "lineNumber": 88
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "math.isclose",
+          "lineNumber": 91
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "scoring.bonus_linear_value_for_count",
+          "lineNumber": 92
+        },
+        {
+          "caller": "test_bonus_value_for_count_matches_player_form",
+          "callee": "scoring.bonus_linear_value",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "cards.load_all",
+          "lineNumber": 100
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "_bonus",
+          "lineNumber": 101
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "range",
+          "lineNumber": 102
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "scoring.bonus_score_for_count",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "scoring.bonus_score_for_count",
+          "lineNumber": 105
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "scoring.bonus_linear_value_for_count",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "scoring.bonus_linear_value_for_count",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "scoring.bonus_score_for_count",
+          "lineNumber": 109
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "math.isclose",
+          "lineNumber": 110
+        },
+        {
+          "caller": "test_bonus_value_for_count_monotone_and_flat_tail",
+          "callee": "scoring.bonus_linear_value_for_count",
+          "lineNumber": 110
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_card_table_cache.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 137,
+      "nonEmptyLines": 114,
+      "functions": [
+        {
+          "name": "_inputs",
+          "startLine": 29,
+          "endLine": 39,
+          "params": [
+            "n_choices",
+            "batch"
+          ]
+        },
+        {
+          "name": "test_eval_cache_holds_a_fresh_card_table",
+          "startLine": 42,
+          "endLine": 53,
+          "params": []
+        },
+        {
+          "name": "test_eval_matches_training_recompute",
+          "startLine": 56,
+          "endLine": 70,
+          "params": []
+        },
+        {
+          "name": "test_repeated_eval_forwards_are_identical",
+          "startLine": 73,
+          "endLine": 83,
+          "params": []
+        },
+        {
+          "name": "test_weight_reload_then_eval_refreshes_cache",
+          "startLine": 86,
+          "endLine": 108,
+          "params": []
+        },
+        {
+          "name": "test_mode_flip_invalidates_cache",
+          "startLine": 111,
+          "endLine": 122,
+          "params": []
+        },
+        {
+          "name": "test_training_forward_keeps_card_encoder_in_graph",
+          "startLine": 125,
+          "endLine": 137,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_inputs",
+          "line": 29,
+          "isDefault": false
+        },
+        {
+          "name": "test_eval_cache_holds_a_fresh_card_table",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "test_eval_matches_training_recompute",
+          "line": 56,
+          "isDefault": false
+        },
+        {
+          "name": "test_repeated_eval_forwards_are_identical",
+          "line": 73,
+          "isDefault": false
+        },
+        {
+          "name": "test_weight_reload_then_eval_refreshes_cache",
+          "line": 86,
+          "isDefault": false
+        },
+        {
+          "name": "test_mode_flip_invalidates_cache",
+          "line": 111,
+          "isDefault": false
+        },
+        {
+          "name": "test_training_forward_keeps_card_encoder_in_graph",
+          "line": 125,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_inputs",
+          "callee": "torch.randn",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_inputs",
+          "callee": "encode.state_size",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_inputs",
+          "callee": "torch.randn",
+          "lineNumber": 36
+        },
+        {
+          "caller": "_inputs",
+          "callee": "torch.ones",
+          "lineNumber": 37
+        },
+        {
+          "caller": "_inputs",
+          "callee": "torch.zeros",
+          "lineNumber": 38
+        },
+        {
+          "caller": "test_eval_cache_holds_a_fresh_card_table",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 45
+        },
+        {
+          "caller": "test_eval_cache_holds_a_fresh_card_table",
+          "callee": "net.eval",
+          "lineNumber": 46
+        },
+        {
+          "caller": "test_eval_cache_holds_a_fresh_card_table",
+          "callee": "net.card_table().detach",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_eval_cache_holds_a_fresh_card_table",
+          "callee": "net.card_table",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_eval_cache_holds_a_fresh_card_table",
+          "callee": "torch.no_grad",
+          "lineNumber": 49
+        },
+        {
+          "caller": "test_eval_cache_holds_a_fresh_card_table",
+          "callee": "net",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_eval_cache_holds_a_fresh_card_table",
+          "callee": "_inputs",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_eval_cache_holds_a_fresh_card_table",
+          "callee": "torch.equal",
+          "lineNumber": 53
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "_inputs",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "net.train",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "torch.no_grad",
+          "lineNumber": 64
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "net",
+          "lineNumber": 65
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "net.eval",
+          "lineNumber": 66
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "torch.no_grad",
+          "lineNumber": 67
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "net",
+          "lineNumber": 68
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "torch.allclose",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_eval_matches_training_recompute",
+          "callee": "torch.allclose",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_repeated_eval_forwards_are_identical",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 76
+        },
+        {
+          "caller": "test_repeated_eval_forwards_are_identical",
+          "callee": "net.eval",
+          "lineNumber": 77
+        },
+        {
+          "caller": "test_repeated_eval_forwards_are_identical",
+          "callee": "_inputs",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_repeated_eval_forwards_are_identical",
+          "callee": "torch.no_grad",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_repeated_eval_forwards_are_identical",
+          "callee": "net",
+          "lineNumber": 80
+        },
+        {
+          "caller": "test_repeated_eval_forwards_are_identical",
+          "callee": "net",
+          "lineNumber": 81
+        },
+        {
+          "caller": "test_repeated_eval_forwards_are_identical",
+          "callee": "torch.equal",
+          "lineNumber": 82
+        },
+        {
+          "caller": "test_repeated_eval_forwards_are_identical",
+          "callee": "torch.equal",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 90
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "net.eval",
+          "lineNumber": 91
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 92
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "_inputs",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "torch.no_grad",
+          "lineNumber": 94
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "net",
+          "lineNumber": 95
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "net.load_state_dict",
+          "lineNumber": 96
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "other.state_dict",
+          "lineNumber": 96
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "net.eval",
+          "lineNumber": 97
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "torch.no_grad",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "net",
+          "lineNumber": 99
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "torch.allclose",
+          "lineNumber": 100
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "reference.load_state_dict",
+          "lineNumber": 104
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "other.state_dict",
+          "lineNumber": 104
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "reference.eval",
+          "lineNumber": 105
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "torch.no_grad",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "reference",
+          "lineNumber": 107
+        },
+        {
+          "caller": "test_weight_reload_then_eval_refreshes_cache",
+          "callee": "torch.allclose",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_mode_flip_invalidates_cache",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 114
+        },
+        {
+          "caller": "test_mode_flip_invalidates_cache",
+          "callee": "net.eval",
+          "lineNumber": 115
+        },
+        {
+          "caller": "test_mode_flip_invalidates_cache",
+          "callee": "torch.no_grad",
+          "lineNumber": 116
+        },
+        {
+          "caller": "test_mode_flip_invalidates_cache",
+          "callee": "net",
+          "lineNumber": 117
+        },
+        {
+          "caller": "test_mode_flip_invalidates_cache",
+          "callee": "_inputs",
+          "lineNumber": 117
+        },
+        {
+          "caller": "test_mode_flip_invalidates_cache",
+          "callee": "net.train",
+          "lineNumber": 119
+        },
+        {
+          "caller": "test_mode_flip_invalidates_cache",
+          "callee": "net.eval",
+          "lineNumber": 121
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 129
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "net.train",
+          "lineNumber": 130
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "net",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "_inputs",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "(logits.sum() + value.sum()).backward",
+          "lineNumber": 132
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "logits.sum",
+          "lineNumber": 132
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "value.sum",
+          "lineNumber": 132
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "net.card_encoder.parameters",
+          "lineNumber": 133
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "any",
+          "lineNumber": 134
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "bool",
+          "lineNumber": 135
+        },
+        {
+          "caller": "test_training_forward_keeps_card_encoder_in_graph",
+          "callee": "torch.any",
+          "lineNumber": 135
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_choice_landing_slot.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 193,
+      "nonEmptyLines": 158,
+      "functions": [
+        {
+          "name": "_marked_board_slots",
+          "startLine": 36,
+          "endLine": 39,
+          "params": [
+            "row"
+          ]
+        },
+        {
+          "name": "_board_slot_index",
+          "startLine": 42,
+          "endLine": 43,
+          "params": [
+            "habitat",
+            "slot"
+          ]
+        },
+        {
+          "name": "_zero_board_idx",
+          "startLine": 46,
+          "endLine": 49,
+          "params": [
+            "row"
+          ]
+        },
+        {
+          "name": "test_play_bird_rows_mark_the_landing_slot",
+          "startLine": 56,
+          "endLine": 85,
+          "params": []
+        },
+        {
+          "name": "test_payment_rows_carry_bird_and_landing_slot",
+          "startLine": 88,
+          "endLine": 114,
+          "params": []
+        },
+        {
+          "name": "test_setup_rows_use_the_kept_multihot_stripe",
+          "startLine": 117,
+          "endLine": 144,
+          "params": []
+        },
+        {
+          "name": "test_model_candidate_embedding_is_a_masked_lookup",
+          "startLine": 151,
+          "endLine": 168,
+          "params": []
+        },
+        {
+          "name": "test_model_kept_set_embedding_sums_card_vectors",
+          "startLine": 171,
+          "endLine": 193,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_marked_board_slots",
+          "line": 36,
+          "isDefault": false
+        },
+        {
+          "name": "_board_slot_index",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "_zero_board_idx",
+          "line": 46,
+          "isDefault": false
+        },
+        {
+          "name": "test_play_bird_rows_mark_the_landing_slot",
+          "line": 56,
+          "isDefault": false
+        },
+        {
+          "name": "test_payment_rows_carry_bird_and_landing_slot",
+          "line": 88,
+          "isDefault": false
+        },
+        {
+          "name": "test_setup_rows_use_the_kept_multihot_stripe",
+          "line": 117,
+          "isDefault": false
+        },
+        {
+          "name": "test_model_candidate_embedding_is_a_masked_lookup",
+          "line": 151,
+          "isDefault": false
+        },
+        {
+          "name": "test_model_kept_set_embedding_sums_card_vectors",
+          "line": 171,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_marked_board_slots",
+          "callee": "float",
+          "lineNumber": 39
+        },
+        {
+          "caller": "_marked_board_slots",
+          "callee": "enumerate",
+          "lineNumber": 39
+        },
+        {
+          "caller": "_board_slot_index",
+          "callee": "list(cards.ALL_HABITATS).index",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_board_slot_index",
+          "callee": "list",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_zero_board_idx",
+          "callee": "row.copy",
+          "lineNumber": 47
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "engine.Engine.create",
+          "lineNumber": 59
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "next",
+          "lineNumber": 60
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "len",
+          "lineNumber": 60
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "eng.state.players[0].board[first_habitat].append",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "state.PlayedBird",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "decisions.PlayBirdDecision",
+          "lineNumber": 65
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "decisions.PlayBirdChoice",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "decisions.PlayBirdChoice",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "encode.encode_choices",
+          "lineNumber": 73
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "float",
+          "lineNumber": 75
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "cards.bird_index",
+          "lineNumber": 75
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "_marked_board_slots",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "_board_slot_index",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "_marked_board_slots",
+          "lineNumber": 81
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "_board_slot_index",
+          "lineNumber": 82
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "np.array_equal",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "_zero_board_idx",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_play_bird_rows_mark_the_landing_slot",
+          "callee": "_zero_board_idx",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "engine.Engine.create",
+          "lineNumber": 91
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "state.FoodPool",
+          "lineNumber": 94
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "state.FoodPool",
+          "lineNumber": 96
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "decisions.PayBirdFoodDecision",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "decisions.FoodPaymentChoice",
+          "lineNumber": 102
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "decisions.FoodPaymentChoice",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "encode.encode_choices",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "float",
+          "lineNumber": 110
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "cards.bird_index",
+          "lineNumber": 110
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "_board_slot_index",
+          "lineNumber": 111
+        },
+        {
+          "caller": "test_payment_rows_carry_bird_and_landing_slot",
+          "callee": "_marked_board_slots",
+          "lineNumber": 114
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "engine.Engine.create",
+          "lineNumber": 121
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "encode.EncodingSpec",
+          "lineNumber": 122
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "decisions.SetupDecision",
+          "lineNumber": 124
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "decisions.SetupChoice",
+          "lineNumber": 128
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "tuple",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "list",
+          "lineNumber": 135
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "encode.encode_choices",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "encode.choice_feature_dim",
+          "lineNumber": 140
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "cards.bird_index",
+          "lineNumber": 143
+        },
+        {
+          "caller": "test_setup_rows_use_the_kept_multihot_stripe",
+          "callee": "enumerate",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 154
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "net.eval",
+          "lineNumber": 155
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "net.card_table",
+          "lineNumber": 156
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "torch.zeros",
+          "lineNumber": 159
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "float",
+          "lineNumber": 161
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "net._embed_choices",
+          "lineNumber": 162
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "encode.choice_input_dim",
+          "lineNumber": 164
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "torch.all",
+          "lineNumber": 167
+        },
+        {
+          "caller": "test_model_candidate_embedding_is_a_masked_lookup",
+          "callee": "torch.allclose",
+          "lineNumber": 168
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "encode.EncodingSpec",
+          "lineNumber": 174
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "model.PolicyValueNet",
+          "lineNumber": 175
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "net.eval",
+          "lineNumber": 176
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "net.card_table",
+          "lineNumber": 177
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "torch.zeros",
+          "lineNumber": 181
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "net._embed_choices",
+          "lineNumber": 184
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "encode.choice_input_dim",
+          "lineNumber": 186
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "torch.stack(\r\n        [card_table[kept_index + 1] for kept_index in kept_indices]\r\n    ).sum",
+          "lineNumber": 190
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "torch.stack",
+          "lineNumber": 190
+        },
+        {
+          "caller": "test_model_kept_set_embedding_sums_card_vectors",
+          "callee": "torch.allclose",
+          "lineNumber": 193
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 8,
+        "functionCount": 8,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_cloud_runfile.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 78,
+      "nonEmptyLines": 59,
+      "functions": [
+        {
+          "name": "test_parse_run_file_injects_run_name_and_scratch_dir",
+          "startLine": 41,
+          "endLine": 52,
+          "params": []
+        },
+        {
+          "name": "test_parse_run_file_preserves_explicit_checkpoint_dir",
+          "startLine": 55,
+          "endLine": 58,
+          "params": []
+        },
+        {
+          "name": "test_parse_run_file_requires_bucket",
+          "startLine": 61,
+          "endLine": 65,
+          "params": []
+        },
+        {
+          "name": "test_is_s3_uri",
+          "startLine": 68,
+          "endLine": 71,
+          "params": []
+        },
+        {
+          "name": "test_final_artifact_names",
+          "startLine": 74,
+          "endLine": 78,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "test_parse_run_file_injects_run_name_and_scratch_dir",
+          "line": 41,
+          "isDefault": false
+        },
+        {
+          "name": "test_parse_run_file_preserves_explicit_checkpoint_dir",
+          "line": 55,
+          "isDefault": false
+        },
+        {
+          "name": "test_parse_run_file_requires_bucket",
+          "line": 61,
+          "isDefault": false
+        },
+        {
+          "name": "test_is_s3_uri",
+          "line": 68,
+          "isDefault": false
+        },
+        {
+          "name": "test_final_artifact_names",
+          "line": 74,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "test_parse_run_file_injects_run_name_and_scratch_dir",
+          "callee": "runfile.parse_run_file",
+          "lineNumber": 42
+        },
+        {
+          "caller": "test_parse_run_file_preserves_explicit_checkpoint_dir",
+          "callee": "runfile.parse_run_file",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_parse_run_file_requires_bucket",
+          "callee": "pytest.raises",
+          "lineNumber": 64
+        },
+        {
+          "caller": "test_parse_run_file_requires_bucket",
+          "callee": "runfile.parse_run_file",
+          "lineNumber": 65
+        },
+        {
+          "caller": "test_is_s3_uri",
+          "callee": "s3sync.is_s3_uri",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_is_s3_uri",
+          "callee": "s3sync.is_s3_uri",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_is_s3_uri",
+          "callee": "s3sync.is_s3_uri",
+          "lineNumber": 71
+        },
+        {
+          "caller": "test_final_artifact_names",
+          "callee": "artifacts.final_ckpt_name",
+          "lineNumber": 75
+        },
+        {
+          "caller": "test_final_artifact_names",
+          "callee": "artifacts.final_eval_name",
+          "lineNumber": 76
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_cloud_s3sync.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 77,
+      "nonEmptyLines": 54,
+      "functions": [
+        {
+          "name": "_make_sync",
+          "startLine": 27,
+          "endLine": 37,
+          "params": [
+            "monkeypatch"
+          ]
+        },
+        {
+          "name": "test_offload_game_chunk_trims_to_last_newline",
+          "startLine": 40,
+          "endLine": 60,
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ]
+        },
+        {
+          "name": "test_offload_game_chunk_noop_without_complete_line",
+          "startLine": 63,
+          "endLine": 77,
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_make_sync",
+          "line": 27,
+          "isDefault": false
+        },
+        {
+          "name": "test_offload_game_chunk_trims_to_last_newline",
+          "line": 40,
+          "isDefault": false
+        },
+        {
+          "name": "test_offload_game_chunk_noop_without_complete_line",
+          "line": 63,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_stub_client",
+          "callee": "object",
+          "lineNumber": 32
+        },
+        {
+          "caller": "_make_sync",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 34
+        },
+        {
+          "caller": "_make_sync",
+          "callee": "s3sync.S3Sync",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_make_sync",
+          "callee": "runfile.S3Config",
+          "lineNumber": 36
+        },
+        {
+          "caller": "test_offload_game_chunk_trims_to_last_newline",
+          "callee": "_make_sync",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_capture",
+          "callee": "captured.append",
+          "lineNumber": 47
+        },
+        {
+          "caller": "test_offload_game_chunk_trims_to_last_newline",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 49
+        },
+        {
+          "caller": "test_offload_game_chunk_trims_to_last_newline",
+          "callee": "games.write_bytes",
+          "lineNumber": 52
+        },
+        {
+          "caller": "test_offload_game_chunk_trims_to_last_newline",
+          "callee": "sync.offload_game_chunk",
+          "lineNumber": 53
+        },
+        {
+          "caller": "test_offload_game_chunk_trims_to_last_newline",
+          "callee": "games.write_bytes",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_offload_game_chunk_trims_to_last_newline",
+          "callee": "sync.offload_game_chunk",
+          "lineNumber": 58
+        },
+        {
+          "caller": "test_offload_game_chunk_noop_without_complete_line",
+          "callee": "_make_sync",
+          "lineNumber": 66
+        },
+        {
+          "caller": "_capture",
+          "callee": "calls.append",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_offload_game_chunk_noop_without_complete_line",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 72
+        },
+        {
+          "caller": "test_offload_game_chunk_noop_without_complete_line",
+          "callee": "games.write_bytes",
+          "lineNumber": 75
+        },
+        {
+          "caller": "test_offload_game_chunk_noop_without_complete_line",
+          "callee": "sync.offload_game_chunk",
+          "lineNumber": 76
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_cloud_status.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 104,
+      "nonEmptyLines": 90,
+      "functions": [
+        {
+          "name": "_iteration_metrics",
+          "startLine": 24,
+          "endLine": 53,
+          "params": [
+            "iteration",
+            "games_per_sec"
+          ]
+        },
+        {
+          "name": "test_build_status_progress_and_opponent",
+          "startLine": 56,
+          "endLine": 78,
+          "params": []
+        },
+        {
+          "name": "test_build_status_finished_carries_final_eval",
+          "startLine": 81,
+          "endLine": 104,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_iteration_metrics",
+          "line": 24,
+          "isDefault": false
+        },
+        {
+          "name": "test_build_status_progress_and_opponent",
+          "line": 56,
+          "isDefault": false
+        },
+        {
+          "name": "test_build_status_finished_carries_final_eval",
+          "line": 81,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_iteration_metrics",
+          "callee": "metrics.IterationMetrics",
+          "lineNumber": 28
+        },
+        {
+          "caller": "_iteration_metrics",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 41
+        },
+        {
+          "caller": "_iteration_metrics",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_iteration_metrics",
+          "callee": "metrics.FamilyCounts",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_build_status_progress_and_opponent",
+          "callee": "config.TrainConfig",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_build_status_progress_and_opponent",
+          "callee": "runstate.new_run_state",
+          "lineNumber": 58
+        },
+        {
+          "caller": "test_build_status_progress_and_opponent",
+          "callee": "_iteration_metrics",
+          "lineNumber": 60
+        },
+        {
+          "caller": "test_build_status_progress_and_opponent",
+          "callee": "status.build_status",
+          "lineNumber": 65
+        },
+        {
+          "caller": "test_build_status_finished_carries_final_eval",
+          "callee": "config.TrainConfig",
+          "lineNumber": 82
+        },
+        {
+          "caller": "test_build_status_finished_carries_final_eval",
+          "callee": "runstate.new_run_state",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_build_status_finished_carries_final_eval",
+          "callee": "metrics.FinalEvalStats",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_build_status_finished_carries_final_eval",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 87
+        },
+        {
+          "caller": "test_build_status_finished_carries_final_eval",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 88
+        },
+        {
+          "caller": "test_build_status_finished_carries_final_eval",
+          "callee": "status.build_status",
+          "lineNumber": 94
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_commit_row_pricing.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 236,
+      "nonEmptyLines": 193,
+      "functions": [
+        {
+          "name": "_game_with_goals",
+          "startLine": 42,
+          "endLine": 48,
+          "params": [
+            "categories"
+          ]
+        },
+        {
+          "name": "_goal_delta_slot",
+          "startLine": 51,
+          "endLine": 56,
+          "params": [
+            "row",
+            "goal_idx"
+          ]
+        },
+        {
+          "name": "_bonus_delta",
+          "startLine": 59,
+          "endLine": 65,
+          "params": [
+            "row"
+          ]
+        },
+        {
+          "name": "_main_action_rows",
+          "startLine": 68,
+          "endLine": 81,
+          "params": [
+            "game_state"
+          ]
+        },
+        {
+          "name": "_accept_row",
+          "startLine": 84,
+          "endLine": 92,
+          "params": [
+            "game_state",
+            "accept"
+          ]
+        },
+        {
+          "name": "test_draw_cards_action_prices_hand_growth",
+          "startLine": 95,
+          "endLine": 109,
+          "params": []
+        },
+        {
+          "name": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "startLine": 112,
+          "endLine": 131,
+          "params": []
+        },
+        {
+          "name": "test_lay_eggs_action_prices_no_egg_overflow",
+          "startLine": 134,
+          "endLine": 159,
+          "params": []
+        },
+        {
+          "name": "test_accept_egg_gain_prices_optimistic_bound",
+          "startLine": 162,
+          "endLine": 176,
+          "params": []
+        },
+        {
+          "name": "test_accept_egg_payment_prices_least_damage",
+          "startLine": 179,
+          "endLine": 198,
+          "params": []
+        },
+        {
+          "name": "test_accept_rows_price_net_hand_flow",
+          "startLine": 201,
+          "endLine": 225,
+          "params": []
+        },
+        {
+          "name": "test_accept_rows_silent_without_consequences",
+          "startLine": 228,
+          "endLine": 236,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "_Approx",
+          "startLine": 30,
+          "endLine": 39,
+          "methods": [
+            "__init__",
+            "__eq__"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_Approx",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "_game_with_goals",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "_goal_delta_slot",
+          "line": 51,
+          "isDefault": false
+        },
+        {
+          "name": "_bonus_delta",
+          "line": 59,
+          "isDefault": false
+        },
+        {
+          "name": "_main_action_rows",
+          "line": 68,
+          "isDefault": false
+        },
+        {
+          "name": "_accept_row",
+          "line": 84,
+          "isDefault": false
+        },
+        {
+          "name": "test_draw_cards_action_prices_hand_growth",
+          "line": 95,
+          "isDefault": false
+        },
+        {
+          "name": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "line": 112,
+          "isDefault": false
+        },
+        {
+          "name": "test_lay_eggs_action_prices_no_egg_overflow",
+          "line": 134,
+          "isDefault": false
+        },
+        {
+          "name": "test_accept_egg_gain_prices_optimistic_bound",
+          "line": 162,
+          "isDefault": false
+        },
+        {
+          "name": "test_accept_egg_payment_prices_least_damage",
+          "line": 179,
+          "isDefault": false
+        },
+        {
+          "name": "test_accept_rows_price_net_hand_flow",
+          "line": 201,
+          "isDefault": false
+        },
+        {
+          "name": "test_accept_rows_silent_without_consequences",
+          "line": 228,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "__eq__",
+          "callee": "isinstance",
+          "lineNumber": 37
+        },
+        {
+          "caller": "__eq__",
+          "callee": "math.isclose",
+          "lineNumber": 37
+        },
+        {
+          "caller": "__eq__",
+          "callee": "float",
+          "lineNumber": 38
+        },
+        {
+          "caller": "_game_with_goals",
+          "callee": "state.new_game",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_game_with_goals",
+          "callee": "random.Random",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_game_with_goals",
+          "callee": "cards.EndRoundGoal",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_game_with_goals",
+          "callee": "enumerate",
+          "lineNumber": 46
+        },
+        {
+          "caller": "_goal_delta_slot",
+          "callee": "float",
+          "lineNumber": 54
+        },
+        {
+          "caller": "_goal_delta_slot",
+          "callee": "float",
+          "lineNumber": 55
+        },
+        {
+          "caller": "_bonus_delta",
+          "callee": "float",
+          "lineNumber": 62
+        },
+        {
+          "caller": "_bonus_delta",
+          "callee": "float",
+          "lineNumber": 63
+        },
+        {
+          "caller": "_bonus_delta",
+          "callee": "float",
+          "lineNumber": 64
+        },
+        {
+          "caller": "_main_action_rows",
+          "callee": "list",
+          "lineNumber": 71
+        },
+        {
+          "caller": "_main_action_rows",
+          "callee": "decisions.MainActionDecision",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_main_action_rows",
+          "callee": "decisions.MainActionChoice",
+          "lineNumber": 76
+        },
+        {
+          "caller": "_main_action_rows",
+          "callee": "encode.encode_choices",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_main_action_rows",
+          "callee": "enumerate",
+          "lineNumber": 81
+        },
+        {
+          "caller": "_accept_row",
+          "callee": "decisions.AcceptExchangeDecision",
+          "lineNumber": 87
+        },
+        {
+          "caller": "_accept_row",
+          "callee": "decisions.SkipChoice",
+          "lineNumber": 90
+        },
+        {
+          "caller": "_accept_row",
+          "callee": "encode.encode_choices",
+          "lineNumber": 92
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "_game_with_goals",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "list",
+          "lineNumber": 101
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "_main_action_rows",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "_bonus_delta",
+          "lineNumber": 104
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "_Approx",
+          "lineNumber": 105
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "_Approx",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "_Approx",
+          "lineNumber": 107
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "_bonus_delta",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_draw_cards_action_prices_hand_growth",
+          "callee": "_bonus_delta",
+          "lineNumber": 109
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "_game_with_goals",
+          "lineNumber": 115
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "next",
+          "lineNumber": 117
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "player.board[cards.Habitat.FOREST].append",
+          "lineNumber": 118
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "state.PlayedBird",
+          "lineNumber": 118
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "_goal_delta_slot",
+          "lineNumber": 120
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "_main_action_rows",
+          "lineNumber": 121
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "_Approx",
+          "lineNumber": 123
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "_Approx",
+          "lineNumber": 124
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "_goal_delta_slot",
+          "lineNumber": 128
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "_main_action_rows",
+          "lineNumber": 129
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_capacity_capped_bound",
+          "callee": "_Approx",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "_game_with_goals",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "next",
+          "lineNumber": 140
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "player.board[cards.Habitat.FOREST].append",
+          "lineNumber": 141
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "state.PlayedBird",
+          "lineNumber": 142
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "player.board[cards.Habitat.WETLAND].append",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "state.PlayedBird",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "_goal_delta_slot",
+          "lineNumber": 148
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "_main_action_rows",
+          "lineNumber": 149
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "_Approx",
+          "lineNumber": 151
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "_Approx",
+          "lineNumber": 152
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "_goal_delta_slot",
+          "lineNumber": 156
+        },
+        {
+          "caller": "test_lay_eggs_action_prices_no_egg_overflow",
+          "callee": "_main_action_rows",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "_game_with_goals",
+          "lineNumber": 165
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "player.board[cards.Habitat.FOREST].append",
+          "lineNumber": 167
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "state.PlayedBird",
+          "lineNumber": 168
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "next",
+          "lineNumber": 168
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "decisions.PayCostChoice",
+          "lineNumber": 170
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "_accept_row",
+          "lineNumber": 173
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "_goal_delta_slot",
+          "lineNumber": 174
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "_Approx",
+          "lineNumber": 175
+        },
+        {
+          "caller": "test_accept_egg_gain_prices_optimistic_bound",
+          "callee": "_Approx",
+          "lineNumber": 176
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "_game_with_goals",
+          "lineNumber": 183
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "next",
+          "lineNumber": 185
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "player.board[cards.Habitat.FOREST].append",
+          "lineNumber": 186
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "state.PlayedBird",
+          "lineNumber": 186
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "decisions.PayCostChoice",
+          "lineNumber": 187
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "_goal_delta_slot",
+          "lineNumber": 191
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "_accept_row",
+          "lineNumber": 191
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "_Approx",
+          "lineNumber": 192
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "_Approx",
+          "lineNumber": 193
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "player.board[cards.Habitat.WETLAND].append",
+          "lineNumber": 196
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "state.PlayedBird",
+          "lineNumber": 196
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "_goal_delta_slot",
+          "lineNumber": 197
+        },
+        {
+          "caller": "test_accept_egg_payment_prices_least_damage",
+          "callee": "_accept_row",
+          "lineNumber": 197
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_game_with_goals",
+          "lineNumber": 205
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "list",
+          "lineNumber": 209
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "decisions.PayCostChoice",
+          "lineNumber": 210
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_bonus_delta",
+          "lineNumber": 213
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_accept_row",
+          "lineNumber": 213
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_Approx",
+          "lineNumber": 214
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_Approx",
+          "lineNumber": 215
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_Approx",
+          "lineNumber": 216
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "list",
+          "lineNumber": 218
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "decisions.PayCostChoice",
+          "lineNumber": 219
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_bonus_delta",
+          "lineNumber": 222
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_accept_row",
+          "lineNumber": 222
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_Approx",
+          "lineNumber": 223
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_Approx",
+          "lineNumber": 224
+        },
+        {
+          "caller": "test_accept_rows_price_net_hand_flow",
+          "callee": "_Approx",
+          "lineNumber": 225
+        },
+        {
+          "caller": "test_accept_rows_silent_without_consequences",
+          "callee": "_game_with_goals",
+          "lineNumber": 231
+        },
+        {
+          "caller": "test_accept_rows_silent_without_consequences",
+          "callee": "decisions.PayCostChoice",
+          "lineNumber": 232
+        },
+        {
+          "caller": "test_accept_rows_silent_without_consequences",
+          "callee": "_accept_row",
+          "lineNumber": 233
+        },
+        {
+          "caller": "test_accept_rows_silent_without_consequences",
+          "callee": "_bonus_delta",
+          "lineNumber": 234
+        },
+        {
+          "caller": "test_accept_rows_silent_without_consequences",
+          "callee": "range",
+          "lineNumber": 235
+        },
+        {
+          "caller": "test_accept_rows_silent_without_consequences",
+          "callee": "_goal_delta_slot",
+          "lineNumber": 236
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 13,
+        "functionCount": 12,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "tests/test_compat_shim_v0_0.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 327,
+      "nonEmptyLines": 276,
+      "functions": [
+        {
+          "name": "_habitat_one_hot",
+          "startLine": 53,
+          "endLine": 56,
+          "params": [
+            "row"
+          ]
+        },
+        {
+          "name": "_bird_one_hot_bits",
+          "startLine": 59,
+          "endLine": 62,
+          "params": [
+            "row"
+          ]
+        },
+        {
+          "name": "_board_idx_block",
+          "startLine": 65,
+          "endLine": 66,
+          "params": [
+            "row"
+          ]
+        },
+        {
+          "name": "_assert_shared_stripes_match",
+          "startLine": 69,
+          "endLine": 83,
+          "params": [
+            "v00_row",
+            "live_row"
+          ]
+        },
+        {
+          "name": "test_frozen_dims_match_the_pinned_fixture_era",
+          "startLine": 90,
+          "endLine": 99,
+          "params": []
+        },
+        {
+          "name": "test_version_predicate_selects_only_pre_0_1",
+          "startLine": 102,
+          "endLine": 106,
+          "params": []
+        },
+        {
+          "name": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "startLine": 113,
+          "endLine": 140,
+          "params": []
+        },
+        {
+          "name": "test_payment_rows_regenerate_the_committed_play_context",
+          "startLine": 143,
+          "endLine": 164,
+          "params": []
+        },
+        {
+          "name": "test_move_rows_regenerate_destination_habitats",
+          "startLine": 167,
+          "endLine": 191,
+          "params": []
+        },
+        {
+          "name": "test_board_target_rows_keep_their_occupancy_indices",
+          "startLine": 194,
+          "endLine": 218,
+          "params": []
+        },
+        {
+          "name": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "startLine": 221,
+          "endLine": 250,
+          "params": []
+        },
+        {
+          "name": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "startLine": 257,
+          "endLine": 275,
+          "params": []
+        },
+        {
+          "name": "test_v00_embedding_uses_the_frozen_card_regions",
+          "startLine": 278,
+          "endLine": 299,
+          "params": []
+        },
+        {
+          "name": "test_from_model_config_routes_by_artifact_version",
+          "startLine": 302,
+          "endLine": 327,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_habitat_one_hot",
+          "line": 53,
+          "isDefault": false
+        },
+        {
+          "name": "_bird_one_hot_bits",
+          "line": 59,
+          "isDefault": false
+        },
+        {
+          "name": "_board_idx_block",
+          "line": 65,
+          "isDefault": false
+        },
+        {
+          "name": "_assert_shared_stripes_match",
+          "line": 69,
+          "isDefault": false
+        },
+        {
+          "name": "test_frozen_dims_match_the_pinned_fixture_era",
+          "line": 90,
+          "isDefault": false
+        },
+        {
+          "name": "test_version_predicate_selects_only_pre_0_1",
+          "line": 102,
+          "isDefault": false
+        },
+        {
+          "name": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "line": 113,
+          "isDefault": false
+        },
+        {
+          "name": "test_payment_rows_regenerate_the_committed_play_context",
+          "line": 143,
+          "isDefault": false
+        },
+        {
+          "name": "test_move_rows_regenerate_destination_habitats",
+          "line": 167,
+          "isDefault": false
+        },
+        {
+          "name": "test_board_target_rows_keep_their_occupancy_indices",
+          "line": 194,
+          "isDefault": false
+        },
+        {
+          "name": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "line": 221,
+          "isDefault": false
+        },
+        {
+          "name": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "line": 257,
+          "isDefault": false
+        },
+        {
+          "name": "test_v00_embedding_uses_the_frozen_card_regions",
+          "line": 278,
+          "isDefault": false
+        },
+        {
+          "name": "test_from_model_config_routes_by_artifact_version",
+          "line": 302,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_habitat_one_hot",
+          "callee": "float",
+          "lineNumber": 56
+        },
+        {
+          "caller": "_habitat_one_hot",
+          "callee": "enumerate",
+          "lineNumber": 56
+        },
+        {
+          "caller": "_bird_one_hot_bits",
+          "callee": "enumerate",
+          "lineNumber": 62
+        },
+        {
+          "caller": "_assert_shared_stripes_match",
+          "callee": "np.array_equal",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_assert_shared_stripes_match",
+          "callee": "np.array_equal",
+          "lineNumber": 76
+        },
+        {
+          "caller": "_assert_shared_stripes_match",
+          "callee": "np.array_equal",
+          "lineNumber": 80
+        },
+        {
+          "caller": "test_frozen_dims_match_the_pinned_fixture_era",
+          "callee": "v0_0.choice_feature_dim",
+          "lineNumber": 91
+        },
+        {
+          "caller": "test_frozen_dims_match_the_pinned_fixture_era",
+          "callee": "v0_0.choice_feature_dim",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_frozen_dims_match_the_pinned_fixture_era",
+          "callee": "encode.EncodingSpec",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_frozen_dims_match_the_pinned_fixture_era",
+          "callee": "v0_0.choice_input_dim",
+          "lineNumber": 97
+        },
+        {
+          "caller": "test_version_predicate_selects_only_pre_0_1",
+          "callee": "v0_0.uses_v0_0_choice_encoding",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_version_predicate_selects_only_pre_0_1",
+          "callee": "v0_0.uses_v0_0_choice_encoding",
+          "lineNumber": 104
+        },
+        {
+          "caller": "test_version_predicate_selects_only_pre_0_1",
+          "callee": "v0_0.uses_v0_0_choice_encoding",
+          "lineNumber": 105
+        },
+        {
+          "caller": "test_version_predicate_selects_only_pre_0_1",
+          "callee": "v0_0.uses_v0_0_choice_encoding",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "engine.Engine.create",
+          "lineNumber": 117
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "next",
+          "lineNumber": 118
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "len",
+          "lineNumber": 118
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "decisions.PlayBirdDecision",
+          "lineNumber": 119
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "decisions.PlayBirdChoice",
+          "lineNumber": 123
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "decisions.PlayBirdChoice",
+          "lineNumber": 126
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "v0_0.encode_choices",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "encode.encode_choices",
+          "lineNumber": 132
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "list",
+          "lineNumber": 135
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "zip",
+          "lineNumber": 136
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "_habitat_one_hot",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "habitat_indices.index",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "_board_idx_block(row).any",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "_board_idx_block",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "_bird_one_hot_bits",
+          "lineNumber": 139
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "cards.bird_index",
+          "lineNumber": 139
+        },
+        {
+          "caller": "test_play_bird_rows_regenerate_the_v0_0_placement_stripes",
+          "callee": "_assert_shared_stripes_match",
+          "lineNumber": 140
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "engine.Engine.create",
+          "lineNumber": 146
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "state.FoodPool",
+          "lineNumber": 148
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "decisions.PayBirdFoodDecision",
+          "lineNumber": 150
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "decisions.FoodPaymentChoice",
+          "lineNumber": 153
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "v0_0.encode_choices",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "encode.encode_choices",
+          "lineNumber": 158
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "list",
+          "lineNumber": 160
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "_habitat_one_hot",
+          "lineNumber": 161
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "habitat_indices.index",
+          "lineNumber": 161
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "_board_idx_block(row).any",
+          "lineNumber": 162
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "_board_idx_block",
+          "lineNumber": 162
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "_bird_one_hot_bits",
+          "lineNumber": 163
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "cards.bird_index",
+          "lineNumber": 163
+        },
+        {
+          "caller": "test_payment_rows_regenerate_the_committed_play_context",
+          "callee": "_assert_shared_stripes_match",
+          "lineNumber": 164
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "engine.Engine.create",
+          "lineNumber": 170
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "state.PlayedBird",
+          "lineNumber": 171
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "eng.state.players[0].board[cards.Habitat.FOREST].append",
+          "lineNumber": 172
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "decisions.BirdPowerPickHabitatDecision",
+          "lineNumber": 173
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "decisions.HabitatChoice",
+          "lineNumber": 177
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "decisions.HabitatChoice",
+          "lineNumber": 178
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "v0_0.encode_choices",
+          "lineNumber": 183
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "encode.encode_choices",
+          "lineNumber": 184
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "list",
+          "lineNumber": 186
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "zip",
+          "lineNumber": 187
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "_habitat_one_hot",
+          "lineNumber": 188
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "habitat_indices.index",
+          "lineNumber": 188
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "_board_idx_block(row).any",
+          "lineNumber": 189
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "_board_idx_block",
+          "lineNumber": 189
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "_bird_one_hot_bits",
+          "lineNumber": 190
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "cards.bird_index",
+          "lineNumber": 190
+        },
+        {
+          "caller": "test_move_rows_regenerate_destination_habitats",
+          "callee": "_assert_shared_stripes_match",
+          "lineNumber": 191
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "engine.Engine.create",
+          "lineNumber": 197
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "eng.state.players[0].board[cards.Habitat.FOREST].append",
+          "lineNumber": 198
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "state.PlayedBird",
+          "lineNumber": 199
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "decisions.LayEggDecision",
+          "lineNumber": 201
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "decisions.BoardTargetChoice",
+          "lineNumber": 205
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "v0_0.encode_choices",
+          "lineNumber": 210
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "encode.encode_choices",
+          "lineNumber": 211
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "list(cards.ALL_HABITATS).index",
+          "lineNumber": 213
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "list",
+          "lineNumber": 213
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "_board_idx_block",
+          "lineNumber": 214
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "cards.bird_index",
+          "lineNumber": 214
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "np.array_equal",
+          "lineNumber": 216
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "_board_idx_block",
+          "lineNumber": 216
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "_habitat_one_hot",
+          "lineNumber": 217
+        },
+        {
+          "caller": "test_board_target_rows_keep_their_occupancy_indices",
+          "callee": "_assert_shared_stripes_match",
+          "lineNumber": 218
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "engine.Engine.create",
+          "lineNumber": 224
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "encode.EncodingSpec",
+          "lineNumber": 225
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "decisions.SetupDecision",
+          "lineNumber": 227
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "decisions.SetupChoice",
+          "lineNumber": 231
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "tuple",
+          "lineNumber": 234
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "list",
+          "lineNumber": 238
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "v0_0.encode_choices",
+          "lineNumber": 241
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "encode.encode_choices",
+          "lineNumber": 242
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "v0_0.choice_feature_dim",
+          "lineNumber": 244
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "_bird_one_hot_bits",
+          "lineNumber": 245
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "cards.bird_index",
+          "lineNumber": 245
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "np.array_equal",
+          "lineNumber": 246
+        },
+        {
+          "caller": "test_setup_rows_map_the_keep_back_onto_the_bird_stripe",
+          "callee": "_assert_shared_stripes_match",
+          "lineNumber": 250
+        },
+        {
+          "caller": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "callee": "v0_0.PolicyValueNetV00",
+          "lineNumber": 260
+        },
+        {
+          "caller": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "callee": "engine.Engine.create",
+          "lineNumber": 263
+        },
+        {
+          "caller": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "callee": "decisions.PlayBirdDecision",
+          "lineNumber": 264
+        },
+        {
+          "caller": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "callee": "decisions.PlayBirdChoice",
+          "lineNumber": 268
+        },
+        {
+          "caller": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "callee": "net.encode_choices",
+          "lineNumber": 273
+        },
+        {
+          "caller": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "callee": "np.array_equal",
+          "lineNumber": 275
+        },
+        {
+          "caller": "test_v00_net_builds_and_encodes_in_the_frozen_geometry",
+          "callee": "v0_0.encode_choices",
+          "lineNumber": 275
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "v0_0.PolicyValueNetV00",
+          "lineNumber": 281
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "net.eval",
+          "lineNumber": 282
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "net.card_table",
+          "lineNumber": 283
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "torch.zeros",
+          "lineNumber": 286
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "net._embed_choices",
+          "lineNumber": 290
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "v0_0.choice_input_dim",
+          "lineNumber": 292
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "torch.allclose",
+          "lineNumber": 295
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "torch.stack(\r\n        [card_table[kept_index + 1] for kept_index in (0, 5, 17)]\r\n    ).sum",
+          "lineNumber": 296
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "torch.stack",
+          "lineNumber": 296
+        },
+        {
+          "caller": "test_v00_embedding_uses_the_frozen_card_regions",
+          "callee": "torch.allclose",
+          "lineNumber": 299
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "runmeta.ModelConfig",
+          "lineNumber": 305
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "encode.state_size",
+          "lineNumber": 307
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "model.PolicyValueNet.from_model_config",
+          "lineNumber": 314
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "isinstance",
+          "lineNumber": 315
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "runmeta.ModelConfig",
+          "lineNumber": 317
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "encode.state_size",
+          "lineNumber": 319
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "encode.choice_feature_dim",
+          "lineNumber": 320
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "model.PolicyValueNet.from_model_config",
+          "lineNumber": 326
+        },
+        {
+          "caller": "test_from_model_config_routes_by_artifact_version",
+          "callee": "isinstance",
+          "lineNumber": 327
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 14,
+        "functionCount": 14,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_compat_v0_0.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 177,
+      "nonEmptyLines": 141,
+      "functions": [
+        {
+          "name": "_load_gzipped_checkpoint",
+          "startLine": 41,
+          "endLine": 50,
+          "params": [
+            "filename"
+          ]
+        },
+        {
+          "name": "main_payload",
+          "startLine": 54,
+          "endLine": 56,
+          "params": []
+        },
+        {
+          "name": "loaded_net",
+          "startLine": 60,
+          "endLine": 66,
+          "params": [
+            "main_payload"
+          ]
+        },
+        {
+          "name": "setup_payload",
+          "startLine": 70,
+          "endLine": 72,
+          "params": []
+        },
+        {
+          "name": "test_model_config_loads_with_default_version",
+          "startLine": 75,
+          "endLine": 79,
+          "params": []
+        },
+        {
+          "name": "test_setup_config_loads_with_default_version",
+          "startLine": 82,
+          "endLine": 85,
+          "params": []
+        },
+        {
+          "name": "test_policy_net_loads_state_dict",
+          "startLine": 88,
+          "endLine": 102,
+          "params": [
+            "loaded_net",
+            "main_payload"
+          ]
+        },
+        {
+          "name": "test_setup_net_loads_state_dict",
+          "startLine": 105,
+          "endLine": 114,
+          "params": [
+            "setup_payload"
+          ]
+        },
+        {
+          "name": "test_pre_0_1_net_is_the_frozen_compat_subclass",
+          "startLine": 117,
+          "endLine": 121,
+          "params": [
+            "loaded_net"
+          ]
+        },
+        {
+          "name": "test_forward_pass",
+          "startLine": 124,
+          "endLine": 137,
+          "params": [
+            "loaded_net"
+          ]
+        },
+        {
+          "name": "test_loaded_net_plays_a_game",
+          "startLine": 140,
+          "endLine": 148,
+          "params": [
+            "loaded_net"
+          ]
+        },
+        {
+          "name": "test_param_report_matches_the_loaded_net",
+          "startLine": 151,
+          "endLine": 157,
+          "params": [
+            "loaded_net"
+          ]
+        },
+        {
+          "name": "test_choice_layout_routes_to_the_frozen_registry",
+          "startLine": 160,
+          "endLine": 177,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_load_gzipped_checkpoint",
+          "line": 41,
+          "isDefault": false
+        },
+        {
+          "name": "main_payload",
+          "line": 53,
+          "isDefault": false
+        },
+        {
+          "name": "loaded_net",
+          "line": 59,
+          "isDefault": false
+        },
+        {
+          "name": "setup_payload",
+          "line": 69,
+          "isDefault": false
+        },
+        {
+          "name": "test_model_config_loads_with_default_version",
+          "line": 75,
+          "isDefault": false
+        },
+        {
+          "name": "test_setup_config_loads_with_default_version",
+          "line": 82,
+          "isDefault": false
+        },
+        {
+          "name": "test_policy_net_loads_state_dict",
+          "line": 88,
+          "isDefault": false
+        },
+        {
+          "name": "test_setup_net_loads_state_dict",
+          "line": 105,
+          "isDefault": false
+        },
+        {
+          "name": "test_pre_0_1_net_is_the_frozen_compat_subclass",
+          "line": 117,
+          "isDefault": false
+        },
+        {
+          "name": "test_forward_pass",
+          "line": 124,
+          "isDefault": false
+        },
+        {
+          "name": "test_loaded_net_plays_a_game",
+          "line": 140,
+          "isDefault": false
+        },
+        {
+          "name": "test_param_report_matches_the_loaded_net",
+          "line": 151,
+          "isDefault": false
+        },
+        {
+          "name": "test_choice_layout_routes_to_the_frozen_registry",
+          "line": 160,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "gzip.decompress",
+          "lineNumber": 46
+        },
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "(FIXTURE_DIR / filename).read_bytes",
+          "lineNumber": 46
+        },
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "typing.cast",
+          "lineNumber": 47
+        },
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "torch.load",
+          "lineNumber": 49
+        },
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "io.BytesIO",
+          "lineNumber": 49
+        },
+        {
+          "caller": "main_payload",
+          "callee": "_load_gzipped_checkpoint",
+          "lineNumber": 56
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "runmeta.read_model_config",
+          "lineNumber": 62
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "str",
+          "lineNumber": 62
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "model.PolicyValueNet.from_model_config",
+          "lineNumber": 63
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "net.load_state_dict",
+          "lineNumber": 64
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "typing.cast",
+          "lineNumber": 64
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "net.eval",
+          "lineNumber": 65
+        },
+        {
+          "caller": "setup_payload",
+          "callee": "_load_gzipped_checkpoint",
+          "lineNumber": 72
+        },
+        {
+          "caller": "test_model_config_loads_with_default_version",
+          "callee": "runmeta.read_model_config",
+          "lineNumber": 76
+        },
+        {
+          "caller": "test_model_config_loads_with_default_version",
+          "callee": "str",
+          "lineNumber": 76
+        },
+        {
+          "caller": "test_model_config_loads_with_default_version",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_setup_config_loads_with_default_version",
+          "callee": "setup_runmeta.read_setup_config",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_setup_config_loads_with_default_version",
+          "callee": "str",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_setup_config_loads_with_default_version",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 95
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "str",
+          "lineNumber": 96
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "main_payload.get",
+          "lineNumber": 96
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "typing.cast",
+          "lineNumber": 101
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "loaded_net.load_state_dict",
+          "lineNumber": 102
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "setup_runmeta.read_setup_config",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "str",
+          "lineNumber": 106
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "v0_1.SetupNetV01.from_setup_config",
+          "lineNumber": 109
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "net.load_state_dict",
+          "lineNumber": 110
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "typing.cast",
+          "lineNumber": 111
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "net.eval",
+          "lineNumber": 113
+        },
+        {
+          "caller": "test_pre_0_1_net_is_the_frozen_compat_subclass",
+          "callee": "isinstance",
+          "lineNumber": 120
+        },
+        {
+          "caller": "test_pre_0_1_net_is_the_frozen_compat_subclass",
+          "callee": "v0_0.choice_feature_dim",
+          "lineNumber": 121
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.zeros",
+          "lineNumber": 128
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.randn",
+          "lineNumber": 129
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.ones",
+          "lineNumber": 130
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.zeros",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.no_grad",
+          "lineNumber": 132
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "loaded_net",
+          "lineNumber": 133
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.isfinite(logits).all",
+          "lineNumber": 136
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.isfinite",
+          "lineNumber": 136
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.isfinite(value).all",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.isfinite",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_loaded_net_plays_a_game",
+          "callee": "collect.play_game",
+          "lineNumber": 143
+        },
+        {
+          "caller": "test_loaded_net_plays_a_game",
+          "callee": "torch.device",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_loaded_net_plays_a_game",
+          "callee": "random.Random",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_loaded_net_plays_a_game",
+          "callee": "all",
+          "lineNumber": 148
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "runmeta.read_model_config",
+          "lineNumber": 155
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "str",
+          "lineNumber": 155
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "runmeta.param_report_for",
+          "lineNumber": 156
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "sum",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "p.numel",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "loaded_net.parameters",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_frozen_registry",
+          "callee": "runmeta.read_model_config",
+          "lineNumber": 165
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_frozen_registry",
+          "callee": "str",
+          "lineNumber": 165
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_frozen_registry",
+          "callee": "runmeta.choice_layout_for",
+          "lineNumber": 166
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_frozen_registry",
+          "callee": "v0_0.choice_input_dim",
+          "lineNumber": 170
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_frozen_registry",
+          "callee": "runmeta.choice_input_dim_for",
+          "lineNumber": 174
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_frozen_registry",
+          "callee": "runmeta.choice_extra_for",
+          "lineNumber": 175
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_frozen_registry",
+          "callee": "v0_0.choice_passthrough_dim",
+          "lineNumber": 175
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 13,
+        "functionCount": 13,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_compat_v0_1.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 176,
+      "nonEmptyLines": 140,
+      "functions": [
+        {
+          "name": "_load_gzipped_checkpoint",
+          "startLine": 41,
+          "endLine": 50,
+          "params": [
+            "filename"
+          ]
+        },
+        {
+          "name": "main_payload",
+          "startLine": 54,
+          "endLine": 56,
+          "params": []
+        },
+        {
+          "name": "loaded_net",
+          "startLine": 60,
+          "endLine": 66,
+          "params": [
+            "main_payload"
+          ]
+        },
+        {
+          "name": "setup_payload",
+          "startLine": 70,
+          "endLine": 72,
+          "params": []
+        },
+        {
+          "name": "test_model_config_carries_the_explicit_version",
+          "startLine": 75,
+          "endLine": 79,
+          "params": []
+        },
+        {
+          "name": "test_setup_config_carries_the_explicit_version",
+          "startLine": 82,
+          "endLine": 85,
+          "params": []
+        },
+        {
+          "name": "test_v0_1_net_uses_compat_shim",
+          "startLine": 88,
+          "endLine": 94,
+          "params": [
+            "loaded_net"
+          ]
+        },
+        {
+          "name": "test_policy_net_loads_state_dict",
+          "startLine": 97,
+          "endLine": 109,
+          "params": [
+            "loaded_net",
+            "main_payload"
+          ]
+        },
+        {
+          "name": "test_setup_net_loads_state_dict",
+          "startLine": 112,
+          "endLine": 121,
+          "params": [
+            "setup_payload"
+          ]
+        },
+        {
+          "name": "test_forward_pass",
+          "startLine": 124,
+          "endLine": 137,
+          "params": [
+            "loaded_net"
+          ]
+        },
+        {
+          "name": "test_loaded_net_plays_a_game",
+          "startLine": 140,
+          "endLine": 148,
+          "params": [
+            "loaded_net"
+          ]
+        },
+        {
+          "name": "test_param_report_matches_the_loaded_net",
+          "startLine": 151,
+          "endLine": 157,
+          "params": [
+            "loaded_net"
+          ]
+        },
+        {
+          "name": "test_choice_layout_routes_to_the_live_registry",
+          "startLine": 160,
+          "endLine": 176,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_load_gzipped_checkpoint",
+          "line": 41,
+          "isDefault": false
+        },
+        {
+          "name": "main_payload",
+          "line": 53,
+          "isDefault": false
+        },
+        {
+          "name": "loaded_net",
+          "line": 59,
+          "isDefault": false
+        },
+        {
+          "name": "setup_payload",
+          "line": 69,
+          "isDefault": false
+        },
+        {
+          "name": "test_model_config_carries_the_explicit_version",
+          "line": 75,
+          "isDefault": false
+        },
+        {
+          "name": "test_setup_config_carries_the_explicit_version",
+          "line": 82,
+          "isDefault": false
+        },
+        {
+          "name": "test_v0_1_net_uses_compat_shim",
+          "line": 88,
+          "isDefault": false
+        },
+        {
+          "name": "test_policy_net_loads_state_dict",
+          "line": 97,
+          "isDefault": false
+        },
+        {
+          "name": "test_setup_net_loads_state_dict",
+          "line": 112,
+          "isDefault": false
+        },
+        {
+          "name": "test_forward_pass",
+          "line": 124,
+          "isDefault": false
+        },
+        {
+          "name": "test_loaded_net_plays_a_game",
+          "line": 140,
+          "isDefault": false
+        },
+        {
+          "name": "test_param_report_matches_the_loaded_net",
+          "line": 151,
+          "isDefault": false
+        },
+        {
+          "name": "test_choice_layout_routes_to_the_live_registry",
+          "line": 160,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "gzip.decompress",
+          "lineNumber": 46
+        },
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "(FIXTURE_DIR / filename).read_bytes",
+          "lineNumber": 46
+        },
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "typing.cast",
+          "lineNumber": 47
+        },
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "torch.load",
+          "lineNumber": 49
+        },
+        {
+          "caller": "_load_gzipped_checkpoint",
+          "callee": "io.BytesIO",
+          "lineNumber": 49
+        },
+        {
+          "caller": "main_payload",
+          "callee": "_load_gzipped_checkpoint",
+          "lineNumber": 56
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "runmeta.read_model_config",
+          "lineNumber": 62
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "str",
+          "lineNumber": 62
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "model.PolicyValueNet.from_model_config",
+          "lineNumber": 63
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "net.load_state_dict",
+          "lineNumber": 64
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "typing.cast",
+          "lineNumber": 64
+        },
+        {
+          "caller": "loaded_net",
+          "callee": "net.eval",
+          "lineNumber": 65
+        },
+        {
+          "caller": "setup_payload",
+          "callee": "_load_gzipped_checkpoint",
+          "lineNumber": 72
+        },
+        {
+          "caller": "test_model_config_carries_the_explicit_version",
+          "callee": "runmeta.read_model_config",
+          "lineNumber": 76
+        },
+        {
+          "caller": "test_model_config_carries_the_explicit_version",
+          "callee": "str",
+          "lineNumber": 76
+        },
+        {
+          "caller": "test_model_config_carries_the_explicit_version",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_setup_config_carries_the_explicit_version",
+          "callee": "setup_runmeta.read_setup_config",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_setup_config_carries_the_explicit_version",
+          "callee": "str",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_setup_config_carries_the_explicit_version",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_v0_1_net_uses_compat_shim",
+          "callee": "isinstance",
+          "lineNumber": 92
+        },
+        {
+          "caller": "test_v0_1_net_uses_compat_shim",
+          "callee": "isinstance",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_v0_1_net_uses_compat_shim",
+          "callee": "encode.choice_feature_dim",
+          "lineNumber": 94
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "version.check_artifact_compatible",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "str",
+          "lineNumber": 104
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "typing.cast",
+          "lineNumber": 108
+        },
+        {
+          "caller": "test_policy_net_loads_state_dict",
+          "callee": "loaded_net.load_state_dict",
+          "lineNumber": 109
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "setup_runmeta.read_setup_config",
+          "lineNumber": 113
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "str",
+          "lineNumber": 113
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "v0_1.SetupNetV01.from_setup_config",
+          "lineNumber": 116
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "net.load_state_dict",
+          "lineNumber": 117
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "typing.cast",
+          "lineNumber": 118
+        },
+        {
+          "caller": "test_setup_net_loads_state_dict",
+          "callee": "net.eval",
+          "lineNumber": 120
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.zeros",
+          "lineNumber": 128
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.randn",
+          "lineNumber": 129
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.ones",
+          "lineNumber": 130
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.zeros",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.no_grad",
+          "lineNumber": 132
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "loaded_net",
+          "lineNumber": 133
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.isfinite(logits).all",
+          "lineNumber": 136
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.isfinite",
+          "lineNumber": 136
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.isfinite(value).all",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_forward_pass",
+          "callee": "torch.isfinite",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_loaded_net_plays_a_game",
+          "callee": "collect.play_game",
+          "lineNumber": 143
+        },
+        {
+          "caller": "test_loaded_net_plays_a_game",
+          "callee": "torch.device",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_loaded_net_plays_a_game",
+          "callee": "random.Random",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_loaded_net_plays_a_game",
+          "callee": "all",
+          "lineNumber": 148
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "runmeta.read_model_config",
+          "lineNumber": 155
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "str",
+          "lineNumber": 155
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "runmeta.param_report_for",
+          "lineNumber": 156
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "sum",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "p.numel",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_param_report_matches_the_loaded_net",
+          "callee": "loaded_net.parameters",
+          "lineNumber": 157
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_live_registry",
+          "callee": "runmeta.read_model_config",
+          "lineNumber": 163
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_live_registry",
+          "callee": "str",
+          "lineNumber": 163
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_live_registry",
+          "callee": "runmeta.choice_layout_for",
+          "lineNumber": 164
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_live_registry",
+          "callee": "encode.choice_input_dim",
+          "lineNumber": 167
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_live_registry",
+          "callee": "runmeta.choice_input_dim_for",
+          "lineNumber": 173
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_live_registry",
+          "callee": "runmeta.choice_extra_for",
+          "lineNumber": 174
+        },
+        {
+          "caller": "test_choice_layout_routes_to_the_live_registry",
+          "callee": "encode.choice_passthrough_dim",
+          "lineNumber": 174
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 13,
+        "functionCount": 13,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_convergence_charts.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 258,
+      "nonEmptyLines": 216,
+      "functions": [
+        {
+          "name": "_sample_iteration",
+          "startLine": 30,
+          "endLine": 59,
+          "params": [
+            "breakdown"
+          ]
+        },
+        {
+          "name": "_iter",
+          "startLine": 62,
+          "endLine": 88,
+          "params": [
+            "iteration",
+            "score",
+            "win",
+            "margin",
+            "generation"
+          ]
+        },
+        {
+          "name": "_render",
+          "startLine": 91,
+          "endLine": 105,
+          "params": [
+            "state",
+            "width",
+            "height",
+            "colorize"
+          ]
+        },
+        {
+          "name": "_state",
+          "startLine": 108,
+          "endLine": 112,
+          "params": [
+            "tmp_path"
+          ]
+        },
+        {
+          "name": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "startLine": 119,
+          "endLine": 133,
+          "params": []
+        },
+        {
+          "name": "test_full_range_spans_whole_history",
+          "startLine": 136,
+          "endLine": 139,
+          "params": []
+        },
+        {
+          "name": "test_marker_columns_maps_change_iterations",
+          "startLine": 142,
+          "endLine": 147,
+          "params": []
+        },
+        {
+          "name": "test_winrate_ewma_snaps_on_opponent_advance",
+          "startLine": 150,
+          "endLine": 162,
+          "params": []
+        },
+        {
+          "name": "test_margin_ewma_snaps_on_opponent_advance",
+          "startLine": 165,
+          "endLine": 175,
+          "params": []
+        },
+        {
+          "name": "test_score_ewma_smooths_every_iteration",
+          "startLine": 178,
+          "endLine": 184,
+          "params": []
+        },
+        {
+          "name": "test_opponent_change_iterations_round_trip",
+          "startLine": 187,
+          "endLine": 192,
+          "params": []
+        },
+        {
+          "name": "test_titles_swap_to_final_score_and_margin",
+          "startLine": 199,
+          "endLine": 206,
+          "params": [
+            "tmp_path"
+          ]
+        },
+        {
+          "name": "test_eval_box_shows_random_challenger",
+          "startLine": 209,
+          "endLine": 218,
+          "params": [
+            "tmp_path"
+          ]
+        },
+        {
+          "name": "test_eval_box_shows_frozen_challenger",
+          "startLine": 221,
+          "endLine": 232,
+          "params": [
+            "tmp_path"
+          ]
+        },
+        {
+          "name": "test_renders_long_history_with_markers",
+          "startLine": 235,
+          "endLine": 258,
+          "params": [
+            "tmp_path"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_sample_iteration",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "_iter",
+          "line": 62,
+          "isDefault": false
+        },
+        {
+          "name": "_render",
+          "line": 91,
+          "isDefault": false
+        },
+        {
+          "name": "_state",
+          "line": 108,
+          "isDefault": false
+        },
+        {
+          "name": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "line": 119,
+          "isDefault": false
+        },
+        {
+          "name": "test_full_range_spans_whole_history",
+          "line": 136,
+          "isDefault": false
+        },
+        {
+          "name": "test_marker_columns_maps_change_iterations",
+          "line": 142,
+          "isDefault": false
+        },
+        {
+          "name": "test_winrate_ewma_snaps_on_opponent_advance",
+          "line": 150,
+          "isDefault": false
+        },
+        {
+          "name": "test_margin_ewma_snaps_on_opponent_advance",
+          "line": 165,
+          "isDefault": false
+        },
+        {
+          "name": "test_score_ewma_smooths_every_iteration",
+          "line": 178,
+          "isDefault": false
+        },
+        {
+          "name": "test_opponent_change_iterations_round_trip",
+          "line": 187,
+          "isDefault": false
+        },
+        {
+          "name": "test_titles_swap_to_final_score_and_margin",
+          "line": 199,
+          "isDefault": false
+        },
+        {
+          "name": "test_eval_box_shows_random_challenger",
+          "line": 209,
+          "isDefault": false
+        },
+        {
+          "name": "test_eval_box_shows_frozen_challenger",
+          "line": 221,
+          "isDefault": false
+        },
+        {
+          "name": "test_renders_long_history_with_markers",
+          "line": 235,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_sample_iteration",
+          "callee": "metrics.FamilyCounts",
+          "lineNumber": 31
+        },
+        {
+          "caller": "_sample_iteration",
+          "callee": "range",
+          "lineNumber": 32
+        },
+        {
+          "caller": "_sample_iteration",
+          "callee": "family.bump",
+          "lineNumber": 33
+        },
+        {
+          "caller": "_sample_iteration",
+          "callee": "len",
+          "lineNumber": 33
+        },
+        {
+          "caller": "_sample_iteration",
+          "callee": "metrics.IterationMetrics",
+          "lineNumber": 34
+        },
+        {
+          "caller": "_sample_iteration",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 49
+        },
+        {
+          "caller": "_iter",
+          "callee": "_sample_iteration(metrics.ScoreBreakdown(birds=score)).model_copy",
+          "lineNumber": 73
+        },
+        {
+          "caller": "_iter",
+          "callee": "_sample_iteration",
+          "lineNumber": 73
+        },
+        {
+          "caller": "_iter",
+          "callee": "metrics.ScoreBreakdown",
+          "lineNumber": 73
+        },
+        {
+          "caller": "_iter",
+          "callee": "base.model_copy",
+          "lineNumber": 77
+        },
+        {
+          "caller": "_iter",
+          "callee": "metrics.EvalResult",
+          "lineNumber": 79
+        },
+        {
+          "caller": "_render",
+          "callee": "io.StringIO",
+          "lineNumber": 94
+        },
+        {
+          "caller": "_render",
+          "callee": "rich_console.Console",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_render",
+          "callee": "dashboard.build_layout",
+          "lineNumber": 102
+        },
+        {
+          "caller": "_render",
+          "callee": "dashboard.render",
+          "lineNumber": 103
+        },
+        {
+          "caller": "_render",
+          "callee": "term.print",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_render",
+          "callee": "buffer.getvalue",
+          "lineNumber": 105
+        },
+        {
+          "caller": "_state",
+          "callee": "config.TrainConfig",
+          "lineNumber": 111
+        },
+        {
+          "caller": "_state",
+          "callee": "str",
+          "lineNumber": 111
+        },
+        {
+          "caller": "_state",
+          "callee": "runstate.new_run_state",
+          "lineNumber": 112
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "convergence.score_margin_window",
+          "lineNumber": 121
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "_iter",
+          "lineNumber": 121
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "_iter",
+          "lineNumber": 121
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "convergence.score_margin_window",
+          "lineNumber": 125
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "_iter",
+          "lineNumber": 126
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "_iter",
+          "lineNumber": 126
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "convergence.score_margin_window",
+          "lineNumber": 130
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "_iter",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_score_margin_window_pins_right_edge_to_window_pin",
+          "callee": "_iter",
+          "lineNumber": 131
+        },
+        {
+          "caller": "test_full_range_spans_whole_history",
+          "callee": "convergence.full_range",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_full_range_spans_whole_history",
+          "callee": "_iter",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_full_range_spans_whole_history",
+          "callee": "_iter",
+          "lineNumber": 138
+        },
+        {
+          "caller": "test_marker_columns_maps_change_iterations",
+          "callee": "convergence.marker_columns",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_marker_columns_maps_change_iterations",
+          "callee": "round",
+          "lineNumber": 145
+        },
+        {
+          "caller": "test_marker_columns_maps_change_iterations",
+          "callee": "convergence.marker_columns",
+          "lineNumber": 147
+        },
+        {
+          "caller": "test_marker_columns_maps_change_iterations",
+          "callee": "set",
+          "lineNumber": 147
+        },
+        {
+          "caller": "test_winrate_ewma_snaps_on_opponent_advance",
+          "callee": "_iter",
+          "lineNumber": 152
+        },
+        {
+          "caller": "test_winrate_ewma_snaps_on_opponent_advance",
+          "callee": "_iter",
+          "lineNumber": 153
+        },
+        {
+          "caller": "test_winrate_ewma_snaps_on_opponent_advance",
+          "callee": "_iter",
+          "lineNumber": 154
+        },
+        {
+          "caller": "test_winrate_ewma_snaps_on_opponent_advance",
+          "callee": "convergence.winrate_ewma_points",
+          "lineNumber": 156
+        },
+        {
+          "caller": "test_margin_ewma_snaps_on_opponent_advance",
+          "callee": "_iter",
+          "lineNumber": 167
+        },
+        {
+          "caller": "test_margin_ewma_snaps_on_opponent_advance",
+          "callee": "_iter",
+          "lineNumber": 168
+        },
+        {
+          "caller": "test_margin_ewma_snaps_on_opponent_advance",
+          "callee": "_iter",
+          "lineNumber": 169
+        },
+        {
+          "caller": "test_margin_ewma_snaps_on_opponent_advance",
+          "callee": "convergence.margin_ewma_points",
+          "lineNumber": 171
+        },
+        {
+          "caller": "test_score_ewma_smooths_every_iteration",
+          "callee": "convergence.score_ewma_points",
+          "lineNumber": 179
+        },
+        {
+          "caller": "test_score_ewma_smooths_every_iteration",
+          "callee": "_iter",
+          "lineNumber": 180
+        },
+        {
+          "caller": "test_score_ewma_smooths_every_iteration",
+          "callee": "_iter",
+          "lineNumber": 180
+        },
+        {
+          "caller": "test_score_ewma_smooths_every_iteration",
+          "callee": "_iter",
+          "lineNumber": 180
+        },
+        {
+          "caller": "test_opponent_change_iterations_round_trip",
+          "callee": "runstate.new_run_state",
+          "lineNumber": 188
+        },
+        {
+          "caller": "test_opponent_change_iterations_round_trip",
+          "callee": "config.TrainConfig",
+          "lineNumber": 188
+        },
+        {
+          "caller": "test_opponent_change_iterations_round_trip",
+          "callee": "state.opponent_change_iterations.extend",
+          "lineNumber": 189
+        },
+        {
+          "caller": "test_opponent_change_iterations_round_trip",
+          "callee": "runstate.new_run_state",
+          "lineNumber": 190
+        },
+        {
+          "caller": "test_opponent_change_iterations_round_trip",
+          "callee": "config.TrainConfig",
+          "lineNumber": 190
+        },
+        {
+          "caller": "test_opponent_change_iterations_round_trip",
+          "callee": "restored.restore_progress",
+          "lineNumber": 191
+        },
+        {
+          "caller": "test_opponent_change_iterations_round_trip",
+          "callee": "state.to_progress",
+          "lineNumber": 191
+        },
+        {
+          "caller": "test_titles_swap_to_final_score_and_margin",
+          "callee": "_state",
+          "lineNumber": 200
+        },
+        {
+          "caller": "test_titles_swap_to_final_score_and_margin",
+          "callee": "state.history.append",
+          "lineNumber": 201
+        },
+        {
+          "caller": "test_titles_swap_to_final_score_and_margin",
+          "callee": "_iter",
+          "lineNumber": 201
+        },
+        {
+          "caller": "test_titles_swap_to_final_score_and_margin",
+          "callee": "_render",
+          "lineNumber": 203
+        },
+        {
+          "caller": "test_eval_box_shows_random_challenger",
+          "callee": "_state",
+          "lineNumber": 212
+        },
+        {
+          "caller": "test_eval_box_shows_random_challenger",
+          "callee": "range",
+          "lineNumber": 213
+        },
+        {
+          "caller": "test_eval_box_shows_random_challenger",
+          "callee": "state.history.append",
+          "lineNumber": 214
+        },
+        {
+          "caller": "test_eval_box_shows_random_challenger",
+          "callee": "_iter",
+          "lineNumber": 214
+        },
+        {
+          "caller": "test_eval_box_shows_random_challenger",
+          "callee": "_render",
+          "lineNumber": 216
+        },
+        {
+          "caller": "test_eval_box_shows_frozen_challenger",
+          "callee": "_state",
+          "lineNumber": 222
+        },
+        {
+          "caller": "test_eval_box_shows_frozen_challenger",
+          "callee": "range",
+          "lineNumber": 223
+        },
+        {
+          "caller": "test_eval_box_shows_frozen_challenger",
+          "callee": "state.history.append",
+          "lineNumber": 224
+        },
+        {
+          "caller": "test_eval_box_shows_frozen_challenger",
+          "callee": "_iter",
+          "lineNumber": 224
+        },
+        {
+          "caller": "test_eval_box_shows_frozen_challenger",
+          "callee": "_render",
+          "lineNumber": 229
+        },
+        {
+          "caller": "test_renders_long_history_with_markers",
+          "callee": "_state",
+          "lineNumber": 238
+        },
+        {
+          "caller": "test_renders_long_history_with_markers",
+          "callee": "range",
+          "lineNumber": 239
+        },
+        {
+          "caller": "test_renders_long_history_with_markers",
+          "callee": "state.history.append",
+          "lineNumber": 242
+        },
+        {
+          "caller": "test_renders_long_history_with_markers",
+          "callee": "_iter",
+          "lineNumber": 243
+        },
+        {
+          "caller": "test_renders_long_history_with_markers",
+          "callee": "state.opponent_change_iterations.extend",
+          "lineNumber": 251
+        },
+        {
+          "caller": "test_renders_long_history_with_markers",
+          "callee": "len",
+          "lineNumber": 256
+        },
+        {
+          "caller": "test_renders_long_history_with_markers",
+          "callee": "_render",
+          "lineNumber": 256
+        },
+        {
+          "caller": "test_renders_long_history_with_markers",
+          "callee": "_render",
+          "lineNumber": 257
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 15,
+        "functionCount": 15,
+        "classCount": 0
+      }
+    }
+  ]
+}

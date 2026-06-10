@@ -1,0 +1,256 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 5,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "src/wingspan/data/bonus.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 1030,
+      "nonEmptyLines": 981,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/data/general.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 172,
+      "nonEmptyLines": 172,
+      "sections": [
+        {
+          "heading": "0",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "1",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "2",
+          "level": 1,
+          "line": 12
+        },
+        {
+          "heading": "3",
+          "level": 1,
+          "line": 17
+        },
+        {
+          "heading": "4",
+          "level": 1,
+          "line": 22
+        },
+        {
+          "heading": "5",
+          "level": 1,
+          "line": 27
+        },
+        {
+          "heading": "6",
+          "level": 1,
+          "line": 32
+        },
+        {
+          "heading": "7",
+          "level": 1,
+          "line": 37
+        },
+        {
+          "heading": "8",
+          "level": 1,
+          "line": 42
+        },
+        {
+          "heading": "9",
+          "level": 1,
+          "line": 47
+        },
+        {
+          "heading": "10",
+          "level": 1,
+          "line": 52
+        },
+        {
+          "heading": "11",
+          "level": 1,
+          "line": 57
+        },
+        {
+          "heading": "12",
+          "level": 1,
+          "line": 62
+        },
+        {
+          "heading": "13",
+          "level": 1,
+          "line": 67
+        },
+        {
+          "heading": "14",
+          "level": 1,
+          "line": 72
+        },
+        {
+          "heading": "15",
+          "level": 1,
+          "line": 77
+        },
+        {
+          "heading": "16",
+          "level": 1,
+          "line": 82
+        },
+        {
+          "heading": "17",
+          "level": 1,
+          "line": 87
+        },
+        {
+          "heading": "18",
+          "level": 1,
+          "line": 92
+        },
+        {
+          "heading": "19",
+          "level": 1,
+          "line": 97
+        },
+        {
+          "heading": "20",
+          "level": 1,
+          "line": 102
+        },
+        {
+          "heading": "21",
+          "level": 1,
+          "line": 107
+        },
+        {
+          "heading": "22",
+          "level": 1,
+          "line": 112
+        },
+        {
+          "heading": "23",
+          "level": 1,
+          "line": 117
+        },
+        {
+          "heading": "24",
+          "level": 1,
+          "line": 122
+        },
+        {
+          "heading": "25",
+          "level": 1,
+          "line": 127
+        },
+        {
+          "heading": "26",
+          "level": 1,
+          "line": 132
+        },
+        {
+          "heading": "27",
+          "level": 1,
+          "line": 137
+        },
+        {
+          "heading": "28",
+          "level": 1,
+          "line": 142
+        },
+        {
+          "heading": "29",
+          "level": 1,
+          "line": 147
+        },
+        {
+          "heading": "30",
+          "level": 1,
+          "line": 152
+        },
+        {
+          "heading": "31",
+          "level": 1,
+          "line": 157
+        },
+        {
+          "heading": "32",
+          "level": 1,
+          "line": 162
+        },
+        {
+          "heading": "33",
+          "level": 1,
+          "line": 167
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 34
+      }
+    },
+    {
+      "path": "src/wingspan/data/goals.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 618,
+      "nonEmptyLines": 618,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/data/master.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 57535,
+      "nonEmptyLines": 56743,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 0
+      }
+    },
+    {
+      "path": "src/wingspan/data/parameters.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 5,
+      "nonEmptyLines": 5,
+      "sections": [
+        {
+          "heading": "Show bonus cards match symbols",
+          "level": 1,
+          "line": 2
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 1
+      }
+    }
+  ]
+}

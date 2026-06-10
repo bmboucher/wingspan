@@ -1,0 +1,536 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/agents/display.py",
+      "type": "file",
+      "name": "display.py",
+      "filePath": "src/wingspan/agents/display.py",
+      "summary": "Provides rich ANSI-colored text formatting helpers for bird cards, bonus cards, player boards, and game state used by the CLI agent display layer.",
+      "tags": ["utility", "display", "formatting", "cli"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/agents/display.py:format_cost",
+      "type": "function",
+      "name": "format_cost",
+      "filePath": "src/wingspan/agents/display.py",
+      "lineRange": [96, 112],
+      "summary": "Formats a bird's food cost into a human-readable string with food type icons.",
+      "tags": ["utility", "formatting"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/agents/display.py:format_bird_full",
+      "type": "function",
+      "name": "format_bird_full",
+      "filePath": "src/wingspan/agents/display.py",
+      "lineRange": [161, 170],
+      "summary": "Formats a full bird card display including power text and indentation for CLI output.",
+      "tags": ["utility", "formatting", "display"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/agents/display.py:format_played_bird_full",
+      "type": "function",
+      "name": "format_played_bird_full",
+      "filePath": "src/wingspan/agents/display.py",
+      "lineRange": [173, 191],
+      "summary": "Formats a played bird's full display including cached food, eggs laid, and tucked cards.",
+      "tags": ["utility", "formatting", "display"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/agents/display.py:format_can_play",
+      "type": "function",
+      "name": "format_can_play",
+      "filePath": "src/wingspan/agents/display.py",
+      "lineRange": [126, 141],
+      "summary": "Shows which birds in hand are playable given the current food pool, enumerating valid payment options.",
+      "tags": ["utility", "validation", "display"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/agents/display.py:format_board",
+      "type": "function",
+      "name": "format_board",
+      "filePath": "src/wingspan/agents/display.py",
+      "lineRange": [311, 341],
+      "summary": "Renders a complete player board overview including counters, habitats, food, bonuses, and round goal status.",
+      "tags": ["display", "formatting", "component"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/agents/display.py:format_bonus_with_setup_help",
+      "type": "function",
+      "name": "format_bonus_with_setup_help",
+      "filePath": "src/wingspan/agents/display.py",
+      "lineRange": [288, 308],
+      "summary": "Formats a bonus card with setup-phase decision guidance showing qualifying bird counts from hand and tray.",
+      "tags": ["display", "formatting", "setup"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/agents/display.py:_bird_head",
+      "type": "function",
+      "name": "_bird_head",
+      "filePath": "src/wingspan/agents/display.py",
+      "lineRange": [194, 220],
+      "summary": "Builds the header line for a bird card display, including name, habitat icons, cost, egg capacity, and nest type.",
+      "tags": ["utility", "formatting"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/agents/display.py:_bonus_setup_help",
+      "type": "function",
+      "name": "_bonus_setup_help",
+      "filePath": "src/wingspan/agents/display.py",
+      "lineRange": [538, 563],
+      "summary": "Generates a per-bonus setup help block summarizing qualifying birds across hand, tray, and already-selected cards.",
+      "tags": ["display", "setup", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/cards/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/cards/__init__.py",
+      "summary": "Package entry point for the cards subsystem, re-exporting parsed card data from the schema and parse subpackages.",
+      "tags": ["entry-point", "barrel", "cards"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/cards/parse/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/cards/parse/__init__.py",
+      "summary": "Package entry point for the card parsing subsystem, re-exporting the full parse pipeline including catalog, fields, loader, matchers, and power parsers.",
+      "tags": ["entry-point", "barrel", "parsing"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/cards/parse/catalog.py",
+      "type": "file",
+      "name": "catalog.py",
+      "filePath": "src/wingspan/cards/parse/catalog.py",
+      "summary": "Provides stable bird and bonus card catalog accessors (count, index lookup by card ID) backed by the parsed card list.",
+      "tags": ["utility", "cards", "index"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cards/parse/catalog.py:bird_index",
+      "type": "function",
+      "name": "bird_index",
+      "filePath": "src/wingspan/cards/parse/catalog.py",
+      "lineRange": [47, 51],
+      "summary": "Returns the stable integer index for a bird card by its card ID, used for encoding.",
+      "tags": ["utility", "index"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cards/parse/catalog.py:bonus_index",
+      "type": "function",
+      "name": "bonus_index",
+      "filePath": "src/wingspan/cards/parse/catalog.py",
+      "lineRange": [54, 57],
+      "summary": "Returns the stable integer index for a bonus card by its card ID, used for encoding.",
+      "tags": ["utility", "index"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/cards/parse/fields.py",
+      "type": "file",
+      "name": "fields.py",
+      "filePath": "src/wingspan/cards/parse/fields.py",
+      "summary": "Parses individual bird and bonus card fields from raw JSON records into typed schema objects (habitat, food cost, nest type, bonus thresholds, goal categories).",
+      "tags": ["parsing", "utility", "cards", "data-model"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cards/parse/fields.py:parse_food_cost",
+      "type": "function",
+      "name": "parse_food_cost",
+      "filePath": "src/wingspan/cards/parse/fields.py",
+      "lineRange": [49, 63],
+      "summary": "Parses a bird's food cost from the raw JSON record into a BirdCost Pydantic model.",
+      "tags": ["parsing", "data-model"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cards/parse/fields.py:bonus_categories_for_bird",
+      "type": "function",
+      "name": "bonus_categories_for_bird",
+      "filePath": "src/wingspan/cards/parse/fields.py",
+      "lineRange": [79, 96],
+      "summary": "Determines which bonus card categories a bird qualifies for, used to build bonus qualifying-count caches.",
+      "tags": ["parsing", "cards", "bonus"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cards/parse/fields.py:parse_bonus_thresholds",
+      "type": "function",
+      "name": "parse_bonus_thresholds",
+      "filePath": "src/wingspan/cards/parse/fields.py",
+      "lineRange": [109, 130],
+      "summary": "Parses a bonus card's scoring threshold table from raw JSON into a list of (count, vp) pairs.",
+      "tags": ["parsing", "bonus", "scoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/cards/parse/loader.py",
+      "type": "file",
+      "name": "loader.py",
+      "filePath": "src/wingspan/cards/parse/loader.py",
+      "summary": "Loads and caches all bird, bonus, and round-goal card data from JSON source files, providing the singleton parsed card list used throughout the engine.",
+      "tags": ["loading", "cards", "singleton", "data-model"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cards/parse/loader.py:load_all",
+      "type": "function",
+      "name": "load_all",
+      "filePath": "src/wingspan/cards/parse/loader.py",
+      "lineRange": [27, 38],
+      "summary": "Public entry point that loads all card data, returning a tuple of (birds, bonus_cards, round_goals).",
+      "tags": ["loading", "entry-point"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "file:src/wingspan/engine/helpers.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "file:src/wingspan/engine/scoring.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_cost",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_bird_full",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_played_bird_full",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_can_play",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_board",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_bonus_with_setup_help",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:_bird_head",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:_bonus_setup_help",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_cost",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_bird_full",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_board",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/agents/display.py",
+      "target": "function:src/wingspan/agents/display.py:format_bonus_with_setup_help",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/__init__.py",
+      "target": "file:src/wingspan/cards/parse/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/__init__.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/__init__.py",
+      "target": "file:src/wingspan/cards/parse/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/__init__.py",
+      "target": "file:src/wingspan/cards/parse/catalog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/__init__.py",
+      "target": "file:src/wingspan/cards/parse/fields.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/__init__.py",
+      "target": "file:src/wingspan/cards/parse/loader.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/__init__.py",
+      "target": "file:src/wingspan/cards/parse/matchers.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/__init__.py",
+      "target": "file:src/wingspan/cards/parse/pink_matchers.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/__init__.py",
+      "target": "file:src/wingspan/cards/parse/power.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/__init__.py",
+      "target": "file:src/wingspan/cards/parse/tags.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/catalog.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/catalog.py",
+      "target": "file:src/wingspan/cards/parse/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/catalog.py",
+      "target": "file:src/wingspan/cards/parse/loader.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/catalog.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/catalog.py",
+      "target": "function:src/wingspan/cards/parse/catalog.py:bird_index",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/catalog.py",
+      "target": "function:src/wingspan/cards/parse/catalog.py:bonus_index",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/catalog.py",
+      "target": "function:src/wingspan/cards/parse/catalog.py:bird_index",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/catalog.py",
+      "target": "function:src/wingspan/cards/parse/catalog.py:bonus_index",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/fields.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/fields.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/fields.py",
+      "target": "function:src/wingspan/cards/parse/fields.py:parse_food_cost",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/fields.py",
+      "target": "function:src/wingspan/cards/parse/fields.py:bonus_categories_for_bird",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/fields.py",
+      "target": "function:src/wingspan/cards/parse/fields.py:parse_bonus_thresholds",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/fields.py",
+      "target": "function:src/wingspan/cards/parse/fields.py:parse_food_cost",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/fields.py",
+      "target": "function:src/wingspan/cards/parse/fields.py:bonus_categories_for_bird",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/fields.py",
+      "target": "function:src/wingspan/cards/parse/fields.py:parse_bonus_thresholds",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/loader.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/loader.py",
+      "target": "file:src/wingspan/cards/schema.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/loader.py",
+      "target": "function:src/wingspan/cards/parse/loader.py:load_all",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cards/parse/loader.py",
+      "target": "function:src/wingspan/cards/parse/loader.py:load_all",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

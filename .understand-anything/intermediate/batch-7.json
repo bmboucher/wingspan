@@ -1,0 +1,638 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/cli.py",
+      "type": "file",
+      "name": "cli.py",
+      "filePath": "src/wingspan/cli.py",
+      "summary": "CLI entry point for running Wingspan games, parsing command-line arguments, configuring players, initializing instrumentation, and executing one or more game loops.",
+      "tags": ["entry-point", "cli", "game-runner", "instrumentation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cli.py:main_play",
+      "type": "function",
+      "name": "main_play",
+      "filePath": "src/wingspan/cli.py",
+      "lineRange": [34, 94],
+      "summary": "Main CLI handler that parses arguments, builds player agents, opens instrumentation, runs N games, prints results, and writes an optional log file.",
+      "tags": ["entry-point", "game-runner", "cli"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cli.py:_build_parser",
+      "type": "function",
+      "name": "_build_parser",
+      "filePath": "src/wingspan/cli.py",
+      "lineRange": [103, 156],
+      "summary": "Constructs and returns the argparse.ArgumentParser with all CLI flags for game count, player specs, seed, device, and instrumentation options.",
+      "tags": ["cli", "utility", "argument-parsing"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cli.py:_open_instrumentation",
+      "type": "function",
+      "name": "_open_instrumentation",
+      "filePath": "src/wingspan/cli.py",
+      "lineRange": [162, 190],
+      "summary": "Reads an instrumentation config YAML file, resolves output directory, builds the Instrumentation object, and opens it with run context metadata.",
+      "tags": ["instrumentation", "configuration", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/instrumentation/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/instrumentation/__init__.py",
+      "summary": "Package entry point for the instrumentation subpackage, re-exporting the key public names (Instrumentation, config, events, handlers, registry) for convenient access.",
+      "tags": ["entry-point", "barrel", "instrumentation"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/instrumentation/config.py",
+      "type": "file",
+      "name": "config.py",
+      "filePath": "src/wingspan/instrumentation/config.py",
+      "summary": "Defines RunContext (run metadata Pydantic model) and InstrumentationConfig (YAML-driven config that validates handler assignments, resolves handler instances from the registry, and builds a live Instrumentation object).",
+      "tags": ["configuration", "instrumentation", "validation", "service"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/instrumentation/config.py:RunContext",
+      "type": "class",
+      "name": "RunContext",
+      "filePath": "src/wingspan/instrumentation/config.py",
+      "lineRange": [40, 53],
+      "summary": "Pydantic model capturing per-run metadata: output directory, run name, seed, player matchup, and worker ID, passed to handler open() calls.",
+      "tags": ["data-model", "configuration", "instrumentation"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/instrumentation/config.py:InstrumentationConfig",
+      "type": "class",
+      "name": "InstrumentationConfig",
+      "filePath": "src/wingspan/instrumentation/config.py",
+      "lineRange": [56, 124],
+      "summary": "Pydantic model loaded from YAML that maps named handlers to event subscriptions, validates assignments against handler protocol capabilities, and builds a live Instrumentation dispatcher.",
+      "tags": ["configuration", "instrumentation", "validation", "factory"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/instrumentation/dispatcher.py",
+      "type": "file",
+      "name": "dispatcher.py",
+      "filePath": "src/wingspan/instrumentation/dispatcher.py",
+      "summary": "Defines the Instrumentation class, the central event dispatcher that routes game lifecycle events to registered callback handlers, supporting open/close lifecycle and 14 distinct game-event methods.",
+      "tags": ["service", "event-handler", "middleware", "instrumentation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/instrumentation/dispatcher.py:Instrumentation",
+      "type": "class",
+      "name": "Instrumentation",
+      "filePath": "src/wingspan/instrumentation/dispatcher.py",
+      "lineRange": [32, 227],
+      "summary": "Central event dispatcher for the Wingspan game engine: holds a mapping of EventName to handler lists, dispatches each game lifecycle event to registered handlers, and manages handler open/close lifecycle.",
+      "tags": ["service", "event-handler", "middleware", "singleton"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/instrumentation/events.py",
+      "type": "file",
+      "name": "events.py",
+      "filePath": "src/wingspan/instrumentation/events.py",
+      "summary": "Defines EventName enum (14 game lifecycle events) and a Protocol class for each event type, establishing the typed callback interface that all instrumentation handlers must implement.",
+      "tags": ["type-definition", "instrumentation", "event-handler", "protocol"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/instrumentation/events.py:EventName",
+      "type": "class",
+      "name": "EventName",
+      "filePath": "src/wingspan/instrumentation/events.py",
+      "lineRange": [34, 56],
+      "summary": "StrEnum enumerating all 14 instrumentation event names (e.g., GAME_START, BIRD_PLACED, MADE_DECISION), used as keys when mapping handlers to subscriptions.",
+      "tags": ["type-definition", "enum", "instrumentation"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/instrumentation/events.py:CallbackHandler",
+      "type": "class",
+      "name": "CallbackHandler",
+      "filePath": "src/wingspan/instrumentation/events.py",
+      "lineRange": [59, 77],
+      "summary": "Base Pydantic + Protocol class for all instrumentation handlers, providing default no-op open() and close() lifecycle methods that concrete handlers may override.",
+      "tags": ["type-definition", "protocol", "instrumentation"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/instrumentation/handlers/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/instrumentation/handlers/__init__.py",
+      "summary": "Package barrel for the handlers subpackage, importing card_visits and decision_logger submodules to trigger their registry self-registration side effects.",
+      "tags": ["entry-point", "barrel", "instrumentation"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "type": "file",
+      "name": "card_visits.py",
+      "filePath": "src/wingspan/instrumentation/handlers/card_visits.py",
+      "summary": "Implements CardVisitRecorder, an instrumentation handler that counts how many times each bird card is played across games and writes the results as JSONL to a configured output path.",
+      "tags": ["instrumentation", "event-handler", "data-collection"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/instrumentation/handlers/card_visits.py:CardVisitRecorder",
+      "type": "class",
+      "name": "CardVisitRecorder",
+      "filePath": "src/wingspan/instrumentation/handlers/card_visits.py",
+      "lineRange": [26, 58],
+      "summary": "Handler that subscribes to bird_placed and game_end events, accumulates per-card placement counts, and flushes a JSON record per game to a JSONL output file.",
+      "tags": ["instrumentation", "event-handler", "data-collection"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "type": "file",
+      "name": "decision_logger.py",
+      "filePath": "src/wingspan/instrumentation/handlers/decision_logger.py",
+      "summary": "Implements DecisionLogger, an instrumentation handler that logs each agent decision (type, choice count, selected label) as a JSONL record to a configured output file.",
+      "tags": ["instrumentation", "event-handler", "logging"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/instrumentation/handlers/decision_logger.py:DecisionLogger",
+      "type": "class",
+      "name": "DecisionLogger",
+      "filePath": "src/wingspan/instrumentation/handlers/decision_logger.py",
+      "lineRange": [25, 56],
+      "summary": "Handler that subscribes to the made_decision event and writes structured JSON records capturing the decision class name, number of choices, and the selected choice's display label.",
+      "tags": ["instrumentation", "event-handler", "logging"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/instrumentation/registry.py",
+      "type": "file",
+      "name": "registry.py",
+      "filePath": "src/wingspan/instrumentation/registry.py",
+      "summary": "Provides a name-keyed registry of instrumentation handler classes, exposing a @register decorator for handlers to self-register and lookup functions used by InstrumentationConfig to resolve handler types from YAML config.",
+      "tags": ["registry", "factory", "instrumentation"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/instrumentation/registry.py:register",
+      "type": "function",
+      "name": "register",
+      "filePath": "src/wingspan/instrumentation/registry.py",
+      "lineRange": [26, 47],
+      "summary": "Decorator factory that registers a CallbackHandler subclass under a given name in the module-level registry, raising ValueError on duplicate names.",
+      "tags": ["registry", "decorator", "instrumentation"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "function:src/wingspan/cli.py:main_play",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "function:src/wingspan/cli.py:_build_parser",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "function:src/wingspan/cli.py:_open_instrumentation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "function:src/wingspan/cli.py:main_play",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/agents/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/agents/display.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/instrumentation/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cli.py",
+      "target": "file:src/wingspan/tournament/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/__init__.py",
+      "target": "file:src/wingspan/instrumentation/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/__init__.py",
+      "target": "file:src/wingspan/instrumentation/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/__init__.py",
+      "target": "file:src/wingspan/instrumentation/dispatcher.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/__init__.py",
+      "target": "file:src/wingspan/instrumentation/events.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/__init__.py",
+      "target": "file:src/wingspan/instrumentation/handlers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/__init__.py",
+      "target": "file:src/wingspan/instrumentation/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "class:src/wingspan/instrumentation/dispatcher.py:Instrumentation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "class:src/wingspan/instrumentation/dispatcher.py:Instrumentation",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "file:src/wingspan/instrumentation/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "file:src/wingspan/instrumentation/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "file:src/wingspan/instrumentation/events.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "file:src/wingspan/instrumentation/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/dispatcher.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/events.py",
+      "target": "class:src/wingspan/instrumentation/events.py:EventName",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/events.py",
+      "target": "class:src/wingspan/instrumentation/events.py:CallbackHandler",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/events.py",
+      "target": "class:src/wingspan/instrumentation/events.py:EventName",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/events.py",
+      "target": "class:src/wingspan/instrumentation/events.py:CallbackHandler",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/events.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/events.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/events.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/events.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/__init__.py",
+      "target": "file:src/wingspan/instrumentation/handlers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/__init__.py",
+      "target": "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/__init__.py",
+      "target": "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "target": "class:src/wingspan/instrumentation/handlers/card_visits.py:CardVisitRecorder",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "target": "class:src/wingspan/instrumentation/handlers/card_visits.py:CardVisitRecorder",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "target": "file:src/wingspan/instrumentation/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "target": "file:src/wingspan/instrumentation/events.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "target": "class:src/wingspan/instrumentation/handlers/decision_logger.py:DecisionLogger",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "target": "class:src/wingspan/instrumentation/handlers/decision_logger.py:DecisionLogger",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "target": "file:src/wingspan/instrumentation/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "target": "file:src/wingspan/instrumentation/events.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/registry.py",
+      "target": "function:src/wingspan/instrumentation/registry.py:register",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/registry.py",
+      "target": "function:src/wingspan/instrumentation/registry.py:register",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/registry.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/registry.py",
+      "target": "file:src/wingspan/instrumentation/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/registry.py",
+      "target": "file:src/wingspan/instrumentation/events.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/config.py",
+      "target": "class:src/wingspan/instrumentation/config.py:RunContext",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/config.py",
+      "target": "class:src/wingspan/instrumentation/config.py:InstrumentationConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/config.py",
+      "target": "class:src/wingspan/instrumentation/config.py:RunContext",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/instrumentation/config.py",
+      "target": "class:src/wingspan/instrumentation/config.py:InstrumentationConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/wingspan/instrumentation/handlers/card_visits.py:CardVisitRecorder",
+      "target": "class:src/wingspan/instrumentation/events.py:CallbackHandler",
+      "type": "inherits",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "class:src/wingspan/instrumentation/handlers/decision_logger.py:DecisionLogger",
+      "target": "class:src/wingspan/instrumentation/events.py:CallbackHandler",
+      "type": "inherits",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "function:src/wingspan/cli.py:_open_instrumentation",
+      "target": "class:src/wingspan/instrumentation/config.py:InstrumentationConfig",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/cli.py:_open_instrumentation",
+      "target": "class:src/wingspan/instrumentation/dispatcher.py:Instrumentation",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/wingspan/instrumentation/config.py:InstrumentationConfig",
+      "target": "class:src/wingspan/instrumentation/dispatcher.py:Instrumentation",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

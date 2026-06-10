@@ -1,0 +1,125 @@
+{
+  "nodes": [
+    {
+      "id": "file:scripts/auto_merge_worktree.sh",
+      "type": "file",
+      "name": "auto_merge_worktree.sh",
+      "filePath": "scripts/auto_merge_worktree.sh",
+      "summary": "Automated worktree merge loop that calls merge_worktree.sh repeatedly and invokes the Claude CLI to diagnose and fix quality-gate failures or git conflicts, retrying up to MAX_RETRIES times before giving up.",
+      "tags": ["ci-cd", "automation", "deployment", "build-system"],
+      "complexity": "moderate",
+      "languageNotes": "Delegates AI-assisted repair to the 'claude -p' CLI, passing structured failure context via a mktemp prompt file to avoid quoting issues."
+    },
+    {
+      "id": "file:scripts/create_worktree.sh",
+      "type": "file",
+      "name": "create_worktree.sh",
+      "filePath": "scripts/create_worktree.sh",
+      "summary": "Creates a named git worktree on a 'wt/<slug>' branch from the current HEAD of main, installs a fresh virtual environment inside the worktree, and writes a merge-authorization lock file to prevent premature merges.",
+      "tags": ["ci-cd", "build-system", "deployment", "infrastructure"],
+      "complexity": "moderate",
+      "languageNotes": "Commits any dirty main state before branching (WIP snapshot) to ensure the worktree's base commit is clean; mirrors the main venv using pip install -e '.[dev]'."
+    },
+    {
+      "id": "file:scripts/merge_worktree.sh",
+      "type": "file",
+      "name": "merge_worktree.sh",
+      "filePath": "scripts/merge_worktree.sh",
+      "summary": "Squash-merges a completed feature worktree into main after verifying the merge-auth lock is absent; refreshes the main venv if pyproject.toml changed, runs the quality gate with coverage, commits, pushes, and cleans up the worktree and branch.",
+      "tags": ["ci-cd", "deployment", "build-system", "infrastructure"],
+      "complexity": "complex",
+      "languageNotes": "Uses a precise exit-code protocol (0-5) to distinguish authorization blocks, git conflicts, gate failures, preflight errors, and infrastructure failures, enabling the auto_merge_worktree.sh retry loop to respond appropriately."
+    },
+    {
+      "id": "file:scripts/quality_gate.sh",
+      "type": "file",
+      "name": "quality_gate.sh",
+      "filePath": "scripts/quality_gate.sh",
+      "summary": "The single sanctioned quality gate for the project: runs strict pyright type-checking, isort + black formatting, a second pyright pass post-format, and pytest (parallel by default via pytest-xdist); optionally measures coverage and enforces a one-way ratchet against coverage_baseline.txt.",
+      "tags": ["ci-cd", "build-system", "testing", "infrastructure"],
+      "complexity": "complex",
+      "languageNotes": "Distinguishes exit code 1 (genuine check failure — fix the code) from exit code 2 (infrastructure/environment failure — stop and ask a human) so callers can automate retry logic without masking environment breakage."
+    },
+    {
+      "id": "function:scripts/quality_gate.sh:infra_error",
+      "type": "function",
+      "name": "infra_error",
+      "filePath": "scripts/quality_gate.sh",
+      "lineRange": [65, 72],
+      "summary": "Prints an environment-problem message to stderr and exits with exit code 2 (EXIT_INFRA), signalling to callers that the failure is not a code problem and must be resolved by a human.",
+      "tags": ["utility", "error-handling"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/quality_gate.sh:usage",
+      "type": "function",
+      "name": "usage",
+      "filePath": "scripts/quality_gate.sh",
+      "lineRange": [76, 78],
+      "summary": "Prints the script's header comment block as usage documentation by stripping the leading comment markers with awk.",
+      "tags": ["utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/quality_gate.sh:header",
+      "type": "function",
+      "name": "header",
+      "filePath": "scripts/quality_gate.sh",
+      "lineRange": [153, 159],
+      "summary": "Prints a formatted section banner to stdout, used to visually delimit each gate step (pyright, isort, black, pytest, coverage) in the terminal output.",
+      "tags": ["utility"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:scripts/quality_gate.sh",
+      "target": "function:scripts/quality_gate.sh:infra_error",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:scripts/quality_gate.sh",
+      "target": "function:scripts/quality_gate.sh:usage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:scripts/quality_gate.sh",
+      "target": "function:scripts/quality_gate.sh:header",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:scripts/merge_worktree.sh",
+      "target": "file:scripts/quality_gate.sh",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:scripts/auto_merge_worktree.sh",
+      "target": "file:scripts/merge_worktree.sh",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:scripts/auto_merge_worktree.sh",
+      "target": "file:scripts/quality_gate.sh",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:scripts/create_worktree.sh",
+      "target": "file:scripts/quality_gate.sh",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

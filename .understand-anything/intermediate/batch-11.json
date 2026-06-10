@@ -1,0 +1,171 @@
+{
+  "nodes": [
+    {
+      "id": "document:docs/BIRDS.md",
+      "type": "document",
+      "name": "BIRDS.md",
+      "filePath": "docs/BIRDS.md",
+      "summary": "Exhaustive reference for all 180 bird power implementations: maps each EffectKind variant through its parser matcher, engine handler, and any known deviations or gaps. Organized into 27 power categories (food, eggs, cards, tuck, predator, pink reactions, etc.) with per-bird call-out tables and cross-cutting conventions.",
+      "tags": ["documentation", "bird-powers", "effect-kind", "implementation-reference", "engine"],
+      "complexity": "complex"
+    },
+    {
+      "id": "document:docs/BONUSES.md",
+      "type": "document",
+      "name": "BONUSES.md",
+      "filePath": "docs/BONUSES.md",
+      "summary": "Documents all 26 bonus cards and 16 end-of-round goals: acquisition rules, scoring formulas, state-encoding stripes, choice-encoding deltas, and groupings by category. Covers dynamic cards (Breeding Manager, Ecologist, Oologist, Visionary Leader) separately and notes known scoring gaps.",
+      "tags": ["documentation", "bonus-cards", "round-goals", "state-encoding", "scoring"],
+      "complexity": "complex"
+    },
+    {
+      "id": "document:docs/DECISIONS.md",
+      "type": "document",
+      "name": "DECISIONS.md",
+      "filePath": "docs/DECISIONS.md",
+      "summary": "Defines the full Decision/Choice taxonomy for the RL agent: 13 decision families (MAIN_ACTION through SETUP), their choice-vector stripe layouts, ALL_DECISION_CLASSES ordering rules, and the optional-then-commit flow. Authoritative reference for adding or reordering decision points.",
+      "tags": ["documentation", "decision-model", "choice-vector", "rl-agent", "agent-architecture"],
+      "complexity": "complex",
+      "languageNotes": "Describes a generic Decision[C: Choice] type parameterized over Choice subclasses; the ALL_DECISION_CLASSES list is a stable one-hot ordering whose position changes constitute a FRESH versioning event."
+    },
+    {
+      "id": "document:docs/PROJECT.md",
+      "type": "document",
+      "name": "PROJECT.md",
+      "filePath": "docs/PROJECT.md",
+      "summary": "Top-level package map for the Wingspan simulator: lists what is modelled (180 birds, 26 bonus cards, 16 goals), the root-level modules, and links to each subpackage's INDEX.md for detailed module listings.",
+      "tags": ["documentation", "project-map", "architecture", "entry-point", "overview"],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/QUALITY.md",
+      "type": "document",
+      "name": "QUALITY.md",
+      "filePath": "docs/QUALITY.md",
+      "summary": "Reference for the quality_gate.sh CI script: describes the gate's phases (pyright, isort, black, pytest, coverage), exit codes (0 pass / 1 code problem / 2 infra failure), targeted section flags for partial runs, and the coverage ratchet mechanism.",
+      "tags": ["documentation", "ci-cd", "quality-gate", "coverage", "development"],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/RESEARCH.md",
+      "type": "document",
+      "name": "RESEARCH.md",
+      "filePath": "docs/RESEARCH.md",
+      "summary": "Research agenda cataloguing planned analytical projects (card power rankings, model interpretation, score distribution analysis) with per-project feasibility verdicts and an infrastructure gap analysis updated June 2026. Identifies which projects are runnable today vs. need new harnesses.",
+      "tags": ["documentation", "research-agenda", "card-analysis", "ml-evaluation", "feasibility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:docs/TRAINING.md",
+      "type": "document",
+      "name": "TRAINING.md",
+      "filePath": "docs/TRAINING.md",
+      "summary": "Authoritative training program document covering the full RL self-play pipeline: actor-critic algorithm selection, epoch sizing, throughput profiling (collection vs. update bottleneck), GPU memory optimization (padding elimination), checkpointing strategy, architecture scaling guidance, phased roadmap (Phase 0–3), and MLOps logging recommendations.",
+      "tags": ["documentation", "training", "reinforcement-learning", "actor-critic", "ml-infrastructure"],
+      "complexity": "complex",
+      "languageNotes": "Details the 42x memory win from eliminating choice-set padding, the decoupled actor/learner design for parallelism, and the setup model's actor-critic mode with warmup schedule options."
+    },
+    {
+      "id": "document:docs/VERSIONING.md",
+      "type": "document",
+      "name": "VERSIONING.md",
+      "filePath": "docs/VERSIONING.md",
+      "summary": "Defines the artifact versioning contract for model checkpoints: FRESH vs. REGIME change taxonomy, MODEL_VERSION changelog (v0.0 through v0.2), compat shim rules, MINOR/MAJOR bump triggers, and the load+play guarantee that every versioned checkpoint must satisfy.",
+      "tags": ["documentation", "versioning", "checkpoint-compatibility", "model-artifacts", "compat-shims"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "document:docs/PROJECT.md",
+      "target": "document:docs/BIRDS.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT.md",
+      "target": "document:docs/BONUSES.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT.md",
+      "target": "document:docs/DECISIONS.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT.md",
+      "target": "document:docs/TRAINING.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT.md",
+      "target": "document:docs/VERSIONING.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT.md",
+      "target": "document:docs/QUALITY.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT.md",
+      "target": "document:docs/RESEARCH.md",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/TRAINING.md",
+      "target": "document:docs/DECISIONS.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/TRAINING.md",
+      "target": "document:docs/VERSIONING.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/RESEARCH.md",
+      "target": "document:docs/TRAINING.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/BONUSES.md",
+      "target": "document:docs/BIRDS.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/DECISIONS.md",
+      "target": "document:docs/BIRDS.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/DECISIONS.md",
+      "target": "document:docs/BONUSES.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

@@ -1,0 +1,773 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/training/loop_setup.py",
+      "type": "file",
+      "name": "loop_setup.py",
+      "filePath": "src/wingspan/training/loop_setup.py",
+      "summary": "Manages setup phase logic for each training iteration: determining if setup phase is active, running offline setup network fitting, syncing embedder weights between main and setup nets, and resuming from setup checkpoints.",
+      "tags": ["service", "training", "setup"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_setup.py:update_setup",
+      "type": "function",
+      "name": "update_setup",
+      "filePath": "src/wingspan/training/loop_setup.py",
+      "lineRange": [97, 154],
+      "summary": "Runs a mini-batch training step on the setup network using accumulated setup phase game data, recording the resulting loss and accuracy metrics.",
+      "tags": ["training", "setup"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_setup.py:maybe_resume_setup",
+      "type": "function",
+      "name": "maybe_resume_setup",
+      "filePath": "src/wingspan/training/loop_setup.py",
+      "lineRange": [198, 256],
+      "summary": "Attempts to load a saved setup model checkpoint, checking architecture compatibility and restoring weights and optimizer state if found.",
+      "tags": ["training", "setup", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_setup.py:run_offline_setup_fit",
+      "type": "function",
+      "name": "run_offline_setup_fit",
+      "filePath": "src/wingspan/training/loop_setup.py",
+      "lineRange": [54, 94],
+      "summary": "Runs multiple offline training epochs on the setup net using historical game data when no live setup games are available.",
+      "tags": ["training", "setup"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/loop_target.py",
+      "type": "file",
+      "name": "loop_target.py",
+      "filePath": "src/wingspan/training/loop_target.py",
+      "summary": "Handles the target iteration event: checking if a target iteration has been reached, pausing to query the user for a new target, and resuming the loop after the response.",
+      "tags": ["service", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/training/loop_target.py:handle_target_reached",
+      "type": "function",
+      "name": "handle_target_reached",
+      "filePath": "src/wingspan/training/loop_target.py",
+      "lineRange": [40, 124],
+      "summary": "Pauses the training loop at a target iteration, renders a summary panel, solicits a new target iteration from the user via stdin, and updates run state with the new target.",
+      "tags": ["training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/training/metrics.py",
+      "type": "file",
+      "name": "metrics.py",
+      "filePath": "src/wingspan/training/metrics.py",
+      "summary": "Defines all Pydantic data models for training metrics: score breakdowns, family counts, eval results, EWMA accumulators, iteration metrics, game outcomes, and system stats.",
+      "tags": ["data-model", "training", "type-definition"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/training/metrics.py:IterationMetrics",
+      "type": "class",
+      "name": "IterationMetrics",
+      "filePath": "src/wingspan/training/metrics.py",
+      "lineRange": [194, 251],
+      "summary": "Pydantic model capturing all per-iteration training metrics including game outcomes, produce stats, setup stats, system stats, and timing.",
+      "tags": ["data-model", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/training/metrics.py:ScoreBreakdown",
+      "type": "class",
+      "name": "ScoreBreakdown",
+      "filePath": "src/wingspan/training/metrics.py",
+      "lineRange": [46, 90],
+      "summary": "Pydantic model tracking score contributions by category (birds, eggs, food, cached food, bonus, end-of-round) with arithmetic operators for accumulation.",
+      "tags": ["data-model", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/training/metrics.py:RunState",
+      "type": "class",
+      "name": "SystemStats",
+      "filePath": "src/wingspan/training/metrics.py",
+      "lineRange": [294, 312],
+      "summary": "Pydantic model recording per-sample system resource metrics including CPU, RAM, GPU utilization and memory usage.",
+      "tags": ["data-model", "monitoring"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/metrics_log.py",
+      "type": "file",
+      "name": "metrics_log.py",
+      "filePath": "src/wingspan/training/metrics_log.py",
+      "summary": "Reads and caches the per-iteration metrics log from disk (JSONL format), providing the iteration history as a list of IterationMetrics for chart and convergence computations.",
+      "tags": ["utility", "training", "serialization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/metrics_log.py:read_iteration_history",
+      "type": "function",
+      "name": "read_iteration_history",
+      "filePath": "src/wingspan/training/metrics_log.py",
+      "lineRange": [36, 63],
+      "summary": "Reads the iteration metrics JSONL log from the run directory, caching results to avoid redundant disk reads on each dashboard refresh.",
+      "tags": ["utility", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/training/runmeta.py",
+      "type": "file",
+      "name": "runmeta.py",
+      "filePath": "src/wingspan/training/runmeta.py",
+      "summary": "Manages run metadata persistence: writing and reading model configs, session records, inspect reports, and HTML model summaries; also provides layout and dimension reporting utilities used by the dashboard and arch diagram.",
+      "tags": ["service", "training", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/training/runmeta.py:ModelConfig",
+      "type": "class",
+      "name": "ModelConfig",
+      "filePath": "src/wingspan/training/runmeta.py",
+      "lineRange": [49, 70],
+      "summary": "Pydantic model serializing the complete model configuration (architecture, encoding spec, version) to a JSON config artifact saved alongside each checkpoint.",
+      "tags": ["data-model", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/training/runmeta.py:build_model_summary_html",
+      "type": "function",
+      "name": "build_model_summary_html",
+      "filePath": "src/wingspan/training/runmeta.py",
+      "lineRange": [181, 211],
+      "summary": "Generates a full HTML report of the model architecture and parameter counts using torchinfo, converting the Rich text architecture diagram to an HTML page.",
+      "tags": ["visualization", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/training/runstate.py",
+      "type": "file",
+      "name": "runstate.py",
+      "filePath": "src/wingspan/training/runstate.py",
+      "summary": "Defines RunState — the central mutable state object for a training run — tracking game history, EWMA metrics, timing, eval history, events, and progress; includes Phase and TrainingPhase enums.",
+      "tags": ["data-model", "training", "service"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/training/runstate.py:RunState",
+      "type": "class",
+      "name": "RunState",
+      "filePath": "src/wingspan/training/runstate.py",
+      "lineRange": [166, 643],
+      "summary": "Central training run state object accumulating game outcomes, compute stats, eval history, and timing; provides EWMA accessors and serialization to/from RunProgress for checkpoint persistence.",
+      "tags": ["data-model", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/training/runstate.py:Phase",
+      "type": "class",
+      "name": "Phase",
+      "filePath": "src/wingspan/training/runstate.py",
+      "lineRange": [25, 41],
+      "summary": "StrEnum defining the high-level training phases (SETUP, COLLECT, EVAL, CHECKPOINT, etc.) used to annotate iteration history and dashboard displays.",
+      "tags": ["data-model", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/training/runstate.py:RunProgress",
+      "type": "class",
+      "name": "RunProgress",
+      "filePath": "src/wingspan/training/runstate.py",
+      "lineRange": [95, 163],
+      "summary": "Pydantic model that is the serializable snapshot of RunState, persisted to checkpoint files to enable run resumption.",
+      "tags": ["data-model", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/training/setup_runmeta.py",
+      "type": "file",
+      "name": "setup_runmeta.py",
+      "filePath": "src/wingspan/training/setup_runmeta.py",
+      "summary": "Provides the SetupConfig Pydantic model and functions to write and read setup model configuration artifacts alongside setup checkpoints.",
+      "tags": ["data-model", "training", "serialization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/training/setup_runmeta.py:SetupConfig",
+      "type": "class",
+      "name": "SetupConfig",
+      "filePath": "src/wingspan/training/setup_runmeta.py",
+      "lineRange": [21, 43],
+      "summary": "Pydantic model capturing the setup model's architecture configuration (SetupArchitecture + SetupEncoding) serialized to disk for version-compatible checkpoint loading.",
+      "tags": ["data-model", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/sysmon.py",
+      "type": "file",
+      "name": "sysmon.py",
+      "filePath": "src/wingspan/training/sysmon.py",
+      "summary": "Implements SystemMonitor, a background sampler that periodically reads CPU, RAM, and GPU utilization metrics using psutil and pynvml for display in the training dashboard health panel.",
+      "tags": ["monitoring", "utility", "training"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/training/sysmon.py:SystemMonitor",
+      "type": "class",
+      "name": "SystemMonitor",
+      "filePath": "src/wingspan/training/sysmon.py",
+      "lineRange": [24, 60],
+      "summary": "Samples CPU, RAM, and GPU resource metrics on demand, wrapping psutil and pynvml with graceful fallback when GPU is unavailable.",
+      "tags": ["monitoring", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/training/theme.py",
+      "type": "file",
+      "name": "theme.py",
+      "filePath": "src/wingspan/training/theme.py",
+      "summary": "Provides color theming utilities for the training dashboard: lerp/gradient color generation, gradient-rendered text, and win-rate-dependent hero color selection.",
+      "tags": ["utility", "visualization", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/version.py",
+      "type": "file",
+      "name": "version.py",
+      "filePath": "src/wingspan/version.py",
+      "summary": "Defines the Version model and artifact compatibility logic: parsing version strings, checking artifact compatibility against MODEL_VERSION, and adapting old encoding specs via compat shims.",
+      "tags": ["utility", "data-model", "versioning"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/version.py:Version",
+      "type": "class",
+      "name": "Version",
+      "filePath": "src/wingspan/version.py",
+      "lineRange": [60, 69],
+      "summary": "Pydantic model representing a semantic version (major.minor) for training artifact compatibility tracking.",
+      "tags": ["data-model", "versioning"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/version.py:check_artifact_compatible",
+      "type": "function",
+      "name": "check_artifact_compatible",
+      "filePath": "src/wingspan/version.py",
+      "lineRange": [90, 110],
+      "summary": "Raises IncompatibleArtifactError if the artifact's version is not compatible with MODEL_VERSION, enforcing the FRESH/REGIME versioning contract.",
+      "tags": ["utility", "versioning"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/version.py:adapt_encoding_for_version",
+      "type": "function",
+      "name": "adapt_encoding_for_version",
+      "filePath": "src/wingspan/version.py",
+      "lineRange": [113, 130],
+      "summary": "Applies compat shims to an encoding spec loaded from an older artifact version, patching fields added in newer model versions to ensure backward compatibility.",
+      "tags": ["utility", "versioning"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "function:src/wingspan/training/loop_setup.py:update_setup",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "function:src/wingspan/training/loop_setup.py:update_setup",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "function:src/wingspan/training/loop_setup.py:maybe_resume_setup",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "function:src/wingspan/training/loop_setup.py:maybe_resume_setup",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "function:src/wingspan/training/loop_setup.py:run_offline_setup_fit",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "function:src/wingspan/training/loop_setup.py:run_offline_setup_fit",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/training/learner.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/training/loop_resume.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/training/setup_learner.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_setup.py",
+      "target": "file:src/wingspan/training/setup_net.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "function:src/wingspan/training/loop_target.py:handle_target_reached",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "function:src/wingspan/training/loop_target.py:handle_target_reached",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "file:src/wingspan/training/evaluate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_target.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/metrics.py",
+      "target": "class:src/wingspan/training/metrics.py:IterationMetrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/metrics.py",
+      "target": "class:src/wingspan/training/metrics.py:IterationMetrics",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/metrics.py",
+      "target": "class:src/wingspan/training/metrics.py:ScoreBreakdown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/metrics.py",
+      "target": "class:src/wingspan/training/metrics.py:ScoreBreakdown",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/metrics_log.py",
+      "target": "function:src/wingspan/training/metrics_log.py:read_iteration_history",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/metrics_log.py",
+      "target": "function:src/wingspan/training/metrics_log.py:read_iteration_history",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/metrics_log.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/metrics_log.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/metrics_log.py",
+      "target": "file:src/wingspan/training/runstate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runmeta.py",
+      "target": "class:src/wingspan/training/runmeta.py:ModelConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/runmeta.py",
+      "target": "class:src/wingspan/training/runmeta.py:ModelConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/runmeta.py",
+      "target": "function:src/wingspan/training/runmeta.py:build_model_summary_html",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/runmeta.py",
+      "target": "function:src/wingspan/training/runmeta.py:build_model_summary_html",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/runmeta.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runmeta.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runmeta.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runmeta.py",
+      "target": "file:src/wingspan/version.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "class:src/wingspan/training/runstate.py:RunState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "class:src/wingspan/training/runstate.py:RunState",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "class:src/wingspan/training/runstate.py:Phase",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "class:src/wingspan/training/runstate.py:Phase",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "class:src/wingspan/training/runstate.py:RunProgress",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "class:src/wingspan/training/runstate.py:RunProgress",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "file:src/wingspan/training/metrics.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/runstate.py",
+      "target": "file:src/wingspan/version.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_runmeta.py",
+      "target": "class:src/wingspan/training/setup_runmeta.py:SetupConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/setup_runmeta.py",
+      "target": "class:src/wingspan/training/setup_runmeta.py:SetupConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/training/setup_runmeta.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_runmeta.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_runmeta.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_runmeta.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/setup_runmeta.py",
+      "target": "file:src/wingspan/version.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/sysmon.py",
+      "target": "class:src/wingspan/training/sysmon.py:SystemMonitor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/training/sysmon.py",
+      "target": "class:src/wingspan/training/sysmon.py:SystemMonitor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/version.py",
+      "target": "class:src/wingspan/version.py:Version",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/version.py",
+      "target": "class:src/wingspan/version.py:Version",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/version.py",
+      "target": "function:src/wingspan/version.py:check_artifact_compatible",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/version.py",
+      "target": "function:src/wingspan/version.py:check_artifact_compatible",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/version.py",
+      "target": "function:src/wingspan/version.py:adapt_encoding_for_version",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/version.py",
+      "target": "function:src/wingspan/version.py:adapt_encoding_for_version",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/version.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/training/loop_eval.py",
+      "target": "file:src/wingspan/training/evaluate.py",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

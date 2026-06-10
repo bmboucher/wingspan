@@ -1,0 +1,43 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": "src/wingspan/training/configure/INDEX.md", "language": "markdown", "fileCategory": "docs", "sizeLines": 32},
+    {"path": "src/wingspan/training/INDEX.md", "language": "markdown", "fileCategory": "docs", "sizeLines": 49},
+    {"path": "tests/conftest.py", "language": "python", "fileCategory": "code", "sizeLines": 19},
+    {"path": "tests/test_activation_log.py", "language": "python", "fileCategory": "code", "sizeLines": 66},
+    {"path": "tests/test_birdfeeder.py", "language": "python", "fileCategory": "code", "sizeLines": 93},
+    {"path": "tests/test_birds_no_eggs_integration.py", "language": "python", "fileCategory": "code", "sizeLines": 105},
+    {"path": "tests/test_bonus_categories.py", "language": "python", "fileCategory": "code", "sizeLines": 119},
+    {"path": "tests/test_bonus_linear_value.py", "language": "python", "fileCategory": "code", "sizeLines": 80},
+    {"path": "tests/test_card_table_cache.py", "language": "python", "fileCategory": "code", "sizeLines": 64},
+    {"path": "tests/test_choice_landing_slot.py", "language": "python", "fileCategory": "code", "sizeLines": 83},
+    {"path": "tests/test_cloud_runfile.py", "language": "python", "fileCategory": "code", "sizeLines": 58},
+    {"path": "tests/test_cloud_s3sync.py", "language": "python", "fileCategory": "code", "sizeLines": 79},
+    {"path": "tests/test_cloud_status.py", "language": "python", "fileCategory": "code", "sizeLines": 63},
+    {"path": "tests/test_commit_row_pricing.py", "language": "python", "fileCategory": "code", "sizeLines": 62},
+    {"path": "tests/test_compat_shim_v0_0.py", "language": "python", "fileCategory": "code", "sizeLines": 58},
+    {"path": "tests/test_compat_v0_0.py", "language": "python", "fileCategory": "code", "sizeLines": 76},
+    {"path": "tests/test_compat_v0_1.py", "language": "python", "fileCategory": "code", "sizeLines": 74},
+    {"path": "tests/test_convergence_charts.py", "language": "python", "fileCategory": "code", "sizeLines": 62}
+  ],
+  "batchImportData": {
+    "src/wingspan/training/configure/INDEX.md": [],
+    "src/wingspan/training/INDEX.md": [],
+    "tests/conftest.py": [],
+    "tests/test_activation_log.py": [],
+    "tests/test_birdfeeder.py": [],
+    "tests/test_birds_no_eggs_integration.py": [],
+    "tests/test_bonus_categories.py": [],
+    "tests/test_bonus_linear_value.py": [],
+    "tests/test_card_table_cache.py": [],
+    "tests/test_choice_landing_slot.py": [],
+    "tests/test_cloud_runfile.py": [],
+    "tests/test_cloud_s3sync.py": [],
+    "tests/test_cloud_status.py": [],
+    "tests/test_commit_row_pricing.py": [],
+    "tests/test_compat_shim_v0_0.py": [],
+    "tests/test_compat_v0_0.py": [],
+    "tests/test_compat_v0_1.py": [],
+    "tests/test_convergence_charts.py": []
+  }
+}

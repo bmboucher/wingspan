@@ -1,0 +1,875 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/tournament/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/tournament/__init__.py",
+      "summary": "Package barrel for the tournament subsystem, re-exporting key types and functions from app, config, participants, results, runner, schedule, and state modules.",
+      "tags": ["entry-point", "barrel", "tournament"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/tournament/app.py",
+      "type": "file",
+      "name": "app.py",
+      "filePath": "src/wingspan/tournament/app.py",
+      "summary": "CLI entry point for running a Wingspan AI tournament, supporting both live (rich dashboard) and quiet modes with result summarization and optional JSON report export.",
+      "tags": ["entry-point", "api-handler", "tournament", "cli"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/tournament/config.py",
+      "type": "file",
+      "name": "config.py",
+      "filePath": "src/wingspan/tournament/config.py",
+      "summary": "Defines TournamentConfig, the Pydantic model holding all tournament settings including participants, ELO parameters, seeding, output path, and per-pair game count.",
+      "tags": ["config", "data-model", "tournament"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/tournament/elo.py",
+      "type": "file",
+      "name": "elo.py",
+      "filePath": "src/wingspan/tournament/elo.py",
+      "summary": "Self-contained ELO rating implementation providing EloTable (track and update ratings) and a replay function to re-compute ratings from a sequence of game results.",
+      "tags": ["utility", "tournament", "rating", "statistics"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/tournament/participants.py",
+      "type": "file",
+      "name": "participants.py",
+      "filePath": "src/wingspan/tournament/participants.py",
+      "summary": "Defines ParticipantSpec/ParticipantKind/RunOption models and utilities for discovering, loading, and deduplicating tournament competitors from checkpoint directories.",
+      "tags": ["data-model", "tournament", "factory"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/tournament/picker.py",
+      "type": "file",
+      "name": "picker.py",
+      "filePath": "src/wingspan/tournament/picker.py",
+      "summary": "Interactive terminal UI for selecting tournament participants from discovered training runs, with keyboard navigation, multi-select, and rich rendering.",
+      "tags": ["tournament", "ui", "interactive", "component"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/tournament/results.py",
+      "type": "file",
+      "name": "results.py",
+      "filePath": "src/wingspan/tournament/results.py",
+      "summary": "Defines result data models (GameResult, MatchupResult, ParticipantResult, TournamentReport) and the aggregate function that computes standings, matchup stats, and ELO from completed games.",
+      "tags": ["data-model", "tournament", "statistics", "serialization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/tournament/runner.py",
+      "type": "file",
+      "name": "runner.py",
+      "filePath": "src/wingspan/tournament/runner.py",
+      "summary": "Orchestrates tournament execution by building a schedule, dispatching games either in-process or via a ProcessPoolExecutor, and collecting GameResult objects for aggregation.",
+      "tags": ["tournament", "service", "parallel-execution", "orchestration"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/tournament/schedule.py",
+      "type": "file",
+      "name": "schedule.py",
+      "filePath": "src/wingspan/tournament/schedule.py",
+      "summary": "Generates a round-robin tournament schedule as a list of GameTask objects, assigning deterministic per-game seeds from a base seed, pair index, and round index.",
+      "tags": ["tournament", "utility", "data-model"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/tournament/state.py",
+      "type": "file",
+      "name": "state.py",
+      "filePath": "src/wingspan/tournament/state.py",
+      "summary": "Manages live tournament state for dashboard display, tracking ELO history, per-participant records, progress, throughput, and phase transitions during an ongoing run.",
+      "tags": ["tournament", "state-management", "data-model"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/tournament/config.py:TournamentConfig",
+      "type": "class",
+      "name": "TournamentConfig",
+      "filePath": "src/wingspan/tournament/config.py",
+      "lineRange": [24, 63],
+      "summary": "Pydantic model for tournament configuration with computed properties for participant IDs, pair count, and total games.",
+      "tags": ["config", "data-model", "tournament"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/tournament/elo.py:EloTable",
+      "type": "class",
+      "name": "EloTable",
+      "filePath": "src/wingspan/tournament/elo.py",
+      "lineRange": [25, 48],
+      "summary": "Tracks ELO ratings for a set of player IDs and provides expected score and update methods implementing the standard ELO formula.",
+      "tags": ["utility", "rating", "tournament"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/tournament/elo.py:replay",
+      "type": "function",
+      "name": "replay",
+      "filePath": "src/wingspan/tournament/elo.py",
+      "lineRange": [51, 71],
+      "summary": "Re-computes ELO ratings from scratch by replaying all game results in chronological order from an initial EloTable.",
+      "tags": ["utility", "tournament", "rating"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/tournament/participants.py:ParticipantSpec",
+      "type": "class",
+      "name": "ParticipantSpec",
+      "filePath": "src/wingspan/tournament/participants.py",
+      "lineRange": [36, 49],
+      "summary": "Pydantic model describing a single tournament competitor with a unique ID, display name, kind (random or model), and optional checkpoint directory.",
+      "tags": ["data-model", "tournament"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/tournament/participants.py:RunOption",
+      "type": "class",
+      "name": "RunOption",
+      "filePath": "src/wingspan/tournament/participants.py",
+      "lineRange": [52, 68],
+      "summary": "Represents a discovered training run as a participant option with metadata (iteration, win rate, modified date) and a to_spec conversion method.",
+      "tags": ["data-model", "tournament", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/tournament/participants.py:load_player",
+      "type": "function",
+      "name": "load_player",
+      "filePath": "src/wingspan/tournament/participants.py",
+      "lineRange": [136, 151],
+      "summary": "Loads a tournament competitor as a callable agent — either a random agent or a model-backed greedy policy agent loaded from the checkpoint directory.",
+      "tags": ["factory", "tournament", "service"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/tournament/participants.py:discover_runs",
+      "type": "function",
+      "name": "discover_runs",
+      "filePath": "src/wingspan/tournament/participants.py",
+      "lineRange": [78, 98],
+      "summary": "Scans a base directory for loadable training runs, returning a list of RunOption entries sorted by modification time.",
+      "tags": ["utility", "tournament", "discovery"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/tournament/picker.py:run_picker",
+      "type": "function",
+      "name": "run_picker",
+      "filePath": "src/wingspan/tournament/picker.py",
+      "lineRange": [30, 66],
+      "summary": "Runs the interactive terminal competitor picker, returning the selected list of ParticipantSpec objects after the user confirms their selection via keyboard.",
+      "tags": ["ui", "interactive", "tournament", "entry-point"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/tournament/results.py:TournamentReport",
+      "type": "class",
+      "name": "TournamentReport",
+      "filePath": "src/wingspan/tournament/results.py",
+      "lineRange": [83, 89],
+      "summary": "Top-level Pydantic model holding the complete tournament outcome: config, per-participant results, matchup breakdowns, and raw game records.",
+      "tags": ["data-model", "tournament", "serialization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/tournament/results.py:GameResult",
+      "type": "class",
+      "name": "GameResult",
+      "filePath": "src/wingspan/tournament/results.py",
+      "lineRange": [19, 43],
+      "summary": "Pydantic model for a single completed game outcome including player IDs, scores, orientation, and start-player flag.",
+      "tags": ["data-model", "tournament"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/tournament/results.py:aggregate",
+      "type": "function",
+      "name": "aggregate",
+      "filePath": "src/wingspan/tournament/results.py",
+      "lineRange": [92, 117],
+      "summary": "Aggregates raw game results into a TournamentReport by computing ELO ratings, per-pair matchup stats, and overall standings sorted by win rate.",
+      "tags": ["utility", "tournament", "statistics"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/tournament/runner.py:run_tournament",
+      "type": "function",
+      "name": "run_tournament",
+      "filePath": "src/wingspan/tournament/runner.py",
+      "lineRange": [58, 78],
+      "summary": "Entry point for running a full tournament: builds the schedule, dispatches games in-process or in parallel based on the in_process flag, and returns the aggregated TournamentReport.",
+      "tags": ["tournament", "entry-point", "orchestration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/tournament/runner.py:play_tournament_game",
+      "type": "function",
+      "name": "play_tournament_game",
+      "filePath": "src/wingspan/tournament/runner.py",
+      "lineRange": [81, 114],
+      "summary": "Plays a single tournament game between two agents resolved from specs and model caches, returning a GameResult with scores and player orientations.",
+      "tags": ["tournament", "service"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/tournament/schedule.py:GameTask",
+      "type": "class",
+      "name": "GameTask",
+      "filePath": "src/wingspan/tournament/schedule.py",
+      "lineRange": [46, 66],
+      "summary": "Pydantic model representing a single scheduled game with round/pair indices, seat assignment, orientation, and deterministic deal seed.",
+      "tags": ["data-model", "tournament"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/tournament/schedule.py:build_schedule",
+      "type": "function",
+      "name": "build_schedule",
+      "filePath": "src/wingspan/tournament/schedule.py",
+      "lineRange": [69, 95],
+      "summary": "Generates the full round-robin tournament schedule as a flat list of GameTask objects, shuffling orientations per round with deterministic per-game seeds.",
+      "tags": ["utility", "tournament", "factory"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/tournament/state.py:TournamentState",
+      "type": "class",
+      "name": "TournamentState",
+      "filePath": "src/wingspan/tournament/state.py",
+      "lineRange": [76, 176],
+      "summary": "Mutable live state object for an in-progress tournament tracking ELO history, per-participant records, events log, phase, timing, and standings computation.",
+      "tags": ["state-management", "tournament", "data-model"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/tournament/app.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "src/wingspan/tournament/app.py",
+      "lineRange": [43, 77],
+      "summary": "CLI main entry point that resolves competitors, builds tournament config, validates loadability, then runs the tournament in live or quiet mode and writes the report.",
+      "tags": ["entry-point", "cli", "tournament"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/tournament/__init__.py",
+      "target": "file:src/wingspan/tournament/app.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/__init__.py",
+      "target": "file:src/wingspan/tournament/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/__init__.py",
+      "target": "file:src/wingspan/tournament/participants.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/__init__.py",
+      "target": "file:src/wingspan/tournament/results.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/__init__.py",
+      "target": "file:src/wingspan/tournament/runner.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/__init__.py",
+      "target": "file:src/wingspan/tournament/schedule.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/__init__.py",
+      "target": "file:src/wingspan/tournament/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/dashboard.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/elo.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/participants.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/results.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/runner.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/schedule.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/config.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/config.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "file:src/wingspan/players/spec.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "file:src/wingspan/tournament/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/picker.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/picker.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/picker.py",
+      "target": "file:src/wingspan/tournament/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/picker.py",
+      "target": "file:src/wingspan/tournament/participants.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "file:src/wingspan/tournament/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "file:src/wingspan/tournament/elo.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "file:src/wingspan/tournament/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "file:src/wingspan/tournament/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "file:src/wingspan/tournament/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/schedule.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/schedule.py",
+      "target": "file:src/wingspan/tournament/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/schedule.py",
+      "target": "file:src/wingspan/tournament/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/state.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/state.py",
+      "target": "file:src/wingspan/players/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/state.py",
+      "target": "file:src/wingspan/tournament/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "function:src/wingspan/tournament/app.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "function:src/wingspan/tournament/app.py:main",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/config.py",
+      "target": "class:src/wingspan/tournament/config.py:TournamentConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/config.py",
+      "target": "class:src/wingspan/tournament/config.py:TournamentConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/elo.py",
+      "target": "class:src/wingspan/tournament/elo.py:EloTable",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/elo.py",
+      "target": "class:src/wingspan/tournament/elo.py:EloTable",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/elo.py",
+      "target": "function:src/wingspan/tournament/elo.py:replay",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/elo.py",
+      "target": "function:src/wingspan/tournament/elo.py:replay",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "class:src/wingspan/tournament/participants.py:ParticipantSpec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "class:src/wingspan/tournament/participants.py:ParticipantSpec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "class:src/wingspan/tournament/participants.py:RunOption",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "class:src/wingspan/tournament/participants.py:RunOption",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "function:src/wingspan/tournament/participants.py:load_player",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "function:src/wingspan/tournament/participants.py:load_player",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "function:src/wingspan/tournament/participants.py:discover_runs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/participants.py",
+      "target": "function:src/wingspan/tournament/participants.py:discover_runs",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/picker.py",
+      "target": "function:src/wingspan/tournament/picker.py:run_picker",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/picker.py",
+      "target": "function:src/wingspan/tournament/picker.py:run_picker",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "class:src/wingspan/tournament/results.py:TournamentReport",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "class:src/wingspan/tournament/results.py:TournamentReport",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "class:src/wingspan/tournament/results.py:GameResult",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "class:src/wingspan/tournament/results.py:GameResult",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "function:src/wingspan/tournament/results.py:aggregate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/results.py",
+      "target": "function:src/wingspan/tournament/results.py:aggregate",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "function:src/wingspan/tournament/runner.py:run_tournament",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "function:src/wingspan/tournament/runner.py:run_tournament",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "function:src/wingspan/tournament/runner.py:play_tournament_game",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/runner.py",
+      "target": "function:src/wingspan/tournament/runner.py:play_tournament_game",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/schedule.py",
+      "target": "class:src/wingspan/tournament/schedule.py:GameTask",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/schedule.py",
+      "target": "class:src/wingspan/tournament/schedule.py:GameTask",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/schedule.py",
+      "target": "function:src/wingspan/tournament/schedule.py:build_schedule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/schedule.py",
+      "target": "function:src/wingspan/tournament/schedule.py:build_schedule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/state.py",
+      "target": "class:src/wingspan/tournament/state.py:TournamentState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/state.py",
+      "target": "class:src/wingspan/tournament/state.py:TournamentState",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "function:src/wingspan/tournament/runner.py:run_tournament",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "class:src/wingspan/tournament/state.py:TournamentState",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "class:src/wingspan/tournament/config.py:TournamentConfig",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/tournament/results.py:aggregate",
+      "target": "function:src/wingspan/tournament/elo.py:replay",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/tournament/runner.py:run_tournament",
+      "target": "function:src/wingspan/tournament/schedule.py:build_schedule",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/tournament/runner.py:run_tournament",
+      "target": "function:src/wingspan/tournament/results.py:aggregate",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "function:src/wingspan/tournament/participants.py:load_player",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "function:src/wingspan/tournament/picker.py:run_picker",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/__init__.py",
+      "target": "file:src/wingspan/tournament/dashboard.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/wingspan/tournament/app.py",
+      "target": "file:src/wingspan/tournament/dashboard.py",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

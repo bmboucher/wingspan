@@ -1,0 +1,1121 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/cloud/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/cloud/__init__.py",
+      "summary": "Package init for the cloud module that re-exports all public symbols from monitor, runfile, runner, s3sync, and status submodules.",
+      "tags": ["entry-point", "barrel", "cloud", "infrastructure"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/cloud/__main__.py",
+      "type": "file",
+      "name": "__main__.py",
+      "filePath": "src/wingspan/cloud/__main__.py",
+      "summary": "CLI entry point for the cloud module that parses arguments, loads a CloudRunFile (optionally from S3), applies overrides, and launches HeadlessRunner for a remote training run.",
+      "tags": ["entry-point", "cli", "cloud", "infrastructure"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/cloud/monitor.py",
+      "type": "file",
+      "name": "monitor.py",
+      "filePath": "src/wingspan/cloud/monitor.py",
+      "summary": "Live terminal dashboard that polls S3 for RunStatus snapshots from all active cloud training runs and renders them in a Rich table with status LEDs, ETA, and win-rate columns.",
+      "tags": ["monitoring", "cloud", "cli", "service"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/cloud/runfile.py",
+      "type": "file",
+      "name": "runfile.py",
+      "filePath": "src/wingspan/cloud/runfile.py",
+      "summary": "Pydantic models and parser for the cloud run configuration file, defining S3Config, SyncConfig, and CloudRunFile structures that drive headless training runs.",
+      "tags": ["configuration", "data-model", "cloud", "schema-definition"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/cloud/runner.py",
+      "type": "file",
+      "name": "runner.py",
+      "filePath": "src/wingspan/cloud/runner.py",
+      "summary": "HeadlessRunner orchestrates a cloud training session: restores from S3, launches a training thread, supervises progress, periodically uploads checkpoints and game chunks, publishes status snapshots, and handles graceful shutdown on signals.",
+      "tags": ["service", "cloud", "infrastructure", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/cloud/s3sync.py",
+      "type": "file",
+      "name": "s3sync.py",
+      "filePath": "src/wingspan/cloud/s3sync.py",
+      "summary": "S3Sync class and utility functions for downloading runs, uploading checkpoints and game chunks, fetching text objects, and listing run statuses from an S3 bucket backing cloud training.",
+      "tags": ["cloud", "infrastructure", "service", "data-pipeline"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/cloud/status.py",
+      "type": "file",
+      "name": "status.py",
+      "filePath": "src/wingspan/cloud/status.py",
+      "summary": "RunStatus Pydantic model and build_status factory that computes a rich training status snapshot from RunState, including win rate, ETA, games-per-second, and evaluation metrics.",
+      "tags": ["data-model", "cloud", "monitoring", "schema-definition"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/players/loaders.py",
+      "type": "file",
+      "name": "loaders.py",
+      "filePath": "src/wingspan/players/loaders.py",
+      "summary": "Checkpoint loading functions for PolicyValueNet and SetupNet, with compat shim routing for v0.0 and v0.1 artifact formats, encoding-key validation, and net reconstruction from run-dir metadata.",
+      "tags": ["utility", "service", "data-model", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/reporting/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/reporting/__init__.py",
+      "summary": "Package init for the reporting module that re-exports the inspect_cli entry point.",
+      "tags": ["entry-point", "barrel", "reporting"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/reporting/inspect_cli.py",
+      "type": "file",
+      "name": "inspect_cli.py",
+      "filePath": "src/wingspan/reporting/inspect_cli.py",
+      "summary": "Rich terminal CLI for inspecting trained model checkpoints: prints state-encoding layout, choice-encoding stripes, architecture diagram, parameter counts, and optionally writes an HTML report.",
+      "tags": ["cli", "reporting", "utility", "api-handler"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/tournament/dashboard.py",
+      "type": "file",
+      "name": "dashboard.py",
+      "filePath": "src/wingspan/tournament/dashboard.py",
+      "summary": "Rich-based live terminal dashboard for tournament mode: builds a four-panel layout (header, standings, events, progress) and renders real-time stats from a TournamentLive object.",
+      "tags": ["service", "monitoring", "tournament", "component"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/cloud/runfile.py:S3Config",
+      "type": "class",
+      "name": "S3Config",
+      "filePath": "src/wingspan/cloud/runfile.py",
+      "lineRange": [34, 46],
+      "summary": "Pydantic model holding S3 connection parameters: bucket, prefix, region, and optional endpoint URL for MinIO-compatible stores.",
+      "tags": ["data-model", "configuration", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/cloud/runfile.py:SyncConfig",
+      "type": "class",
+      "name": "SyncConfig",
+      "filePath": "src/wingspan/cloud/runfile.py",
+      "lineRange": [49, 63],
+      "summary": "Pydantic model for sync policy: status poll interval, checkpoint upload frequency, game-chunk thresholds, and whether to restore from S3 on start.",
+      "tags": ["data-model", "configuration", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/wingspan/cloud/runfile.py:CloudRunFile",
+      "type": "class",
+      "name": "CloudRunFile",
+      "filePath": "src/wingspan/cloud/runfile.py",
+      "lineRange": [66, 95],
+      "summary": "Top-level Pydantic model for a cloud run configuration file, composing S3Config, SyncConfig, and TrainConfig and aligning the training checkpoint directory to the S3 run prefix.",
+      "tags": ["data-model", "configuration", "cloud"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/cloud/runner.py:HeadlessRunner",
+      "type": "class",
+      "name": "HeadlessRunner",
+      "filePath": "src/wingspan/cloud/runner.py",
+      "lineRange": [40, 273],
+      "summary": "Orchestrates a full cloud training session: spawns a training thread, supervises it from a main loop that periodically publishes RunStatus to S3, offloads game chunks, handles signals for graceful stop, and performs a final sync on completion.",
+      "tags": ["service", "cloud", "infrastructure", "training"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/cloud/s3sync.py:S3Sync",
+      "type": "class",
+      "name": "S3Sync",
+      "filePath": "src/wingspan/cloud/s3sync.py",
+      "lineRange": [52, 149],
+      "summary": "Boto3-backed S3 client facade for training artifact I/O: downloads run checkpoints, uploads individual files and byte payloads, uploads checkpoint sets, and offloads game-log chunks with seek-based incremental reads.",
+      "tags": ["service", "cloud", "infrastructure", "data-pipeline"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/cloud/status.py:RunStatus",
+      "type": "class",
+      "name": "RunStatus",
+      "filePath": "src/wingspan/cloud/status.py",
+      "lineRange": [20, 50],
+      "summary": "Pydantic model for a cloud training run status snapshot, holding iteration progress, win rate, ETA, games-per-second, and metadata fields that are serialized to S3 for the monitor dashboard.",
+      "tags": ["data-model", "cloud", "monitoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cloud/__main__.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "src/wingspan/cloud/__main__.py",
+      "lineRange": [19, 31],
+      "summary": "CLI entry point: parses args, configures logging, loads the run file, creates an S3Sync client, and launches HeadlessRunner.",
+      "tags": ["entry-point", "cli", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cloud/__main__.py:_apply_overrides",
+      "type": "function",
+      "name": "_apply_overrides",
+      "filePath": "src/wingspan/cloud/__main__.py",
+      "lineRange": [49, 64],
+      "summary": "Applies CLI flag overrides (run name, S3 bucket/prefix/endpoint) to a parsed CloudRunFile by returning a patched copy.",
+      "tags": ["utility", "cloud", "configuration"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cloud/__main__.py:_parse_args",
+      "type": "function",
+      "name": "_parse_args",
+      "filePath": "src/wingspan/cloud/__main__.py",
+      "lineRange": [80, 100],
+      "summary": "Defines and parses the cloud CLI argument parser with config, run-name, bucket, prefix, and endpoint arguments.",
+      "tags": ["cli", "utility", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cloud/monitor.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "src/wingspan/cloud/monitor.py",
+      "lineRange": [26, 43],
+      "summary": "Monitor CLI entry point: polls S3 for run statuses in a Rich Live loop, rendering a status table on each tick until interrupted.",
+      "tags": ["entry-point", "cli", "monitoring"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cloud/monitor.py:_render",
+      "type": "function",
+      "name": "_render",
+      "filePath": "src/wingspan/cloud/monitor.py",
+      "lineRange": [59, 78],
+      "summary": "Builds a Rich table of run status rows from a list of RunStatus snapshots, with columns for status LED, name, phase, iteration, win rate, games/sec, and ETA.",
+      "tags": ["utility", "monitoring", "component"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cloud/monitor.py:_parse_args",
+      "type": "function",
+      "name": "_parse_args",
+      "filePath": "src/wingspan/cloud/monitor.py",
+      "lineRange": [136, 155],
+      "summary": "Defines and parses monitor CLI args: S3 bucket, prefix, region, endpoint, and poll interval.",
+      "tags": ["cli", "utility", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cloud/runner.py:_git_sha",
+      "type": "function",
+      "name": "_git_sha",
+      "filePath": "src/wingspan/cloud/runner.py",
+      "lineRange": [276, 287],
+      "summary": "Returns the current git short-SHA by running a subprocess git command, or None if git is unavailable.",
+      "tags": ["utility", "cloud"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cloud/s3sync.py:iter_run_statuses",
+      "type": "function",
+      "name": "iter_run_statuses",
+      "filePath": "src/wingspan/cloud/s3sync.py",
+      "lineRange": [157, 178],
+      "summary": "Yields RunStatus objects parsed from all status JSON files found under the configured S3 prefix, used by the monitor to aggregate active runs.",
+      "tags": ["cloud", "utility", "data-pipeline"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cloud/s3sync.py:fetch_text",
+      "type": "function",
+      "name": "fetch_text",
+      "filePath": "src/wingspan/cloud/s3sync.py",
+      "lineRange": [181, 190],
+      "summary": "Fetches and decodes a text object from an S3 URI, used to load run configs stored remotely.",
+      "tags": ["cloud", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/cloud/s3sync.py:_list_keys",
+      "type": "function",
+      "name": "_list_keys",
+      "filePath": "src/wingspan/cloud/s3sync.py",
+      "lineRange": [219, 240],
+      "summary": "Paginates S3 list_objects_v2 calls to collect all matching object keys under a given bucket and prefix.",
+      "tags": ["cloud", "utility", "data-pipeline"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/cloud/status.py:build_status",
+      "type": "function",
+      "name": "build_status",
+      "filePath": "src/wingspan/cloud/status.py",
+      "lineRange": [53, 99],
+      "summary": "Constructs a RunStatus snapshot from the current RunState, computing win rate, ETA, games-per-second, opponent label, and evaluation metrics for the monitor and cloud supervisor.",
+      "tags": ["factory", "cloud", "monitoring"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/cloud/status.py:_strength",
+      "type": "function",
+      "name": "_strength",
+      "filePath": "src/wingspan/cloud/status.py",
+      "lineRange": [118, 134],
+      "summary": "Derives win rate and confidence interval fields from RunState, choosing between EWMA, collection EWMA, and latest eval depending on training phase.",
+      "tags": ["utility", "cloud", "monitoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/players/loaders.py:load_policy_net",
+      "type": "function",
+      "name": "load_policy_net",
+      "filePath": "src/wingspan/players/loaders.py",
+      "lineRange": [35, 95],
+      "summary": "Loads a PolicyValueNet from a checkpoint file, routing through compat shims for v0.0 and v0.1 artifact formats, and validating encoding-key compatibility before returning the net in eval mode.",
+      "tags": ["service", "utility", "serialization"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/players/loaders.py:load_policy_net_from_run_dir",
+      "type": "function",
+      "name": "load_policy_net_from_run_dir",
+      "filePath": "src/wingspan/players/loaders.py",
+      "lineRange": [98, 124],
+      "summary": "Loads a PolicyValueNet from a run directory by reading the latest checkpoint and reconstructing the network topology from saved run metadata.",
+      "tags": ["service", "utility", "serialization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/players/loaders.py:load_setup_net",
+      "type": "function",
+      "name": "load_setup_net",
+      "filePath": "src/wingspan/players/loaders.py",
+      "lineRange": [127, 160],
+      "summary": "Loads a SetupNet from a run directory, dispatching between v0.1 and current architecture based on compat flags and returning the net in eval mode on the requested device.",
+      "tags": ["service", "utility", "serialization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/players/loaders.py:expected_encoding_key",
+      "type": "function",
+      "name": "expected_encoding_key",
+      "filePath": "src/wingspan/players/loaders.py",
+      "lineRange": [178, 196],
+      "summary": "Computes the canonical encoding key tuple expected for a given run descriptor, reflecting active decision families and current state/choice dimension layout.",
+      "tags": ["utility", "validation", "serialization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/players/loaders.py:_reconstruct_net",
+      "type": "function",
+      "name": "_reconstruct_net",
+      "filePath": "src/wingspan/players/loaders.py",
+      "lineRange": [202, 220],
+      "summary": "Reconstructs a PolicyValueNet topology from the model config stored in a run directory, validating encoding-key match before instantiating the net.",
+      "tags": ["factory", "utility", "serialization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/reporting/inspect_cli.py:main_inspect",
+      "type": "function",
+      "name": "main_inspect",
+      "filePath": "src/wingspan/reporting/inspect_cli.py",
+      "lineRange": [39, 112],
+      "summary": "Main entry point for the inspect CLI: parses args, loads arch info, and dispatches to state, choice, architecture, and parameter reporting sections, optionally writing an HTML report.",
+      "tags": ["entry-point", "cli", "reporting"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/reporting/inspect_cli.py:_write_html_report",
+      "type": "function",
+      "name": "_write_html_report",
+      "filePath": "src/wingspan/reporting/inspect_cli.py",
+      "lineRange": [120, 145],
+      "summary": "Writes a model summary HTML report to a run directory by calling runmeta.build_model_summary_html and saving to an output path.",
+      "tags": ["reporting", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/reporting/inspect_cli.py:_make_stripe_table",
+      "type": "function",
+      "name": "_make_stripe_table",
+      "filePath": "src/wingspan/reporting/inspect_cli.py",
+      "lineRange": [275, 306],
+      "summary": "Builds a Rich table displaying encoding stripe layout with columns for section, stripe, name, start dimension, size, and description.",
+      "tags": ["reporting", "component", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/reporting/inspect_cli.py:_print_arch_section",
+      "type": "function",
+      "name": "_print_arch_section",
+      "filePath": "src/wingspan/reporting/inspect_cli.py",
+      "lineRange": [312, 343],
+      "summary": "Prints the network architecture section: renders the static ASCII arch diagram alongside per-decision-family input dimension and extra-feature counts.",
+      "tags": ["reporting", "component", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/reporting/inspect_cli.py:_build_params_table",
+      "type": "function",
+      "name": "_build_params_table",
+      "filePath": "src/wingspan/reporting/inspect_cli.py",
+      "lineRange": [366, 432],
+      "summary": "Builds a Rich table of parameter counts per network block, with columns for component name, params, percentage, and cumulative totals.",
+      "tags": ["reporting", "component", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/reporting/inspect_cli.py:_load_arch_info",
+      "type": "function",
+      "name": "_load_arch_info",
+      "filePath": "src/wingspan/reporting/inspect_cli.py",
+      "lineRange": [204, 230],
+      "summary": "Loads model architecture metadata from a checkpoint directory, returning an _ArchInfo with encoding spec, architecture, and optional setup model architecture.",
+      "tags": ["utility", "reporting"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/tournament/dashboard.py:build_layout",
+      "type": "function",
+      "name": "build_layout",
+      "filePath": "src/wingspan/tournament/dashboard.py",
+      "lineRange": [31, 43],
+      "summary": "Constructs and returns the root Rich Layout tree for the tournament dashboard with header, standings, events, and progress panels.",
+      "tags": ["component", "tournament", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/tournament/dashboard.py:_build_standings",
+      "type": "function",
+      "name": "_build_standings",
+      "filePath": "src/wingspan/tournament/dashboard.py",
+      "lineRange": [76, 103],
+      "summary": "Renders the standings panel with per-agent rows showing win rate, average margin, score sparkline, and games count.",
+      "tags": ["component", "tournament", "monitoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/tournament/dashboard.py:_build_events",
+      "type": "function",
+      "name": "_build_events",
+      "filePath": "src/wingspan/tournament/dashboard.py",
+      "lineRange": [106, 123],
+      "summary": "Renders the events panel as a scrolling log of recent tournament game events with color-coded event type glyphs.",
+      "tags": ["component", "tournament", "monitoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/tournament/dashboard.py:_build_progress",
+      "type": "function",
+      "name": "_build_progress",
+      "filePath": "src/wingspan/tournament/dashboard.py",
+      "lineRange": [126, 141],
+      "summary": "Renders a braille progress bar footer showing completed and remaining game counts for the current tournament.",
+      "tags": ["component", "tournament", "monitoring"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/cloud/__init__.py",
+      "target": "file:src/wingspan/cloud/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/__init__.py",
+      "target": "file:src/wingspan/cloud/monitor.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/__init__.py",
+      "target": "file:src/wingspan/cloud/runfile.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/__init__.py",
+      "target": "file:src/wingspan/cloud/runner.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/__init__.py",
+      "target": "file:src/wingspan/cloud/s3sync.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/__init__.py",
+      "target": "file:src/wingspan/cloud/status.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/__main__.py",
+      "target": "file:src/wingspan/cloud/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "file:src/wingspan/cloud/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "file:src/wingspan/cloud/runfile.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "file:src/wingspan/cloud/s3sync.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "file:src/wingspan/cloud/status.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/runfile.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/runner.py",
+      "target": "file:src/wingspan/cloud/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/runner.py",
+      "target": "file:src/wingspan/cloud/runfile.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/runner.py",
+      "target": "file:src/wingspan/cloud/s3sync.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/runner.py",
+      "target": "file:src/wingspan/training/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/runner.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/s3sync.py",
+      "target": "file:src/wingspan/training/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/s3sync.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/status.py",
+      "target": "file:src/wingspan/training/runmeta.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/compat/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/setup_model/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "file:src/wingspan/version.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/__init__.py",
+      "target": "file:src/wingspan/reporting/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/__init__.py",
+      "target": "file:src/wingspan/reporting/inspect_cli.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/encode/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/model/core.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/players/loaders.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/reporting/html.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/reporting/svg.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/setup_model/architecture.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "file:src/wingspan/version.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/dashboard.py",
+      "target": "file:src/wingspan/tournament/results.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/tournament/dashboard.py",
+      "target": "file:src/wingspan/tournament/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/cloud/runfile.py",
+      "target": "class:src/wingspan/cloud/runfile.py:S3Config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/runfile.py",
+      "target": "class:src/wingspan/cloud/runfile.py:SyncConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/runfile.py",
+      "target": "class:src/wingspan/cloud/runfile.py:CloudRunFile",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/runner.py",
+      "target": "class:src/wingspan/cloud/runner.py:HeadlessRunner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/s3sync.py",
+      "target": "class:src/wingspan/cloud/s3sync.py:S3Sync",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/status.py",
+      "target": "class:src/wingspan/cloud/status.py:RunStatus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/__main__.py",
+      "target": "function:src/wingspan/cloud/__main__.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/__main__.py",
+      "target": "function:src/wingspan/cloud/__main__.py:_apply_overrides",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/__main__.py",
+      "target": "function:src/wingspan/cloud/__main__.py:_parse_args",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "function:src/wingspan/cloud/monitor.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "function:src/wingspan/cloud/monitor.py:_render",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/monitor.py",
+      "target": "function:src/wingspan/cloud/monitor.py:_parse_args",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/runner.py",
+      "target": "function:src/wingspan/cloud/runner.py:_git_sha",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/s3sync.py",
+      "target": "function:src/wingspan/cloud/s3sync.py:iter_run_statuses",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/s3sync.py",
+      "target": "function:src/wingspan/cloud/s3sync.py:fetch_text",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/s3sync.py",
+      "target": "function:src/wingspan/cloud/s3sync.py:_list_keys",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/status.py",
+      "target": "function:src/wingspan/cloud/status.py:build_status",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/status.py",
+      "target": "function:src/wingspan/cloud/status.py:_strength",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "function:src/wingspan/players/loaders.py:load_policy_net",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "function:src/wingspan/players/loaders.py:load_policy_net_from_run_dir",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "function:src/wingspan/players/loaders.py:load_setup_net",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "function:src/wingspan/players/loaders.py:expected_encoding_key",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "function:src/wingspan/players/loaders.py:_reconstruct_net",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:main_inspect",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:_write_html_report",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:_make_stripe_table",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:_print_arch_section",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:_build_params_table",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:_print_params_section",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:_load_arch_info",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/dashboard.py",
+      "target": "function:src/wingspan/tournament/dashboard.py:build_layout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/dashboard.py",
+      "target": "function:src/wingspan/tournament/dashboard.py:_build_standings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/dashboard.py",
+      "target": "function:src/wingspan/tournament/dashboard.py:_build_events",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/tournament/dashboard.py",
+      "target": "function:src/wingspan/tournament/dashboard.py:_build_progress",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/cloud/runfile.py",
+      "target": "class:src/wingspan/cloud/runfile.py:S3Config",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cloud/runfile.py",
+      "target": "class:src/wingspan/cloud/runfile.py:SyncConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cloud/runfile.py",
+      "target": "class:src/wingspan/cloud/runfile.py:CloudRunFile",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cloud/runner.py",
+      "target": "class:src/wingspan/cloud/runner.py:HeadlessRunner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cloud/s3sync.py",
+      "target": "class:src/wingspan/cloud/s3sync.py:S3Sync",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cloud/status.py",
+      "target": "class:src/wingspan/cloud/status.py:RunStatus",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/cloud/status.py",
+      "target": "function:src/wingspan/cloud/status.py:build_status",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "function:src/wingspan/players/loaders.py:load_policy_net",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "function:src/wingspan/players/loaders.py:load_policy_net_from_run_dir",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/players/loaders.py",
+      "target": "function:src/wingspan/players/loaders.py:load_setup_net",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:main_inspect",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/tournament/dashboard.py",
+      "target": "function:src/wingspan/tournament/dashboard.py:build_layout",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/cloud/__main__.py:main",
+      "target": "class:src/wingspan/cloud/runner.py:HeadlessRunner",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/cloud/__main__.py:main",
+      "target": "class:src/wingspan/cloud/s3sync.py:S3Sync",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/cloud/monitor.py:main",
+      "target": "function:src/wingspan/cloud/s3sync.py:iter_run_statuses",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/wingspan/cloud/status.py:build_status",
+      "target": "class:src/wingspan/cloud/status.py:RunStatus",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

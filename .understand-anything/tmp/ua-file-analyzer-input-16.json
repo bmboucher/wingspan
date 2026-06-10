@@ -1,0 +1,31 @@
+{
+  "projectRoot": "C:/Repos/wingspan",
+  "batchFiles": [
+    {"path": ".gitattributes", "language": "unknown", "sizeLines": 5, "fileCategory": "config"},
+    {"path": ".understand-anything/.understandignore", "language": "unknown", "sizeLines": 32, "fileCategory": "config"},
+    {"path": "export_card_attrs.py", "language": "python", "sizeLines": 29, "fileCategory": "script"},
+    {"path": "scripts/check_mp_collect.py", "language": "python", "sizeLines": 53, "fileCategory": "script"},
+    {"path": "scripts/gen_arch_experiment.py", "language": "python", "sizeLines": 104, "fileCategory": "script"},
+    {"path": "scripts/measure_ipc.py", "language": "python", "sizeLines": 74, "fileCategory": "script"},
+    {"path": "scripts/profile_collection.py", "language": "python", "sizeLines": 65, "fileCategory": "script"},
+    {"path": "src/wingspan/agents/INDEX.md", "language": "markdown", "sizeLines": 50, "fileCategory": "docs"},
+    {"path": "src/wingspan/cards/INDEX.md", "language": "markdown", "sizeLines": 63, "fileCategory": "docs"},
+    {"path": "src/wingspan/cards/parse/INDEX.md", "language": "markdown", "sizeLines": 38, "fileCategory": "docs"},
+    {"path": "src/wingspan/cloud/INDEX.md", "language": "markdown", "sizeLines": 32, "fileCategory": "docs"},
+    {"path": "src/wingspan/encode/INDEX.md", "language": "markdown", "sizeLines": 66, "fileCategory": "docs"},
+    {"path": "src/wingspan/encode/stripes/INDEX.md", "language": "markdown", "sizeLines": 55, "fileCategory": "docs"},
+    {"path": "src/wingspan/engine/INDEX.md", "language": "markdown", "sizeLines": 62, "fileCategory": "docs"},
+    {"path": "src/wingspan/engine/powers/INDEX.md", "language": "markdown", "sizeLines": 53, "fileCategory": "docs"},
+    {"path": "src/wingspan/instrumentation/INDEX.md", "language": "markdown", "sizeLines": 41, "fileCategory": "docs"},
+    {"path": "src/wingspan/model/INDEX.md", "language": "markdown", "sizeLines": 37, "fileCategory": "docs"},
+    {"path": "src/wingspan/players/INDEX.md", "language": "markdown", "sizeLines": 37, "fileCategory": "docs"},
+    {"path": "src/wingspan/reporting/INDEX.md", "language": "markdown", "sizeLines": 40, "fileCategory": "docs"},
+    {"path": "src/wingspan/setup_model/INDEX.md", "language": "markdown", "sizeLines": 52, "fileCategory": "docs"},
+    {"path": "src/wingspan/tournament/INDEX.md", "language": "markdown", "sizeLines": 45, "fileCategory": "docs"},
+    {"path": "src/wingspan/__main__.py", "language": "python", "sizeLines": 11, "fileCategory": "code"},
+    {"path": "src/wingspan/introspect.py", "language": "python", "sizeLines": 93, "fileCategory": "code"},
+    {"path": "src/wingspan/report.py", "language": "python", "sizeLines": 139, "fileCategory": "code"},
+    {"path": "src/wingspan/report_svg.py", "language": "python", "sizeLines": 21, "fileCategory": "code"}
+  ],
+  "batchImportData": {".gitattributes": [], ".understand-anything/.understandignore": [], "export_card_attrs.py": [], "scripts/check_mp_collect.py": [], "scripts/gen_arch_experiment.py": [], "scripts/measure_ipc.py": [], "scripts/profile_collection.py": [], "src/wingspan/agents/INDEX.md": [], "src/wingspan/cards/INDEX.md": [], "src/wingspan/cards/parse/INDEX.md": [], "src/wingspan/cloud/INDEX.md": [], "src/wingspan/encode/INDEX.md": [], "src/wingspan/encode/stripes/INDEX.md": [], "src/wingspan/engine/INDEX.md": [], "src/wingspan/engine/powers/INDEX.md": [], "src/wingspan/instrumentation/INDEX.md": [], "src/wingspan/model/INDEX.md": [], "src/wingspan/players/INDEX.md": [], "src/wingspan/reporting/INDEX.md": [], "src/wingspan/setup_model/INDEX.md": [], "src/wingspan/tournament/INDEX.md": [], "src/wingspan/__main__.py": [], "src/wingspan/introspect.py": [], "src/wingspan/report.py": [], "src/wingspan/report_svg.py": []}
+}

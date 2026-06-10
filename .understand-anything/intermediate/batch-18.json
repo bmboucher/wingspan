@@ -1,0 +1,248 @@
+{
+  "nodes": [
+    {
+      "id": "file:tests/test_engine_agent_dispatch.py",
+      "type": "file",
+      "name": "test_engine_agent_dispatch.py",
+      "filePath": "tests/test_engine_agent_dispatch.py",
+      "summary": "Tests for Engine agent registration and dispatch: verifies agent-by-player-id indexing, error on unset agent, single-choice auto-resolution without consulting the agent, and deepcopy preservation of agent routing.",
+      "tags": ["test", "engine", "agent", "dispatch"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_evaluate_core.py",
+      "type": "file",
+      "name": "test_evaluate_core.py",
+      "filePath": "tests/test_evaluate_core.py",
+      "summary": "Tests for the core evaluation module: covers summarize_eval statistics, evaluate_vs_opponent progress callbacks, and run_final_self_play_eval return shape against a live PolicyValueNet.",
+      "tags": ["test", "evaluation", "self-play", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_extra_play.py",
+      "type": "file",
+      "name": "test_extra_play.py",
+      "filePath": "tests/test_extra_play.py",
+      "summary": "Tests for the extra-play credit mechanic: verifies the play menu is offered and completes the bird placement, handles the no-legal-play waste case, the decline path, and habitat-restricted credit filtering.",
+      "tags": ["test", "engine", "bird-placement", "extra-play"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_food_payment.py",
+      "type": "file",
+      "name": "test_food_payment.py",
+      "filePath": "tests/test_food_payment.py",
+      "summary": "Comprehensive tests for the food payment helpers (cost_meets and enumerate_payments): covers exact specific costs, wild substitution, two-for-one exchanges, free costs, overpay rejection, and multi-wild enumeration.",
+      "tags": ["test", "food-economy", "payment", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_gain_food_choice.py",
+      "type": "file",
+      "name": "test_gain_food_choice.py",
+      "filePath": "tests/test_gain_food_choice.py",
+      "summary": "Tests for the gain-food-choice bird power (food-choice and die-any variants): verifies parser recognition, no-collision with birdfeeder, correct agent interaction when food types are available or absent, and feeder refill on die_any.",
+      "tags": ["test", "bird-powers", "food-economy", "parser"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_habitat_action_track.py",
+      "type": "file",
+      "name": "test_habitat_action_track.py",
+      "filePath": "tests/test_habitat_action_track.py",
+      "summary": "Extensive tests for all three habitat action tracks (forest/gain-food, grassland/lay-eggs, wetland/draw-cards): verifies count tables, trade-space gating, commit/discard/spend flows, and board render correctness.",
+      "tags": ["test", "engine", "habitat-actions", "board"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_inspect_era.py",
+      "type": "file",
+      "name": "test_inspect_era.py",
+      "filePath": "tests/test_inspect_era.py",
+      "summary": "Tests for the run-era inspection and architecture diagram rendering: verifies static render output, frozen era widths, HTML/JSON descriptor round-trips, the inspect CLI, and error on missing descriptor.",
+      "tags": ["test", "training", "diagnostics", "architecture"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_instrumentation_config.py",
+      "type": "file",
+      "name": "test_instrumentation_config.py",
+      "filePath": "tests/test_instrumentation_config.py",
+      "summary": "Tests for InstrumentationConfig serialization: covers model_dump, JSON, and YAML round-trips, default empty state, shared-instance behavior on build(), and correct nesting under TrainConfig.",
+      "tags": ["test", "instrumentation", "configuration", "serialization"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_instrumentation_dispatch.py",
+      "type": "file",
+      "name": "test_instrumentation_dispatch.py",
+      "filePath": "tests/test_instrumentation_dispatch.py",
+      "summary": "Tests for the instrumentation event dispatch system: defines a _RecordingHandler that captures all lifecycle events, then verifies correct event sequencing, decision filtering, uninstrumented-game safety, and per-handler open/close counts.",
+      "tags": ["test", "instrumentation", "event-dispatch", "engine"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_instrumentation_validation.py",
+      "type": "file",
+      "name": "test_instrumentation_validation.py",
+      "filePath": "tests/test_instrumentation_validation.py",
+      "summary": "Tests for InstrumentationConfig validation: verifies that unknown handler classes, missing class keys, illegal event assignments, and references to undeclared handlers all raise validation errors.",
+      "tags": ["test", "instrumentation", "validation", "configuration"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_main_action.py",
+      "type": "file",
+      "name": "test_main_action.py",
+      "filePath": "tests/test_main_action.py",
+      "summary": "Tests for the main-action turn loop: verifies that all three habitat actions are always offered, play-bird appears as an option, play-bird opens a valid play menu, and the payment menu follows with cost-meeting payments.",
+      "tags": ["test", "engine", "turn-loop", "main-action"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_metrics_log.py",
+      "type": "file",
+      "name": "test_metrics_log.py",
+      "filePath": "tests/test_metrics_log.py",
+      "summary": "Tests for the metrics log reader: covers missing-file empty return, full row reads, fingerprint-based cache hits, cache invalidation on file growth, and graceful skipping of truncated final lines.",
+      "tags": ["test", "training", "metrics", "caching"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_model_and_self_play.py",
+      "type": "file",
+      "name": "test_model_and_self_play.py",
+      "filePath": "tests/test_model_and_self_play.py",
+      "summary": "Core model and self-play integration tests: verifies PolicyValueNet forward shapes and masking, single-choice handling, self-play record generation, gradient updates, per-choice feature sensitivity, family-head routing, card embedding sharing, and choice-candidate representation invariants.",
+      "tags": ["test", "model", "self-play", "neural-network"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_move_goal_delta.py",
+      "type": "file",
+      "name": "test_move_goal_delta.py",
+      "filePath": "tests/test_move_goal_delta.py",
+      "summary": "Tests for move-goal delta encoding in the choice featurizer: verifies bird-count, egg-count, set membership, habitat-spread bonus deltas, and that missing move context raises a validation error.",
+      "tags": ["test", "encoding", "goal-delta", "featurizer"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_mp_collect.py",
+      "type": "file",
+      "name": "test_mp_collect.py",
+      "filePath": "tests/test_mp_collect.py",
+      "summary": "Tests for the multiprocess game collection system (ProcessCollector): verifies games are collected with correct step counts, same-seed determinism, empty-seed no-op, and sequential/parallel evaluation parity against random and frozen opponents.",
+      "tags": ["test", "training", "multiprocessing", "collection"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_players_factory.py",
+      "type": "file",
+      "name": "test_players_factory.py",
+      "filePath": "tests/test_players_factory.py",
+      "summary": "Tests for the players factory module: covers resolve_split_setup_bonus regime detection, split/combined flag gating, disagreeing-regime error, setup-decision top-option logging behavior, and probability floor for non-setup decisions.",
+      "tags": ["test", "players", "factory", "regime"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_players_spec.py",
+      "type": "file",
+      "name": "test_players_spec.py",
+      "filePath": "tests/test_players_spec.py",
+      "summary": "Tests for player spec parsing: verifies human/random specs have no checkpoint paths, named specs resolve against the checkpoint directory, run-directory specs seat the last checkpoint, and .pt-path specs derive the setup-net directory correctly.",
+      "tags": ["test", "players", "checkpoint", "spec"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_powers_brown_activate.py",
+      "type": "file",
+      "name": "test_powers_brown_activate.py",
+      "filePath": "tests/test_powers_brown_activate.py",
+      "summary": "Tests for brown bird powers that activate other birds' powers on trigger conditions, verifying correct dispatch and effect application within the engine.",
+      "tags": ["test", "bird-powers", "brown-powers", "activate"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_powers_brown_bonus.py",
+      "type": "file",
+      "name": "test_powers_brown_bonus.py",
+      "filePath": "tests/test_powers_brown_bonus.py",
+      "summary": "Tests for brown bird powers that award bonus cards or scoring bonuses, checking that the engine correctly handles the bonus card mechanics.",
+      "tags": ["test", "bird-powers", "brown-powers", "bonus"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_powers_brown_cache.py",
+      "type": "file",
+      "name": "test_powers_brown_cache.py",
+      "filePath": "tests/test_powers_brown_cache.py",
+      "summary": "Tests for brown bird cache powers (cache food/eggs on birds), verifying the item is placed correctly on the triggered bird and state is updated.",
+      "tags": ["test", "bird-powers", "brown-powers", "cache"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_powers_brown_discard.py",
+      "type": "file",
+      "name": "test_powers_brown_discard.py",
+      "filePath": "tests/test_powers_brown_discard.py",
+      "summary": "Tests for brown bird discard powers that require the player to discard a card in exchange for a benefit, verifying decision flow and state changes.",
+      "tags": ["test", "bird-powers", "brown-powers", "discard"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_powers_brown_draw.py",
+      "type": "file",
+      "name": "test_powers_brown_draw.py",
+      "filePath": "tests/test_powers_brown_draw.py",
+      "summary": "Tests for brown bird draw-card powers, verifying that the correct number of cards are drawn from the deck or tray and added to the player's hand.",
+      "tags": ["test", "bird-powers", "brown-powers", "draw"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_powers_brown_egg.py",
+      "type": "file",
+      "name": "test_powers_brown_egg.py",
+      "filePath": "tests/test_powers_brown_egg.py",
+      "summary": "Tests for brown bird egg-laying powers, verifying the correct number of eggs are placed on the correct target birds after the power triggers.",
+      "tags": ["test", "bird-powers", "brown-powers", "egg"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_powers_brown_food.py",
+      "type": "file",
+      "name": "test_powers_brown_food.py",
+      "filePath": "tests/test_powers_brown_food.py",
+      "summary": "Tests for brown bird food-gain powers, verifying that the correct food types are added to the player's supply after the power triggers.",
+      "tags": ["test", "bird-powers", "brown-powers", "food-economy"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_powers_brown_play.py",
+      "type": "file",
+      "name": "test_powers_brown_play.py",
+      "filePath": "tests/test_powers_brown_play.py",
+      "summary": "Tests for brown bird play-bird powers that allow playing additional birds at reduced cost, verifying the decision sequence and board placement.",
+      "tags": ["test", "bird-powers", "brown-powers", "bird-placement"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:tests/test_instrumentation_dispatch.py:_RecordingHandler",
+      "type": "class",
+      "name": "_RecordingHandler",
+      "filePath": "tests/test_instrumentation_dispatch.py",
+      "lineRange": [27, 143],
+      "summary": "Test-local instrumentation handler that records all lifecycle events (game_start, round_start, turn_start, making_decision, etc.) into a list for assertion; implements the full handler protocol used in dispatch tests.",
+      "tags": ["test", "instrumentation", "event-handler"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:tests/test_instrumentation_dispatch.py",
+      "target": "class:tests/test_instrumentation_dispatch.py:_RecordingHandler",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    }
+  ]
+}

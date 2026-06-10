@@ -1,0 +1,49 @@
+{
+  "nodes": [
+    {
+      "id": "document:tests/data/compat/v0.0/README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "tests/data/compat/v0.0/README.md",
+      "summary": "Documents the v0.0 backwards-compatibility fixture set: a pinned snapshot of a real training run's artifacts (model and setup checkpoints plus JSON descriptors) used by test_compat_v0_0.py to verify that artifact version 0.0 files still load and run games under the current code. Explains the Git LFS storage strategy, the deliberate absence of a version key in the JSON descriptors (to exercise the default-to-0.0 code path), and the policy for capturing future fixture sets on MINOR version bumps.",
+      "tags": ["documentation", "compatibility", "versioning", "test-fixtures"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "config:tests/data/compat/v0.0/model_config.json",
+      "type": "config",
+      "name": "model_config.json",
+      "filePath": "tests/data/compat/v0.0/model_config.json",
+      "summary": "Pinned v0.0 main network architecture descriptor used as a backwards-compatibility test fixture. Captures the encoding dimensions (state_dim=771, choice_dim=397), the 12-family decision ordering, and the full ModelArchitecture topology (2-layer trunk/choice heads at width 128, card embedding dim 64, shared card encoder, distinct hand model, tray set embedding) as it existed before the version field was introduced.",
+      "tags": ["configuration", "compatibility", "test-fixtures", "model-architecture"],
+      "complexity": "moderate",
+      "languageNotes": "Deliberately omits a version key to exercise the default-to-0.0 load path; do not add one."
+    },
+    {
+      "id": "config:tests/data/compat/v0.0/setup_config.json",
+      "type": "config",
+      "name": "setup_config.json",
+      "filePath": "tests/data/compat/v0.0/setup_config.json",
+      "summary": "Pinned v0.0 setup model configuration fixture recording the setup network architecture (setup_feature_dim=308, two-layer MLP at 128/64) plus the full main architecture descriptor used alongside the setup net. Used by test_compat_v0_0.py to confirm the setup checkpoint loads and plays correctly under current code.",
+      "tags": ["configuration", "compatibility", "test-fixtures", "model-architecture"],
+      "complexity": "simple",
+      "languageNotes": "Deliberately omits a version key to exercise the default-to-0.0 load path; do not add one."
+    }
+  ],
+  "edges": [
+    {
+      "source": "document:tests/data/compat/v0.0/README.md",
+      "target": "config:tests/data/compat/v0.0/model_config.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:tests/data/compat/v0.0/README.md",
+      "target": "config:tests/data/compat/v0.0/setup_config.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}
