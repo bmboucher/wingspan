@@ -1,0 +1,579 @@
+{
+  "nodes": [
+    {
+      "id": "file:tests/test_powers_pink_reactive.py",
+      "type": "file",
+      "name": "test_powers_pink_reactive.py",
+      "filePath": "tests/test_powers_pink_reactive.py",
+      "summary": "Tests for pink (when-activated) reactive bird powers including per-use firing caps, veto/accept/decline flows, and lay-egg reactor targeting with exclude-self semantics.",
+      "tags": ["test", "pink-powers", "reactors", "engine"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_pink_reactive.py:_always_activate_agent",
+      "type": "function",
+      "name": "_always_activate_agent",
+      "filePath": "tests/test_powers_pink_reactive.py",
+      "lineRange": [38, 49],
+      "summary": "Test agent stub that always accepts/activates any offered decision.",
+      "tags": ["test", "utility", "agent-stub"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_pink_reactive.py:_always_skip_agent",
+      "type": "function",
+      "name": "_always_skip_agent",
+      "filePath": "tests/test_powers_pink_reactive.py",
+      "lineRange": [52, 63],
+      "summary": "Test agent stub that always skips/declines any offered decision.",
+      "tags": ["test", "utility", "agent-stub"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_pink_reactive.py:test_pink_fired_cap_fires_only_once_per_window",
+      "type": "function",
+      "name": "test_pink_fired_cap_fires_only_once_per_window",
+      "filePath": "tests/test_powers_pink_reactive.py",
+      "lineRange": [170, 185],
+      "summary": "Verifies that a pink power fires at most once per trigger window even when multiple triggering events occur.",
+      "tags": ["test", "pink-powers", "firing-cap"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_pink_reactive.py:test_pink_fired_reset_allows_fire_again",
+      "type": "function",
+      "name": "test_pink_fired_reset_allows_fire_again",
+      "filePath": "tests/test_powers_pink_reactive.py",
+      "lineRange": [188, 206],
+      "summary": "Tests that a pink power's fired flag is reset between windows, allowing it to fire again in a new round.",
+      "tags": ["test", "pink-powers", "state-reset"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_pink_reactive.py:test_pink_fired_decline_does_not_consume_use",
+      "type": "function",
+      "name": "test_pink_fired_decline_does_not_consume_use",
+      "filePath": "tests/test_powers_pink_reactive.py",
+      "lineRange": [209, 230],
+      "summary": "Verifies that declining a pink power does not mark it as fired, preserving its use for the next opportunity.",
+      "tags": ["test", "pink-powers", "decline-semantics"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_pink_reactive.py:test_fire_pink_lay_egg_exclude_self_true_skips_reactor_as_sole_target",
+      "type": "function",
+      "name": "test_fire_pink_lay_egg_exclude_self_true_skips_reactor_as_sole_target",
+      "filePath": "tests/test_powers_pink_reactive.py",
+      "lineRange": [263, 296],
+      "summary": "Tests that a pink lay-egg reactor with exclude-self=True skips entirely when it is the only eligible target bird.",
+      "tags": ["test", "pink-powers", "exclude-self", "targeting"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_pink_reactive.py:test_fire_pink_lay_egg_exclude_self_false_allows_self_targeting",
+      "type": "function",
+      "name": "test_fire_pink_lay_egg_exclude_self_false_allows_self_targeting",
+      "filePath": "tests/test_powers_pink_reactive.py",
+      "lineRange": [299, 327],
+      "summary": "Tests that a pink lay-egg reactor with exclude-self=False correctly allows the reactor bird itself to be the egg target.",
+      "tags": ["test", "pink-powers", "exclude-self", "targeting"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_powers_tuck_conditional.py",
+      "type": "file",
+      "name": "test_powers_tuck_conditional.py",
+      "filePath": "tests/test_powers_tuck_conditional.py",
+      "summary": "Tests for conditional tuck powers including tuck-then-draw, tuck-then-lay-on-this, tuck-then-gain-food, and tuck-from-hand mechanics, verifying accept/skip branches and state transitions.",
+      "tags": ["test", "bird-powers", "tuck-mechanics", "conditional-powers"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:tests/test_powers_tuck_conditional.py:_engine_with_agents",
+      "type": "function",
+      "name": "_engine_with_agents",
+      "filePath": "tests/test_powers_tuck_conditional.py",
+      "lineRange": [29, 43],
+      "summary": "Test helper that constructs a two-player game engine with configured agent callbacks.",
+      "tags": ["test", "utility", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_powers_tuck_conditional.py:test_tuck_then_draw_tuck_accepted_order_and_state",
+      "type": "function",
+      "name": "test_tuck_then_draw_tuck_accepted_order_and_state",
+      "filePath": "tests/test_powers_tuck_conditional.py",
+      "lineRange": [146, 193],
+      "summary": "Tests the full tuck-then-draw sequence when the tuck is accepted: verifies decision ordering, card-under-deck placement, and draw card-gain state.",
+      "tags": ["test", "bird-powers", "tuck-mechanics", "decision-chain"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_tuck_conditional.py:test_tuck_then_draw_tuck_skipped_no_draw",
+      "type": "function",
+      "name": "test_tuck_then_draw_tuck_skipped_no_draw",
+      "filePath": "tests/test_powers_tuck_conditional.py",
+      "lineRange": [196, 220],
+      "summary": "Verifies that when the tuck is skipped in a tuck-then-draw power, no card draw follows.",
+      "tags": ["test", "bird-powers", "skip-semantics"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_tuck_conditional.py:test_tuck_then_lay_on_this_tuck_accepted_lay_accepted",
+      "type": "function",
+      "name": "test_tuck_then_lay_on_this_tuck_accepted_lay_accepted",
+      "filePath": "tests/test_powers_tuck_conditional.py",
+      "lineRange": [250, 297],
+      "summary": "Tests the full tuck-then-lay-on-this sequence when both the tuck and lay decisions are accepted.",
+      "tags": ["test", "bird-powers", "tuck-mechanics", "egg-laying"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_tuck_conditional.py:test_tuck_then_gain_food_tuck_accepted_gains_food",
+      "type": "function",
+      "name": "test_tuck_then_gain_food_tuck_accepted_gains_food",
+      "filePath": "tests/test_powers_tuck_conditional.py",
+      "lineRange": [339, 382],
+      "summary": "Tests the full tuck-then-gain-food sequence: when tuck is accepted, the appropriate food is added to the player's supply.",
+      "tags": ["test", "bird-powers", "tuck-mechanics", "food-gain"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_powers_tuck_conditional.py:test_tuck_from_hand_then_gain_food_choice_gains_selected_food",
+      "type": "function",
+      "name": "test_tuck_from_hand_then_gain_food_choice_gains_selected_food",
+      "filePath": "tests/test_powers_tuck_conditional.py",
+      "lineRange": [513, 568],
+      "summary": "Tests the tuck-from-hand-then-gain-food power: player selects a card from hand to tuck, then gains the chosen food type.",
+      "tags": ["test", "bird-powers", "tuck-mechanics", "food-gain"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/test_report_panels.py",
+      "type": "file",
+      "name": "test_report_panels.py",
+      "filePath": "tests/test_report_panels.py",
+      "summary": "Tests for HTML training report panels, verifying section/arch panel visibility defaults, SVG click hooks, and overall HTML report generation structure.",
+      "tags": ["test", "html-report", "ui", "training"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_report_panels.py:_report_html",
+      "type": "function",
+      "name": "_report_html",
+      "filePath": "tests/test_report_panels.py",
+      "lineRange": [114, 153],
+      "summary": "Test helper that constructs a complete HTML report fixture for panel structure assertions.",
+      "tags": ["test", "utility", "html-report"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_round_goal_coverage.py",
+      "type": "file",
+      "name": "test_round_goal_coverage.py",
+      "filePath": "tests/test_round_goal_coverage.py",
+      "summary": "Tests ensuring all 16 round goal types have registered scorers and that coverage gaps are detected during integration runs.",
+      "tags": ["test", "round-goals", "coverage", "scoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_smoke.py",
+      "type": "file",
+      "name": "test_smoke.py",
+      "filePath": "tests/test_smoke.py",
+      "summary": "Smoke test that runs a complete random game to completion, verifying the engine can execute an end-to-end game without errors.",
+      "tags": ["test", "smoke-test", "integration", "entry-point"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_smoke.py:test_random_game_completes",
+      "type": "function",
+      "name": "test_random_game_completes",
+      "filePath": "tests/test_smoke.py",
+      "lineRange": [13, 29],
+      "summary": "Runs a full 2-player game with random agents to verify the engine completes a game without exceptions.",
+      "tags": ["test", "smoke-test", "integration"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_decision_families.py",
+      "type": "file",
+      "name": "test_decision_families.py",
+      "filePath": "tests/test_decision_families.py",
+      "summary": "Tests that decision classes are grouped into the correct family buckets used for per-decision-model routing, validating that food, card, and action decisions belong to their expected families.",
+      "tags": ["test", "decision-system", "families", "routing"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_families.py:test_bird_acquisition_and_discard_are_distinct_families",
+      "type": "function",
+      "name": "test_bird_acquisition_and_discard_are_distinct_families",
+      "filePath": "tests/test_decision_families.py",
+      "lineRange": [62, 82],
+      "summary": "Verifies that bird-acquisition decisions and discard decisions are classified into separate, non-overlapping family groups.",
+      "tags": ["test", "decision-system", "families"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_families.py:test_choosing_an_action_and_choosing_a_bird_to_play_are_distinct",
+      "type": "function",
+      "name": "test_choosing_an_action_and_choosing_a_bird_to_play_are_distinct",
+      "filePath": "tests/test_decision_families.py",
+      "lineRange": [85, 98],
+      "summary": "Tests that main-action selection and bird-play selection belong to distinct decision families.",
+      "tags": ["test", "decision-system", "families"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_decision_families.py:test_gain_food_and_spend_food_are_distinct_families",
+      "type": "function",
+      "name": "test_gain_food_and_spend_food_are_distinct_families",
+      "filePath": "tests/test_decision_families.py",
+      "lineRange": [101, 112],
+      "summary": "Verifies that gain-food decisions and spend-food decisions are classified into separate family groups.",
+      "tags": ["test", "decision-system", "food-economy"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_decision_families.py:test_bird_food_payment_routes_to_spend_food",
+      "type": "function",
+      "name": "test_bird_food_payment_routes_to_spend_food",
+      "filePath": "tests/test_decision_families.py",
+      "lineRange": [115, 126],
+      "summary": "Tests that bird-food-payment decisions are correctly routed to the spend-food decision family.",
+      "tags": ["test", "decision-system", "food-economy"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_decision_families.py:test_rare_structural_powers_share_the_misc_head",
+      "type": "function",
+      "name": "test_rare_structural_powers_share_the_misc_head",
+      "filePath": "tests/test_decision_families.py",
+      "lineRange": [156, 172],
+      "summary": "Verifies that rare structural power decisions (like play-additional-bird) are all grouped under the misc decision head.",
+      "tags": ["test", "decision-system", "misc-head"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_decision_shapes.py",
+      "type": "file",
+      "name": "test_decision_shapes.py",
+      "filePath": "tests/test_decision_shapes.py",
+      "summary": "Tests for decision shape and filtering logic: verifies that star-nests count for eligible-bird queries, egg-laying decisions correctly filter by nest type and egg capacity, and veto/accept gates apply proper constraints.",
+      "tags": ["test", "decision-system", "egg-laying", "shape-validation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_star_nest_counted_in_own_eligible_for_all_players_lay_egg",
+      "type": "function",
+      "name": "test_star_nest_counted_in_own_eligible_for_all_players_lay_egg",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [92, 167],
+      "summary": "Verifies that star-nest birds are counted as eligible targets for all-players-lay-egg decisions for the owning player.",
+      "tags": ["test", "egg-laying", "star-nest"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_has_eligible_bird_on_nest_counts_star_nest",
+      "type": "function",
+      "name": "test_has_eligible_bird_on_nest_counts_star_nest",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [170, 219],
+      "summary": "Tests that the eligible-bird-on-nest predicate correctly counts star-nest birds as eligible for egg placement.",
+      "tags": ["test", "egg-laying", "star-nest", "eligibility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_lay_egg_all_nest_gated_under_birds_no_eggs",
+      "type": "function",
+      "name": "test_lay_egg_all_nest_gated_under_birds_no_eggs",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [274, 303],
+      "summary": "Tests that lay-egg-on-all-nests decisions are gated (offer skip) when all birds have no eggs.",
+      "tags": ["test", "egg-laying", "gate-logic"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_all_players_gain_food_veto_skips_when_declined",
+      "type": "function",
+      "name": "test_all_players_gain_food_veto_skips_when_declined",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [310, 334],
+      "summary": "Verifies that declining the all-players-gain-food veto causes no food to be gained by any player.",
+      "tags": ["test", "food-gain", "veto-decision"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_all_players_gain_food_veto_accepted_credits_both",
+      "type": "function",
+      "name": "test_all_players_gain_food_veto_accepted_credits_both",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [337, 360],
+      "summary": "Tests that accepting the all-players-gain-food veto correctly credits food to both players.",
+      "tags": ["test", "food-gain", "multi-player"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_fewest_forest_gains_die_tied_case_veto",
+      "type": "function",
+      "name": "test_fewest_forest_gains_die_tied_case_veto",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [363, 418],
+      "summary": "Tests the fewest-forest-gains-die power in a tied scenario: verifies the veto decision is offered before granting food.",
+      "tags": ["test", "bird-powers", "veto-decision", "tie-breaking"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_predator_hunt_veto_offered_when_feeder_bird_present",
+      "type": "function",
+      "name": "test_predator_hunt_veto_offered_when_feeder_bird_present",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [471, 519],
+      "summary": "Verifies that predator hunt power offers a veto when a potential feeder bird is present in the deck.",
+      "tags": ["test", "predator", "veto-decision", "feeder-bird"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_fire_pink_lay_egg_forced_outside_birds_no_eggs",
+      "type": "function",
+      "name": "test_fire_pink_lay_egg_forced_outside_birds_no_eggs",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [594, 649],
+      "summary": "Tests that a forced pink lay-egg reactor correctly handles the case where outside birds have no available egg capacity.",
+      "tags": ["test", "pink-powers", "egg-laying", "forced-decision"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_tuck_from_hand_then_lay_forced_outside_birds_no_eggs",
+      "type": "function",
+      "name": "test_tuck_from_hand_then_lay_forced_outside_birds_no_eggs",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [714, 752],
+      "summary": "Tests tuck-from-hand-then-lay sequence when it is forced and outside birds have no egg capacity.",
+      "tags": ["test", "bird-powers", "tuck-mechanics", "forced-decision"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_decision_shapes.py:test_tuck_from_hand_then_lay_gate_under_birds_no_eggs_decline",
+      "type": "function",
+      "name": "test_tuck_from_hand_then_lay_gate_under_birds_no_eggs_decline",
+      "filePath": "tests/test_decision_shapes.py",
+      "lineRange": [755, 827],
+      "summary": "Tests tuck-from-hand-then-lay sequence when gated by birds-with-eggs and declined, verifying no state changes occur.",
+      "tags": ["test", "bird-powers", "tuck-mechanics", "gate-logic"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:tests/test_powers_pink_reactive.py",
+      "target": "function:tests/test_powers_pink_reactive.py:_always_activate_agent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_pink_reactive.py",
+      "target": "function:tests/test_powers_pink_reactive.py:_always_skip_agent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_pink_reactive.py",
+      "target": "function:tests/test_powers_pink_reactive.py:test_pink_fired_cap_fires_only_once_per_window",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_pink_reactive.py",
+      "target": "function:tests/test_powers_pink_reactive.py:test_pink_fired_reset_allows_fire_again",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_pink_reactive.py",
+      "target": "function:tests/test_powers_pink_reactive.py:test_pink_fired_decline_does_not_consume_use",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_pink_reactive.py",
+      "target": "function:tests/test_powers_pink_reactive.py:test_fire_pink_lay_egg_exclude_self_true_skips_reactor_as_sole_target",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_pink_reactive.py",
+      "target": "function:tests/test_powers_pink_reactive.py:test_fire_pink_lay_egg_exclude_self_false_allows_self_targeting",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_tuck_conditional.py",
+      "target": "function:tests/test_powers_tuck_conditional.py:_engine_with_agents",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_tuck_conditional.py",
+      "target": "function:tests/test_powers_tuck_conditional.py:test_tuck_then_draw_tuck_accepted_order_and_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_tuck_conditional.py",
+      "target": "function:tests/test_powers_tuck_conditional.py:test_tuck_then_draw_tuck_skipped_no_draw",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_tuck_conditional.py",
+      "target": "function:tests/test_powers_tuck_conditional.py:test_tuck_then_lay_on_this_tuck_accepted_lay_accepted",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_tuck_conditional.py",
+      "target": "function:tests/test_powers_tuck_conditional.py:test_tuck_then_gain_food_tuck_accepted_gains_food",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_powers_tuck_conditional.py",
+      "target": "function:tests/test_powers_tuck_conditional.py:test_tuck_from_hand_then_gain_food_choice_gains_selected_food",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_report_panels.py",
+      "target": "function:tests/test_report_panels.py:_report_html",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_smoke.py",
+      "target": "function:tests/test_smoke.py:test_random_game_completes",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_families.py",
+      "target": "function:tests/test_decision_families.py:test_bird_acquisition_and_discard_are_distinct_families",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_families.py",
+      "target": "function:tests/test_decision_families.py:test_choosing_an_action_and_choosing_a_bird_to_play_are_distinct",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_families.py",
+      "target": "function:tests/test_decision_families.py:test_gain_food_and_spend_food_are_distinct_families",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_families.py",
+      "target": "function:tests/test_decision_families.py:test_bird_food_payment_routes_to_spend_food",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_families.py",
+      "target": "function:tests/test_decision_families.py:test_rare_structural_powers_share_the_misc_head",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_star_nest_counted_in_own_eligible_for_all_players_lay_egg",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_has_eligible_bird_on_nest_counts_star_nest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_lay_egg_all_nest_gated_under_birds_no_eggs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_all_players_gain_food_veto_skips_when_declined",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_all_players_gain_food_veto_accepted_credits_both",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_fewest_forest_gains_die_tied_case_veto",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_predator_hunt_veto_offered_when_feeder_bird_present",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_fire_pink_lay_egg_forced_outside_birds_no_eggs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_tuck_from_hand_then_lay_forced_outside_birds_no_eggs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_decision_shapes.py",
+      "target": "function:tests/test_decision_shapes.py:test_tuck_from_hand_then_lay_gate_under_birds_no_eggs_decline",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    }
+  ]
+}

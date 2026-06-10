@@ -1,0 +1,1537 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/wingspan/engine/actions.py",
+      "type": "file",
+      "name": "actions.py",
+      "filePath": "src/wingspan/engine/actions.py",
+      "summary": "Implements the four main Wingspan turn actions (play bird, gain food, lay eggs, draw cards) as free functions taking the Engine as first argument, including helper logic for enumerating playable birds and offering birdfeeder resets.",
+      "tags": ["service", "engine", "game-logic", "actions"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/engine/actions.py:do_play_bird",
+      "type": "function",
+      "name": "do_play_bird",
+      "filePath": "src/wingspan/engine/actions.py",
+      "lineRange": [81, 122],
+      "summary": "Executes the play-bird action: offers the player a bird selection, collects food payment, places the bird, and activates row powers.",
+      "tags": ["engine", "game-logic", "actions"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/actions.py:do_gain_food",
+      "type": "function",
+      "name": "do_gain_food",
+      "filePath": "src/wingspan/engine/actions.py",
+      "lineRange": [209, 233],
+      "summary": "Executes the gain-food action by offering birdfeeder dice and resolving conversions from the current board slot.",
+      "tags": ["engine", "game-logic", "actions"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/actions.py:do_lay_eggs",
+      "type": "function",
+      "name": "do_lay_eggs",
+      "filePath": "src/wingspan/engine/actions.py",
+      "lineRange": [392, 404],
+      "summary": "Executes the lay-eggs action, computing the number of eggs from the board slot and offering placement choices.",
+      "tags": ["engine", "game-logic", "actions"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/engine/actions.py:do_draw_cards",
+      "type": "function",
+      "name": "do_draw_cards",
+      "filePath": "src/wingspan/engine/actions.py",
+      "lineRange": [443, 453],
+      "summary": "Executes the draw-cards action, offering source choices (tray or deck) for each draw based on the board slot count.",
+      "tags": ["engine", "game-logic", "actions"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/engine/actions.py:activate_row_powers",
+      "type": "function",
+      "name": "activate_row_powers",
+      "filePath": "src/wingspan/engine/actions.py",
+      "lineRange": [507, 524],
+      "summary": "Iterates all birds in the activated habitat row and fires brown/white power handlers for each.",
+      "tags": ["engine", "game-logic", "event-handler"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/actions.py:offer_birdfeeder_reset",
+      "type": "function",
+      "name": "offer_birdfeeder_reset",
+      "filePath": "src/wingspan/engine/actions.py",
+      "lineRange": [236, 286],
+      "summary": "Offers the active player a birdfeeder reset decision when the feeder is empty or the player opts to reroll.",
+      "tags": ["engine", "game-logic", "decisions"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/core.py",
+      "type": "file",
+      "name": "core.py",
+      "filePath": "src/wingspan/engine/core.py",
+      "summary": "Defines the Engine class — the central game orchestrator that owns the turn loop, setup phase, Agent protocol plumbing, and ask() validation gateway.",
+      "tags": ["engine", "orchestration", "entry-point", "service"],
+      "complexity": "complex",
+      "languageNotes": "Engine.ask() is the sole agent-interaction gateway enforcing type-safe choice validation. All action logic lives in sibling free-function modules that take Engine as first arg."
+    },
+    {
+      "id": "class:src/wingspan/engine/core.py:Engine",
+      "type": "class",
+      "name": "Engine",
+      "filePath": "src/wingspan/engine/core.py",
+      "lineRange": [78, 809],
+      "summary": "Core game orchestrator managing the full game lifecycle: setup, turn loop, scoring, and agent interaction via the ask() protocol.",
+      "tags": ["engine", "orchestration", "service"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/engine/core.py:Agent",
+      "type": "class",
+      "name": "Agent",
+      "filePath": "src/wingspan/engine/core.py",
+      "lineRange": [45, 54],
+      "summary": "Protocol class defining the callable interface for Wingspan agents: accepts a Decision[C] and returns a matching Choice.",
+      "tags": ["type-definition", "agent", "protocol"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/engine/helpers.py",
+      "type": "file",
+      "name": "helpers.py",
+      "filePath": "src/wingspan/engine/helpers.py",
+      "summary": "Provides food cost evaluation helpers: cost_meets checks if a food pool satisfies a bird cost, and enumerate_payments generates all valid payment combinations.",
+      "tags": ["utility", "engine", "validation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/helpers.py:enumerate_payments",
+      "type": "function",
+      "name": "enumerate_payments",
+      "filePath": "src/wingspan/engine/helpers.py",
+      "lineRange": [51, 96],
+      "summary": "Generates all valid food payment combinations that satisfy a bird cost from the given food pool, used to present payment choices to the agent.",
+      "tags": ["utility", "engine", "validation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/helpers.py:any_payment_exists",
+      "type": "function",
+      "name": "any_payment_exists",
+      "filePath": "src/wingspan/engine/helpers.py",
+      "lineRange": [99, 128],
+      "summary": "Quickly checks whether any valid food payment exists for a bird cost without enumerating all combinations.",
+      "tags": ["utility", "engine", "validation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/log_format.py",
+      "type": "file",
+      "name": "log_format.py",
+      "filePath": "src/wingspan/engine/log_format.py",
+      "summary": "Provides structured log message formatting for game events (setup, dealt hand, turn summaries) emitted by the Engine to the display agent.",
+      "tags": ["utility", "logging", "display"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/log_format.py:log_turn_summary",
+      "type": "function",
+      "name": "log_turn_summary",
+      "filePath": "src/wingspan/engine/log_format.py",
+      "lineRange": [66, 79],
+      "summary": "Formats and emits a complete end-of-turn summary including score tables, food, and board state.",
+      "tags": ["logging", "display"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/wingspan/engine/powers/__init__.py",
+      "summary": "Package entry point for the engine powers subsystem, re-exporting all bird power handler submodules.",
+      "tags": ["entry-point", "barrel", "engine"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/dispatch.py",
+      "type": "file",
+      "name": "dispatch.py",
+      "filePath": "src/wingspan/engine/powers/dispatch.py",
+      "summary": "Core power dispatching logic: routes an EffectKind to its registered handler, applies effects, offers activation veto, and implements the shared lay_one_egg_on_nest helper used by multiple powers.",
+      "tags": ["engine", "dispatcher", "event-handler", "game-logic"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/powers/dispatch.py:dispatch_power",
+      "type": "function",
+      "name": "dispatch_power",
+      "filePath": "src/wingspan/engine/powers/dispatch.py",
+      "lineRange": [20, 30],
+      "summary": "Routes a bird's EffectKind to its registered handler function in the powers registry.",
+      "tags": ["engine", "dispatcher"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/engine/powers/dispatch.py:apply_effect",
+      "type": "function",
+      "name": "apply_effect",
+      "filePath": "src/wingspan/engine/powers/dispatch.py",
+      "lineRange": [33, 63],
+      "summary": "Applies a single bird Effect by dispatching to the appropriate handler, handling UNIMPLEMENTED fallback gracefully.",
+      "tags": ["engine", "dispatcher", "game-logic"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/powers/dispatch.py:lay_one_egg_on_nest",
+      "type": "function",
+      "name": "lay_one_egg_on_nest",
+      "filePath": "src/wingspan/engine/powers/dispatch.py",
+      "lineRange": [111, 181],
+      "summary": "Shared helper that offers a player an egg placement on a specific nest type, used by multiple power handlers.",
+      "tags": ["engine", "game-logic", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/drafting.py",
+      "type": "file",
+      "name": "drafting.py",
+      "filePath": "src/wingspan/engine/powers/drafting.py",
+      "summary": "Power handlers for bird-drafting effects: play an additional bird here, draw-N-plus-one-draft, and draw-bonus-keep mechanics.",
+      "tags": ["engine", "game-logic", "drafting", "powers"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/egg_trade.py",
+      "type": "file",
+      "name": "egg_trade.py",
+      "filePath": "src/wingspan/engine/powers/egg_trade.py",
+      "summary": "Power handlers for egg-trading effects: discard an egg to gain wild food or draw cards.",
+      "tags": ["engine", "game-logic", "egg-trade", "powers"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/grants.py",
+      "type": "file",
+      "name": "grants.py",
+      "filePath": "src/wingspan/engine/powers/grants.py",
+      "summary": "Power handlers for the largest group of bird power effects: food gain (supply, feeder, birdfeeder), egg laying, card drawing, caching, tucking, and combination tuck-then effects.",
+      "tags": ["engine", "game-logic", "powers", "service"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/multi_actor.py",
+      "type": "file",
+      "name": "multi_actor.py",
+      "filePath": "src/wingspan/engine/powers/multi_actor.py",
+      "summary": "Power handlers for effects involving multiple players: each-player-gains-a-die-in-order and all-players-lay-egg-on-nest.",
+      "tags": ["engine", "game-logic", "multi-player", "powers"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "type": "file",
+      "name": "nest_aggregate.py",
+      "filePath": "src/wingspan/engine/powers/nest_aggregate.py",
+      "summary": "Power handlers for nest-aggregation effects: lay an egg on every bird of a given nest type, gain all food of a type from the feeder, and tuck from deck with payment.",
+      "tags": ["engine", "game-logic", "powers"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "type": "file",
+      "name": "predator_repeat.py",
+      "filePath": "src/wingspan/engine/powers/predator_repeat.py",
+      "summary": "Power handlers for predator-hunt, move-bird-if-rightmost, repeat-brown-power, and repeat-predator-power effects.",
+      "tags": ["engine", "game-logic", "predator", "powers"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/registry.py",
+      "type": "file",
+      "name": "registry.py",
+      "filePath": "src/wingspan/engine/powers/registry.py",
+      "summary": "Provides the @handles decorator registry that maps EffectKind variants to power handler functions, and handler_for lookup used by dispatch.",
+      "tags": ["registry", "factory", "engine"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/wingspan/engine/powers/tray_trade.py",
+      "type": "file",
+      "name": "tray_trade.py",
+      "filePath": "src/wingspan/engine/powers/tray_trade.py",
+      "summary": "Power handlers for tray-related effects: draw all from tray, trade wild food, and fewest-habitat conditional gains (die or card).",
+      "tags": ["engine", "game-logic", "tray", "powers"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/reactors.py",
+      "type": "file",
+      "name": "reactors.py",
+      "filePath": "src/wingspan/engine/reactors.py",
+      "summary": "Implements pink power reactor triggers: fires when-activated reactions from all opponent birds for lay-egg, predator success, play-bird, and gain-food events.",
+      "tags": ["engine", "event-handler", "reactors", "pink-powers"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/reactors.py:trigger_pink_lay_eggs_reactors",
+      "type": "function",
+      "name": "trigger_pink_lay_eggs_reactors",
+      "filePath": "src/wingspan/engine/reactors.py",
+      "lineRange": [23, 44],
+      "summary": "Triggers all pink lay-egg reactors on the opponent's board when the active player lays eggs.",
+      "tags": ["engine", "event-handler", "reactors"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/engine/reactors.py:fire_pink_lay_egg",
+      "type": "function",
+      "name": "fire_pink_lay_egg",
+      "filePath": "src/wingspan/engine/reactors.py",
+      "lineRange": [85, 169],
+      "summary": "Executes a single pink lay-egg reactor, offering the opponent egg placement with veto, handling all nest/habitat match variants.",
+      "tags": ["engine", "event-handler", "reactors"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/engine/reactors.py:trigger_pink_predator_success",
+      "type": "function",
+      "name": "trigger_pink_predator_success",
+      "filePath": "src/wingspan/engine/reactors.py",
+      "lineRange": [47, 82],
+      "summary": "Triggers pink predator-success reactors on both players when a predator hunt succeeds.",
+      "tags": ["engine", "event-handler", "reactors"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/wingspan/engine/scoring.py",
+      "type": "file",
+      "name": "scoring.py",
+      "filePath": "src/wingspan/engine/scoring.py",
+      "summary": "Implements all Wingspan scoring logic: round goal evaluation and standing, bonus card qualifying counts and VP, final scoring, and per-choice score delta computation for the RL encoder.",
+      "tags": ["scoring", "engine", "game-logic", "service"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/wingspan/engine/scoring.py:final_scoring",
+      "type": "function",
+      "name": "final_scoring",
+      "filePath": "src/wingspan/engine/scoring.py",
+      "lineRange": [391, 420],
+      "summary": "Computes final game scores for all players including bird VP, egg VP, cached food VP, tucked cards, round goal VP, and bonus card VP.",
+      "tags": ["scoring", "game-logic"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/scoring.py:score_round_goal",
+      "type": "function",
+      "name": "score_round_goal",
+      "filePath": "src/wingspan/engine/scoring.py",
+      "lineRange": [28, 50],
+      "summary": "Evaluates a round goal for all players and returns scored VP per player based on standings.",
+      "tags": ["scoring", "round-goals"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/scoring.py:bonus_score",
+      "type": "function",
+      "name": "bonus_score",
+      "filePath": "src/wingspan/engine/scoring.py",
+      "lineRange": [501, 506],
+      "summary": "Returns the VP score for a player's bonus card given the current qualifying count.",
+      "tags": ["scoring", "bonus"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/wingspan/engine/scoring.py:goal_count_delta_for_bird",
+      "type": "function",
+      "name": "goal_count_delta_for_bird",
+      "filePath": "src/wingspan/engine/scoring.py",
+      "lineRange": [114, 137],
+      "summary": "Computes the change in a round goal's qualifying count when a specific bird is added to a habitat.",
+      "tags": ["scoring", "round-goals", "encoding"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/wingspan/engine/scoring.py:_best_case_egg_count_delta",
+      "type": "function",
+      "name": "_best_case_egg_count_delta",
+      "filePath": "src/wingspan/engine/scoring.py",
+      "lineRange": [641, 700],
+      "summary": "Estimates best-case egg count delta for a round goal given optimal egg placement, used by the RL encoder.",
+      "tags": ["scoring", "round-goals", "encoding"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/wingspan/state.py",
+      "type": "file",
+      "name": "state.py",
+      "filePath": "src/wingspan/state.py",
+      "summary": "Defines all mutable game state models: GameState (full game), Player, Board, PlayedBird, Birdfeeder, FoodPool, and RoundGoalResult — the core data layer for the simulation.",
+      "tags": ["data-model", "state", "game-logic", "service"],
+      "complexity": "complex",
+      "languageNotes": "Birdfeeder and FoodPool have rich dict-like interfaces; Board encodes the habitat track actions with per-slot conversion logic; GameState.reset_turn_state() is the per-turn scratch reset."
+    },
+    {
+      "id": "class:src/wingspan/state.py:GameState",
+      "type": "class",
+      "name": "GameState",
+      "filePath": "src/wingspan/state.py",
+      "lineRange": [107, 208],
+      "summary": "Top-level mutable game state Pydantic model holding both players, the shared birdfeeder, tray, round goals, and per-turn scratch state.",
+      "tags": ["data-model", "state"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/state.py:Player",
+      "type": "class",
+      "name": "Player",
+      "filePath": "src/wingspan/state.py",
+      "lineRange": [251, 291],
+      "summary": "Pydantic model for a single player's state: hand, board, food pool, bonus cards, round goal results, and per-turn accumulators.",
+      "tags": ["data-model", "state"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/state.py:Board",
+      "type": "class",
+      "name": "Board",
+      "filePath": "src/wingspan/state.py",
+      "lineRange": [294, 366],
+      "summary": "Pydantic model for a player's habitat board with dict-like access by Habitat key, slot counts, and action offer conversion logic.",
+      "tags": ["data-model", "state"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/wingspan/state.py:Birdfeeder",
+      "type": "class",
+      "name": "Birdfeeder",
+      "filePath": "src/wingspan/state.py",
+      "lineRange": [392, 519],
+      "summary": "Pydantic model for the shared birdfeeder with dice-taking, rerolling, gain-option enumeration, and formatting logic.",
+      "tags": ["data-model", "state", "game-logic"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/wingspan/state.py:FoodPool",
+      "type": "class",
+      "name": "FoodPool",
+      "filePath": "src/wingspan/state.py",
+      "lineRange": [526, 613],
+      "summary": "Pydantic model for a player's food token pool with full dict-like interface over Food enum keys.",
+      "tags": ["data-model", "state"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "file:src/wingspan/engine/helpers.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "file:src/wingspan/engine/reactors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:do_play_bird",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:do_gain_food",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:do_lay_eggs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:do_draw_cards",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:activate_row_powers",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:offer_birdfeeder_reset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:do_play_bird",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:do_gain_food",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:do_lay_eggs",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:do_draw_cards",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/actions.py",
+      "target": "function:src/wingspan/engine/actions.py:activate_row_powers",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/engine/actions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/engine/log_format.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/engine/scoring.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/instrumentation/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/instrumentation/dispatcher.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "class:src/wingspan/engine/core.py:Engine",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "class:src/wingspan/engine/core.py:Agent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "class:src/wingspan/engine/core.py:Engine",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/core.py",
+      "target": "class:src/wingspan/engine/core.py:Agent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/helpers.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/helpers.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/helpers.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/helpers.py",
+      "target": "function:src/wingspan/engine/helpers.py:enumerate_payments",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/helpers.py",
+      "target": "function:src/wingspan/engine/helpers.py:any_payment_exists",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/helpers.py",
+      "target": "function:src/wingspan/engine/helpers.py:enumerate_payments",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/helpers.py",
+      "target": "function:src/wingspan/engine/helpers.py:any_payment_exists",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "file:src/wingspan/agents/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "file:src/wingspan/agents/display.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "file:src/wingspan/engine/scoring.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "function:src/wingspan/engine/log_format.py:log_turn_summary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/log_format.py",
+      "target": "function:src/wingspan/engine/log_format.py:log_turn_summary",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/dispatch.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/drafting.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/egg_trade.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/grants.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/multi_actor.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/__init__.py",
+      "target": "file:src/wingspan/engine/powers/tray_trade.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "file:src/wingspan/engine/powers/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "function:src/wingspan/engine/powers/dispatch.py:dispatch_power",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "function:src/wingspan/engine/powers/dispatch.py:apply_effect",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "function:src/wingspan/engine/powers/dispatch.py:lay_one_egg_on_nest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "function:src/wingspan/engine/powers/dispatch.py:dispatch_power",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "function:src/wingspan/engine/powers/dispatch.py:apply_effect",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/dispatch.py",
+      "target": "function:src/wingspan/engine/powers/dispatch.py:lay_one_egg_on_nest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/drafting.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/drafting.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/drafting.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/drafting.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/drafting.py",
+      "target": "file:src/wingspan/engine/powers/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/drafting.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/egg_trade.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/egg_trade.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/egg_trade.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/egg_trade.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/egg_trade.py",
+      "target": "file:src/wingspan/engine/powers/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/egg_trade.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/engine/powers/dispatch.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/engine/powers/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/engine/reactors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/grants.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/multi_actor.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/multi_actor.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/multi_actor.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/multi_actor.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/multi_actor.py",
+      "target": "file:src/wingspan/engine/powers/dispatch.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/multi_actor.py",
+      "target": "file:src/wingspan/engine/powers/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/multi_actor.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "target": "file:src/wingspan/engine/powers/dispatch.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "target": "file:src/wingspan/engine/powers/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/engine/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/engine/powers/dispatch.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/engine/powers/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/engine/reactors.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/predator_repeat.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/registry.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/registry.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/registry.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/tray_trade.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/tray_trade.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/tray_trade.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/tray_trade.py",
+      "target": "file:src/wingspan/engine/powers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/tray_trade.py",
+      "target": "file:src/wingspan/engine/powers/dispatch.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/tray_trade.py",
+      "target": "file:src/wingspan/engine/powers/registry.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/powers/tray_trade.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "file:src/wingspan/decisions.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "function:src/wingspan/engine/reactors.py:trigger_pink_lay_eggs_reactors",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "function:src/wingspan/engine/reactors.py:fire_pink_lay_egg",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "function:src/wingspan/engine/reactors.py:trigger_pink_predator_success",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "function:src/wingspan/engine/reactors.py:trigger_pink_lay_eggs_reactors",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "function:src/wingspan/engine/reactors.py:fire_pink_lay_egg",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/reactors.py",
+      "target": "function:src/wingspan/engine/reactors.py:trigger_pink_predator_success",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "file:src/wingspan/state.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:final_scoring",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:score_round_goal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:bonus_score",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:goal_count_delta_for_bird",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:_best_case_egg_count_delta",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:final_scoring",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:score_round_goal",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:bonus_score",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/engine/scoring.py",
+      "target": "function:src/wingspan/engine/scoring.py:goal_count_delta_for_bird",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "file:src/wingspan/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "file:src/wingspan/cards/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:GameState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:Player",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:Board",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:Birdfeeder",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:FoodPool",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:GameState",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:Player",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:Board",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:Birdfeeder",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/wingspan/state.py",
+      "target": "class:src/wingspan/state.py:FoodPool",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}
