@@ -80,6 +80,13 @@ RUNAWAY_CHOICE_THRESHOLD = 10000
 # (checkpoint-invalidating) change.
 MAX_GOAL_CATEGORIES = 20
 
+# One-hot dimensions for round number and action-cube counts.
+# N_ROUNDS: one hot position per round (0..3 → 4 dims).
+# MAX_ACTION_CUBES: one hot position per cube count (0..8 → 9 dims) — equals
+# state.ROUND_CUBES[0], the maximum cubes at the start of round 1.
+N_ROUNDS: int = 4
+MAX_ACTION_CUBES: int = 8
+
 # Normalization scales for raw card / board values. Picked so most values
 # land in roughly [0, 1.5]; the network can rescale internally if needed.
 _POINTS_SCALE = 9.0
@@ -435,7 +442,7 @@ _CONT_PREFIX_DIM = (
     + 1  # opponent bonus-card count
     + 1  # opponent hand size
     + 7  # birdfeeder (5 single-food faces + choice-die count + reset-available flag)
-    + 7  # misc scalars
+    + 26  # misc scalars (4-dim round one-hot + 9-dim cube-me one-hot + 9-dim cube-opp one-hot + 2 goal-pts scalars + 1 tray-size + 1 deck-size)
     + _ROUND_GOALS_STRIPE_DIM  # all four round goals
 )
 OFF_CARD_INDEX = _CONT_PREFIX_DIM

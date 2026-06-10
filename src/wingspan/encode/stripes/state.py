@@ -284,23 +284,27 @@ def state_stripe_layout(
     off += 7
 
     # ---- miscellaneous scalars ----
+    misc_dim = layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2 + 4  # 26
     stripes.append(
         descriptors.StripeDescriptor(
             name="misc_scalars",
-            description="Miscellaneous scalar game state (round, cubes, scores, deck).",
+            description="Miscellaneous game state (round, cubes, scores, deck).",
             offset=off,
-            size=7,
-            encoding="vector",
-            value_range="[0, ~1]",
+            size=misc_dim,
+            encoding="complex",
+            value_range="varies",
             notes=(
-                "7 values in order: round_index (÷3, ordinal), my_action_cubes (÷8), "
-                "opp_action_cubes (÷8), my_round_goal_pts (÷10), "
+                f"26 values: round_index one-hot[0:{layout.N_ROUNDS}] (4 dims, rounds 0–3), "
+                f"my_action_cubes one-hot[{layout.N_ROUNDS}:{layout.N_ROUNDS + layout.MAX_ACTION_CUBES + 1}] "
+                f"(9 dims, 0–{layout.MAX_ACTION_CUBES} cubes), "
+                f"opp_action_cubes one-hot[{layout.N_ROUNDS + layout.MAX_ACTION_CUBES + 1}:{layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2}] "
+                f"(9 dims), then 4 scalars: my_round_goal_pts (÷10), "
                 "opp_round_goal_pts (÷10), tray_size (÷3), deck_size (÷100)."
             ),
             sub_fields=_misc_scalars_sub_fields(),
         )
     )
-    off += 7
+    off += misc_dim
 
     # ---- round-goal state (all four rounds) ----
     rounds_dim = layout._ROUND_GOALS_STRIPE_DIM
@@ -600,15 +604,63 @@ def _birdfeeder_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
 
 
 def _misc_scalars_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """7 sub-fields for the misc-scalars stripe."""
-    entries = [
-        ("round_index", "Current round number (0–3), ordinal.", "Normalized ÷ 3."),
-        ("my_action_cubes", "My remaining action cubes this round.", "Normalized ÷ 8."),
-        (
-            "opp_action_cubes",
-            "Opponent remaining action cubes this round.",
-            "Normalized ÷ 8.",
-        ),
+    """26 sub-fields for the misc-scalars stripe (one-hots + scalars).
+
+    Layout: 4-dim round one-hot, 9-dim cube-me one-hot, 9-dim cube-opp
+    one-hot, then 4 trailing scalars (goal pts × 2, tray size, deck size).
+    """
+    from wingspan.encode import layout
+
+    sub_fields: list[descriptors.SubFieldDescriptor] = []
+
+    # 4-dim round one-hot
+    sub_fields.append(
+        descriptors.SubFieldDescriptor(
+            name="round_index",
+            description="Current round number (0–3), encoded as a 4-dim one-hot.",
+            relative_offset=0,
+            size=layout.N_ROUNDS,
+            encoding="one-hot",
+            value_range="{0, 1}",
+            notes=f"{layout.N_ROUNDS} positions for rounds 0–3.",
+        )
+    )
+
+    # 9-dim cube-me one-hot
+    sub_fields.append(
+        descriptors.SubFieldDescriptor(
+            name="my_action_cubes",
+            description=(
+                f"My remaining action cubes this round (0–{layout.MAX_ACTION_CUBES}), "
+                f"encoded as a {layout.MAX_ACTION_CUBES + 1}-dim one-hot."
+            ),
+            relative_offset=layout.N_ROUNDS,
+            size=layout.MAX_ACTION_CUBES + 1,
+            encoding="one-hot",
+            value_range="{0, 1}",
+            notes=f"{layout.MAX_ACTION_CUBES + 1} positions for 0–{layout.MAX_ACTION_CUBES} cubes.",
+        )
+    )
+
+    # 9-dim cube-opp one-hot
+    sub_fields.append(
+        descriptors.SubFieldDescriptor(
+            name="opp_action_cubes",
+            description=(
+                f"Opponent remaining action cubes this round (0–{layout.MAX_ACTION_CUBES}), "
+                f"encoded as a {layout.MAX_ACTION_CUBES + 1}-dim one-hot."
+            ),
+            relative_offset=layout.N_ROUNDS + layout.MAX_ACTION_CUBES + 1,
+            size=layout.MAX_ACTION_CUBES + 1,
+            encoding="one-hot",
+            value_range="{0, 1}",
+            notes=f"{layout.MAX_ACTION_CUBES + 1} positions for 0–{layout.MAX_ACTION_CUBES} cubes.",
+        )
+    )
+
+    # Trailing scalars
+    scalar_base = layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2
+    scalar_entries = [
         (
             "my_round_goal_pts",
             "My accumulated round-goal VP so far.",
@@ -630,18 +682,20 @@ def _misc_scalars_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
             "Normalized ÷ 100.",
         ),
     ]
-    return tuple(
-        descriptors.SubFieldDescriptor(
-            name=name,
-            description=desc,
-            relative_offset=idx,
-            size=1,
-            encoding="scalar",
-            value_range="[0, ~1]",
-            notes=notes,
+    for idx, (name, desc, notes) in enumerate(scalar_entries):
+        sub_fields.append(
+            descriptors.SubFieldDescriptor(
+                name=name,
+                description=desc,
+                relative_offset=scalar_base + idx,
+                size=1,
+                encoding="scalar",
+                value_range="[0, ~1]",
+                notes=notes,
+            )
         )
-        for idx, (name, desc, notes) in enumerate(entries)
-    )
+
+    return tuple(sub_fields)
 
 
 def _round_goals_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:

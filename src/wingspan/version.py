@@ -28,8 +28,15 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "0.2"
+MODEL_VERSION = "0.3"
 """The current artifact-compatibility version (the only place it is defined).
+
+0.3 replaced three raw scalars in ``_summary_misc_scalars`` with one-hot
+vectors, growing the state vector by 19 dims (771 → 790): round_idx scalar
+→ 4-dim one-hot (rounds 0–3), action_cubes_left scalar → 9-dim one-hot
+(0–8 cubes) for each player.  Pre-0.3 artifacts load and play through the
+``wingspan.compat.v0_2`` shim (``PolicyValueNetV02`` with frozen 7-scalar
+misc stripe).
 
 0.2 bundles two encoding changes: (a) setup input vector is now dynamic —
 ``kept_foods`` is omitted when ``split_setup_food=True``; ``kept_bonus`` +

@@ -50,7 +50,7 @@ def encode_state(
         _opp_bonus_count(opp),  # 1 — opponent bonus-card count (hidden identity)
         np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32),
         _summary_birdfeeder(state),  # 7 (5 food faces + choice dice + reset flag)
-        _summary_misc_scalars(state, me, opp),  # 7
+        _summary_misc_scalars(state, me, opp),  # 26
         _round_goals_all_rounds(state, me),  # layout._ROUND_GOALS_STRIPE_DIM
         _card_index_block(me, opp, state),  # layout.N_CARD_INDEX_SLOTS — board+tray ids
         _hand_identity(me),  # layout.HAND_MULTIHOT_DIM — multi-hot of my hand
@@ -421,18 +421,33 @@ def _summary_birdfeeder(state: state.GameState) -> np.ndarray:
 def _summary_misc_scalars(
     state: state.GameState, me: state.Player, opp: state.Player
 ) -> np.ndarray:
-    return np.array(
-        [
-            state.round_idx / 3.0,
-            me.action_cubes_left / layout._ACTION_CUBES_SCALE,
-            opp.action_cubes_left / layout._ACTION_CUBES_SCALE,
-            me.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
-            opp.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
-            sum(1 for bird in state.tray if bird is not None) / layout._TRAY_SIZE_SCALE,
-            len(state.bird_deck) / layout._DECK_SIZE_SCALE,
-        ],
-        dtype=np.float32,
+    # 4-dim round one-hot + 9-dim cube-me one-hot + 9-dim cube-opp one-hot +
+    # 2 goal-pts scalars + 1 tray-size scalar + 1 deck-size scalar = 26 total.
+    out = np.zeros(
+        layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2 + 4, dtype=np.float32
     )
+    offset = 0
+
+    # 4-dim one-hot for current round (0..3)
+    out[offset + state.round_idx] = 1.0
+    offset += layout.N_ROUNDS
+
+    # 9-dim one-hot for my remaining action cubes (0..8)
+    out[offset + me.action_cubes_left] = 1.0
+    offset += layout.MAX_ACTION_CUBES + 1
+
+    # 9-dim one-hot for opponent remaining action cubes (0..8)
+    out[offset + opp.action_cubes_left] = 1.0
+    offset += layout.MAX_ACTION_CUBES + 1
+
+    # Scalar goal-points, tray-size, deck-size (unchanged from v0.2)
+    out[offset] = me.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE
+    out[offset + 1] = opp.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE
+    out[offset + 2] = (
+        sum(1 for bird in state.tray if bird is not None) / layout._TRAY_SIZE_SCALE
+    )
+    out[offset + 3] = len(state.bird_deck) / layout._DECK_SIZE_SCALE
+    return out
 
 
 def _encode_decision_type(

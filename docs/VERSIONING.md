@@ -16,9 +16,31 @@ Update this file in the same commit that bumps `MODEL_VERSION`.
 
 ## Changelog
 
-### v0.2 — card feature vector redesign (current)
+### v0.3 — one-hot round number and cube counts (current)
 
-**FRESH change** — reshaped the card feature vector (`CARD_FEATURE_DIM` 229 → 224)
+**FRESH change** — replaced three raw scalars in `_summary_misc_scalars` with
+one-hot vectors, growing the state vector by 19 dims (771 → 790):
+
+1. **Round scalar replaced** — `round_idx / 3.0` (1 dim) → 4-dim one-hot over
+   rounds 0–3 (`N_ROUNDS = 4`).
+2. **Cube-me scalar replaced** — `action_cubes_left / 8.0` (1 dim) → 9-dim
+   one-hot over cube counts 0–8 (`MAX_ACTION_CUBES + 1 = 9`).
+3. **Cube-opp scalar replaced** — same as cube-me. Net: +8 dims.
+
+Total misc-scalars stripe: 1 + 1 + 1 = 3 raw scalars → 4 + 9 + 9 = 22 one-hot
+dims + the 4 unchanged scalars (goal pts × 2, tray size, deck size) = 26 dims.
+
+Both new constants (`N_ROUNDS`, `MAX_ACTION_CUBES`) live in `encode/layout.py`.
+
+Shim: `wingspan.compat.v0_2` — `PolicyValueNetV02` (overrides `encode_state`
+with frozen 7-scalar misc stripe), `encode_state_v02` (the 771-dim frozen
+vector), `state_stripe_layout_v02` (frozen stripe registry for reporting).
+
+Fixture set: `tests/data/compat/v0.2/` — carries `version: "0.2"` explicitly.
+
+### v0.2 — card feature vector redesign
+
+**FRESH change** — reshaped the card feature vector (no longer current; superseded by v0.3) (`CARD_FEATURE_DIM` 229 → 224)
 in three ways:
 
 1. **`bonus_categories` pruned** — trimmed from 26 dims (one per bonus card, keyed

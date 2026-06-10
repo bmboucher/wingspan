@@ -28,7 +28,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from wingspan import architecture, cards, encode, version
+from wingspan import architecture, cards, decisions, encode, state, version
 from wingspan.encode import layout
 from wingspan.model import core, mlp
 from wingspan.training import setup_net as setup_net_module
@@ -103,12 +103,24 @@ class PolicyValueNetV01(core.PolicyValueNet):
 
     The card encoder's first linear was trained against 229-wide input rows;
     this subclass overrides :meth:`_build_card_encoder` to keep that width and
-    register the frozen v0.1 feature table. State and choice encoding, the
-    family-head ordering, and the choice-encoder shape are all identical to the
-    live era — only the card-encoder input differs. Constructed by the
-    version-routing loaders (``PolicyValueNet.from_model_config``,
+    register the frozen v0.1 feature table. The state encoding is also frozen
+    at the v0.2 (771-dim) geometry via :meth:`encode_state`, because the v0.3
+    change that grew state to 790 dims postdates these checkpoints. Choice
+    encoding is identical to the live era. Constructed by the version-routing
+    loaders (``PolicyValueNet.from_model_config``,
     ``players.loaders.load_policy_net``) — never by the training pipeline.
     """
+
+    def encode_state(
+        self,
+        game_state: state.GameState,
+        decision: decisions.Decision[decisions.Choice],
+    ) -> np.ndarray:
+        """Featurize ``game_state`` using the frozen v0.2 7-scalar misc stripe,
+        yielding the 771-dim vector this checkpoint's trunk expects."""
+        from wingspan.compat import v0_2 as v0_2_module  # local: avoids import cycle
+
+        return v0_2_module.encode_state_v02(game_state, decision, self.spec)
 
     def _build_card_encoder(self, arch: architecture.ModelArchitecture) -> None:
         """Register ``card_encoder`` at the frozen 229-wide input, and

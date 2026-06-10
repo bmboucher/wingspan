@@ -124,12 +124,18 @@ class PolicyValueNet(nn.Module):
         gets a net whose geometry matches its weights without consulting the
         version: pre-0.1 → ``v0_0.PolicyValueNetV00`` (frozen choice encoding);
         0.1 → ``v0_1.PolicyValueNetV01`` (frozen 229-wide card encoder)."""
-        from wingspan.compat import v0_0, v0_1  # local: compat subclasses this net
+        from wingspan.compat import (  # local: compat subclasses this net
+            v0_0,
+            v0_1,
+            v0_2,
+        )
 
         if v0_0.uses_v0_0_choice_encoding(descriptor.version):
             net_cls: type[PolicyValueNet] = v0_0.PolicyValueNetV00
         elif v0_1.uses_v0_1_card_feature_encoding(descriptor.version):
             net_cls = v0_1.PolicyValueNetV01
+        elif v0_2.uses_v0_2_state_encoding(descriptor.version):
+            net_cls = v0_2.PolicyValueNetV02
         else:
             net_cls = cls
         return net_cls(
