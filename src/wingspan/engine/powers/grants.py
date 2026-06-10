@@ -264,7 +264,7 @@ def _h_roll_not_in_feeder_cache(
             player,
             f"[{player.name}] activate {bird.name}? (opponents may gain food on success)",
             decisions.PayCostChoice(
-                label="roll dice",
+                label=f"roll dice (opponent may gain food x{n_feeders})",
                 gained_cache_count=1,
                 opp_gained_food_count=n_feeders,
             ),

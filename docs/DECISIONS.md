@@ -475,6 +475,25 @@ also populate `opp_gained_egg_count`. The conditional call sites (only when
 `birds_no_eggs` goal is active) appear rarely, but when they do the full
 ledger context is available to the head.
 
+**Strictly-free exchange rule.** `offer_exchange_or_auto_accept` in
+`engine/powers/dispatch.py` skips the agent entirely when the accept row's
+`PayCostChoice` ledger is strictly free: zero payment (no `paid_food`,
+`paid_food_count`, `paid_card_count`, or `paid_egg_count`) and zero opponent
+gain (all `opp_gained_*` fields zero) and at least one positive own gain.
+These exchanges are auto-applied and logged with
+`auto-accept: <label> (no cost)`. Only exchanges with real tradeoffs — any
+payment or any opponent gain — reach the model via `offer_activation_veto`.
+Note: the `birds_no_eggs` anti-goal gates (egg-laying when the round goal
+rewards empty birds) use `offer_activation_veto` directly; although the ledger
+shows only a gain, the round-goal opportunity cost is implicit and the veto is
+meaningful.
+
+**Veto label transparency.** When a veto IS offered with an opponent benefit,
+the accept choice label must name the benefit so the SKIP_OPTIONAL head can
+weigh it. Example: `ROLL_NOT_IN_FEEDER_CACHE` uses
+`"roll dice (opponent may gain food x{n_feeders})"` when opposing
+`PINK_PREDATOR_FEEDER` birds are present.
+
 ### 2.9 `CHOOSE_BONUS` — which bonus card fits the plan
 
 **Where the engine asks it.**
