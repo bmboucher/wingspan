@@ -60,7 +60,7 @@ def update(
     device: torch.device,
 ) -> UpdateStats:
     """Run one length-bucketed REINFORCE update over ``records``' steps."""
-    flat_steps, returns = _flatten(records, cfg.score_norm)
+    flat_steps, returns = _flatten(records, cfg)
     if not flat_steps:
         return UpdateStats(
             loss=0.0,
@@ -130,24 +130,77 @@ def update(
 
 
 def _flatten(
-    records: list[collect.GameRecord], score_norm: float
+    records: list[collect.GameRecord], cfg: config.TrainConfig
 ) -> tuple[list[steps.Step], list[float]]:
-    """Flatten every game's steps and pair each with its REINFORCE return —
-    the terminal score margin from that step's player POV, scaled by
-    ``score_norm`` (so player 0 and player 1 get opposite signs in a decisive
-    game; TRAINING.md §2's opposite-signed self-play rewards)."""
+    """Flatten every game's steps and pair each with its REINFORCE return.
+
+    Two reward modes (``cfg.reward_mode``), both giving the two seats opposite
+    signs in a decisive game (TRAINING.md §2's opposite-signed self-play rewards):
+
+    * ``terminal_margin`` — every step gets the single end-of-game score margin
+      from its player's POV, scaled by ``score_norm``.
+    * ``decision_delta`` — each step gets the ``reward_discount``-discounted sum
+      of per-decision margin changes from that step onward (``_decision_delta_returns``).
+    """
     flat_steps: list[steps.Step] = []
     returns: list[float] = []
     for record in records:
-        score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
-        per_pov = (
-            (score_0 - score_1) / score_norm,
-            (score_1 - score_0) / score_norm,
-        )
-        for step in record.steps:
-            flat_steps.append(step)
-            returns.append(per_pov[step.player_id])
+        if cfg.reward_mode is config.RewardMode.DECISION_DELTA:
+            record_returns = _decision_delta_returns(
+                record, cfg.reward_discount, cfg.score_norm
+            )
+        else:
+            record_returns = _terminal_margin_returns(record, cfg.score_norm)
+        flat_steps.extend(record.steps)
+        returns.extend(record_returns)
     return flat_steps, returns
+
+
+def _terminal_margin_returns(
+    record: collect.GameRecord, score_norm: float
+) -> list[float]:
+    """The end-of-game margin from each step's player POV, scaled by ``score_norm``
+    and broadcast to every step (the historical ``terminal_margin`` reward)."""
+    score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
+    per_pov = (
+        (score_0 - score_1) / score_norm,
+        (score_1 - score_0) / score_norm,
+    )
+    return [per_pov[step.player_id] for step in record.steps]
+
+
+def _decision_delta_returns(
+    record: collect.GameRecord, discount: float, score_norm: float
+) -> list[float]:
+    """Per-decision discounted returns aligned to ``record.steps`` order.
+
+    For each player the recorded ``margin_before`` checkpoints plus the terminal
+    margin form a value sequence ``v``; the per-step reward is ``v[k+1] - v[k]``
+    and the return is the backward discounted sum ``G[k] = r[k] + γ·G[k+1]``,
+    scaled by ``score_norm``. With γ=1 this telescopes to ``M_p - v[k]`` — the
+    player's final margin minus its margin before the decision."""
+    # Terminal margin from each seat's POV (the final ``v`` for that player's
+    # last decision); player 0 and player 1 get opposite signs.
+    score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
+    terminal = ((score_0 - score_1), (score_1 - score_0))
+
+    # Returns land back in record order, so route each player's discounted
+    # returns through the global step index they were computed from.
+    out: list[float] = [0.0] * len(record.steps)
+    for player_id in (0, 1):
+        indices = [
+            i for i, step in enumerate(record.steps) if step.player_id == player_id
+        ]
+        if not indices:
+            continue
+        checkpoints = [record.steps[i].margin_before for i in indices]
+        checkpoints.append(terminal[player_id])
+        running = 0.0
+        for position in reversed(range(len(indices))):
+            reward = checkpoints[position + 1] - checkpoints[position]
+            running = reward + discount * running
+            out[indices[position]] = running / score_norm
+    return out
 
 
 def _bucketize(flat_steps: list[steps.Step]) -> list[list[int]]:

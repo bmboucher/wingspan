@@ -321,6 +321,18 @@ def play_game_with_setup(
     )
 
 
+def running_margin(game: state.GameState, player_id: int) -> float:
+    """``player_id``'s live score margin (own − opponent) if the game ended now.
+
+    Recorded as each :class:`training_steps.Step`'s ``margin_before`` and
+    differenced into the per-decision ``decision_delta`` return (``learner._flatten``).
+    Shared by both recording agents so the sequential and batched collectors
+    snapshot the margin identically."""
+    own = scoring.running_score(game.players[player_id])
+    opponent = scoring.running_score(game.players[1 - player_id])
+    return float(own - opponent)
+
+
 def player_breakdown(player: state.Player) -> metrics.ScoreBreakdown:
     """Split ``player``'s final score into its six sources — the exact terms
     ``engine.scoring.final_scoring`` sums (birds + bonus + eggs + tucked +
@@ -391,6 +403,7 @@ def _recording_agent(
                 chosen_idx=chosen_idx,
                 player_id=decision.player_id,
                 family_idx=family_idx,
+                margin_before=running_margin(eng.state, decision.player_id),
             )
         )
         return decision.choices[chosen_idx]

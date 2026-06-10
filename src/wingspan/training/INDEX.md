@@ -16,7 +16,9 @@ and blocks until the loop stops or the user hits Ctrl-C.
 **`config.py`** — `TrainConfig`: the self-describing hyperparameter object.
 Key fields:
 - Loop shape: `games_per_iter`, `max_iterations`, `target_iterations`.
-- Optimization: `lr`, `value_coef`, `entropy_coef`, `grad_clip`.
+- Optimization: `lr`, `value_coef`, `entropy_coef`, `grad_clip`, `score_norm`,
+  `reward_mode` (`RewardMode`: `terminal_margin` | `decision_delta`) and
+  `reward_discount` (γ for the decision-delta return). Both REGIME.
 - Evaluation: `eval_every`, `eval_games`, `opponent_reset_win_rate`.
 - Bootstrap: `initial_vs_random`, `random_phase_win_rate`,
   `bootstrap_opponent_checkpoint` (optional path to a `.pt` checkpoint used
@@ -102,9 +104,11 @@ of state tensors through the net in one call.
 collection) and `greedy_agent(net, spec) -> Agent` (argmax, for eval). Both
 call `net.encode_state` / `net.encode_choices` — never the raw encoder.
 
-**`steps.py`** — `Step(state_vec, choice_mat, chosen_idx, reward)` — the
-recorded self-play transition consumed by the learner. Stored as fp16 arrays
-during IPC.
+**`steps.py`** — `Step(state, choices, chosen_idx, player_id, family_idx,
+margin_before)` — the recorded self-play transition consumed by the learner.
+`margin_before` is the deciding player's running margin (own − opponent) before
+the decision, differenced into the `decision_delta` return. Stored as fp16
+arrays during IPC.
 
 ## Learning
 
@@ -112,6 +116,10 @@ during IPC.
 - `update(steps: list[Step]) -> LearnerResult` — length-bucketed REINFORCE with
   advantage normalisation. Groups steps by game length, computes returns,
   normalizes advantages, runs one Adam step per bucket.
+- `_flatten` pairs each step with its return per `cfg.reward_mode`:
+  `_terminal_margin_returns` broadcasts the end-of-game margin; for
+  `decision_delta`, `_decision_delta_returns` discounts per-decision
+  `margin_before` deltas (γ = `reward_discount`) into each step's return.
 
 **`setup_net.py`** — `SetupNet(arch: SetupArchitecture, input_dim)`: the setup
 model's MLP value-regressor. Single scalar output (predicted final score).

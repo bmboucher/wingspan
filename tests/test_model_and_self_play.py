@@ -100,6 +100,28 @@ def test_update_runs_on_self_play_records():
         assert np.isfinite(val), f"{name} should be finite, got {val}"
 
 
+def test_update_runs_in_decision_delta_reward_mode():
+    """The decision-delta reward path runs end-to-end: collected steps carry a
+    ``margin_before``, and one REINFORCE update over per-decision discounted
+    returns produces finite stats."""
+    net = model.PolicyValueNet()
+    device = torch.device("cpu")
+    rng = random.Random(0)
+    optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
+    cfg = config.TrainConfig(
+        device="cpu",
+        reward_mode=config.RewardMode.DECISION_DELTA,
+        reward_discount=0.9,
+    )
+    records = [collect.play_game(net, device, rng, seed=seed) for seed in (2001, 2002)]
+    # Collection populates the per-decision margin snapshot the new mode reads.
+    assert any(step.margin_before != 0.0 for record in records for step in record.steps)
+    stats = learner.update(net, optimizer, records, cfg, device)
+    assert stats.n_steps > 0
+    assert np.isfinite(stats.loss)
+    assert np.isfinite(stats.value_loss)
+
+
 def test_policy_responds_to_per_choice_features():
     """Different per-choice features at the *same* state should produce
     different logits — i.e. the network is actually reading the candidate

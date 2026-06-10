@@ -25,3 +25,8 @@ class Step(pydantic.BaseModel):
     chosen_idx: int  # 0..n_choices-1
     player_id: int
     family_idx: int  # judgment-family scoring-head index (see decisions)
+    # The deciding player's running score margin (own − opponent) right before
+    # this decision. Consumed only by the ``decision_delta`` reward mode
+    # (``learner._flatten``); the default keeps ``terminal_margin`` collection
+    # and any fixtures that omit it valid.
+    margin_before: float = 0.0

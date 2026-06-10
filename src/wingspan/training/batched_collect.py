@@ -309,6 +309,7 @@ def _batched_recording_agent(
                 chosen_idx=chosen_idx,
                 player_id=decision.player_id,
                 family_idx=family_idx,
+                margin_before=collect.running_margin(eng.state, decision.player_id),
             )
         )
         return decision.choices[chosen_idx]

@@ -19,7 +19,9 @@ for rendering and a cross-platform raw-key reader for input; no curses.
 - `FIELD_SPECS: list[FieldSpec]` — ordered list of all editable fields shown
   in the configurator. Includes `bootstrap_opponent_checkpoint`
   (`OptionalPathField`, group `"bootstrap"`, visible only when
-  `initial_vs_random=True`, `ChangeImpact.REGIME`).
+  `initial_vs_random=True`, `ChangeImpact.REGIME`), and the OPTIM-section reward
+  controls `reward_mode` (`ChoiceField` over `RewardMode`) and `reward_discount`
+  (`FloatField`, visible only when `reward_mode == decision_delta`), both REGIME.
 - `read_field(cfg, spec) -> FieldValue`, `format_value(cfg, spec) -> str`,
   `commit(cfg, spec, raw) -> (TrainConfig, str | None)`,
   `nudge(cfg, spec, direction) -> (TrainConfig, str | None)`.

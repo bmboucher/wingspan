@@ -14,12 +14,28 @@ agent every few iterations.
 
 from __future__ import annotations
 
+import enum
 import typing
 
 import pydantic
 
 from wingspan import architecture, decisions, encode, setup_model
 from wingspan.instrumentation import config as instrumentation_config
+
+
+class RewardMode(enum.StrEnum):
+    """How a decision's REINFORCE return is computed from a finished game.
+
+    ``TERMINAL_MARGIN`` broadcasts the single end-of-game score margin to every
+    decision (the historical default). ``DECISION_DELTA`` instead credits each
+    decision with the change in the player's score margin (own − opponent) over
+    the interval until that player's next decision, accumulated into a
+    ``reward_discount``-discounted return — a per-decision credit signal. Both
+    are shape-preserving (REGIME), so toggling them never restarts the network.
+    """
+
+    TERMINAL_MARGIN = "terminal_margin"
+    DECISION_DELTA = "decision_delta"
 
 
 def _default_family_order() -> tuple[str, ...]:
@@ -61,6 +77,16 @@ class TrainConfig(pydantic.BaseModel):
     # value targets; the per-batch normalization (TRAINING.md §3.3) is what stabilizes the
     # gradient regardless of this constant.
     score_norm: typing.Annotated[float, pydantic.Field(gt=0.0)] = 50.0
+    # How each decision's REINFORCE return is computed (see ``RewardMode``).
+    # ``terminal_margin`` (default) broadcasts the end-of-game margin to every
+    # decision; ``decision_delta`` credits each decision with its own discounted
+    # margin change. Shape-preserving (REGIME): never restarts the network.
+    reward_mode: RewardMode = RewardMode.TERMINAL_MARGIN
+    # Discount γ for the ``decision_delta`` return: a decision's return is its own
+    # margin change plus γ·(future per-decision margin changes). γ=0 → the
+    # immediate change only; γ=1 → the player's final margin minus the current
+    # margin. Inert in ``terminal_margin`` mode.
+    reward_discount: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 1.0
 
     # ---- evaluation (TRAINING.md §7) ----
     # Run an eval block once every N training iterations (0 disables eval).

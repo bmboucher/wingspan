@@ -454,6 +454,28 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Advantage / value-target scale. Changing it rescales the loss and "
         "points curves across a resume boundary, so the charts will step.",
     ),
+    ChoiceField(
+        attr="reward_mode",
+        label="reward mode",
+        section=ConfigSection.OPTIM,
+        choices=[mode.value for mode in config.RewardMode],
+        impact=ChangeImpact.REGIME,
+        help="How each decision's return is computed. 'terminal_margin' broadcasts "
+        "the end-of-game margin to every decision; 'decision_delta' credits each "
+        "decision with its own discounted margin change. Shape-preserving — "
+        "reinterprets an in-progress run but resumes the weights.",
+    ),
+    FloatField(
+        attr="reward_discount",
+        label="reward discount γ",
+        section=ConfigSection.OPTIM,
+        step=0.05,
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.reward_mode == config.RewardMode.DECISION_DELTA,
+        help="Discount γ for the decision-delta return: a decision's own margin "
+        "change plus γ·(future per-decision changes). γ=0 = immediate change "
+        "only; γ=1 = final margin minus the current margin. Delta mode only.",
+    ),
     IntField(
         attr="eval_every",
         label="eval every",

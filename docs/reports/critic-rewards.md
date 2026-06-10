@@ -2,6 +2,12 @@
 
 **Question:** How are critic rewards calculated — terminal margin or per-step deltas?
 
+> **Update:** the per-step margin-delta shaping discussed under
+> *Alternatives → Per-step score-delta shaping* is now available as an opt-in
+> reward mode (`TrainConfig.reward_mode = decision_delta`, with a
+> `reward_discount` γ). The terminal-margin behavior analyzed below remains the
+> default. See `docs/TRAINING.md` §2 (Reward / return) and `learner._flatten`.
+
 ---
 
 ## Current implementation
