@@ -38,8 +38,10 @@ def test_write_model_config_round_trips(tmp_path: pathlib.Path):
     descriptor = runmeta.read_model_config(str(tmp_path))
     assert descriptor.run_name == "alpha"
     assert descriptor.architecture == cfg.arch
-    # The descriptor's fields reproduce the weight-compatibility key exactly.
+    # The descriptor's fields reproduce the weight-compatibility key exactly
+    # (the era leads the tuple; the descriptor carries it as ``version``).
     assert (
+        descriptor.version,
         descriptor.state_dim,
         descriptor.choice_dim,
         descriptor.family_order,

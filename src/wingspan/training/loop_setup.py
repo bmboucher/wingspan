@@ -285,8 +285,12 @@ def setup_architecture_matches(
     raw_config = payload.get("setup_config")
     if raw_config is None:
         return False  # not a self-describing setup checkpoint — refuse
+    artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
     try:
-        saved = training_config.TrainConfig.model_validate(raw_config)
+        # Rehydrated at the payload's own era for uniformity with the main
+        # gate; the setup key itself is era-independent (no setup encoding has
+        # changed shape between eras the dims router distinguishes).
+        saved = training_config.train_config_from_artifact(raw_config, artifact_version)
     except pydantic.ValidationError:
         return False
     return saved.setup_architecture_key == training_loop.config.setup_architecture_key
@@ -318,6 +322,7 @@ def save_setup_checkpoint(training_loop: "loop.TrainingLoop") -> None:
         "setup_optimizer": training_loop._setup_optimizer.state_dict(),
         "setup_fit_done": training_loop._setup_fit_done,
         "git_sha": loop_checkpoint.git_sha(),
-        "version": version.MODEL_VERSION,
+        # The run's era, matching every other artifact the run writes.
+        "version": training_loop.config.encoding_version,
     }
     loop_checkpoint.atomic_save(payload, training_loop._ckpt_dir / artifacts.SETUP_CKPT)

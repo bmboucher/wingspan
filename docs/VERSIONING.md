@@ -130,8 +130,9 @@ newer than the code, is refused cleanly with `version.IncompatibleArtifactError`
 `load_policy_net` / `load_setup_net` / `load_policy_net_from_run_dir` behind
 `cli.main_play` and `tournament.participants.load_player`). The *resume*
 loaders (`loop_resume`, `loop_setup`, `loop_eval.load_opponent`) keep the
-graceful `architecture_key` gate — mismatch starts fresh, never crashes.
-Training resume across versions is **not** promised.
+graceful `architecture_key` gate — a genuine mismatch starts fresh, never
+crashes. A run whose only mismatch is its era is not a mismatch at all: it
+resumes **era-pinned** (next section).
 
 The guarantee extends to *describing*: reporting surfaces (`wingspan inspect`,
 the run-start `model_inspect.json` / `model_summary.html`) derive every
@@ -139,6 +140,48 @@ layout, width, and parameter count through the descriptor seam in `runmeta`
 (`choice_layout_for`, `param_report_for`, `build_model_summary_html`, …),
 which routes by the descriptor's version the same way the loaders do — never
 compute a report value from the live encoder when a descriptor is in hand.
+
+## Training resume: era pinning
+
+A run records the era it trains at in its config
+(`TrainConfig.encoding_version`) and never leaves it: its dims derive from the
+era (`compat.encoding_dims_for_era`), its net is constructed as the era's
+class (`model.PolicyValueNet.class_for_version`) — in the main loop, the eval
+clone, and every `mp_collect` worker — collection encodes through that net's
+frozen encoders, and **every artifact the run writes is stamped with the
+run's era**, never the live `MODEL_VERSION`: `last.pt` / `best.pt` /
+`opponent.pt` / `setup.pt`, `model_config.json`, `setup_config.json`. An
+era-pinned run's directory is indistinguishable from one still being written
+by its own era's code — the rehydration guarantee applied to training, so a
+FRESH encoding change no longer orphans an in-flight run.
+
+Pinning is adopted from the run directory, never configured by hand
+(`encoding_version` is deliberately not an editable configurator field):
+
+- The configurator seeds the working config from the saved run's embedded
+  config, rehydrated at the payload's own version stamp
+  (`config.train_config_from_artifact`), so an old-era run reads RESUMABLE
+  and launches pinned.
+- `TrainingLoop.__init__` calls `loop_resume.adopt_checkpoint_era` before
+  building anything: when adopting the checkpoint's era is exactly what makes
+  the saved and current `architecture_key`s agree, the config is pinned —
+  covering headless entry points (cloud runner, direct construction) by
+  construction. Anything else (a genuine architecture mismatch, an unreadable
+  payload) falls through to the normal gate: alarm and start fresh.
+
+`architecture_key` itself now leads with the era, so a shape-preserving FRESH
+change still reads as incompatible (coinciding widths across eras are the
+silent-corruption case), and configs written before `encoding_version` existed
+derive it from the payload's `version` stamp — the field that has always
+carried the era.
+
+The cost of pinning is deliberate: an era-pinned run never gains later
+encodings' features (that is the point), and superseded eras become
+*producing* paths — a new training feature must either work at every
+same-MAJOR era or refuse one explicitly. Moving a line of work onto a new
+encoding still means a fresh run at the live era, optionally bootstrapped
+against the old model via `bootstrap_opponent_checkpoint` (which loads
+through the shims).
 
 ## Compat shims — the one sanctioned mechanism
 

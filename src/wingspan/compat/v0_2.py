@@ -27,6 +27,9 @@ them loadable:
   crashing).
 * :func:`state_embed_offsets_v02` is the frozen-geometry slice offsets the pre-0.3
   nets feed to ``_embed_state`` (also used by ``PolicyValueNetV01``/``V00``).
+* :func:`state_feature_dim_v02` is the frozen 771-dim state width itself — what
+  the era-dims router (``compat.encoding_dims_for_era``) hands an era-pinned
+  ``TrainConfig`` so a resumed pre-0.3 run keeps training at its own geometry.
 * :func:`state_stripe_layout_v02` produces the frozen stripe registry matching
   the 771-dim v0.2 state vector, for consistent reporting of old checkpoints.
 
@@ -153,6 +156,17 @@ def state_embed_offsets_v02() -> tuple[int, int, int]:
         layout.OFF_HAND_MULTIHOT + _MISC_DIM_DELTA,
         layout.OFF_DECISION_TYPE + _MISC_DIM_DELTA,
     )
+
+
+def state_feature_dim_v02(spec: layout.EncodingSpec = layout.DEFAULT_SPEC) -> int:
+    """The frozen v0.2 state-vector width (771 under the default spec).
+
+    The live width shifted by :data:`_MISC_DIM_DELTA` (-19) — the size of
+    :func:`encode_state_v02`'s output and the ``state_dim`` every pre-0.3 net
+    was built with. The era-dims router (``compat.encoding_dims_for_era``) uses
+    this so an era-pinned ``TrainConfig`` derives the dims its checkpoints
+    actually carry."""
+    return layout.state_feature_dim(spec) + _MISC_DIM_DELTA
 
 
 class PolicyValueNetV02(core.PolicyValueNet):

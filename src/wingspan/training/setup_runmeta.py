@@ -44,13 +44,16 @@ class SetupConfig(pydantic.BaseModel):
 
 
 def write_setup_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
-    """Write (overwriting) ``setup_config.json`` for ``cfg`` and return its path."""
+    """Write (overwriting) ``setup_config.json`` for ``cfg`` and return its path.
+
+    Stamped at the run's era (``cfg.encoding_version``), matching every other
+    artifact the run writes."""
     descriptor = SetupConfig(
         run_name=cfg.run_name,
         setup_encoding=cfg.setup_encoding,
         setup_arch=cfg.setup_arch,
         main_arch=cfg.arch,
-        version=version.MODEL_VERSION,
+        version=cfg.encoding_version,
     )
     path = pathlib.Path(checkpoint_dir)
     path.mkdir(parents=True, exist_ok=True)

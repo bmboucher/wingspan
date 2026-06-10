@@ -6,6 +6,13 @@ Free functions whose first argument is a ``TrainingLoop`` instance handle the
 ``__init__``-time sequence: restoring from a checkpoint, initializing the
 training phase and target milestone, clearing stale history logs on a fresh
 run, and writing the session JSON sidecars.
+
+:func:`adopt_checkpoint_era` is the era-pinning seam (``docs/VERSIONING.md``):
+called before the loop builds its net, it adopts the resumable checkpoint's
+artifact era into the config whenever that adoption is what makes the resume
+possible — so a run started before a FRESH encoding change keeps training at
+its own frozen geometry under newer code, from any entry point (dashboard,
+cloud runner, tests) by construction.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ import typing
 import pydantic
 import torch
 
+from wingspan import version
 from wingspan.training import (
     artifacts,
 )
@@ -68,19 +76,32 @@ def maybe_resume(training_loop: "loop.TrainingLoop") -> None:
         )
         return
 
-    training_loop.net.load_state_dict(payload["model"])
-    training_loop.optimizer.load_state_dict(payload["optimizer"])
+    try:
+        training_loop.net.load_state_dict(payload["model"])
+        training_loop.optimizer.load_state_dict(payload["optimizer"])
+    except (RuntimeError, ValueError, KeyError):
+        # The key matched but the tensors did not fit (a hand-edited or
+        # corrupted payload) — keep the non-fatal contract: alarm and start
+        # fresh rather than crashing ``__init__``.
+        training_loop.state.push_event(
+            runstate.EventKind.ALARM,
+            f"{artifacts.LAST_CKPT} weights do not fit this architecture — "
+            "starting fresh",
+        )
+        return
     reset_optimizer_lr(training_loop)  # honor this run's --lr over the saved one
     progress = runstate.RunProgress.model_validate(payload["progress"])
     training_loop.state.restore_progress(progress)
     training_loop._start_iteration = progress.iteration + 1
     if training_loop.state.opponent_generation > 0:
         loop_eval.load_opponent(training_loop)  # may reset generation to 0 if gone
+    era = training_loop.config.encoding_version
+    era_note = "" if era == version.MODEL_VERSION else f" · era {era} (pinned)"
     training_loop.state.push_event(
         runstate.EventKind.INFO,
         f"resumed {artifacts.LAST_CKPT} · iter {progress.iteration:04d} · "
         f"{progress.total_games:,} games · "
-        f"opponent {loop_eval.opponent_label(training_loop)}",
+        f"opponent {loop_eval.opponent_label(training_loop)}{era_note}",
     )
 
 
@@ -172,6 +193,59 @@ def write_run_metadata(training_loop: "loop.TrainingLoop") -> None:
     )
 
 
+def adopt_checkpoint_era(
+    cfg: training_config.TrainConfig,
+) -> training_config.TrainConfig:
+    """Pin ``cfg`` to the resumable checkpoint's artifact era when that is what
+    makes the resume possible.
+
+    Reads ``last.pt`` (when resume is enabled and one exists) and compares the
+    saved run's ``architecture_key`` against ``cfg``'s re-keyed at the saved
+    era: a match means the configs agree on everything *except* the era — the
+    exact situation of a run started before a FRESH encoding change — so the
+    era-adopted config is returned and the caller's net build / resume gate
+    proceed at the run's own frozen geometry. Any other situation (no
+    checkpoint, unreadable payload, a genuinely different architecture, eras
+    already equal) returns ``cfg`` unchanged, preserving today's behavior
+    exactly: ``maybe_resume`` then resumes or alarms as it always did.
+
+    Called by ``TrainingLoop.__init__`` before the net is constructed, so era
+    pinning holds for every entry point by construction rather than relying on
+    each launcher (dashboard, cloud runner, tests) to remember it.
+    """
+    if not cfg.resume:
+        return cfg
+    last = pathlib.Path(cfg.checkpoint_dir) / artifacts.LAST_CKPT
+    if not last.exists():
+        return cfg
+    try:
+        payload = typing.cast(
+            "dict[str, typing.Any]",
+            torch.load(last, map_location="cpu", weights_only=False),
+        )
+        raw_config = payload.get("config")
+        if raw_config is None:
+            return cfg
+        artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
+        saved = training_config.train_config_from_artifact(raw_config, artifact_version)
+    except Exception:  # noqa: BLE001 — an unreadable payload defers to maybe_resume
+        return cfg
+    if saved.encoding_version == cfg.encoding_version:
+        return cfg
+    candidate = training_config.with_encoding_version(cfg, saved.encoding_version)
+    if saved.architecture_key != candidate.architecture_key:
+        return cfg
+    logging.info(
+        "Resumable checkpoint at %s is era %s — pinning this run to it "
+        "(state_dim %d, choice_dim %d)",
+        last,
+        saved.encoding_version,
+        candidate.state_dim,
+        candidate.choice_dim,
+    )
+    return candidate
+
+
 def validate_bootstrap_opponent(training_loop: "loop.TrainingLoop") -> None:
     """Load the bootstrap checkpoint once at startup to fail fast on bad paths.
 
@@ -211,12 +285,16 @@ def architecture_matches(
     or one that no longer validates (e.g. a value since constrained out of
     bounds), is treated as a mismatch so the run starts fresh with an alarm
     rather than crashing ``__init__`` — preserving the non-fatal contract.
+    The saved config is rehydrated at the payload's own artifact era
+    (``train_config_from_artifact``), so its key carries the era it actually
+    trained at — never the live one a bare re-validation would substitute.
     """
     raw_config = payload.get("config")
     if raw_config is None:
         return False  # not a self-describing checkpoint — refuse
+    artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
     try:
-        saved = training_config.TrainConfig.model_validate(raw_config)
+        saved = training_config.train_config_from_artifact(raw_config, artifact_version)
     except pydantic.ValidationError:
         return False
     return saved.architecture_key == training_loop.config.architecture_key

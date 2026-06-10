@@ -82,6 +82,10 @@ class _WorkerArch(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
+    # The run's artifact era: selects the (possibly compat) net class so an
+    # era-pinned run's workers rebuild the same frozen geometry as the main
+    # process (``model.PolicyValueNet.class_for_version``).
+    encoding_version: str
     state_dim: int
     choice_dim: int
     arch: architecture.ModelArchitecture
@@ -174,6 +178,7 @@ class ProcessCollector:
 
     def __init__(self, cfg: config.TrainConfig, num_workers: int | None = None):
         self._arch = _WorkerArch(
+            encoding_version=cfg.encoding_version,
             state_dim=cfg.state_dim,
             choice_dim=cfg.choice_dim,
             arch=cfg.arch,
@@ -447,6 +452,20 @@ _worker_setup_greedy: bool = False
 _worker_setup_use_actor_critic: bool = False
 
 
+def _build_worker_net(arch: _WorkerArch) -> model.PolicyValueNet:
+    """A fresh net in ``arch``'s shape, era-routed: an era-pinned run's workers
+    rebuild the matching compat subclass so their encoders and slice geometry
+    agree with the broadcast weights. Shared by the worker's own net and its
+    lazily-built eval opponent."""
+    net_cls = model.PolicyValueNet.class_for_version(arch.encoding_version)
+    return net_cls(
+        state_dim=arch.state_dim,
+        choice_dim=arch.choice_dim,
+        arch=arch.arch,
+        spec=encode.EncodingSpec(include_setup=arch.include_setup),
+    )
+
+
 def _worker_init(arch: _WorkerArch) -> None:
     """Build this worker's local net once, before any games. Pins torch to a
     single thread so the workers parallelize across cores rather than fighting
@@ -457,12 +476,7 @@ def _worker_init(arch: _WorkerArch) -> None:
     torch.set_num_threads(1)
     _worker_arch = arch
     _worker_device = torch.device("cpu")
-    _worker_net = model.PolicyValueNet(
-        state_dim=arch.state_dim,
-        choice_dim=arch.choice_dim,
-        arch=arch.arch,
-        spec=encode.EncodingSpec(include_setup=arch.include_setup),
-    ).to(_worker_device)
+    _worker_net = _build_worker_net(arch).to(_worker_device)
     _worker_net.eval()
     _worker_weights_version = -1
     # Build the setup net + random generator once (only when the run uses the
@@ -681,12 +695,7 @@ def _ensure_worker_opponent(
         return None
     assert _worker_arch is not None, "worker arch not initialized"
     if _worker_opponent_net is None:
-        _worker_opponent_net = model.PolicyValueNet(
-            state_dim=_worker_arch.state_dim,
-            choice_dim=_worker_arch.choice_dim,
-            arch=_worker_arch.arch,
-            spec=encode.EncodingSpec(include_setup=_worker_arch.include_setup),
-        ).to(device)
+        _worker_opponent_net = _build_worker_net(_worker_arch).to(device)
         _worker_opponent_net.eval()
     if task.opponent_version != _worker_opponent_version:
         state_dict = typing.cast(

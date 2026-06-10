@@ -26,7 +26,16 @@ Key fields:
   requires `initial_vs_random=True`).
 - Architecture: `arch: ModelArchitecture` (assembled via the `arch` property
   from flat fields so `TrainConfig` serializes flat).
+- Era: `encoding_version` — the artifact era the run trains at (adopted from
+  the run dir on resume, never user-edited); `state_dim` / `choice_dim` are
+  era-routed from it (`compat.encoding_dims_for_era`), and it leads
+  `architecture_key`. See "Training resume: era pinning" in
+  `docs/VERSIONING.md`.
 - Derived: `architecture_key`, `state_dim`, `choice_dim`, `encoding_spec`.
+- Module functions: `train_config_from_artifact(raw, artifact_version)` —
+  validate a payload's embedded config at the payload's own era (pre-field
+  configs derive `encoding_version` from the `version` stamp);
+  `with_encoding_version(cfg, era)` — validated era-pinned copy.
 
 **`artifacts.py`** — `ArtifactPaths(checkpoint_dir)`: canonical on-disk
 filenames. Constants: `LAST_CKPT`, `BEST_CKPT`, `OPPONENT_CKPT`,
@@ -57,9 +66,13 @@ Key members:
 - `signal_target_response(choice, new_target)` — unblock from a target pause.
 - `self.net`, `self.optimizer`, `self.state (RunState)`, `self.lock (RLock)`.
 
-**`loop_resume.py`** — `resume_or_init(loop)`: loads `LAST_CKPT` if present,
-validates `architecture_key` (FRESH restart on mismatch), initializes phase
-and target, writes the `process_<stamp>.json` sidecar.
+**`loop_resume.py`** — `maybe_resume(loop)`: loads `LAST_CKPT` if present,
+validates `architecture_key` (alarm + fresh start on mismatch, including when
+the weights themselves fail to load), initializes phase and target, writes the
+`process_<stamp>.json` sidecar. `adopt_checkpoint_era(cfg)` — called by
+`TrainingLoop.__init__` before the net is built: pins the config to the
+resumable checkpoint's era when that adoption is exactly what makes the keys
+agree (era-pinned resume across a FRESH change; `docs/VERSIONING.md`).
 
 **`loop_collect.py`** — `run_collection(loop, iteration) -> CollectResult`:
 dispatches to `mp_collect.ProcessCollector` (CPU) or `batched_collect` (CUDA)
@@ -94,11 +107,16 @@ policy agent and a greedy opponent; returns `(steps, score_breakdown)`.
 **`mp_collect.py`** — `ProcessCollector`: process-parallel collection for the
 CPU path. Manages a `multiprocessing.Pool`; each worker runs `collect_game`
 and returns steps via IPC (fp16-compressed for bandwidth). The pool is kept
-alive across iterations to amortize process-spawn cost.
+alive across iterations to amortize process-spawn cost. `_WorkerArch` carries
+`encoding_version` so workers rebuild the era's net class
+(`PolicyValueNet.class_for_version`) for both their own net and the eval
+opponent.
 
 **`batched_collect.py`** — `BatchedCollector`: batched-forward collection for
 the CUDA path. Runs multiple game environments in lockstep, forwarding a batch
-of state tensors through the net in one call.
+of state tensors through the net in one call. Game threads encode via the
+server's `encode_state` / `encode_choices` (delegating to the served net), so
+an era-pinned net's frozen encoders are honored here too.
 
 **`policy.py`** — `sampling_agent(net, spec) -> Agent` (stochastic, for
 collection) and `greedy_agent(net, spec) -> Agent` (argmax, for eval). Both

@@ -13,8 +13,12 @@ encoding or network architecture changes shape. The compatibility contract:
   with :class:`IncompatibleArtifactError`. A MAJOR bump is the deliberate
   escape hatch that deletes the accumulated shims and old test fixtures.
 
-Training *resume* is not covered by this contract — the resume gate keeps its
-strict ``architecture_key`` comparison and starts fresh on any mismatch.
+Training *resume* honors the same eras via pinning: a run carries its
+``TrainConfig.encoding_version`` and keeps training at that era's frozen
+geometry under newer same-MAJOR code (``loop_resume.adopt_checkpoint_era``,
+``docs/VERSIONING.md``), stamping every artifact it writes with its own era.
+The resume gate still refuses any genuine ``architecture_key`` mismatch and
+starts fresh.
 
 This is distinct from the *package release* version
 (``wingspan.__version__``): that tracks the codebase, this tracks the on-disk

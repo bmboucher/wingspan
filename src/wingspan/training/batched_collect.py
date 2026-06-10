@@ -15,9 +15,9 @@ single-decision sampling rule (:func:`policy.sample_index_from_probs`).
 This collapses the ~130-per-game forward calls into ~130 *total* per wave
 (one per decision round, shared across games), which on CPU is ~1.2x faster
 end-to-end at the default 64-game iteration. The forward pass was only ~20%
-of collection, though — per-candidate encoding (``encode.encode_choices``,
-GIL-bound and run per game thread) is the larger remaining cost and the next
-target. See the ``training-throughput-bottleneck`` analysis.
+of collection, though — per-candidate encoding (``net.encode_choices`` via the
+server, GIL-bound and run per game thread) is the larger remaining cost and the
+next target. See the ``training-throughput-bottleneck`` analysis.
 
 Only the forward pass is shared; engine mutation, encoding, and sampling are
 per-game. The network is read-only during collection and is touched by exactly
@@ -47,6 +47,9 @@ import torch.nn.functional as F
 
 from wingspan import agents, decisions, encode, engine, model
 from wingspan.training import collect, policy, steps
+
+if typing.TYPE_CHECKING:
+    from wingspan import state
 
 # Distinct salt for the bootstrap phase's random opponent, kept separate from
 # the policy-sampling stream (mirrors ``mp_collect._OPPONENT_RNG_SALT``).
@@ -157,6 +160,25 @@ class _BatchInferenceServer:
         """The served net's encoding spec, so workers encode states/choices at the
         shape the net was built for (the setup axis is config-driven)."""
         return self._net.spec
+
+    def encode_state(
+        self,
+        game_state: "state.GameState",
+        decision: decisions.Decision[typing.Any],
+    ) -> np.ndarray:
+        """Featurize a state for the served net — delegated to the net itself so
+        an era-pinned (compat) net's frozen encoder is used, never the live
+        module functions paired with a spec by hand."""
+        return self._net.encode_state(game_state, decision)
+
+    def encode_choices(
+        self,
+        decision: decisions.Decision[typing.Any],
+        game_state: "state.GameState",
+    ) -> np.ndarray:
+        """Featurize a decision's choices for the served net (see
+        :meth:`encode_state`)."""
+        return self._net.encode_choices(decision, game_state)
 
     def start(self) -> None:
         self._thread.start()
@@ -298,8 +320,8 @@ def _batched_recording_agent(
         if not server.spec.include_setup and decisions.is_setup_decision(decision):
             return decisions.random_choice(decision, eng.state.rng)
         family_idx = decisions.family_index_for(type(decision))
-        state_vec = encode.encode_state(eng.state, decision, server.spec)
-        choice_feats = encode.encode_choices(decision, eng.state, server.spec)
+        state_vec = server.encode_state(eng.state, decision)
+        choice_feats = server.encode_choices(decision, eng.state)
         probs = server.infer(state_vec, choice_feats, family_idx)
         chosen_idx = policy.sample_index_from_probs(probs, choice_feats.shape[0], rng)
         record_into.append(

@@ -22,7 +22,6 @@ import typing
 import numpy as np
 import torch
 
-from wingspan import version
 from wingspan.training import (
     artifacts,
     collect,
@@ -127,7 +126,9 @@ def checkpoint(
         "metrics": iter_metrics.model_dump(),
         "progress": progress.model_dump(),
         "git_sha": git_sha(),
-        "version": version.MODEL_VERSION,
+        # Stamped with the run's era, not the live MODEL_VERSION: an era-pinned
+        # run keeps writing artifacts that read as the era its tensors carry.
+        "version": training_loop.config.encoding_version,
     }
     atomic_save(payload, training_loop._ckpt_dir / artifacts.LAST_CKPT)
     if improved and eval_result is not None:

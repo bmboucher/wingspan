@@ -26,6 +26,10 @@ the main actor-critic network. Key structure:
 - `PolicyValueNet.from_model_config(config: ModelConfig) -> PolicyValueNet` —
   reconstitutes a net from a persisted descriptor; the only valid way to load
   a checkpoint for inference.
+- `PolicyValueNet.class_for_version(artifact_version) -> type[PolicyValueNet]`
+  — the single era-routing table (pre-0.1 → `PolicyValueNetV00`, 0.1 →
+  `…V01`, 0.2 → `…V02`, live otherwise); used by `from_model_config`, the
+  checkpoint loaders, and the era-pinned training pipeline.
 
 **`mlp.py`** — Shared MLP building blocks used by both the policy net and the
 setup net so they produce byte-identical stacks from the same width list:

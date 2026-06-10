@@ -345,10 +345,11 @@ def write_session_record(
 
 
 def _descriptor_for(cfg: config.TrainConfig) -> ModelConfig:
-    """The :class:`ModelConfig` descriptor for ``cfg``, stamped at the current
-    artifact version — the single construction every run-start writer shares,
-    so the JSON / HTML reports describe exactly what ``model_config.json``
-    records."""
+    """The :class:`ModelConfig` descriptor for ``cfg``, stamped at the run's
+    artifact era (``cfg.encoding_version`` — the live version for new runs) —
+    the single construction every run-start writer shares, so the JSON / HTML
+    reports describe exactly what ``model_config.json`` records, era-routed
+    layouts included."""
     return ModelConfig(
         run_name=cfg.run_name,
         state_dim=cfg.state_dim,
@@ -356,7 +357,7 @@ def _descriptor_for(cfg: config.TrainConfig) -> ModelConfig:
         family_order=cfg.family_order,
         architecture=cfg.arch,
         include_setup=cfg.encoding_spec.include_setup,
-        version=version.MODEL_VERSION,
+        version=cfg.encoding_version,
     )
 
 

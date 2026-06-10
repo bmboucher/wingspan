@@ -21,6 +21,7 @@ import typing
 import pydantic
 import torch
 
+from wingspan import version
 from wingspan.training import artifacts, config, runstate
 
 # Order matters: ``last.pt`` is relocated/removed LAST so an interruption
@@ -238,14 +239,22 @@ def _load_payload(path: pathlib.Path) -> dict[str, typing.Any] | None:
 
 
 def _fill_from_payload(summary: RunSummary, payload: dict[str, typing.Any]) -> None:
-    """Populate ``summary`` from a parsed checkpoint payload."""
+    """Populate ``summary`` from a parsed checkpoint payload.
+
+    The saved config is rehydrated at the payload's own artifact era
+    (``train_config_from_artifact``), so an era-pinned run's summary carries
+    the era it actually trained at — the configurator then seeds the working
+    config from it and the run reads RESUMABLE under newer code."""
     raw_config = payload.get("config")
     if raw_config is None:
         summary.config_invalid = True
         summary.note = "checkpoint has no embedded config"
     else:
+        artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
         try:
-            summary.train_config = config.TrainConfig.model_validate(raw_config)
+            summary.train_config = config.train_config_from_artifact(
+                raw_config, artifact_version
+            )
         except pydantic.ValidationError:
             summary.config_invalid = True
             summary.note = "saved config could not be parsed"

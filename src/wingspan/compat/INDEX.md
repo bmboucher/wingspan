@@ -18,10 +18,21 @@ offset corrupts silently instead of crashing (the 2026-06-10 `_embed_state` bug)
 Every code-carried value the loaded artifact's behavior depends on belongs in the
 shim — see `docs/VERSIONING.md` (FRESH vs REGIME, config- vs code-carried).
 
+**Shims also back era-pinned training.** A resumed run carries
+`TrainConfig.encoding_version` and keeps producing artifacts at its own era
+(see "Training resume: era pinning" in `docs/VERSIONING.md`): the training
+pipeline constructs the era's net class via
+`model.PolicyValueNet.class_for_version` and derives its dims via
+`encoding_dims_for_era`. Superseded eras are therefore *producing* paths, not
+read-only museums — a new training-side feature must work at every same-MAJOR
+era or refuse one explicitly.
+
 ## Modules
 
-**`__init__.py`** — re-exports the shim-detection helpers used by loaders:
-`uses_v0_0_choice_encoding(descriptor) -> bool`.
+**`__init__.py`** — imports the era modules and owns the package-level dims
+router: `encoding_dims_for_era(artifact_version, spec) -> (state_dim,
+choice_dim)` — the raw vector widths an era's encoders produce (pre-0.3 state
+from `v0_2`, pre-0.1 choice from `v0_0`, live otherwise).
 
 **`v0_0.py`** — Pre-0.1 (v0.0) choice geometry shim. The v0.0 encoding omitted
 several choice-vector stripes that were added in v0.1.

@@ -3,8 +3,12 @@
 ``TrainConfig`` is the single self-describing record of every hyperparameter a
 run uses. It is stored verbatim inside every checkpoint (TRAINING.md §5.1) so a
 run can be resumed and its results re-derived later, and it carries an
-architecture descriptor (``state_dim`` / ``choice_dim`` / ``family_order``) so a
-loader can detect an incompatible network before misrouting heads.
+architecture descriptor (``encoding_version`` / ``state_dim`` / ``choice_dim`` /
+``family_order``) so a loader can detect an incompatible network before
+misrouting heads. ``encoding_version`` pins the run to its artifact era: the
+dims are era-routed from it, every artifact the run writes is stamped with it,
+and a resumed run adopts it from its checkpoint — so a FRESH encoding change
+never orphans an in-flight run (``docs/VERSIONING.md``).
 
 The defaults encode the TRAINING.md Phase-1 program: a synchronous
 REINFORCE-with-value-baseline loop, advantage normalization, no epsilon-greedy,
@@ -19,7 +23,7 @@ import typing
 
 import pydantic
 
-from wingspan import architecture, decisions, encode, setup_model
+from wingspan import architecture, decisions, encode, setup_model, version
 from wingspan.instrumentation import config as instrumentation_config
 
 
@@ -334,6 +338,15 @@ class TrainConfig(pydantic.BaseModel):
     )
 
     # ---- architecture descriptor (TRAINING.md §5.1) ----
+    # The artifact era this run trains at: the encoding its vectors are produced
+    # with and the version stamped on every artifact it writes. New runs pin the
+    # current MODEL_VERSION; a resumed run adopts its checkpoint's era (the
+    # configurator's saved-run seeding / ``loop_resume.adopt_checkpoint_era``),
+    # so a run started before a FRESH encoding change keeps training at its own
+    # frozen geometry instead of being orphaned by it (docs/VERSIONING.md).
+    # Deliberately not an editable configurator field — the era is a property of
+    # the run directory, not a knob.
+    encoding_version: str = version.MODEL_VERSION
     state_dim: int = pydantic.Field(default_factory=encode.state_size)
     choice_dim: int = encode.CHOICE_FEATURE_DIM
     family_order: tuple[str, ...] = pydantic.Field(
@@ -401,16 +414,46 @@ class TrainConfig(pydantic.BaseModel):
         return self
 
     @pydantic.model_validator(mode="after")
+    def _check_encoding_version(self) -> "TrainConfig":
+        """The run's era must be one this code can load: same MAJOR, MINOR at
+        most the current. A newer era or a different MAJOR has no shims, so an
+        era-pinned run could neither encode its vectors nor stamp its artifacts
+        consistently."""
+        try:
+            version.check_artifact_compatible(
+                self.encoding_version, what="TrainConfig.encoding_version"
+            )
+        except version.IncompatibleArtifactError as error:
+            raise ValueError(str(error)) from error
+        return self
+
+    @pydantic.model_validator(mode="after")
     def _sync_encoding_dims(self) -> "TrainConfig":
         """Keep the encoding dims and family-head order in lockstep with
-        ``use_setup_model``. The main model's shape is config-driven on that one
-        axis (``encode.EncodingSpec.include_setup`` = ``not use_setup_model``), so
-        ``state_dim`` / ``choice_dim`` / ``family_order`` are *derived*, not free
-        knobs — and because they feed ``architecture_key``, toggling
-        ``use_setup_model`` correctly registers as a main-net-FRESH change."""
+        ``use_setup_model`` and ``encoding_version``. The main model's shape is
+        config-driven on the setup axis (``encode.EncodingSpec.include_setup`` =
+        ``not use_setup_model``) and era-routed on the version axis
+        (``compat.encoding_dims_for_era``), so ``state_dim`` / ``choice_dim`` /
+        ``family_order`` are *derived*, not free knobs — and because they feed
+        ``architecture_key``, toggling ``use_setup_model`` (or crossing a FRESH
+        era boundary) correctly registers as a main-net-FRESH change. The
+        family-head order has been stable across every 0.x era, so it stays
+        live-derived."""
         spec = encode.spec_for(self.use_setup_model)
-        self.state_dim = encode.state_size(spec)
-        self.choice_dim = encode.choice_feature_dim(spec)
+        if self.encoding_version == version.MODEL_VERSION:
+            # The live era needs no shim — and must not import one: configs are
+            # constructed at import time (field-spec defaults, loaders), some of
+            # them *during* ``wingspan.compat``'s own import (compat → v0_1 →
+            # training.setup_net → training.__init__ → … → fields). Era-pinned
+            # configs only exist at runtime, when the late import below is safe.
+            self.state_dim = encode.state_size(spec)
+            self.choice_dim = encode.choice_feature_dim(spec)
+        else:
+            from wingspan import compat  # noqa: PLC0415 — see live-era note above
+
+            self.state_dim, self.choice_dim = compat.encoding_dims_for_era(
+                self.encoding_version, spec
+            )
         self.family_order = tuple(
             family.value
             for family in decisions.active_decision_families(spec.include_setup)
@@ -567,15 +610,50 @@ class TrainConfig(pydantic.BaseModel):
     @property
     def architecture_key(
         self,
-    ) -> tuple[int, int, tuple[str, ...], architecture.ShapeKey]:
+    ) -> tuple[str, int, int, tuple[str, ...], architecture.ShapeKey]:
         """The network-shape signature a checkpoint must match to be resumed
         (TRAINING.md §5.1): two trained nets are weight-compatible iff their
-        ``(state_dim, choice_dim, family_order)`` and full topology ``shape_key``
-        agree. Comparing this one derived tuple keeps the resume gate and the
-        configurator's compatibility check from drifting apart."""
+        era (``encoding_version``), ``(state_dim, choice_dim, family_order)``,
+        and full topology ``shape_key`` agree. The era leads the tuple so a
+        shape-preserving FRESH change still reads as incompatible — coinciding
+        widths across eras are exactly the silent-corruption case. Comparing
+        this one derived tuple keeps the resume gate and the configurator's
+        compatibility check from drifting apart."""
         return (
+            self.encoding_version,
             self.state_dim,
             self.choice_dim,
             self.family_order,
             self.arch.shape_key,
         )
+
+
+def train_config_from_artifact(
+    raw_config: typing.Any, artifact_version: str
+) -> TrainConfig:
+    """Validate a checkpoint's embedded config at the artifact's own era.
+
+    Configs written before the ``encoding_version`` field existed default it
+    from the payload's ``version`` stamp — the field that has always carried the
+    artifact's era — so a pre-field artifact rehydrates era-pinned: its dims
+    re-derive to the era's widths and its ``architecture_key`` compares
+    truthfully. Configs that already carry the field keep it (the two stamps
+    agree by construction for artifacts written since). Raises
+    ``pydantic.ValidationError`` exactly like ``TrainConfig.model_validate``.
+    """
+    if isinstance(raw_config, dict):
+        adjusted = dict(typing.cast("dict[str, typing.Any]", raw_config))
+        adjusted.setdefault("encoding_version", artifact_version)
+        return TrainConfig.model_validate(adjusted)
+    return TrainConfig.model_validate(raw_config)
+
+
+def with_encoding_version(cfg: TrainConfig, encoding_version: str) -> TrainConfig:
+    """A validated copy of ``cfg`` pinned to ``encoding_version``.
+
+    Goes through full validation (not ``model_copy``) so the derived dims
+    re-sync to the era — a plain attribute update would leave ``state_dim`` /
+    ``choice_dim`` at the previous era's widths."""
+    return TrainConfig.model_validate(
+        {**cfg.model_dump(), "encoding_version": encoding_version}
+    )

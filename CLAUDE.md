@@ -92,6 +92,8 @@ Agents resolve decisions, not raw action ints. `Choice` is the abstract base —
 
 **The rehydration guarantee.** Loading a run's frozen config under any later same-MAJOR code must reconstitute a model that *computes identically* — old artifacts never adopt new behavior. The shim trigger is **any code change that would make a rehydrated artifact behave differently**, not just a shape change: the real line is config-carried (travels in the artifact, safely REGIME) vs code-carried (lives in the live codebase — featurizer math, slice offsets, inference branches — must be era-gated even when shape is unchanged). Freeze *all* geometry a net derives, not just `encode_state`. The lone exception is the engine: shared by both seats, it can't fork by version, so its choice-calc/apply/present changes are accepted drift. See `docs/VERSIONING.md`.
 
+**Era-pinned training resume.** The guarantee extends to training: a run carries `TrainConfig.encoding_version`, trains as the era's net class at the era's dims, and stamps every artifact it writes with its own era — so a FRESH bump never orphans an in-flight run. The era is adopted from the run directory (configurator seeding + `loop_resume.adopt_checkpoint_era`), never hand-set; superseded eras are therefore *producing* paths — new training features must work at every same-MAJOR era or refuse one explicitly. See `docs/VERSIONING.md`.
+
 ### Constants and per-turn scratch state
 
 Action/track/cost constants at the top of `state.py`; encoder dims and stripe offsets in `encode/layout.py`; chart sizes in `training/charts/geometry.py`. No magic numbers — promote them. Per-turn scratch lives on `GameState` as explicit typed fields reset by `GameState.reset_turn_state()`.

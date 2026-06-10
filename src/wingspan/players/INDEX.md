@@ -19,15 +19,17 @@ both use the same loading and logging conventions.
 
 **`loaders.py`** — Both self-describing checkpoint load paths:
 - `load_policy_net(path: Path, spec: EncodingSpec) -> PolicyValueNet` — loads a
-  `.pt` checkpoint, checks its embedded `version` via `version.py`, applies any
-  compat shim from `wingspan.compat`, and constructs the net from the embedded
-  `model_config`.
+  `.pt` checkpoint, checks its embedded `version` via `version.py`, rehydrates
+  the embedded config at the payload's era
+  (`config.train_config_from_artifact`), and constructs the era's net class at
+  the era's dims (`PolicyValueNet.class_for_version`).
 - `load_policy_net_from_run_dir(run_dir: Path) -> PolicyValueNet` — reads
   `model_config.json` from a run directory, locates the `BEST` checkpoint, and
   delegates to `load_policy_net`.
-- `encoding_compat_keys(descriptor) -> set[str]` — the `architecture_key`
-  components that must match for resume (used by the training loop's graceful
-  FRESH restart).
+- `encoding_key` / `descriptor_encoding_key` / `expected_encoding_key` — the
+  encoding-compatibility signatures both paths verify before seating a net;
+  `expected_encoding_key` derives an era's true widths via
+  `compat.encoding_dims_for_era`.
 
 **`factory.py`** — `build_agent(spec, device, rng, greedy) -> (Agent, TrainConfig|None)`:
 the top-level factory. Maps each `PlayerSpec.kind` to the appropriate agent

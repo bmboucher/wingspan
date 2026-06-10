@@ -69,6 +69,11 @@ class TrainingLoop:
     """A resumable, stoppable self-play training run feeding a live RunState."""
 
     def __init__(self, cfg: config.TrainConfig, *, pause_at_target: bool = True):
+        # Pin the config to a resumable checkpoint's artifact era before
+        # anything derives from it (net class and dims, encoders, stamps), so a
+        # run started before a FRESH encoding change resumes at its own frozen
+        # geometry from any entry point (docs/VERSIONING.md).
+        cfg = loop_resume.adopt_checkpoint_era(cfg)
         self.config = cfg
         # Whether reaching ``target_iterations`` pauses for interactive
         # [C]ontinue / [E]nd input (the dashboard) or finalizes the milestone and
@@ -78,9 +83,16 @@ class TrainingLoop:
         if self.device.type == "cpu":
             torch.set_num_threads(_CPU_INTRAOP_THREADS)
         loop_checkpoint.seed_everything(cfg.seed)
-        self.net = model.PolicyValueNet(arch=cfg.arch, spec=cfg.encoding_spec).to(
-            self.device
-        )
+        # The net class and dims are era-routed: an era-pinned run constructs
+        # the matching compat subclass at its frozen widths.
+        net_cls = model.PolicyValueNet.class_for_version(cfg.encoding_version)
+        self.net = net_cls(
+            state_dim=cfg.state_dim,
+            choice_dim=cfg.choice_dim,
+            num_families=len(cfg.family_order),
+            arch=cfg.arch,
+            spec=cfg.encoding_spec,
+        ).to(self.device)
         self.optimizer: optim.Optimizer = optim.Adam(self.net.parameters(), lr=cfg.lr)
         self.lock = threading.RLock()
         self.state = runstate.new_run_state(cfg)

@@ -114,30 +114,41 @@ class PolicyValueNet(nn.Module):
         self._build_value_head(arch)
 
     @classmethod
-    def from_model_config(cls, descriptor: "runmeta.ModelConfig") -> "PolicyValueNet":
-        """Rebuild a net matching a saved ``model_config.json`` descriptor — its
-        full topology plus the encoding dims and family-head count it was trained
-        under. The returned net has fresh weights in the saved shape, ready for
-        ``load_state_dict`` from the run's checkpoint.
+    def class_for_version(cls, artifact_version: str) -> "type[PolicyValueNet]":
+        """The net class whose frozen geometry matches ``artifact_version``.
 
-        The version routing selects the right compat subclass so every caller
-        gets a net whose geometry matches its weights without consulting the
-        version: pre-0.1 → ``v0_0.PolicyValueNetV00`` (frozen choice encoding);
-        0.1 → ``v0_1.PolicyValueNetV01`` (frozen 229-wide card encoder)."""
+        The single era-routing table: pre-0.1 → ``v0_0.PolicyValueNetV00``
+        (frozen choice encoding); 0.1 → ``v0_1.PolicyValueNetV01`` (frozen
+        229-wide card encoder); 0.2 → ``v0_2.PolicyValueNetV02`` (frozen
+        771-dim state geometry); current era → the live class. Used by every
+        construction seam that must honor an artifact's era — the checkpoint
+        loaders, ``from_model_config``, and the era-pinned training pipeline
+        (``TrainConfig.encoding_version``)."""
         from wingspan.compat import (  # local: compat subclasses this net
             v0_0,
             v0_1,
             v0_2,
         )
 
-        if v0_0.uses_v0_0_choice_encoding(descriptor.version):
-            net_cls: type[PolicyValueNet] = v0_0.PolicyValueNetV00
-        elif v0_1.uses_v0_1_card_feature_encoding(descriptor.version):
-            net_cls = v0_1.PolicyValueNetV01
-        elif v0_2.uses_v0_2_state_encoding(descriptor.version):
-            net_cls = v0_2.PolicyValueNetV02
-        else:
-            net_cls = cls
+        if v0_0.uses_v0_0_choice_encoding(artifact_version):
+            return v0_0.PolicyValueNetV00
+        if v0_1.uses_v0_1_card_feature_encoding(artifact_version):
+            return v0_1.PolicyValueNetV01
+        if v0_2.uses_v0_2_state_encoding(artifact_version):
+            return v0_2.PolicyValueNetV02
+        return PolicyValueNet
+
+    @classmethod
+    def from_model_config(cls, descriptor: "runmeta.ModelConfig") -> "PolicyValueNet":
+        """Rebuild a net matching a saved ``model_config.json`` descriptor — its
+        full topology plus the encoding dims and family-head count it was trained
+        under. The returned net has fresh weights in the saved shape, ready for
+        ``load_state_dict`` from the run's checkpoint.
+
+        The version routing (:meth:`class_for_version`) selects the right compat
+        subclass so every caller gets a net whose geometry matches its weights
+        without consulting the version."""
+        net_cls = cls.class_for_version(descriptor.version)
         return net_cls(
             state_dim=descriptor.state_dim,
             choice_dim=descriptor.choice_dim,

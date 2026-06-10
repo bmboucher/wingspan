@@ -9,13 +9,14 @@ Two sanctioned, self-describing load paths exist and both live here:
   ``model_config.json`` descriptor (the tournament path; the descriptor is
   also what run discovery checks without unpickling torch payloads).
 
-Both enforce the hard artifact-version check and route pre-0.1 artifacts to
-the frozen ``compat.v0_0`` era, 0.1 artifacts to the frozen ``compat.v0_1``
-era, and 0.2 artifacts to the frozen ``compat.v0_2`` era. :func:`load_setup_net` loads the optional
-separately-trained setup model from a run directory. The encoding-key helpers
-(:func:`encoding_key`, :func:`descriptor_encoding_key`,
-:func:`expected_encoding_key`) define the compatibility signature both paths
-verify before seating a net.
+Both enforce the hard artifact-version check and construct the era's net class
+via ``model.PolicyValueNet.class_for_version`` at the era's frozen dims
+(``config.train_config_from_artifact`` / the descriptor), so a pre-0.3
+checkpoint's encoders and slice geometry match its weights automatically.
+:func:`load_setup_net` loads the optional separately-trained setup model from a
+run directory. The encoding-key helpers (:func:`encoding_key`,
+:func:`descriptor_encoding_key`, :func:`expected_encoding_key`) define the
+compatibility signature both paths verify before seating a net.
 """
 
 from __future__ import annotations
@@ -25,8 +26,8 @@ import typing
 
 import torch
 
-from wingspan import decisions, encode, model, version
-from wingspan.compat import v0_0, v0_1, v0_2
+from wingspan import compat, decisions, encode, model, version
+from wingspan.compat import v0_1
 from wingspan.training import artifacts, config, runmeta
 from wingspan.training import setup_net as setup_net_module
 from wingspan.training import setup_runmeta
@@ -69,36 +70,13 @@ def load_policy_net(
     # encoding layout (state/choice feature dims and the family head order),
     # since freshly-encoded states are fed into the net at inference. A net
     # trained with a different topology is still perfectly usable here.
-    # Version routing selects the right compat subclass so the net's card-encoder
-    # or choice-encoder geometry matches its weights automatically.
-    saved = config.TrainConfig.model_validate(payload["config"])
-    # _sync_encoding_dims rewrites state_dim to the live v0.3 value (790); compat
-    # subclasses must use the frozen dim stored in the raw payload instead.
-    raw_cfg = payload["config"]
-    frozen_state_dim = int(raw_cfg["state_dim"])
-    frozen_choice_dim = int(raw_cfg["choice_dim"])
-    frozen_num_families = len(raw_cfg.get("family_order", []))
-    if v0_0.uses_v0_0_choice_encoding(artifact_version):
-        net: model.PolicyValueNet = v0_0.PolicyValueNetV00(
-            arch=saved.arch, spec=saved.encoding_spec
-        ).to(device)
-    elif v0_1.uses_v0_1_card_feature_encoding(artifact_version):
-        net = v0_1.PolicyValueNetV01(
-            state_dim=frozen_state_dim,
-            choice_dim=frozen_choice_dim,
-            num_families=frozen_num_families,
-            arch=saved.arch,
-            spec=saved.encoding_spec,
-        ).to(device)
-    elif v0_2.uses_v0_2_state_encoding(artifact_version):
-        net = v0_2.PolicyValueNetV02(
-            state_dim=frozen_state_dim,
-            choice_dim=frozen_choice_dim,
-            num_families=frozen_num_families,
-            arch=saved.arch,
-            spec=saved.encoding_spec,
-        ).to(device)
-    else:
+    # The config is rehydrated at the payload's own era, so its derived dims are
+    # the frozen widths the weights actually carry, and the era routing
+    # (``class_for_version``) selects the compat subclass whose encoders and
+    # slice geometry match them.
+    saved = config.train_config_from_artifact(payload["config"], artifact_version)
+    net_cls = model.PolicyValueNet.class_for_version(artifact_version)
+    if net_cls is model.PolicyValueNet:
         current = config.TrainConfig()
         if encoding_key(saved) != encoding_key(current):
             raise ValueError(
@@ -107,7 +85,13 @@ def load_policy_net(
                 f"  current: {encoding_key(current)}\n"
                 "It was trained against a different encode.py / decisions.py layout."
             )
-        net = model.PolicyValueNet(arch=saved.arch, spec=saved.encoding_spec).to(device)
+    net = net_cls(
+        state_dim=saved.state_dim,
+        choice_dim=saved.choice_dim,
+        num_families=len(saved.family_order),
+        arch=saved.arch,
+        spec=saved.encoding_spec,
+    ).to(device)
     net.load_state_dict(payload["model"])
     net.eval()
     return net, saved
@@ -197,26 +181,16 @@ def expected_encoding_key(
     descriptor: runmeta.ModelConfig,
 ) -> tuple[int, int, tuple[str, ...]]:
     """The encoding-compatibility signature ``descriptor``'s artifact era
-    promises: the live encoder's dims (built exactly the way
-    ``config.TrainConfig._sync_encoding_dims`` derives them), except that a
-    pre-0.1 descriptor's choice dim comes from the frozen ``compat.v0_0``
-    geometry its net will actually be fed (state encoding and the family-head
-    order are unchanged between the eras), and a pre-0.3 descriptor's state dim
-    comes from the frozen ``compat.v0_2`` geometry (771 before the one-hot
-    round + cube stripes)."""
+    promises: the era's encoder dims (``compat.encoding_dims_for_era`` — the
+    same router ``config.TrainConfig._sync_encoding_dims`` derives from), built
+    over the descriptor's own spec. The family-head order is unchanged between
+    eras, so it is live-derived."""
     spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
     family_order = tuple(
         family.value
         for family in decisions.active_decision_families(spec.include_setup)
     )
-    if v0_0.uses_v0_0_choice_encoding(descriptor.version):
-        choice_dim = v0_0.choice_feature_dim(spec)
-    else:
-        choice_dim = encode.choice_feature_dim(spec)
-    if v0_2.uses_v0_2_state_encoding(descriptor.version):
-        state_dim = descriptor.state_dim  # frozen at the v0.2 era's 771
-    else:
-        state_dim = encode.state_size(spec)
+    state_dim, choice_dim = compat.encoding_dims_for_era(descriptor.version, spec)
     return (state_dim, choice_dim, family_order)
 
 

@@ -15,7 +15,7 @@ import typing
 
 import torch
 
-from wingspan import model, version
+from wingspan import model
 from wingspan.training import (
     artifacts,
     evaluate,
@@ -200,10 +200,18 @@ def prev_opponent_label(new_generation: int) -> str:
 
 
 def clone_net(training_loop: "loop.TrainingLoop") -> model.PolicyValueNet:
-    """An independent, eval-mode copy of the current policy network."""
-    clone = model.PolicyValueNet(
+    """An independent, eval-mode copy of the current policy network.
+
+    Era-routed like the loop's own net: an era-pinned run's clone must be the
+    same compat subclass so its frozen encoders and slice geometry match the
+    weights being copied."""
+    net_cls = model.PolicyValueNet.class_for_version(
+        training_loop.config.encoding_version
+    )
+    clone = net_cls(
         state_dim=training_loop.config.state_dim,
         choice_dim=training_loop.config.choice_dim,
+        num_families=len(training_loop.config.family_order),
         arch=training_loop.config.arch,
         spec=training_loop.config.encoding_spec,
     ).to(training_loop.device)
@@ -224,7 +232,9 @@ def save_opponent(
         "model": opponent.state_dict(),
         "opponent_generation": generation,
         "git_sha": loop_checkpoint.git_sha(),
-        "version": version.MODEL_VERSION,
+        # Stamped with the run's era, not the live MODEL_VERSION: an era-pinned
+        # run's artifacts must read as the era their tensors are shaped for.
+        "version": training_loop.config.encoding_version,
     }
     loop_checkpoint.atomic_save(
         payload, training_loop._ckpt_dir / artifacts.OPPONENT_CKPT
