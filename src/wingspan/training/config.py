@@ -107,6 +107,15 @@ class TrainConfig(pydantic.BaseModel):
     random_phase_win_rate: typing.Annotated[float, pydantic.Field(gt=0.0, le=1.0)] = (
         0.65
     )
+    # Path to a ``.pt.gz`` checkpoint to use as the bootstrap opponent during the
+    # ``initial_vs_random`` phase. ``None`` = use a random agent (current
+    # behaviour). When set the opponent's weights are loaded once per session (via
+    # ``loaders.load_policy_net``) and replayed greedy against seat 0.
+    # Known limitation: the bootstrap opponent's *setup net* is not loaded. In
+    # setup-model runs the opponent's opening remains generator-chosen (same as
+    # the random bootstrap). Only valid with ``initial_vs_random=True`` and
+    # ``device="cpu"`` (the ``mp_collect`` path).
+    bootstrap_opponent_checkpoint: str | None = None
 
     # ---- "what the AI is producing" smoothing ----
     # Decay for the PRODUCING band's EWMA of the per-iteration score breakdown,
@@ -304,6 +313,24 @@ class TrainConfig(pydantic.BaseModel):
     family_order: tuple[str, ...] = pydantic.Field(
         default_factory=_default_family_order
     )
+
+    @pydantic.model_validator(mode="after")
+    def _check_bootstrap_opponent(self) -> "TrainConfig":
+        """Validate the bootstrap-opponent checkpoint constraints.
+
+        The checkpoint path is only reachable through the ``mp_collect`` path
+        (CPU-only), so it must be paired with ``initial_vs_random=True`` and
+        ``device="cpu"``."""
+        if self.bootstrap_opponent_checkpoint is not None:
+            if not self.initial_vs_random:
+                raise ValueError(
+                    "bootstrap_opponent_checkpoint requires initial_vs_random=True"
+                )
+            if self.device != "cpu":
+                raise ValueError(
+                    "bootstrap_opponent_checkpoint requires device='cpu' (mp_collect only)"
+                )
+        return self
 
     @pydantic.model_validator(mode="after")
     def _check_architecture(self) -> TrainConfig:

@@ -44,7 +44,7 @@ import numpy as np
 import pydantic
 import torch
 
-from wingspan import agents, architecture, encode, model, setup_model
+from wingspan import agents, architecture, encode, engine, model, setup_model
 from wingspan.training import collect, config, evaluate, metrics, setup_net
 
 # Match batched_collect's per-game sampling salt so a seed maps to the same
@@ -111,6 +111,10 @@ class _WorkerArch(pydantic.BaseModel):
     # worker uses policy-head logits for candidate selection and records
     # all_candidates + chosen_idx in each SetupSample.
     setup_use_actor_critic: bool = False
+    # Path to a .pt.gz checkpoint to load as the bootstrap opponent (the
+    # ``initial_vs_random`` phase opponent). ``None`` = random agent.
+    # Static for the run — set once when the pool is spawned.
+    bootstrap_opponent_checkpoint: str | None = None
 
 
 class _GameTask(pydantic.BaseModel):
@@ -187,6 +191,7 @@ class ProcessCollector:
             setup_use_actor_critic=(
                 cfg.setup_use_actor_critic if cfg.use_setup_model else False
             ),
+            bootstrap_opponent_checkpoint=cfg.bootstrap_opponent_checkpoint,
         )
         self._weights_path = pathlib.Path(cfg.checkpoint_dir) / _WEIGHTS_FILENAME
         self._opponent_path = pathlib.Path(cfg.checkpoint_dir) / _OPPONENT_FILENAME
@@ -490,19 +495,47 @@ def _worker_init(arch: _WorkerArch) -> None:
     logging.getLogger().addHandler(logging.NullHandler())
 
 
+def _bootstrap_opponent_agent(arch: _WorkerArch, seed: int) -> engine.Agent | None:
+    """Return a greedy agent loaded from the bootstrap checkpoint, or ``None``.
+
+    Returns ``None`` when no checkpoint is configured so the caller falls back
+    to the random agent.  The function-level import breaks the circular
+    dependency: ``loaders`` imports from ``wingspan.agents``, which would form
+    a cycle if imported at module level here.
+    """
+    if arch.bootstrap_opponent_checkpoint is None:
+        return None
+    # Function-level imports to break the circular dependency. ``loaders``
+    # imports from ``wingspan.training`` (config, runmeta, …), and ``policy``
+    # also lives in ``wingspan.training`` — importing them at module level would
+    # create an import cycle with modules that themselves import ``mp_collect``.
+    import wingspan.players.loaders as loaders  # noqa: PLC0415
+    import wingspan.training.policy as policy  # noqa: PLC0415
+
+    policy_net, _ = loaders.load_policy_net(
+        pathlib.Path(arch.bootstrap_opponent_checkpoint),
+        torch.device("cpu"),
+    )
+    return policy.greedy_agent(policy_net, torch.device("cpu"))
+
+
 def _worker_play(task: _GameTask) -> collect.GameRecord:
     """Play one seeded game under the task's weights — self-play, or the net
     (seat 0) vs the random agent in the bootstrap phase."""
     net = _worker_net
     device = _worker_device
+    arch = _worker_arch
     assert net is not None and device is not None, "worker net not initialized"
+    assert arch is not None, "worker arch not initialized"
     _maybe_reload_weights(net, device, task.weights_path, task.weights_version)
     rng = random.Random(task.seed ^ _SAMPLE_RNG_SALT)
-    opponent = (
-        agents.random_agent(random.Random(task.seed ^ _OPPONENT_RNG_SALT))
-        if task.vs_random
-        else None
-    )
+    opponent: engine.Agent | None = None
+    if task.vs_random:
+        opponent = _bootstrap_opponent_agent(arch, seed=task.seed)
+        if opponent is None:
+            opponent = agents.random_agent(
+                random.Random(task.seed ^ _OPPONENT_RNG_SALT)
+            )
     return _compact(collect.play_game(net, device, rng, task.seed, opponent))
 
 
@@ -530,13 +563,13 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             task.setup_weights_path,
             task.setup_weights_version,
         )
-    opponent = (
-        agents.random_agent(
-            random.Random(task.spec.continuation_seed ^ _OPPONENT_RNG_SALT)
-        )
-        if task.vs_random
-        else None
-    )
+    opponent: engine.Agent | None = None
+    if task.vs_random:
+        opponent = _bootstrap_opponent_agent(arch, seed=task.spec.continuation_seed)
+        if opponent is None:
+            opponent = agents.random_agent(
+                random.Random(task.spec.continuation_seed ^ _OPPONENT_RNG_SALT)
+            )
     return _compact(
         collect.play_game_with_setup(
             net,

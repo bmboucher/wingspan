@@ -11,6 +11,8 @@ run, and writing the session JSON sidecars.
 from __future__ import annotations
 
 import datetime
+import logging
+import pathlib
 import typing
 
 import pydantic
@@ -168,6 +170,33 @@ def write_run_metadata(training_loop: "loop.TrainingLoop") -> None:
     training_loop.state.push_event(
         runstate.EventKind.INFO, f"session log → {session_path.name}"
     )
+
+
+def validate_bootstrap_opponent(training_loop: "loop.TrainingLoop") -> None:
+    """Load the bootstrap checkpoint once at startup to fail fast on bad paths.
+
+    A missing file, a corrupt payload, or an incompatible encoding layout all
+    raise immediately so the run never starts a multi-hour training session
+    against an opponent it cannot load.  Resumes re-validate on every session
+    startup because ``_WorkerArch`` is rebuilt from config each time (the path
+    is not persisted in the run checkpoint).
+    """
+    path = training_loop.config.bootstrap_opponent_checkpoint
+    if path is None:
+        return
+    # Function-level import: loaders imports from wingspan.training (artifacts,
+    # config, runmeta, …). Importing at module level would create a cycle since
+    # loop_resume is itself part of wingspan.training.
+    import wingspan.players.loaders as loaders  # noqa: PLC0415
+
+    net, saved = loaders.load_policy_net(pathlib.Path(path), torch.device("cpu"))
+    logging.info(
+        "Bootstrap opponent loaded: path=%s state_dim=%d choice_dim=%d",
+        path,
+        saved.state_dim,
+        saved.choice_dim,
+    )
+    del net  # free immediately; workers reload from the path on demand
 
 
 ###### PRIVATE #######

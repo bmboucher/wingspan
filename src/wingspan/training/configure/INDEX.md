@@ -9,16 +9,20 @@ for rendering and a cross-platform raw-key reader for input; no curses.
 **`__init__.py`**
 
 **`fields.py`** — The field specification system:
-- `FieldSpec` — abstract base with `name`, `label`, `help_text`.
-- Concrete subclasses: `IntField`, `FloatField`, `BoolField`, `ChoiceField`,
-  `ArchField` (for `ModelArchitecture` sub-fields).
+- `FieldSpec` — abstract base with `attr`, `label`, `section`, `help`, and
+  optional `group`, `visible_when`, `impact`.
+- Concrete subclasses: `IntField`, `OptionalIntField`, `FloatField`,
+  `ChoiceField`, `TextField`, `PathField`, `LayersField`,
+  `OptionalPathField` (nullable filesystem-path field; displays `none_label`
+  when `None`, parses back to `None` on empty or `"none"` input; used for
+  `bootstrap_opponent_checkpoint` in the EVAL/bootstrap group).
 - `FIELD_SPECS: list[FieldSpec]` — ordered list of all editable fields shown
-  in the configurator.
-- `read_field(spec, config) -> str` (render current value),
-  `format_field(spec, raw) -> str` (format for display),
-  `commit_field(spec, raw, config) -> TrainConfig` (parse + validate + return
-  new config), `nudge_field(spec, direction, config) -> TrainConfig`
-  (increment/decrement numeric fields with arrow keys).
+  in the configurator. Includes `bootstrap_opponent_checkpoint`
+  (`OptionalPathField`, group `"bootstrap"`, visible only when
+  `initial_vs_random=True`, `ChangeImpact.REGIME`).
+- `read_field(cfg, spec) -> FieldValue`, `format_value(cfg, spec) -> str`,
+  `commit(cfg, spec, raw) -> (TrainConfig, str | None)`,
+  `nudge(cfg, spec, direction) -> (TrainConfig, str | None)`.
 
 **`runs.py`** — Run management:
 - `RunSummary(run_name, iteration, best_win_rate, last_updated)` — compact

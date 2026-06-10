@@ -133,6 +133,14 @@ class PathField(FieldSpec):
     """A filesystem-path field (e.g. the checkpoint directory)."""
 
 
+class OptionalPathField(FieldSpec):
+    """A nullable filesystem-path field. ``None`` displays as ``none_label``
+    (e.g. "random agent"); typing a path string sets an explicit value and
+    typing ``none`` (or clearing the buffer) resets to ``None``."""
+
+    none_label: str = "none"
+
+
 class LayersField(FieldSpec):
     """A per-layer width list (a network block's hidden widths).
 
@@ -193,6 +201,8 @@ def format_value(cfg: config.TrainConfig, spec: FieldSpec) -> str:
     """The display string for ``spec``'s current value."""
     value = read_field(cfg, spec)
     if isinstance(spec, OptionalIntField) and value is None:
+        return spec.none_label
+    if isinstance(spec, OptionalPathField) and value is None:
         return spec.none_label
     if isinstance(spec, FloatField):
         if spec.scientific:
@@ -288,6 +298,10 @@ def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue, str | None]:
             return int(text), None
         except ValueError:
             return None, f"{spec.label}: expects a whole number or 'none'"
+    if isinstance(spec, OptionalPathField):
+        if not text or text.lower() == "none":
+            return None, None
+        return text, None
     if isinstance(spec, IntField):
         try:
             return int(text), None
@@ -531,6 +545,20 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Smoothed collection win-rate (vs random) at which the bootstrap "
         "phase freezes self·gen1 and switches to self-play. Lowering it below "
         "the current win-rate graduates immediately.",
+    ),
+    OptionalPathField(
+        attr="bootstrap_opponent_checkpoint",
+        label="bootstrap opponent checkpoint",
+        section=ConfigSection.EVAL,
+        group="bootstrap",
+        none_label="random agent",
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.initial_vs_random,
+        help="Path to a .pt.gz checkpoint to use as the bootstrap-phase opponent "
+        "instead of the random agent. Only valid with device='cpu'. "
+        "Known limitation: the opponent's setup net is not loaded — its opening "
+        "remains generator-chosen even when the checkpoint was trained with a "
+        "setup model.",
     ),
     LayersField(
         attr="trunk_layers",

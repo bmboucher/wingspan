@@ -814,6 +814,54 @@ and cross-product assembly that normal random generation performs.
 Both flags can be active simultaneously. Neither touches `MODEL_VERSION` or
 `setup_architecture_key`.
 
+### 6.7 Using a pre-trained checkpoint as the bootstrap opponent
+
+#### The run-A → run-B pattern
+
+By default the `initial_vs_random` bootstrap phase trains against the built-in
+random agent. Set `bootstrap_opponent_checkpoint` to a `.pt` checkpoint path
+(written by any prior run's `checkpoint_dir/last.pt`, or any archived checkpoint)
+to replace the random agent with a frozen greedy copy of that checkpoint:
+
+```
+# Run A trains to completion (or any milestone).
+wingspan train --config  # save run A's checkpoint to checkpoints/last.pt
+
+# Run B starts the bootstrap phase against run A's final policy.
+wingspan train \
+  --checkpoint-dir checkpoints-run-b \
+  bootstrap_opponent_checkpoint=checkpoints/last.pt
+```
+
+This is useful when a second run needs a head start against a stronger opener —
+the bootstrap opponent is much stronger than the random agent, so the run B policy
+must work harder to graduate. The version-routing in `players.loaders.load_policy_net`
+handles all prior artifact versions automatically (the COMPAT shim dispatch), so
+any previously trained checkpoint works even if it was trained against an older
+encoding layout.
+
+#### CPU-only constraint
+
+`bootstrap_opponent_checkpoint` is only valid when **both** `initial_vs_random=True`
+and `device="cpu"` are set. The `batched_collect` code path (CUDA, GPU learner)
+has no opponent machinery — every vs-random game on the `mp_collect` path spawns
+one opponent agent per game, but the batched collector runs all games in lockstep
+without per-game opponents. Configuring the bootstrap checkpoint on a CUDA run
+raises a `ValueError` at startup so the error is immediate and clear. Setting
+`device="cuda"` is only relevant for the learner's backprop step; **collection
+always uses `mp_collect` (CPU) when `initial_vs_random=True`**, so this constraint
+is not a practical limitation.
+
+#### Setup-net limitation
+
+The bootstrap opponent's **setup net is not loaded**. In runs where
+`use_setup_model=True` the opponent's opening keep is resolved by the random
+generator (same as random-agent bootstrap), even if the checkpoint was trained
+with a setup model. Only the opponent's main game policy is loaded and replayed
+greedy. This means the bootstrap-opponent is weaker in the opening than it would
+be in a self-play game — the in-game play is faithful, but the starting position
+may be slightly worse than the checkpoint's actual trained opening.
+
 ---
 
 ## 7. Evaluating out-of-sample performance

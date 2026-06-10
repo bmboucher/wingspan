@@ -18,7 +18,10 @@ Key fields:
 - Loop shape: `games_per_iter`, `max_iterations`, `target_iterations`.
 - Optimization: `lr`, `value_coef`, `entropy_coef`, `grad_clip`.
 - Evaluation: `eval_every`, `eval_games`, `opponent_reset_win_rate`.
-- Bootstrap: `random_phase_enable`, `random_phase_win_rate`.
+- Bootstrap: `initial_vs_random`, `random_phase_win_rate`,
+  `bootstrap_opponent_checkpoint` (optional path to a `.pt` checkpoint used
+  as the bootstrap-phase opponent instead of the random agent; CPU-only,
+  requires `initial_vs_random=True`).
 - Architecture: `arch: ModelArchitecture` (assembled via the `arch` property
   from flat fields so `TrainConfig` serializes flat).
 - Derived: `architecture_key`, `state_dim`, `choice_dim`, `encoding_spec`.

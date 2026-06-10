@@ -123,6 +123,7 @@ class TrainingLoop:
         # resumed) main net before any collection or checkpointing happens.
         loop_setup.sync_setup_embedders(self)
         loop_resume.init_training_phase(self)
+        loop_resume.validate_bootstrap_opponent(self)
         loop_resume.init_target_if_fresh(self)
         loop_resume.reset_history_logs_if_fresh(self)
         loop_resume.write_run_metadata(self)
