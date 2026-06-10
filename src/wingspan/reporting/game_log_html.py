@@ -6,8 +6,8 @@ engine already produces. The page shows exactly one phase (a setup block, a
 round banner, or a single player turn) at a time, with prev/next arrows; a
 ``P0 / P1 / both`` toggle at the top controls which seat's board is pinned and
 which decision lines are shown; the current game state (3x5 board grids, hands,
-tray, food, scores, bonus cards, round goals) is pinned at the top of the
-window, and the turn's decision narration sits in a collapsible panel beneath.
+tray, birdfeeder, scores, round goals) is pinned at the top of the window, and
+the turn's decision narration sits in a collapsible panel beneath.
 
 The data model here holds **primitives only** — every field is a string, int,
 or a small nested model of strings/ints — so this module depends on nothing in
@@ -37,7 +37,7 @@ BOARD_COLUMNS = 5
 
 
 class BirdCellInfo(pydantic.BaseModel):
-    """One played (or tray) bird, flattened to display primitives."""
+    """One played (or tray/hand) bird, flattened to display primitives."""
 
     name: str
     vp: int
@@ -99,7 +99,7 @@ class PlayerPanel(pydantic.BaseModel):
     name: str
     action_cubes_left: int
     rows: list[HabitatRow]
-    hand_names: list[str]
+    hand: list[BirdCellInfo]
     food: list[FoodCount]
     score: ScoreBreakdown
     bonus_cards: list[BonusCardInfo]
@@ -263,61 +263,116 @@ body {
 .toggle button { border: none; border-radius: 0; }
 .toggle button.active { background: #4ade80; color: #052e16; font-weight: 700; }
 .phase-title { margin-top: 8px; font-size: 13px; color: #a7f3d0; font-family: monospace; }
-main { max-width: 1280px; margin: 0 auto; padding: 16px 18px 60px; }
+main { max-width: 1440px; margin: 0 auto; padding: 16px 18px 60px; }
 #state-panel {
   position: sticky; top: 96px; z-index: 30; background: #f8fafc;
   border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px;
   box-shadow: 0 2px 8px rgba(0,0,0,.08); margin-bottom: 16px;
+  max-height: calc(100vh - 112px); overflow-y: auto;
 }
-.seats { display: flex; gap: 16px; flex-wrap: wrap; }
-.seat { flex: 1 1 420px; min-width: 360px; }
-.seat h2 {
-  font-size: 14px; margin-bottom: 6px; display: flex; gap: 8px;
-  align-items: baseline; border-bottom: 2px solid #0f3d2e; padding-bottom: 3px;
+
+/* === Player boards row === */
+.boards-row { display: flex; gap: 12px; }
+.player-section { flex: 1 1 0; min-width: 0; overflow-x: auto; }
+.player-header {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  padding-bottom: 4px; border-bottom: 2px solid #0f3d2e;
 }
-.seat h2 .total { margin-left: auto; font-size: 16px; font-weight: 800; color: #0f3d2e; }
-.seat h2 .cubes { font-size: 11px; color: #64748b; font-weight: 400; }
-.board { display: grid; grid-template-columns: 74px repeat(5, 1fr); gap: 4px; margin: 6px 0; }
+.player-name { font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.player-cubes { font-size: 12px; letter-spacing: 2px; color: #334155; }
+.player-vp { margin-left: auto; font-weight: 800; font-size: 16px; color: #0f3d2e; flex-shrink: 0; }
+.board-row { display: flex; align-items: stretch; gap: 4px; margin-bottom: 4px; }
 .hab-label {
-  display: flex; align-items: center; font-weight: 700; font-size: 11px;
-  padding: 2px 4px; border-radius: 4px; color: #fff;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  font-weight: 700; font-size: 10px; color: #fff; border-radius: 4px;
+  width: 56px; flex-shrink: 0;
 }
-.hab-forest { background: #166534; }
+.hab-forest    { background: #166534; }
 .hab-grassland { background: #ca8a04; }
-.hab-wetland { background: #0369a1; }
-.cell {
-  min-height: 52px; border: 1px solid #cbd5e1; border-radius: 5px;
-  padding: 3px 4px; font-size: 10.5px; background: #fff; overflow: hidden;
+.hab-wetland   { background: #0369a1; }
+
+/* === Card cell — fixed size, identical in board / tray / hand === */
+.card-cell {
+  width: 110px; height: 128px; flex-shrink: 0;
+  border: 1px solid #cbd5e1; border-radius: 5px; overflow: hidden;
+  display: flex; flex-direction: column; background: #fff;
 }
-.cell.empty { border-style: dashed; background: #f1f5f9; }
-.cell .cn { font-weight: 700; font-size: 11px; line-height: 1.1; display: block; }
-.cell .cs { color: #475569; display: block; }
-.cell .ce { letter-spacing: 1px; }
-.cell.pw-brown { background: #f3e9dd; }
-.cell.pw-white { background: #ffffff; }
-.cell.pw-pink  { background: #fce7f3; }
-.cell.pw-yellow { background: #fef9c3; }
-.cell .extras { color: #b45309; font-size: 9.5px; }
-.subline { font-size: 11px; color: #475569; margin: 3px 0; }
-.subline b { color: #1e293b; }
-.scoretable { border-collapse: collapse; font-size: 11px; margin-top: 4px; width: 100%; }
-.scoretable th, .scoretable td { border: 1px solid #e2e8f0; padding: 1px 5px; text-align: right; }
-.scoretable th { background: #e2e8f0; }
-.shared { margin-top: 10px; border-top: 1px dashed #cbd5e1; padding-top: 8px; font-size: 11.5px; }
-.shared .tray-cards { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; }
-.tray-card { border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 6px; background: #fff; }
-.goals { margin-top: 6px; }
-.goals .goal { font-size: 11px; }
-.goals .goal.scored { color: #15803d; }
+.card-cell.empty { border-style: dashed; background: #f1f5f9; }
+.card-hdr {
+  padding: 3px 5px; background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0; flex-shrink: 0;
+}
+.card-name {
+  font-weight: 700; font-size: 9.5px; line-height: 1.15;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.card-meta { color: #475569; font-size: 7.5px; line-height: 1.3; }
+.card-power {
+  flex: 1; padding: 3px 5px; font-size: 7.5px; line-height: 1.35; overflow: hidden;
+}
+.card-cell.pw-brown  .card-power { background: #f3e9dd; }
+.card-cell.pw-white  .card-power { background: #ffffff; }
+.card-cell.pw-pink   .card-power { background: #fce7f3; }
+.card-cell.pw-yellow .card-power { background: #fef9c3; }
+.card-eggs {
+  height: 16px; padding: 0 5px; text-align: right; letter-spacing: 1px;
+  font-size: 10px; border-top: 1px solid #e2e8f0; flex-shrink: 0;
+  color: #64748b; display: flex; align-items: center; justify-content: flex-end;
+}
+
+/* === Middle row: tray | birdfeeder | player hand === */
+.middle-row { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
+.panel { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; background: #fff; }
+.panel-title {
+  font-size: 8.5px; font-weight: 700; color: #94a3b8; text-align: center;
+  letter-spacing: 1px; text-transform: uppercase; margin-top: 5px;
+}
+.tray-panel .card-row { display: flex; gap: 4px; }
+.feeder-panel { min-width: 100px; font-size: 10.5px; line-height: 1.7; white-space: pre-line; }
+.hand-panel { flex: 1; min-width: 0; }
+.hand-scroll { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
+.hand-scroll::-webkit-scrollbar { height: 5px; }
+.hand-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.hand-player-lbl {
+  writing-mode: vertical-rl; font-size: 8.5px; font-weight: 700;
+  color: #64748b; align-self: stretch; display: flex; align-items: center;
+  padding: 0 3px; flex-shrink: 0;
+}
+
+/* === Bottom row: round goals | point sources === */
+.bottom-row { display: flex; gap: 8px; margin-top: 8px; }
+.goals-panel { flex: 1 1 0; }
+.scores-panel { flex: 1 1 0; }
+.goal-item {
+  font-size: 10.5px; padding: 3px 2px; border-bottom: 1px solid #f1f5f9;
+  display: flex; align-items: baseline; gap: 6px; line-height: 1.3;
+}
+.goal-item:last-child { border-bottom: none; }
+.goal-item.scored { color: #15803d; }
+.goal-rnum { font-weight: 700; color: #64748b; font-size: 9.5px; flex-shrink: 0; }
+.goal-pay { color: #94a3b8; font-size: 9px; flex-shrink: 0; }
+.goal-check { color: #15803d; font-weight: 700; }
+.score-tbl { border-collapse: collapse; font-size: 10px; width: 100%; }
+.score-tbl th {
+  background: #e2e8f0; padding: 2px 5px; text-align: right;
+  font-size: 9px; white-space: nowrap;
+}
+.score-tbl th:first-child { text-align: left; }
+.score-tbl td { padding: 2px 5px; text-align: right; border-bottom: 1px solid #f1f5f9; }
+.score-tbl td:first-child { text-align: left; font-weight: 700; }
+.score-tbl .total-col { font-weight: 800; color: #0f3d2e; }
+
+/* === Decision log === */
 .log-toggle {
   background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px;
-  padding: 6px 12px; font-size: 13px; cursor: pointer; font-weight: 600; width: 100%;
-  text-align: left;
+  padding: 6px 12px; font-size: 13px; cursor: pointer; font-weight: 600;
+  width: 100%; text-align: left;
 }
 .decision-log {
-  background: #0f172a; color: #e2e8f0; font-family: 'Fira Code', Consolas, monospace;
-  font-size: 12px; padding: 12px 14px; border-radius: 0 0 8px 8px; white-space: pre-wrap;
-  overflow-x: auto;
+  background: #0f172a; color: #e2e8f0;
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 12px; padding: 12px 14px; border-radius: 0 0 8px 8px;
+  white-space: pre-wrap; overflow-x: auto;
 }
 .decision-log.hidden { display: none; }
 .decision-log .ln { display: block; }
@@ -330,7 +385,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px 18px 60px; }
 _SCRIPT = """\
 'use strict';
 const DATA = JSON.parse(document.getElementById('game-log-data').textContent);
-const HAB_CLASS = { 'Forest': 'hab-forest', 'Grassland': 'hab-grassland', 'Wetland': 'hab-wetland' };
+const HAB_CLASS = {'Forest':'hab-forest','Grassland':'hab-grassland','Wetland':'hab-wetland'};
 let phaseIdx = 0;
 let view = 'both';
 let logOpen = true;
@@ -345,83 +400,118 @@ function eggGlyphs(eggs, limit) {
   return '\\u25cf'.repeat(laid) + '\\u25cb'.repeat(limit - laid);
 }
 
-function cellHtml(cell) {
-  const bird = cell.bird;
-  if (!bird) return '<div class="cell empty"></div>';
-  const extras = [];
-  if (bird.tucked) extras.push('tuck ' + bird.tucked);
-  if (bird.cached) extras.push('cache ' + bird.cached);
-  const extraHtml = extras.length ? '<span class="extras">[' + esc(extras.join(', ')) + ']</span>' : '';
-  const eggs = bird.egg_limit ? '<span class="ce">' + eggGlyphs(bird.eggs, bird.egg_limit) + '</span>' : '';
-  return '<div class="cell pw-' + esc(bird.power_color) + '" title="' + esc(bird.power_text) + '">'
-    + '<span class="cn">' + esc(bird.name) + '</span>'
-    + '<span class="cs">' + bird.vp + 'VP ' + esc(bird.food_cost) + ' ' + esc(bird.nest) + '</span>'
-    + '<span class="cs">' + eggs + ' ' + extraHtml + '</span>'
+function cubeGlyphs(n) {
+  const MAX = 8;
+  const filled = Math.max(0, Math.min(n, MAX));
+  return '\\u25a0'.repeat(filled) + '\\u25a1'.repeat(MAX - filled);
+}
+
+function cardCellHtml(bird) {
+  if (!bird) return '<div class="card-cell empty"></div>';
+  const pwCls = 'pw-' + esc(bird.power_color || 'none');
+  const eggs = eggGlyphs(bird.eggs, bird.egg_limit);
+  const meta = bird.vp + 'VP \\u00b7 ' + esc(bird.food_cost) + ' \\u00b7 ' + esc(bird.nest);
+  return '<div class="card-cell ' + pwCls + '">'
+    + '<div class="card-hdr">'
+    +   '<div class="card-name">' + esc(bird.name) + '</div>'
+    +   '<div class="card-meta">' + meta + '</div>'
+    +   '<div class="card-meta">' + esc(bird.habitats) + '</div>'
+    + '</div>'
+    + '<div class="card-power">' + esc(bird.power_text) + '</div>'
+    + '<div class="card-eggs">' + eggs + '</div>'
     + '</div>';
 }
 
 function boardHtml(panel) {
-  let html = '<div class="board">';
+  let html = '';
   for (const row of panel.rows) {
     const cls = HAB_CLASS[row.label] || '';
-    html += '<div class="hab-label ' + cls + '">' + esc(row.label) + '</div>';
+    html += '<div class="board-row"><div class="hab-label ' + cls + '">' + esc(row.label) + '</div>';
     for (let i = 0; i < 5; i++) {
-      html += cellHtml(row.cells[i] || { bird: null });
+      html += cardCellHtml((row.cells[i] || {bird: null}).bird);
     }
+    html += '</div>';
   }
-  html += '</div>';
   return html;
 }
 
-function scoreTableHtml(panel) {
-  const s = panel.score;
-  return '<table class="scoretable"><tr>'
-    + '<th>Birds</th><th>Eggs</th><th>Tuck</th><th>Cache</th><th>Bonus</th><th>Goals</th><th>Total</th></tr><tr>'
-    + '<td>' + s.birds + '</td><td>' + s.eggs + '</td><td>' + s.tucked + '</td><td>' + s.cached
-    + '</td><td>' + s.bonus + '</td><td>' + s.goals + '</td><td><b>' + s.total + '</b></td></tr></table>';
-}
-
-function foodHtml(panel) {
-  const parts = panel.food.filter(f => f.count > 0).map(f => f.count + ' ' + esc(f.label));
-  return '<div class="subline"><b>Food:</b> ' + (parts.length ? parts.join(', ') : '\\u2014') + '</div>';
-}
-
-function bonusHtml(panel) {
-  if (!panel.bonus_cards.length) return '';
-  const items = panel.bonus_cards.map(b =>
-    '<div>' + esc(b.name) + ' \\u2014 ' + esc(b.text) + ' <b>(' + b.vp_now + ' VP)</b></div>');
-  return '<div class="subline"><b>Bonus:</b>' + items.join('') + '</div>';
-}
-
-function seatHtml(panel) {
-  const hand = panel.hand_names.length
-    ? panel.hand_names.map(esc).join(', ') : '\\u2014';
-  return '<div class="seat">'
-    + '<h2>' + esc(panel.name)
-    + ' <span class="cubes">' + panel.action_cubes_left + ' cubes left</span>'
-    + ' <span class="total">' + panel.score.total + ' VP</span></h2>'
+function playerSectionHtml(panel) {
+  const cubes = cubeGlyphs(panel.action_cubes_left);
+  return '<div class="player-section">'
+    + '<div class="player-header">'
+    +   '<span class="player-name">P' + panel.player_id + '</span>'
+    +   '<span class="player-cubes">' + esc(cubes) + '</span>'
+    +   '<span class="player-vp">' + panel.score.total + ' VP</span>'
+    + '</div>'
     + boardHtml(panel)
-    + scoreTableHtml(panel)
-    + foodHtml(panel)
-    + '<div class="subline"><b>Hand (' + panel.hand_names.length + '):</b> ' + hand + '</div>'
-    + bonusHtml(panel)
     + '</div>';
 }
 
-function sharedHtml(phase) {
-  const trayParts = phase.tray.map(b =>
-    b ? '<span class="tray-card" title="' + esc(b.power_text) + '">' + esc(b.name)
-        + ' <small>(' + b.vp + 'VP ' + esc(b.food_cost) + ')</small></span>'
-      : '<span class="tray-card empty">(empty)</span>');
-  const goals = phase.round_goals.map(g =>
-    '<div class="goal' + (g.scored ? ' scored' : '') + '">R' + g.round_num + ' ('
-    + g.first_vp + '/' + g.second_vp + ' VP): ' + esc(g.description)
-    + (g.scored ? ' \\u2713' : '') + '</div>');
-  return '<div class="shared">'
-    + '<div><b>Tray:</b><div class="tray-cards">' + trayParts.join('') + '</div></div>'
-    + '<div class="subline"><b>Birdfeeder:</b> ' + esc(phase.feeder_text) + '</div>'
-    + '<div class="goals"><b>Round goals:</b>' + goals.join('') + '</div>'
+function trayPanelHtml(phase) {
+  const cards = phase.tray.map(b => cardCellHtml(b)).join('');
+  return '<div class="panel tray-panel">'
+    + '<div class="card-row">' + cards + '</div>'
+    + '<div class="panel-title">Tray</div>'
     + '</div>';
+}
+
+function feederPanelHtml(phase) {
+  return '<div class="panel feeder-panel">'
+    + esc(phase.feeder_text)
+    + '<div class="panel-title">Birdfeeder</div>'
+    + '</div>';
+}
+
+function handPanelHtml(seats) {
+  let inner = '';
+  for (const panel of seats) {
+    if (!panel.hand.length) continue;
+    if (seats.length > 1) {
+      inner += '<div class="hand-player-lbl">P' + panel.player_id + '</div>';
+    }
+    inner += panel.hand.map(b => cardCellHtml(b)).join('');
+  }
+  if (!inner) {
+    inner = '<span style="color:#94a3b8;font-style:italic;font-size:11px;padding:4px;">(empty)</span>';
+  }
+  return '<div class="panel hand-panel">'
+    + '<div class="hand-scroll">' + inner + '</div>'
+    + '<div class="panel-title">Player Hand</div>'
+    + '</div>';
+}
+
+function goalsPanelHtml(phase) {
+  const items = phase.round_goals.map(g => {
+    const cls = g.scored ? ' scored' : '';
+    const check = g.scored ? ' <span class="goal-check">\\u2713</span>' : '';
+    return '<div class="goal-item' + cls + '">'
+      + '<span class="goal-rnum">R' + g.round_num + '</span>'
+      + '<span>' + esc(g.description) + '</span>'
+      + '<span class="goal-pay">(' + g.first_vp + '/' + g.second_vp + 'VP)</span>'
+      + check
+      + '</div>';
+  });
+  return '<div class="panel goals-panel">'
+    + items.join('')
+    + '<div class="panel-title">Round-End Goals</div>'
+    + '</div>';
+}
+
+function scoresPanelHtml(seats) {
+  const cats = ['birds','eggs','tucked','cached','bonus','goals','total'];
+  const hdrs = ['Birds','Eggs','Tuck','Cache','Bonus','Goals','Total'];
+  let html = '<div class="panel scores-panel"><table class="score-tbl"><tr>'
+    + '<th>Player</th>'
+    + hdrs.map(h => '<th>' + h + '</th>').join('')
+    + '</tr>';
+  for (const panel of seats) {
+    const s = panel.score;
+    html += '<tr><td>P' + panel.player_id + '</td>'
+      + cats.map((c, i) => '<td' + (i === cats.length - 1 ? ' class="total-col"' : '') + '>' + s[c] + '</td>').join('')
+      + '</tr>';
+  }
+  html += '</table><div class="panel-title">Point Sources</div></div>';
+  return html;
 }
 
 function visibleSeats(phase) {
@@ -437,9 +527,15 @@ function lineVisible(line) {
 }
 
 function renderState(phase) {
-  const seats = visibleSeats(phase).map(seatHtml).join('');
-  document.getElementById('state-panel').innerHTML =
-    '<div class="seats">' + seats + '</div>' + sharedHtml(phase);
+  const seats = visibleSeats(phase);
+  const boardsRow = '<div class="boards-row">' + seats.map(playerSectionHtml).join('') + '</div>';
+  const middleRow = '<div class="middle-row">'
+    + trayPanelHtml(phase) + feederPanelHtml(phase) + handPanelHtml(seats)
+    + '</div>';
+  const bottomRow = '<div class="bottom-row">'
+    + goalsPanelHtml(phase) + scoresPanelHtml(seats)
+    + '</div>';
+  document.getElementById('state-panel').innerHTML = boardsRow + middleRow + bottomRow;
 }
 
 function renderLog(phase) {
@@ -449,7 +545,7 @@ function renderLog(phase) {
     log.innerHTML = '<span class="empty">(no decisions for this view)</span>';
   } else {
     log.innerHTML = lines.map(l => {
-      const who = (l.player_id === 0) ? 'p0' : (l.player_id === 1) ? 'p1' : 'global';
+      const who = l.player_id === 0 ? 'p0' : l.player_id === 1 ? 'p1' : 'global';
       return '<span class="ln ' + who + '">' + esc(l.text || ' ') + '</span>';
     }).join('');
   }
@@ -461,8 +557,8 @@ function render() {
   const phase = DATA.phases[phaseIdx];
   document.getElementById('counter').textContent = 'Phase ' + (phaseIdx + 1) + ' / ' + DATA.phases.length;
   document.getElementById('phase-title').textContent = phase.title;
-  document.getElementById('prev').disabled = (phaseIdx === 0);
-  document.getElementById('next').disabled = (phaseIdx === DATA.phases.length - 1);
+  document.getElementById('prev').disabled = phaseIdx === 0;
+  document.getElementById('next').disabled = phaseIdx === DATA.phases.length - 1;
   renderState(phase);
   renderLog(phase);
 }

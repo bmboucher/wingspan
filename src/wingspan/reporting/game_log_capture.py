@@ -102,7 +102,9 @@ def _player_panel(player: state.Player) -> game_log_html.PlayerPanel:
         name=player.name,
         action_cubes_left=player.action_cubes_left,
         rows=[_habitat_row(player, habitat) for habitat in cards.ALL_HABITATS],
-        hand_names=[bird.name for bird in player.hand],
+        hand=[
+            cell for bird in player.hand if (cell := _bird_cell_info(bird)) is not None
+        ],
         food=[
             game_log_html.FoodCount(label=food.value, count=player.food[food])
             for food in cards.ALL_FOODS

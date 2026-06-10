@@ -128,7 +128,21 @@ def _tiny_report() -> game_log_html.GameLogReport:
         name="P0",
         action_cubes_left=8,
         rows=[full_row, empty_row, empty_row],
-        hand_names=["Mallard"],
+        hand=[
+            game_log_html.BirdCellInfo(
+                name="Mallard",
+                vp=3,
+                nest="Platform",
+                habitats="Wetland",
+                food_cost="grain",
+                egg_limit=4,
+                eggs=0,
+                tucked=0,
+                cached=0,
+                power_color="white",
+                power_text="",
+            )
+        ],
         food=[game_log_html.FoodCount(label="seed", count=2)],
         score=game_log_html.ScoreBreakdown(
             birds=5, eggs=2, tucked=1, cached=0, bonus=3, goals=0, total=11
@@ -179,7 +193,8 @@ def test_render_produces_self_contained_document():
     assert 'id="game-log-data"' in html
     assert 'id="view-toggle"' in html
     assert 'data-view="p0"' in html and 'data-view="p1"' in html
-    assert "repeat(5, 1fr)" in html
+    assert "card-cell" in html
+    assert "board-row" in html
     assert "American Robin" in html
 
 
