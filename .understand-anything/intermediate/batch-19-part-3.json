@@ -1,0 +1,460 @@
+{
+  "nodes": [
+    {
+      "id": "file:tests/test_discard_egg_for_wild.py",
+      "type": "file",
+      "name": "test_discard_egg_for_wild.py",
+      "filePath": "tests/test_discard_egg_for_wild.py",
+      "summary": "Tests for the discard-egg-for-wild-food bird power, covering parser recognition of all five applicable birds, correct egg removal and food grant, no-op when no eligible eggs exist, and skippable behavior.",
+      "tags": ["test", "bird-powers", "food-economy", "egg-mechanics"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_discard_egg_for_wild.py:test_all_five_birds_parse_to_discard_egg_for_wild",
+      "type": "function",
+      "name": "test_all_five_birds_parse_to_discard_egg_for_wild",
+      "filePath": "tests/test_discard_egg_for_wild.py",
+      "lineRange": [30, 52],
+      "summary": "Verifies that all five bird cards with the discard-egg-for-wild power text parse to the correct EffectKind.",
+      "tags": ["test", "parser", "effect-kinds"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_discard_egg_for_wild.py:test_discard_egg_for_wild_decrements_egg_and_grants_food",
+      "type": "function",
+      "name": "test_discard_egg_for_wild_decrements_egg_and_grants_food",
+      "filePath": "tests/test_discard_egg_for_wild.py",
+      "lineRange": [55, 115],
+      "summary": "Tests the full discard-egg-for-wild mechanic: egg count decrements on the chosen bird and the selected wild food type is added to the player's supply.",
+      "tags": ["test", "bird-powers", "egg-mechanics", "food-gain"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:tests/test_discard_egg_for_wild.py:test_discard_egg_for_wild_skips_when_no_other_bird_has_an_egg",
+      "type": "function",
+      "name": "test_discard_egg_for_wild_skips_when_no_other_bird_has_an_egg",
+      "filePath": "tests/test_discard_egg_for_wild.py",
+      "lineRange": [118, 139],
+      "summary": "Verifies the power is a no-op when no other bird on the board has any eggs to discard.",
+      "tags": ["test", "bird-powers", "edge-case"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_discard_egg_for_wild.py:test_discard_egg_for_wild_can_be_skipped",
+      "type": "function",
+      "name": "test_discard_egg_for_wild_can_be_skipped",
+      "filePath": "tests/test_discard_egg_for_wild.py",
+      "lineRange": [142, 164],
+      "summary": "Tests that the discard-egg-for-wild decision can be declined with no state changes.",
+      "tags": ["test", "bird-powers", "skip-semantics"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_dynamic_bonus_scoring.py",
+      "type": "file",
+      "name": "test_dynamic_bonus_scoring.py",
+      "filePath": "tests/test_dynamic_bonus_scoring.py",
+      "summary": "Tests for dynamic bonus card scoring at end of game, including ecologist-style fewest-habitat cards and integration of dynamic bonus scores into final scoring totals.",
+      "tags": ["test", "bonus-cards", "scoring", "integration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_dynamic_bonus_scoring.py:test_ecologist_counts_fewest_habitat_including_ties",
+      "type": "function",
+      "name": "test_ecologist_counts_fewest_habitat_including_ties",
+      "filePath": "tests/test_dynamic_bonus_scoring.py",
+      "lineRange": [66, 82],
+      "summary": "Verifies the ecologist-style bonus card correctly scores based on the fewest-birds-in-a-habitat count, including tie scenarios.",
+      "tags": ["test", "bonus-cards", "habitat-scoring"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_dynamic_bonus_scoring.py:test_final_scoring_includes_dynamic_bonus",
+      "type": "function",
+      "name": "test_final_scoring_includes_dynamic_bonus",
+      "filePath": "tests/test_dynamic_bonus_scoring.py",
+      "lineRange": [85, 95],
+      "summary": "Integration test verifying that dynamic bonus card points are included in the overall final game score.",
+      "tags": ["test", "bonus-cards", "final-scoring"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_egg_goal_delta.py",
+      "type": "file",
+      "name": "test_egg_goal_delta.py",
+      "filePath": "tests/test_egg_goal_delta.py",
+      "summary": "Tests for egg-related round goal delta pricing logic: verifies that goal-delta values are correctly computed for eggs-in-habitat, birds-with-eggs, egg-sets, and no-eggs goals with threshold crossing semantics.",
+      "tags": ["test", "round-goals", "egg-mechanics", "delta-encoding"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:tests/test_egg_goal_delta.py:_Approx",
+      "type": "class",
+      "name": "_Approx",
+      "filePath": "tests/test_egg_goal_delta.py",
+      "lineRange": [33, 42],
+      "summary": "Test helper class implementing approximate float equality for pytest assertion comparisons.",
+      "tags": ["test", "utility", "assertion-helper"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_egg_goal_delta.py:test_eggs_in_habitat_goal_prices_matching_target_only",
+      "type": "function",
+      "name": "test_eggs_in_habitat_goal_prices_matching_target_only",
+      "filePath": "tests/test_egg_goal_delta.py",
+      "lineRange": [97, 113],
+      "summary": "Tests that eggs-in-habitat round goals only price egg-lay decisions for the matching habitat type.",
+      "tags": ["test", "round-goals", "egg-mechanics"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_egg_goal_delta.py:test_birds_with_eggs_goal_prices_only_threshold_crossings",
+      "type": "function",
+      "name": "test_birds_with_eggs_goal_prices_only_threshold_crossings",
+      "filePath": "tests/test_egg_goal_delta.py",
+      "lineRange": [144, 162],
+      "summary": "Verifies that birds-with-eggs round goals price only the egg-lay decisions that cause a threshold crossing.",
+      "tags": ["test", "round-goals", "threshold-pricing"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_egg_goal_delta.py:test_egg_sets_goal_prices_the_minimum_habitat",
+      "type": "function",
+      "name": "test_egg_sets_goal_prices_the_minimum_habitat",
+      "filePath": "tests/test_egg_goal_delta.py",
+      "lineRange": [165, 198],
+      "summary": "Tests that egg-sets round goals price lay decisions based on the minimum egg count across habitats.",
+      "tags": ["test", "round-goals", "egg-sets"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_egg_goal_delta.py:test_birds_no_eggs_goal_prices_inverted_crossings",
+      "type": "function",
+      "name": "test_birds_no_eggs_goal_prices_inverted_crossings",
+      "filePath": "tests/test_egg_goal_delta.py",
+      "lineRange": [201, 227],
+      "summary": "Tests that birds-with-no-eggs round goals price lay decisions as negative when they reduce the no-egg bird count.",
+      "tags": ["test", "round-goals", "inverted-scoring"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_egg_goal_delta.py:test_egg_counting_bonus_thresholds_price_on_lay_and_remove",
+      "type": "function",
+      "name": "test_egg_counting_bonus_thresholds_price_on_lay_and_remove",
+      "filePath": "tests/test_egg_goal_delta.py",
+      "lineRange": [230, 254],
+      "summary": "Verifies that egg-counting bonus threshold goals price positively on lay and negatively on egg removal decisions.",
+      "tags": ["test", "bonus-cards", "threshold-pricing"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_encode.py",
+      "type": "file",
+      "name": "test_encode.py",
+      "filePath": "tests/test_encode.py",
+      "summary": "Comprehensive test suite for the state and choice encoder, verifying POV rotation, card identity offsets, decision type one-hots, feeder flags, board/tray encoding, bonus delta pricing, and goal delta computation across all encoder stripe regions.",
+      "tags": ["test", "encoder", "feature-engineering", "neural-network"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:tests/test_encode.py:test_state_encoder_pov_rotates_with_decision_player",
+      "type": "function",
+      "name": "test_state_encoder_pov_rotates_with_decision_player",
+      "filePath": "tests/test_encode.py",
+      "lineRange": [46, 71],
+      "summary": "Tests that the state encoder correctly rotates the player perspective so the decision-making player is always player 0.",
+      "tags": ["test", "encoder", "pov-rotation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode.py:test_card_identity_offsets_align_with_encoder_output",
+      "type": "function",
+      "name": "test_card_identity_offsets_align_with_encoder_output",
+      "filePath": "tests/test_encode.py",
+      "lineRange": [74, 117],
+      "summary": "Verifies that card identity feature offsets in the encoder layout match actual encoder output positions for bird and bonus cards.",
+      "tags": ["test", "encoder", "card-identity", "layout"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode.py:test_state_encoder_decision_type_one_hot_flips",
+      "type": "function",
+      "name": "test_state_encoder_decision_type_one_hot_flips",
+      "filePath": "tests/test_encode.py",
+      "lineRange": [120, 144],
+      "summary": "Tests that the decision-type one-hot stripe in the state encoder flips correctly for different decision classes.",
+      "tags": ["test", "encoder", "one-hot-encoding"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode.py:test_choice_features_board_target_reflects_dynamic_state",
+      "type": "function",
+      "name": "test_choice_features_board_target_reflects_dynamic_state",
+      "filePath": "tests/test_encode.py",
+      "lineRange": [219, 248],
+      "summary": "Tests that board-target choice features dynamically reflect current board state including egg counts and per-slot food.",
+      "tags": ["test", "encoder", "board-encoding"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode.py:test_setup_kept_set_changes_the_feature_row",
+      "type": "function",
+      "name": "test_setup_kept_set_changes_the_feature_row",
+      "filePath": "tests/test_encode.py",
+      "lineRange": [332, 362],
+      "summary": "Verifies that the setup-kept-set choice features change the encoded feature row to reflect which birds were kept during setup.",
+      "tags": ["test", "encoder", "setup-encoding"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode.py:test_goal_delta_nonzero_for_advancing_bird",
+      "type": "function",
+      "name": "test_goal_delta_nonzero_for_advancing_bird",
+      "filePath": "tests/test_encode.py",
+      "lineRange": [849, 902],
+      "summary": "Tests that the goal-delta stripe encodes nonzero values for bird choices that would advance round goal progress.",
+      "tags": ["test", "encoder", "goal-delta", "round-goals"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode.py:test_bonus_delta_threshold_step_vs_slope",
+      "type": "function",
+      "name": "test_bonus_delta_threshold_step_vs_slope",
+      "filePath": "tests/test_encode.py",
+      "lineRange": [734, 767],
+      "summary": "Tests that bonus delta encoding correctly distinguishes between stepped (threshold) and sloped (linear) bonus card scoring functions.",
+      "tags": ["test", "encoder", "bonus-delta", "scoring-functions"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode.py:test_bonus_value_setup_choice_uses_kept_cards",
+      "type": "function",
+      "name": "test_bonus_value_setup_choice_uses_kept_cards",
+      "filePath": "tests/test_encode.py",
+      "lineRange": [988, 1023],
+      "summary": "Tests that bonus value encoding for setup choices uses the set of kept bonus cards to compute the value feature.",
+      "tags": ["test", "encoder", "bonus-value", "setup-encoding"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_encode_spec.py",
+      "type": "file",
+      "name": "test_encode_spec.py",
+      "filePath": "tests/test_encode_spec.py",
+      "summary": "Tests for the encoder layout specification, verifying that card region offsets are spec-invariant, stripe layout sums match expected dimensions, and round-trip reconstruction of include-setup configuration is consistent.",
+      "tags": ["test", "encoder", "spec-validation", "layout"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode_spec.py:test_card_region_offsets_are_spec_invariant",
+      "type": "function",
+      "name": "test_card_region_offsets_are_spec_invariant",
+      "filePath": "tests/test_encode_spec.py",
+      "lineRange": [54, 66],
+      "summary": "Verifies that card embedding region offsets remain stable regardless of which optional stripe flags are enabled.",
+      "tags": ["test", "encoder", "spec-invariants"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/test_encode_spec.py:test_stripe_layouts_sum_and_show_setup_only_when_included",
+      "type": "function",
+      "name": "test_stripe_layouts_sum_and_show_setup_only_when_included",
+      "filePath": "tests/test_encode_spec.py",
+      "lineRange": [92, 116],
+      "summary": "Tests that encoder stripe layout dimensions sum to the total state vector dimension, and that the setup stripe only appears when include-setup is enabled.",
+      "tags": ["test", "encoder", "layout", "stripe-dimensions"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/test_encode_spec.py:test_from_model_config_round_trips_include_setup",
+      "type": "function",
+      "name": "test_from_model_config_round_trips_include_setup",
+      "filePath": "tests/test_encode_spec.py",
+      "lineRange": [131, 147],
+      "summary": "Tests that constructing an encoder spec from a model config and round-tripping the include-setup flag produces identical specs.",
+      "tags": ["test", "encoder", "round-trip", "config"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_setup_model.py",
+      "type": "file",
+      "name": "test_setup_model.py",
+      "filePath": "tests/test_setup_model.py",
+      "summary": "Tests for setup-phase model integration, verifying that the actor-critic model handles setup decisions correctly during self-play initialization.",
+      "tags": ["test", "setup-phase", "model", "actor-critic"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_setup_self_play.py",
+      "type": "file",
+      "name": "test_setup_self_play.py",
+      "filePath": "tests/test_setup_self_play.py",
+      "summary": "Tests for setup-phase self-play mechanics, verifying that model-based agents correctly handle the initial bird and bonus card selection decisions.",
+      "tags": ["test", "setup-phase", "self-play", "training"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:tests/test_discard_egg_for_wild.py",
+      "target": "function:tests/test_discard_egg_for_wild.py:test_all_five_birds_parse_to_discard_egg_for_wild",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_discard_egg_for_wild.py",
+      "target": "function:tests/test_discard_egg_for_wild.py:test_discard_egg_for_wild_decrements_egg_and_grants_food",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_discard_egg_for_wild.py",
+      "target": "function:tests/test_discard_egg_for_wild.py:test_discard_egg_for_wild_skips_when_no_other_bird_has_an_egg",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_discard_egg_for_wild.py",
+      "target": "function:tests/test_discard_egg_for_wild.py:test_discard_egg_for_wild_can_be_skipped",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_dynamic_bonus_scoring.py",
+      "target": "function:tests/test_dynamic_bonus_scoring.py:test_ecologist_counts_fewest_habitat_including_ties",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_dynamic_bonus_scoring.py",
+      "target": "function:tests/test_dynamic_bonus_scoring.py:test_final_scoring_includes_dynamic_bonus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_egg_goal_delta.py",
+      "target": "class:tests/test_egg_goal_delta.py:_Approx",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_egg_goal_delta.py",
+      "target": "function:tests/test_egg_goal_delta.py:test_eggs_in_habitat_goal_prices_matching_target_only",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_egg_goal_delta.py",
+      "target": "function:tests/test_egg_goal_delta.py:test_birds_with_eggs_goal_prices_only_threshold_crossings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_egg_goal_delta.py",
+      "target": "function:tests/test_egg_goal_delta.py:test_egg_sets_goal_prices_the_minimum_habitat",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_egg_goal_delta.py",
+      "target": "function:tests/test_egg_goal_delta.py:test_birds_no_eggs_goal_prices_inverted_crossings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_egg_goal_delta.py",
+      "target": "function:tests/test_egg_goal_delta.py:test_egg_counting_bonus_thresholds_price_on_lay_and_remove",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode.py",
+      "target": "function:tests/test_encode.py:test_state_encoder_pov_rotates_with_decision_player",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode.py",
+      "target": "function:tests/test_encode.py:test_card_identity_offsets_align_with_encoder_output",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode.py",
+      "target": "function:tests/test_encode.py:test_state_encoder_decision_type_one_hot_flips",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode.py",
+      "target": "function:tests/test_encode.py:test_choice_features_board_target_reflects_dynamic_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode.py",
+      "target": "function:tests/test_encode.py:test_setup_kept_set_changes_the_feature_row",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode.py",
+      "target": "function:tests/test_encode.py:test_goal_delta_nonzero_for_advancing_bird",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode.py",
+      "target": "function:tests/test_encode.py:test_bonus_delta_threshold_step_vs_slope",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode.py",
+      "target": "function:tests/test_encode.py:test_bonus_value_setup_choice_uses_kept_cards",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode_spec.py",
+      "target": "function:tests/test_encode_spec.py:test_card_region_offsets_are_spec_invariant",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode_spec.py",
+      "target": "function:tests/test_encode_spec.py:test_stripe_layouts_sum_and_show_setup_only_when_included",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:tests/test_encode_spec.py",
+      "target": "function:tests/test_encode_spec.py:test_from_model_config_round_trips_include_setup",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    }
+  ]
+}
