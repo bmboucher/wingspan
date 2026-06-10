@@ -35,11 +35,14 @@ def score_round_goal(engine: "core.Engine", round_idx: int) -> None:
     change again, however the boards evolve."""
     goal = engine.state.round_goals[round_idx]
     counts = [eval_goal(player, goal) for player in engine.state.players]
-    engine.log(f"Round {round_idx + 1} goal '{goal.category}' counts: {counts}")
     first, second = state.ROUND_GOAL_PAYOUTS_2P[round_idx]
     count_0, count_1 = counts
     vp_0 = _placement_vp(count_0, count_1, first, second)
     vp_1 = _placement_vp(count_1, count_0, first, second)
+    engine.log_global(
+        f"Round {round_idx + 1} goal '{goal.category}' counts: {counts}"
+        f" → VP: [{vp_0}, {vp_1}]"
+    )
     engine.state.players[0].round_goal_points += vp_0
     engine.state.players[1].round_goal_points += vp_1
     engine.state.scored_goals.append(
@@ -401,7 +404,7 @@ def final_scoring(engine: "core.Engine") -> None:
         food_left = player.total_food()
         round_goal = player.round_goal_points
         total = bird_pts + bonus_pts + eggs + tucked + cached + round_goal
-        engine.log(
+        engine.log_global(
             f"[{player.name}] FINAL: birds={bird_pts} bonus={bonus_pts} eggs={eggs}"
             f" tucked={tucked} cached={cached} round_goal={round_goal}"
             f" foodleft={food_left} -> {total}"

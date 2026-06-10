@@ -173,10 +173,9 @@ def _handle_setup_decision[C: decisions.Choice](
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
     chosen = decision.choices[chosen_idx]
     deciding_player_name = eng.state.players[decision.player_id].name
-    eng.log(
+    eng.log_global(
         f"[{deciding_player_name}] chose: {chosen.display_label()} "
-        f"({float(probs[chosen_idx]) * 100.0:.3f}%)",
-        player_id=decision.player_id,
+        f"({float(probs[chosen_idx]) * 100.0:.3f}%)"
     )
     return chosen
 
@@ -210,10 +209,9 @@ def _handle_main_decision[C: decisions.Choice](
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
     chosen = decision.choices[chosen_idx]
     deciding_player_name = eng.state.players[decision.player_id].name
-    eng.log(
+    eng.log_global(
         f"[{deciding_player_name}] chose: {chosen.display_label()} "
-        f"({float(probs[chosen_idx]) * 100.0:.3f}%)",
-        player_id=decision.player_id,
+        f"({float(probs[chosen_idx]) * 100.0:.3f}%)"
     )
     return chosen
 
@@ -253,7 +251,7 @@ def _log_distribution[C: decisions.Choice](
         f"{n_choices} choices{mode} | head:{head_name}"
     )
     eng.log(header, player_id=decision.player_id)
-    for _rank, option_idx in enumerate(shown, start=1):
+    for option_idx in shown:
         prob_pct = float(probs[option_idx]) * 100.0
         score_str = (
             f"  ({float(scores[option_idx]):+6.2f})" if scores is not None else ""
