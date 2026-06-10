@@ -1,4 +1,30 @@
 {
+  "version": "1.0.0",
+  "project": {
+    "name": "wingspan",
+    "languages": [
+      "python",
+      "markdown",
+      "json",
+      "yaml",
+      "toml",
+      "shell",
+      "dockerfile",
+      "terraform",
+      "html",
+      "csv"
+    ],
+    "frameworks": [
+      "PyTorch",
+      "Pydantic",
+      "pytest",
+      "Docker",
+      "Terraform"
+    ],
+    "description": "Wingspan board-game simulator and RL self-play training pipeline \u2014 2-player core-set with 180 birds, 26 bonus cards, 16 round goals",
+    "analyzedAt": "2026-06-10T04:02:40.463891Z",
+    "gitCommitHash": "da10bd864f53f8de37bf3516f93836475fbe0d56"
+  },
   "nodes": [
     {
       "id": "file:src/wingspan/agents/display.py",
@@ -21585,6 +21611,492 @@
       "type": "contains",
       "direction": "forward",
       "weight": 1.0
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:game-domain",
+      "name": "Game Domain",
+      "description": "Core Wingspan game domain types \u00e2\u20ac\u201d mutable game state, all 41 decision/choice classes, and the full card schema/parse pipeline that converts raw JSON bird data into typed EffectKind-annotated card objects.",
+      "nodeIds": [
+        "file:src/wingspan/state.py",
+        "file:src/wingspan/decisions.py",
+        "file:src/wingspan/cards/__init__.py",
+        "file:src/wingspan/cards/schema.py",
+        "file:src/wingspan/cards/parse/__init__.py",
+        "file:src/wingspan/cards/parse/catalog.py",
+        "file:src/wingspan/cards/parse/fields.py",
+        "file:src/wingspan/cards/parse/loader.py",
+        "file:src/wingspan/cards/parse/matchers.py",
+        "file:src/wingspan/cards/parse/pink_matchers.py",
+        "file:src/wingspan/cards/parse/power.py",
+        "file:src/wingspan/cards/parse/registry.py",
+        "file:src/wingspan/cards/parse/tags.py",
+        "document:src/wingspan/cards/INDEX.md",
+        "document:src/wingspan/cards/parse/INDEX.md",
+        "document:docs/BIRDS.md",
+        "document:docs/BONUSES.md",
+        "document:docs/DECISIONS.md"
+      ]
+    },
+    {
+      "id": "layer:game-engine",
+      "name": "Game Engine",
+      "description": "The Wingspan game simulation engine \u00e2\u20ac\u201d Engine orchestrator, all main-action transitions, bird power handlers (brown/white/pink), reactor dispatch, scoring, and stateless validation helpers.",
+      "nodeIds": [
+        "file:src/wingspan/engine/__init__.py",
+        "file:src/wingspan/engine/core.py",
+        "file:src/wingspan/engine/actions.py",
+        "file:src/wingspan/engine/helpers.py",
+        "file:src/wingspan/engine/log_format.py",
+        "file:src/wingspan/engine/reactors.py",
+        "file:src/wingspan/engine/scoring.py",
+        "file:src/wingspan/engine/powers/__init__.py",
+        "file:src/wingspan/engine/powers/dispatch.py",
+        "file:src/wingspan/engine/powers/drafting.py",
+        "file:src/wingspan/engine/powers/egg_trade.py",
+        "file:src/wingspan/engine/powers/grants.py",
+        "file:src/wingspan/engine/powers/multi_actor.py",
+        "file:src/wingspan/engine/powers/nest_aggregate.py",
+        "file:src/wingspan/engine/powers/predator_repeat.py",
+        "file:src/wingspan/engine/powers/registry.py",
+        "file:src/wingspan/engine/powers/tray_trade.py",
+        "document:src/wingspan/engine/INDEX.md",
+        "document:src/wingspan/engine/powers/INDEX.md"
+      ]
+    },
+    {
+      "id": "layer:ml-encoding",
+      "name": "ML Encoding & Model",
+      "description": "PyTorch PolicyValueNet and SetupNet neural network definitions, the full state/choice float32 vector encoders with their stripe layouts, and backward-compat shims for loading older checkpoint formats.",
+      "nodeIds": [
+        "file:src/wingspan/architecture.py",
+        "file:src/wingspan/version.py",
+        "file:src/wingspan/encode/__init__.py",
+        "file:src/wingspan/encode/layout.py",
+        "file:src/wingspan/encode/state_encode.py",
+        "file:src/wingspan/encode/choice_encode.py",
+        "file:src/wingspan/encode/stripes/__init__.py",
+        "file:src/wingspan/encode/stripes/card_feature.py",
+        "file:src/wingspan/encode/stripes/choice.py",
+        "file:src/wingspan/encode/stripes/descriptors.py",
+        "file:src/wingspan/encode/stripes/embed_rules.py",
+        "file:src/wingspan/encode/stripes/state.py",
+        "file:src/wingspan/model/__init__.py",
+        "file:src/wingspan/model/core.py",
+        "file:src/wingspan/model/hand_model.py",
+        "file:src/wingspan/model/mlp.py",
+        "file:src/wingspan/setup_model/__init__.py",
+        "file:src/wingspan/setup_model/architecture.py",
+        "file:src/wingspan/setup_model/candidates.py",
+        "file:src/wingspan/setup_model/encode.py",
+        "file:src/wingspan/setup_model/generate.py",
+        "file:src/wingspan/setup_model/record.py",
+        "file:src/wingspan/setup_model/stripes.py",
+        "file:src/wingspan/compat/__init__.py",
+        "file:src/wingspan/compat/v0_0.py",
+        "file:src/wingspan/compat/v0_1.py",
+        "document:src/wingspan/encode/INDEX.md",
+        "document:src/wingspan/encode/stripes/INDEX.md",
+        "document:src/wingspan/model/INDEX.md",
+        "document:src/wingspan/setup_model/INDEX.md",
+        "document:docs/VERSIONING.md"
+      ]
+    },
+    {
+      "id": "layer:rl-training",
+      "name": "RL Training Pipeline",
+      "description": "End-to-end reinforcement learning self-play training pipeline \u00e2\u20ac\u201d TrainingLoop orchestrator, self-play collection (single/batched/multiprocess), gradient updates, evaluation ladder, checkpoint management, the FLIGHT PLAN TUI dashboard, and the AWS cloud headless runner.",
+      "nodeIds": [
+        "file:src/wingspan/training/__init__.py",
+        "file:src/wingspan/training/__main__.py",
+        "file:src/wingspan/training/app.py",
+        "file:src/wingspan/training/artifacts.py",
+        "file:src/wingspan/training/batched_collect.py",
+        "file:src/wingspan/training/collect.py",
+        "file:src/wingspan/training/config.py",
+        "file:src/wingspan/training/convergence.py",
+        "file:src/wingspan/training/dashboard.py",
+        "file:src/wingspan/training/evaluate.py",
+        "file:src/wingspan/training/learner.py",
+        "file:src/wingspan/training/loop.py",
+        "file:src/wingspan/training/loop_checkpoint.py",
+        "file:src/wingspan/training/loop_collect.py",
+        "file:src/wingspan/training/loop_eval.py",
+        "file:src/wingspan/training/loop_metrics.py",
+        "file:src/wingspan/training/loop_resume.py",
+        "file:src/wingspan/training/loop_setup.py",
+        "file:src/wingspan/training/loop_target.py",
+        "file:src/wingspan/training/metrics.py",
+        "file:src/wingspan/training/metrics_log.py",
+        "file:src/wingspan/training/mp_collect.py",
+        "file:src/wingspan/training/policy.py",
+        "file:src/wingspan/training/runmeta.py",
+        "file:src/wingspan/training/runstate.py",
+        "file:src/wingspan/training/setup_learner.py",
+        "file:src/wingspan/training/setup_net.py",
+        "file:src/wingspan/training/setup_runmeta.py",
+        "file:src/wingspan/training/steps.py",
+        "file:src/wingspan/training/sysmon.py",
+        "file:src/wingspan/training/theme.py",
+        "file:src/wingspan/training/charts/__init__.py",
+        "file:src/wingspan/training/charts/braille.py",
+        "file:src/wingspan/training/charts/convergence_chart.py",
+        "file:src/wingspan/training/charts/geometry.py",
+        "file:src/wingspan/training/charts/histogram.py",
+        "file:src/wingspan/training/charts/insets.py",
+        "file:src/wingspan/training/charts/text_helpers.py",
+        "file:src/wingspan/training/configure/__init__.py",
+        "file:src/wingspan/training/configure/arch_diagram.py",
+        "file:src/wingspan/training/configure/controller.py",
+        "file:src/wingspan/training/configure/fields.py",
+        "file:src/wingspan/training/configure/keys.py",
+        "file:src/wingspan/training/configure/runs.py",
+        "file:src/wingspan/training/configure/screen.py",
+        "file:src/wingspan/training/configure/state.py",
+        "file:src/wingspan/cloud/__init__.py",
+        "file:src/wingspan/cloud/__main__.py",
+        "file:src/wingspan/cloud/monitor.py",
+        "file:src/wingspan/cloud/runfile.py",
+        "file:src/wingspan/cloud/runner.py",
+        "file:src/wingspan/cloud/s3sync.py",
+        "file:src/wingspan/cloud/status.py",
+        "document:src/wingspan/training/INDEX.md",
+        "document:src/wingspan/training/configure/INDEX.md",
+        "document:src/wingspan/cloud/INDEX.md",
+        "document:docs/TRAINING.md",
+        "document:docs/RESEARCH.md"
+      ]
+    },
+    {
+      "id": "layer:applications",
+      "name": "Application Layer",
+      "description": "Top-level application shells that compose the lower layers \u00e2\u20ac\u201d the CLI play command, AI agent implementations (random/CLI/interactive), player factory and spec loader, tournament runner with Elo ratings, pluggable instrumentation event system, and model architecture inspection reports.",
+      "nodeIds": [
+        "file:src/wingspan/__init__.py",
+        "file:src/wingspan/__main__.py",
+        "file:src/wingspan/cli.py",
+        "file:src/wingspan/agents/__init__.py",
+        "file:src/wingspan/agents/base.py",
+        "file:src/wingspan/agents/cli.py",
+        "file:src/wingspan/agents/display.py",
+        "file:src/wingspan/agents/interactive.py",
+        "file:src/wingspan/players/__init__.py",
+        "file:src/wingspan/players/factory.py",
+        "file:src/wingspan/players/loaders.py",
+        "file:src/wingspan/players/spec.py",
+        "file:src/wingspan/tournament/__init__.py",
+        "file:src/wingspan/tournament/app.py",
+        "file:src/wingspan/tournament/config.py",
+        "file:src/wingspan/tournament/dashboard.py",
+        "file:src/wingspan/tournament/elo.py",
+        "file:src/wingspan/tournament/participants.py",
+        "file:src/wingspan/tournament/picker.py",
+        "file:src/wingspan/tournament/results.py",
+        "file:src/wingspan/tournament/runner.py",
+        "file:src/wingspan/tournament/schedule.py",
+        "file:src/wingspan/tournament/state.py",
+        "file:src/wingspan/instrumentation/__init__.py",
+        "file:src/wingspan/instrumentation/config.py",
+        "file:src/wingspan/instrumentation/dispatcher.py",
+        "file:src/wingspan/instrumentation/events.py",
+        "file:src/wingspan/instrumentation/handlers/__init__.py",
+        "file:src/wingspan/instrumentation/handlers/card_visits.py",
+        "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+        "file:src/wingspan/instrumentation/registry.py",
+        "file:src/wingspan/reporting/__init__.py",
+        "file:src/wingspan/reporting/html.py",
+        "file:src/wingspan/reporting/inspect_cli.py",
+        "file:src/wingspan/reporting/svg.py",
+        "file:src/wingspan/report.py",
+        "file:src/wingspan/report_svg.py",
+        "document:src/wingspan/agents/INDEX.md",
+        "document:src/wingspan/players/INDEX.md",
+        "document:src/wingspan/tournament/INDEX.md",
+        "document:src/wingspan/instrumentation/INDEX.md",
+        "document:src/wingspan/reporting/INDEX.md",
+        "file:src/wingspan/introspect.py"
+      ]
+    },
+    {
+      "id": "layer:game-data",
+      "name": "Game Data",
+      "description": "Static Wingspan card database files and derived data artifacts \u00e2\u20ac\u201d the master bird JSON, bonus card and goal definitions, rule parameters, and the exported card attributes CSV used for analysis.",
+      "nodeIds": [
+        "config:src/wingspan/data/master.json",
+        "config:src/wingspan/data/bonus.json",
+        "config:src/wingspan/data/goals.json",
+        "config:src/wingspan/data/general.json",
+        "config:src/wingspan/data/parameters.json",
+        "table:cards.csv"
+      ]
+    },
+    {
+      "id": "layer:infrastructure",
+      "name": "Infrastructure & Config",
+      "description": "Project build configuration, AWS ECS/ECR Terraform deployment infrastructure, Dockerfile for the headless cloud training container, compat test fixtures, and developer utility scripts.",
+      "nodeIds": [
+        "config:pyproject.toml",
+        "service:Dockerfile",
+        "resource:deploy/main.tf",
+        "config:deploy/ecs-task-def.json",
+        "config:deploy/run.example.yaml",
+        "config:tests/data/compat/v0.0/model_config.json",
+        "config:tests/data/compat/v0.0/setup_config.json",
+        "config:tests/data/compat/v0.1/model_config.json",
+        "config:tests/data/compat/v0.1/setup_config.json",
+        "file:scripts/check_mp_collect.py",
+        "file:scripts/gen_arch_experiment.py",
+        "file:scripts/measure_ipc.py",
+        "file:scripts/profile_collection.py",
+        "file:export_card_attrs.py",
+        "config:.dockerignore",
+        "config:.gitattributes",
+        "config:.understand-anything/.understandignore",
+        "resource:deploy/main.tf:aws_s3_bucket.runs",
+        "resource:deploy/main.tf:aws_ecs_cluster.wingspan",
+        "resource:deploy/main.tf:aws_ecs_task_definition.trainer",
+        "resource:deploy/main.tf:aws_iam_role.task",
+        "resource:deploy/main.tf:aws_iam_role.task_execution",
+        "file:scripts/auto_merge_worktree.sh",
+        "file:scripts/create_worktree.sh",
+        "file:scripts/merge_worktree.sh",
+        "file:scripts/quality_gate.sh"
+      ]
+    },
+    {
+      "id": "layer:documentation",
+      "name": "Documentation",
+      "description": "Project documentation spanning the developer workflow guide, user-facing README, design decision records, quality gate specification, and per-subpackage INDEX files co-located with their code.",
+      "nodeIds": [
+        "document:CLAUDE.md",
+        "document:README.md",
+        "document:TODO.md",
+        "document:coverage_baseline.txt",
+        "document:deploy/README.md",
+        "document:docs/PROJECT.md",
+        "document:docs/QUALITY.md",
+        "document:tests/data/compat/v0.0/README.md",
+        "document:tests/data/compat/v0.1/README.md",
+        "file:main.html"
+      ]
+    },
+    {
+      "id": "layer:test-suite",
+      "name": "Test Suite",
+      "description": "pytest test suite \u2014 unit and integration tests covering game engine, encoding, training pipeline, tournament, cloud, instrumentation, bird powers, and compatibility.",
+      "nodeIds": [
+        "file:tests/conftest.py",
+        "file:tests/test_activation_log.py",
+        "file:tests/test_birdfeeder.py",
+        "file:tests/test_birds_no_eggs_integration.py",
+        "file:tests/test_bonus_categories.py",
+        "file:tests/test_bonus_linear_value.py",
+        "file:tests/test_card_table_cache.py",
+        "file:tests/test_choice_landing_slot.py",
+        "file:tests/test_cloud_runfile.py",
+        "file:tests/test_cloud_s3sync.py",
+        "file:tests/test_cloud_status.py",
+        "file:tests/test_commit_row_pricing.py",
+        "file:tests/test_compat_shim_v0_0.py",
+        "file:tests/test_compat_v0_0.py",
+        "file:tests/test_compat_v0_1.py",
+        "file:tests/test_convergence_charts.py",
+        "file:tests/test_engine_agent_dispatch.py",
+        "file:tests/test_evaluate_core.py",
+        "file:tests/test_extra_play.py",
+        "file:tests/test_food_payment.py",
+        "file:tests/test_gain_food_choice.py",
+        "file:tests/test_habitat_action_track.py",
+        "file:tests/test_inspect_era.py",
+        "file:tests/test_instrumentation_config.py",
+        "file:tests/test_instrumentation_dispatch.py",
+        "file:tests/test_instrumentation_validation.py",
+        "file:tests/test_main_action.py",
+        "file:tests/test_metrics_log.py",
+        "file:tests/test_model_and_self_play.py",
+        "file:tests/test_move_goal_delta.py",
+        "file:tests/test_mp_collect.py",
+        "file:tests/test_players_factory.py",
+        "file:tests/test_players_spec.py",
+        "file:tests/test_powers_brown_activate.py",
+        "file:tests/test_powers_brown_bonus.py",
+        "file:tests/test_powers_brown_cache.py",
+        "file:tests/test_powers_brown_discard.py",
+        "file:tests/test_powers_brown_draw.py",
+        "file:tests/test_powers_brown_egg.py",
+        "file:tests/test_powers_brown_food.py",
+        "file:tests/test_powers_brown_play.py",
+        "file:tests/test_powers_misc_unique.py",
+        "file:tests/test_powers_pink_reactive.py",
+        "file:tests/test_powers_tuck_conditional.py",
+        "file:tests/test_report_panels.py",
+        "file:tests/test_round_goal_coverage.py",
+        "file:tests/test_smoke.py",
+        "file:tests/test_decision_families.py",
+        "file:tests/test_decision_shapes.py",
+        "file:tests/test_discard_egg_for_wild.py",
+        "file:tests/test_dynamic_bonus_scoring.py",
+        "file:tests/test_egg_goal_delta.py",
+        "file:tests/test_encode.py",
+        "file:tests/test_encode_spec.py",
+        "file:tests/test_setup_model.py",
+        "file:tests/test_setup_self_play.py",
+        "file:tests/test_tournament_dashboard.py",
+        "file:tests/test_tournament_discovery.py",
+        "file:tests/test_tournament_elo.py",
+        "file:tests/test_tournament_results.py",
+        "file:tests/test_tournament_schedule.py",
+        "file:tests/test_version.py"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "Project Overview",
+      "description": "README.md establishes what this project is: a complete 2-player Wingspan board-game simulator paired with a reinforcement learning self-play training pipeline. It documents all six CLI sub-commands (play, dashboard, tournament, inspect, cloud, monitor) and orients you to the two-part nature of the codebase \u00e2\u20ac\u201d a faithful game engine and an RL research platform built on top of it. Reading this first sets the context for every architectural decision you'll encounter in the steps that follow.",
+      "nodeIds": [
+        "document:README.md"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Package Map & Architecture Docs",
+      "description": "docs/PROJECT.md is the authoritative top-level package map, linking to per-subpackage INDEX files for each area of the codebase. Reading it alongside README gives you a concrete picture of how the source tree is organized before diving into any individual module. The eight architectural layers documented here \u00e2\u20ac\u201d Game Domain, Game Engine, ML Encoding, RL Training Pipeline, Application Layer, Game Data, Infrastructure, and Documentation \u00e2\u20ac\u201d form the structural backbone that the rest of this tour follows.",
+      "nodeIds": [
+        "document:docs/PROJECT.md"
+      ]
+    },
+    {
+      "order": 3,
+      "title": "CLI Entry Point",
+      "description": "src/wingspan/__main__.py is the single front door for all user-facing commands. It uses Python 3.12's match/case to dispatch six sub-commands \u00e2\u20ac\u201d play, dashboard, tournament, inspect, cloud, and monitor \u00e2\u20ac\u201d each wiring together the appropriate layers of the codebase. With the highest fan-out in the entire graph (7 direct imports), reading __main__.py gives you an immediate map of which modules matter at runtime and how the game-play, training, and evaluation paths diverge from a common entry point.",
+      "nodeIds": [
+        "file:src/wingspan/__main__.py"
+      ],
+      "languageLesson": "Python 3.12's structural pattern matching (`match/case`) is ideal for command dispatchers: each `case` branch matches a string literal and can bind sub-expressions in one step, replacing long if/elif chains with a readable, exhaustive switch."
+    },
+    {
+      "order": 4,
+      "title": "Card Schema & Game Data",
+      "description": "cards/schema.py is the most imported file in the entire codebase (fan-in 10) \u00e2\u20ac\u201d it defines the domain vocabulary every other module speaks. It houses the EffectKind StrEnum with 60+ variants that name every bird power in the game, plus the Bird, BonusCard, and RoundGoal types. master.json is the static database of 180+ bird records that the parser loads and maps to these types at startup; schema.py and master.json are a tightly-coupled cluster \u00e2\u20ac\u201d the types and the data that populates them.",
+      "nodeIds": [
+        "file:src/wingspan/cards/schema.py",
+        "config:src/wingspan/data/master.json"
+      ],
+      "languageLesson": "Python's `StrEnum` (3.11+) lets enum members double as plain strings, so `EffectKind.GAIN_FOOD == 'gain_food'` is true. This makes JSON serialization and pattern-matching on raw strings seamless without a separate conversion step."
+    },
+    {
+      "order": 5,
+      "title": "Game State",
+      "description": "state.py defines GameState and PlayerState \u00e2\u20ac\u201d the complete mutable snapshot of a Wingspan game at any moment. Every board slot, food token count, egg placement, birdfeeder die, and per-turn scratch field lives here. With a fan-in of 8, it is the second-most-depended-upon module after schema.py; nearly every module in the Game Engine layer reads or writes these objects. Understanding what GameState holds is prerequisite to understanding how the Engine drives it.",
+      "nodeIds": [
+        "file:src/wingspan/state.py"
+      ]
+    },
+    {
+      "order": 6,
+      "title": "Decisions & Choices",
+      "description": "decisions.py defines the entire decision-point vocabulary for the game (fan-in 9, second only to schema.py). It contains all 41 Choice subclasses \u00e2\u20ac\u201d each a typed Pydantic model with named fields rather than opaque payload tuples \u00e2\u20ac\u201d and 6 generic Decision[C] families. The module also exports ALL_DECISION_CLASSES, the stable one-hot ordering used by the RL encoder; the order of this list is append-only and is a versioning contract. docs/DECISIONS.md is the companion reference explaining the taxonomy, stripe layout, and every engine call site.",
+      "nodeIds": [
+        "file:src/wingspan/decisions.py",
+        "document:docs/DECISIONS.md"
+      ],
+      "languageLesson": "The `Decision[C: Choice]` pattern uses Python 3.12 PEP 695 generic syntax to bind the type parameter at the class level. This lets the Engine's `ask()` method return the exact Choice subtype the caller expects \u00e2\u20ac\u201d no casting, no Any \u00e2\u20ac\u201d while accepting a single non-generic `list[Agent]` at use sites."
+    },
+    {
+      "order": 7,
+      "title": "Bird Powers Reference",
+      "description": "docs/BIRDS.md is the comprehensive reference mapping all 180 birds and 26 bonus cards to their EffectKind variants, handler functions, and implementation status. It is the essential lookup when tracing why a particular EffectKind exists in schema.py or finding the handler that processes a given bird's power. Studying it alongside the schema gives you a complete picture of what the game engine must simulate before you look at how the Engine orchestrates it.",
+      "nodeIds": [
+        "document:docs/BIRDS.md"
+      ]
+    },
+    {
+      "order": 8,
+      "title": "Game Engine Core",
+      "description": "engine/core.py is the orchestrator that owns the full game lifecycle \u00e2\u20ac\u201d player setup, the four-round turn loop, the `ask()` method that validates agent responses against offered Choice sets, and end-game scoring. It is the structural hub of the Game Engine layer (fan-in 5, fan-out 7), delegating each phase to sibling free-function modules: actions.py for state transitions, reactors.py for pink powers, scoring.py for final tallying, and grants.py for activation effects. Understanding Engine.ask() is the key \u00e2\u20ac\u201d it is the sole channel through which agents (human, random, or neural) interact with the simulation.",
+      "nodeIds": [
+        "file:src/wingspan/engine/core.py"
+      ]
+    },
+    {
+      "order": 9,
+      "title": "Actions, Reactors & Scoring",
+      "description": "actions.py implements the five main-action state transitions (play bird, gain food, lay eggs, draw cards, end-of-round), while reactors.py orchestrates the pink between-turn powers by dispatching EffectKind events to the handler registry. grants.py is the largest single power-handler module, covering all grant effects triggered on bird activation. Together these three modules represent the full behavioral surface of the game engine; scoring.py closes the loop by computing final point totals and per-choice reward deltas that feed directly into the RL encoder.",
+      "nodeIds": [
+        "file:src/wingspan/engine/actions.py",
+        "file:src/wingspan/engine/reactors.py",
+        "file:src/wingspan/engine/powers/grants.py",
+        "file:src/wingspan/engine/scoring.py"
+      ]
+    },
+    {
+      "order": 10,
+      "title": "Agents & Player Factory",
+      "description": "agents/base.py provides the reference Agent implementation \u00e2\u20ac\u201d random_agent \u00e2\u20ac\u201d a one-function module that selects uniformly from the offered Choice set. The Agent protocol is structural (typing.Protocol), so any callable with the right signature qualifies. players/factory.py builds concrete agents from PlayerSpec configurations, wiring model weights, policy functions, and setup handlers together; it is the bridge between raw model checkpoints and a runnable agent the Engine can call. The factory is used by both the interactive play command and the evaluation loop in training.",
+      "nodeIds": [
+        "file:src/wingspan/agents/base.py",
+        "file:src/wingspan/players/factory.py"
+      ]
+    },
+    {
+      "order": 11,
+      "title": "ML Encoding Layer",
+      "description": "The encoding layer translates game state and decision choices into fixed-size float32 vectors the neural network can process. encode/layout.py is the single source of truth for all vector dimension constants and stripe offsets (fan-in 3) \u00e2\u20ac\u201d every encoder and the model itself imports it. state_encode.py converts the full GameState into an ~2381-dim observation vector covering board slots, food, birdfeeder, hand, and bonus/goal progress. choice_encode.py does the same for every Choice subtype. Together these three files form the interface contract between the game simulation and the PyTorch model.",
+      "nodeIds": [
+        "file:src/wingspan/encode/layout.py",
+        "file:src/wingspan/encode/state_encode.py",
+        "file:src/wingspan/encode/choice_encode.py"
+      ],
+      "languageLesson": "Centralizing all dimension constants in a single layout module prevents the silent mismatch bugs that arise when two modules independently compute 'how wide is the state vector'. Any change to encoding shape automatically propagates to every consumer through the shared constants."
+    },
+    {
+      "order": 12,
+      "title": "Neural Network & Architecture",
+      "description": "model/core.py implements PolicyValueNet \u00e2\u20ac\u201d the PyTorch actor-critic model that ingests encoded game state and per-candidate choice vectors to emit policy logits and a scalar value estimate. architecture.py defines ModelArchitecture, the single topology descriptor that captures all shape-bearing hyperparameters and generates the version-stamped ShapeKey. version.py encodes the FRESH vs REGIME versioning contract: shape-changing modifications require a MODEL_VERSION bump plus a backward-compat shim in wingspan.compat, while weight-preserving hyperparameter changes do not.",
+      "nodeIds": [
+        "file:src/wingspan/model/core.py",
+        "file:src/wingspan/architecture.py",
+        "file:src/wingspan/version.py",
+        "document:docs/VERSIONING.md"
+      ]
+    },
+    {
+      "order": 13,
+      "title": "RL Training Pipeline",
+      "description": "training/loop.py is the central RL orchestrator (fan-in 4) \u00e2\u20ac\u201d it sequences self-play collection, gradient updates, periodic evaluation, and checkpoint saves into a single training cycle. training/collect.py handles single-game self-play, recording the (state, choice, outcome) tuples that become training data. training/mp_collect.py scales this to multiple CPU processes via ProcessPoolExecutor with fp16 IPC compression and weight broadcasting, delivering roughly 5x throughput versus single-threaded collection. training/learner.py performs the actual gradient step, computing joint policy and value losses against the collected GameRecord batch.",
+      "nodeIds": [
+        "file:src/wingspan/training/loop.py",
+        "file:src/wingspan/training/collect.py",
+        "file:src/wingspan/training/mp_collect.py",
+        "file:src/wingspan/training/learner.py"
+      ],
+      "languageLesson": "fp16 (half-precision float) IPC compression halves the size of weight tensors sent between processes. The main process serializes weights to fp16 bytes, workers deserialize and upcast locally for inference, avoiding both the GIL bottleneck and excessive inter-process data volume."
+    },
+    {
+      "order": 14,
+      "title": "Training Config, Evaluation & Dashboard",
+      "description": "training/config.py defines TrainConfig \u00e2\u20ac\u201d the ~70-field master configuration Pydantic model covering network topology, collection settings, evaluation cadence, and checkpointing. training/evaluate.py runs head-to-head games between the current model and a reference opponent, computing win rate and score statistics that determine whether training is converging. The FLIGHT PLAN dashboard (training/dashboard.py) renders all of this as a live full-screen TUI using Rich Live, with convergence charts, system metrics, and the active TrainConfig. docs/TRAINING.md documents the Phase 0\u00e2\u20ac\u201c3 roadmap and convergence criteria.",
+      "nodeIds": [
+        "file:src/wingspan/training/config.py",
+        "file:src/wingspan/training/evaluate.py",
+        "file:src/wingspan/training/dashboard.py",
+        "document:docs/TRAINING.md"
+      ]
+    },
+    {
+      "order": 15,
+      "title": "Cloud Deployment & Infrastructure",
+      "description": "cloud/runner.py implements HeadlessRunner \u00e2\u20ac\u201d the orchestration class that wraps TrainingLoop with S3 checkpoint sync and graceful signal handling for long-running cloud sessions. The Dockerfile packages the application into an Amazon Linux 2023 container, and deploy/main.tf is the Terraform root module that provisions the AWS ECS cluster and ECR registry where training containers run. pyproject.toml ties the whole project together: it declares the `wingspan` CLI entry point, strict Pyright settings, and the coverage baseline that the quality gate enforces.",
+      "nodeIds": [
+        "file:src/wingspan/cloud/runner.py",
+        "service:Dockerfile",
+        "resource:deploy/main.tf",
+        "config:pyproject.toml"
+      ],
+      "languageLesson": "Terraform's ECS + ECR pattern follows a standard cloud ML training shape: ECR stores versioned container images built from the Dockerfile, ECS task definitions reference those images and mount S3-backed volumes for checkpoint persistence, and task role IAM policies grant the container write access to the checkpoint bucket."
     }
   ]
 }

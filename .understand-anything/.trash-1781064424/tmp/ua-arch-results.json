@@ -1,0 +1,900 @@
+{
+  "scriptCompleted": true,
+  "directoryGroups": {
+    "agents": [
+      "file:src/wingspan/agents/display.py",
+      "file:src/wingspan/agents/__init__.py",
+      "file:src/wingspan/agents/base.py",
+      "file:src/wingspan/agents/cli.py",
+      "file:src/wingspan/agents/interactive.py",
+      "document:src/wingspan/agents/INDEX.md"
+    ],
+    "cards": [
+      "file:src/wingspan/cards/__init__.py",
+      "file:src/wingspan/cards/parse/__init__.py",
+      "file:src/wingspan/cards/parse/catalog.py",
+      "file:src/wingspan/cards/parse/fields.py",
+      "file:src/wingspan/cards/parse/loader.py",
+      "file:src/wingspan/cards/parse/matchers.py",
+      "file:src/wingspan/cards/parse/pink_matchers.py",
+      "file:src/wingspan/cards/parse/power.py",
+      "file:src/wingspan/cards/parse/registry.py",
+      "file:src/wingspan/cards/parse/tags.py",
+      "file:src/wingspan/cards/schema.py",
+      "document:src/wingspan/cards/INDEX.md",
+      "document:src/wingspan/cards/parse/INDEX.md"
+    ],
+    "wingspan-root": [
+      "file:src/wingspan/decisions.py",
+      "file:src/wingspan/state.py",
+      "file:src/wingspan/__init__.py",
+      "file:src/wingspan/architecture.py",
+      "file:src/wingspan/version.py",
+      "file:src/wingspan/cli.py",
+      "file:src/wingspan/__main__.py",
+      "file:src/wingspan/report.py",
+      "file:src/wingspan/report_svg.py"
+    ],
+    "encode": [
+      "file:src/wingspan/encode/choice_encode.py",
+      "file:src/wingspan/encode/__init__.py",
+      "file:src/wingspan/encode/layout.py",
+      "file:src/wingspan/encode/state_encode.py",
+      "file:src/wingspan/encode/stripes/__init__.py",
+      "file:src/wingspan/encode/stripes/card_feature.py",
+      "file:src/wingspan/encode/stripes/choice.py",
+      "file:src/wingspan/encode/stripes/descriptors.py",
+      "file:src/wingspan/encode/stripes/embed_rules.py",
+      "file:src/wingspan/encode/stripes/state.py",
+      "document:src/wingspan/encode/INDEX.md",
+      "document:src/wingspan/encode/stripes/INDEX.md"
+    ],
+    "engine": [
+      "file:src/wingspan/engine/actions.py",
+      "file:src/wingspan/engine/core.py",
+      "file:src/wingspan/engine/helpers.py",
+      "file:src/wingspan/engine/log_format.py",
+      "file:src/wingspan/engine/powers/__init__.py",
+      "file:src/wingspan/engine/powers/dispatch.py",
+      "file:src/wingspan/engine/powers/drafting.py",
+      "file:src/wingspan/engine/powers/egg_trade.py",
+      "file:src/wingspan/engine/powers/grants.py",
+      "file:src/wingspan/engine/powers/multi_actor.py",
+      "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "file:src/wingspan/engine/powers/predator_repeat.py",
+      "file:src/wingspan/engine/powers/registry.py",
+      "file:src/wingspan/engine/powers/tray_trade.py",
+      "file:src/wingspan/engine/reactors.py",
+      "file:src/wingspan/engine/scoring.py",
+      "file:src/wingspan/engine/__init__.py",
+      "document:src/wingspan/engine/INDEX.md",
+      "document:src/wingspan/engine/powers/INDEX.md"
+    ],
+    "compat": [
+      "file:src/wingspan/compat/__init__.py",
+      "file:src/wingspan/compat/v0_0.py",
+      "file:src/wingspan/compat/v0_1.py"
+    ],
+    "model": [
+      "file:src/wingspan/model/core.py",
+      "file:src/wingspan/model/hand_model.py",
+      "file:src/wingspan/model/mlp.py",
+      "file:src/wingspan/model/__init__.py",
+      "document:src/wingspan/model/INDEX.md"
+    ],
+    "reporting": [
+      "file:src/wingspan/reporting/html.py",
+      "file:src/wingspan/reporting/svg.py",
+      "file:src/wingspan/reporting/__init__.py",
+      "file:src/wingspan/reporting/inspect_cli.py",
+      "document:src/wingspan/reporting/INDEX.md"
+    ],
+    "setup_model": [
+      "file:src/wingspan/setup_model/__init__.py",
+      "file:src/wingspan/setup_model/architecture.py",
+      "file:src/wingspan/setup_model/candidates.py",
+      "file:src/wingspan/setup_model/encode.py",
+      "file:src/wingspan/setup_model/generate.py",
+      "file:src/wingspan/setup_model/record.py",
+      "file:src/wingspan/setup_model/stripes.py",
+      "document:src/wingspan/setup_model/INDEX.md"
+    ],
+    "training": [
+      "file:src/wingspan/training/setup_learner.py",
+      "file:src/wingspan/training/setup_net.py",
+      "file:src/wingspan/training/__init__.py",
+      "file:src/wingspan/training/__main__.py",
+      "file:src/wingspan/training/app.py",
+      "file:src/wingspan/training/artifacts.py",
+      "file:src/wingspan/training/charts/__init__.py",
+      "file:src/wingspan/training/charts/braille.py",
+      "file:src/wingspan/training/charts/convergence_chart.py",
+      "file:src/wingspan/training/charts/geometry.py",
+      "file:src/wingspan/training/charts/histogram.py",
+      "file:src/wingspan/training/charts/insets.py",
+      "file:src/wingspan/training/charts/text_helpers.py",
+      "file:src/wingspan/training/configure/arch_diagram.py",
+      "file:src/wingspan/training/convergence.py",
+      "file:src/wingspan/training/dashboard.py",
+      "file:src/wingspan/training/loop.py",
+      "file:src/wingspan/training/loop_checkpoint.py",
+      "file:src/wingspan/training/loop_eval.py",
+      "file:src/wingspan/training/loop_resume.py",
+      "file:src/wingspan/training/loop_setup.py",
+      "file:src/wingspan/training/loop_target.py",
+      "file:src/wingspan/training/metrics.py",
+      "file:src/wingspan/training/metrics_log.py",
+      "file:src/wingspan/training/runmeta.py",
+      "file:src/wingspan/training/runstate.py",
+      "file:src/wingspan/training/setup_runmeta.py",
+      "file:src/wingspan/training/sysmon.py",
+      "file:src/wingspan/training/theme.py",
+      "file:src/wingspan/training/batched_collect.py",
+      "file:src/wingspan/training/collect.py",
+      "file:src/wingspan/training/evaluate.py",
+      "file:src/wingspan/training/learner.py",
+      "file:src/wingspan/training/loop_collect.py",
+      "file:src/wingspan/training/loop_metrics.py",
+      "file:src/wingspan/training/mp_collect.py",
+      "file:src/wingspan/training/policy.py",
+      "file:src/wingspan/training/steps.py",
+      "file:src/wingspan/training/config.py",
+      "file:src/wingspan/training/configure/__init__.py",
+      "file:src/wingspan/training/configure/controller.py",
+      "file:src/wingspan/training/configure/fields.py",
+      "file:src/wingspan/training/configure/keys.py",
+      "file:src/wingspan/training/configure/runs.py",
+      "file:src/wingspan/training/configure/screen.py",
+      "file:src/wingspan/training/configure/state.py",
+      "document:src/wingspan/training/INDEX.md",
+      "document:src/wingspan/training/configure/INDEX.md"
+    ],
+    "cloud": [
+      "file:src/wingspan/cloud/__init__.py",
+      "file:src/wingspan/cloud/__main__.py",
+      "file:src/wingspan/cloud/monitor.py",
+      "file:src/wingspan/cloud/runfile.py",
+      "file:src/wingspan/cloud/runner.py",
+      "file:src/wingspan/cloud/s3sync.py",
+      "file:src/wingspan/cloud/status.py",
+      "document:src/wingspan/cloud/INDEX.md"
+    ],
+    "players": [
+      "file:src/wingspan/players/loaders.py",
+      "file:src/wingspan/players/__init__.py",
+      "file:src/wingspan/players/factory.py",
+      "file:src/wingspan/players/spec.py",
+      "document:src/wingspan/players/INDEX.md"
+    ],
+    "tournament": [
+      "file:src/wingspan/tournament/dashboard.py",
+      "file:src/wingspan/tournament/__init__.py",
+      "file:src/wingspan/tournament/app.py",
+      "file:src/wingspan/tournament/config.py",
+      "file:src/wingspan/tournament/elo.py",
+      "file:src/wingspan/tournament/participants.py",
+      "file:src/wingspan/tournament/picker.py",
+      "file:src/wingspan/tournament/results.py",
+      "file:src/wingspan/tournament/runner.py",
+      "file:src/wingspan/tournament/schedule.py",
+      "file:src/wingspan/tournament/state.py",
+      "document:src/wingspan/tournament/INDEX.md"
+    ],
+    "instrumentation": [
+      "file:src/wingspan/instrumentation/__init__.py",
+      "file:src/wingspan/instrumentation/config.py",
+      "file:src/wingspan/instrumentation/dispatcher.py",
+      "file:src/wingspan/instrumentation/events.py",
+      "file:src/wingspan/instrumentation/handlers/__init__.py",
+      "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "file:src/wingspan/instrumentation/registry.py",
+      "document:src/wingspan/instrumentation/INDEX.md"
+    ],
+    "project-root": [
+      "document:CLAUDE.md",
+      "document:README.md",
+      "document:TODO.md",
+      "document:coverage_baseline.txt",
+      "config:pyproject.toml",
+      "service:Dockerfile",
+      "file:export_card_attrs.py",
+      "table:cards.csv",
+      "file:main.html"
+    ],
+    "deploy": [
+      "document:deploy/README.md",
+      "config:deploy/ecs-task-def.json",
+      "config:deploy/run.example.yaml",
+      "resource:deploy/main.tf"
+    ],
+    "docs": [
+      "document:docs/BIRDS.md",
+      "document:docs/BONUSES.md",
+      "document:docs/DECISIONS.md",
+      "document:docs/PROJECT.md",
+      "document:docs/QUALITY.md",
+      "document:docs/RESEARCH.md",
+      "document:docs/TRAINING.md",
+      "document:docs/VERSIONING.md"
+    ],
+    "tests": [
+      "document:tests/data/compat/v0.0/README.md",
+      "document:tests/data/compat/v0.1/README.md",
+      "config:tests/data/compat/v0.0/model_config.json",
+      "config:tests/data/compat/v0.0/setup_config.json",
+      "config:tests/data/compat/v0.1/model_config.json",
+      "config:tests/data/compat/v0.1/setup_config.json"
+    ],
+    "data": [
+      "config:src/wingspan/data/bonus.json",
+      "config:src/wingspan/data/general.json",
+      "config:src/wingspan/data/goals.json",
+      "config:src/wingspan/data/master.json",
+      "config:src/wingspan/data/parameters.json"
+    ],
+    "scripts": [
+      "file:scripts/check_mp_collect.py",
+      "file:scripts/gen_arch_experiment.py",
+      "file:scripts/measure_ipc.py",
+      "file:scripts/profile_collection.py"
+    ]
+  },
+  "nodeTypeGroups": {
+    "file": [
+      "file:src/wingspan/agents/display.py",
+      "file:src/wingspan/cards/__init__.py",
+      "file:src/wingspan/cards/parse/__init__.py",
+      "file:src/wingspan/cards/parse/catalog.py",
+      "file:src/wingspan/cards/parse/fields.py",
+      "file:src/wingspan/cards/parse/loader.py",
+      "file:src/wingspan/cards/parse/matchers.py",
+      "file:src/wingspan/cards/parse/pink_matchers.py",
+      "file:src/wingspan/cards/parse/power.py",
+      "file:src/wingspan/cards/parse/registry.py",
+      "file:src/wingspan/cards/parse/tags.py",
+      "file:src/wingspan/cards/schema.py",
+      "file:src/wingspan/decisions.py",
+      "file:src/wingspan/encode/choice_encode.py",
+      "file:src/wingspan/engine/actions.py",
+      "file:src/wingspan/engine/core.py",
+      "file:src/wingspan/engine/helpers.py",
+      "file:src/wingspan/engine/log_format.py",
+      "file:src/wingspan/engine/powers/__init__.py",
+      "file:src/wingspan/engine/powers/dispatch.py",
+      "file:src/wingspan/engine/powers/drafting.py",
+      "file:src/wingspan/engine/powers/egg_trade.py",
+      "file:src/wingspan/engine/powers/grants.py",
+      "file:src/wingspan/engine/powers/multi_actor.py",
+      "file:src/wingspan/engine/powers/nest_aggregate.py",
+      "file:src/wingspan/engine/powers/predator_repeat.py",
+      "file:src/wingspan/engine/powers/registry.py",
+      "file:src/wingspan/engine/powers/tray_trade.py",
+      "file:src/wingspan/engine/reactors.py",
+      "file:src/wingspan/engine/scoring.py",
+      "file:src/wingspan/state.py",
+      "file:src/wingspan/__init__.py",
+      "file:src/wingspan/architecture.py",
+      "file:src/wingspan/compat/__init__.py",
+      "file:src/wingspan/compat/v0_0.py",
+      "file:src/wingspan/compat/v0_1.py",
+      "file:src/wingspan/encode/__init__.py",
+      "file:src/wingspan/encode/layout.py",
+      "file:src/wingspan/encode/state_encode.py",
+      "file:src/wingspan/encode/stripes/__init__.py",
+      "file:src/wingspan/encode/stripes/card_feature.py",
+      "file:src/wingspan/encode/stripes/choice.py",
+      "file:src/wingspan/encode/stripes/descriptors.py",
+      "file:src/wingspan/encode/stripes/embed_rules.py",
+      "file:src/wingspan/encode/stripes/state.py",
+      "file:src/wingspan/model/core.py",
+      "file:src/wingspan/model/hand_model.py",
+      "file:src/wingspan/model/mlp.py",
+      "file:src/wingspan/reporting/html.py",
+      "file:src/wingspan/reporting/svg.py",
+      "file:src/wingspan/setup_model/__init__.py",
+      "file:src/wingspan/setup_model/architecture.py",
+      "file:src/wingspan/setup_model/candidates.py",
+      "file:src/wingspan/setup_model/encode.py",
+      "file:src/wingspan/setup_model/generate.py",
+      "file:src/wingspan/setup_model/record.py",
+      "file:src/wingspan/setup_model/stripes.py",
+      "file:src/wingspan/training/setup_learner.py",
+      "file:src/wingspan/training/setup_net.py",
+      "file:src/wingspan/cloud/__init__.py",
+      "file:src/wingspan/cloud/__main__.py",
+      "file:src/wingspan/cloud/monitor.py",
+      "file:src/wingspan/cloud/runfile.py",
+      "file:src/wingspan/cloud/runner.py",
+      "file:src/wingspan/cloud/s3sync.py",
+      "file:src/wingspan/cloud/status.py",
+      "file:src/wingspan/players/loaders.py",
+      "file:src/wingspan/reporting/__init__.py",
+      "file:src/wingspan/reporting/inspect_cli.py",
+      "file:src/wingspan/tournament/dashboard.py",
+      "file:src/wingspan/training/__init__.py",
+      "file:src/wingspan/training/__main__.py",
+      "file:src/wingspan/training/app.py",
+      "file:src/wingspan/training/artifacts.py",
+      "file:src/wingspan/training/charts/__init__.py",
+      "file:src/wingspan/training/charts/braille.py",
+      "file:src/wingspan/training/charts/convergence_chart.py",
+      "file:src/wingspan/training/charts/geometry.py",
+      "file:src/wingspan/training/charts/histogram.py",
+      "file:src/wingspan/training/charts/insets.py",
+      "file:src/wingspan/training/charts/text_helpers.py",
+      "file:src/wingspan/training/configure/arch_diagram.py",
+      "file:src/wingspan/training/convergence.py",
+      "file:src/wingspan/training/dashboard.py",
+      "file:src/wingspan/training/loop.py",
+      "file:src/wingspan/training/loop_checkpoint.py",
+      "file:src/wingspan/training/loop_eval.py",
+      "file:src/wingspan/training/loop_resume.py",
+      "file:src/wingspan/training/loop_setup.py",
+      "file:src/wingspan/training/loop_target.py",
+      "file:src/wingspan/training/metrics.py",
+      "file:src/wingspan/training/metrics_log.py",
+      "file:src/wingspan/training/runmeta.py",
+      "file:src/wingspan/training/runstate.py",
+      "file:src/wingspan/training/setup_runmeta.py",
+      "file:src/wingspan/training/sysmon.py",
+      "file:src/wingspan/training/theme.py",
+      "file:src/wingspan/version.py",
+      "file:src/wingspan/agents/__init__.py",
+      "file:src/wingspan/agents/base.py",
+      "file:src/wingspan/agents/cli.py",
+      "file:src/wingspan/agents/interactive.py",
+      "file:src/wingspan/engine/__init__.py",
+      "file:src/wingspan/model/__init__.py",
+      "file:src/wingspan/players/__init__.py",
+      "file:src/wingspan/players/factory.py",
+      "file:src/wingspan/players/spec.py",
+      "file:src/wingspan/training/batched_collect.py",
+      "file:src/wingspan/training/collect.py",
+      "file:src/wingspan/training/evaluate.py",
+      "file:src/wingspan/training/learner.py",
+      "file:src/wingspan/training/loop_collect.py",
+      "file:src/wingspan/training/loop_metrics.py",
+      "file:src/wingspan/training/mp_collect.py",
+      "file:src/wingspan/training/policy.py",
+      "file:src/wingspan/training/steps.py",
+      "file:src/wingspan/tournament/__init__.py",
+      "file:src/wingspan/tournament/app.py",
+      "file:src/wingspan/tournament/config.py",
+      "file:src/wingspan/tournament/elo.py",
+      "file:src/wingspan/tournament/participants.py",
+      "file:src/wingspan/tournament/picker.py",
+      "file:src/wingspan/tournament/results.py",
+      "file:src/wingspan/tournament/runner.py",
+      "file:src/wingspan/tournament/schedule.py",
+      "file:src/wingspan/tournament/state.py",
+      "file:src/wingspan/training/config.py",
+      "file:src/wingspan/training/configure/__init__.py",
+      "file:src/wingspan/training/configure/controller.py",
+      "file:src/wingspan/training/configure/fields.py",
+      "file:src/wingspan/training/configure/keys.py",
+      "file:src/wingspan/training/configure/runs.py",
+      "file:src/wingspan/training/configure/screen.py",
+      "file:src/wingspan/training/configure/state.py",
+      "file:src/wingspan/cli.py",
+      "file:src/wingspan/instrumentation/__init__.py",
+      "file:src/wingspan/instrumentation/config.py",
+      "file:src/wingspan/instrumentation/dispatcher.py",
+      "file:src/wingspan/instrumentation/events.py",
+      "file:src/wingspan/instrumentation/handlers/__init__.py",
+      "file:src/wingspan/instrumentation/handlers/card_visits.py",
+      "file:src/wingspan/instrumentation/handlers/decision_logger.py",
+      "file:src/wingspan/instrumentation/registry.py",
+      "file:src/wingspan/__main__.py",
+      "file:src/wingspan/report.py",
+      "file:src/wingspan/report_svg.py",
+      "file:export_card_attrs.py",
+      "file:scripts/check_mp_collect.py",
+      "file:scripts/gen_arch_experiment.py",
+      "file:scripts/measure_ipc.py",
+      "file:scripts/profile_collection.py",
+      "file:main.html"
+    ],
+    "document": [
+      "document:CLAUDE.md",
+      "document:README.md",
+      "document:TODO.md",
+      "document:coverage_baseline.txt",
+      "document:deploy/README.md",
+      "document:docs/BIRDS.md",
+      "document:docs/BONUSES.md",
+      "document:docs/DECISIONS.md",
+      "document:docs/PROJECT.md",
+      "document:docs/QUALITY.md",
+      "document:docs/RESEARCH.md",
+      "document:docs/TRAINING.md",
+      "document:docs/VERSIONING.md",
+      "document:src/wingspan/agents/INDEX.md",
+      "document:src/wingspan/cards/INDEX.md",
+      "document:src/wingspan/cards/parse/INDEX.md",
+      "document:src/wingspan/cloud/INDEX.md",
+      "document:src/wingspan/encode/INDEX.md",
+      "document:src/wingspan/encode/stripes/INDEX.md",
+      "document:src/wingspan/engine/INDEX.md",
+      "document:src/wingspan/engine/powers/INDEX.md",
+      "document:src/wingspan/instrumentation/INDEX.md",
+      "document:src/wingspan/model/INDEX.md",
+      "document:src/wingspan/players/INDEX.md",
+      "document:src/wingspan/reporting/INDEX.md",
+      "document:src/wingspan/setup_model/INDEX.md",
+      "document:src/wingspan/tournament/INDEX.md",
+      "document:src/wingspan/training/INDEX.md",
+      "document:src/wingspan/training/configure/INDEX.md",
+      "document:tests/data/compat/v0.0/README.md",
+      "document:tests/data/compat/v0.1/README.md"
+    ],
+    "config": [
+      "config:pyproject.toml",
+      "config:deploy/ecs-task-def.json",
+      "config:deploy/run.example.yaml",
+      "config:src/wingspan/data/bonus.json",
+      "config:src/wingspan/data/general.json",
+      "config:src/wingspan/data/goals.json",
+      "config:src/wingspan/data/master.json",
+      "config:src/wingspan/data/parameters.json",
+      "config:tests/data/compat/v0.0/model_config.json",
+      "config:tests/data/compat/v0.0/setup_config.json",
+      "config:tests/data/compat/v0.1/model_config.json",
+      "config:tests/data/compat/v0.1/setup_config.json"
+    ],
+    "service": [
+      "service:Dockerfile"
+    ],
+    "resource": [
+      "resource:deploy/main.tf"
+    ],
+    "table": [
+      "table:cards.csv"
+    ]
+  },
+  "crossCategoryEdges": [
+    {
+      "fromType": "config",
+      "toType": "file",
+      "edgeType": "configures",
+      "count": 1
+    },
+    {
+      "fromType": "service",
+      "toType": "file",
+      "edgeType": "deploys",
+      "count": 1
+    },
+    {
+      "fromType": "resource",
+      "toType": "service",
+      "edgeType": "depends_on",
+      "count": 1
+    },
+    {
+      "fromType": "config",
+      "toType": "service",
+      "edgeType": "configures",
+      "count": 1
+    },
+    {
+      "fromType": "document",
+      "toType": "file",
+      "edgeType": "documents",
+      "count": 3
+    }
+  ],
+  "interGroupImports": [
+    {
+      "from": "engine",
+      "to": "wingspan-root",
+      "count": 13
+    },
+    {
+      "from": "engine",
+      "to": "cards",
+      "count": 3
+    },
+    {
+      "from": "training",
+      "to": "wingspan-root",
+      "count": 3
+    },
+    {
+      "from": "encode",
+      "to": "wingspan-root",
+      "count": 2
+    },
+    {
+      "from": "encode",
+      "to": "cards",
+      "count": 2
+    },
+    {
+      "from": "training",
+      "to": "model",
+      "count": 2
+    },
+    {
+      "from": "players",
+      "to": "model",
+      "count": 2
+    },
+    {
+      "from": "compat",
+      "to": "encode",
+      "count": 2
+    },
+    {
+      "from": "agents",
+      "to": "wingspan-root",
+      "count": 2
+    },
+    {
+      "from": "instrumentation",
+      "to": "wingspan-root",
+      "count": 2
+    },
+    {
+      "from": "setup_model",
+      "to": "cards",
+      "count": 2
+    },
+    {
+      "from": "model",
+      "to": "wingspan-root",
+      "count": 1
+    },
+    {
+      "from": "model",
+      "to": "encode",
+      "count": 1
+    },
+    {
+      "from": "players",
+      "to": "wingspan-root",
+      "count": 1
+    },
+    {
+      "from": "players",
+      "to": "compat",
+      "count": 1
+    },
+    {
+      "from": "wingspan-root",
+      "to": "engine",
+      "count": 1
+    },
+    {
+      "from": "wingspan-root",
+      "to": "players",
+      "count": 1
+    },
+    {
+      "from": "tournament",
+      "to": "players",
+      "count": 1
+    },
+    {
+      "from": "tournament",
+      "to": "engine",
+      "count": 1
+    },
+    {
+      "from": "cloud",
+      "to": "training",
+      "count": 1
+    },
+    {
+      "from": "reporting",
+      "to": "model",
+      "count": 1
+    },
+    {
+      "from": "reporting",
+      "to": "wingspan-root",
+      "count": 1
+    },
+    {
+      "from": "agents",
+      "to": "cards",
+      "count": 1
+    }
+  ],
+  "intraGroupDensity": {
+    "training": {
+      "internalEdges": 2,
+      "totalEdges": 7,
+      "density": 0.2857142857142857
+    },
+    "agents": {
+      "internalEdges": 1,
+      "totalEdges": 4,
+      "density": 0.25
+    },
+    "cards": {
+      "internalEdges": 5,
+      "totalEdges": 5,
+      "density": 1
+    },
+    "wingspan-root": {
+      "internalEdges": 0,
+      "totalEdges": 2,
+      "density": 0
+    },
+    "encode": {
+      "internalEdges": 0,
+      "totalEdges": 4,
+      "density": 0
+    },
+    "engine": {
+      "internalEdges": 0,
+      "totalEdges": 16,
+      "density": 0
+    },
+    "compat": {
+      "internalEdges": 0,
+      "totalEdges": 2,
+      "density": 0
+    },
+    "model": {
+      "internalEdges": 0,
+      "totalEdges": 2,
+      "density": 0
+    },
+    "reporting": {
+      "internalEdges": 0,
+      "totalEdges": 2,
+      "density": 0
+    },
+    "setup_model": {
+      "internalEdges": 0,
+      "totalEdges": 2,
+      "density": 0
+    },
+    "cloud": {
+      "internalEdges": 0,
+      "totalEdges": 1,
+      "density": 0
+    },
+    "players": {
+      "internalEdges": 0,
+      "totalEdges": 4,
+      "density": 0
+    },
+    "tournament": {
+      "internalEdges": 0,
+      "totalEdges": 2,
+      "density": 0
+    },
+    "instrumentation": {
+      "internalEdges": 0,
+      "totalEdges": 2,
+      "density": 0
+    },
+    "project-root": {
+      "internalEdges": 0,
+      "totalEdges": 0,
+      "density": 0
+    },
+    "deploy": {
+      "internalEdges": 0,
+      "totalEdges": 0,
+      "density": 0
+    },
+    "docs": {
+      "internalEdges": 0,
+      "totalEdges": 0,
+      "density": 0
+    },
+    "tests": {
+      "internalEdges": 0,
+      "totalEdges": 0,
+      "density": 0
+    },
+    "data": {
+      "internalEdges": 0,
+      "totalEdges": 0,
+      "density": 0
+    },
+    "scripts": {
+      "internalEdges": 0,
+      "totalEdges": 0,
+      "density": 0
+    }
+  },
+  "patternMatches": {
+    "agents": "service",
+    "cards": "data",
+    "wingspan-root": "entry",
+    "encode": "utility",
+    "engine": "service",
+    "compat": "utility",
+    "model": "utility",
+    "reporting": "utility",
+    "setup_model": "utility",
+    "training": "service",
+    "cloud": "infrastructure",
+    "players": "service",
+    "tournament": "service",
+    "instrumentation": "service",
+    "project-root": "entry",
+    "deploy": "infrastructure",
+    "docs": "documentation",
+    "tests": "test",
+    "data": "data",
+    "scripts": "utility"
+  },
+  "deploymentTopology": {
+    "hasDockerfile": true,
+    "hasCompose": false,
+    "hasK8s": true,
+    "hasTerraform": true,
+    "hasCI": false,
+    "infraFiles": [
+      "deploy/README.md",
+      "deploy/ecs-task-def.json",
+      "deploy/run.example.yaml",
+      "Dockerfile",
+      "deploy/main.tf"
+    ]
+  },
+  "dataPipeline": {
+    "schemaFiles": [
+      "src/wingspan/cards/schema.py"
+    ],
+    "migrationFiles": [],
+    "dataModelFiles": [
+      "src/wingspan/cards/parse/fields.py",
+      "src/wingspan/cards/parse/loader.py",
+      "src/wingspan/setup_model/record.py",
+      "src/wingspan/training/metrics.py",
+      "src/wingspan/training/steps.py",
+      "src/wingspan/tournament/config.py",
+      "src/wingspan/training/config.py",
+      "src/wingspan/training/configure/fields.py"
+    ],
+    "apiHandlerFiles": []
+  },
+  "docCoverage": {
+    "groupsWithDocs": 16,
+    "totalGroups": 20,
+    "coverageRatio": 0.8,
+    "undocumentedGroups": [
+      "wingspan-root",
+      "compat",
+      "data",
+      "scripts"
+    ]
+  },
+  "dependencyDirection": [
+    {
+      "dependent": "engine",
+      "dependsOn": "wingspan-root"
+    },
+    {
+      "dependent": "engine",
+      "dependsOn": "cards"
+    },
+    {
+      "dependent": "training",
+      "dependsOn": "wingspan-root"
+    },
+    {
+      "dependent": "encode",
+      "dependsOn": "wingspan-root"
+    },
+    {
+      "dependent": "encode",
+      "dependsOn": "cards"
+    },
+    {
+      "dependent": "training",
+      "dependsOn": "model"
+    },
+    {
+      "dependent": "players",
+      "dependsOn": "model"
+    },
+    {
+      "dependent": "compat",
+      "dependsOn": "encode"
+    },
+    {
+      "dependent": "agents",
+      "dependsOn": "wingspan-root"
+    },
+    {
+      "dependent": "instrumentation",
+      "dependsOn": "wingspan-root"
+    },
+    {
+      "dependent": "setup_model",
+      "dependsOn": "cards"
+    }
+  ],
+  "fileStats": {
+    "totalFileNodes": 198,
+    "filesPerGroup": {
+      "agents": 6,
+      "cards": 13,
+      "wingspan-root": 9,
+      "encode": 12,
+      "engine": 19,
+      "compat": 3,
+      "model": 5,
+      "reporting": 5,
+      "setup_model": 8,
+      "training": 48,
+      "cloud": 8,
+      "players": 5,
+      "tournament": 12,
+      "instrumentation": 9,
+      "project-root": 9,
+      "deploy": 4,
+      "docs": 8,
+      "tests": 6,
+      "data": 5,
+      "scripts": 4
+    },
+    "nodeTypeCounts": {
+      "file": 152,
+      "document": 31,
+      "config": 12,
+      "service": 1,
+      "resource": 1,
+      "table": 1
+    }
+  },
+  "fileFanIn": {
+    "file:src/wingspan/state.py": 11,
+    "file:src/wingspan/decisions.py": 12,
+    "file:src/wingspan/cards/__init__.py": 9,
+    "file:src/wingspan/architecture.py": 2,
+    "file:src/wingspan/encode/__init__.py": 3,
+    "file:src/wingspan/training/__init__.py": 3,
+    "file:src/wingspan/model/__init__.py": 5,
+    "file:src/wingspan/compat/__init__.py": 1,
+    "file:src/wingspan/engine/__init__.py": 2,
+    "file:src/wingspan/players/__init__.py": 2,
+    "file:src/wingspan/agents/display.py": 1,
+    "file:src/wingspan/cards/schema.py": 4
+  },
+  "fileFanOut": {
+    "file:src/wingspan/engine/core.py": 2,
+    "file:src/wingspan/engine/actions.py": 3,
+    "file:src/wingspan/engine/scoring.py": 3,
+    "file:src/wingspan/engine/helpers.py": 2,
+    "file:src/wingspan/engine/reactors.py": 2,
+    "file:src/wingspan/engine/powers/dispatch.py": 2,
+    "file:src/wingspan/engine/powers/grants.py": 2,
+    "file:src/wingspan/encode/state_encode.py": 2,
+    "file:src/wingspan/encode/choice_encode.py": 2,
+    "file:src/wingspan/model/core.py": 2,
+    "file:src/wingspan/training/loop.py": 1,
+    "file:src/wingspan/training/collect.py": 2,
+    "file:src/wingspan/training/learner.py": 1,
+    "file:src/wingspan/training/policy.py": 2,
+    "file:src/wingspan/training/evaluate.py": 1,
+    "file:src/wingspan/players/factory.py": 2,
+    "file:src/wingspan/players/loaders.py": 2,
+    "file:src/wingspan/cli.py": 2,
+    "file:src/wingspan/tournament/app.py": 1,
+    "file:src/wingspan/tournament/runner.py": 1,
+    "file:src/wingspan/cloud/runner.py": 1,
+    "file:src/wingspan/compat/v0_0.py": 1,
+    "file:src/wingspan/compat/v0_1.py": 1,
+    "file:src/wingspan/reporting/html.py": 1,
+    "file:src/wingspan/reporting/svg.py": 1,
+    "file:src/wingspan/agents/cli.py": 2,
+    "file:src/wingspan/agents/display.py": 2,
+    "file:src/wingspan/instrumentation/dispatcher.py": 2,
+    "file:src/wingspan/setup_model/encode.py": 1,
+    "file:src/wingspan/setup_model/candidates.py": 1,
+    "file:src/wingspan/cards/schema.py": 1,
+    "file:src/wingspan/cards/parse/loader.py": 1,
+    "file:src/wingspan/cards/parse/fields.py": 1,
+    "file:src/wingspan/cards/parse/matchers.py": 1,
+    "file:src/wingspan/cards/parse/pink_matchers.py": 1
+  }
+}
