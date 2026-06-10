@@ -29,9 +29,12 @@ both use the same loading and logging conventions.
   components that must match for resume (used by the training loop's graceful
   FRESH restart).
 
-**`factory.py`** — `player_from_spec(spec: PlayerSpec, log: bool) -> Agent`:
+**`factory.py`** — `build_agent(spec, device, rng, greedy) -> (Agent, TrainConfig|None)`:
 the top-level factory. Maps each `PlayerSpec.kind` to the appropriate agent
-constructor and wraps policy agents in a logging decorator when `log=True` (so
-`wingspan play` can write a game log). Also `resolve_regime(run_dir) -> Regime`
-— reads the latest `process_*.json` to determine whether a run is in the
-bootstrap phase or the self-play phase.
+constructor. Policy agents write a per-decision annotation to the game log at every
+genuine decision.
+
+Log annotation format: `[P#] <DecisionType> | N choices | [greedy] | head:<family>`
+followed by indented choice lines (4 spaces). The chose-line reads
+`[P#] chose: <label> (xx.xxx%)`. All log lines use `decision.player_id` for
+attribution — correct even when a pink power triggers the opponent's decision.

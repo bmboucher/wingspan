@@ -63,6 +63,36 @@ def log_dealt_hand(
         _log_multiline(engine, bird_text, indent="  ")
 
 
+def log_dealt_bonus(
+    engine: "core.Engine",
+    dealt_cards: list[cards.Bird],
+    dealt_bonus: list[cards.BonusCard],
+    player: state.Player,
+) -> None:
+    """Log the two dealt bonus cards during the CHOOSING BIRDS setup block.
+
+    For each bonus card, logs its full text followed by an indented line
+    showing how many matching birds appear in the dealt hand and the current
+    face-up tray — the pool the player can actually see at setup time."""
+    if not dealt_bonus:
+        return
+    tray_birds: list[cards.Bird] = [
+        bird for bird in engine.state.tray if bird is not None
+    ]
+    engine.log(f"Dealt bonus ({len(dealt_bonus)}):")
+    for bc in dealt_bonus:
+        engine.log(f"  {display.format_bonus(bc)}")
+        help_text = display.format_bonus_with_setup_help(
+            bc,
+            hand_birds=dealt_cards,
+            tray_birds=tray_birds,
+            selected_hand_birds=[],
+        )
+        # The help text may include a second line (for type-counting cards).
+        for bonus_line in help_text.split("\n")[1:]:
+            engine.log(f"    {bonus_line.strip()}")
+
+
 def log_turn_summary(engine: "core.Engine") -> None:
     """Emit a detailed snapshot of the game state at the start of a turn.
 

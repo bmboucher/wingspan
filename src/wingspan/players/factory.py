@@ -155,7 +155,11 @@ def _handle_setup_decision[C: decisions.Choice](
     """Score a SetupDecision with the setup net (or randomly if unavailable)."""
     if setup_net is None:
         chosen = decisions.random_choice(decision, eng.state.rng)
-        eng.log(f"[{eng.state.me().name}] setup chosen at random (no setup model)")
+        deciding_player_name = eng.state.players[decision.player_id].name
+        eng.log(
+            f"[{deciding_player_name}] setup chosen at random (no setup model)",
+            player_id=decision.player_id,
+        )
         return chosen
     setup_decision = typing.cast(decisions.SetupDecision, decision)
     scores, probs = _compute_setup_scores_and_probs(
@@ -168,9 +172,11 @@ def _handle_setup_decision[C: decisions.Choice](
     else:
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
     chosen = decision.choices[chosen_idx]
+    deciding_player_name = eng.state.players[decision.player_id].name
     eng.log(
-        f"[{eng.state.me().name} chose: {chosen.display_label()} "
-        f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
+        f"[{deciding_player_name}] chose: {chosen.display_label()} "
+        f"({float(probs[chosen_idx]) * 100.0:.3f}%)",
+        player_id=decision.player_id,
     )
     return chosen
 
@@ -203,9 +209,11 @@ def _handle_main_decision[C: decisions.Choice](
     else:
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
     chosen = decision.choices[chosen_idx]
+    deciding_player_name = eng.state.players[decision.player_id].name
     eng.log(
-        f"[{eng.state.me().name} chose: {chosen.display_label()} "
-        f"({float(probs[chosen_idx]) * 100.0:.3f}%)]"
+        f"[{deciding_player_name}] chose: {chosen.display_label()} "
+        f"({float(probs[chosen_idx]) * 100.0:.3f}%)",
+        player_id=decision.player_id,
     )
     return chosen
 
@@ -218,12 +226,12 @@ def _log_distribution[C: decisions.Choice](
     scores: np.ndarray | None = None,
 ) -> None:
     """Append the ranked option list for one decision to the game log: a header
-    line, then one line per shown option (rank, softmax probability, optional raw
-    score, label). At most ``_MAX_LOGGED_OPTIONS`` options are shown; options below
-    ``_MIN_PROB_PCT`` are suppressed for large decisions — except the
-    ``SetupDecision``, whose distribution over hundreds of keeps is near-uniform
-    early in training, so the floor would print nothing; its top picks are always
-    documented."""
+    line, then one indented line per shown option (rank, softmax probability,
+    optional raw score, label). At most ``_MAX_LOGGED_OPTIONS`` options are
+    shown; options below ``_MIN_PROB_PCT`` are suppressed for large decisions —
+    except the ``SetupDecision``, whose distribution over hundreds of keeps is
+    near-uniform early in training, so the floor would print nothing; its top
+    picks are always documented."""
     n_choices = len(decision.choices)
     ranked = sorted(range(n_choices), key=lambda idx: float(probs[idx]), reverse=True)
     floor_exempt = n_choices < _SMALL_DECISION_THRESHOLD or decisions.is_setup_decision(
@@ -234,17 +242,25 @@ def _log_distribution[C: decisions.Choice](
         :_MAX_LOGGED_OPTIONS
     ]
 
-    player_name = eng.state.me().name
+    # Use the deciding player (decision.player_id) for correct attribution
+    # when a pink power triggers the opponent's decision during another
+    # player's turn.
+    deciding_player_name = eng.state.players[decision.player_id].name
     mode = " | greedy" if greedy else ""
-    eng.log(f"[{player_name}: {type(decision).__name__} | {n_choices} choices{mode}]")
-    for rank, option_idx in enumerate(shown, start=1):
+    head_name = decisions.family_for(type(decision)).value
+    header = (
+        f"[{deciding_player_name}] {type(decision).__name__} | "
+        f"{n_choices} choices{mode} | head:{head_name}"
+    )
+    eng.log(header, player_id=decision.player_id)
+    for _rank, option_idx in enumerate(shown, start=1):
         prob_pct = float(probs[option_idx]) * 100.0
         score_str = (
             f"  ({float(scores[option_idx]):+6.2f})" if scores is not None else ""
         )
         label = decision.choices[option_idx].display_label()
-        eng.log(f"{rank}. {label}")
-        eng.log(f"    {prob_pct:6.3f}%{score_str}")
+        eng.log(f"    {label}", player_id=decision.player_id)
+        eng.log(f"    {prob_pct:6.3f}%{score_str}", player_id=decision.player_id)
 
 
 #### Setup model scoring ####

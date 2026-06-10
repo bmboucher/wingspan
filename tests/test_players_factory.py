@@ -86,10 +86,15 @@ def test_setup_decision_log_always_shows_top_options():
     probs = np.full(len(choices), 1.0 / len(choices))
     factory._log_distribution(eng, decision, probs, greedy=False)
 
-    player_name = eng.state.me().name
-    header = f"[{player_name}: SetupDecision | {len(choices)} choices]"
-    header_idx = eng.state.log.index(header)
-    # Each shown option emits 2 lines (label line + prob/score line).
+    # The header uses the deciding player's name (decision.player_id), not the
+    # current turn player.
+    deciding_player_name = eng.state.players[decision.player_id].name
+    # Format: [P0] SetupDecision | N choices | head:setup
+    header_prefix = f"[{deciding_player_name}] SetupDecision | {len(choices)} choices"
+    matching = [line for line in eng.state.log if line.startswith(header_prefix)]
+    assert matching, f"No header starting with {header_prefix!r} in log"
+    header_idx = eng.state.log.index(matching[0])
+    # Each shown option emits 2 lines (label line + prob/score line), indented.
     ranked = eng.state.log[header_idx + 1 :]
     assert len(ranked) == factory._MAX_LOGGED_OPTIONS * 2
 
@@ -109,11 +114,17 @@ def test_non_setup_decision_keeps_probability_floor():
     probs[0] = 1.0 - float(probs[1:].sum())
     factory._log_distribution(eng, decision, probs, greedy=False)
 
-    player_name = eng.state.me().name
-    header = (
-        f"[{player_name}: BirdPowerPickBirdFromHandDecision | {len(choices)} choices]"
+    # The header uses the deciding player's name (decision.player_id), not the
+    # current turn player.
+    deciding_player_name = eng.state.players[decision.player_id].name
+    # Format: [P0] BirdPowerPickBirdFromHandDecision | N choices | head:misc_rare
+    header_prefix = (
+        f"[{deciding_player_name}] BirdPowerPickBirdFromHandDecision "
+        f"| {len(choices)} choices"
     )
-    header_idx = eng.state.log.index(header)
+    matching = [line for line in eng.state.log if line.startswith(header_prefix)]
+    assert matching, f"No header starting with {header_prefix!r} in log"
+    header_idx = eng.state.log.index(matching[0])
     # Each shown option emits 2 lines (label line + prob/score line); only 1
     # option clears the 1% floor so we expect exactly 2 lines total.
     ranked = eng.state.log[header_idx + 1 :]

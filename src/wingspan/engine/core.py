@@ -153,7 +153,7 @@ class Engine:
         depends on how many birds the player kept (see
         ``_maybe_resolve_deferred_setup_food``)."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
-        eng.log_section("=== GAME START ===")
+        eng.log_section("=== GAME START ===", global_line=True)
         eng.instrumentation.game_start(engine=eng)
         log_format.log_game_setup(eng)
         eng._setup_phase(
@@ -163,7 +163,7 @@ class Engine:
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
-        eng.log_section("=== GAME END ===")
+        eng.log_section("=== GAME END ===", global_line=True)
         eng.instrumentation.game_end(engine=eng)
         return eng
 
@@ -187,7 +187,7 @@ class Engine:
         ``split_setup_food`` defers food to sequential in-game food decisions after
         each seat's card-keep is applied (the ``split_setup_food`` regime)."""
         eng = Engine(gs, agents=agents, instrumentation=instrumentation)
-        eng.log_section("=== GAME START ===")
+        eng.log_section("=== GAME START ===", global_line=True)
         eng.instrumentation.game_start(engine=eng)
         log_format.log_game_setup(eng)
         eng._setup_phase_fixed(choose_setups, defer_food=split_setup_food)
@@ -195,7 +195,7 @@ class Engine:
             eng._play_round(round_idx, agents)
         scoring.final_scoring(eng)
         eng.state.game_over = True
-        eng.log_section("=== GAME END ===")
+        eng.log_section("=== GAME END ===", global_line=True)
         eng.instrumentation.game_end(engine=eng)
         return eng
 
@@ -249,24 +249,56 @@ class Engine:
         )
         return choice
 
-    def log(self, msg: str) -> None:
-        self.state.log.append(msg)
+    def log(self, msg: str, player_id: int | None = None) -> None:
+        """Append ``msg`` to both the plain-text log and the structured log.
 
-    def log_section(self, msg: str) -> None:
+        ``player_id`` tags the entry with the responsible player — used by
+        the CLI to split per-player log files.  Pass ``None`` explicitly for
+        truly global lines (section headers, game start/end).  The default
+        (omitting the argument) uses ``state.current_player``, which is
+        correct for the vast majority of per-turn log lines."""
+        if player_id is None:
+            resolved_id: int | None = self.state.current_player
+        else:
+            resolved_id = player_id
+        self.state.log.append(msg)
+        self.state.log_entries.append(state.LogEntry(player_id=resolved_id, text=msg))
+
+    def log_global(self, msg: str) -> None:
+        """Append a global line (no player attribution) to both logs.
+
+        Use for section headers (``=== ROUND 1 ===``), game start/end banners,
+        and any line that belongs to no single player's perspective."""
+        self.state.log.append(msg)
+        self.state.log_entries.append(state.LogEntry(player_id=None, text=msg))
+
+    def log_section(self, msg: str, *, global_line: bool = False) -> None:
         """Log a ``===`` section header, ensuring exactly one blank line before it.
 
         Consecutive ``log_section`` calls share a single blank line between
         them (no double-blanks); the first call in an empty log skips the
-        leading blank entirely."""
+        leading blank entirely.
+
+        Pass ``global_line=True`` for banners that belong to no single player
+        (round headers, game start/end).  The default uses the current player."""
         if self.state.log and self.state.log[-1] != "":
-            self.log("")
-        self.log(msg)
+            if global_line:
+                self.log_global("")
+            else:
+                self.log("")
+        if global_line:
+            self.log_global(msg)
+        else:
+            self.log(msg)
 
     def log_skipped_decision(self, player_id: int, reason: str) -> None:
         """Log that a decision point resolved without consulting the agent —
         either auto-picked (``ask``'s single-choice guard) or never built
         because no legal choice existed (handlers' empty-choices guards)."""
-        self.log(f"[{self.state.players[player_id].name}] skipping decision, {reason}")
+        self.log(
+            f"[{self.state.players[player_id].name}] skipping decision, {reason}",
+            player_id=player_id,
+        )
 
     # ------------------------------------------------------------------
     # Decision plumbing
@@ -418,6 +450,9 @@ class Engine:
         after the card-keep is applied."""
         for player in self.state.players:
             dealt_cards, dealt_bonus = self._deal_setup_inputs(player)
+            # Set current_player before any logging so all setup lines for this
+            # player are attributed to them in the structured log.
+            self.state.current_player = player.id
             if defer_bonus and defer_food:
                 self.log_section(f"=== SETUP: {player.name} CHOOSING BIRDS ===")
             elif defer_bonus:
@@ -433,6 +468,7 @@ class Engine:
                     f"=== SETUP: {player.name} CHOOSING BIRDS, FOOD, AND BONUS CARD ==="
                 )
             log_format.log_dealt_hand(self, player, dealt_cards)
+            log_format.log_dealt_bonus(self, dealt_cards, dealt_bonus, player)
             self._resolve_setup_choice(
                 player,
                 agents,
@@ -463,8 +499,10 @@ class Engine:
         for player in self.state.players:
             dealt_cards, dealt_bonus = dealt[player.id]
             sc = keeps[player.id].to_setup_choice()
+            self.state.current_player = player.id
             self.log_section(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
             log_format.log_dealt_hand(self, player, dealt_cards)
+            log_format.log_dealt_bonus(self, dealt_cards, dealt_bonus, player)
             self._apply_setup_choice(
                 player, dealt_cards, dealt_bonus, sc, defer_food=defer_food
             )
@@ -500,9 +538,10 @@ class Engine:
                     pb.activations = 0
         self.log_section(
             f"=== ROUND {round_idx + 1} "
-            f"({state.ROUND_CUBES[round_idx]} ACTIONS EACH) ==="
+            f"({state.ROUND_CUBES[round_idx]} ACTIONS EACH) ===",
+            global_line=True,
         )
-        self.log(f"Round goal: {self.state.round_goals[round_idx].description}")
+        self.log_global(f"Round goal: {self.state.round_goals[round_idx].description}")
         self.instrumentation.round_start(engine=self, round_num=round_idx)
         # Turn order rotates each round off the randomly-chosen first player;
         # both players hold equal cubes, so a strict alternation drains them
@@ -601,13 +640,16 @@ class Engine:
             player, dealt_cards, dealt_bonus, chosen, defer_food=defer_food
         )
         kept_names = ", ".join(bird.name for bird in chosen.kept_cards) or "(none)"
-        foods_str = ", ".join(food.value for food in chosen.kept_foods) or "none"
-        bonus_part = (
-            f" | bonus: {chosen.bonus_card.name}"
-            if chosen.bonus_card is not None
-            else ""
-        )
-        self.log(f"[{player.name}] keeps {kept_names}, foods [{foods_str}]{bonus_part}")
+        # Omit foods and bonus when deferred — they haven't been chosen yet and
+        # printing them as "(none)" is misleading.
+        suffix_parts: list[str] = []
+        if not defer_food:
+            foods_str = ", ".join(food.value for food in chosen.kept_foods) or "none"
+            suffix_parts.append(f"foods [{foods_str}]")
+        if not defer_bonus and chosen.bonus_card is not None:
+            suffix_parts.append(f"bonus: {chosen.bonus_card.name}")
+        suffix = (", " + ", ".join(suffix_parts)) if suffix_parts else ""
+        self.log(f"[{player.name}] keeps {kept_names}{suffix}")
         self._maybe_resolve_deferred_setup_bonus(player, dealt_bonus, chosen)
         self._maybe_resolve_deferred_setup_food(
             player, agents[player.id], len(chosen.kept_cards), defer_food=defer_food

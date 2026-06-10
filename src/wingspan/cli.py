@@ -25,7 +25,7 @@ import sys
 import torch
 import yaml
 
-from wingspan import engine, players
+from wingspan import engine, players, state
 from wingspan.agents import display
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
@@ -86,9 +86,14 @@ def main_play(argv: list[str] | None = None) -> int:
                 )
             if args.log:
                 log_path = args.log if args.games == 1 else f"{args.log}.{game_idx}"
-                _write_log(log_path, eng.state.log)
-                if not args.quiet:
-                    print(f"  log -> {log_path}")
+                if args.collate:
+                    _write_log(log_path, eng.state.log)
+                    if not args.quiet:
+                        print(f"  log -> {log_path}")
+                else:
+                    _write_split_logs(log_path, eng.state.log_entries)
+                    if not args.quiet:
+                        print(f"  log -> {log_path}_p0.log, {log_path}_p1.log")
     finally:
         instrumentation.close()
     return 0
@@ -118,6 +123,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--games", type=int, default=1, help="Number of games to play.")
     parser.add_argument(
         "--log", type=str, default=None, help="Path to write detailed game log(s)."
+    )
+    parser.add_argument(
+        "--collate",
+        action="store_true",
+        help="Write a single interleaved log file instead of per-player files "
+        "(FILE_p0.log / FILE_p1.log). Use when a single unified view is preferred.",
     )
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--p0", type=str, default="last", help=spec_help % "0")
@@ -198,3 +209,19 @@ def _write_log(path: str, lines: list[str]) -> None:
     with open(path, "w", encoding="utf-8") as log_file:
         for line in lines:
             log_file.write(display.strip_ansi(line) + "\n")
+
+
+def _write_split_logs(base_path: str, entries: list[state.LogEntry]) -> None:
+    """Write per-player log files from structured log entries.
+
+    Produces ``<base_path>_p0.log`` and ``<base_path>_p1.log``.  Each file
+    contains all entries attributed to that player (``player_id == N``) plus
+    all global entries (``player_id is None``), preserving the original
+    interleaved order.  This gives each player a coherent perspective on the
+    game without the other player's private decision annotations."""
+    for player_idx in (0, 1):
+        player_path = f"{base_path}_p{player_idx}.log"
+        with open(player_path, "w", encoding="utf-8") as log_file:
+            for entry in entries:
+                if entry.player_id is None or entry.player_id == player_idx:
+                    log_file.write(display.strip_ansi(entry.text) + "\n")

@@ -24,6 +24,19 @@ scoring) lives in sibling modules as free functions whose first argument is the
   callbacks. Never bypass `ask` — constructing a `Choice` directly skips validation.
 - `Engine.agent_for(player) -> Agent` — returns the agent assigned to a seat.
 - `Engine.state` — the live `GameState`.
+- `Engine.log(msg, player_id=None)` — appends to both `state.log` (plain `str`
+  list for backward compat) and `state.log_entries` (structured `LogEntry`
+  list). Omitting `player_id` defaults to `state.current_player`. Pass
+  `player_id=None` explicitly (or use `log_global`) for truly global lines.
+- `Engine.log_global(msg)` — appends a global line (no player attribution) to
+  both logs. Use for round headers, game start/end banners.
+- `Engine.log_section(msg, global_line=False)` — section header with blank-line
+  guarantee. Pass `global_line=True` for banners that belong to no single player.
+
+**`state.LogEntry`** — Pydantic model (`player_id: int | None`, `text: str`).
+Parallel structured log in `GameState.log_entries`; consumed by `cli._write_split_logs`
+to produce per-player log files (`FILE_p0.log` / `FILE_p1.log`). `player_id=None`
+marks global lines that appear in both per-player files.
 
 **`actions.py`** — The four main actions as free functions:
 `do_gain_food(engine, agent)`, `do_lay_eggs(engine, agent)`,

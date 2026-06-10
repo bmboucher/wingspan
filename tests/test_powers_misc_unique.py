@@ -771,7 +771,7 @@ def test_predator_hunt_empty_deck_logs_and_skips():
     gs.bird_discard = []
 
     log_lines: list[str] = []
-    eng.log = lambda msg: log_lines.append(msg)  # type: ignore[method-assign]
+    eng.log = lambda msg, player_id=None: log_lines.append(msg)  # type: ignore[method-assign]
     powers.dispatch_power(eng, _no_agent, player, pb, cards.Habitat.FOREST, "activate")
     assert pb.tucked_cards == 0
     assert any("deck empty" in line for line in log_lines)
@@ -856,7 +856,7 @@ def test_repeat_predator_power_fires_the_target_predators_hunt():
         raise AssertionError(f"unexpected decision: {type(decision).__name__}")
 
     log_lines: list[str] = []
-    eng.log = lambda msg: log_lines.append(msg)  # type: ignore[method-assign]
+    eng.log = lambda msg, player_id=None: log_lines.append(msg)  # type: ignore[method-assign]
     powers.dispatch_power(
         eng, agent, player, repeat_pb, cards.Habitat.WETLAND, "activate"
     )
@@ -918,7 +918,7 @@ def test_repeat_predator_power_fires_a_dice_roll_predator():
         raise AssertionError(f"unexpected decision: {type(decision).__name__}")
 
     log_lines: list[str] = []
-    eng.log = lambda msg: log_lines.append(msg)  # type: ignore[method-assign]
+    eng.log = lambda msg, player_id=None: log_lines.append(msg)  # type: ignore[method-assign]
     powers.dispatch_power(
         eng, agent, player, repeat_pb, cards.Habitat.WETLAND, "activate"
     )

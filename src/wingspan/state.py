@@ -104,6 +104,21 @@ def _new_board() -> Board:
 # are resolved by the model_rebuild() calls at the end of the leaf section.
 
 
+class LogEntry(pydantic.BaseModel):
+    """A single line in the game log with optional player attribution.
+
+    ``player_id`` is ``None`` for global lines (round headers, goal lines,
+    section dividers); it is the deciding player's id for turn and decision
+    lines so per-player log files can be split from the interleaved log."""
+
+    player_id: int | None
+    text: str
+
+
+def _new_log_entry_list() -> list[LogEntry]:
+    return []
+
+
 class GameState(pydantic.BaseModel):
     """The full game state: players, decks, board, supplies, and the
     cumulative game log."""
@@ -147,7 +162,11 @@ class GameState(pydantic.BaseModel):
         default_factory=_new_round_goal_result_list
     )
     game_over: bool = False
+    # Plain-text log (backward-compat): every line as a bare string.
     log: list[str] = pydantic.Field(default_factory=list)
+    # Structured log: same lines, each tagged with the deciding player's id
+    # (or None for global lines).  Used by the CLI to split per-player files.
+    log_entries: list[LogEntry] = pydantic.Field(default_factory=_new_log_entry_list)
 
     # Per-turn scratch state. Reset at the start of every turn by the engine.
     # Each entry is one power-granted extra-play credit; ``None`` = unrestricted,

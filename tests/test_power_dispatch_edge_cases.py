@@ -75,7 +75,7 @@ def test_apply_effect_unimplemented_logs_skip_message():
     eff = cards.Effect(kind=cards.EffectKind.UNIMPLEMENTED, amount=0, raw_text=raw)
 
     log_lines: list[str] = []
-    eng.log = lambda msg: log_lines.append(msg)  # type: ignore[method-assign]
+    eng.log = lambda msg, player_id=None: log_lines.append(msg)  # type: ignore[method-assign]
     dispatch.apply_effect(
         eng, _no_agent, player, pb_raw, cards.Habitat.WETLAND, eff, "activate"
     )

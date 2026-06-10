@@ -18,8 +18,8 @@ import pytest  # noqa: E402
 from wingspan import cli  # noqa: E402
 
 
-def test_random_vs_random_game_runs_and_writes_log(tmp_path: pathlib.Path):
-    """One quick random-vs-random game exits 0 and writes a non-empty log."""
+def test_random_vs_random_game_runs_and_writes_split_logs(tmp_path: pathlib.Path):
+    """One quick random-vs-random game exits 0 and writes non-empty per-player logs."""
     log_path = tmp_path / "game.log"
     exit_code = cli.main_play(
         [
@@ -35,11 +35,69 @@ def test_random_vs_random_game_runs_and_writes_log(tmp_path: pathlib.Path):
         ]
     )
     assert exit_code == 0
+    # Default: produces _p0.log and _p1.log, not the bare path.
+    assert (
+        not log_path.exists()
+    ), "collate mode not requested; bare log should not exist"
+    p0_log = tmp_path / "game.log_p0.log"
+    p1_log = tmp_path / "game.log_p1.log"
+    assert p0_log.exists() and p0_log.read_text(encoding="utf-8").strip()
+    assert p1_log.exists() and p1_log.read_text(encoding="utf-8").strip()
+
+
+def test_collate_flag_writes_single_log(tmp_path: pathlib.Path):
+    """With ``--collate`` the interleaved log is written to the bare path."""
+    log_path = tmp_path / "game.log"
+    exit_code = cli.main_play(
+        [
+            "--p0",
+            "random",
+            "--p1",
+            "random",
+            "--seed",
+            "123",
+            "--quiet",
+            "--collate",
+            "--log",
+            str(log_path),
+        ]
+    )
+    assert exit_code == 0
     assert log_path.read_text(encoding="utf-8").strip()
 
 
+def test_split_logs_player_attribution(tmp_path: pathlib.Path):
+    """Per-player log files each contain all global lines and only their own
+    decision lines; lines tagged to the other player are absent."""
+    log_path = tmp_path / "split.log"
+    exit_code = cli.main_play(
+        [
+            "--p0",
+            "random",
+            "--p1",
+            "random",
+            "--seed",
+            "42",
+            "--quiet",
+            "--log",
+            str(log_path),
+        ]
+    )
+    assert exit_code == 0
+    p0_text = (tmp_path / "split.log_p0.log").read_text(encoding="utf-8")
+    p1_text = (tmp_path / "split.log_p1.log").read_text(encoding="utf-8")
+    # Both files should contain global lines (e.g., round headers).
+    assert "=== ROUND 1" in p0_text
+    assert "=== ROUND 1" in p1_text
+    # The combined line count across both files should exceed the individual
+    # since global lines appear in both.
+    assert len(p0_text.splitlines()) + len(p1_text.splitlines()) > max(
+        len(p0_text.splitlines()), len(p1_text.splitlines())
+    )
+
+
 def test_multi_game_logs_get_index_suffixes(tmp_path: pathlib.Path):
-    """With ``--games N`` each game's log lands at ``<path>.<game_idx>``."""
+    """With ``--games N --collate`` each game's log lands at ``<path>.<game_idx>``."""
     log_path = tmp_path / "games.log"
     exit_code = cli.main_play(
         [
@@ -52,6 +110,7 @@ def test_multi_game_logs_get_index_suffixes(tmp_path: pathlib.Path):
             "--games",
             "2",
             "--quiet",
+            "--collate",
             "--log",
             str(log_path),
         ]
