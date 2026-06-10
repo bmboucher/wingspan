@@ -1,0 +1,18 @@
+{
+  "fixedSectionOk": true,
+  "nodesRecovered": 1,
+  "edgesRestored": 1,
+  "crossBatchEdgesAdded": 0,
+  "typesRemapped": 0,
+  "complexityRemapped": 0,
+  "notes": [
+    "Fixed section: no normalization counts were reported in the merge script output for this run, so there is nothing to validate there. Output counts (637 nodes, 1365 edges before review) are reasonable.",
+    "Recovered node: function:src/wingspan/reporting/inspect_cli.py:_print_params_section — function exists at lines 349-363 of the source file; the LLM batch that covered inspect_cli.py produced a contains edge to this node but never emitted a node definition for it. Node constructed from source with lineRange [349, 363], complexity 'simple', tags ['reporting', 'component', 'utility'].",
+    "Restored edge: file:src/wingspan/reporting/inspect_cli.py -> function:src/wingspan/reporting/inspect_cli.py:_print_params_section (contains, forward, weight 1.0).",
+    "The 15 dropped document: -> file: self-referencing edges were correctly dropped by the merge script. All 31 INDEX.md and docs/*.md files are represented as document: typed nodes only; no file: twins exist for them, so document:src/wingspan/*/INDEX.md -> file:src/wingspan/*/INDEX.md edges would have been invalid.",
+    "Cross-batch import edges: the merge script recovered 276 imports edges from the import map (290 entries scanned). The remaining 14 unrecovered entries are likely external dependencies or files not modeled as nodes. No additional cross-batch imports edges were identified as missing — all file: nodes referenced in the import map that exist in the graph already have their imports edges.",
+    "No unknown node types found: all 8 types (file, function, class, service, config, document, table, resource) are standard.",
+    "No unknown complexity values found: all values are simple/moderate/complex.",
+    "Final graph: 638 nodes, 1642 edges, 0 dangling edges, 0 duplicate node IDs."
+  ]
+}

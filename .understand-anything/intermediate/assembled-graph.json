@@ -812,7 +812,7 @@
       "type": "file",
       "name": "core.py",
       "filePath": "src/wingspan/engine/core.py",
-      "summary": "Defines the Engine class — the central game orchestrator that owns the turn loop, setup phase, Agent protocol plumbing, and ask() validation gateway.",
+      "summary": "Defines the Engine class \u00e2\u20ac\u201d the central game orchestrator that owns the turn loop, setup phase, Agent protocol plumbing, and ask() validation gateway.",
       "tags": [
         "engine",
         "orchestration",
@@ -1285,7 +1285,7 @@
       "type": "file",
       "name": "state.py",
       "filePath": "src/wingspan/state.py",
-      "summary": "Defines all mutable game state models: GameState (full game), Player, Board, PlayedBird, Birdfeeder, FoodPool, and RoundGoalResult — the core data layer for the simulation.",
+      "summary": "Defines all mutable game state models: GameState (full game), Player, Board, PlayedBird, Birdfeeder, FoodPool, and RoundGoalResult \u00e2\u20ac\u201d the core data layer for the simulation.",
       "tags": [
         "data-model",
         "state",
@@ -1411,7 +1411,7 @@
         64,
         190
       ],
-      "summary": "Pydantic model that is the single source of truth for all neural network topology hyperparameters — layer widths, activation, dropout, card embedding dim, hand encoder config, and tray set embedding mode.",
+      "summary": "Pydantic model that is the single source of truth for all neural network topology hyperparameters \u00e2\u20ac\u201d layer widths, activation, dropout, card embedding dim, hand encoder config, and tray set embedding mode.",
       "tags": [
         "data-model",
         "configuration"
@@ -1551,7 +1551,7 @@
       "type": "file",
       "name": "layout.py",
       "filePath": "src/wingspan/encode/layout.py",
-      "summary": "Defines `EncodingSpec` (the selector between main-game and setup encoding) and computes all top-level dimension constants — trunk input, choice input, choice feature, state feature, decision-type, and family counts — that wire together the stripe layout and the neural network input layers.",
+      "summary": "Defines `EncodingSpec` (the selector between main-game and setup encoding) and computes all top-level dimension constants \u00e2\u20ac\u201d trunk input, choice input, choice feature, state feature, decision-type, and family counts \u00e2\u20ac\u201d that wire together the stripe layout and the neural network input layers.",
       "tags": [
         "configuration",
         "data-model",
@@ -1629,7 +1629,7 @@
         308,
         325
       ],
-      "summary": "Builds the static (n_birds × feature_dim) matrix of per-bird attribute vectors, used as the card encoder's input buffer and cached for inference.",
+      "summary": "Builds the static (n_birds \u00c3\u2014 feature_dim) matrix of per-bird attribute vectors, used as the card encoder's input buffer and cached for inference.",
       "tags": [
         "utility",
         "data-model"
@@ -1693,7 +1693,7 @@
       "type": "file",
       "name": "descriptors.py",
       "filePath": "src/wingspan/encode/stripes/descriptors.py",
-      "summary": "Defines the three Pydantic descriptor types — `SubFieldDescriptor`, `StripeDescriptor`, and `VectorLayout` — that form the self-documenting layer layout schema used by the HTML report and compat shims.",
+      "summary": "Defines the three Pydantic descriptor types \u00e2\u20ac\u201d `SubFieldDescriptor`, `StripeDescriptor`, and `VectorLayout` \u00e2\u20ac\u201d that form the self-documenting layer layout schema used by the HTML report and compat shims.",
       "tags": [
         "data-model",
         "type-definition"
@@ -2789,6 +2789,23 @@
       "complexity": "moderate"
     },
     {
+      "id": "function:src/wingspan/reporting/inspect_cli.py:_print_params_section",
+      "type": "function",
+      "name": "_print_params_section",
+      "filePath": "src/wingspan/reporting/inspect_cli.py",
+      "lineRange": [
+        349,
+        363
+      ],
+      "summary": "Prints the per-layer/per-block parameter breakdown to the Rich console, era-routed so totals match the run checkpoint.",
+      "tags": [
+        "reporting",
+        "component",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
       "id": "function:src/wingspan/tournament/dashboard.py:build_layout",
       "type": "function",
       "name": "build_layout",
@@ -3435,7 +3452,7 @@
         "training"
       ],
       "complexity": "complex",
-      "languageNotes": "This is an unusually large rendering module (1321 lines) built entirely from Rich Text primitives — no external diagram library. The ArchitectureDiagram class implements __rich_console__ for Live display integration."
+      "languageNotes": "This is an unusually large rendering module (1321 lines) built entirely from Rich Text primitives \u00e2\u20ac\u201d no external diagram library. The ArchitectureDiagram class implements __rich_console__ for Live display integration."
     },
     {
       "id": "class:src/wingspan/training/configure/arch_diagram.py:ArchitectureDiagram",
@@ -4002,7 +4019,7 @@
       "type": "file",
       "name": "runstate.py",
       "filePath": "src/wingspan/training/runstate.py",
-      "summary": "Defines RunState — the central mutable state object for a training run — tracking game history, EWMA metrics, timing, eval history, events, and progress; includes Phase and TrainingPhase enums.",
+      "summary": "Defines RunState \u00e2\u20ac\u201d the central mutable state object for a training run \u00e2\u20ac\u201d tracking game history, EWMA metrics, timing, eval history, events, and progress; includes Phase and TrainingPhase enums.",
       "tags": [
         "data-model",
         "training",
@@ -4208,7 +4225,7 @@
       "type": "file",
       "name": "base.py",
       "filePath": "src/wingspan/agents/base.py",
-      "summary": "Defines the reference random agent — a factory returning a closure that satisfies the Agent protocol by sampling uniformly from the offered choices using a provided RNG.",
+      "summary": "Defines the reference random agent \u00e2\u20ac\u201d a factory returning a closure that satisfies the Agent protocol by sampling uniformly from the offered choices using a provided RNG.",
       "tags": [
         "agents",
         "factory",
@@ -5073,7 +5090,7 @@
         136,
         151
       ],
-      "summary": "Loads a tournament competitor as a callable agent — either a random agent or a model-backed greedy policy agent loaded from the checkpoint directory.",
+      "summary": "Loads a tournament competitor as a callable agent \u00e2\u20ac\u201d either a random agent or a model-backed greedy policy agent loaded from the checkpoint directory.",
       "tags": [
         "factory",
         "tournament",
@@ -5279,7 +5296,7 @@
         "entry-point"
       ],
       "complexity": "complex",
-      "languageNotes": "TrainConfig is the single source of truth for architecture topology — its arch/setup_arch properties build ModelArchitecture/SetupArchitecture from the config fields, and architecture_key identifies encoding-shape changes for checkpoint compat."
+      "languageNotes": "TrainConfig is the single source of truth for architecture topology \u00e2\u20ac\u201d its arch/setup_arch properties build ModelArchitecture/SetupArchitecture from the config fields, and architecture_key identifies encoding-shape changes for checkpoint compat."
     },
     {
       "id": "file:src/wingspan/training/configure/__init__.py",
@@ -5321,7 +5338,7 @@
         "ui"
       ],
       "complexity": "complex",
-      "languageNotes": "Defines ~1100 lines of field metadata for every TrainConfig attribute, including visibility predicates (visible_when), grouping, help text, and step sizes — the single source of truth for the config form layout."
+      "languageNotes": "Defines ~1100 lines of field metadata for every TrainConfig attribute, including visibility predicates (visible_when), grouping, help text, and step sizes \u00e2\u20ac\u201d the single source of truth for the config form layout."
     },
     {
       "id": "file:src/wingspan/training/configure/keys.py",
@@ -6003,7 +6020,7 @@
       "type": "document",
       "name": "coverage_baseline.txt",
       "filePath": "coverage_baseline.txt",
-      "summary": "Single-line file storing the current test coverage baseline percentage (85%), used by the quality gate script as a one-way ratchet — the gate fails if measured coverage drops below this value.",
+      "summary": "Single-line file storing the current test coverage baseline percentage (85%), used by the quality gate script as a one-way ratchet \u00e2\u20ac\u201d the gate fails if measured coverage drops below this value.",
       "tags": [
         "documentation",
         "ci-cd",
@@ -6067,7 +6084,7 @@
         "containerization"
       ],
       "complexity": "simple",
-      "languageNotes": "Template file — three placeholders (<ACCOUNT>, <REGION>) must be substituted before registering; designed as a Terraform-free alternative to main.tf for registering the task definition via the AWS CLI."
+      "languageNotes": "Template file \u00e2\u20ac\u201d three placeholders (<ACCOUNT>, <REGION>) must be substituted before registering; designed as a Terraform-free alternative to main.tf for registering the task definition via the AWS CLI."
     },
     {
       "id": "resource:deploy/main.tf",
@@ -6161,7 +6178,7 @@
         "infrastructure"
       ],
       "complexity": "moderate",
-      "languageNotes": "The `train` block maps 1:1 onto wingspan.training.config.TrainConfig; omitted fields use TrainConfig defaults. No credentials are embedded — authentication is delegated to the AWS standard chain (IAM task role on Fargate, ~/.aws locally)."
+      "languageNotes": "The `train` block maps 1:1 onto wingspan.training.config.TrainConfig; omitted fields use TrainConfig defaults. No credentials are embedded \u00e2\u20ac\u201d authentication is delegated to the AWS standard chain (IAM task role on Fargate, ~/.aws locally)."
     },
     {
       "id": "document:docs/BIRDS.md",
@@ -6259,7 +6276,7 @@
       "type": "document",
       "name": "TRAINING.md",
       "filePath": "docs/TRAINING.md",
-      "summary": "Authoritative training program document covering the full RL self-play pipeline: actor-critic algorithm selection, epoch sizing, throughput profiling (collection vs. update bottleneck), GPU memory optimization (padding elimination), checkpointing strategy, architecture scaling guidance, phased roadmap (Phase 0–3), and MLOps logging recommendations.",
+      "summary": "Authoritative training program document covering the full RL self-play pipeline: actor-critic algorithm selection, epoch sizing, throughput profiling (collection vs. update bottleneck), GPU memory optimization (padding elimination), checkpointing strategy, architecture scaling guidance, phased roadmap (Phase 0\u00e2\u20ac\u201c3), and MLOps logging recommendations.",
       "tags": [
         "documentation",
         "training",
@@ -6343,7 +6360,7 @@
         "infrastructure"
       ],
       "complexity": "complex",
-      "languageNotes": "Distinguishes exit code 1 (genuine check failure — fix the code) from exit code 2 (infrastructure/environment failure — stop and ask a human) so callers can automate retry logic without masking environment breakage."
+      "languageNotes": "Distinguishes exit code 1 (genuine check failure \u00e2\u20ac\u201d fix the code) from exit code 2 (infrastructure/environment failure \u00e2\u20ac\u201d stop and ask a human) so callers can automate retry logic without masking environment breakage."
     },
     {
       "id": "function:scripts/quality_gate.sh:infra_error",
@@ -7000,7 +7017,7 @@
       "type": "file",
       "name": "test_birdfeeder.py",
       "filePath": "tests/test_birdfeeder.py",
-      "summary": "Comprehensive test suite for the birdfeeder mechanics — reroll distribution, choice-die semantics, feeder reset offers (auto and prompted), and the main gain-food action's interaction with reset decisions.",
+      "summary": "Comprehensive test suite for the birdfeeder mechanics \u00e2\u20ac\u201d reroll distribution, choice-die semantics, feeder reset offers (auto and prompted), and the main gain-food action's interaction with reset decisions.",
       "tags": [
         "test",
         "game-mechanics",
@@ -7026,7 +7043,7 @@
       "type": "file",
       "name": "test_bonus_categories.py",
       "filePath": "tests/test_bonus_categories.py",
-      "summary": "Test suite for bonus card category scoring — tagged bird matching, per-bird payouts, tiered scoring, multiple-card summation, and setup help line formatting.",
+      "summary": "Test suite for bonus card category scoring \u00e2\u20ac\u201d tagged bird matching, per-bird payouts, tiered scoring, multiple-card summation, and setup help line formatting.",
       "tags": [
         "test",
         "bonus-cards",
@@ -7130,7 +7147,7 @@
       "type": "file",
       "name": "test_compat_shim_v0_0.py",
       "filePath": "tests/test_compat_shim_v0_0.py",
-      "summary": "Tests for the v0.0 compat shim — verifying frozen encoding dims match the pinned fixture era, row-by-row encoding parity between legacy and live encoders, and version-predicate routing for PolicyValueNet construction.",
+      "summary": "Tests for the v0.0 compat shim \u00e2\u20ac\u201d verifying frozen encoding dims match the pinned fixture era, row-by-row encoding parity between legacy and live encoders, and version-predicate routing for PolicyValueNet construction.",
       "tags": [
         "test",
         "compatibility",
@@ -7169,7 +7186,7 @@
       "type": "file",
       "name": "test_convergence_charts.py",
       "filePath": "tests/test_convergence_charts.py",
-      "summary": "Tests for convergence chart logic — score-margin windowing, EWMA series for win-rate/margin/score, opponent-change marker columns, round-trip serialization of change iterations, and Rich dashboard rendering with long histories.",
+      "summary": "Tests for convergence chart logic \u00e2\u20ac\u201d score-margin windowing, EWMA series for win-rate/margin/score, opponent-change marker columns, round-trip serialization of change iterations, and Rich dashboard rendering with long histories.",
       "tags": [
         "test",
         "training",
@@ -21561,6 +21578,13 @@
       "direction": "forward",
       "weight": 0.7,
       "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:src/wingspan/reporting/inspect_cli.py",
+      "target": "function:src/wingspan/reporting/inspect_cli.py:_print_params_section",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
     }
   ]
 }
