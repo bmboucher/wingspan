@@ -104,8 +104,9 @@ class PolicyValueNetV01(core.PolicyValueNet):
     The card encoder's first linear was trained against 229-wide input rows;
     this subclass overrides :meth:`_build_card_encoder` to keep that width and
     register the frozen v0.1 feature table. The state encoding is also frozen
-    at the v0.2 (771-dim) geometry via :meth:`encode_state`, because the v0.3
-    change that grew state to 790 dims postdates these checkpoints. Choice
+    at the v0.2 (771-dim) geometry via :meth:`encode_state` *and*
+    :meth:`_state_embed_offsets` (which slices it), because the v0.3 change that
+    grew state to 790 dims postdates these checkpoints. Choice
     encoding is identical to the live era. Constructed by the version-routing
     loaders (``PolicyValueNet.from_model_config``,
     ``players.loaders.load_policy_net``) — never by the training pipeline.
@@ -121,6 +122,15 @@ class PolicyValueNetV01(core.PolicyValueNet):
         from wingspan.compat import v0_2 as v0_2_module  # local: avoids import cycle
 
         return v0_2_module.encode_state_v02(game_state, decision, self.spec)
+
+    def _state_embed_offsets(self) -> tuple[int, int, int]:
+        """Slice the 771-dim v0.2 state vector at its frozen offsets — the same
+        seam ``PolicyValueNetV02`` overrides (pre-0.2 nets feed the same vector),
+        so the trunk reads the card-index / hand / decision stripes at the v0.2
+        columns, not the live 790-dim ones (``PolicyValueNetV00`` inherits this)."""
+        from wingspan.compat import v0_2 as v0_2_module  # local: avoids import cycle
+
+        return v0_2_module.state_embed_offsets_v02()
 
     def _build_card_encoder(self, arch: architecture.ModelArchitecture) -> None:
         """Register ``card_encoder`` at the frozen 229-wide input, and

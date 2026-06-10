@@ -149,6 +149,83 @@ def test_forward_pass(loaded_net: model.PolicyValueNet):
     assert torch.isfinite(value).all()
 
 
+def test_state_embed_offsets_are_frozen_to_v02(loaded_net: model.PolicyValueNet):
+    """The v0.2 net must slice its 771-dim state vector at the frozen v0.2
+    offsets, not the live 790-dim ones.
+
+    The 0.3 misc-scalar reshape added 19 dims *ahead* of the card-index block,
+    so the live ``OFF_*`` offsets sit 19 columns too far right for a v0.2 vector.
+    Because the slice widths coincide, slicing live would corrupt the trunk input
+    silently rather than crash (the regression found 2026-06-10). This pins the
+    override so reverting it (falling back to the inherited live offsets) fails."""
+    frozen = loaded_net._state_embed_offsets()
+    assert frozen == v0_2.state_embed_offsets_v02()
+    assert frozen == (
+        encode.OFF_CARD_INDEX - 19,
+        encode.OFF_HAND_MULTIHOT - 19,
+        encode.OFF_DECISION_TYPE - 19,
+    )
+    off_index, off_hand, off_decision = frozen
+    # The three stripes stay contiguous, and the decision-type tail keeps the
+    # exact width it has live (the reshape only shifted its start, not its size).
+    assert off_index + encode.N_CARD_INDEX_SLOTS == off_hand
+    assert off_hand + encode.HAND_MULTIHOT_DIM == off_decision
+    assert loaded_net.state_dim - off_decision == (
+        encode.state_size(loaded_net.spec) - encode.OFF_DECISION_TYPE
+    )
+
+
+def test_embed_state_reads_card_index_block_on_board_filled_state(
+    loaded_net: model.PolicyValueNet,
+):
+    """Board-filled regression: the ``torch.zeros`` forward pass cannot catch the
+    offset bug (an empty card-index block reads the same garbage either way), so
+    pin behavior on a real late-game state.
+
+    ``_embed_state`` must gather one card-table row per occupied board/tray slot
+    from the card-index block at the *frozen* v0.2 offset. Slicing 19 columns
+    right (the live offset) reads the wrong region — this asserts the slot
+    embeddings match a direct lookup at the frozen offset."""
+    # Play a game and take the most-populated recorded state (fullest board/tray).
+    record = collect.play_game(
+        loaded_net, torch.device(_DEVICE), random.Random(1), seed=20260610
+    )
+    off_index, _, off_decision = v0_2.state_embed_offsets_v02()
+    n_slots = encode.N_CARD_INDEX_SLOTS
+
+    def board_fill(step: typing.Any) -> int:
+        block = step.state[off_index : off_index + n_slots]
+        return int((block > 0).sum())
+
+    fullest = max(record.steps, key=board_fill)
+    assert board_fill(fullest) > 0, "expected at least one occupied board/tray slot"
+
+    state_vec = torch.tensor(fullest.state, dtype=torch.float32).unsqueeze(0)
+    card_table = loaded_net.card_table()
+    embed_dim = card_table.shape[1]
+    with torch.no_grad():
+        embedded = loaded_net._embed_state(state_vec, card_table)
+
+    # _embed_state emits [continuous | slot_emb | (tray_set_emb) | hand_emb]; the
+    # slot block starts right after the continuous prefix, which drops the 10-dim
+    # hand summary only when a distinct hand model is active.
+    cont_width = off_index + (loaded_net.state_dim - off_decision)
+    if loaded_net.arch.use_distinct_hand_model:
+        cont_width -= encode.HAND_SUMMARY_DIM
+    slot_region = embedded[0, cont_width : cont_width + n_slots * embed_dim]
+
+    card_idx = (
+        state_vec[0, off_index : off_index + n_slots]
+        .long()
+        .clamp_(0, encode.HAND_MULTIHOT_DIM)
+    )
+    expected = card_table[card_idx].reshape(-1)
+    assert torch.allclose(slot_region, expected), (
+        "slot embeddings do not match the card-index block at the frozen v0.2 "
+        "offset — _embed_state is slicing the state vector at the wrong columns"
+    )
+
+
 def test_loaded_net_plays_a_game(loaded_net: model.PolicyValueNet):
     """The v0.2 net drives a full self-play game through the production
     collector — the load-and-play guarantee end to end."""

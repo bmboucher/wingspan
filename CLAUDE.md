@@ -90,6 +90,8 @@ Agents resolve decisions, not raw action ints. `Choice` is the abstract base —
 
 `architecture.ModelArchitecture` is the single topology descriptor; `PolicyValueNet` builds all blocks from it; `TrainConfig` mirrors the fields via its `arch` property. Any new field that changes a tensor shape must join `ShapeKey` / `architecture_key` (FRESH change requiring a `MODEL_VERSION` bump + compat shim); shape-preserving knobs stay out of it (REGIME). See `docs/VERSIONING.md`.
 
+**The rehydration guarantee.** Loading a run's frozen config under any later same-MAJOR code must reconstitute a model that *computes identically* — old artifacts never adopt new behavior. The shim trigger is **any code change that would make a rehydrated artifact behave differently**, not just a shape change: the real line is config-carried (travels in the artifact, safely REGIME) vs code-carried (lives in the live codebase — featurizer math, slice offsets, inference branches — must be era-gated even when shape is unchanged). Freeze *all* geometry a net derives, not just `encode_state`. The lone exception is the engine: shared by both seats, it can't fork by version, so its choice-calc/apply/present changes are accepted drift. See `docs/VERSIONING.md`.
+
 ### Constants and per-turn scratch state
 
 Action/track/cost constants at the top of `state.py`; encoder dims and stripe offsets in `encode/layout.py`; chart sizes in `training/charts/geometry.py`. No magic numbers — promote them. Per-turn scratch lives on `GameState` as explicit typed fields reset by `GameState.reset_turn_state()`.

@@ -406,6 +406,24 @@ class PolicyValueNet(nn.Module):
             self._inference_card_table = cached
         return cached
 
+    def _state_embed_offsets(self) -> tuple[int, int, int]:
+        """The ``(card-index, hand-multi-hot, decision-type)`` slice offsets that
+        :meth:`_embed_state` splits the flat state vector on.
+
+        The live net reads them from the current ``encode.layout`` chain. Era
+        compat nets carry their own frozen-geometry state vector (e.g. the
+        771-dim pre-0.3 vector), so they override this to return the offsets
+        that vector was written with — never the live ones. Slicing an old
+        vector at live offsets is silent corruption: the widths can coincide
+        (no crash) while the columns read are wrong, so this seam, not just
+        ``encode_state``, must move with the era (see ``docs/VERSIONING.md`` and
+        ``compat/INDEX.md``)."""
+        return (
+            encode.OFF_CARD_INDEX,
+            encode.OFF_HAND_MULTIHOT,
+            encode.OFF_DECISION_TYPE,
+        )
+
     def _embed_state(
         self, state: torch.Tensor, card_table: torch.Tensor
     ) -> torch.Tensor:
@@ -422,9 +440,7 @@ class PolicyValueNet(nn.Module):
         the three tray index columns are turned into a derived multi-hot + set
         summary and passed through the same hand encoder (the tray's three
         per-slot ``card_table`` rows in ``slot_emb`` are untouched)."""
-        off_index = encode.OFF_CARD_INDEX
-        off_hand = encode.OFF_HAND_MULTIHOT
-        off_decision = encode.OFF_DECISION_TYPE
+        off_index, off_hand, off_decision = self._state_embed_offsets()
 
         # Card-index block -> per-slot card-table lookups, flattened. The encoder
         # always writes indices in range; the clamp only guards synthetic inputs.

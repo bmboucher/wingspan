@@ -14,6 +14,23 @@ Update this file in the same commit that bumps `MODEL_VERSION`.
 
 ---
 
+## The rehydration guarantee (the whole point)
+
+A run freezes its config to disk when it starts. Loading those files under any
+later same-MAJOR code must reconstitute a model that **computes identically** to
+the one that was saved — same encoding, same parameters, same inference logic.
+An old artifact never silently adopts new behavior: a 0.3 model loaded under 0.7
+code runs the 0.3 encoding and the 0.3 code paths, producing the same numbers it
+always did.
+
+So the trigger for an era shim is **any code change that would make a rehydrated
+artifact behave differently**, not merely one that alters a tensor shape. A
+shape change (FRESH) is the *most visible* kind — the weights won't even load —
+but it is one sufficient trigger, not the defining one. A shape-preserving change
+to how a feature value is computed, or new logic added in 0.5 that wasn't in 0.4,
+is just as much a break: under 0.5 code, a 0.4 model must keep taking the 0.4
+path. The one unavoidable exception is the engine (see below).
+
 ## Changelog
 
 ### v0.3 — one-hot round number and cube counts (current)
@@ -161,6 +178,48 @@ changes a tensor shape. A mismatch refuses the weights and restarts cleanly
 fixture set described above. Shape-preserving knobs (`activation`, `dropout`,
 learning rates, cadences) stay out of the key, resume freely, and need no
 version bump (**REGIME**).
+
+But shape is a proxy, and an incomplete one. The real fault line is
+**config-carried vs code-carried behavior**:
+
+- **Config-carried** behavior — `activation`, `dropout`, every dim and flag in
+  `model_config.json` — travels *with the artifact*. It rehydrates exactly
+  because the value is read back from the frozen file, so it needs no version
+  gate. This is why those knobs are safely REGIME: not because they preserve
+  shape, but because the artifact carries its own copy.
+- **Code-carried** behavior — featurizer arithmetic, the slice offsets a net
+  derives from `encode.layout`, an inference branch, a new computation added in
+  a later version — lives in the *live codebase*, not the artifact. Any change
+  to it must be era-gated (MINOR bump + shim) so an old artifact keeps the old
+  path, **even when no tensor shape changes**.
+
+A shape-preserving code-carried change is the dangerous case: it loads without
+complaint and silently misbehaves. The 2026-06-10 `_embed_state` bug was exactly
+this — a v0.2 net fed its 771-dim vector but sliced it with the live 790-dim
+offsets; the widths coincided, so nothing crashed while 19 columns of the trunk
+input were wrong. The fix freezes the slice offsets per era
+(`compat.v0_2.state_embed_offsets_v02`, overriding `_state_embed_offsets`), the
+same way `encode_state` is already frozen. So when adding an era shim, freeze
+**all** geometry the net derives from the layout, not just `encode_state` —
+every code-carried value the loaded artifact's behavior depends on.
+
+## The one accepted source of drift: the engine
+
+`engine.core.Engine` is shared by both players in a game and cannot fork its
+behavior by either player's model version — a single game runs one engine while
+the two seats may carry different-version nets. So a change to how the engine
+**calculates, applies, or presents** choices changes the inputs every model
+sees, and an old model will play slightly differently under newer engine code.
+This is accepted and unavoidable; it is *not* a versioned guarantee and never
+gets a shim.
+
+The seam is clean: the engine produces `GameState` and the menu of `Choice`s —
+that **may** drift across versions. The per-artifact featurization of that state
+into tensors — `encode_state` / `encode_choices` / `_embed_state` /
+`_embed_choices` and every offset, width, and feature value the net derives —
+**may not**: it is frozen per era by the compat shims. If you find yourself
+wanting to version-gate something inside the engine, that's the signal it
+belongs on the net side of the seam instead.
 
 ## Format rules
 

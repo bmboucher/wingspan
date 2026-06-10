@@ -20,7 +20,13 @@ them loadable:
 * :func:`encode_state_v02` produces the complete 771-dim state vector (the old
   scalar misc stripe, everything else live) for a v0.2 checkpoint.
 * :class:`PolicyValueNetV02` overrides :meth:`encode_state` so inference call
-  sites drive the net with the 771-dim input its weights expect.
+  sites drive the net with the 771-dim input its weights expect, and
+  :meth:`_state_embed_offsets` so the trunk *slices* that input at the v0.2
+  offsets it was written with (the live 790-dim offsets sit 19 columns too far
+  right; the widths coincide, so a live slice corrupts silently rather than
+  crashing).
+* :func:`state_embed_offsets_v02` is the frozen-geometry slice offsets the pre-0.3
+  nets feed to ``_embed_state`` (also used by ``PolicyValueNetV01``/``V00``).
 * :func:`state_stripe_layout_v02` produces the frozen stripe registry matching
   the 771-dim v0.2 state vector, for consistent reporting of old checkpoints.
 
@@ -52,6 +58,15 @@ _V02_CUBES_SCALE = 8.0  # action_cubes_left / 8.0 → value in [0, 1]
 _V02_GOAL_PTS_SCALE = 10.0  # round_goal_points / 10.0
 _V02_TRAY_SCALE = 3.0  # tray occupancy / 3.0
 _V02_DECK_SCALE = 100.0  # deck size / 100.0
+
+# The signed width change the 0.3 misc-scalar reshape made to the continuous
+# prefix: the frozen 7-dim v0.2 stripe minus the live 26-dim one-hot stripe,
+# i.e. -19.  Every stripe after misc_scalars — the card-index block, the hand
+# multi-hot, and the decision-type tail — sits 19 columns earlier in the 771-dim
+# v0.2 vector than in the live one.  Pinned to -19 by _assert_live_layout_contract.
+_MISC_DIM_DELTA = _V02_MISC_DIM - (
+    layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2 + 4
+)
 
 
 def uses_v0_2_state_encoding(artifact_version: str) -> bool:
@@ -121,6 +136,25 @@ def encode_state_v02(
     return np.concatenate(parts).astype(np.float32)
 
 
+def state_embed_offsets_v02() -> tuple[int, int, int]:
+    """The ``(card-index, hand-multi-hot, decision-type)`` slice offsets for the
+    frozen 771-dim v0.2 state vector.
+
+    These are the live ``encode.layout`` offsets shifted back by
+    :data:`_MISC_DIM_DELTA` (-19), because the 0.3 reshape grew the misc-scalar
+    stripe — which precedes all three — by 19 dims. ``PolicyValueNetV02`` (and
+    the pre-0.2 nets, which also feed the 771-dim vector) override
+    ``_embed_state``'s offsets with this, so an old checkpoint's state vector is
+    sliced at the columns it was written with rather than the live ones (the
+    widths coincide, so a live slice would corrupt silently — see
+    ``compat/INDEX.md``)."""
+    return (
+        layout.OFF_CARD_INDEX + _MISC_DIM_DELTA,
+        layout.OFF_HAND_MULTIHOT + _MISC_DIM_DELTA,
+        layout.OFF_DECISION_TYPE + _MISC_DIM_DELTA,
+    )
+
+
 class PolicyValueNetV02(core.PolicyValueNet):
     """A :class:`~wingspan.model.core.PolicyValueNet` frozen to the v0.2
     misc-scalar state geometry, for checkpoints written before artifact version 0.3.
@@ -141,6 +175,13 @@ class PolicyValueNetV02(core.PolicyValueNet):
         """Featurize ``game_state`` using the frozen v0.2 7-scalar misc stripe,
         yielding a 771-dim vector this checkpoint's trunk expects."""
         return encode_state_v02(game_state, decision, self.spec)
+
+    def _state_embed_offsets(self) -> tuple[int, int, int]:
+        """Slice the 771-dim v0.2 state vector at its own frozen offsets rather
+        than the live 790-dim ones — without this the trunk reads the
+        card-index / hand / decision stripes 19 columns too far right (the
+        widths coincide, so it would corrupt silently, not crash)."""
+        return state_embed_offsets_v02()
 
 
 def state_stripe_layout_v02(
@@ -170,10 +211,8 @@ def state_stripe_layout_v02(
     )
 
     # Rebuild the stripe list, replacing misc_scalars with the frozen 7-dim version
-    # and adjusting every subsequent stripe's offset by the -19 delta.
-    _MISC_DIM_DELTA = _V02_MISC_DIM - (
-        layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2 + 4
-    )
+    # and adjusting every subsequent stripe's offset by the -19 delta (the same
+    # shift state_embed_offsets_v02 applies to the model's slice offsets).
     patched: list[stripe_descriptors.StripeDescriptor] = []
     seen_misc = False
     for stripe in live_layout.stripes:
@@ -290,6 +329,12 @@ def _assert_live_layout_contract() -> None:
     assert layout.MAX_ACTION_CUBES == 8, (
         f"v0.2 shim freezes MAX_ACTION_CUBES at 8, but live value is "
         f"{layout.MAX_ACTION_CUBES}; update the shim"
+    )
+    # The model's frozen slice offsets (state_embed_offsets_v02) and the
+    # reporting registry both shift by this; -19 is the pre-0.3 vector's lag.
+    assert _MISC_DIM_DELTA == -19, (
+        f"v0.2 shim expects the misc-scalar reshape to shift later stripes by "
+        f"-19, but computed {_MISC_DIM_DELTA}; update the shim"
     )
 
 
