@@ -2,7 +2,7 @@
 # Run the quality gate: pyright -> isort -> black -> pyright -> pytest.
 #
 # Usage:
-#   bash scripts/quality_gate.sh [target-dir] [--pyright [args...]] [--format [paths...]] [--pytest [args...]] [--coverage]
+#   bash scripts/quality_gate.sh [target-dir] [--pyright [args...]] [--format [paths...]] [--pytest [args...]] [--coverage] [--debug]
 #
 # target-dir  Directory to check (default: repo root, derived from this script's
 #             location). Must come BEFORE the first section flag. Pass a worktree
@@ -30,6 +30,10 @@
 #                         serial+cov run instead of the default parallel run).
 #                         Used by merge_worktree.sh; not needed during worktree
 #                         iteration.
+#   --debug               Print full tool output instead of per-step summary lines.
+#                         By default the gate captures each tool's output and prints
+#                         only "tool ... OK [detail]" on success, plus full output
+#                         on failure. Pass --debug to see everything.
 #
 # Examples:
 #   bash scripts/quality_gate.sh                                # full gate (fast, no coverage)
@@ -38,6 +42,7 @@
 #   bash scripts/quality_gate.sh --pytest tests/test_smoke.py   # one test file
 #   bash scripts/quality_gate.sh --pytest -k house_wren -x      # pytest flags
 #   bash scripts/quality_gate.sh --pyright --pytest             # types + tests
+#   bash scripts/quality_gate.sh --debug                        # full verbose output
 #   bash scripts/quality_gate.sh .claude/worktrees/<slug> --pytest tests/test_smoke.py
 #
 # Exit codes:
@@ -60,6 +65,8 @@ EXIT_INFRA=2
 # import, so more workers than this buys little. 0 = run serial.
 WINGSPAN_PYTEST_WORKERS="${WINGSPAN_PYTEST_WORKERS:-8}"
 
+# ---- Helpers ----
+
 # Report an environment/script problem (as opposed to a genuine check failure)
 # and exit with the dedicated infrastructure code.
 infra_error() {
@@ -77,6 +84,66 @@ usage() {
     awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
 }
 
+# Print a section header — only in --debug mode.
+dbg_header() {
+    if [ "$DEBUG" = true ]; then
+        echo
+        echo "========================================"
+        echo "  $*"
+        echo "========================================"
+        echo
+    fi
+}
+
+# Run CMD [ARGS...] with output capture.
+#
+# quiet mode (default): on success echo "LABEL ... OK [detail]" where detail is
+#   produced by calling EXTRACT_FN with the captured output file as its argument.
+#   On failure, dump the captured output; the caller is responsible for the
+#   "GATE FAILED" message.
+# debug mode (--debug): dump captured output in both success and failure cases
+#   (the section header was already printed by dbg_header before this call).
+#
+# Returns the command's exit code.
+_gate_run() {
+    local label="$1" extract_fn="$2"
+    shift 2
+    local tmp rc detail
+    tmp="$(mktemp)"
+    "$@" >"$tmp" 2>&1
+    rc=$?
+    if [ $rc -eq 0 ] && [ "$DEBUG" = false ]; then
+        detail="$( "$extract_fn" "$tmp" )"
+        echo "$label ... OK${detail:+ ($detail)}"
+    else
+        cat "$tmp"
+    fi
+    rm -f "$tmp"
+    return $rc
+}
+
+# ---- Detail extractors (each takes a captured-output file path, echoes a short suffix or nothing) ----
+
+_detail_pyright() {
+    grep -oE '[0-9]+ errors?, [0-9]+ warnings?' "$1" | tail -1 || true
+}
+
+_detail_isort() {
+    local n
+    n="$(grep -c '^Fixing ' "$1" 2>/dev/null || echo 0)"
+    [ "$n" -gt 0 ] && echo "$n files reformatted"
+    return 0
+}
+
+_detail_black() {
+    grep -oE '[0-9]+ files? reformatted' "$1" | head -1 || true
+}
+
+_detail_pytest() {
+    # Strip the leading/trailing === === pytest decorators from the summary line.
+    grep -E '[0-9]+ passed' "$1" | tail -1 | sed 's/^[= ]*//; s/[= ]*$//' || true
+}
+
 # ---- Argument parsing ----
 
 TARGET_DIR="$REPO_ROOT"
@@ -84,6 +151,7 @@ RUN_PYRIGHT=false
 RUN_FORMAT=false
 RUN_PYTEST=false
 RUN_COVERAGE=false
+DEBUG=false
 PYRIGHT_ARGS=()
 FORMAT_ARGS=()
 PYTEST_ARGS=()
@@ -95,6 +163,7 @@ while [[ $# -gt 0 ]]; do
         --format)   SECTION="format";  RUN_FORMAT=true ;;
         --pytest)   SECTION="pytest";  RUN_PYTEST=true ;;
         --coverage) SECTION="";        RUN_COVERAGE=true ;;
+        --debug)    SECTION="";        DEBUG=true ;;
         --only|--only=*)
             infra_error "--only has been removed. Use section flags instead: --pyright / --format / --pytest (arguments after each flag are passed to that tool, e.g. --pytest tests/test_smoke.py)."
             ;;
@@ -109,7 +178,7 @@ while [[ $# -gt 0 ]]; do
                 usage
                 exit 0
             elif [[ "$1" == -* ]]; then
-                infra_error "Unknown flag: $1 (section flags: --pyright / --format / --pytest / --coverage; run with --help for usage)"
+                infra_error "Unknown flag: $1 (section flags: --pyright / --format / --pytest / --coverage / --debug; run with --help for usage)"
             else
                 TARGET_DIR="$1"
             fi
@@ -147,16 +216,6 @@ if [ "$RUN_PYRIGHT" = false ] && [ "$RUN_FORMAT" = false ] && [ "$RUN_PYTEST" = 
     RUN_FORMAT=true
     RUN_PYTEST=true
 fi
-
-# ---- Helpers ----
-
-header() {
-    echo
-    echo "========================================"
-    echo "  $*"
-    echo "========================================"
-    echo
-}
 
 # ---- Preflight ----
 
@@ -199,8 +258,8 @@ FAILED=0
 # ---- Step 1: pyright (initial) ----
 
 if [ "$RUN_PYRIGHT" = true ]; then
-    header "pyright (strict type check)"
-    if ! pyright "${PYRIGHT_ARGS[@]}"; then
+    dbg_header "pyright (strict type check)"
+    if ! _gate_run "pyright" _detail_pyright pyright "${PYRIGHT_ARGS[@]}"; then
         echo
         echo "GATE FAILED at pyright — fix type errors before continuing."
         # Stop early: if format is also requested we don't want to format broken code.
@@ -211,15 +270,15 @@ fi
 # ---- Step 2+3: isort + black ----
 
 if [ "$RUN_FORMAT" = true ]; then
-    header "isort (import sort)"
-    if ! "$PYTHON" -m isort "${FORMAT_ARGS[@]}"; then
+    dbg_header "isort (import sort)"
+    if ! _gate_run "isort" _detail_isort "$PYTHON" -m isort "${FORMAT_ARGS[@]}"; then
         echo
         echo "GATE FAILED at isort."
         exit "$EXIT_CHECK_FAILED"
     fi
 
-    header "black (format)"
-    if ! "$PYTHON" -m black "${FORMAT_ARGS[@]}"; then
+    dbg_header "black (format)"
+    if ! _gate_run "black" _detail_black "$PYTHON" -m black "${FORMAT_ARGS[@]}"; then
         echo
         echo "GATE FAILED at black."
         exit "$EXIT_CHECK_FAILED"
@@ -229,8 +288,8 @@ fi
 # ---- Step 4: pyright post-format (full gate, or when both pyright+format requested) ----
 
 if [ "$RUN_PYRIGHT" = true ] && [ "$RUN_FORMAT" = true ]; then
-    header "pyright (post-format verification)"
-    if ! pyright "${PYRIGHT_ARGS[@]}"; then
+    dbg_header "pyright (post-format verification)"
+    if ! _gate_run "pyright (post-format)" _detail_pyright pyright "${PYRIGHT_ARGS[@]}"; then
         echo
         echo "GATE FAILED at post-format pyright — formatting introduced a type error."
         FAILED=1
@@ -239,26 +298,37 @@ fi
 
 # ---- Step 5: pytest ----
 #
-# When --coverage is set, PYTEST_ARGS already include --cov/--cov-report so the
-# output from this single run is also what we parse for the regression check.
-# We tee it to a temp file so the regression check can extract the TOTAL line
-# while still printing live output to the terminal.
+# Coverage run: capture to a persistent file so the regression check (step 6) can
+# extract the TOTAL line from the same run. The file is kept until after step 6.
+# Normal run: _gate_run suppresses output on success and dumps it on failure.
+
+COVERAGE_OUTPUT_FILE=""
 
 if [ "$RUN_PYTEST" = true ]; then
-    header "pytest"
+    dbg_header "pytest"
     if [ "$RUN_COVERAGE" = true ]; then
         COVERAGE_OUTPUT_FILE="$(mktemp)"
-        "$PYTHON" -m pytest "${PYTEST_ARGS[@]}" 2>&1 | tee "$COVERAGE_OUTPUT_FILE"
-        PYTEST_EXIT="${PIPESTATUS[0]}"
+        if [ "$DEBUG" = true ]; then
+            "$PYTHON" -m pytest "${PYTEST_ARGS[@]}" 2>&1 | tee "$COVERAGE_OUTPUT_FILE"
+            PYTEST_EXIT="${PIPESTATUS[0]}"
+        else
+            "$PYTHON" -m pytest "${PYTEST_ARGS[@]}" >"$COVERAGE_OUTPUT_FILE" 2>&1
+            PYTEST_EXIT=$?
+        fi
         if [ "$PYTEST_EXIT" -ne 0 ]; then
+            [ "$DEBUG" = false ] && cat "$COVERAGE_OUTPUT_FILE"
             echo
             echo "GATE FAILED at pytest — tests failed."
             rm -f "$COVERAGE_OUTPUT_FILE"
             COVERAGE_OUTPUT_FILE=""
             FAILED=1
+        elif [ "$DEBUG" = false ]; then
+            DETAIL="$( _detail_pytest "$COVERAGE_OUTPUT_FILE" )"
+            echo "pytest ... OK${DETAIL:+ ($DETAIL)}"
+            # Keep COVERAGE_OUTPUT_FILE — step 6 reads it for the TOTAL line.
         fi
     else
-        if ! "$PYTHON" -m pytest "${PYTEST_ARGS[@]}"; then
+        if ! _gate_run "pytest" _detail_pytest "$PYTHON" -m pytest "${PYTEST_ARGS[@]}"; then
             echo
             echo "GATE FAILED at pytest — tests failed."
             FAILED=1
@@ -268,9 +338,11 @@ fi
 
 # ---- Step 6: coverage regression check (--coverage only) ----
 #
-# Runs after Step 5 when --coverage was passed and all prior steps passed.
-# PYTEST_ARGS already included --cov/--cov-report; COVERAGE_OUTPUT_FILE holds
-# the tee'd output from that single run.
+# Runs after step 5 when --coverage was passed and all prior steps passed.
+# PYTEST_ARGS already included --cov/--cov-report; COVERAGE_OUTPUT_FILE holds the
+# captured output from that single run (non-empty only when tests passed).
+#
+# Coverage results are always printed — they are summary data, not verbose noise.
 #
 # Ratchet behaviour:
 #   Baseline absent       -> create it, pass (first-run establishment).
@@ -283,7 +355,7 @@ fi
 BASELINE_FILE="$REPO_ROOT/coverage_baseline.txt"
 
 if [ "$RUN_COVERAGE" = true ] && [ "$FAILED" -eq 0 ] && [ -n "${COVERAGE_OUTPUT_FILE:-}" ]; then
-    header "coverage (regression check)"
+    dbg_header "coverage (regression check)"
 
     # Extract TOTAL line: "TOTAL   NNN  NNN  NNN  NNN  78%"  (last field = %)
     COVERAGE_PCT="$(grep -E '^TOTAL\s' "$COVERAGE_OUTPUT_FILE" \

@@ -8,7 +8,7 @@ happened.
 ## What the gate does
 
 ```
-bash scripts/quality_gate.sh [target-dir]
+bash scripts/quality_gate.sh [--debug] [target-dir]
 ```
 
 Run from the current directory (worktree or repo root), or pass an explicit
@@ -23,6 +23,14 @@ target dir. Five steps in order:
 Config lives in `pyproject.toml`. `pyright` is the globally-installed npm
 binary; formatters, pytest, and coverage run via the target directory's own
 `.venv`.
+
+### Output mode
+
+By default the gate is **quiet**: each step emits one summary line on success
+(`pyright ... OK (0 errors, 0 warnings)`, `pytest ... OK (52 passed in 18s)`,
+etc.) and dumps the full tool output only on failure. Pass `--debug` to
+disable suppression and stream every tool's full output — useful when a
+failing step's summary line isn't enough to diagnose the problem.
 
 ## Exit codes
 
@@ -46,6 +54,7 @@ bash scripts/quality_gate.sh --pyright src/wingspan/state.py   # types only / on
 bash scripts/quality_gate.sh --format                          # isort + black only
 bash scripts/quality_gate.sh --pytest tests/test_encode.py -k state -x -q
 bash scripts/quality_gate.sh --coverage                        # full gate + coverage regression
+bash scripts/quality_gate.sh --debug                           # full verbose output for all steps
 ```
 
 No-argument defaults:

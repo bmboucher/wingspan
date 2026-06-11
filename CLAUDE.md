@@ -47,7 +47,7 @@ Substantive code changes follow a fixed shape:
    ```
    bash scripts/quality_gate.sh
    ```
-   Exit `0` = passed. Exit `1` = code problem — fix and rerun. Exit `2` = infrastructure failure — **stop, show the user the output verbatim, and wait for them to fix it**. See `docs/QUALITY.md` for section flags and targeted-run examples.
+   Exit `0` = passed. Exit `1` = code problem — fix and rerun. Exit `2` = infrastructure failure — **stop, show the user the output verbatim, and wait for them to fix it**. The gate is quiet by default (one summary line per step); add `--debug` to see full tool output when a failure summary isn't enough to diagnose the problem. See `docs/QUALITY.md` for section flags and targeted-run examples.
 
 5. **Commit and stop.** Commit all changes on the feature branch. Report that the change is ready and tell the user to delete the lock file to authorize the merge. Do **not** merge or delete the lock yourself.
 
