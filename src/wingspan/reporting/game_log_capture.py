@@ -198,11 +198,12 @@ def _score_breakdown(
 def _bonus_card_info(
     player: state.Player, bc: cards.BonusCard
 ) -> game_log_html.BonusCardInfo:
-    """A held bonus card with its current VP for this player."""
+    """A held bonus card with its current VP and qualifying count for this player."""
     return game_log_html.BonusCardInfo(
         name=bc.name,
         text=display.strip_ansi(bc.vp_text),
         vp_now=scoring.bonus_score(player, bc),
+        count=scoring.bonus_qualifying_count(player, bc),
     )
 
 

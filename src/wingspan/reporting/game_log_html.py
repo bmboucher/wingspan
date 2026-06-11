@@ -86,11 +86,12 @@ class ScoreBreakdown(pydantic.BaseModel):
 
 
 class BonusCardInfo(pydantic.BaseModel):
-    """A held bonus card with its scoring text and current VP."""
+    """A held bonus card with its scoring text, current VP, and qualifying count."""
 
     name: str
     text: str
     vp_now: int
+    count: int = 0
 
 
 class PlayerPanel(pydantic.BaseModel):
@@ -224,6 +225,8 @@ _DOCUMENT = """\
     <button id="prev" title="Previous phase (←)">◀</button>
     <span id="counter" class="counter"></span>
     <button id="next" title="Next phase (→)">▶</button>
+    <button id="prev-round" title="Previous round">◀ Round</button>
+    <button id="next-round" title="Next round">Round ▶</button>
     <span class="spacer"></span>
     <div class="toggle" id="view-toggle" role="group" aria-label="Seat view">
       <button data-view="p0">Just P0</button>
@@ -272,7 +275,7 @@ body {
 .toggle button { border: none; border-radius: 0; }
 .toggle button.active { background: #4ade80; color: #052e16; font-weight: 700; }
 .phase-title { margin-top: 8px; font-size: 13px; color: #a7f3d0; font-family: monospace; }
-main { max-width: 1440px; margin: 0 auto; padding: 16px 18px 60px; }
+main { padding: 16px 18px 60px; }
 #state-panel {
   background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px;
   box-shadow: 0 2px 8px rgba(0,0,0,.08); margin-bottom: 16px;
@@ -280,10 +283,8 @@ main { max-width: 1440px; margin: 0 auto; padding: 16px 18px 60px; }
 
 /* === Player boards row === */
 .boards-row { display: flex; gap: 12px; }
-.player-section { flex: 1 1 0; min-width: 0; overflow-x: auto; }
-.player-section.active-player {
-  border: 2px solid #4ade80; border-radius: 8px; padding: 4px;
-}
+.player-section { flex: 1 1 0; min-width: 0; border: 2px solid #e2e8f0; border-radius: 8px; padding: 4px; }
+.player-section.active-player { border-color: #4ade80; }
 .player-header {
   display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px;
   padding-bottom: 4px; border-bottom: 2px solid #0f3d2e;
@@ -327,7 +328,7 @@ main { max-width: 1440px; margin: 0 auto; padding: 16px 18px 60px; }
 }
 .card-meta { color: #475569; font-size: 9px; line-height: 1.3; }
 .card-power {
-  flex: 1; padding: 3px 5px; font-size: 9px; line-height: 1.35; overflow: hidden;
+  flex: 1; padding: 3px 5px; font-size: 9px; line-height: 1.35; overflow-y: auto; overflow-x: hidden;
 }
 .card-cell.pw-brown  .card-power { background: #f3e9dd; }
 .card-cell.pw-white  .card-power { background: #ffffff; }
@@ -381,7 +382,7 @@ main { max-width: 1440px; margin: 0 auto; padding: 16px 18px 60px; }
 .goal-col   { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .score-cats { display: flex; gap: 6px; flex: 1; }
 .score-cat  { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.bar-pair   { display: flex; gap: 2px; align-items: flex-end; height: 60px; }
+.bar-pair   { display: flex; gap: 2px; align-items: flex-end; flex: 1; min-height: 30px; }
 .bar        { min-height: 2px; width: 14px; border-radius: 2px 2px 0 0; }
 .bar.p0     { background: #93c5fd; }
 .bar.p1     { background: #fca5a5; }
@@ -408,6 +409,7 @@ main { max-width: 1440px; margin: 0 auto; padding: 16px 18px 60px; }
   display: inline-block; background: #0f3d2e; color: #ecfdf5;
   border-radius: 10px; padding: 0 5px; font-size: 9px; font-weight: 700;
 }
+.bonus-count { display: inline-block; color: #64748b; font-size: 9px; }
 
 /* === Decision log === */
 .log-toggle {
@@ -434,8 +436,8 @@ _SCRIPT = r"""
 const DATA = JSON.parse(document.getElementById('game-log-data').textContent);
 const HAB_CLASS = {'Forest':'hab-forest','Grassland':'hab-grassland','Wetland':'hab-wetland'};
 const FOOD_EMOJI = {
-  invertebrate: '\u{1FAB1}', seed: '\u{1F33E}', fish: '\u{1F41F}',
-  fruit: '\u{1F347}', rodent: '\u{1F400}', wild: '\u{1F308}', choice: '\u{1F308}'
+  invertebrate: '\u{1F41B}', seed: '\u{1F33E}', fish: '\u{1F41F}',
+  fruit: '\u{1F352}', rodent: '\u{1F400}', wild: '\u{1F308}', choice: '\u{1F41B}/\u{1F33E}'
 };
 const HAB_ICON = { Forest: '\u{1F7E9}', Grassland: '\u{1F7E8}', Wetland: '\u{1F7E6}' };
 let phaseIdx = 0;
@@ -474,10 +476,10 @@ function habIconsHtml(habitats) {
 
 function applyFoodEmoji(text) {
   return text
-    .replace(/\binvertebrate\b/gi, '\u{1FAB1}')
+    .replace(/\binvertebrate\b/gi, '\u{1F41B}')
     .replace(/\bseed\b/gi, '\u{1F33E}')
     .replace(/\bfish\b/gi, '\u{1F41F}')
-    .replace(/\bfruit\b/gi, '\u{1F347}')
+    .replace(/\bfruit\b/gi, '\u{1F352}')
     .replace(/\brodent\b/gi, '\u{1F400}');
 }
 
@@ -623,29 +625,30 @@ function scoresPanelHtml(seats) {
     + '</div>';
 }
 
-function bonusPanelHtml(seats) {
+function bonusPanelHtml(phase) {
+  const activeId = phase.active_player_id;
+  const panel = phase.panels.find(p => p.player_id === activeId) || phase.panels[0];
   let inner = '';
-  for (const panel of seats) {
-    const lbl = panel.player_id === 0 ? '#93c5fd' : '#fca5a5';
-    inner += '<div class="bonus-player-lbl" style="color:' + lbl + '">P' + panel.player_id + ': ' + esc(panel.name) + '</div>';
-    if (!panel.bonus_cards.length) {
-      inner += '<div class="bonus-card" style="color:#94a3b8;font-size:9px;font-style:italic">(none)</div>';
-      continue;
-    }
+  if (!panel) {
+    inner = '<div class="bonus-card" style="color:#94a3b8;font-size:9px;font-style:italic">(no player)</div>';
+  } else if (!panel.bonus_cards.length) {
+    inner = '<div class="bonus-card" style="color:#94a3b8;font-size:9px;font-style:italic">(none)</div>';
+  } else {
     for (const bc of panel.bonus_cards) {
-      const shortText = bc.text.length > 55 ? bc.text.slice(0, 52) + '...' : bc.text;
       inner += '<div class="bonus-card">'
-        + '<div class="bonus-card-name">' + esc(bc.name) + ' <span class="bonus-vp">' + bc.vp_now + ' VP</span></div>'
-        + '<div class="bonus-card-text">' + esc(shortText) + '</div>'
+        + '<div class="bonus-card-name">' + esc(bc.name)
+        +   ' <span class="bonus-vp">' + bc.vp_now + ' VP</span>'
+        +   ' <span class="bonus-count">' + bc.count + ' qualifying</span>'
+        + '</div>'
+        + '<div class="bonus-card-text">' + esc(bc.text) + '</div>'
         + '</div>';
     }
   }
   return '<div class="panel bonus-panel">'
     + inner
-    + '<div class="panel-title">Bonus Cards</div>'
+    + '<div class="panel-title">Bonus Cards (Active Player)</div>'
     + '</div>';
 }
-
 function nextMatchingPhase(from, delta) {
   let idx = from + delta;
   while (idx >= 0 && idx < DATA.phases.length) {
@@ -668,7 +671,7 @@ function renderState(phase) {
     + trayPanelHtml(phase) + feederPanelHtml(phase) + handPanelHtml(phase)
     + '</div>';
   const bottomRow = '<div class="bottom-row">'
-    + goalsPanelHtml(phase) + scoresPanelHtml(phase.panels) + bonusPanelHtml(phase.panels)
+    + goalsPanelHtml(phase) + scoresPanelHtml(phase.panels) + bonusPanelHtml(phase)
     + '</div>';
   document.getElementById('state-panel').innerHTML = boardsRow + middleRow + bottomRow;
 }
@@ -687,12 +690,23 @@ function renderLog(phase) {
   document.getElementById('log-toggle').textContent = (logOpen ? '▾' : '▸') + ' Decision log';
 }
 
+function hasRound(delta) {
+  let idx = phaseIdx + delta;
+  while (idx >= 0 && idx < DATA.phases.length) {
+    if (DATA.phases[idx].kind === 'round') return true;
+    idx += delta;
+  }
+  return false;
+}
+
 function render() {
   const phase = DATA.phases[phaseIdx];
   document.getElementById('counter').textContent = 'Phase ' + (phaseIdx + 1) + ' / ' + DATA.phases.length;
   document.getElementById('phase-title').textContent = phase.title;
   document.getElementById('prev').disabled = nextMatchingPhase(phaseIdx, -1) === phaseIdx;
   document.getElementById('next').disabled = nextMatchingPhase(phaseIdx, 1) === phaseIdx;
+  document.getElementById('prev-round').disabled = !hasRound(-1);
+  document.getElementById('next-round').disabled = !hasRound(1);
   renderState(phase);
   renderLog(phase);
 }
@@ -702,8 +716,18 @@ function step(delta) {
   render();
 }
 
+function stepRound(delta) {
+  let idx = phaseIdx + delta;
+  while (idx >= 0 && idx < DATA.phases.length) {
+    if (DATA.phases[idx].kind === 'round') { phaseIdx = idx; render(); return; }
+    idx += delta;
+  }
+}
+
 document.getElementById('prev').addEventListener('click', () => step(-1));
 document.getElementById('next').addEventListener('click', () => step(1));
+document.getElementById('prev-round').addEventListener('click', () => stepRound(-1));
+document.getElementById('next-round').addEventListener('click', () => stepRound(1));
 document.getElementById('log-toggle').addEventListener('click', () => { logOpen = !logOpen; render(); });
 document.querySelectorAll('#view-toggle button').forEach(btn => {
   btn.addEventListener('click', () => {
