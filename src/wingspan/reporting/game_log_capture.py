@@ -53,9 +53,10 @@ def capture_phase(
         kind=kind,
         round_idx=gs.round_idx,
         active_player_id=active,
-        panels=[_player_panel(player) for player in gs.players],
+        panels=[_player_panel(player, gs) for player in gs.players],
         tray=[_bird_cell_info(bird) for bird in gs.tray],
         feeder_text=gs.birdfeeder.format(),
+        feeder_slots=_feeder_slots(gs.birdfeeder),
         round_goals=_round_goal_infos(gs),
         narration=[],
     )
@@ -95,7 +96,9 @@ def build_report(
 #### State -> reporting-model conversion (primitives only) ####
 
 
-def _player_panel(player: state.Player) -> game_log_html.PlayerPanel:
+def _player_panel(
+    player: state.Player, gs: state.GameState
+) -> game_log_html.PlayerPanel:
     """Flatten one player's full visible state into a display panel."""
     return game_log_html.PlayerPanel(
         player_id=player.id,
@@ -109,7 +112,7 @@ def _player_panel(player: state.Player) -> game_log_html.PlayerPanel:
             game_log_html.FoodCount(label=food.value, count=player.food[food])
             for food in cards.ALL_FOODS
         ],
-        score=_score_breakdown(player),
+        score=_score_breakdown(player, gs),
         bonus_cards=[_bonus_card_info(player, bc) for bc in player.bonus_cards],
     )
 
@@ -133,12 +136,21 @@ def _bird_cell_info(
     """Flatten a bird (and, when on the board, its per-game state) to a cell."""
     if bird is None:
         return None
+
+    # Build food cost as a slot list for emoji rendering: specific foods
+    # repeated by count, then wild slots.
+    slots: list[str] = []
+    for food, specific_count in zip(cards.ALL_FOODS, bird.food_cost.specific):
+        slots.extend([food.value] * specific_count)
+    slots.extend(["wild"] * bird.food_cost.wild)
+
     return game_log_html.BirdCellInfo(
         name=bird.name,
         vp=bird.points,
         nest=bird.nest.value,
         habitats="/".join(habitat.value for habitat in bird.habitats),
         food_cost=display.format_cost(bird.food_cost),
+        food_cost_slots=slots,
         egg_limit=bird.egg_limit,
         eggs=played.eggs if played is not None else 0,
         tucked=played.tucked_cards if played is not None else 0,
@@ -148,17 +160,29 @@ def _bird_cell_info(
     )
 
 
-def _score_breakdown(player: state.Player) -> game_log_html.ScoreBreakdown:
-    """The seven score columns, matching the game log's score table."""
+def _score_breakdown(
+    player: state.Player, gs: state.GameState
+) -> game_log_html.ScoreBreakdown:
+    """The seven score columns, matching the game log's score table.
+
+    Round-goal points are projected: for unscored rounds we compute the live
+    standing as if the round ended right now, so the score reflects progress
+    toward goals mid-game. Scored rounds stay frozen at their actual award."""
     bird_pts = sum(pb.bird.points for row in player.board.values() for pb in row)
     bonus_pts = sum(scoring.bonus_score(player, bc) for bc in player.bonus_cards)
+
+    # Use live projections for all rounds, not just the accumulated total.
+    goals_pts = sum(
+        scoring.round_goal_standing_for_round(gs, player, ri).vp
+        for ri in range(min(len(gs.round_goals), 4))
+    )
     total = (
         bird_pts
         + bonus_pts
         + player.total_eggs
         + player.total_tucked
         + player.total_cached
-        + player.round_goal_points
+        + goals_pts
     )
     return game_log_html.ScoreBreakdown(
         birds=bird_pts,
@@ -166,7 +190,7 @@ def _score_breakdown(player: state.Player) -> game_log_html.ScoreBreakdown:
         tucked=player.total_tucked,
         cached=player.total_cached,
         bonus=bonus_pts,
-        goals=player.round_goal_points,
+        goals=goals_pts,
         total=total,
     )
 
@@ -183,22 +207,41 @@ def _bonus_card_info(
 
 
 def _round_goal_infos(gs: state.GameState) -> list[game_log_html.RoundGoalInfo]:
-    """All four round goals with their 2-player payouts and scored flags."""
+    """All four round goals with payouts, scored flags, and current VP projections."""
     infos: list[game_log_html.RoundGoalInfo] = []
-    for round_num, (goal, payout) in enumerate(
+    for round_idx, (goal, payout) in enumerate(
         zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS_2P)
     ):
         first_vp, second_vp = payout
+        p0_vp = scoring.round_goal_standing_for_round(gs, gs.players[0], round_idx).vp
+        p1_vp = (
+            scoring.round_goal_standing_for_round(gs, gs.players[1], round_idx).vp
+            if len(gs.players) > 1
+            else 0
+        )
         infos.append(
             game_log_html.RoundGoalInfo(
-                round_num=round_num + 1,
+                round_num=round_idx + 1,
                 description=goal.description,
                 first_vp=first_vp,
                 second_vp=second_vp,
-                scored=len(gs.scored_goals) > round_num,
+                scored=len(gs.scored_goals) > round_idx,
+                p0_vp=p0_vp,
+                p1_vp=p1_vp,
             )
         )
     return infos
+
+
+def _feeder_slots(feeder: state.Birdfeeder) -> list[str | None]:
+    """5 feeder slots: food-type value string, 'choice', or None for empty."""
+    slots: list[str | None] = []
+    for food in cards.ALL_FOODS:
+        slots.extend([food.value] * feeder.counts[food])
+    slots.extend(["choice"] * feeder.choice_dice)
+    while len(slots) < 5:
+        slots.append(None)
+    return slots[:5]
 
 
 #### Log segmentation ####
