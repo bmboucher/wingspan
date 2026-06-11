@@ -189,6 +189,7 @@ def _build_parser() -> argparse.ArgumentParser:
 _HTML_HANDLER_NAME = "__game_log_html__"
 _HTML_HANDLER_EVENTS = (
     instrumentation_events.EventName.GAME_START,
+    instrumentation_events.EventName.SETUP_START,
     instrumentation_events.EventName.SETUP_APPLIED,
     instrumentation_events.EventName.ROUND_START,
     instrumentation_events.EventName.TURN_START,
