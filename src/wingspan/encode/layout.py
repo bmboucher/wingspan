@@ -14,10 +14,15 @@ functions (``state_feature_dim`` / ``choice_feature_dim`` /
 ``CHOICE_FEATURE_DIM`` / ``DECISION_TYPE_DIM`` are the default-spec
 (setup-excluded) values.
 
-The ``_OFF_*`` chain is evaluated top-to-bottom; the ``encode_state`` stripe
-order and these offsets are part of the checkpoint format — reordering or
-renumbering anything here is a FRESH (checkpoint-invalidating) change. See
-CLAUDE.md "Checkpoint compatibility policy".
+Stripe offsets are derived by sequential accumulation from ordered
+:class:`~stripes.descriptors.StripeSpec` lists, eliminating the risk of
+arithmetic errors in a hand-written cumulative-sum chain.  The public layout
+objects (:data:`CHOICE_BASE_LAYOUT`, :data:`CHOICE_FULL_LAYOUT`,
+:data:`CARD_ATTR_LAYOUT`, :data:`STATE_CONT_LAYOUT`) expose the canonical
+stripe geometry; the ``_OFF_*`` aliases are derived from them so that every
+downstream consumer reads consistent, auto-computed offsets.  Changing the
+order or sizes of stripes is a FRESH (checkpoint-invalidating) change.
+See CLAUDE.md "Checkpoint compatibility policy".
 """
 
 from __future__ import annotations
@@ -63,6 +68,12 @@ def spec_for(use_setup_model: bool) -> EncodingSpec:
     model includes setup exactly when the separate setup model is *off*."""
     return EncodingSpec(include_setup=not use_setup_model)
 
+
+# Deferred until after DEFAULT_SPEC is defined: stripes.choice accesses
+# layout.DEFAULT_SPEC as a function-default argument (evaluated at import
+# time), so this import must come AFTER DEFAULT_SPEC to avoid a circular
+# AttributeError when Python re-enters this partially-initialized module.
+from wingspan.encode.stripes import descriptors as _stripe_descriptors  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Public constants — sanity bounds + normalization scales
@@ -180,31 +191,57 @@ _BONUS_ID_DIM = cards.n_bonus_cards()
 _CHOICE_BIRD_ID_DIM = 1  # the candidate bird's single index column
 _KEPT_MULTIHOT_DIM = _BIRD_ID_DIM  # setup kept-set multi-hot (only when include_setup)
 
-# Stripe offsets (cumulative). The board-index block and bird-index column
-# (two of the card regions the model embeds) sit together just before bonus_id;
-# bonus_id is followed by bonus_delta, goal_delta, then bonus_value (the
-# per-candidate contribution / pricing scalars), and the conditional setup_agg
-# and kept_multihot stripes trail everything — so the card-region offsets the
-# model slices on stay invariant to ``include_setup`` (the trailing
-# kept_multihot region is by construction the row's final columns).
-_OFF_KIND = 0
-_OFF_GAIN_FOOD = _OFF_KIND + _KIND_DIM
-_OFF_PAY = _OFF_GAIN_FOOD + _GAIN_FOOD_DIM
-_OFF_BOARD = _OFF_PAY + _PAY_FOOD_DIM
-_OFF_MAIN_ACTION = _OFF_BOARD + _BOARD_TARGET_DIM
-_OFF_SPECIAL = _OFF_MAIN_ACTION + _MAIN_ACTION_DIM
-_OFF_EXCHANGE = _OFF_SPECIAL + _SPECIAL_DIM
-_OFF_BOARD_IDX = _OFF_EXCHANGE + _EXCHANGE_DIM
-_OFF_BIRD_ID = _OFF_BOARD_IDX + _BOARD_IDX_SLOTS
-_OFF_BONUS_ID = _OFF_BIRD_ID + _CHOICE_BIRD_ID_DIM
-_OFF_BONUS_DELTA = _OFF_BONUS_ID + _BONUS_ID_DIM
-_OFF_GOAL_DELTA = _OFF_BONUS_DELTA + _BONUS_DELTA_DIM
-_OFF_BONUS_VALUE = _OFF_GOAL_DELTA + _GOAL_DELTA_DIM
-_OFF_SETUP = _OFF_BONUS_VALUE + _BONUS_VALUE_DIM  # trailing; present iff include_setup
-_OFF_KEPT_MULTIHOT = _OFF_SETUP + _SETUP_DIM  # trailing; present iff include_setup
-_CHOICE_BASE_DIM = (
-    _OFF_SETUP  # row width without the setup stripes (include_setup=False)
+# Stripe offsets auto-accumulated from ordered StripeSpec lists. The board-index
+# block and bird-index column (two card regions the model embeds) sit together
+# just before bonus_id; the conditional setup_agg and kept_multihot stripes trail
+# everything — so the card-region offsets the model slices on stay invariant to
+# ``include_setup`` (the trailing kept_multihot region is by construction the
+# row's final columns).
+_CHOICE_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
+    _stripe_descriptors.StripeSpec(name="kind", size=_KIND_DIM),
+    _stripe_descriptors.StripeSpec(name="gain_food", size=_GAIN_FOOD_DIM),
+    _stripe_descriptors.StripeSpec(name="pay", size=_PAY_FOOD_DIM),
+    _stripe_descriptors.StripeSpec(name="board", size=_BOARD_TARGET_DIM),
+    _stripe_descriptors.StripeSpec(name="main_action", size=_MAIN_ACTION_DIM),
+    _stripe_descriptors.StripeSpec(name="special", size=_SPECIAL_DIM),
+    _stripe_descriptors.StripeSpec(name="exchange", size=_EXCHANGE_DIM),
+    _stripe_descriptors.StripeSpec(name="board_idx", size=_BOARD_IDX_SLOTS),
+    _stripe_descriptors.StripeSpec(name="bird_id", size=_CHOICE_BIRD_ID_DIM),
+    _stripe_descriptors.StripeSpec(name="bonus_id", size=_BONUS_ID_DIM),
+    _stripe_descriptors.StripeSpec(name="bonus_delta", size=_BONUS_DELTA_DIM),
+    _stripe_descriptors.StripeSpec(name="goal_delta", size=_GOAL_DELTA_DIM),
+    _stripe_descriptors.StripeSpec(name="bonus_value", size=_BONUS_VALUE_DIM),
+]
+_CHOICE_SETUP_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
+    _stripe_descriptors.StripeSpec(name="setup_agg", size=_SETUP_DIM),
+    _stripe_descriptors.StripeSpec(name="kept_multihot", size=_KEPT_MULTIHOT_DIM),
+]
+CHOICE_BASE_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
+    _CHOICE_STRIPE_SPECS
 )
+CHOICE_FULL_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
+    _CHOICE_STRIPE_SPECS + _CHOICE_SETUP_STRIPE_SPECS
+)
+_OFF_KIND = CHOICE_BASE_LAYOUT.offset_of("kind")
+_OFF_GAIN_FOOD = CHOICE_BASE_LAYOUT.offset_of("gain_food")
+_OFF_PAY = CHOICE_BASE_LAYOUT.offset_of("pay")
+_OFF_BOARD = CHOICE_BASE_LAYOUT.offset_of("board")
+_OFF_MAIN_ACTION = CHOICE_BASE_LAYOUT.offset_of("main_action")
+_OFF_SPECIAL = CHOICE_BASE_LAYOUT.offset_of("special")
+_OFF_EXCHANGE = CHOICE_BASE_LAYOUT.offset_of("exchange")
+_OFF_BOARD_IDX = CHOICE_BASE_LAYOUT.offset_of("board_idx")
+_OFF_BIRD_ID = CHOICE_BASE_LAYOUT.offset_of("bird_id")
+_OFF_BONUS_ID = CHOICE_BASE_LAYOUT.offset_of("bonus_id")
+_OFF_BONUS_DELTA = CHOICE_BASE_LAYOUT.offset_of("bonus_delta")
+_OFF_GOAL_DELTA = CHOICE_BASE_LAYOUT.offset_of("goal_delta")
+_OFF_BONUS_VALUE = CHOICE_BASE_LAYOUT.offset_of("bonus_value")
+_CHOICE_BASE_DIM = CHOICE_BASE_LAYOUT.total_size
+_OFF_SETUP = CHOICE_FULL_LAYOUT.offset_of(
+    "setup_agg"
+)  # trailing; present iff include_setup
+_OFF_KEPT_MULTIHOT = CHOICE_FULL_LAYOUT.offset_of(
+    "kept_multihot"
+)  # trailing; present iff include_setup
 
 # Within-KIND indices
 _KIND_BIRD = 0
@@ -340,23 +377,42 @@ _BONUS_NAME_TO_INDEX: dict[str, int] = {
 }
 
 # Rich per-card attribute vector (the ``N`` half of each slot's identity+attrs
-# encoding). Offsets are cumulative; see ``_bird_attr_vector`` for the meaning.
+# encoding). Offsets auto-accumulated from CARD_ATTR_LAYOUT; see
+# ``_bird_attr_vector`` for the meaning of each stripe.
 _FOOD_COST_VEC_DIM = cards.N_FOODS + 1  # 5 specific foods + wild
-_OFF_ATTR_POINTS = 0
-_OFF_ATTR_FOOD_COST = _OFF_ATTR_POINTS + 1
-_OFF_ATTR_NEST = _OFF_ATTR_FOOD_COST + _FOOD_COST_VEC_DIM
-_OFF_ATTR_HAB = _OFF_ATTR_NEST + len(_NEST_BASE_TYPES)
-_OFF_ATTR_FLOCK = _OFF_ATTR_HAB + len(cards.ALL_HABITATS)
-_OFF_ATTR_PRED = _OFF_ATTR_FLOCK + 1
-_OFF_ATTR_WINGSPAN = _OFF_ATTR_PRED + 1
-_OFF_ATTR_EGG_LIMIT = _OFF_ATTR_WINGSPAN + 1
-_OFF_ATTR_COLOR = _OFF_ATTR_EGG_LIMIT + 1
-_OFF_ATTR_PLAYS_BIRD = _OFF_ATTR_COLOR + len(_COLORS)
-_OFF_ATTR_CACHES_FOOD = _OFF_ATTR_PLAYS_BIRD + 1
 _BONUS_CATS_DIM = len(_KEPT_BONUS_NAMES)  # 7 curated categories (was 26)
-_OFF_ATTR_BONUS_CATS = _OFF_ATTR_CACHES_FOOD + 1
-_OFF_ATTR_POWER_EX = _OFF_ATTR_BONUS_CATS + _BONUS_CATS_DIM
-_BIRD_ATTR_DIM = _OFF_ATTR_POWER_EX + _EXCHANGE_DIM  # 44 (was 49)
+_ATTR_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
+    _stripe_descriptors.StripeSpec(name="points", size=1),
+    _stripe_descriptors.StripeSpec(name="food_cost", size=_FOOD_COST_VEC_DIM),
+    _stripe_descriptors.StripeSpec(name="nest", size=len(_NEST_BASE_TYPES)),
+    _stripe_descriptors.StripeSpec(name="habitats", size=len(cards.ALL_HABITATS)),
+    _stripe_descriptors.StripeSpec(name="flock", size=1),
+    _stripe_descriptors.StripeSpec(name="pred", size=1),
+    _stripe_descriptors.StripeSpec(name="wingspan", size=1),
+    _stripe_descriptors.StripeSpec(name="egg_limit", size=1),
+    _stripe_descriptors.StripeSpec(name="color", size=len(_COLORS)),
+    _stripe_descriptors.StripeSpec(name="plays_bird", size=1),
+    _stripe_descriptors.StripeSpec(name="caches_food", size=1),
+    _stripe_descriptors.StripeSpec(name="bonus_cats", size=_BONUS_CATS_DIM),
+    _stripe_descriptors.StripeSpec(name="power_ex", size=_EXCHANGE_DIM),
+]
+CARD_ATTR_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
+    _ATTR_STRIPE_SPECS
+)
+_OFF_ATTR_POINTS = CARD_ATTR_LAYOUT.offset_of("points")
+_OFF_ATTR_FOOD_COST = CARD_ATTR_LAYOUT.offset_of("food_cost")
+_OFF_ATTR_NEST = CARD_ATTR_LAYOUT.offset_of("nest")
+_OFF_ATTR_HAB = CARD_ATTR_LAYOUT.offset_of("habitats")
+_OFF_ATTR_FLOCK = CARD_ATTR_LAYOUT.offset_of("flock")
+_OFF_ATTR_PRED = CARD_ATTR_LAYOUT.offset_of("pred")
+_OFF_ATTR_WINGSPAN = CARD_ATTR_LAYOUT.offset_of("wingspan")
+_OFF_ATTR_EGG_LIMIT = CARD_ATTR_LAYOUT.offset_of("egg_limit")
+_OFF_ATTR_COLOR = CARD_ATTR_LAYOUT.offset_of("color")
+_OFF_ATTR_PLAYS_BIRD = CARD_ATTR_LAYOUT.offset_of("plays_bird")
+_OFF_ATTR_CACHES_FOOD = CARD_ATTR_LAYOUT.offset_of("caches_food")
+_OFF_ATTR_BONUS_CATS = CARD_ATTR_LAYOUT.offset_of("bonus_cats")
+_OFF_ATTR_POWER_EX = CARD_ATTR_LAYOUT.offset_of("power_ex")
+_BIRD_ATTR_DIM = CARD_ATTR_LAYOUT.total_size  # 44 (was 49)
 
 # The model's card encoder consumes, per card, this attribute vector concatenated
 # with the card's identity one-hot, and outputs the shared ``[181, D]`` card table
@@ -411,43 +467,48 @@ N_BOARD_INDEX_SLOTS = 2 * _SLOTS_PER_BOARD  # POV board + opponent board
 N_CARD_INDEX_SLOTS = N_BOARD_INDEX_SLOTS + state.TRAY_SIZE
 HAND_MULTIHOT_DIM = _BIRD_ID_DIM
 
+_STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
+    _stripe_descriptors.StripeSpec(name="food_me", size=cards.N_FOODS),
+    _stripe_descriptors.StripeSpec(name="food_opp", size=cards.N_FOODS),
+    _stripe_descriptors.StripeSpec(name="board_me", size=_BOARD_CONT_STRIPE_DIM),
+    _stripe_descriptors.StripeSpec(name="board_opp", size=_BOARD_CONT_STRIPE_DIM),
+    _stripe_descriptors.StripeSpec(name="board_summary_me", size=state.N_HABITATS * 6),
+    _stripe_descriptors.StripeSpec(name="board_summary_opp", size=state.N_HABITATS * 6),
+    _stripe_descriptors.StripeSpec(name="hand_summary_me", size=HAND_SUMMARY_DIM),
+    _stripe_descriptors.StripeSpec(name="bonus_progress", size=4 * _BONUS_ID_DIM),
+    _stripe_descriptors.StripeSpec(name="opp_bonus_count", size=1),
+    _stripe_descriptors.StripeSpec(name="opp_hand_size", size=1),
+    _stripe_descriptors.StripeSpec(name="birdfeeder", size=7),
+    _stripe_descriptors.StripeSpec(
+        name="misc_scalars",
+        size=N_ROUNDS
+        + (MAX_ACTION_CUBES + 1) * 2
+        + 4,  # 4-dim round one-hot + 9-dim cube×2 + 4 scalars
+    ),
+    _stripe_descriptors.StripeSpec(name="round_goals", size=_ROUND_GOALS_STRIPE_DIM),
+    _stripe_descriptors.StripeSpec(name="card_idx_block", size=N_CARD_INDEX_SLOTS),
+    _stripe_descriptors.StripeSpec(name="hand_multihot", size=HAND_MULTIHOT_DIM),
+]
+STATE_CONT_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
+    _STATE_CONT_STRIPE_SPECS
+)
+
 # Offset of the 10-dim hand-summary stripe within the state vector (= within the
 # continuous prefix, since it precedes the card-index block). Used by the model's
 # ``_embed_state`` when ``use_distinct_hand_model`` is active to split the 10 dims
 # away from the continuous trunk feed and redirect them into the hand encoder.
-HAND_SUMMARY_OFFSET: int = (
-    5
-    + 5  # food inventories (me + opp)
-    + 2 * _BOARD_CONT_STRIPE_DIM  # board continuous (me, opp)
-    + _TRAY_CONT_STRIPE_DIM  # tray continuous
-    + 18
-    + 18  # board summaries (me, opp)
-)
+HAND_SUMMARY_OFFSET: int = STATE_CONT_LAYOUT.offset_of("hand_summary_me")
 
 # The raw input width of the hand encoder: multi-hot identity + summary stats.
 HAND_ENCODER_INPUT_DIM = HAND_MULTIHOT_DIM + HAND_SUMMARY_DIM
 
-# Continuous prefix preceding the card-index block, summed over the encode_state
-# parts in order (everything except the index block, hand multi-hot, and the
-# trailing decision-type stripe).
-_CONT_PREFIX_DIM = (
-    5  # my food
-    + 5  # opponent food
-    + 2 * _BOARD_CONT_STRIPE_DIM  # board continuous (me, opp)
-    + _TRAY_CONT_STRIPE_DIM  # tray continuous
-    + 18  # my board summary
-    + 18  # opponent board summary
-    + HAND_SUMMARY_DIM  # my hand summary
-    + 4 * _BONUS_ID_DIM  # bonus progress (held + count + stepped + linear)
-    + 1  # opponent bonus-card count
-    + 1  # opponent hand size
-    + 7  # birdfeeder (5 single-food faces + choice-die count + reset-available flag)
-    + 26  # misc scalars (4-dim round one-hot + 9-dim cube-me one-hot + 9-dim cube-opp one-hot + 2 goal-pts scalars + 1 tray-size + 1 deck-size)
-    + _ROUND_GOALS_STRIPE_DIM  # all four round goals
-)
+# Continuous prefix preceding the card-index block; ``card_idx_block`` and
+# ``hand_multihot`` are included in STATE_CONT_LAYOUT for offset arithmetic,
+# but the prefix boundary is the start of ``card_idx_block``.
+_CONT_PREFIX_DIM = STATE_CONT_LAYOUT.offset_of("card_idx_block")
 OFF_CARD_INDEX = _CONT_PREFIX_DIM
-OFF_HAND_MULTIHOT = OFF_CARD_INDEX + N_CARD_INDEX_SLOTS
-OFF_DECISION_TYPE = OFF_HAND_MULTIHOT + HAND_MULTIHOT_DIM
+OFF_HAND_MULTIHOT: int = STATE_CONT_LAYOUT.offset_of("hand_multihot")
+OFF_DECISION_TYPE: int = STATE_CONT_LAYOUT.total_size
 
 # Choice-vector card regions the model embeds through the shared card table. The
 # board-index block sits immediately before the candidate bird-index column; both
@@ -586,6 +647,25 @@ def state_feature_dim(spec: EncodingSpec = DEFAULT_SPEC) -> int:
     """Length of the state vector for ``spec``: the fixed prefix through the
     card / hand blocks plus the (spec-sized) trailing decision-type one-hot."""
     return OFF_DECISION_TYPE + decision_type_dim(spec)
+
+
+def choice_layout(
+    spec: EncodingSpec = DEFAULT_SPEC,
+) -> _stripe_descriptors.VectorLayout:
+    """The auto-computed choice stripe layout for ``spec``."""
+    if spec.include_setup:
+        return CHOICE_FULL_LAYOUT
+    return CHOICE_BASE_LAYOUT
+
+
+def state_cont_layout() -> _stripe_descriptors.VectorLayout:
+    """The auto-computed state continuous-prefix layout (decision-type excluded)."""
+    return STATE_CONT_LAYOUT
+
+
+def card_attr_layout() -> _stripe_descriptors.VectorLayout:
+    """The auto-computed per-card attribute vector layout."""
+    return CARD_ATTR_LAYOUT
 
 
 # Default-spec (setup-included) public sizes. A configured run derives its own

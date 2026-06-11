@@ -13,8 +13,8 @@ run's spec so the report shows exactly the fields that run encodes.
 
 Sub-modules:
 
-- ``descriptors``   — :class:`SubFieldDescriptor`, :class:`StripeDescriptor`,
-                      :class:`VectorLayout` models
+- ``descriptors``   — :class:`StripeSpec`, :class:`SubFieldDescriptor`,
+                      :class:`StripeDescriptor`, :class:`VectorLayout` models
 - ``embed_rules``   — post-embedding rewrite logic shared by state and choice
 - ``state``         — :func:`state_stripe_layout` and its sub-field builders
 - ``choice``        — :func:`choice_stripe_layout` and its sub-field builders
@@ -34,12 +34,14 @@ from wingspan.encode.stripes.choice import (
 )
 from wingspan.encode.stripes.descriptors import (
     StripeDescriptor,
+    StripeSpec,
     SubFieldDescriptor,
     VectorLayout,
 )
 from wingspan.encode.stripes.state import state_stripe_layout
 
 __all__ = [
+    "StripeSpec",
     "SubFieldDescriptor",
     "StripeDescriptor",
     "VectorLayout",

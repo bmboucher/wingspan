@@ -1,16 +1,36 @@
 """Stripe and sub-field descriptor Pydantic models.
 
-Provides :class:`SubFieldDescriptor`, :class:`StripeDescriptor`, and
-:class:`VectorLayout` — the data classes that every stripe-registry function
-returns.  Also houses ``_hand_summary_sub_fields``, which is shared between
-the state layout and the hand-encoder-input layout.
+Provides :class:`StripeSpec`, :class:`SubFieldDescriptor`,
+:class:`StripeDescriptor`, and :class:`VectorLayout` — the data classes
+used throughout the encoding system.  :class:`StripeSpec` is the *input*
+to layout computation (name + size only); :class:`VectorLayout` is the
+*output* (names + auto-accumulated offsets + sizes).  Also houses
+:func:`hand_summary_sub_fields`, shared between the state layout and the
+hand-encoder-input layout.
 """
 
 from __future__ import annotations
 
+import typing
+
 import pydantic
 
 from wingspan import cards
+
+
+class StripeSpec(pydantic.BaseModel):
+    """Name and width of one stripe — the input to offset accumulation.
+
+    Pass an ordered sequence of these to :meth:`VectorLayout.from_stripe_specs`
+    to build a :class:`VectorLayout` whose offsets are guaranteed overlap-free
+    by sequential accumulation.  Changing the order or sizes of specs changes
+    the encoding and is a FRESH (checkpoint-invalidating) event."""
+
+    name: str
+    """Short reference name (snake_case).  Must be unique within a layout."""
+
+    size: int
+    """Number of elements this stripe occupies in the flat vector."""
 
 
 class SubFieldDescriptor(pydantic.BaseModel):
@@ -87,6 +107,49 @@ class VectorLayout(pydantic.BaseModel):
     """Total element count (equals ``sum(stripes[i].size)``)."""
 
     stripes: tuple[StripeDescriptor, ...]
+
+    @classmethod
+    def from_stripe_specs(cls, specs: typing.Sequence[StripeSpec]) -> VectorLayout:
+        """Build a VectorLayout by auto-accumulating offsets from ordered specs.
+
+        Each stripe's offset equals the cumulative sum of all preceding sizes,
+        so no manual arithmetic is required and overlaps are structurally
+        impossible.  The resulting :class:`StripeDescriptor` objects contain the
+        correct ``offset`` and ``size``; other metadata fields (description,
+        encoding, value_range) are empty placeholders — enrich them if needed."""
+        stripes: list[StripeDescriptor] = []
+        running_offset = 0
+        for spec in specs:
+            stripes.append(
+                StripeDescriptor(
+                    name=spec.name,
+                    description="",
+                    offset=running_offset,
+                    size=spec.size,
+                    encoding="",
+                    value_range="",
+                )
+            )
+            running_offset += spec.size
+        return cls(total_size=running_offset, stripes=tuple(stripes))
+
+    def offset_of(self, name: str) -> int:
+        """Offset of the named stripe in the flat vector.
+
+        Raises :exc:`KeyError` if no stripe with that name exists."""
+        for stripe in self.stripes:
+            if stripe.name == name:
+                return stripe.offset
+        raise KeyError(f"No stripe named {name!r} in this VectorLayout")
+
+    def size_of(self, name: str) -> int:
+        """Width of the named stripe.
+
+        Raises :exc:`KeyError` if no stripe with that name exists."""
+        for stripe in self.stripes:
+            if stripe.name == name:
+                return stripe.size
+        raise KeyError(f"No stripe named {name!r} in this VectorLayout")
 
 
 ###### PRIVATE #######
