@@ -13,19 +13,19 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
-from wingspan.tournament import config, participants, results, runner
+from wingspan.tournament import models, runner
 
 
-def _random_cfg(ids: list[str], out_path: str) -> config.TournamentConfig:
+def _random_cfg(ids: list[str], out_path: str) -> models.TournamentConfig:
     specs = [
-        participants.ParticipantSpec(
+        models.ParticipantSpec(
             id=competitor_id,
             display_name=competitor_id,
-            kind=participants.ParticipantKind.RANDOM,
+            kind=models.ParticipantKind.RANDOM,
         )
         for competitor_id in ids
     ]
-    return config.TournamentConfig(
+    return models.TournamentConfig(
         participants=specs, games_per_pair=4, base_seed=0, out_path=out_path
     )
 
@@ -33,7 +33,7 @@ def _random_cfg(ids: list[str], out_path: str) -> config.TournamentConfig:
 def test_in_process_tournament_plays_and_reports(tmp_path: pathlib.Path) -> None:
     ids = ["r0", "r1", "r2"]
     cfg = _random_cfg(ids, str(tmp_path / "report.json"))
-    streamed: list[results.GameResult] = []
+    streamed: list[models.GameResult] = []
 
     report = runner.run_tournament(cfg, on_result=streamed.append, in_process=True)
 
@@ -67,7 +67,7 @@ def test_report_serializes_to_json(tmp_path: pathlib.Path) -> None:
     cfg = _random_cfg(["r0", "r1"], str(out))
     report = runner.run_tournament(cfg, in_process=True)
     out.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-    restored = results.TournamentReport.model_validate_json(
+    restored = models.TournamentReport.model_validate_json(
         out.read_text(encoding="utf-8")
     )
     assert len(restored.games) == cfg.total_games

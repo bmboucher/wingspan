@@ -1,10 +1,12 @@
 """Per-game results and the aggregated tournament report (the JSON root).
 
-A finished game is a :class:`GameResult`; :func:`aggregate` rolls every game
-into the :class:`TournamentReport` written to disk — per-pair win rates and
-average point margins split by who went first, plus each competitor's final Elo
-and overall record. Win rate counts a tie as half a win throughout (matching the
-training evaluator's convention).
+A finished game is a :class:`~models.GameResult`; :func:`aggregate` rolls every
+game into the :class:`~models.TournamentReport` written to disk — per-pair win
+rates and average point margins split by who went first, plus each competitor's
+final Elo and overall record. Win rate counts a tie as half a win throughout
+(matching the training evaluator's convention).
+
+Data shapes live in :mod:`models`; this module provides :func:`aggregate`.
 """
 
 from __future__ import annotations
@@ -13,85 +15,12 @@ import typing
 
 import pydantic
 
-from wingspan.tournament import config, elo, schedule
-
-
-class GameResult(pydantic.BaseModel):
-    """One finished tournament game, from competitor A's point of view.
-
-    ``a_was_start_player`` records who actually went first (the deal's random
-    first player mapped through A's seat), which is what the first/second splits
-    bucket on — not the orientation label.
-    """
-
-    round_index: int
-    pair_index: int
-    orientation: schedule.Orientation
-    player_a_id: str
-    player_b_id: str
-    a_score: int
-    b_score: int
-    a_was_start_player: bool
-
-    @property
-    def score_a(self) -> float:
-        """A's game outcome as an Elo/​win-rate score: 1.0 win, 0.5 tie, 0.0 loss."""
-        if self.a_score > self.b_score:
-            return 1.0
-        if self.a_score < self.b_score:
-            return 0.0
-        return 0.5
-
-
-class SplitStats(pydantic.BaseModel):
-    """Win rate and average point margin over one subset of a pair's games, from
-    a fixed competitor's perspective (ties count as half a win)."""
-
-    games: int = 0
-    wins: float = 0.0
-    win_rate: float = 0.0
-    avg_margin: float = 0.0
-
-
-class MatchupResult(pydantic.BaseModel):
-    """One unordered pair's full result, broken down from each side as first
-    player, as second player, and overall."""
-
-    player_a_id: str
-    player_b_id: str
-    a_first: SplitStats
-    a_second: SplitStats
-    a_overall: SplitStats
-    b_first: SplitStats
-    b_second: SplitStats
-    b_overall: SplitStats
-
-
-class ParticipantResult(pydantic.BaseModel):
-    """One competitor's tournament-wide standing."""
-
-    id: str
-    display_name: str
-    final_elo: float
-    wins: int
-    losses: int
-    ties: int
-    win_rate: float
-    avg_margin: float
-
-
-class TournamentReport(pydantic.BaseModel):
-    """The complete tournament result — the JSON written to ``out_path``."""
-
-    config: config.TournamentConfig
-    participants: list[ParticipantResult]
-    matchups: list[MatchupResult]
-    games: list[GameResult]
+from wingspan.tournament import elo, models
 
 
 def aggregate(
-    cfg: config.TournamentConfig, games: typing.Sequence[GameResult]
-) -> TournamentReport:
+    cfg: models.TournamentConfig, games: typing.Sequence[models.GameResult]
+) -> models.TournamentReport:
     """Roll finished ``games`` into the full report: deterministic final Elo,
     per-pair first/second/overall splits, and per-competitor records. Competitors
     are sorted by final Elo (descending)."""
@@ -112,8 +41,8 @@ def aggregate(
         games,
         key=lambda game: (game.round_index, game.pair_index, int(game.orientation)),
     )
-    return TournamentReport(
-        config=cfg, participants=standings, matchups=matchups, games=ordered_games
+    return models.TournamentReport(
+        config=cfg, participants=standings, matchups=matchups, games=list(ordered_games)
     )
 
 
@@ -129,24 +58,36 @@ class _Side(pydantic.BaseModel):
 
 
 def _group_by_pair(
-    games: typing.Sequence[GameResult],
-) -> dict[tuple[str, str], list[GameResult]]:
+    games: typing.Sequence[models.GameResult],
+) -> dict[tuple[str, str], list[models.GameResult]]:
     """Games grouped by their unordered pair, preserving first-seen pair order."""
-    grouped: dict[tuple[str, str], list[GameResult]] = {}
+    grouped: dict[tuple[str, str], list[models.GameResult]] = {}
     for game in games:
         grouped.setdefault((game.player_a_id, game.player_b_id), []).append(game)
     return grouped
 
 
-def _matchup(id_a: str, id_b: str, group: typing.Sequence[GameResult]) -> MatchupResult:
+def _matchup(
+    id_a: str, id_b: str, group: typing.Sequence[models.GameResult]
+) -> models.MatchupResult:
     """Build one pair's six-way split (A/B × first/second/overall)."""
-    a_first = [(g.score_a, _margin_a(g)) for g in group if g.a_was_start_player]
-    a_second = [(g.score_a, _margin_a(g)) for g in group if not g.a_was_start_player]
-    b_first = [
-        (1.0 - g.score_a, -_margin_a(g)) for g in group if not g.a_was_start_player
+    a_first = [
+        (game.score_a, _margin_a(game)) for game in group if game.a_was_start_player
     ]
-    b_second = [(1.0 - g.score_a, -_margin_a(g)) for g in group if g.a_was_start_player]
-    return MatchupResult(
+    a_second = [
+        (game.score_a, _margin_a(game)) for game in group if not game.a_was_start_player
+    ]
+    b_first = [
+        (1.0 - game.score_a, -_margin_a(game))
+        for game in group
+        if not game.a_was_start_player
+    ]
+    b_second = [
+        (1.0 - game.score_a, -_margin_a(game))
+        for game in group
+        if game.a_was_start_player
+    ]
+    return models.MatchupResult(
         player_a_id=id_a,
         player_b_id=id_b,
         a_first=_split(a_first),
@@ -158,20 +99,20 @@ def _matchup(id_a: str, id_b: str, group: typing.Sequence[GameResult]) -> Matchu
     )
 
 
-def _split(entries: typing.Sequence[tuple[float, float]]) -> SplitStats:
+def _split(entries: typing.Sequence[tuple[float, float]]) -> models.SplitStats:
     """Win rate + average margin over (score, margin) entries (ties = 0.5 win)."""
     games = len(entries)
     if games == 0:
-        return SplitStats()
+        return models.SplitStats()
     wins = sum(score for score, _ in entries)
     margin_total = sum(margin for _, margin in entries)
-    return SplitStats(
+    return models.SplitStats(
         games=games, wins=wins, win_rate=wins / games, avg_margin=margin_total / games
     )
 
 
 def _sides_by_competitor(
-    ids: typing.Sequence[str], games: typing.Sequence[GameResult]
+    ids: typing.Sequence[str], games: typing.Sequence[models.GameResult]
 ) -> dict[str, _Side]:
     """Each competitor's score/margin entries across every game it played."""
     sides: dict[str, _Side] = {competitor_id: _Side() for competitor_id in ids}
@@ -185,8 +126,11 @@ def _sides_by_competitor(
 
 
 def _participant_result(
-    competitor_id: str, display_name: str, table: elo.EloTable, side: _Side
-) -> ParticipantResult:
+    competitor_id: str,
+    display_name: str,
+    table: models.EloTable,
+    side: _Side,
+) -> models.ParticipantResult:
     """Roll one competitor's entries into wins/losses/ties + averages."""
     games = len(side.scores)
     wins = sum(1 for score in side.scores if score == 1.0)
@@ -194,7 +138,7 @@ def _participant_result(
     ties = sum(1 for score in side.scores if score == 0.5)
     win_rate = sum(side.scores) / games if games else 0.0
     avg_margin = sum(side.margins) / games if games else 0.0
-    return ParticipantResult(
+    return models.ParticipantResult(
         id=competitor_id,
         display_name=display_name,
         final_elo=table.ratings[competitor_id],
@@ -206,6 +150,6 @@ def _participant_result(
     )
 
 
-def _margin_a(game: GameResult) -> float:
+def _margin_a(game: models.GameResult) -> float:
     """Competitor A's point margin in a game (its score minus B's)."""
     return float(game.a_score - game.b_score)

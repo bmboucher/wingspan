@@ -342,9 +342,9 @@ def player_breakdown(player: state.Player) -> metrics.ScoreBreakdown:
     return metrics.ScoreBreakdown(
         birds=float(bird_pts),
         eggs=float(player.total_eggs),
-        food=float(player.total_cached),
+        cached=float(player.total_cached),
         tucked=float(player.total_tucked),
-        rounds=float(player.round_goal_points),
+        goals=float(player.round_goal_points),
         bonus=float(bonus_pts),
     )
 

@@ -42,7 +42,7 @@ from wingspan.training import (
 
 def test_score_breakdown_arithmetic():
     breakdown = metrics.ScoreBreakdown(
-        birds=1, eggs=2, food=3, tucked=4, rounds=5, bonus=6
+        birds=1, eggs=2, cached=3, tucked=4, goals=5, bonus=6
     )
     assert breakdown.total == 21
     doubled = breakdown + breakdown
@@ -157,7 +157,7 @@ def test_dashboard_renders_empty_state():
 def test_dashboard_renders_populated_state(width: int):
     state = runstate.new_run_state(config.TrainConfig(device="cpu"))
     breakdown = metrics.ScoreBreakdown(
-        birds=27, eggs=14, food=9, tucked=6, rounds=7, bonus=5
+        birds=27, eggs=14, cached=9, tucked=6, goals=7, bonus=5
     )
     family = metrics.FamilyCounts()
     for index in range(140):

@@ -27,7 +27,7 @@ _SPARK_CELLS = 8
 _EVENT_LINES = 6
 
 # IN-GAME PERFORMANCE score table geometry.
-_PT_NAME_W = 8  # the per-source name column ("tucked" / "rounds" / "TOTAL")
+_PT_NAME_W = 8  # the per-source name column ("tucked" / "goals" / "TOTAL")
 _PT_PAIR_W = 12  # one "###.#  ##.#%" points / share pair
 _Z95 = 1.96  # standard-normal z for the 95% confidence interval
 

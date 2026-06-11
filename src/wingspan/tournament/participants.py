@@ -1,9 +1,11 @@
-"""Tournament competitors: their specs, on-disk discovery, and agent loading.
+"""Tournament competitors: on-disk discovery and agent loading.
 
 A competitor is either a trained model (a checkpoint directory holding
-``last.pt`` + ``model_config.json``) or the built-in random agent. The same
-:class:`ParticipantSpec` describes both; :func:`load_player` turns one into an
-:class:`engine.Agent` the runner seats in a game.
+``last.pt`` + ``model_config.json``) or the built-in random agent. The data
+shapes (:class:`~models.ParticipantSpec`, :class:`~models.RunOption`,
+:class:`~models.ParticipantKind`) live in :mod:`models`; this module provides
+the operational functions that turn those specs into live agents and discover
+available runs on disk.
 
 Discovery (:func:`discover_runs`) reuses the configurator's
 :func:`runs.inspect_run` to enumerate the active run plus every archived run
@@ -13,7 +15,6 @@ same "trained models on disk" the FLIGHT PLAN configurator manages.
 
 from __future__ import annotations
 
-import enum
 import pathlib
 import random
 import typing
@@ -22,65 +23,24 @@ import pydantic
 import torch
 
 from wingspan import agents, engine, players, version
+from wingspan.tournament import models
 from wingspan.training import artifacts, policy, runmeta
 from wingspan.training.configure import runs
 
 
-class ParticipantKind(enum.StrEnum):
-    """Whether a competitor is a trained model or the random agent."""
-
-    MODEL = "model"
-    RANDOM = "random"
-
-
-class ParticipantSpec(pydantic.BaseModel):
-    """One tournament competitor, identified by a stable ``id``.
-
-    ``checkpoint_dir`` is the run directory for a ``MODEL`` and ``None`` for the
-    ``RANDOM`` agent. Frozen so a spec can be a dict key and shipped to worker
-    processes as immutable pool ``initargs``.
-    """
-
-    model_config = pydantic.ConfigDict(frozen=True)
-
-    id: str
-    display_name: str
-    kind: ParticipantKind
-    checkpoint_dir: str | None = None
-
-
-class RunOption(pydantic.BaseModel):
-    """One discoverable trained run, as shown to the user in the picker."""
-
-    checkpoint_dir: str
-    display_name: str
-    iteration: int | None = None
-    best_win_rate: float | None = None
-    modified: float | None = None
-
-    def to_spec(self) -> ParticipantSpec:
-        """The competitor spec for selecting this run as a model player."""
-        return ParticipantSpec(
-            id=self.display_name,
-            display_name=self.display_name,
-            kind=ParticipantKind.MODEL,
-            checkpoint_dir=self.checkpoint_dir,
-        )
-
-
-def random_spec() -> ParticipantSpec:
+def random_spec() -> models.ParticipantSpec:
     """The spec for the built-in random agent competitor."""
-    return ParticipantSpec(
-        id="random", display_name="random", kind=ParticipantKind.RANDOM
+    return models.ParticipantSpec(
+        id="random", display_name="random", kind=models.ParticipantKind.RANDOM
     )
 
 
-def discover_runs(base_dir: str) -> list[RunOption]:
+def discover_runs(base_dir: str) -> list[models.RunOption]:
     """Every selectable trained run under ``base_dir``: the active run plus each
     archived run (``<base_dir>/archive/<label>/``) that still holds a loadable
     checkpoint. Reuses :func:`runs.inspect_run`, which never raises — an
     unreadable run is simply skipped."""
-    options: list[RunOption] = []
+    options: list[models.RunOption] = []
     summary = runs.inspect_run(base_dir)
     if _loadable(base_dir, summary):
         options.append(_option_from_summary(base_dir, summary))
@@ -98,7 +58,7 @@ def discover_runs(base_dir: str) -> list[RunOption]:
     return options
 
 
-def spec_from_dir(checkpoint_dir: str) -> ParticipantSpec:
+def spec_from_dir(checkpoint_dir: str) -> models.ParticipantSpec:
     """Build a model competitor spec for an explicit checkpoint dir (the
     ``--ai <dir>`` path). The display name is the run's name + iteration when the
     checkpoint is readable, else the directory's own name."""
@@ -106,20 +66,22 @@ def spec_from_dir(checkpoint_dir: str) -> ParticipantSpec:
     if summary.exists and summary.readable:
         return _option_from_summary(checkpoint_dir, summary).to_spec()
     fallback = pathlib.Path(checkpoint_dir).name or checkpoint_dir
-    return ParticipantSpec(
+    return models.ParticipantSpec(
         id=fallback,
         display_name=fallback,
-        kind=ParticipantKind.MODEL,
+        kind=models.ParticipantKind.MODEL,
         checkpoint_dir=checkpoint_dir,
     )
 
 
-def with_unique_ids(specs: typing.Sequence[ParticipantSpec]) -> list[ParticipantSpec]:
+def with_unique_ids(
+    specs: typing.Sequence[models.ParticipantSpec],
+) -> list[models.ParticipantSpec]:
     """Return ``specs`` with any duplicate ``id`` disambiguated by a ``#N`` suffix
     (two runs can share a run name), so every competitor keys uniquely in the
     schedule, ELO table, and report."""
     seen: dict[str, int] = {}
-    unique: list[ParticipantSpec] = []
+    unique: list[models.ParticipantSpec] = []
     for spec in specs:
         count = seen.get(spec.id, 0) + 1
         seen[spec.id] = count
@@ -134,7 +96,7 @@ def with_unique_ids(specs: typing.Sequence[ParticipantSpec]) -> list[Participant
 
 
 def load_player(
-    spec: ParticipantSpec, device: torch.device, rng: random.Random
+    spec: models.ParticipantSpec, device: torch.device, rng: random.Random
 ) -> engine.Agent:
     """Build the :class:`engine.Agent` for a competitor.
 
@@ -144,7 +106,7 @@ def load_player(
     ``RANDOM`` competitor returns a uniform-random agent seeded from ``rng`` so
     the caller controls its reproducibility per game.
     """
-    if spec.kind is ParticipantKind.RANDOM:
+    if spec.kind is models.ParticipantKind.RANDOM:
         return agents.random_agent(rng)
     assert spec.checkpoint_dir is not None, "a MODEL competitor needs a checkpoint dir"
     net = players.load_policy_net_from_run_dir(spec.checkpoint_dir, device)
@@ -184,13 +146,13 @@ def _encoding_compatible(checkpoint_dir: str) -> bool:
 
 def _option_from_summary(
     checkpoint_dir: str, summary: runs.RunSummary, *, label: str | None = None
-) -> RunOption:
-    """Build a :class:`RunOption` from an inspected run. Archived runs display by
-    their archive label; the active run displays by its run name."""
+) -> models.RunOption:
+    """Build a :class:`~models.RunOption` from an inspected run. Archived runs
+    display by their archive label; the active run displays by its run name."""
     run_name = (
         summary.train_config.run_name if summary.train_config is not None else "run"
     )
-    return RunOption(
+    return models.RunOption(
         checkpoint_dir=checkpoint_dir,
         display_name=label if label is not None else run_name,
         iteration=summary.iteration,

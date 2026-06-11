@@ -30,9 +30,9 @@ from wingspan import decisions
 SCORE_COMPONENTS: tuple[str, ...] = (
     "birds",
     "eggs",
-    "food",
+    "cached",
     "tucked",
-    "rounds",
+    "goals",
     "bonus",
 )
 
@@ -50,28 +50,31 @@ class ScoreBreakdown(pydantic.BaseModel):
     computes it: birds + bonus + eggs + tucked + cached-food + round-goal. Fields
     are floats so the same model carries both a single integral game score and a
     fractional running average.
+
+    Field names match those in ``reporting.game_log_html.ScoreBreakdown``:
+    ``cached`` = cached-food VP, ``goals`` = round-goal VP.
     """
 
     birds: float = 0.0
     eggs: float = 0.0
-    food: float = 0.0  # cached-food points
+    cached: float = 0.0  # cached-food points
     tucked: float = 0.0  # tucked-card points
-    rounds: float = 0.0  # end-of-round-goal points
+    goals: float = 0.0  # end-of-round-goal points
     bonus: float = 0.0  # bonus-card points
 
     @property
     def total(self) -> float:
         return (
-            self.birds + self.eggs + self.food + self.tucked + self.rounds + self.bonus
+            self.birds + self.eggs + self.cached + self.tucked + self.goals + self.bonus
         )
 
     def __add__(self, other: "ScoreBreakdown") -> "ScoreBreakdown":
         return ScoreBreakdown(
             birds=self.birds + other.birds,
             eggs=self.eggs + other.eggs,
-            food=self.food + other.food,
+            cached=self.cached + other.cached,
             tucked=self.tucked + other.tucked,
-            rounds=self.rounds + other.rounds,
+            goals=self.goals + other.goals,
             bonus=self.bonus + other.bonus,
         )
 
@@ -79,9 +82,9 @@ class ScoreBreakdown(pydantic.BaseModel):
         return ScoreBreakdown(
             birds=self.birds * factor,
             eggs=self.eggs * factor,
-            food=self.food * factor,
+            cached=self.cached * factor,
             tucked=self.tucked * factor,
-            rounds=self.rounds * factor,
+            goals=self.goals * factor,
             bonus=self.bonus * factor,
         )
 

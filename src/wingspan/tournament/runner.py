@@ -26,11 +26,11 @@ import pydantic
 import torch
 
 from wingspan import engine
-from wingspan.tournament import config, participants, results, schedule
+from wingspan.tournament import models, participants, results, schedule
 from wingspan.training import collect
 
 # Fired with each finished game as it lands (live Elo / dashboard updates).
-type ResultCallback = typing.Callable[[results.GameResult], None]
+type ResultCallback = typing.Callable[[models.GameResult], None]
 # Polled as games complete; once true, pending games are cancelled.
 type StopCheck = typing.Callable[[], bool]
 
@@ -51,17 +51,17 @@ class _WorkerRoster(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    specs: list[participants.ParticipantSpec]
+    specs: list[models.ParticipantSpec]
     device: str
 
 
 def run_tournament(
-    cfg: config.TournamentConfig,
+    cfg: models.TournamentConfig,
     on_result: ResultCallback | None = None,
     should_stop: StopCheck | None = None,
     *,
     in_process: bool = False,
-) -> results.TournamentReport:
+) -> models.TournamentReport:
     """Play the whole round-robin and return the aggregated report.
 
     ``on_result`` fires from the calling thread as each game finishes (so it may
@@ -79,11 +79,11 @@ def run_tournament(
 
 
 def play_tournament_game(
-    specs_by_id: dict[str, participants.ParticipantSpec],
+    specs_by_id: dict[str, models.ParticipantSpec],
     model_agents: dict[str, engine.Agent],
-    task: schedule.GameTask,
+    task: models.GameTask,
     device: torch.device,
-) -> results.GameResult:
+) -> models.GameResult:
     """Play one scheduled game and read out competitor A's result.
 
     ``model_agents`` caches loaded model nets across games by competitor id;
@@ -102,7 +102,7 @@ def play_tournament_game(
     score0 = game.state.players[0].final_score or 0
     score1 = game.state.players[1].final_score or 0
     a_score, b_score = (score0, score1) if task.a_seat == 0 else (score1, score0)
-    return results.GameResult(
+    return models.GameResult(
         round_index=task.round_index,
         pair_index=task.pair_index,
         orientation=task.orientation,
@@ -118,16 +118,16 @@ def play_tournament_game(
 
 
 def _run_in_process(
-    cfg: config.TournamentConfig,
-    tasks: typing.Sequence[schedule.GameTask],
+    cfg: models.TournamentConfig,
+    tasks: typing.Sequence[models.GameTask],
     device: torch.device,
     on_result: ResultCallback | None,
     should_stop: StopCheck | None,
-) -> list[results.GameResult]:
+) -> list[models.GameResult]:
     """Play every game in this process (no pool) — the test/headless path."""
     specs_by_id = {spec.id: spec for spec in cfg.participants}
     model_agents: dict[str, engine.Agent] = {}
-    collected: list[results.GameResult] = []
+    collected: list[models.GameResult] = []
     for task in tasks:
         if should_stop is not None and should_stop():
             break
@@ -139,11 +139,11 @@ def _run_in_process(
 
 
 def _run_parallel(
-    cfg: config.TournamentConfig,
-    tasks: typing.Sequence[schedule.GameTask],
+    cfg: models.TournamentConfig,
+    tasks: typing.Sequence[models.GameTask],
     on_result: ResultCallback | None,
     should_stop: StopCheck | None,
-) -> list[results.GameResult]:
+) -> list[models.GameResult]:
     """Fan the games across a persistent worker pool, streaming completions."""
     roster = _WorkerRoster(specs=list(cfg.participants), device=cfg.device)
     pool = futures.ProcessPoolExecutor(
@@ -151,7 +151,7 @@ def _run_parallel(
         initializer=_worker_init,
         initargs=(roster,),
     )
-    collected: list[results.GameResult] = []
+    collected: list[models.GameResult] = []
     try:
         pending = {pool.submit(_worker_play, task): task for task in tasks}
         for future in futures.as_completed(pending):
@@ -168,16 +168,16 @@ def _run_parallel(
 
 
 def _agent_for(
-    specs_by_id: dict[str, participants.ParticipantSpec],
+    specs_by_id: dict[str, models.ParticipantSpec],
     model_agents: dict[str, engine.Agent],
     participant_id: str,
-    task: schedule.GameTask,
+    task: models.GameTask,
     device: torch.device,
 ) -> engine.Agent:
     """The agent for one competitor in one game — a cached model net, or a fresh
     per-game-seeded random agent."""
     spec = specs_by_id[participant_id]
-    if spec.kind is participants.ParticipantKind.RANDOM:
+    if spec.kind is models.ParticipantKind.RANDOM:
         seed = task.deal_seed ^ _RANDOM_SALT ^ int(task.orientation)
         return participants.load_player(spec, device, random.Random(seed))
     cached = model_agents.get(participant_id)
@@ -198,7 +198,7 @@ def _default_worker_count(n_tasks: int) -> int:
 # Worker-process state: one roster of competitor specs and a per-process cache of
 # the model agents this worker has loaded, populated by ``_worker_init``.
 
-_worker_specs: dict[str, participants.ParticipantSpec] = {}
+_worker_specs: dict[str, models.ParticipantSpec] = {}
 _worker_model_agents: dict[str, engine.Agent] = {}
 _worker_device: torch.device | None = None
 
@@ -214,7 +214,7 @@ def _worker_init(roster: _WorkerRoster) -> None:
     _worker_device = torch.device(roster.device)
 
 
-def _worker_play(task: schedule.GameTask) -> results.GameResult:
+def _worker_play(task: models.GameTask) -> models.GameResult:
     """Play one scheduled game under this worker's cached roster + nets."""
     assert _worker_device is not None, "worker not initialized"
     return play_tournament_game(

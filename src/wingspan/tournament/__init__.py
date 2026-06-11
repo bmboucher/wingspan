@@ -16,9 +16,12 @@ The public surface is re-exported here:
 """
 
 from wingspan.tournament.app import main
-from wingspan.tournament.config import TournamentConfig
-from wingspan.tournament.participants import ParticipantSpec, discover_runs
-from wingspan.tournament.results import TournamentReport
+from wingspan.tournament.models import (
+    ParticipantSpec,
+    TournamentConfig,
+    TournamentReport,
+)
+from wingspan.tournament.participants import discover_runs
 from wingspan.tournament.runner import run_tournament
 
 __all__ = [

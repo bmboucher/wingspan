@@ -34,7 +34,6 @@ the diagram degrades to a compact single-column text list.
 
 from __future__ import annotations
 
-import dataclasses
 import enum
 import typing
 
@@ -1209,8 +1208,7 @@ def _fmt_dropout(dropout: float) -> str:
 #### Static rendering (for wingspan-inspect, no focus state) ####
 
 
-@dataclasses.dataclass
-class _StaticConfig:
+class _StaticConfig(pydantic.BaseModel):
     """Minimal working-config adapter for focus-free diagram rendering.
 
     Exposes the attributes the diagram draw functions read from a real
@@ -1219,6 +1217,8 @@ class _StaticConfig:
     *precomputed* by the caller (era-routed through the descriptor seam)
     rather than derived from the live encoder — see :func:`_choice_in` /
     :func:`_choice_extra` — so an old run's diagram shows its own geometry."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
 
     state_dim: int
     choice_dim: int
@@ -1248,9 +1248,10 @@ class _StaticConfig:
     use_setup_model: bool = False
 
 
-@dataclasses.dataclass
-class _StaticView:
+class _StaticView(pydantic.BaseModel):
     """Minimal view adapter for focus-free diagram rendering."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
 
     working: _StaticConfig
     selected_attr: str = ""

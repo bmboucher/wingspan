@@ -13,15 +13,15 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
-from wingspan.tournament import participants, schedule
+from wingspan.tournament import models, schedule
 
 
-def _random_specs(count: int) -> list[participants.ParticipantSpec]:
+def _random_specs(count: int) -> list[models.ParticipantSpec]:
     return [
-        participants.ParticipantSpec(
+        models.ParticipantSpec(
             id=f"p{index}",
             display_name=f"p{index}",
-            kind=participants.ParticipantKind.RANDOM,
+            kind=models.ParticipantKind.RANDOM,
         )
         for index in range(count)
     ]
@@ -35,28 +35,28 @@ def test_schedule_total_game_count() -> None:
 
 def test_each_pair_balanced_across_seats() -> None:
     tasks = schedule.build_schedule(_random_specs(3), games_per_pair=8, base_seed=1)
-    per_pair: dict[int, collections.Counter[schedule.Orientation]] = {}
+    per_pair: dict[int, collections.Counter[models.Orientation]] = {}
     for task in tasks:
         per_pair.setdefault(task.pair_index, collections.Counter())[
             task.orientation
         ] += 1
     assert len(per_pair) == 3  # C(3, 2)
     for counter in per_pair.values():
-        assert counter[schedule.Orientation.A_SEAT_0] == 4  # games_per_pair // 2
-        assert counter[schedule.Orientation.A_SEAT_1] == 4
+        assert counter[models.Orientation.A_SEAT_0] == 4  # games_per_pair // 2
+        assert counter[models.Orientation.A_SEAT_1] == 4
 
 
 def test_mirrored_orientations_share_deal_seed() -> None:
     tasks = schedule.build_schedule(_random_specs(2), games_per_pair=4, base_seed=2)
-    by_deal: dict[tuple[int, int], list[schedule.GameTask]] = {}
+    by_deal: dict[tuple[int, int], list[models.GameTask]] = {}
     for task in tasks:
         by_deal.setdefault((task.pair_index, task.round_index), []).append(task)
     for group in by_deal.values():
         assert len(group) == 2
         assert group[0].deal_seed == group[1].deal_seed
         assert {task.orientation for task in group} == {
-            schedule.Orientation.A_SEAT_0,
-            schedule.Orientation.A_SEAT_1,
+            models.Orientation.A_SEAT_0,
+            models.Orientation.A_SEAT_1,
         }
 
 

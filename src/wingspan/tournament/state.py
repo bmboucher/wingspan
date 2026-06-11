@@ -9,12 +9,11 @@ is recomputed deterministically by :func:`results.aggregate`.
 
 from __future__ import annotations
 
-import enum
 import time
 
 import pydantic
 
-from wingspan.tournament import config, elo, results
+from wingspan.tournament import models
 from wingspan.training import runstate
 
 # Recent-events ring size, and how many trailing live-Elo points to keep per
@@ -23,69 +22,19 @@ _MAX_EVENTS = 40
 _ELO_HISTORY_CAP = 240
 
 
-class TournamentPhase(enum.StrEnum):
-    """What the tournament is doing (drives the header LED + the exit check)."""
-
-    RUNNING = "running"
-    DONE = "done"
-    STOPPED = "stopped"
-    ERROR = "error"
-
-    @property
-    def is_terminal(self) -> bool:
-        return self in (
-            TournamentPhase.DONE,
-            TournamentPhase.STOPPED,
-            TournamentPhase.ERROR,
-        )
-
-
-class LiveRecord(pydantic.BaseModel):
-    """One competitor's running win/loss/tie record and margin total."""
-
-    games: int = 0
-    wins: int = 0
-    losses: int = 0
-    ties: int = 0
-    margin_sum: float = 0.0
-
-    @property
-    def win_rate(self) -> float:
-        return (self.wins + 0.5 * self.ties) / self.games if self.games else 0.0
-
-    @property
-    def avg_margin(self) -> float:
-        return self.margin_sum / self.games if self.games else 0.0
-
-
-class StandingRow(pydantic.BaseModel):
-    """One row of the live standings table (already sorted-by-Elo by the caller)."""
-
-    id: str
-    display_name: str
-    elo: float
-    games: int
-    wins: int
-    losses: int
-    ties: int
-    win_rate: float
-    avg_margin: float
-    elo_spark: list[float]
-
-
 class TournamentState(pydantic.BaseModel):
     """Everything the dashboard needs to repaint one frame."""
 
-    config: config.TournamentConfig
-    phase: TournamentPhase = TournamentPhase.RUNNING
+    config: models.TournamentConfig
+    phase: models.TournamentPhase = models.TournamentPhase.RUNNING
     start_monotonic: float
     stopped_monotonic: float | None = None
 
     total_games: int
     games_done: int = 0
 
-    live_table: elo.EloTable
-    records: dict[str, LiveRecord]
+    live_table: models.EloTable
+    records: dict[str, models.LiveRecord]
     elo_history: dict[str, list[float]]
     events: list[runstate.EventLine] = pydantic.Field(
         default_factory=list[runstate.EventLine]
@@ -94,7 +43,7 @@ class TournamentState(pydantic.BaseModel):
 
     # ----- writer-side helpers (called by the runner callback, under the lock) -----
 
-    def record_game(self, result: results.GameResult) -> None:
+    def record_game(self, result: models.GameResult) -> None:
         """Fold one finished game into the live Elo, records, and sparkline."""
         self.games_done += 1
         self.live_table.update(result.player_a_id, result.player_b_id, result.score_a)
@@ -115,7 +64,7 @@ class TournamentState(pydantic.BaseModel):
         if len(self.events) > _MAX_EVENTS:
             del self.events[: len(self.events) - _MAX_EVENTS]
 
-    def finish(self, phase: TournamentPhase) -> None:
+    def finish(self, phase: models.TournamentPhase) -> None:
         """Freeze the clock and mark the terminal phase."""
         self.phase = phase
         self.stopped_monotonic = time.monotonic()
@@ -141,11 +90,11 @@ class TournamentState(pydantic.BaseModel):
         """Fraction of the scheduled games that have finished, in ``[0, 1]``."""
         return self.games_done / self.total_games if self.total_games else 0.0
 
-    def standings(self) -> list[StandingRow]:
+    def standings(self) -> list[models.StandingRow]:
         """The competitor rows, sorted by live Elo (descending)."""
         display = {spec.id: spec.display_name for spec in self.config.participants}
         rows = [
-            StandingRow(
+            models.StandingRow(
                 id=competitor_id,
                 display_name=display[competitor_id],
                 elo=self.live_table.ratings[competitor_id],
@@ -176,15 +125,15 @@ class TournamentState(pydantic.BaseModel):
             record.ties += 1
 
 
-def new_tournament_state(cfg: config.TournamentConfig) -> TournamentState:
+def new_tournament_state(cfg: models.TournamentConfig) -> TournamentState:
     """A fresh live state with every competitor seeded at the initial Elo."""
     ids = cfg.participant_ids
     return TournamentState(
         config=cfg,
         start_monotonic=time.monotonic(),
         total_games=cfg.total_games,
-        live_table=elo.EloTable.initial(ids, cfg.elo_init, cfg.elo_k),
-        records={competitor_id: LiveRecord() for competitor_id in ids},
+        live_table=models.EloTable.initial(ids, cfg.elo_init, cfg.elo_k),
+        records={competitor_id: models.LiveRecord() for competitor_id in ids},
         elo_history={competitor_id: [cfg.elo_init] for competitor_id in ids},
     )
 

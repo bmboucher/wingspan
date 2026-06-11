@@ -59,9 +59,9 @@ PHASE_COLOR: dict[runstate.Phase, str] = {
 SCORE_COLOR: dict[str, str] = {
     "birds": "#6FB37A",  # forest green
     "eggs": "#E6E2C3",  # egg cream
-    "food": "#D98C5F",  # warm seed/berry (cached-food pts)
+    "cached": "#D98C5F",  # warm seed/berry (cached-food pts)
     "tucked": "#7FA9C9",  # wetland blue
-    "rounds": "#C9A24B",  # grassland gold (round-goal pts)
+    "goals": "#C9A24B",  # grassland gold (round-goal pts)
     "bonus": "#B08CD9",  # bonus violet
 }
 

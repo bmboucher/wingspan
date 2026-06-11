@@ -12,7 +12,7 @@ from __future__ import annotations
 import pydantic
 from rich import box, console, live, panel, table, text
 
-from wingspan.tournament import participants
+from wingspan.tournament import models, participants
 from wingspan.training import theme
 from wingspan.training.configure import keys
 
@@ -23,7 +23,7 @@ _MIN_COMPETITORS = 2
 class _Item(pydantic.BaseModel):
     """One selectable competitor row: its spec plus a one-line description."""
 
-    spec: participants.ParticipantSpec
+    spec: models.ParticipantSpec
     subtitle: str
 
 
@@ -32,7 +32,7 @@ def run_picker(
     term: console.Console,
     include_random_option: bool,
     games_per_pair: int,
-) -> list[participants.ParticipantSpec] | None:
+) -> list[models.ParticipantSpec] | None:
     """Pick the tournament's competitors interactively. ``None`` if cancelled."""
     items = _build_items(base_dir, include_random_option)
     selected = {index for index, item in enumerate(items) if _is_model(item)}
@@ -109,10 +109,10 @@ def _build_items(base_dir: str, include_random_option: bool) -> list[_Item]:
 
 
 def _is_model(item: _Item) -> bool:
-    return item.spec.kind is participants.ParticipantKind.MODEL
+    return item.spec.kind is models.ParticipantKind.MODEL
 
 
-def _run_subtitle(option: participants.RunOption) -> str:
+def _run_subtitle(option: models.RunOption) -> str:
     """A compact ``iter N · best W%`` line for a discovered run."""
     parts: list[str] = []
     if option.iteration is not None:

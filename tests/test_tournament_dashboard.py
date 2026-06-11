@@ -19,12 +19,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 import rich.console as rich_console
 
 from wingspan.tournament import (
-    config,
     dashboard,
+    models,
     participants,
     picker,
-    results,
-    schedule,
 )
 from wingspan.tournament import state as state_module
 from wingspan.training import runstate
@@ -45,16 +43,16 @@ def _render_dashboard(live: state_module.TournamentState, colorize: bool = True)
     return buffer.getvalue()
 
 
-def _cfg() -> config.TournamentConfig:
+def _cfg() -> models.TournamentConfig:
     specs = [
-        participants.ParticipantSpec(
+        models.ParticipantSpec(
             id=f"p{index}",
             display_name=f"p{index}",
-            kind=participants.ParticipantKind.RANDOM,
+            kind=models.ParticipantKind.RANDOM,
         )
         for index in range(3)
     ]
-    return config.TournamentConfig(participants=specs, games_per_pair=4)
+    return models.TournamentConfig(participants=specs, games_per_pair=4)
 
 
 def test_dashboard_renders_empty_state() -> None:
@@ -66,10 +64,10 @@ def test_dashboard_renders_empty_state() -> None:
 def test_dashboard_renders_populated_state() -> None:
     live = state_module.new_tournament_state(_cfg())
     live.record_game(
-        results.GameResult(
+        models.GameResult(
             round_index=0,
             pair_index=0,
-            orientation=schedule.Orientation.A_SEAT_0,
+            orientation=models.Orientation.A_SEAT_0,
             player_a_id="p0",
             player_b_id="p1",
             a_score=30,
@@ -91,10 +89,10 @@ def test_dashboard_renders_populated_state() -> None:
 def test_picker_renders() -> None:
     items = [
         picker._Item(
-            spec=participants.ParticipantSpec(
+            spec=models.ParticipantSpec(
                 id="main",
                 display_name="main",
-                kind=participants.ParticipantKind.MODEL,
+                kind=models.ParticipantKind.MODEL,
                 checkpoint_dir="checkpoints",
             ),
             subtitle="iter 100 · best 80%",

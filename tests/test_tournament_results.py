@@ -12,38 +12,38 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
-from wingspan.tournament import config, participants, results, schedule
+from wingspan.tournament import models, results
 
 
-def _cfg(ids: list[str]) -> config.TournamentConfig:
+def _cfg(ids: list[str]) -> models.TournamentConfig:
     specs = [
-        participants.ParticipantSpec(
+        models.ParticipantSpec(
             id=competitor_id,
             display_name=competitor_id,
-            kind=participants.ParticipantKind.RANDOM,
+            kind=models.ParticipantKind.RANDOM,
         )
         for competitor_id in ids
     ]
-    return config.TournamentConfig(participants=specs, games_per_pair=2, base_seed=0)
+    return models.TournamentConfig(participants=specs, games_per_pair=2, base_seed=0)
 
 
-def _two_game_pair() -> list[results.GameResult]:
+def _two_game_pair() -> list[models.GameResult]:
     """Pair (a, b): a goes first and wins by 5; b goes first and the game ties."""
     return [
-        results.GameResult(
+        models.GameResult(
             round_index=0,
             pair_index=0,
-            orientation=schedule.Orientation.A_SEAT_0,
+            orientation=models.Orientation.A_SEAT_0,
             player_a_id="a",
             player_b_id="b",
             a_score=20,
             b_score=15,
             a_was_start_player=True,
         ),
-        results.GameResult(
+        models.GameResult(
             round_index=0,
             pair_index=0,
-            orientation=schedule.Orientation.A_SEAT_1,
+            orientation=models.Orientation.A_SEAT_1,
             player_a_id="a",
             player_b_id="b",
             a_score=10,
@@ -91,5 +91,5 @@ def test_participant_records_and_elo_ordering() -> None:
 
 def test_report_round_trips_through_json() -> None:
     report = results.aggregate(_cfg(["a", "b"]), _two_game_pair())
-    restored = results.TournamentReport.model_validate_json(report.model_dump_json())
+    restored = models.TournamentReport.model_validate_json(report.model_dump_json())
     assert restored.model_dump_json() == report.model_dump_json()

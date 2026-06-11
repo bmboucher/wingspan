@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from rich import box, layout, panel, table, text
 
+from wingspan.tournament import models
 from wingspan.tournament import state as state_module
 from wingspan.training import theme
 from wingspan.training.charts import text_helpers
@@ -20,11 +21,11 @@ _SPARK_WIDTH = 16
 _PROGRESS_WIDTH = 48
 _EVENTS_SHOWN = 14
 
-_PHASE_COLOR: dict[state_module.TournamentPhase, str] = {
-    state_module.TournamentPhase.RUNNING: "#3FB4A6",
-    state_module.TournamentPhase.DONE: theme.GOOD,
-    state_module.TournamentPhase.STOPPED: theme.CAUTION,
-    state_module.TournamentPhase.ERROR: theme.BAD,
+_PHASE_COLOR: dict[models.TournamentPhase, str] = {
+    models.TournamentPhase.RUNNING: "#3FB4A6",
+    models.TournamentPhase.DONE: theme.GOOD,
+    models.TournamentPhase.STOPPED: theme.CAUTION,
+    models.TournamentPhase.ERROR: theme.BAD,
 }
 
 

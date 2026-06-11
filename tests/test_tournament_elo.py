@@ -13,17 +13,17 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
-from wingspan.tournament import elo, results, schedule
+from wingspan.tournament import elo, models
 
 
 def test_expected_scores_are_symmetric_and_fair_when_equal() -> None:
-    table = elo.EloTable.initial(["a", "b"], init=1500.0, k=24.0)
+    table = models.EloTable.initial(["a", "b"], init=1500.0, k=24.0)
     assert abs(table.expected("a", "b") + table.expected("b", "a") - 1.0) < 1e-9
     assert abs(table.expected("a", "b") - 0.5) < 1e-9
 
 
 def test_update_moves_pair_by_equal_and_opposite_amounts() -> None:
-    table = elo.EloTable.initial(["a", "b"], init=1500.0, k=24.0)
+    table = models.EloTable.initial(["a", "b"], init=1500.0, k=24.0)
     table.update("a", "b", score_a=1.0)
     assert table.ratings["a"] > 1500.0 > table.ratings["b"]
     gained = table.ratings["a"] - 1500.0
@@ -36,13 +36,13 @@ def test_update_moves_pair_by_equal_and_opposite_amounts() -> None:
 def _game(
     round_index: int,
     pair_index: int,
-    orientation: schedule.Orientation,
+    orientation: models.Orientation,
     player_a: str,
     player_b: str,
     a_score: int,
     b_score: int,
-) -> results.GameResult:
-    return results.GameResult(
+) -> models.GameResult:
+    return models.GameResult(
         round_index=round_index,
         pair_index=pair_index,
         orientation=orientation,
@@ -56,12 +56,12 @@ def _game(
 
 def test_replay_is_order_independent() -> None:
     games = [
-        _game(0, 0, schedule.Orientation.A_SEAT_0, "a", "b", 20, 15),
-        _game(0, 0, schedule.Orientation.A_SEAT_1, "a", "b", 12, 18),
-        _game(0, 1, schedule.Orientation.A_SEAT_0, "a", "c", 22, 10),
-        _game(0, 1, schedule.Orientation.A_SEAT_1, "a", "c", 14, 14),
-        _game(0, 2, schedule.Orientation.A_SEAT_0, "b", "c", 19, 21),
-        _game(1, 2, schedule.Orientation.A_SEAT_1, "b", "c", 17, 13),
+        _game(0, 0, models.Orientation.A_SEAT_0, "a", "b", 20, 15),
+        _game(0, 0, models.Orientation.A_SEAT_1, "a", "b", 12, 18),
+        _game(0, 1, models.Orientation.A_SEAT_0, "a", "c", 22, 10),
+        _game(0, 1, models.Orientation.A_SEAT_1, "a", "c", 14, 14),
+        _game(0, 2, models.Orientation.A_SEAT_0, "b", "c", 19, 21),
+        _game(1, 2, models.Orientation.A_SEAT_1, "b", "c", 17, 13),
     ]
     ids = ["a", "b", "c"]
     baseline = elo.replay(ids, init=1500.0, k=24.0, game_results=games)

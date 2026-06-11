@@ -218,8 +218,8 @@ def _print_summary(term: console.Console, state: runstate.RunState) -> None:
         f"  total decisions  : {state.total_decisions:,}\n"
         f"  elapsed          : {_summary_clock(state.elapsed())}\n"
         f"  avg score        : {avg.total:.1f} pts/game "
-        f"(birds {avg.birds:.1f}, eggs {avg.eggs:.1f}, food {avg.food:.1f}, "
-        f"tucked {avg.tucked:.1f}, rounds {avg.rounds:.1f}, bonus {avg.bonus:.1f})\n"
+        f"(birds {avg.birds:.1f}, eggs {avg.eggs:.1f}, cached {avg.cached:.1f}, "
+        f"tucked {avg.tucked:.1f}, goals {avg.goals:.1f}, bonus {avg.bonus:.1f})\n"
         f"  avg game length  : {state.avg_decisions():.0f} decisions"
     )
     if state.best_win_rate is not None:
