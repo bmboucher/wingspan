@@ -635,6 +635,9 @@ class Engine:
             dealt_cards=dealt_cards,
             dealt_bonus=dealt_bonus,
         )
+        self.instrumentation.setup_start(
+            engine=self, player=player, dealt_bonus=dealt_bonus
+        )
         chosen = self.ask(agents[player.id], decision)
         self._apply_setup_choice(
             player, dealt_cards, dealt_bonus, chosen, defer_food=defer_food
@@ -718,8 +721,15 @@ class Engine:
         the bonus over a faithful opening, and it routes through ``Engine.ask`` so a
         collecting agent records it like any other in-game decision."""
         if not dealt_bonus or sc.bonus_card is not None:
+            # Bonus was included in the combined setup choice (non-deferred path).
+            # Fire setup_applied now so all listeners receive it; the HTML log
+            # handler checks choice.bonus_card to decide whether to open a phase.
+            self.instrumentation.setup_applied(engine=self, player=player, choice=sc)
             return
         self.log_section(f"=== SETUP: {player.name} CHOOSING BONUS CARD ===")
+        # Fire setup_applied at the start of this segment so the HTML log's
+        # zip(phases, segments) pairs this phase with the bonus-choosing narration.
+        self.instrumentation.setup_applied(engine=self, player=player, choice=sc)
         # ``_play_round`` resets the cubes again before real play, so pre-loading
         # them here only shapes the encoded snapshot the bonus pick is scored over.
         for seat in self.state.players:
@@ -768,7 +778,6 @@ class Engine:
             for bonus in dealt_bonus:
                 if bonus is not sc.bonus_card:
                     self.state.bonus_discard.append(bonus)
-        self.instrumentation.setup_applied(engine=self, player=player, choice=sc)
 
     def _maybe_resolve_deferred_setup_food(
         self,

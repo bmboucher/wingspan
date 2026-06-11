@@ -92,6 +92,7 @@ class BonusCardInfo(pydantic.BaseModel):
     text: str
     vp_now: int
     count: int = 0
+    pending: bool = False
 
 
 class PlayerPanel(pydantic.BaseModel):
@@ -108,8 +109,9 @@ class PlayerPanel(pydantic.BaseModel):
 
 
 class RoundGoalInfo(pydantic.BaseModel):
-    """One of the four round goals with its 2-player payout, scored flag, and
-    projected per-player VPs (locked once the round is actually scored)."""
+    """One of the four round goals with its 2-player payout, scored flag,
+    projected per-player VPs, and qualifying counts (counts are shown in the bar
+    chart; VP payouts are shown as a sub-label)."""
 
     round_num: int
     description: str
@@ -118,6 +120,8 @@ class RoundGoalInfo(pydantic.BaseModel):
     scored: bool
     p0_vp: int = 0
     p1_vp: int = 0
+    p0_count: int = 0
+    p1_count: int = 0
 
 
 class NarrationLine(pydantic.BaseModel):
@@ -125,6 +129,7 @@ class NarrationLine(pydantic.BaseModel):
 
     player_id: int | None
     text: str
+    is_decision_start: bool = False
 
 
 class PhaseRecord(pydantic.BaseModel):
@@ -141,6 +146,7 @@ class PhaseRecord(pydantic.BaseModel):
     feeder_slots: list[str | None] = []
     round_goals: list[RoundGoalInfo]
     narration: list[NarrationLine]
+    setup_bonus_options: list[BonusCardInfo] = []
 
 
 class GameLogReport(pydantic.BaseModel):
@@ -236,12 +242,12 @@ _DOCUMENT = """\
   </div>
   <div id="phase-title" class="phase-title"></div>
 </header>
-<main>
+<main id="content-layout">
   <section id="state-panel"></section>
-  <section id="decision-panel">
-    <button id="log-toggle" class="log-toggle">▾ Decision log</button>
-    <div id="decision-log" class="decision-log"></div>
-  </section>
+  <aside id="decisions-panel">
+    <div class="decisions-title">Decision Log</div>
+    <div id="decision-log"></div>
+  </aside>
 </main>
 <script type="application/json" id="game-log-data">{payload}</script>
 <script>
@@ -275,10 +281,22 @@ body {
 .toggle button { border: none; border-radius: 0; }
 .toggle button.active { background: #4ade80; color: #052e16; font-weight: 700; }
 .phase-title { margin-top: 8px; font-size: 13px; color: #a7f3d0; font-family: monospace; }
-main { padding: 16px 18px 60px; }
+main {
+  display: flex; gap: 14px; padding: 12px 14px;
+  height: calc(100vh - 130px); overflow: hidden;
+}
 #state-panel {
+  flex: 1 1 0; min-width: 0; overflow-y: auto;
   background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.08); margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+}
+#decisions-panel {
+  width: 320px; flex-shrink: 0; overflow-y: auto;
+  background: #0f172a; border-radius: 8px; padding: 10px 12px; color: #e2e8f0;
+}
+.decisions-title {
+  font-size: 11px; font-weight: 700; color: #94a3b8;
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
 }
 
 /* === Player boards row === */
@@ -302,6 +320,12 @@ main { padding: 16px 18px 60px; }
 .hab-forest    { background: #166534; }
 .hab-grassland { background: #ca8a04; }
 .hab-wetland   { background: #0369a1; }
+
+/* === Habitat squares shown on each bird card === */
+.hab-sq { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin: 0 1px; vertical-align: middle; }
+.hs-forest    { background: #166534; }
+.hs-grassland { background: #ca8a04; }
+.hs-wetland   { background: #0369a1; }
 
 /* === Card cell — fixed size, identical in board / tray / hand === */
 .card-cell {
@@ -403,6 +427,13 @@ main { padding: 16px 18px 60px; }
   padding: 4px 6px; border-bottom: 1px solid #f1f5f9; font-size: 10px; line-height: 1.3;
 }
 .bonus-card:last-child { border-bottom: none; }
+.bonus-card.pending {
+  opacity: 0.55; border: 1px dashed #94a3b8; border-radius: 4px;
+  background: #1e293b; margin-bottom: 3px; padding: 4px 6px;
+}
+.bonus-card.pending .bonus-card-name::after {
+  content: ' (not yet chosen)'; font-size: 8px; color: #94a3b8; font-weight: 400;
+}
 .bonus-card-name { font-weight: 700; font-size: 11px; }
 .bonus-card-text { color: #475569; font-size: 9px; margin-top: 1px; }
 .bonus-vp {
@@ -411,24 +442,24 @@ main { padding: 16px 18px 60px; }
 }
 .bonus-count { display: inline-block; color: #64748b; font-size: 9px; }
 
-/* === Decision log === */
-.log-toggle {
-  background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px;
-  padding: 6px 12px; font-size: 13px; cursor: pointer; font-weight: 600;
-  width: 100%; text-align: left;
-}
-.decision-log {
-  background: #0f172a; color: #e2e8f0;
+/* === Collapsible decision event boxes === */
+.event-box { margin-bottom: 3px; border-radius: 4px; overflow: hidden; }
+.event-box > summary {
+  cursor: pointer; padding: 4px 8px; font-size: 11px; font-weight: 600;
   font-family: 'Fira Code', Consolas, monospace;
-  font-size: 12px; padding: 12px 14px; border-radius: 0 0 8px 8px;
-  white-space: pre-wrap; overflow-x: auto;
+  list-style: none; user-select: none; display: block;
 }
-.decision-log.hidden { display: none; }
-.decision-log .ln { display: block; }
-.decision-log .ln.p0 { color: #93c5fd; }
-.decision-log .ln.p1 { color: #fca5a5; }
-.decision-log .ln.global { color: #cbd5e1; }
-.decision-log .empty { color: #64748b; font-style: italic; }
+.event-box > summary::-webkit-details-marker { display: none; }
+.event-box.event-p0 > summary { background: #1e3a5f; color: #93c5fd; }
+.event-box.event-p1 > summary { background: #3f1515; color: #fca5a5; }
+.event-box.event-global > summary { background: #1e293b; color: #cbd5e1; }
+.event-content {
+  padding: 3px 8px 5px; background: #111827;
+  font-family: 'Fira Code', Consolas, monospace; font-size: 10px;
+}
+.event-line { display: block; color: #94a3b8; padding: 1px 0; white-space: pre-wrap; }
+.event-chose { color: #4ade80; font-style: italic; }
+.event-empty { color: #64748b; font-style: italic; font-size: 11px; padding: 8px; }
 """
 
 _SCRIPT = r"""
@@ -442,7 +473,6 @@ const FOOD_EMOJI = {
 const HAB_ICON = { Forest: '\u{1F7E9}', Grassland: '\u{1F7E8}', Wetland: '\u{1F7E6}' };
 let phaseIdx = 0;
 let view = 'both';
-let logOpen = true;
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -474,6 +504,14 @@ function habIconsHtml(habitats) {
   return habitats.split('/').map(h => HAB_ICON[h] || esc(h)).join('');
 }
 
+function habSquaresHtml(habitats) {
+  if (!habitats) return '';
+  return habitats.split('/').map(h => {
+    const cls = 'hs-' + h.toLowerCase();
+    return '<span class="hab-sq ' + cls + '" title="' + esc(h) + '"></span>';
+  }).join('');
+}
+
 function applyFoodEmoji(text) {
   return text
     .replace(/\binvertebrate\b/gi, '\u{1F41B}')
@@ -488,13 +526,12 @@ function cardCellHtml(bird) {
   const pwCls = 'pw-' + esc(bird.power_color || 'none');
   const eggs = eggGlyphs(bird.eggs, bird.egg_limit);
   const cost = foodCostHtml(bird.food_cost_slots);
-  const habs = habIconsHtml(bird.habitats);
+  const habSq = habSquaresHtml(bird.habitats);
   return '<div class="card-cell ' + pwCls + '">'
     + '<div class="vp-badge">' + bird.vp + '</div>'
     + '<div class="card-hdr">'
     +   '<div class="card-name">' + esc(bird.name) + '</div>'
-    +   '<div class="card-meta">' + cost + ' · ' + esc(bird.nest) + '</div>'
-    +   '<div class="card-meta">' + habs + '</div>'
+    +   '<div class="card-meta">' + cost + ' · ' + esc(bird.nest) + ' ' + habSq + '</div>'
     + '</div>'
     + '<div class="card-power">' + esc(bird.power_text) + '</div>'
     + '<div class="card-eggs">' + eggs + '</div>'
@@ -578,19 +615,19 @@ function handPanelHtml(phase) {
 
 function goalsPanelHtml(phase) {
   const cols = phase.round_goals.map(g => {
-    const max = Math.max(g.p0_vp, g.p1_vp, 1);
-    const h0 = Math.round(g.p0_vp / max * 60);
-    const h1 = Math.round(g.p1_vp / max * 60);
+    const max = Math.max(g.p0_count, g.p1_count, 1);
+    const h0 = Math.round(g.p0_count / max * 60);
+    const h1 = Math.round(g.p1_count / max * 60);
     const check = g.scored ? ' ✓' : '';
     return '<div class="goal-col">'
-      + '<div class="bar-vals"><span>' + g.p0_vp + '</span><span>' + g.p1_vp + '</span></div>'
+      + '<div class="bar-vals"><span>' + g.p0_count + '</span><span>' + g.p1_count + '</span></div>'
       + '<div class="bar-pair">'
       +   '<div class="bar p0" style="height:' + h0 + 'px"></div>'
       +   '<div class="bar p1" style="height:' + h1 + 'px"></div>'
       + '</div>'
       + '<div class="bar-axis"></div>'
       + '<div class="goal-desc">R' + g.round_num + check + '<br>' + esc(g.description) + '</div>'
-      + '<div class="goal-pay-sm">(' + g.first_vp + '/' + g.second_vp + ')</div>'
+      + '<div class="goal-pay-sm">(' + g.first_vp + '/' + g.second_vp + ' VP)</div>'
       + '</div>';
   });
   return '<div class="panel goals-panel">'
@@ -626,6 +663,19 @@ function scoresPanelHtml(seats) {
 }
 
 function bonusPanelHtml(phase) {
+  // For setup_start phases, show the offered-but-not-yet-chosen bonus options.
+  if (phase.kind === 'setup_start' && phase.setup_bonus_options && phase.setup_bonus_options.length) {
+    const inner = phase.setup_bonus_options.map(bc =>
+      '<div class="bonus-card pending">'
+      + '<div class="bonus-card-name">' + esc(bc.name) + '</div>'
+      + '<div class="bonus-card-text">' + esc(bc.text) + '</div>'
+      + '</div>'
+    ).join('');
+    return '<div class="panel bonus-panel">'
+      + inner
+      + '<div class="panel-title">Bonus Options (choosing...)</div>'
+      + '</div>';
+  }
   const activeId = phase.active_player_id;
   const panel = phase.panels.find(p => p.player_id === activeId) || phase.panels[0];
   let inner = '';
@@ -653,6 +703,7 @@ function nextMatchingPhase(from, delta) {
   let idx = from + delta;
   while (idx >= 0 && idx < DATA.phases.length) {
     const phase = DATA.phases[idx];
+    if (phase.kind === 'game_start') { idx += delta; continue; }
     if (phase.kind !== 'turn') return idx;
     if (view === 'both') return idx;
     if (view === 'p0' && phase.active_player_id === 0) return idx;
@@ -679,15 +730,36 @@ function renderState(phase) {
 function renderLog(phase) {
   const log = document.getElementById('decision-log');
   if (!phase.narration.length) {
-    log.innerHTML = '<span class="empty">(no decisions for this phase)</span>';
-  } else {
-    log.innerHTML = phase.narration.map(l => {
-      const who = l.player_id === 0 ? 'p0' : l.player_id === 1 ? 'p1' : 'global';
-      return '<span class="ln ' + who + '">' + applyFoodEmoji(esc(l.text || ' ')) + '</span>';
-    }).join('');
+    log.innerHTML = '<div class="event-empty">(no decisions for this phase)</div>';
+    return;
   }
-  log.classList.toggle('hidden', !logOpen);
-  document.getElementById('log-toggle').textContent = (logOpen ? '▾' : '▸') + ' Decision log';
+
+  // Group lines into decision events: each event begins at is_decision_start=true.
+  // Any lines before the first decision start form an implicit global event.
+  const events = [];
+  let current = null;
+  for (const line of phase.narration) {
+    if (line.is_decision_start || current === null) {
+      current = { player_id: line.player_id, lines: [line] };
+      events.push(current);
+    } else {
+      current.lines.push(line);
+    }
+  }
+
+  log.innerHTML = events.map(ev => {
+    const who = ev.player_id === 0 ? 'event-p0' : ev.player_id === 1 ? 'event-p1' : 'event-global';
+    const header = ev.lines[0];
+    const rest = ev.lines.slice(1);
+    const body = rest.map(l => {
+      const cls = l.text.includes('chose:') ? ' event-chose' : '';
+      return '<span class="event-line' + cls + '">' + applyFoodEmoji(esc(l.text || ' ')) + '</span>';
+    }).join('');
+    return '<details class="event-box ' + who + '" open>'
+      + '<summary>' + applyFoodEmoji(esc(header.text)) + '</summary>'
+      + '<div class="event-content">' + body + '</div>'
+      + '</details>';
+  }).join('');
 }
 
 function hasRound(delta) {
@@ -728,7 +800,6 @@ document.getElementById('prev').addEventListener('click', () => step(-1));
 document.getElementById('next').addEventListener('click', () => step(1));
 document.getElementById('prev-round').addEventListener('click', () => stepRound(-1));
 document.getElementById('next-round').addEventListener('click', () => stepRound(1));
-document.getElementById('log-toggle').addEventListener('click', () => { logOpen = !logOpen; render(); });
 document.querySelectorAll('#view-toggle button').forEach(btn => {
   btn.addEventListener('click', () => {
     view = btn.dataset.view;
@@ -740,5 +811,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') step(-1);
   else if (e.key === 'ArrowRight') step(1);
 });
+// Start on the first non-game_start phase so the empty pre-deal board is skipped.
+if (DATA.phases.length && DATA.phases[0].kind === 'game_start') {
+  phaseIdx = nextMatchingPhase(-1, 1);
+}
 render();
 """

@@ -37,6 +37,34 @@ _HABITAT_LABELS: dict[cards.Habitat, str] = {
 }
 
 
+def capture_setup_start_phase(
+    engine: core.Engine,
+    *,
+    index: int,
+    title: str,
+    kind: str,
+    active: int,
+    dealt_bonus: list[cards.BonusCard],
+) -> game_log_html.PhaseRecord:
+    """Snapshot state just before a player makes their setup choices.
+
+    Like :func:`capture_phase` but populates ``setup_bonus_options`` with the
+    two offered bonus cards (marked ``pending=True``) so the viewer can show
+    them as dimmed/unselected in the bonus panel."""
+    phase = capture_phase(engine, index=index, title=title, kind=kind, active=active)
+    phase.setup_bonus_options = [
+        game_log_html.BonusCardInfo(
+            name=bc.name,
+            text=display.strip_ansi(bc.vp_text),
+            vp_now=0,
+            count=0,
+            pending=True,
+        )
+        for bc in dealt_bonus
+    ]
+    return phase
+
+
 def capture_phase(
     engine: core.Engine, *, index: int, title: str, kind: str, active: int | None
 ) -> game_log_html.PhaseRecord:
@@ -208,17 +236,20 @@ def _bonus_card_info(
 
 
 def _round_goal_infos(gs: state.GameState) -> list[game_log_html.RoundGoalInfo]:
-    """All four round goals with payouts, scored flags, and current VP projections."""
+    """All four round goals with payouts, scored flags, VP projections, and counts."""
     infos: list[game_log_html.RoundGoalInfo] = []
     for round_idx, (goal, payout) in enumerate(
         zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS_2P)
     ):
         first_vp, second_vp = payout
-        p0_vp = scoring.round_goal_standing_for_round(gs, gs.players[0], round_idx).vp
-        p1_vp = (
-            scoring.round_goal_standing_for_round(gs, gs.players[1], round_idx).vp
+
+        p0_standing = scoring.round_goal_standing_for_round(
+            gs, gs.players[0], round_idx
+        )
+        p1_standing = (
+            scoring.round_goal_standing_for_round(gs, gs.players[1], round_idx)
             if len(gs.players) > 1
-            else 0
+            else None
         )
         infos.append(
             game_log_html.RoundGoalInfo(
@@ -227,8 +258,10 @@ def _round_goal_infos(gs: state.GameState) -> list[game_log_html.RoundGoalInfo]:
                 first_vp=first_vp,
                 second_vp=second_vp,
                 scored=len(gs.scored_goals) > round_idx,
-                p0_vp=p0_vp,
-                p1_vp=p1_vp,
+                p0_vp=p0_standing.vp,
+                p1_vp=p1_standing.vp if p1_standing is not None else 0,
+                p0_count=p0_standing.count,
+                p1_count=p1_standing.count if p1_standing is not None else 0,
             )
         )
     return infos
@@ -280,7 +313,9 @@ def _segment_narration(
         body = _drop_summary_block(body)
     return [
         game_log_html.NarrationLine(
-            player_id=entry.player_id, text=display.strip_ansi(entry.text)
+            player_id=entry.player_id,
+            text=display.strip_ansi(entry.text),
+            is_decision_start=_is_decision_start(entry.text),
         )
         for entry in body
     ]
@@ -293,3 +328,12 @@ def _drop_summary_block(body: list[state.LogEntry]) -> list[state.LogEntry]:
         if entry.text == "":
             return body[index + 1 :]
     return body
+
+
+def _is_decision_start(text: str) -> bool:
+    """True when this log line is a decision header (the start of a new event).
+
+    Decision headers are emitted by the display agent in the form
+    ``[P0] SomeDecision | N choices | head:...``; they start with ``[`` and
+    contain the word ``Decision``."""
+    return text.startswith("[") and "Decision" in text

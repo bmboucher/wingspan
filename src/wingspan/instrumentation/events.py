@@ -54,6 +54,7 @@ class EventName(enum.StrEnum):
     ROUND_GOAL_SCORED = "round_goal_scored"
     PLAYER_FINAL_SCORED = "player_final_scored"
     SETUP_APPLIED = "setup_applied"
+    SETUP_START = "setup_start"
 
 
 class CallbackHandler(pydantic.BaseModel):
@@ -261,6 +262,22 @@ class SetupAppliedHandler(CallbackHandler):
         applied to the player."""
 
 
+class SetupStartHandler(CallbackHandler):
+    """Handler invoked just before a player makes their setup choices."""
+
+    @abc.abstractmethod
+    def setup_start(
+        self,
+        *,
+        engine: core.Engine,
+        player: state.Player,
+        dealt_bonus: list[cards.BonusCard],
+    ) -> None:
+        """Fired after cards are dealt to ``player`` but before they choose
+        their starting hand, food, and bonus card. ``dealt_bonus`` is the list
+        of offered bonus cards (not yet in ``player.bonus_cards``)."""
+
+
 # The event -> required-base-class table. The config validator uses it to reject
 # assigning a handler to an event whose method it does not implement, and it is
 # the single source of truth pairing each ``EventName`` with its handler base.
@@ -280,4 +297,5 @@ EVENT_BASE: dict[EventName, type[CallbackHandler]] = {
     EventName.ROUND_GOAL_SCORED: RoundGoalScoredHandler,
     EventName.PLAYER_FINAL_SCORED: PlayerFinalScoredHandler,
     EventName.SETUP_APPLIED: SetupAppliedHandler,
+    EventName.SETUP_START: SetupStartHandler,
 }

@@ -40,6 +40,7 @@ class _RecordingHandler(
     events.RoundGoalScoredHandler,
     events.PlayerFinalScoredHandler,
     events.SetupAppliedHandler,
+    events.SetupStartHandler,
 ):
     """Appends each event it sees to a shared ``seen`` list (one instance is
     assigned to every event, so the list demonstrates cross-event state)."""
@@ -142,6 +143,15 @@ class _RecordingHandler(
     ) -> None:
         self._seen.append("setup_applied")
 
+    def setup_start(
+        self,
+        *,
+        engine: core.Engine,
+        player: state.Player,
+        dealt_bonus: list[cards.BonusCard],
+    ) -> None:
+        self._seen.append("setup_start")
+
 
 def _play_recorded(seed: int) -> _RecordingHandler:
     recorder = _RecordingHandler()
@@ -161,6 +171,7 @@ def test_event_sequence_brackets_the_game():
     assert seen[0] == "game_start"
     assert seen[-1] == "game_end"
     counts = collections.Counter(seen)
+    assert counts["setup_start"] == 2
     assert counts["setup_applied"] == 2
     assert counts["round_start"] == 4
     assert counts["round_end"] == 4

@@ -209,6 +209,18 @@ class Instrumentation:
                 engine=engine, player=player, choice=choice
             )
 
+    def setup_start(
+        self,
+        *,
+        engine: core.Engine,
+        player: state.Player,
+        dealt_bonus: list[cards.BonusCard],
+    ) -> None:
+        for handler in self._for(events.EventName.SETUP_START):
+            typing.cast(events.SetupStartHandler, handler).setup_start(
+                engine=engine, player=player, dealt_bonus=dealt_bonus
+            )
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------

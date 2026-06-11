@@ -1,20 +1,26 @@
 """A handler that records each game as a navigable HTML log viewer.
 
-On every game it snapshots the full game state at each phase boundary
-(``game_start`` / ``setup_applied`` / ``round_start`` / ``turn_start`` /
-``game_end``) and, at ``game_end``, writes a self-contained HTML file rendered
-by :mod:`wingspan.reporting.game_log_html`.
+On every game it snapshots the full game state at each phase boundary and, at
+``game_end``, writes a self-contained HTML file rendered by
+:mod:`wingspan.reporting.game_log_html`.
 
-The capture events are chosen so the snapshots zip one-to-one, in order, with
-the ``=== ... ===`` headers in the engine's interleaved text log: the game-start
-banner, the two setup blocks, the four round banners, every player turn, and the
-game-end banner each fire exactly one of these events, so log segment *i* is the
-decision narration for snapshot *i*. The actual state→model conversion and
-narration slicing live in :mod:`wingspan.reporting.game_log_capture`, imported
-lazily inside the event methods: this handler module is imported while the
-``instrumentation`` package initialises (for registry self-registration), and
-the conversion module pulls in ``engine`` / ``reporting`` — importing those here
-at module top would close the ``engine`` ↔ ``instrumentation`` import cycle.
+Phase/segment alignment: each phase capture must fire at the same code point as
+the ``=== ... ===`` log-section header that opens its segment so that
+``zip(phases, segments)`` correctly assigns each segment's narration to the
+phase whose state it describes.
+
+  game_start    → "=== GAME START ==="             (always)
+  setup_start   → "=== SETUP: P0 CHOOSING ... ===" (always, one per player)
+  setup_applied → "=== SETUP: P0 CHOOSING BONUS CARD ===" (deferred-bonus path
+                   only; non-deferred path fires setup_applied without creating
+                   a new segment, so this handler skips phase creation for it)
+  round_start   → "=== ROUND N ... ==="
+  turn_start    → "=== P0, ROUND N, TURN M ... ==="
+  game_end      → "=== GAME END ==="
+
+The actual state→model conversion and narration slicing live in
+:mod:`wingspan.reporting.game_log_capture`, imported lazily inside the event
+methods to avoid the ``engine`` ↔ ``instrumentation`` import cycle.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ import pydantic
 from wingspan.instrumentation import events, registry
 
 if typing.TYPE_CHECKING:
-    from wingspan import decisions, state
+    from wingspan import cards, decisions, state
     from wingspan.engine import core
     from wingspan.instrumentation import config
     from wingspan.reporting import game_log_html
@@ -36,6 +42,7 @@ if typing.TYPE_CHECKING:
 @registry.register("GameLogHtml")
 class GameLogHtmlHandler(
     events.GameStartHandler,
+    events.SetupStartHandler,
     events.SetupAppliedHandler,
     events.RoundStartHandler,
     events.TurnStartHandler,
@@ -72,6 +79,26 @@ class GameLogHtmlHandler(
         self._phases = []
         self._capture(engine, title="Game start", kind="game_start", active=None)
 
+    def setup_start(
+        self,
+        *,
+        engine: core.Engine,
+        player: state.Player,
+        dealt_bonus: list[cards.BonusCard],
+    ) -> None:
+        from wingspan.reporting import game_log_capture
+
+        self._phases.append(
+            game_log_capture.capture_setup_start_phase(
+                engine,
+                index=len(self._phases),
+                title=f"{player.name} — Choose hand",
+                kind="setup_start",
+                active=player.id,
+                dealt_bonus=dealt_bonus,
+            )
+        )
+
     def setup_applied(
         self,
         *,
@@ -79,6 +106,13 @@ class GameLogHtmlHandler(
         player: state.Player,
         choice: decisions.SetupChoice,
     ) -> None:
+        # The non-deferred bonus path fires setup_applied with choice.bonus_card
+        # set — setup_start already created the phase for that segment, so adding
+        # another here would shift the zip(phases, segments) alignment off by one.
+        # Only create a phase for the deferred path (choice.bonus_card is None),
+        # which fires setup_applied at the start of the "CHOOSING BONUS CARD" segment.
+        if choice.bonus_card is not None:
+            return
         self._capture(
             engine, title=f"Setup — {player.name}", kind="setup", active=player.id
         )
