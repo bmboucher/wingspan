@@ -391,6 +391,129 @@ def test_screen_renders_populated_and_edit():
     assert "EDITING" in _render(view)
 
 
+def test_bootstrap_hint_fixed_values():
+    """Selecting bootstrap_opponent with 'none' or 'random' shows descriptive hints."""
+    summary = runs.RunSummary(checkpoint_dir="checkpoints")
+    for value, expected_fragment in [
+        ("none", "no bootstrap"),
+        ("random", "random agent"),
+    ]:
+        cfg = config.TrainConfig(
+            device="cpu", checkpoint_dir="checkpoints", bootstrap_opponent=value
+        )
+        view = state.ConfiguratorState(
+            working=cfg, summary=summary, selected_attr="bootstrap_opponent"
+        )
+        # Render wide enough that the hint is not truncated.
+        out = _render(view, width=200)
+        assert expected_fragment in out, f"expected {expected_fragment!r} for {value!r}"
+
+
+def test_dispatch_nudge_bootstrap_cycles_through_options(tmp_path: pathlib.Path):
+    """Left/Right on the bootstrap_opponent field cycles none → random → archive."""
+    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    _write_checkpoint(tmp_path, cfg)
+    runs.archive_run(str(tmp_path), "archived_run")
+    view = controller.build_initial_state(cfg, cuda_available=False)
+    view.selected_attr = "bootstrap_opponent"
+
+    # Default is "random" (index 1 in [none, random, archive]).
+    assert view.working.bootstrap_opponent == "random"
+
+    # Right: random → archive path.
+    controller.dispatch(view, _key(keys.KeyKind.RIGHT))
+    archive_path = view.working.bootstrap_opponent
+    assert archive_path not in ("none", "random")
+
+    # Right again wraps: archive → none.
+    controller.dispatch(view, _key(keys.KeyKind.RIGHT))
+    assert view.working.bootstrap_opponent == "none"
+
+    # Left from none wraps back to archive.
+    controller.dispatch(view, _key(keys.KeyKind.LEFT))
+    assert view.working.bootstrap_opponent == archive_path
+
+    # Left: archive → random.
+    controller.dispatch(view, _key(keys.KeyKind.LEFT))
+    assert view.working.bootstrap_opponent == "random"
+
+
+def test_bootstrap_hint_shows_archive_metadata():
+    """Selecting bootstrap_opponent with a path matching a known archive entry
+    shows the archive's version, game count, and session stamp in the detail hint."""
+    checkpoint_dir = "checkpoints"
+    archive_label = "my_run_iter0100"
+    expected_path = str(
+        pathlib.Path(checkpoint_dir)
+        / artifacts.ARCHIVE_SUBDIR
+        / archive_label
+        / artifacts.LAST_CKPT
+    )
+    entry = runs.ArchiveEntry(
+        label=archive_label,
+        modified=1748649600.0,
+        has_checkpoint=True,
+        model_version="0.1",
+        total_games=12345,
+        first_session_stamp="20240611-142030",
+    )
+    cfg = config.TrainConfig(
+        device="cpu", checkpoint_dir=checkpoint_dir, bootstrap_opponent=expected_path
+    )
+    summary = runs.RunSummary(checkpoint_dir=checkpoint_dir, archives=[entry])
+    view = state.ConfiguratorState(
+        working=cfg, summary=summary, selected_attr="bootstrap_opponent"
+    )
+    out = _render(view)
+    assert "v0.1" in out
+    assert "12,345" in out
+    assert "20240611-142030" in out
+
+
+def test_bootstrap_hint_archive_entry_no_stamp_uses_date():
+    """When first_session_stamp is absent the hint falls back to the archived date."""
+    checkpoint_dir = "checkpoints"
+    archive_label = "old_run"
+    expected_path = str(
+        pathlib.Path(checkpoint_dir)
+        / artifacts.ARCHIVE_SUBDIR
+        / archive_label
+        / artifacts.LAST_CKPT
+    )
+    entry = runs.ArchiveEntry(
+        label=archive_label,
+        modified=1748649600.0,  # 2025-05-30
+        has_checkpoint=True,
+        model_version=None,
+        total_games=None,
+        first_session_stamp=None,
+    )
+    cfg = config.TrainConfig(
+        device="cpu", checkpoint_dir=checkpoint_dir, bootstrap_opponent=expected_path
+    )
+    summary = runs.RunSummary(checkpoint_dir=checkpoint_dir, archives=[entry])
+    view = state.ConfiguratorState(
+        working=cfg, summary=summary, selected_attr="bootstrap_opponent"
+    )
+    out = _render(view)
+    assert "archived" in out
+
+
+def test_bootstrap_hint_custom_path_not_in_archives():
+    """A bootstrap_opponent path that does not match any archive shows 'custom'."""
+    cfg = config.TrainConfig(
+        device="cpu",
+        checkpoint_dir="checkpoints",
+        bootstrap_opponent="some/custom/path.pt",
+    )
+    summary = runs.RunSummary(checkpoint_dir="checkpoints")
+    view = state.ConfiguratorState(
+        working=cfg, summary=summary, selected_attr="bootstrap_opponent"
+    )
+    out = _render(view)
+    assert "custom checkpoint" in out
+
+
 def test_screen_renders_era_line_and_defaults_hints():
     # An era-pinned RESUMABLE run shows its frozen era; the footer always
     # offers [D] save defaults; a defaults-seeded editor names its source.

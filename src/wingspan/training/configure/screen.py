@@ -12,17 +12,20 @@ visible, reusing the ``options.max_height`` pattern from :mod:`charts`.
 
 from __future__ import annotations
 
+import pathlib
+import time
+
 import rich.console as rich_console
 from rich import align, box, layout, panel, table, text
 
 from wingspan import version
-from wingspan.training import charts, config, theme
+from wingspan.training import artifacts, charts, config, theme
 from wingspan.training.configure import arch_diagram, fields, runs, state
 
 _WORDMARK = "🪶 WINGSPAN  FLIGHT PLAN"
 _HEADER_H = 4
 _FOOTER_H = 5
-# Dynamically sized so even the longest label ("bootstrap vs random") always has
+# Dynamically sized so even the longest label always has
 # at least 2 spaces before its value column.
 _LABEL_W = max(len(spec.label) for spec in fields.FIELD_SPECS) + 2
 _VALUE_W = 12  # field-value column width (minimum width via ljust)
@@ -378,6 +381,8 @@ def _impact_note(impact: fields.ChangeImpact) -> str:
 
 
 def _detail_constraint(spec: fields.FieldSpec) -> str:
+    if isinstance(spec, fields.BootstrapField):
+        return "none / random / archive path  ←/→ cycles  enter to type"
     if isinstance(spec, fields.ChoiceField):
         return " / ".join(spec.choices)
     if isinstance(spec, fields.LayersField):
@@ -391,6 +396,8 @@ def _detail_constraint(spec: fields.FieldSpec) -> str:
 
 def _detail_hint(view: state.ConfiguratorState, spec: fields.FieldSpec) -> str:
     cfg = view.working
+    if isinstance(spec, fields.BootstrapField):
+        return _bootstrap_hint(view)
     if spec.attr == "eval_games":
         return f"→ {cfg.eval_pairs} mirrored pairs = {2 * cfg.eval_pairs} games"
     if spec.attr == "max_iterations" and view.status() is runs.RunStatus.RESUMABLE:
@@ -411,6 +418,52 @@ def _detail_hint(view: state.ConfiguratorState, spec: fields.FieldSpec) -> str:
     if spec.attr == "history_len" and cfg.history_len < charts.CHART_WINDOW:
         return f"→ below the {charts.CHART_WINDOW}-iter chart window"
     return ""
+
+
+def _bootstrap_hint(view: state.ConfiguratorState) -> str:
+    """Detail-panel hint for the bootstrap_opponent field."""
+    value = view.working.bootstrap_opponent
+    if value == "none":
+        return "→ no bootstrap phase — starts directly in self-play"
+    if value == "random":
+        return "→ bootstrap against the random agent (original behaviour)"
+
+    # Path value — try to match against a known archive entry for rich metadata.
+    archive_entry = _find_archive_entry(view, value)
+    if archive_entry is None:
+        return "→ custom checkpoint path"
+
+    # Build the metadata line from the archive entry.
+    parts: list[str] = []
+    if archive_entry.model_version is not None:
+        parts.append(f"v{archive_entry.model_version}")
+    if archive_entry.total_games is not None:
+        parts.append(f"{archive_entry.total_games:,} games")
+    # Show either first-session stamp or archive date.
+    if archive_entry.first_session_stamp is not None:
+        parts.append(f"started {archive_entry.first_session_stamp}")
+    else:
+        date_str = time.strftime("%Y-%m-%d", time.localtime(archive_entry.modified))
+        parts.append(f"archived {date_str}")
+    return "→ " + " · ".join(parts) if parts else "→ archived run"
+
+
+def _find_archive_entry(
+    view: state.ConfiguratorState, checkpoint_path: str
+) -> runs.ArchiveEntry | None:
+    """Return the :class:`~runs.ArchiveEntry` whose ``last.pt`` equals
+    ``checkpoint_path``, or ``None`` if it is not a known archive."""
+    checkpoint_dir = pathlib.Path(view.working.checkpoint_dir)
+    for entry in view.summary.archives:
+        expected = str(
+            checkpoint_dir
+            / artifacts.ARCHIVE_SUBDIR
+            / entry.label
+            / artifacts.LAST_CKPT
+        )
+        if checkpoint_path == expected:
+            return entry
+    return None
 
 
 #### Run-management band ####

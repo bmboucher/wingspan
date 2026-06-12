@@ -60,6 +60,14 @@ class ArchiveEntry(pydantic.BaseModel):
     label: str
     modified: float  # directory mtime (epoch seconds)
     has_checkpoint: bool  # whether it still holds a last.pt
+    # Metadata loaded from last.pt when the checkpoint is present; None when the
+    # checkpoint is absent or unreadable.
+    model_version: str | None = None  # payload["version"]
+    total_games: int | None = None  # RunProgress.total_games
+    # Stamp of the earliest ``process_<stamp>.json`` session record found in the
+    # archive directory — approximates when training first started for this run.
+    # Derived from the filename only (no file read needed).
+    first_session_stamp: str | None = None
 
 
 def _empty_names() -> list[str]:
@@ -181,20 +189,57 @@ def align_era(summary: RunSummary, working: config.TrainConfig) -> config.TrainC
 
 
 def list_archives(checkpoint_dir: str) -> list[ArchiveEntry]:
-    """Existing archived runs under ``<checkpoint_dir>/archive/``, oldest first."""
+    """Existing archived runs under ``<checkpoint_dir>/archive/``, oldest first.
+
+    Metadata (model version, total games, first session stamp) is loaded from
+    each archive's checkpoint and process records where available. Failures are
+    suppressed so a corrupt archive never blocks the configurator from opening."""
     root = pathlib.Path(checkpoint_dir) / artifacts.ARCHIVE_SUBDIR
     if not root.is_dir():
         return []
     entries = [
-        ArchiveEntry(
-            label=child.name,
-            modified=child.stat().st_mtime,
-            has_checkpoint=(child / artifacts.LAST_CKPT).exists(),
-        )
+        _build_archive_entry(child)
         for child in sorted(root.iterdir())
         if child.is_dir()
     ]
     return sorted(entries, key=lambda entry: entry.modified)
+
+
+def _build_archive_entry(directory: pathlib.Path) -> ArchiveEntry:
+    """Build an :class:`ArchiveEntry` for one archive directory, loading metadata
+    from the checkpoint and process records where available."""
+    last_pt = directory / artifacts.LAST_CKPT
+    has_checkpoint = last_pt.exists()
+
+    # Load model_version and total_games from the checkpoint payload.
+    model_version: str | None = None
+    total_games: int | None = None
+    if has_checkpoint:
+        payload = _load_payload(last_pt)
+        if payload is not None:
+            raw_version = payload.get("version")
+            model_version = str(raw_version) if raw_version is not None else None
+            progress = _progress_from_payload(payload)
+            total_games = progress.total_games
+
+    # Derive the earliest session stamp from process_*.json filenames (no reads).
+    process_files = sorted(directory.glob(artifacts.PROCESS_GLOB))
+    first_session_stamp: str | None = None
+    if process_files:
+        # Filename is ``process_<stamp>.json``; strip prefix and suffix for stamp.
+        stem = process_files[0].stem  # e.g. "process_20240611-142030"
+        prefix = artifacts.PROCESS_PREFIX
+        if stem.startswith(prefix):
+            first_session_stamp = stem[len(prefix) :]
+
+    return ArchiveEntry(
+        label=directory.name,
+        modified=directory.stat().st_mtime,
+        has_checkpoint=has_checkpoint,
+        model_version=model_version,
+        total_games=total_games,
+        first_session_stamp=first_session_stamp,
+    )
 
 
 def default_archive_label(summary: RunSummary, timestamp: str) -> str:

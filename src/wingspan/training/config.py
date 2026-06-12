@@ -135,21 +135,33 @@ class TrainConfig(pydantic.BaseModel):
     # frozen as "self·gen1" and the run switches to ordinary self-play + eval.
     # Only affects fresh runs; a resumed run keeps the phase stored in its
     # checkpoint.
-    initial_vs_random: bool = True
+    #
+    # "none"   = no bootstrap phase — start directly in self-play
+    # "random" = bootstrap against the built-in random agent (original behaviour)
+    # <path>   = absolute path to a .pt.gz checkpoint to replay greedy as the
+    #            bootstrap opponent. Known limitation: the opponent's *setup net*
+    #            is not loaded. Only valid with device="cpu" (mp_collect path).
+    bootstrap_opponent: str = "random"
     # Smoothed collection win-rate (vs random, EWMA over ``eval_ewma_alpha``) at
     # which a fresh run graduates from the random-opponent phase to self-play.
     random_phase_win_rate: typing.Annotated[float, pydantic.Field(gt=0.0, le=1.0)] = (
         0.65
     )
-    # Path to a ``.pt.gz`` checkpoint to use as the bootstrap opponent during the
-    # ``initial_vs_random`` phase. ``None`` = use a random agent (current
-    # behaviour). When set the opponent's weights are loaded once per session (via
-    # ``loaders.load_policy_net``) and replayed greedy against seat 0.
-    # Known limitation: the bootstrap opponent's *setup net* is not loaded. In
-    # setup-model runs the opponent's opening remains generator-chosen (same as
-    # the random bootstrap). Only valid with ``initial_vs_random=True`` and
-    # ``device="cpu"`` (the ``mp_collect`` path).
-    bootstrap_opponent_checkpoint: str | None = None
+
+    @property
+    def initial_vs_random(self) -> bool:
+        """Whether the bootstrap phase is active (derived from ``bootstrap_opponent``)."""
+        return self.bootstrap_opponent != "none"
+
+    @property
+    def bootstrap_opponent_checkpoint(self) -> str | None:
+        """The checkpoint path to load as the bootstrap opponent, or ``None`` when
+        using the random agent or no bootstrap phase at all."""
+        return (
+            None
+            if self.bootstrap_opponent in ("none", "random")
+            else self.bootstrap_opponent
+        )
 
     # ---- "what the AI is producing" smoothing ----
     # Decay for the PRODUCING band's EWMA of the per-iteration score breakdown,
@@ -363,17 +375,12 @@ class TrainConfig(pydantic.BaseModel):
     def _check_bootstrap_opponent(self) -> "TrainConfig":
         """Validate the bootstrap-opponent checkpoint constraints.
 
-        The checkpoint path is only reachable through the ``mp_collect`` path
-        (CPU-only), so it must be paired with ``initial_vs_random=True`` and
-        ``device="cpu"``."""
-        if self.bootstrap_opponent_checkpoint is not None:
-            if not self.initial_vs_random:
-                raise ValueError(
-                    "bootstrap_opponent_checkpoint requires initial_vs_random=True"
-                )
+        A checkpoint path is only reachable through the ``mp_collect`` path
+        (CPU-only), so it must be paired with ``device="cpu"``."""
+        if self.bootstrap_opponent not in ("none", "random"):
             if self.device != "cpu":
                 raise ValueError(
-                    "bootstrap_opponent_checkpoint requires device='cpu' (mp_collect only)"
+                    "a bootstrap checkpoint requires device='cpu' (mp_collect only)"
                 )
         return self
 
@@ -650,6 +657,26 @@ def train_config_from_artifact(
     if isinstance(raw_config, dict):
         adjusted = dict(typing.cast("dict[str, typing.Any]", raw_config))
         adjusted.setdefault("encoding_version", artifact_version)
+
+        # Backwards compat: configs written before the unified bootstrap_opponent
+        # field stored separate initial_vs_random + bootstrap_opponent_checkpoint
+        # fields. Derive the new field and drop the old ones so model_validate
+        # does not trip on unexpected keys.
+        if "bootstrap_opponent" not in adjusted:
+            old_initial_vs_random = adjusted.pop("initial_vs_random", True)
+            old_checkpoint = adjusted.pop("bootstrap_opponent_checkpoint", None)
+            if not old_initial_vs_random:
+                adjusted["bootstrap_opponent"] = "none"
+            elif old_checkpoint is not None:
+                adjusted["bootstrap_opponent"] = old_checkpoint
+            else:
+                adjusted["bootstrap_opponent"] = "random"
+        else:
+            # Field already present — still remove any stale old-field keys
+            # a mixed-era config might carry so they don't cause extra-fields errors.
+            adjusted.pop("initial_vs_random", None)
+            adjusted.pop("bootstrap_opponent_checkpoint", None)
+
         return TrainConfig.model_validate(adjusted)
     return TrainConfig.model_validate(raw_config)
 

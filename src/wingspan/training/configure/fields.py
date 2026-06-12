@@ -20,6 +20,7 @@ derived and never editable.
 from __future__ import annotations
 
 import enum
+import pathlib
 import typing
 
 import pydantic
@@ -141,6 +142,16 @@ class OptionalPathField(FieldSpec):
     none_label: str = "none"
 
 
+class BootstrapField(FieldSpec):
+    """The bootstrap-opponent selector.
+
+    Value is a string: ``"none"`` (no bootstrap phase), ``"random"`` (built-in
+    random agent), or an absolute path to a ``.pt.gz`` checkpoint. Left/Right
+    cycles through the fixed options plus archived checkpoints (managed by the
+    controller, which has access to the live archive list); Enter opens free-text
+    edit mode for a custom path."""
+
+
 class LayersField(FieldSpec):
     """A per-layer width list (a network block's hidden widths).
 
@@ -204,6 +215,15 @@ def format_value(cfg: config.TrainConfig, spec: FieldSpec) -> str:
         return spec.none_label
     if isinstance(spec, OptionalPathField) and value is None:
         return spec.none_label
+    if isinstance(spec, BootstrapField):
+        # "none" and "random" pass through; for paths show just the parent
+        # directory name (the archive label) so it fits in the value column.
+        text = str(value)
+        if text in ("none", "random"):
+            return text
+        parts = pathlib.PurePosixPath(text.replace("\\", "/")).parts
+        # Show "…/<archive-label>/last.pt" — drop the checkpoint_dir prefix.
+        return "/".join(parts[-2:]) if len(parts) >= 2 else text
     if isinstance(spec, FloatField):
         if spec.scientific:
             return f"{value:.0e}"
@@ -301,6 +321,10 @@ def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue, str | None]:
     if isinstance(spec, OptionalPathField):
         if not text or text.lower() == "none":
             return None, None
+        return text, None
+    if isinstance(spec, BootstrapField):
+        if not text:
+            return None, f"{spec.label}: cannot be empty (use 'none' or 'random')"
         return text, None
     if isinstance(spec, IntField):
         try:
@@ -549,15 +573,17 @@ FIELD_SPECS: list[FieldSpec] = [
         impact=ChangeImpact.REGIME,
         help="Smoothing for the PRODUCING band's score / margin readouts.",
     ),
-    ChoiceField(
-        attr="initial_vs_random",
-        label="bootstrap vs random",
+    BootstrapField(
+        attr="bootstrap_opponent",
+        label="bootstrap opponent",
         section=ConfigSection.EVAL,
         group="bootstrap",
-        choices=["True", "False"],
-        help="Fresh runs only: start by collecting against the random agent "
-        "(net at seat 0, eval paused) before switching to self-play. A resumed "
-        "run keeps the phase stored in its checkpoint.",
+        impact=ChangeImpact.REGIME,
+        help="Bootstrap phase opponent. 'none' skips the phase and starts directly "
+        "in self-play. 'random' uses the built-in random agent (original behaviour). "
+        "A checkpoint path loads that run's weights as the fixed opponent. "
+        "←/→ cycles through none / random / archived runs; press enter to type a "
+        "custom path. Only a path requires device='cpu'.",
     ),
     FloatField(
         attr="random_phase_win_rate",
@@ -566,23 +592,10 @@ FIELD_SPECS: list[FieldSpec] = [
         group="bootstrap",
         step=0.05,
         impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.initial_vs_random,
         help="Smoothed collection win-rate (vs random) at which the bootstrap "
         "phase freezes self·gen1 and switches to self-play. Lowering it below "
         "the current win-rate graduates immediately.",
-    ),
-    OptionalPathField(
-        attr="bootstrap_opponent_checkpoint",
-        label="bootstrap opponent checkpoint",
-        section=ConfigSection.EVAL,
-        group="bootstrap",
-        none_label="random agent",
-        impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.initial_vs_random,
-        help="Path to a .pt.gz checkpoint to use as the bootstrap-phase opponent "
-        "instead of the random agent. Only valid with device='cpu'. "
-        "Known limitation: the opponent's setup net is not loaded — its opening "
-        "remains generator-chosen even when the checkpoint was trained with a "
-        "setup model.",
     ),
     LayersField(
         attr="trunk_layers",

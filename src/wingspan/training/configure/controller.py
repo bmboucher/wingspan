@@ -14,6 +14,7 @@ or load error runs inside the alternate-screen block.
 
 from __future__ import annotations
 
+import pathlib
 import sys
 import time
 
@@ -21,7 +22,7 @@ import rich.console as rich_console
 from rich import live
 
 from wingspan import version
-from wingspan.training import config
+from wingspan.training import artifacts, config
 from wingspan.training.configure import (
     fields,
     keys,
@@ -299,7 +300,38 @@ def _apply_nudge(view: state.ConfiguratorState, direction: int) -> state.Outcome
     if isinstance(spec, (fields.TextField, fields.PathField)):
         view.notify(state.MessageKind.INFO, "press enter to edit this field")
         return state.Outcome.CONTINUE
+    if isinstance(spec, fields.BootstrapField):
+        return _cycle_bootstrap(view, direction)
     updated, error = fields.nudge(view.working, spec, direction)
+    if error is not None:
+        view.notify(state.MessageKind.WARN, error)
+        return state.Outcome.CONTINUE
+    era_moved = _update_working(view, updated)
+    view.message = None
+    if era_moved:
+        _notify_era_moved(view)
+    _snap_if_invisible(view)
+    return state.Outcome.CONTINUE
+
+
+def _cycle_bootstrap(view: state.ConfiguratorState, direction: int) -> state.Outcome:
+    """Cycle the bootstrap_opponent field through none → random → archived paths."""
+    # Build the full choices list: fixed options first, then archives latest-first.
+    archive_paths = [
+        str(
+            pathlib.Path(view.working.checkpoint_dir)
+            / artifacts.ARCHIVE_SUBDIR
+            / entry.label
+            / artifacts.LAST_CKPT
+        )
+        for entry in reversed(view.summary.archives)
+        if entry.has_checkpoint
+    ]
+    choices = ["none", "random"] + archive_paths
+    current = str(fields.read_field(view.working, view.selected_spec()))
+    index = choices.index(current) if current in choices else 0
+    new_value = choices[(index + direction) % len(choices)]
+    updated, error = fields.commit(view.working, view.selected_spec(), new_value)
     if error is not None:
         view.notify(state.MessageKind.WARN, error)
         return state.Outcome.CONTINUE

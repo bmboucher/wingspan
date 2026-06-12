@@ -231,7 +231,7 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
         checkpoint_dir=str(tmp_path),
         # Exercise the self-play + eval path directly (the random-opponent
         # bootstrap phase pauses eval; that path is covered separately).
-        initial_vs_random=False,
+        bootstrap_opponent="none",
     )
     training = loop.TrainingLoop(cfg)
     _run_to_completion(training)  # synchronous (no worker thread), deterministic
@@ -282,7 +282,7 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
         checkpoint_dir=str(tmp_path),
         # Resume continuity is tested on the self-play + eval regime; the
         # bootstrap phase has its own resume/graduation coverage.
-        initial_vs_random=False,
+        bootstrap_opponent="none",
     )
     first = loop.TrainingLoop(cfg)
     _run_to_completion(first)
@@ -356,7 +356,7 @@ def _bootstrap_config(
         "trunk_layers": (32, 32),
         "choice_layers": (32, 32),
         "checkpoint_dir": str(tmp_path),
-        "initial_vs_random": True,
+        "bootstrap_opponent": "random",
         "random_phase_win_rate": 0.5,
         "eval_ewma_alpha": 0.3,
     }

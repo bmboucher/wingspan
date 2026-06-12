@@ -1,11 +1,11 @@
-"""Tests for the bootstrap-opponent feature (Plan 03).
+"""Tests for the bootstrap-opponent feature.
 
 Covers:
 
-1. ``TrainConfig`` validation — the three constraint cases.
+1. ``TrainConfig`` validation — constraint cases and property derivations.
 2. An in-process worker game vs a fresh tiny checkpoint.
 3. A cross-version worker game using the pinned v0.1 fixture.
-4. ``OptionalPathField`` parse / format round-trip and ``visible_when`` gate.
+4. ``BootstrapField`` parse / format round-trip and ``visible_when`` gate.
 5. Fail-fast validation on a missing path.
 """
 
@@ -76,35 +76,40 @@ def _gunzip_to_temp(gz_path: pathlib.Path, dest: pathlib.Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. Config validators
+# 1. Config validators and property derivations
 
 
-def test_config_rejects_bootstrap_without_initial_vs_random() -> None:
-    with pytest.raises(Exception, match="requires initial_vs_random"):
-        config.TrainConfig(
-            bootstrap_opponent_checkpoint="some/path.pt",
-            initial_vs_random=False,
-        )
+def test_bootstrap_opponent_defaults_to_random() -> None:
+    cfg = config.TrainConfig()
+    assert cfg.bootstrap_opponent == "random"
+    assert cfg.initial_vs_random is True
+    assert cfg.bootstrap_opponent_checkpoint is None
 
 
-def test_config_rejects_bootstrap_on_cuda() -> None:
+def test_bootstrap_opponent_none_disables_bootstrap() -> None:
+    cfg = config.TrainConfig(bootstrap_opponent="none")
+    assert cfg.initial_vs_random is False
+    assert cfg.bootstrap_opponent_checkpoint is None
+
+
+def test_bootstrap_opponent_path_sets_checkpoint() -> None:
+    cfg = config.TrainConfig(bootstrap_opponent="some/path.pt")
+    assert cfg.initial_vs_random is True
+    assert cfg.bootstrap_opponent_checkpoint == "some/path.pt"
+
+
+def test_config_rejects_bootstrap_path_on_cuda() -> None:
     with pytest.raises(Exception, match="requires device='cpu'"):
-        config.TrainConfig(
-            bootstrap_opponent_checkpoint="some/path.pt",
-            initial_vs_random=True,
-            device="cuda",
-        )
+        config.TrainConfig(bootstrap_opponent="some/path.pt", device="cuda")
 
 
-def test_config_accepts_none_bootstrap_with_any_settings() -> None:
-    # None bootstrap_opponent_checkpoint is always valid regardless of other flags.
-    cfg_default = config.TrainConfig(bootstrap_opponent_checkpoint=None)
-    assert cfg_default.bootstrap_opponent_checkpoint is None
+def test_config_accepts_none_and_random_on_any_device() -> None:
+    # "none" and "random" never require a specific device.
+    cfg_none = config.TrainConfig(bootstrap_opponent="none", device="cuda")
+    assert cfg_none.bootstrap_opponent == "none"
 
-    cfg_no_random = config.TrainConfig(
-        bootstrap_opponent_checkpoint=None, initial_vs_random=False
-    )
-    assert cfg_no_random.bootstrap_opponent_checkpoint is None
+    cfg_random = config.TrainConfig(bootstrap_opponent="random", device="cuda")
+    assert cfg_random.bootstrap_opponent == "random"
 
 
 # ---------------------------------------------------------------------------
@@ -129,8 +134,7 @@ def test_worker_game_vs_bootstrap_opponent(tmp_path: pathlib.Path) -> None:
         choice_layers=_SMALL_LAYERS,
         card_embed_dim=_SMALL_CARD_EMBED_DIM,
         card_encoder_layers=_SMALL_CARD_ENCODER_LAYERS,
-        bootstrap_opponent_checkpoint=str(ckpt_path),
-        initial_vs_random=True,
+        bootstrap_opponent=str(ckpt_path),
     )
     collector = mp_collect.ProcessCollector(bootstrap_cfg, num_workers=2)
     try:
@@ -173,8 +177,7 @@ def test_worker_game_vs_v0_1_bootstrap_opponent(tmp_path: pathlib.Path) -> None:
         choice_layers=_SMALL_LAYERS,
         card_embed_dim=_SMALL_CARD_EMBED_DIM,
         card_encoder_layers=_SMALL_CARD_ENCODER_LAYERS,
-        bootstrap_opponent_checkpoint=str(opponent_pt),
-        initial_vs_random=True,
+        bootstrap_opponent=str(opponent_pt),
     )
     collector = mp_collect.ProcessCollector(bootstrap_cfg, num_workers=2)
     try:
@@ -187,88 +190,89 @@ def test_worker_game_vs_v0_1_bootstrap_opponent(tmp_path: pathlib.Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. OptionalPathField round-trip and visible_when
+# 4. BootstrapField parse / format round-trip and visible_when gate
 
-
-_BOOTSTRAP_FIELD_SPEC = fields.OptionalPathField(
-    attr="bootstrap_opponent_checkpoint",
-    label="bootstrap opponent checkpoint",
+_BOOTSTRAP_FIELD_SPEC = fields.BootstrapField(
+    attr="bootstrap_opponent",
+    label="bootstrap opponent",
     section=fields.ConfigSection.EVAL,
     group="bootstrap",
-    none_label="random agent",
-    help="Path to a .pt.gz checkpoint used as the bootstrap opponent.",
+    help="Bootstrap phase opponent.",
 )
 
 
-def test_optional_path_field_roundtrip(tmp_path: pathlib.Path) -> None:
-    """Parsing a path string and formatting it back yields the original value."""
-    cfg = config.TrainConfig(
-        device="cpu",
-        checkpoint_dir=str(tmp_path),
-        bootstrap_opponent_checkpoint="path/to/checkpoint.pt.gz",
-        initial_vs_random=True,
-    )
+def test_bootstrap_field_formats_fixed_values() -> None:
+    """'none' and 'random' pass through format_value unchanged."""
+    cfg_none = config.TrainConfig(bootstrap_opponent="none")
+    assert fields.format_value(cfg_none, _BOOTSTRAP_FIELD_SPEC) == "none"
+
+    cfg_random = config.TrainConfig(bootstrap_opponent="random")
+    assert fields.format_value(cfg_random, _BOOTSTRAP_FIELD_SPEC) == "random"
+
+
+def test_bootstrap_field_formats_path_as_last_two_parts() -> None:
+    """A path value is displayed as its last two components."""
+    cfg = config.TrainConfig(bootstrap_opponent="some/archive/run_iter1000/last.pt")
     formatted = fields.format_value(cfg, _BOOTSTRAP_FIELD_SPEC)
-    assert formatted == "path/to/checkpoint.pt.gz"
+    assert formatted == "run_iter1000/last.pt"
 
 
-def test_optional_path_field_none_displays_as_label(tmp_path: pathlib.Path) -> None:
-    """When the field is ``None`` it displays as the configured none_label."""
-    cfg = config.TrainConfig(
-        device="cpu",
-        checkpoint_dir=str(tmp_path),
-        bootstrap_opponent_checkpoint=None,
+def test_bootstrap_field_commit_roundtrip(tmp_path: pathlib.Path) -> None:
+    """Committing a path string stores it verbatim in bootstrap_opponent."""
+    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    new_cfg, error = fields.commit(
+        cfg, _BOOTSTRAP_FIELD_SPEC, "path/to/checkpoint.pt.gz"
     )
-    formatted = fields.format_value(cfg, _BOOTSTRAP_FIELD_SPEC)
-    assert formatted == "random agent"
-
-
-def test_optional_path_field_none_text_parses_to_none(tmp_path: pathlib.Path) -> None:
-    """Typing 'none' or clearing the field resets the config field to ``None``."""
-    # Start with a checkpoint path set.
-    cfg_with_path = config.TrainConfig(
-        device="cpu",
-        checkpoint_dir=str(tmp_path),
-        bootstrap_opponent_checkpoint="some/path.pt",
-        initial_vs_random=True,
-    )
-    # Committing "none" should clear the field.
-    new_cfg, error = fields.commit(cfg_with_path, _BOOTSTRAP_FIELD_SPEC, "none")
     assert error is None
-    assert new_cfg.bootstrap_opponent_checkpoint is None
-
-    # Committing an empty string also clears the field.
-    new_cfg2, error2 = fields.commit(cfg_with_path, _BOOTSTRAP_FIELD_SPEC, "")
-    assert error2 is None
-    assert new_cfg2.bootstrap_opponent_checkpoint is None
+    assert new_cfg.bootstrap_opponent == "path/to/checkpoint.pt.gz"
 
 
-def test_bootstrap_opponent_hidden_when_initial_vs_random_false(
-    tmp_path: pathlib.Path,
-) -> None:
-    """The bootstrap opponent checkpoint field is hidden when initial_vs_random
-    is False — the field's ``visible_when`` predicate returns False."""
-    cfg_no_random = config.TrainConfig(
-        device="cpu",
-        checkpoint_dir=str(tmp_path),
-        initial_vs_random=False,
+def test_bootstrap_field_commit_empty_rejects(tmp_path: pathlib.Path) -> None:
+    """Committing an empty string should return an error."""
+    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    _, error = fields.commit(cfg, _BOOTSTRAP_FIELD_SPEC, "")
+    assert error is not None
+
+
+def test_bootstrap_field_commit_none_string(tmp_path: pathlib.Path) -> None:
+    """Committing 'none' sets bootstrap_opponent to 'none'."""
+    cfg = config.TrainConfig(
+        device="cpu", checkpoint_dir=str(tmp_path), bootstrap_opponent="random"
     )
-    visible_attrs = fields.editable_attrs(cfg_no_random)
-    assert "bootstrap_opponent_checkpoint" not in visible_attrs
+    new_cfg, error = fields.commit(cfg, _BOOTSTRAP_FIELD_SPEC, "none")
+    assert error is None
+    assert new_cfg.bootstrap_opponent == "none"
 
 
-def test_bootstrap_opponent_visible_when_initial_vs_random_true(
-    tmp_path: pathlib.Path,
-) -> None:
-    """The bootstrap opponent checkpoint field is visible when initial_vs_random
-    is True."""
+def test_graduate_hidden_when_bootstrap_none(tmp_path: pathlib.Path) -> None:
+    """The 'graduate @' field is hidden when bootstrap_opponent is 'none'."""
+    cfg = config.TrainConfig(
+        device="cpu", checkpoint_dir=str(tmp_path), bootstrap_opponent="none"
+    )
+    visible_attrs = fields.editable_attrs(cfg)
+    assert "random_phase_win_rate" not in visible_attrs
+
+
+def test_graduate_visible_when_bootstrap_active(tmp_path: pathlib.Path) -> None:
+    """The 'graduate @' field is visible when bootstrap_opponent is 'random' or a path."""
     cfg_random = config.TrainConfig(
-        device="cpu",
-        checkpoint_dir=str(tmp_path),
-        initial_vs_random=True,
+        device="cpu", checkpoint_dir=str(tmp_path), bootstrap_opponent="random"
     )
-    visible_attrs = fields.editable_attrs(cfg_random)
-    assert "bootstrap_opponent_checkpoint" in visible_attrs
+    assert "random_phase_win_rate" in fields.editable_attrs(cfg_random)
+
+    cfg_path = config.TrainConfig(
+        device="cpu", checkpoint_dir=str(tmp_path), bootstrap_opponent="some/path.pt"
+    )
+    assert "random_phase_win_rate" in fields.editable_attrs(cfg_path)
+
+
+def test_bootstrap_opponent_always_in_editable_attrs(tmp_path: pathlib.Path) -> None:
+    """The bootstrap_opponent field is always navigable regardless of its value."""
+    for value in ("none", "random", "some/path.pt"):
+        cfg = config.TrainConfig(
+            device="cpu", checkpoint_dir=str(tmp_path), bootstrap_opponent=value
+        )
+        assert "bootstrap_opponent" in fields.editable_attrs(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -285,22 +289,34 @@ def test_validate_bootstrap_opponent_raises_on_missing_file(
         config = config.TrainConfig(
             device="cpu",
             checkpoint_dir=str(tmp_path),
-            bootstrap_opponent_checkpoint=str(tmp_path / "nonexistent.pt"),
-            initial_vs_random=True,
+            bootstrap_opponent=str(tmp_path / "nonexistent.pt"),
         )
 
     with pytest.raises(FileNotFoundError):
         loop_resume.validate_bootstrap_opponent(_FakeLoop())  # type: ignore[arg-type]
 
 
-def test_validate_bootstrap_opponent_noop_when_none(tmp_path: pathlib.Path) -> None:
-    """``validate_bootstrap_opponent`` is a no-op when the checkpoint is None."""
+def test_validate_bootstrap_opponent_noop_when_random(tmp_path: pathlib.Path) -> None:
+    """``validate_bootstrap_opponent`` is a no-op when bootstrap_opponent is 'random'."""
 
     class _FakeLoop:
         config = config.TrainConfig(
             device="cpu",
             checkpoint_dir=str(tmp_path),
-            bootstrap_opponent_checkpoint=None,
+            bootstrap_opponent="random",
+        )
+
+    loop_resume.validate_bootstrap_opponent(_FakeLoop())  # type: ignore[arg-type]
+
+
+def test_validate_bootstrap_opponent_noop_when_none(tmp_path: pathlib.Path) -> None:
+    """``validate_bootstrap_opponent`` is a no-op when bootstrap_opponent is 'none'."""
+
+    class _FakeLoop:
+        config = config.TrainConfig(
+            device="cpu",
+            checkpoint_dir=str(tmp_path),
+            bootstrap_opponent="none",
         )
 
     loop_resume.validate_bootstrap_opponent(_FakeLoop())  # type: ignore[arg-type]
