@@ -462,8 +462,9 @@ FIELD_SPECS: list[FieldSpec] = [
         impact=ChangeImpact.REGIME,
         help="How each decision's return is computed. 'terminal_margin' broadcasts "
         "the end-of-game margin to every decision; 'decision_delta' credits each "
-        "decision with its own discounted margin change. Shape-preserving — "
-        "reinterprets an in-progress run but resumes the weights.",
+        "decision with its own margin change, discounted per unit of game-clock "
+        "time (one game turn). Shape-preserving — reinterprets an in-progress "
+        "run but resumes the weights.",
     ),
     FloatField(
         attr="reward_discount",
@@ -472,9 +473,10 @@ FIELD_SPECS: list[FieldSpec] = [
         step=0.05,
         impact=ChangeImpact.REGIME,
         visible_when=lambda cfg: cfg.reward_mode == config.RewardMode.DECISION_DELTA,
-        help="Discount γ for the decision-delta return: a decision's own margin "
-        "change plus γ·(future per-decision changes). γ=0 = immediate change "
-        "only; γ=1 = final margin minus the current margin. Delta mode only.",
+        help="Discount γ for the decision-delta return, per game turn of clock "
+        "time: a decision's own margin change plus γ^Δt·(future per-decision "
+        "changes). γ=0 = immediate change only; γ=1 = final margin minus the "
+        "current margin. Delta mode only.",
     ),
     IntField(
         attr="eval_every",

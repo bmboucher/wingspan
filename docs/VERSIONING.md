@@ -161,13 +161,22 @@ Pinning is adopted from the run directory, never configured by hand
 - The configurator seeds the working config from the saved run's embedded
   config, rehydrated at the payload's own version stamp
   (`config.train_config_from_artifact`), so an old-era run reads RESUMABLE
-  and launches pinned.
+  and launches pinned. It then keeps the era *aligned* on every edit
+  (`configure.runs.align_era`): while the working config stays
+  architecture-compatible with the saved run it keeps the run's era, but an
+  edit that forces a fresh run bumps it to the live `MODEL_VERSION` (and
+  reverting the edit re-pins) — the era line in the run-management panel
+  tracks this live.
 - `TrainingLoop.__init__` calls `loop_resume.adopt_checkpoint_era` before
   building anything: when adopting the checkpoint's era is exactly what makes
   the saved and current `architecture_key`s agree, the config is pinned —
   covering headless entry points (cloud runner, direct construction) by
-  construction. Anything else (a genuine architecture mismatch, an unreadable
-  payload) falls through to the normal gate: alarm and start fresh.
+  construction. Every other situation starts fresh, and **a fresh launch is
+  re-keyed at the live `MODEL_VERSION`** — a new run never inherits a stale
+  era from a working config seeded off an old run. (Regenerating old-era
+  artifacts therefore means building the era net directly, the
+  `tests/test_era_pinned_resume.py` pattern, not training fresh through
+  `TrainingLoop`.)
 
 `architecture_key` itself now leads with the era, so a shape-preserving FRESH
 change still reads as incompatible (coinciding widths across eras are the

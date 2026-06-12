@@ -18,7 +18,8 @@ Key fields:
 - Loop shape: `games_per_iter`, `max_iterations`, `target_iterations`.
 - Optimization: `lr`, `value_coef`, `entropy_coef`, `grad_clip`, `score_norm`,
   `reward_mode` (`RewardMode`: `terminal_margin` | `decision_delta`) and
-  `reward_discount` (γ for the decision-delta return). Both REGIME.
+  `reward_discount` (γ for the decision-delta return, applied per unit of
+  game-clock time — see `timestamps.py`). Both REGIME.
 - Evaluation: `eval_every`, `eval_games`, `opponent_reset_win_rate`.
 - Bootstrap: `initial_vs_random`, `random_phase_win_rate`,
   `bootstrap_opponent_checkpoint` (optional path to a `.pt` checkpoint used
@@ -72,7 +73,9 @@ the weights themselves fail to load), initializes phase and target, writes the
 `process_<stamp>.json` sidecar. `adopt_checkpoint_era(cfg)` — called by
 `TrainingLoop.__init__` before the net is built: pins the config to the
 resumable checkpoint's era when that adoption is exactly what makes the keys
-agree (era-pinned resume across a FRESH change; `docs/VERSIONING.md`).
+agree (era-pinned resume across a FRESH change), and re-keys any *fresh*
+launch at the live `MODEL_VERSION` so a new run never inherits a stale era
+(`docs/VERSIONING.md`).
 
 **`loop_collect.py`** — `run_collection(loop, iteration) -> CollectResult`:
 dispatches to `mp_collect.ProcessCollector` (CPU) or `batched_collect` (CUDA)
@@ -123,10 +126,19 @@ collection) and `greedy_agent(net, spec) -> Agent` (argmax, for eval). Both
 call `net.encode_state` / `net.encode_choices` — never the raw encoder.
 
 **`steps.py`** — `Step(state, choices, chosen_idx, player_id, family_idx,
-margin_before)` — the recorded self-play transition consumed by the learner.
-`margin_before` is the deciding player's running margin (own − opponent) before
-the decision, differenced into the `decision_delta` return. Stored as fp16
-arrays during IPC.
+margin_before, timestamp)` — the recorded self-play transition consumed by the
+learner. `margin_before` is the deciding player's running margin (own −
+opponent) before the decision, differenced into the `decision_delta` return;
+`timestamp` is the decision's game-clock time (see `timestamps.py`). Stored as
+fp16 arrays during IPC.
+
+**`timestamps.py`** — The game clock for time-based discounting: setup
+decisions at 0 / 1/3 / 2/3, turn N's main action at exactly N (the engine's
+`GameState.turn_counter`), mid-turn decisions interpolated into (N, N+1).
+`provisional_timestamp(decision, turn_counter)` at record time,
+`finalize_timestamps(recorded)` once the game is complete (the interpolation
+needs each turn's full decision count), `final_timestamp(turn_counter)` for the
+terminal checkpoint (`GameRecord.final_timestamp`). Torch-free.
 
 ## Learning
 
@@ -137,7 +149,9 @@ arrays during IPC.
 - `_flatten` pairs each step with its return per `cfg.reward_mode`:
   `_terminal_margin_returns` broadcasts the end-of-game margin; for
   `decision_delta`, `_decision_delta_returns` discounts per-decision
-  `margin_before` deltas (γ = `reward_discount`) into each step's return.
+  `margin_before` deltas by γ^Δt of game-clock time between checkpoints
+  (γ = `reward_discount`, Δt from `Step.timestamp` /
+  `GameRecord.final_timestamp`) into each step's return.
 
 **`setup_net.py`** — `SetupNet(arch: SetupArchitecture, input_dim)`: the setup
 model's MLP value-regressor. Single scalar output (predicted final score).

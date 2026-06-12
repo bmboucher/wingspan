@@ -33,9 +33,11 @@ class RewardMode(enum.StrEnum):
     ``TERMINAL_MARGIN`` broadcasts the single end-of-game score margin to every
     decision (the historical default). ``DECISION_DELTA`` instead credits each
     decision with the change in the player's score margin (own − opponent) over
-    the interval until that player's next decision, accumulated into a
-    ``reward_discount``-discounted return — a per-decision credit signal. Both
-    are shape-preserving (REGIME), so toggling them never restarts the network.
+    the interval until that player's next decision, accumulated into a return
+    discounted by ``reward_discount`` per unit of game-clock time between
+    decisions (``Step.timestamp`` — one unit per game turn) — a per-decision
+    credit signal. Both are shape-preserving (REGIME), so toggling them never
+    restarts the network.
     """
 
     TERMINAL_MARGIN = "terminal_margin"
@@ -86,10 +88,12 @@ class TrainConfig(pydantic.BaseModel):
     # decision; ``decision_delta`` credits each decision with its own discounted
     # margin change. Shape-preserving (REGIME): never restarts the network.
     reward_mode: RewardMode = RewardMode.TERMINAL_MARGIN
-    # Discount γ for the ``decision_delta`` return: a decision's return is its own
-    # margin change plus γ·(future per-decision margin changes). γ=0 → the
-    # immediate change only; γ=1 → the player's final margin minus the current
-    # margin. Inert in ``terminal_margin`` mode.
+    # Discount γ for the ``decision_delta`` return, applied per unit of game-clock
+    # time (one game turn): a decision's return is its own margin change plus
+    # Σ γ^Δt·(future per-decision margin changes), where Δt is the game time
+    # elapsed to each future checkpoint. γ=0 → the immediate change only; γ=1 →
+    # the player's final margin minus the current margin (time-independent).
+    # Inert in ``terminal_margin`` mode.
     reward_discount: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 1.0
 
     # ---- evaluation (TRAINING.md §7) ----
@@ -339,9 +343,11 @@ class TrainConfig(pydantic.BaseModel):
 
     # ---- architecture descriptor (TRAINING.md §5.1) ----
     # The artifact era this run trains at: the encoding its vectors are produced
-    # with and the version stamped on every artifact it writes. New runs pin the
-    # current MODEL_VERSION; a resumed run adopts its checkpoint's era (the
-    # configurator's saved-run seeding / ``loop_resume.adopt_checkpoint_era``),
+    # with and the version stamped on every artifact it writes. Fresh runs train
+    # at the current MODEL_VERSION (``loop_resume.adopt_checkpoint_era`` re-keys
+    # any stale era at launch); a resumed run adopts its checkpoint's era (the
+    # configurator's saved-run seeding + live re-alignment via
+    # ``configure.runs.align_era``, and the same ``adopt_checkpoint_era`` seam),
     # so a run started before a FRESH encoding change keeps training at its own
     # frozen geometry instead of being orphaned by it (docs/VERSIONING.md).
     # Deliberately not an editable configurator field — the era is a property of

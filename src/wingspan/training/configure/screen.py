@@ -15,6 +15,7 @@ from __future__ import annotations
 import rich.console as rich_console
 from rich import align, box, layout, panel, table, text
 
+from wingspan import version
 from wingspan.training import charts, config, theme
 from wingspan.training.configure import arch_diagram, fields, runs, state
 
@@ -143,6 +144,8 @@ def _context_row(view: state.ConfiguratorState) -> table.Table:
         source = f"resumed run @ iter {view.summary.iteration:04d}"
     elif view.seeded_from_saved:
         source = "resumed run"
+    elif view.seeded_from_user_defaults:
+        source = "new run · saved defaults"
     else:
         source = "new run · defaults"
     left = text.Text(no_wrap=True, end="")
@@ -427,7 +430,7 @@ def _runinfo(view: state.ConfiguratorState) -> panel.Panel:
 def _runinfo_lines(view: state.ConfiguratorState) -> list[text.Text]:
     status = view.status()
     summary = view.summary
-    lines: list[text.Text] = [_status_line(status)]
+    lines: list[text.Text] = [_status_line(status), _era_line(view, status)]
     if summary.exists and summary.readable:
         lines.extend(_run_detail_lines(summary))
     lines.append(text.Text(""))
@@ -440,6 +443,16 @@ def _status_line(status: runs.RunStatus) -> text.Text:
     out.append(f"{_STATUS_GLYPH[status]} ", style=_STATUS_COLOR[status])
     out.append(_status_text(status), style=_STATUS_COLOR[status])
     return out
+
+
+def _era_line(view: state.ConfiguratorState, status: runs.RunStatus) -> text.Text:
+    """The artifact era the launched run will train at: the saved run's frozen
+    era when Start resumes it (highlighted when older than the live version),
+    the current MODEL_VERSION for any fresh launch."""
+    era = view.working.encoding_version
+    label = "resume" if status is runs.RunStatus.RESUMABLE else "new run"
+    style = theme.TEXT_DIM2 if era == version.MODEL_VERSION else theme.CAUTION
+    return text.Text(f"era {era} ({label})", style=style, no_wrap=True)
 
 
 def _status_text(status: runs.RunStatus) -> str:
@@ -519,7 +532,8 @@ def _action_hints(view: state.ConfiguratorState) -> text.Text:
             ("S", _start_action_label(view)),
             ("N", "new run"),
             ("A", "archive"),
-            ("R", "reset defaults"),
+            ("R", "reset"),
+            ("D", "save defaults"),
             ("Q", "quit"),
         ]
     )

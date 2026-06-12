@@ -20,8 +20,16 @@ import time
 import rich.console as rich_console
 from rich import live
 
+from wingspan import version
 from wingspan.training import config
-from wingspan.training.configure import fields, keys, runs, screen, state
+from wingspan.training.configure import (
+    fields,
+    keys,
+    runs,
+    screen,
+    state,
+    user_defaults,
+)
 
 # Re-render on every handled key, otherwise on this heartbeat so the caret
 # blinks and a resize reflows without repainting on every idle poll.
@@ -38,6 +46,7 @@ _START_CHARS = frozenset("sS")
 _NEW_CHARS = frozenset("nN")
 _ARCHIVE_CHARS = frozenset("aA")
 _RESET_CHARS = frozenset("rR")
+_SAVE_DEFAULTS_CHARS = frozenset("dD")
 
 
 def run_configurator(
@@ -59,17 +68,31 @@ def build_initial_state(
 ) -> state.ConfiguratorState:
     """Inspect the target directory and seed the editor. When a readable run is
     already there, start from *its* saved settings (so the user tunes the actual
-    run, not argparse defaults), keeping the directory they pointed at."""
+    run, not argparse defaults), keeping the directory they pointed at; for a
+    fresh target, prefer the user's saved defaults file over factory defaults."""
     summary = runs.inspect_run(initial.checkpoint_dir)
     working, seeded = _seed_from_summary(initial, summary)
-    return state.ConfiguratorState(
+    seeded_from_user_defaults = False
+    defaults_warning: str | None = None
+    if not seeded:
+        loaded = user_defaults.load_defaults(initial)
+        if loaded.train_config is not None:
+            working = loaded.train_config
+            seeded_from_user_defaults = True
+        defaults_warning = loaded.warning
+    working = runs.align_era(summary, fields.reset_hidden_fields(working))
+    view = state.ConfiguratorState(
         working=working,
         saved=summary.train_config,
         summary=summary,
         cuda_available=cuda_available,
         selected_attr=fields.editable_attrs()[0],
         seeded_from_saved=seeded,
+        seeded_from_user_defaults=seeded_from_user_defaults,
     )
+    if defaults_warning is not None:
+        view.notify(state.MessageKind.WARN, defaults_warning)
+    return view
 
 
 def _seed_from_summary(
@@ -229,6 +252,8 @@ def _navigate_char(view: state.ConfiguratorState, char: str) -> state.Outcome:
         return _archive_action(view)
     if char in _RESET_CHARS:
         return _reset_action(view)
+    if char in _SAVE_DEFAULTS_CHARS:
+        return _save_defaults_action(view)
     spec = view.selected_spec()
     if char in _NUMERIC_CHARS and isinstance(
         spec, (fields.IntField, fields.FloatField)
@@ -278,8 +303,10 @@ def _apply_nudge(view: state.ConfiguratorState, direction: int) -> state.Outcome
     if error is not None:
         view.notify(state.MessageKind.WARN, error)
         return state.Outcome.CONTINUE
-    view.working = fields.reset_hidden_fields(updated)
+    era_moved = _update_working(view, updated)
     view.message = None
+    if era_moved:
+        _notify_era_moved(view)
     _snap_if_invisible(view)
     return state.Outcome.CONTINUE
 
@@ -330,12 +357,14 @@ def _commit_edit(view: state.ConfiguratorState) -> state.Outcome:
         view.notify(state.MessageKind.ERROR, error)
         return state.Outcome.CONTINUE
     changed_dir = updated.checkpoint_dir != view.working.checkpoint_dir
-    view.working = fields.reset_hidden_fields(updated)
+    era_moved = _update_working(view, updated)
     view.mode = state.Mode.NAVIGATE
     view.edit_buffer = ""
     _snap_if_invisible(view)
     if changed_dir:
         _reinspect(view)
+    elif era_moved:
+        _notify_era_moved(view)
     else:
         view.notify(
             state.MessageKind.INFO,
@@ -384,13 +413,32 @@ def _archive_action(view: state.ConfiguratorState) -> state.Outcome:
 
 
 def _reset_action(view: state.ConfiguratorState) -> state.Outcome:
-    view.confirm = _reset_confirm()
+    has_user_defaults = (
+        user_defaults.load_defaults(view.working).train_config is not None
+    )
+    view.confirm = _reset_confirm(has_user_defaults)
     view.mode = state.Mode.CONFIRM
     return state.Outcome.CONTINUE
 
 
+def _save_defaults_action(view: state.ConfiguratorState) -> state.Outcome:
+    try:
+        path = user_defaults.save_defaults(view.working)
+    except OSError as error:
+        view.notify(state.MessageKind.ERROR, f"could not save defaults — {error}")
+        return state.Outcome.CONTINUE
+    view.notify(state.MessageKind.SUCCESS, f"saved as defaults → {path.name}")
+    return state.Outcome.CONTINUE
+
+
 def _launch(view: state.ConfiguratorState, resume: bool) -> state.Outcome:
-    view.working = view.working.model_copy(update={"resume": resume})
+    # A fresh launch must never inherit a stale era from a saved-run seed; the
+    # loop's ``adopt_checkpoint_era`` is the backstop, but the returned config
+    # should already be what the screen claimed would launch.
+    cfg = view.working
+    if not resume and cfg.encoding_version != version.MODEL_VERSION:
+        cfg = config.with_encoding_version(cfg, version.MODEL_VERSION)
+    view.working = cfg.model_copy(update={"resume": resume})
     return state.Outcome.LAUNCH
 
 
@@ -429,7 +477,9 @@ def _apply_confirm(
     if action is state.ConfirmAction.ARCHIVE_ONLY:
         return _archive_then(view, launch=False)
     if action is state.ConfirmAction.RESET_TO_DEFAULTS:
-        return _apply_reset_to_defaults(view)
+        return _apply_reset(view, config.TrainConfig(), "factory defaults")
+    if action is state.ConfirmAction.RESET_TO_USER_DEFAULTS:
+        return _apply_reset_to_user_defaults(view)
     return _overwrite_then_fresh(view)
 
 
@@ -469,15 +519,18 @@ def _fresh_confirm(view: state.ConfiguratorState) -> state.ConfirmPrompt:
         if summary.best_win_rate is not None
         else "—"
     )
+    lines = [
+        f"A run already exists in {view.working.checkpoint_dir}/:",
+        f"  iter {iteration:04d} · {games:,} games · best {best}",
+        "",
+        "Archive moves it to archive/<label>/ — kept and recoverable.",
+        "Overwrite deletes last.pt / best.pt / metrics — unrecoverable.",
+    ]
+    if view.working.encoding_version != version.MODEL_VERSION:
+        lines.append(f"The new run starts at the current era {version.MODEL_VERSION}.")
     return state.ConfirmPrompt(
         title="START A NEW RUN",
-        lines=[
-            f"A run already exists in {view.working.checkpoint_dir}/:",
-            f"  iter {iteration:04d} · {games:,} games · best {best}",
-            "",
-            "Archive moves it to archive/<label>/ — kept and recoverable.",
-            "Overwrite deletes last.pt / best.pt / metrics — unrecoverable.",
-        ],
+        lines=lines,
         options=[
             state.ConfirmOption(
                 key="a",
@@ -521,41 +574,101 @@ def _archive_only_confirm(view: state.ConfiguratorState) -> state.ConfirmPrompt:
     )
 
 
-def _reset_confirm() -> state.ConfirmPrompt:
+def _reset_confirm(has_user_defaults: bool) -> state.ConfirmPrompt:
+    lines = [
+        "Restore all fields to defaults.",
+        "Your current edits will be lost.",
+    ]
+    options: list[state.ConfirmOption] = []
+    if has_user_defaults:
+        lines.append(f"User defaults: {user_defaults.DEFAULTS_FILENAME}")
+        options.append(
+            state.ConfirmOption(
+                key="u",
+                label="user defaults",
+                action=state.ConfirmAction.RESET_TO_USER_DEFAULTS,
+            )
+        )
+    options.append(
+        state.ConfirmOption(
+            key="f",
+            label="factory defaults",
+            action=state.ConfirmAction.RESET_TO_DEFAULTS,
+            danger=True,
+        )
+    )
+    options.append(
+        state.ConfirmOption(key="c", label="cancel", action=state.ConfirmAction.CANCEL)
+    )
     return state.ConfirmPrompt(
         title="RESET TO DEFAULTS",
-        lines=[
-            "Restore all fields to factory defaults.",
-            "Your current edits will be lost.",
-        ],
-        options=[
-            state.ConfirmOption(
-                key="r",
-                label="reset",
-                action=state.ConfirmAction.RESET_TO_DEFAULTS,
-                danger=True,
-            ),
-            state.ConfirmOption(
-                key="c", label="cancel", action=state.ConfirmAction.CANCEL
-            ),
-        ],
+        lines=lines,
+        options=options,
         default_key="c",
     )
 
 
-def _apply_reset_to_defaults(view: state.ConfiguratorState) -> state.Outcome:
-    defaults = config.TrainConfig()
-    view.working = defaults.model_copy(
-        update={"checkpoint_dir": view.working.checkpoint_dir}
+def _apply_reset_to_user_defaults(view: state.ConfiguratorState) -> state.Outcome:
+    # Re-load at apply time: the file could have gone bad between the prompt
+    # and the keypress, and a stale prompt must not corrupt the working config.
+    loaded = user_defaults.load_defaults(view.working)
+    if loaded.train_config is None:
+        view.mode = state.Mode.NAVIGATE
+        view.confirm = None
+        view.notify(
+            state.MessageKind.WARN,
+            loaded.warning or "no saved defaults — keeping current settings",
+        )
+        return state.Outcome.CONTINUE
+    outcome = _apply_reset(view, loaded.train_config, "user defaults")
+    view.seeded_from_user_defaults = True
+    return outcome
+
+
+def _apply_reset(
+    view: state.ConfiguratorState, defaults: config.TrainConfig, label: str
+) -> state.Outcome:
+    _update_working(
+        view,
+        defaults.model_copy(update={"checkpoint_dir": view.working.checkpoint_dir}),
     )
     view.seeded_from_saved = False
+    view.seeded_from_user_defaults = False
     view.mode = state.Mode.NAVIGATE
     view.confirm = None
-    view.notify(state.MessageKind.SUCCESS, "reset to factory defaults")
+    view.notify(state.MessageKind.SUCCESS, f"reset to {label}")
     return state.Outcome.CONTINUE
 
 
 #### Shared ####
+
+
+def _update_working(view: state.ConfiguratorState, updated: config.TrainConfig) -> bool:
+    """Install a mutated working config: reset newly-hidden fields, then
+    re-align the era against the inspected run (the saved run's era while the
+    architecture still matches it, the live MODEL_VERSION otherwise). Returns
+    whether the era moved, so callers can surface a footer notice instead of
+    their normal message."""
+    aligned = runs.align_era(view.summary, fields.reset_hidden_fields(updated))
+    era_moved = aligned.encoding_version != view.working.encoding_version
+    view.working = aligned
+    return era_moved
+
+
+def _notify_era_moved(view: state.ConfiguratorState) -> None:
+    """Footer notice for an era move: an edit either broke compatibility with
+    the saved run (a fresh run at the live era) or restored it (re-pinned)."""
+    era = view.working.encoding_version
+    if view.status() is runs.RunStatus.RESUMABLE:
+        view.notify(
+            state.MessageKind.WARN,
+            f"matches the saved run again — era {era} (resume)",
+        )
+    else:
+        view.notify(
+            state.MessageKind.WARN,
+            f"architecture changed — a fresh run will start at era {era}",
+        )
 
 
 def _reinspect(view: state.ConfiguratorState) -> None:
@@ -570,6 +683,10 @@ def _reinspect(view: state.ConfiguratorState) -> None:
     view.working, view.seeded_from_saved = _seed_from_summary(
         view.working, view.summary
     )
+    # The era is a property of the newly-inspected directory, not of the edits
+    # carried over: re-align so e.g. pointing an era-pinned working config at
+    # an empty directory un-pins it to the live version.
+    view.working = runs.align_era(view.summary, view.working)
     view.notify(state.MessageKind.INFO, f"inspected {view.working.checkpoint_dir}/")
 
 

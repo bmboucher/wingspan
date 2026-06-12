@@ -18,7 +18,8 @@ Training *resume* honors the same eras via pinning: a run carries its
 geometry under newer same-MAJOR code (``loop_resume.adopt_checkpoint_era``,
 ``docs/VERSIONING.md``), stamping every artifact it writes with its own era.
 The resume gate still refuses any genuine ``architecture_key`` mismatch and
-starts fresh.
+starts fresh — and every *fresh* launch is re-keyed at the live
+:data:`MODEL_VERSION`, so a new run never trains at a stale era.
 
 This is distinct from the *package release* version
 (``wingspan.__version__``): that tracks the codebase, this tracks the on-disk

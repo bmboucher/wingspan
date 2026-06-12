@@ -41,6 +41,7 @@ from wingspan.engine import scoring
 # lists) would shadow the bare module name (the ``core as engine_core`` rule).
 from wingspan.training import config, metrics, policy, setup_net
 from wingspan.training import steps as training_steps
+from wingspan.training import timestamps
 
 # Distinct salt for the setup-selection RNG (random generator + setup-net sampling),
 # kept separate from the in-game sampling and opponent salts so a seed reproduces
@@ -74,6 +75,11 @@ class GameRecord(pydantic.BaseModel):
     setup_samples: list[setup_model.SetupSample] = pydantic.Field(
         default_factory=list[setup_model.SetupSample]
     )
+    # Game-clock time of the terminal margin checkpoint: the end of the final
+    # turn's window (``timestamps.final_timestamp``). Consumed only by the
+    # ``decision_delta`` reward mode's λ^Δt discounting; the default keeps
+    # hand-built fixtures that omit it valid.
+    final_timestamp: float = 0.0
 
     @property
     def scores(self) -> tuple[int, int]:
@@ -175,6 +181,7 @@ def play_game(
         else (net_agent, opponent_agent)
     )
     engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
+    timestamps.finalize_timestamps(recorded)
 
     breakdowns = (
         player_breakdown(eng.state.players[0]),
@@ -182,7 +189,13 @@ def play_game(
     )
     score_0, score_1 = breakdowns[0].total, breakdowns[1].total
     winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
-    return GameRecord(steps=recorded, breakdowns=breakdowns, winner=winner, seed=seed)
+    return GameRecord(
+        steps=recorded,
+        breakdowns=breakdowns,
+        winner=winner,
+        seed=seed,
+        final_timestamp=timestamps.final_timestamp(eng.state.turn_counter),
+    )
 
 
 def play_game_with_setup(
@@ -294,6 +307,7 @@ def play_game_with_setup(
     engine.Engine.play_one_game_with_setups(
         eng.state, (agent_a, agent_b), choose_setups, split_setup_food=split_setup_food
     )
+    timestamps.finalize_timestamps(recorded)
 
     breakdowns = (
         player_breakdown(eng.state.players[0]),
@@ -318,6 +332,7 @@ def play_game_with_setup(
         winner=winner,
         seed=spec.continuation_seed,
         setup_samples=setup_samples,
+        final_timestamp=timestamps.final_timestamp(eng.state.turn_counter),
     )
 
 
@@ -404,6 +419,9 @@ def _recording_agent(
                 player_id=decision.player_id,
                 family_idx=family_idx,
                 margin_before=running_margin(eng.state, decision.player_id),
+                timestamp=timestamps.provisional_timestamp(
+                    decision, eng.state.turn_counter
+                ),
             )
         )
         return decision.choices[chosen_idx]

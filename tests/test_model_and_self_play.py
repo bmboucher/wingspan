@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import random
 import sys
@@ -102,8 +103,8 @@ def test_update_runs_on_self_play_records():
 
 def test_update_runs_in_decision_delta_reward_mode():
     """The decision-delta reward path runs end-to-end: collected steps carry a
-    ``margin_before``, and one REINFORCE update over per-decision discounted
-    returns produces finite stats."""
+    ``margin_before`` and a game-clock ``timestamp``, and one REINFORCE update
+    over per-decision γ^Δt-discounted returns produces finite stats."""
     net = model.PolicyValueNet()
     device = torch.device("cpu")
     rng = random.Random(0)
@@ -116,10 +117,39 @@ def test_update_runs_in_decision_delta_reward_mode():
     records = [collect.play_game(net, device, rng, seed=seed) for seed in (2001, 2002)]
     # Collection populates the per-decision margin snapshot the new mode reads.
     assert any(step.margin_before != 0.0 for record in records for step in record.steps)
+    _assert_game_clock_invariants(records)
     stats = learner.update(net, optimizer, records, cfg, device)
     assert stats.n_steps > 0
     assert np.isfinite(stats.loss)
     assert np.isfinite(stats.value_loss)
+
+
+def _assert_game_clock_invariants(records: list[collect.GameRecord]) -> None:
+    """The collected timestamps obey the game clock: setup steps at the shared
+    constants, main actions on integer turns, mid-turn decisions strictly inside
+    their turn's window, each player's own clock non-decreasing, and the
+    terminal checkpoint one turn past the 52nd (and last) turn."""
+    main_family = decisions.family_index_for(decisions.MainActionDecision)
+    setup_times = {0.0, 1.0 / 3.0, 2.0 / 3.0}
+    for record in records:
+        # A full two-player game has 2 × (8+7+6+5) = 52 turns; the terminal
+        # checkpoint sits at the end of the last turn's window.
+        assert record.final_timestamp == 53.0
+
+        for step in record.steps:
+            if step.family_idx == main_family:
+                assert step.timestamp >= 1.0 and step.timestamp == int(step.timestamp)
+            elif step.timestamp < 1.0:
+                assert step.timestamp in setup_times
+            else:
+                turn = math.floor(step.timestamp)
+                assert turn < step.timestamp < turn + 1.0
+
+        for player_id in (0, 1):
+            own = [
+                step.timestamp for step in record.steps if step.player_id == player_id
+            ]
+            assert own == sorted(own), f"player {player_id} clock not monotone"
 
 
 def test_policy_responds_to_per_choice_features():

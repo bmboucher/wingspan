@@ -133,6 +133,11 @@ class GameState(pydantic.BaseModel):
     # ``(start_player + r) % len(players)``.
     start_player: int = 0
     round_idx: int  # 0..3
+    # 1-based global turn count across both seats (2×(8+7+6+5) = 52 per game),
+    # incremented by the engine at the start of every turn. 0 for the whole
+    # setup window, including the deferred bonus/food resolution that runs
+    # before round 1.
+    turn_counter: int = 0
     bird_deck: list[cards.Bird]  # remaining
     bird_discard: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
     bonus_deck: list[cards.BonusCard] = pydantic.Field(

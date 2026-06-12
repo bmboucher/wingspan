@@ -46,7 +46,7 @@ import torch
 import torch.nn.functional as F
 
 from wingspan import agents, decisions, encode, engine, model
-from wingspan.training import collect, policy, steps
+from wingspan.training import collect, policy, steps, timestamps
 
 if typing.TYPE_CHECKING:
     from wingspan import state
@@ -290,6 +290,7 @@ def _play_one_game(
         else (net_agent, net_agent)
     )
     engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
+    timestamps.finalize_timestamps(recorded)
 
     breakdowns = (
         collect.player_breakdown(eng.state.players[0]),
@@ -298,7 +299,11 @@ def _play_one_game(
     score_0, score_1 = breakdowns[0].total, breakdowns[1].total
     winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
     return collect.GameRecord(
-        steps=recorded, breakdowns=breakdowns, winner=winner, seed=seed
+        steps=recorded,
+        breakdowns=breakdowns,
+        winner=winner,
+        seed=seed,
+        final_timestamp=timestamps.final_timestamp(eng.state.turn_counter),
     )
 
 
@@ -332,6 +337,9 @@ def _batched_recording_agent(
                 player_id=decision.player_id,
                 family_idx=family_idx,
                 margin_before=collect.running_margin(eng.state, decision.player_id),
+                timestamp=timestamps.provisional_timestamp(
+                    decision, eng.state.turn_counter
+                ),
             )
         )
         return decision.choices[chosen_idx]

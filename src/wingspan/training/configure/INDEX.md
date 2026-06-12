@@ -30,9 +30,29 @@ for rendering and a cross-platform raw-key reader for input; no curses.
 - `RunSummary(run_name, iteration, best_win_rate, last_updated)` — compact
   snapshot of a run read from `status.json` / `model_config.json`.
 - `inspect_run(run_dir) -> RunSummary` — reads the run directory.
+- `resolve_status(summary, working) -> RunStatus` — what Start will do
+  (EMPTY / RESUMABLE / INCOMPATIBLE / UNREADABLE), gated on
+  `architecture_compatible` (the `architecture_key` comparison).
+- `align_era(summary, working) -> TrainConfig` — re-pins the working config's
+  `encoding_version` after any mutation: the saved run's era while the
+  architecture still matches it (Start resumes), the live `MODEL_VERSION`
+  otherwise (a fresh run never inherits a stale era). The editor-side mirror
+  of `loop_resume.adopt_checkpoint_era`.
 - `archive_run(run_dir, archive_dir)` — moves a run to an archive subdirectory.
 - `clear_run(run_dir)` — deletes checkpoints but keeps logs.
 - `list_archives(archive_dir) -> list[RunSummary]`.
+
+**`user_defaults.py`** — The `[D] save defaults` persistence:
+- `save_defaults(cfg) -> Path` / `load_defaults(current) -> LoadedDefaults` —
+  write/read `./configurator_defaults.json` (cwd-anchored, checked into git).
+- `EXCLUDED_FIELDS` — run-identity and derived fields that never persist
+  (`encoding_version`, dims, `resume`, `checkpoint_dir`, `run_name`, `device`);
+  on load these come from the caller's current config / factory defaults.
+- Loading never raises: a missing file is an empty result, an unreadable or
+  invalid one returns a `warning` and the caller falls back to factory
+  defaults. The configurator seeds from this file when the target directory
+  has no readable run, and `[R]` reset offers `user defaults` alongside
+  `factory defaults`.
 
 **`state.py`** — Configurator data model:
 - `Mode` StrEnum: `CONFIG`, `RUNS`, `ARCH`, `CONFIRM`, `RUNNING`.
@@ -59,8 +79,15 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   reads keys via `keys.py`, dispatches to `dispatch(state, key) -> ConfiguratorState`,
   and loops until an outcome is reached.
 - `build_initial_state(config) -> ConfiguratorState` — console-free constructor
-  for testing.
+  for testing. Seeds from the saved run when one is readable, else from the
+  user-defaults file, else factory defaults — always era-aligned via
+  `runs.align_era`.
 - `dispatch(state, key)` — pure state-transition function; no I/O.
+- NAVIGATE keys: `[S]`tart, `[N]`ew run, `[A]`rchive, `[R]`eset (chooser:
+  user defaults / factory defaults), `[D]` save current settings as defaults,
+  `[Q]`uit. Every working-config mutation funnels through `_update_working`,
+  which re-aligns the era and surfaces a footer notice when it moves; fresh
+  launches are re-keyed at the live `MODEL_VERSION` in `_launch`.
 
 **`arch_diagram.py`** — `ArchDiagram(arch: ModelArchitecture)`: a `rich`
 renderable that draws the live architecture as a text-art block diagram,

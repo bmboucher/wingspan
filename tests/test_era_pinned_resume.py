@@ -238,6 +238,53 @@ def test_adopt_checkpoint_era_pins_only_when_it_reconciles(tmp_path: pathlib.Pat
     assert untouched.encoding_version == version.MODEL_VERSION
 
 
+def test_adopt_checkpoint_era_unpins_fresh_launches(tmp_path: pathlib.Path):
+    """The other direction of the seam: any launch that will not resume must
+    not inherit a stale era — the config is re-keyed at the live version."""
+    _write_prefield_v02_checkpoint(tmp_path)
+
+    # Resume disabled: a pinned config (e.g. seeded by the configurator from
+    # the saved run, then launched as a new run) un-pins to the live era.
+    fresh = loop_resume.adopt_checkpoint_era(
+        _cfg(tmp_path, encoding_version="0.2", resume=False)
+    )
+    assert fresh.encoding_version == version.MODEL_VERSION
+    assert fresh.state_dim != _V02_STATE_DIM
+
+    # Resume enabled but nothing to resume: same un-pin.
+    empty_dir = tmp_path / "empty"
+    no_checkpoint = loop_resume.adopt_checkpoint_era(
+        _cfg(empty_dir, encoding_version="0.2")
+    )
+    assert no_checkpoint.encoding_version == version.MODEL_VERSION
+
+    # Resume enabled but the architecture genuinely differs (the gate will
+    # refuse and start fresh): the pinned era is dropped too.
+    mismatched = loop_resume.adopt_checkpoint_era(
+        _cfg(tmp_path, encoding_version="0.2", trunk_layers=(16, 16))
+    )
+    assert mismatched.encoding_version == version.MODEL_VERSION
+
+
+def test_fresh_launch_over_old_era_dir_trains_and_stamps_live(
+    tmp_path: pathlib.Path,
+):
+    """The headline fix: a new run started over a 0.2-era directory with a
+    working config still seeded at that era trains at the live version — the
+    live net class, live dims, and a ``model_config.json`` stamped with the
+    current MODEL_VERSION instead of 0.2."""
+    _write_prefield_v02_checkpoint(tmp_path)
+    training = loop.TrainingLoop(_cfg(tmp_path, encoding_version="0.2", resume=False))
+
+    assert training.config.encoding_version == version.MODEL_VERSION
+    assert type(training.net) is model.PolicyValueNet
+    assert training.net.state_dim != _V02_STATE_DIM
+    assert training._start_iteration == 0
+
+    descriptor = runmeta.read_model_config(str(tmp_path))
+    assert descriptor.version == version.MODEL_VERSION
+
+
 def test_training_loop_resumes_a_prefield_v02_run(tmp_path: pathlib.Path):
     """The headline guarantee: a pre-field 0.2 run dir handed a *live* config
     resumes era-pinned — the V02 net at 771 dims, progress restored — and the

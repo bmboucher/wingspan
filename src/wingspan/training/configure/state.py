@@ -50,6 +50,7 @@ class ConfirmAction(enum.StrEnum):
     OVERWRITE_THEN_FRESH = "overwrite_then_fresh"
     ARCHIVE_ONLY = "archive_only"
     RESET_TO_DEFAULTS = "reset_to_defaults"
+    RESET_TO_USER_DEFAULTS = "reset_to_user_defaults"
     CANCEL = "cancel"
 
 
@@ -107,6 +108,9 @@ class ConfiguratorState(pydantic.BaseModel):
     # Whether the editor was seeded from the saved run rather than from defaults
     # (shown in the header so the user knows which settings they are tuning).
     seeded_from_saved: bool = False
+    # Whether the editor was seeded from the user's saved defaults file (the
+    # third header variant: a new run, but not on factory settings).
+    seeded_from_user_defaults: bool = False
 
     def selected_spec(self) -> fields.FieldSpec:
         """The :class:`fields.FieldSpec` of the focused field."""

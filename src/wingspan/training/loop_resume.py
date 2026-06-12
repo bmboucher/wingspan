@@ -7,12 +7,14 @@ Free functions whose first argument is a ``TrainingLoop`` instance handle the
 training phase and target milestone, clearing stale history logs on a fresh
 run, and writing the session JSON sidecars.
 
-:func:`adopt_checkpoint_era` is the era-pinning seam (``docs/VERSIONING.md``):
-called before the loop builds its net, it adopts the resumable checkpoint's
-artifact era into the config whenever that adoption is what makes the resume
-possible — so a run started before a FRESH encoding change keeps training at
-its own frozen geometry under newer code, from any entry point (dashboard,
-cloud runner, tests) by construction.
+:func:`adopt_checkpoint_era` is the era seam (``docs/VERSIONING.md``): called
+before the loop builds its net, it adopts the resumable checkpoint's artifact
+era into the config whenever that adoption is what makes the resume possible —
+so a run started before a FRESH encoding change keeps training at its own
+frozen geometry under newer code — and, symmetrically, re-keys any *fresh*
+launch at the live ``MODEL_VERSION`` so a new run never inherits a stale era.
+Both directions hold for every entry point (dashboard, cloud runner, tests)
+by construction.
 """
 
 from __future__ import annotations
@@ -196,28 +198,62 @@ def write_run_metadata(training_loop: "loop.TrainingLoop") -> None:
 def adopt_checkpoint_era(
     cfg: training_config.TrainConfig,
 ) -> training_config.TrainConfig:
-    """Pin ``cfg`` to the resumable checkpoint's artifact era when that is what
-    makes the resume possible.
+    """The era seam: pin ``cfg`` to a resumable checkpoint's artifact era, or
+    un-pin a fresh launch back to the live :data:`version.MODEL_VERSION`.
 
-    Reads ``last.pt`` (when resume is enabled and one exists) and compares the
-    saved run's ``architecture_key`` against ``cfg``'s re-keyed at the saved
-    era: a match means the configs agree on everything *except* the era — the
-    exact situation of a run started before a FRESH encoding change — so the
-    era-adopted config is returned and the caller's net build / resume gate
-    proceed at the run's own frozen geometry. Any other situation (no
-    checkpoint, unreadable payload, a genuinely different architecture, eras
-    already equal) returns ``cfg`` unchanged, preserving today's behavior
-    exactly: ``maybe_resume`` then resumes or alarms as it always did.
+    When resume is enabled and ``last.pt`` holds a readable saved config,
+    ``cfg`` re-keyed at the saved era is compared against the saved run's
+    ``architecture_key``: a match means the configs agree on everything
+    *except* the era — the exact situation of a run started before a FRESH
+    encoding change — so the era-adopted config is returned and the caller's
+    net build / resume gate proceed at the run's own frozen geometry.
 
-    Called by ``TrainingLoop.__init__`` before the net is constructed, so era
-    pinning holds for every entry point by construction rather than relying on
+    Every other situation starts fresh (``maybe_resume`` either no-ops or
+    alarms), and a fresh run must never inherit a stale era — e.g. a working
+    config the configurator seeded from an old run and then launched with
+    ``resume=False`` — so the config is re-keyed at the live MODEL_VERSION.
+    A deliberately era-pinned config therefore cannot train a *fresh* run
+    through ``TrainingLoop``; regenerating old-era artifacts must build the
+    era net directly (the ``tests/test_era_pinned_resume.py`` pattern).
+
+    Called by ``TrainingLoop.__init__`` before the net is constructed, so the
+    era is right for every entry point by construction rather than relying on
     each launcher (dashboard, cloud runner, tests) to remember it.
     """
-    if not cfg.resume:
-        return cfg
+    saved = _resumable_saved_config(cfg) if cfg.resume else None
+    if saved is not None:
+        candidate = _config_at_era(cfg, saved.encoding_version)
+        if candidate.architecture_key == saved.architecture_key:
+            if candidate is not cfg:
+                logging.info(
+                    "Resumable checkpoint in %s is era %s — pinning this run "
+                    "to it (state_dim %d, choice_dim %d)",
+                    cfg.checkpoint_dir,
+                    saved.encoding_version,
+                    candidate.state_dim,
+                    candidate.choice_dim,
+                )
+            return candidate
+    if cfg.encoding_version != version.MODEL_VERSION:
+        logging.info(
+            "Fresh run — un-pinning stale era %s back to the live %s",
+            cfg.encoding_version,
+            version.MODEL_VERSION,
+        )
+        return training_config.with_encoding_version(cfg, version.MODEL_VERSION)
+    return cfg
+
+
+def _resumable_saved_config(
+    cfg: training_config.TrainConfig,
+) -> training_config.TrainConfig | None:
+    """The saved config embedded in ``cfg``'s ``last.pt``, rehydrated at the
+    payload's own artifact era; ``None`` when there is no checkpoint, the
+    payload is unreadable, or it carries no valid config (all of which defer
+    the fresh-vs-alarm decision to ``maybe_resume``)."""
     last = pathlib.Path(cfg.checkpoint_dir) / artifacts.LAST_CKPT
     if not last.exists():
-        return cfg
+        return None
     try:
         payload = typing.cast(
             "dict[str, typing.Any]",
@@ -225,25 +261,21 @@ def adopt_checkpoint_era(
         )
         raw_config = payload.get("config")
         if raw_config is None:
-            return cfg
+            return None
         artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
-        saved = training_config.train_config_from_artifact(raw_config, artifact_version)
+        return training_config.train_config_from_artifact(raw_config, artifact_version)
     except Exception:  # noqa: BLE001 — an unreadable payload defers to maybe_resume
+        return None
+
+
+def _config_at_era(
+    cfg: training_config.TrainConfig, era: str
+) -> training_config.TrainConfig:
+    """``cfg`` re-keyed at ``era`` — ``cfg`` itself when already there, so the
+    common no-op path skips a full re-validation."""
+    if cfg.encoding_version == era:
         return cfg
-    if saved.encoding_version == cfg.encoding_version:
-        return cfg
-    candidate = training_config.with_encoding_version(cfg, saved.encoding_version)
-    if saved.architecture_key != candidate.architecture_key:
-        return cfg
-    logging.info(
-        "Resumable checkpoint at %s is era %s — pinning this run to it "
-        "(state_dim %d, choice_dim %d)",
-        last,
-        saved.encoding_version,
-        candidate.state_dim,
-        candidate.choice_dim,
-    )
-    return candidate
+    return training_config.with_encoding_version(cfg, era)
 
 
 def validate_bootstrap_opponent(training_loop: "loop.TrainingLoop") -> None:

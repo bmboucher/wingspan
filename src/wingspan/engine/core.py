@@ -314,6 +314,7 @@ class Engine:
         non-Brant draw) leave their slots empty until now. Refilling here, after
         every effect has resolved, is what makes mid-turn draws see a shrinking
         tray instead of an ever-full one."""
+        self.state.turn_counter += 1
         player = self.state.me()
         self.state.reset_turn_state()
         # Clear the once-between-turns cap for each of this player's birds so

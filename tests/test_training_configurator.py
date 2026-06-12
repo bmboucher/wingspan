@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import pathlib
 import sys
@@ -30,7 +31,7 @@ pytest.importorskip("rich")
 import rich.console as rich_console
 import torch
 
-from wingspan import architecture, encode, model, setup_model
+from wingspan import architecture, encode, model, setup_model, version
 from wingspan.training import artifacts, config, loop, runstate, setup_net
 from wingspan.training.configure import (
     arch_diagram,
@@ -40,6 +41,7 @@ from wingspan.training.configure import (
     runs,
     screen,
     state,
+    user_defaults,
 )
 
 # --------------------------------------------------------------------------- #
@@ -387,6 +389,33 @@ def test_screen_renders_populated_and_edit():
     view.mode = state.Mode.EDIT
     view.edit_buffer = "0.001"
     assert "EDITING" in _render(view)
+
+
+def test_screen_renders_era_line_and_defaults_hints():
+    # An era-pinned RESUMABLE run shows its frozen era; the footer always
+    # offers [D] save defaults; a defaults-seeded editor names its source.
+    pinned = config.with_encoding_version(
+        config.TrainConfig(device="cpu", checkpoint_dir="checkpoints"), "0.2"
+    )
+    summary = runs.RunSummary(
+        checkpoint_dir="checkpoints", exists=True, train_config=pinned, iteration=3
+    )
+    view = state.ConfiguratorState(
+        working=pinned,
+        saved=pinned,
+        summary=summary,
+        selected_attr=fields.editable_attrs()[0],
+        seeded_from_saved=True,
+    )
+    out = _render(view)
+    assert "era 0.2 (resume)" in out
+    assert "save defaults" in out
+
+    fresh = _empty_state()
+    fresh.seeded_from_user_defaults = True
+    fresh_out = _render(fresh)
+    assert f"era {version.MODEL_VERSION} (new run)" in fresh_out
+    assert "saved defaults" in fresh_out
 
 
 def test_screen_renders_confirm_modal():
@@ -774,6 +803,286 @@ def test_dispatch_edit_checkpoint_dir_reinspects(tmp_path: pathlib.Path):
     assert not view.seeded_from_saved
     assert view.status() is runs.RunStatus.EMPTY
     assert view.working.lr == 7e-4  # edits preserved across the re-inspect
+
+
+# --------------------------------------------------------------------------- #
+# era alignment (the working config's encoding_version follows the saved run) #
+# --------------------------------------------------------------------------- #
+
+
+def _pinned_config(directory: pathlib.Path, **overrides: object) -> config.TrainConfig:
+    """A factory-architecture config pinned at era 0.2, as a run started before
+    the 0.3 encoding change would have saved it."""
+    base: dict[str, object] = {"device": "cpu", "checkpoint_dir": str(directory)}
+    base.update(overrides)
+    return config.with_encoding_version(config.TrainConfig.model_validate(base), "0.2")
+
+
+def _pinned_view(tmp_path: pathlib.Path) -> state.ConfiguratorState:
+    """A configurator opened on a directory holding an era-0.2 saved run."""
+    _write_checkpoint(tmp_path, _pinned_config(tmp_path))
+    return controller.build_initial_state(
+        config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path)),
+        cuda_available=False,
+    )
+
+
+def test_align_era_pins_and_unpins(tmp_path: pathlib.Path):
+    pinned = _pinned_config(tmp_path)
+    _write_checkpoint(tmp_path, pinned)
+    summary = runs.inspect_run(str(tmp_path))
+    live = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+
+    # Same architecture at the saved era: pinned to it.
+    assert runs.align_era(summary, live).encoding_version == "0.2"
+    # A genuinely different architecture: live era (a fresh run would start).
+    wider = live.model_copy(update={"trunk_layers": (256, 256)})
+    assert runs.align_era(summary, wider).encoding_version == version.MODEL_VERSION
+    # No run at all: live era, even for an already-pinned working config.
+    empty = runs.inspect_run(str(tmp_path / "missing"))
+    assert runs.align_era(empty, pinned).encoding_version == version.MODEL_VERSION
+    # An unreadable checkpoint: live era too.
+    bad_dir = tmp_path / "bad"
+    bad_dir.mkdir()
+    (bad_dir / artifacts.LAST_CKPT).write_bytes(b"not a checkpoint")
+    unreadable = runs.inspect_run(str(bad_dir))
+    assert runs.align_era(unreadable, pinned).encoding_version == version.MODEL_VERSION
+
+
+def test_fresh_edit_bumps_era_and_revert_repins(tmp_path: pathlib.Path):
+    view = _pinned_view(tmp_path)
+    assert view.working.encoding_version == "0.2"
+    assert view.status() is runs.RunStatus.RESUMABLE
+    default_widths = ",".join(str(width) for width in view.working.trunk_layers)
+
+    # A FRESH-impact edit (trunk widths) breaks compatibility: the era bumps to
+    # the live version, the derived dims re-sync, and the footer says so.
+    view.selected_attr = "trunk_layers"
+    controller.dispatch(view, _key(keys.KeyKind.ENTER))
+    view.edit_buffer = "256,128"
+    controller.dispatch(view, _key(keys.KeyKind.ENTER))
+    assert view.working.encoding_version == version.MODEL_VERSION
+    assert view.working.state_dim == encode.state_size(view.working.encoding_spec)
+    assert view.status() is runs.RunStatus.INCOMPATIBLE
+    assert view.message is not None and "era" in view.message.text
+
+    # Reverting the edit restores compatibility: re-pinned to the saved era.
+    controller.dispatch(view, _key(keys.KeyKind.ENTER))
+    view.edit_buffer = default_widths
+    controller.dispatch(view, _key(keys.KeyKind.ENTER))
+    assert view.working.encoding_version == "0.2"
+    assert view.status() is runs.RunStatus.RESUMABLE
+    assert view.message is not None and "resume" in view.message.text
+
+
+def test_regime_edit_keeps_saved_era(tmp_path: pathlib.Path):
+    view = _pinned_view(tmp_path)
+    view.selected_attr = "lr"
+    controller.dispatch(view, _key(keys.KeyKind.RIGHT))  # nudge: REGIME impact
+    assert view.working.encoding_version == "0.2"
+    assert view.status() is runs.RunStatus.RESUMABLE
+
+
+def test_new_run_over_old_era_launches_live(tmp_path: pathlib.Path):
+    view = _pinned_view(tmp_path)
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "n"))
+    outcome = controller.dispatch(view, _key(keys.KeyKind.CHAR, "a"))  # archive & start
+    assert outcome is state.Outcome.LAUNCH and view.working.resume is False
+    assert view.working.encoding_version == version.MODEL_VERSION
+
+
+def test_overwrite_over_old_era_launches_live(tmp_path: pathlib.Path):
+    view = _pinned_view(tmp_path)
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "n"))
+    outcome = controller.dispatch(view, _key(keys.KeyKind.CHAR, "o"))  # overwrite
+    assert outcome is state.Outcome.LAUNCH and view.working.resume is False
+    assert view.working.encoding_version == version.MODEL_VERSION
+
+
+def test_start_empty_launches_live_era(tmp_path: pathlib.Path):
+    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    view = controller.build_initial_state(cfg, cuda_available=False)
+    view.working = config.with_encoding_version(view.working, "0.2")  # stale pin
+    outcome = controller.dispatch(view, _key(keys.KeyKind.CHAR, "s"))
+    assert outcome is state.Outcome.LAUNCH and view.working.resume is False
+    assert view.working.encoding_version == version.MODEL_VERSION
+
+
+def test_reinspect_to_empty_dir_unpins_era(tmp_path: pathlib.Path):
+    run_dir = tmp_path / "run"
+    empty_dir = tmp_path / "elsewhere"
+    _write_checkpoint(run_dir, _pinned_config(run_dir, lr=7e-4))
+    view = controller.build_initial_state(
+        config.TrainConfig(device="cpu", checkpoint_dir=str(run_dir)),
+        cuda_available=False,
+    )
+    assert view.working.encoding_version == "0.2"
+    view.selected_attr = "checkpoint_dir"
+    controller.dispatch(view, _key(keys.KeyKind.ENTER))
+    view.edit_buffer = str(empty_dir)
+    controller.dispatch(view, _key(keys.KeyKind.ENTER))
+    # The era is a property of the inspected directory: an empty target means a
+    # fresh run at the live version, while the user's other edits survive.
+    assert view.working.encoding_version == version.MODEL_VERSION
+    assert view.working.state_dim == encode.state_size(view.working.encoding_spec)
+    assert view.working.lr == 7e-4
+    assert view.status() is runs.RunStatus.EMPTY
+
+
+# --------------------------------------------------------------------------- #
+# user defaults ([D] save / seeding / reset chooser)                           #
+# --------------------------------------------------------------------------- #
+
+
+def test_save_defaults_roundtrip_and_exclusions(tmp_path: pathlib.Path):
+    cfg = config.TrainConfig(
+        device="cpu",
+        checkpoint_dir=str(tmp_path / "ckpt"),
+        run_name="tuned",
+        lr=7e-4,
+        trunk_layers=(256, 128),
+    )
+    path = user_defaults.save_defaults(cfg, directory=tmp_path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["saved_with_version"] == version.MODEL_VERSION
+    for excluded in user_defaults.EXCLUDED_FIELDS:
+        assert excluded not in raw["settings"]
+    assert raw["settings"]["lr"] == 7e-4
+
+    current = config.TrainConfig(
+        device="cpu", checkpoint_dir=str(tmp_path / "other"), run_name="fresh"
+    )
+    loaded = user_defaults.load_defaults(current, directory=tmp_path)
+    assert loaded.warning is None and loaded.train_config is not None
+    assert loaded.train_config.lr == 7e-4
+    assert loaded.train_config.trunk_layers == (256, 128)
+    # Run-identity fields stay the caller's, not the file's (nor factory).
+    assert loaded.train_config.checkpoint_dir == str(tmp_path / "other")
+    assert loaded.train_config.run_name == "fresh"
+    assert loaded.train_config.device == "cpu"
+    # The era is never persisted: a loaded config is always at the live version.
+    assert loaded.train_config.encoding_version == version.MODEL_VERSION
+
+
+def test_load_defaults_missing_file_is_empty(tmp_path: pathlib.Path):
+    current = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    loaded = user_defaults.load_defaults(current, directory=tmp_path)
+    assert loaded.train_config is None and loaded.warning is None
+
+
+def test_corrupt_or_invalid_defaults_fall_back_with_warning(tmp_path: pathlib.Path):
+    current = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path))
+    defaults_path = tmp_path / user_defaults.DEFAULTS_FILENAME
+
+    # Garbage bytes: warned, no config.
+    defaults_path.write_text("not json{", encoding="utf-8")
+    garbage = user_defaults.load_defaults(current, directory=tmp_path)
+    assert garbage.train_config is None and garbage.warning is not None
+
+    # A valid envelope whose settings no longer validate: warned too.
+    envelope = user_defaults.DefaultsFile(
+        saved_with_version="0.2",
+        saved_at="2026-01-01T00:00:00",
+        settings={"lr": "zero"},
+    )
+    defaults_path.write_text(envelope.model_dump_json(), encoding="utf-8")
+    invalid = user_defaults.load_defaults(current, directory=tmp_path)
+    assert invalid.train_config is None
+    assert invalid.warning is not None and "0.2" in invalid.warning
+
+    # Renamed / removed fields from another era are simply ignored.
+    renamed = user_defaults.DefaultsFile(
+        saved_with_version="0.2",
+        saved_at="2026-01-01T00:00:00",
+        settings={"lr": 7e-4, "some_retired_field": 3},
+    )
+    defaults_path.write_text(renamed.model_dump_json(), encoding="utf-8")
+    tolerant = user_defaults.load_defaults(current, directory=tmp_path)
+    assert tolerant.train_config is not None and tolerant.train_config.lr == 7e-4
+
+
+def test_dispatch_save_defaults_key(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.chdir(tmp_path)
+    view = _empty_state()
+    outcome = controller.dispatch(view, _key(keys.KeyKind.CHAR, "d"))
+    assert outcome is state.Outcome.CONTINUE
+    assert (tmp_path / user_defaults.DEFAULTS_FILENAME).exists()
+    assert view.message is not None
+    assert view.message.kind is state.MessageKind.SUCCESS
+
+
+def test_initial_state_seeds_user_defaults_on_empty_dir(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.chdir(tmp_path)
+    tuned = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path), lr=7e-4)
+    user_defaults.save_defaults(tuned)
+
+    # An empty target seeds from the saved defaults at the live era.
+    empty_dir = tmp_path / "empty"
+    view = controller.build_initial_state(
+        config.TrainConfig(device="cpu", checkpoint_dir=str(empty_dir)),
+        cuda_available=False,
+    )
+    assert view.seeded_from_user_defaults and not view.seeded_from_saved
+    assert view.working.lr == 7e-4
+    assert view.working.encoding_version == version.MODEL_VERSION
+
+    # A directory holding a readable run still wins over the defaults file.
+    run_dir = tmp_path / "run"
+    _write_checkpoint(run_dir, config.TrainConfig(device="cpu", lr=5e-4))
+    seeded_view = controller.build_initial_state(
+        config.TrainConfig(device="cpu", checkpoint_dir=str(run_dir)),
+        cuda_available=False,
+    )
+    assert seeded_view.seeded_from_saved
+    assert not seeded_view.seeded_from_user_defaults
+    assert seeded_view.working.lr == 5e-4
+
+
+def test_initial_state_warns_on_unreadable_defaults(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / user_defaults.DEFAULTS_FILENAME).write_text("nope", encoding="utf-8")
+    view = controller.build_initial_state(
+        config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path / "empty")),
+        cuda_available=False,
+    )
+    assert not view.seeded_from_user_defaults
+    assert view.message is not None
+    assert view.message.kind is state.MessageKind.WARN
+
+
+def test_reset_prompt_offers_user_and_factory(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.chdir(tmp_path)
+
+    # Without a defaults file the chooser offers only factory / cancel.
+    view = _empty_state()
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "r"))
+    assert view.confirm is not None
+    assert [option.key for option in view.confirm.options] == ["f", "c"]
+    controller.dispatch(view, _key(keys.KeyKind.ESCAPE))
+
+    # Save tuned defaults, drift the working config, then reset to each.
+    view.working = view.working.model_copy(update={"lr": 7e-4})
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "d"))  # save as defaults
+    view.working = view.working.model_copy(update={"lr": 9e-4})
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "r"))
+    assert view.confirm is not None
+    assert [option.key for option in view.confirm.options] == ["u", "f", "c"]
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "u"))
+    assert view.working.lr == 7e-4
+    assert view.seeded_from_user_defaults
+
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "r"))
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "f"))
+    assert view.working.lr == config.TrainConfig().lr
+    assert not view.seeded_from_user_defaults
 
 
 # --------------------------------------------------------------------------- #

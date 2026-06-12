@@ -159,6 +159,27 @@ def resolve_status(summary: RunSummary, working: config.TrainConfig) -> RunStatu
     return RunStatus.INCOMPATIBLE
 
 
+def align_era(summary: RunSummary, working: config.TrainConfig) -> config.TrainConfig:
+    """Re-pin ``working``'s era after any mutation: the saved run's era while
+    the re-keyed working config stays architecture-compatible with it (so Start
+    resumes at the run's own frozen geometry), the live MODEL_VERSION otherwise
+    (so a fresh launch never inherits a stale era). Keys off
+    ``architecture_key`` — never ``ChangeImpact`` labels — so the recompute
+    cannot drift from :func:`resolve_status`; the editor-side mirror of
+    ``loop_resume.adopt_checkpoint_era``."""
+    saved = summary.train_config
+    if (
+        summary.exists
+        and summary.readable
+        and not summary.config_invalid
+        and saved is not None
+    ):
+        candidate = _with_era(working, saved.encoding_version)
+        if candidate.architecture_key == saved.architecture_key:
+            return candidate
+    return _with_era(working, version.MODEL_VERSION)
+
+
 def list_archives(checkpoint_dir: str) -> list[ArchiveEntry]:
     """Existing archived runs under ``<checkpoint_dir>/archive/``, oldest first."""
     root = pathlib.Path(checkpoint_dir) / artifacts.ARCHIVE_SUBDIR
@@ -223,6 +244,14 @@ def clear_run(checkpoint_dir: str) -> list[str]:
 
 
 ###### PRIVATE #######
+
+
+def _with_era(cfg: config.TrainConfig, era: str) -> config.TrainConfig:
+    """``cfg`` re-keyed at ``era`` — ``cfg`` itself when already there, so the
+    common no-op path skips a full re-validation."""
+    if cfg.encoding_version == era:
+        return cfg
+    return config.with_encoding_version(cfg, era)
 
 
 def _load_payload(path: pathlib.Path) -> dict[str, typing.Any] | None:

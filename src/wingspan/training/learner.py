@@ -139,8 +139,9 @@ def _flatten(
 
     * ``terminal_margin`` — every step gets the single end-of-game score margin
       from its player's POV, scaled by ``score_norm``.
-    * ``decision_delta`` — each step gets the ``reward_discount``-discounted sum
-      of per-decision margin changes from that step onward (``_decision_delta_returns``).
+    * ``decision_delta`` — each step gets the sum of per-decision margin changes
+      from that step onward, each discounted by ``reward_discount`` per unit of
+      game-clock time between checkpoints (``_decision_delta_returns``).
     """
     flat_steps: list[steps.Step] = []
     returns: list[float] = []
@@ -175,10 +176,14 @@ def _decision_delta_returns(
     """Per-decision discounted returns aligned to ``record.steps`` order.
 
     For each player the recorded ``margin_before`` checkpoints plus the terminal
-    margin form a value sequence ``v``; the per-step reward is ``v[k+1] - v[k]``
-    and the return is the backward discounted sum ``G[k] = r[k] + γ·G[k+1]``,
-    scaled by ``score_norm``. With γ=1 this telescopes to ``M_p - v[k]`` — the
-    player's final margin minus its margin before the decision."""
+    margin form a value sequence ``v`` with game-clock times ``t`` (each step's
+    ``timestamp`` plus the record's ``final_timestamp``); the per-step reward is
+    ``v[k+1] - v[k]`` and the return is the backward discounted sum
+    ``G[k] = r[k] + γ^(t[k+1]−t[k])·G[k+1]``, scaled by ``score_norm`` — γ decays
+    per unit of game time (one full turn), not per decision step, so a
+    decision-dense turn doesn't discount the future faster than a bare one.
+    With γ=1 this telescopes to ``M_p - v[k]`` — the player's final margin minus
+    its margin before the decision."""
     # Terminal margin from each seat's POV (the final ``v`` for that player's
     # last decision); player 0 and player 1 get opposite signs.
     score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
@@ -195,10 +200,16 @@ def _decision_delta_returns(
             continue
         checkpoints = [record.steps[i].margin_before for i in indices]
         checkpoints.append(terminal[player_id])
+        times = [record.steps[i].timestamp for i in indices]
+        times.append(record.final_timestamp)
         running = 0.0
         for position in reversed(range(len(indices))):
             reward = checkpoints[position + 1] - checkpoints[position]
-            running = reward + discount * running
+            # 0.0 ** 0 == 1.0, so γ=0 with Δt=0 (e.g. the two setup food picks
+            # at the same clock time) correctly applies no decay between them.
+            running = (
+                reward + discount ** (times[position + 1] - times[position]) * running
+            )
             out[indices[position]] = running / score_norm
     return out
 
