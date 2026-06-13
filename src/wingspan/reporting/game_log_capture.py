@@ -9,13 +9,17 @@ phase. It is imported lazily by
 never at import time — so its dependence on ``engine`` does not close the
 ``engine`` ↔ ``instrumentation`` import cycle.
 
-Public API: :func:`capture_phase` (one narration-less snapshot) and
-:func:`build_report` (attach narration from the log and assemble the report).
+Public API: :func:`capture_phase` (one narration-less snapshot),
+:func:`build_timeline` (finalize timestamps and compute per-decision chart
+points), and :func:`build_report` (attach narration from the log and assemble
+the report).
 """
 
 from __future__ import annotations
 
 import typing
+
+import pydantic
 
 from wingspan import cards, state
 from wingspan.agents import display
@@ -24,6 +28,7 @@ from wingspan.reporting import game_log_html
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
+    from wingspan.training import config as train_config
 
 # Marks a phase boundary in the interleaved log: the engine writes one such
 # header per captured phase, in the same order the capture events fire.
@@ -90,12 +95,113 @@ def capture_phase(
     )
 
 
+class RawTimelinePoint(pydantic.BaseModel):
+    """One recorded decision's raw data for the timeline chart.
+
+    Populated by the instrumentation handler at ``made_decision`` time, before
+    timestamp finalization (provisional timestamps are spread into turn windows
+    only after the game ends). ``value_pov`` is the critic's output for the
+    deciding player's POV (divided by ``score_norm``); ``None`` when no net
+    backed that seat."""
+
+    player_id: int
+    margin_before: float
+    provisional_timestamp: float
+    family_idx: int
+    score_p0: int
+    score_p1: int
+    phase_index: int
+    value_pov: float | None = None
+
+
+def build_timeline(
+    *,
+    engine: core.Engine,
+    raw_points: list[RawTimelinePoint],
+    seat_configs: tuple[train_config.TrainConfig | None, train_config.TrainConfig | None],
+) -> list[game_log_html.TimelinePoint]:
+    """Finalize timestamps and compute per-decision chart coordinates.
+
+    Reads the game's final scores from ``engine`` to compute the discounted-
+    return targets that match what ``learner._decision_delta_returns`` computes.
+    Returns an empty list when ``raw_points`` is empty (game with no decisions)."""
+    from wingspan.training import timestamps
+
+    if not raw_points:
+        return []
+
+    # Finalize provisional timestamps for all points in recording order.
+    provisional_ts = [pt.provisional_timestamp for pt in raw_points]
+    family_idxs = [pt.family_idx for pt in raw_points]
+    final_ts = timestamps.finalize_provisional_timestamps(provisional_ts, family_idxs)
+    game_end_ts = timestamps.final_timestamp(engine.state.turn_counter)
+
+    # Compute discounted returns per player (matching learner._decision_delta_returns).
+    final_score_p0 = engine.state.players[0].final_score or 0
+    final_score_p1 = engine.state.players[1].final_score or 0
+    terminal_per_player = (
+        float(final_score_p0 - final_score_p1),
+        float(final_score_p1 - final_score_p0),
+    )
+
+    # Build a {index: target_raw} map (raw = before / score_norm division).
+    target_raw: dict[int, float] = {}
+    for player_id in (0, 1):
+        cfg = seat_configs[player_id]
+        if cfg is None:
+            continue
+        indices = [i for i, pt in enumerate(raw_points) if pt.player_id == player_id]
+        if not indices:
+            continue
+        checkpoints = [raw_points[i].margin_before for i in indices]
+        checkpoints.append(terminal_per_player[player_id])
+        times = [final_ts[i] for i in indices]
+        times.append(game_end_ts)
+        raw_returns = timestamps.discounted_future_returns(
+            checkpoints, times, cfg.reward_discount
+        )
+        for position, idx in enumerate(indices):
+            target_raw[idx] = raw_returns[position]
+
+    # Assemble TimelinePoint objects — value/target are P0-relative, in VP.
+    result: list[game_log_html.TimelinePoint] = []
+    for idx, (pt, ts) in enumerate(zip(raw_points, final_ts)):
+        cfg = seat_configs[pt.player_id]
+        score_norm = cfg.score_norm if cfg is not None else 1.0
+        sign = 1 if pt.player_id == 0 else -1
+        realized = pt.score_p0 - pt.score_p1
+
+        # Critic: denormalize and project to P0-relative final margin.
+        value_margin: float | None = None
+        if pt.value_pov is not None and cfg is not None:
+            value_margin = realized + sign * pt.value_pov * score_norm
+
+        # Target: raw return is already in VP (not normalized); convert to P0.
+        target_margin: float | None = None
+        if idx in target_raw:
+            target_margin = realized + sign * target_raw[idx]
+
+        result.append(
+            game_log_html.TimelinePoint(
+                timestamp=ts,
+                player_id=pt.player_id,
+                score_p0=pt.score_p0,
+                score_p1=pt.score_p1,
+                phase_index=pt.phase_index,
+                value_margin_p0=value_margin,
+                target_margin_p0=target_margin,
+            )
+        )
+    return result
+
+
 def build_report(
     *,
     engine: core.Engine,
     phases: list[game_log_html.PhaseRecord],
     seed: int | None,
     matchup: tuple[str, str] | None,
+    timeline: list[game_log_html.TimelinePoint] | None = None,
 ) -> game_log_html.GameLogReport:
     """Attach each log segment's narration to its phase and assemble the report.
 
@@ -115,6 +221,7 @@ def build_report(
             else None
         ),
         phases=phases,
+        timeline=timeline if timeline is not None else [],
     )
 
 

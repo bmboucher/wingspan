@@ -99,6 +99,35 @@ def sample_index_from_probs(
     return _weighted_index(rng, (probs / total).tolist())
 
 
+def policy_value_and_probs(
+    net: model.PolicyValueNet,
+    device: torch.device,
+    state_vec: np.ndarray,
+    choice_feats: np.ndarray,
+    family_idx: int,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Return ``(logits, probs, value)`` for one decision.
+
+    Like :func:`policy_logits_and_probs` but also surfaces the critic's raw
+    value scalar (deciding-player POV, not divided by ``score_norm``). The
+    caller decides whether to use or discard the value."""
+    n_choices = choice_feats.shape[0]
+    with torch.no_grad():
+        state_t = torch.tensor(state_vec, dtype=torch.float32, device=device).unsqueeze(
+            0
+        )
+        choice_t = torch.tensor(
+            choice_feats, dtype=torch.float32, device=device
+        ).unsqueeze(0)
+        mask_t = torch.ones((1, n_choices), dtype=torch.float32, device=device)
+        family_t = torch.tensor([family_idx], dtype=torch.long, device=device)
+        logits, value = net(state_t, choice_t, mask_t, family_t)
+        logits_1d = logits.squeeze(0).cpu().numpy()
+        probs_1d = F.softmax(logits, dim=-1).squeeze(0).cpu().numpy()
+        value_scalar = float(value.squeeze(0))
+        return logits_1d, probs_1d, value_scalar
+
+
 def policy_logits_and_probs(
     net: model.PolicyValueNet,
     device: torch.device,
@@ -110,21 +139,12 @@ def policy_logits_and_probs(
 
     ``logits`` is the raw 1-D pre-softmax score vector; ``probs`` is the
     corresponding softmax distribution. No padding is needed — every row of
-    ``choice_feats`` is a real, legal choice."""
-    n_choices = choice_feats.shape[0]
-    with torch.no_grad():
-        state_t = torch.tensor(state_vec, dtype=torch.float32, device=device).unsqueeze(
-            0
-        )
-        choice_t = torch.tensor(
-            choice_feats, dtype=torch.float32, device=device
-        ).unsqueeze(0)
-        mask_t = torch.ones((1, n_choices), dtype=torch.float32, device=device)
-        family_t = torch.tensor([family_idx], dtype=torch.long, device=device)
-        logits, _ = net(state_t, choice_t, mask_t, family_t)
-        logits_1d = logits.squeeze(0).cpu().numpy()
-        probs_1d = F.softmax(logits, dim=-1).squeeze(0).cpu().numpy()
-        return logits_1d, probs_1d
+    ``choice_feats`` is a real, legal choice. Thin wrapper around
+    :func:`policy_value_and_probs` that discards the critic value."""
+    logits, probs, _ = policy_value_and_probs(
+        net, device, state_vec, choice_feats, family_idx
+    )
+    return logits, probs
 
 
 def policy_probs(

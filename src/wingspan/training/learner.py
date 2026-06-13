@@ -29,7 +29,7 @@ import torch.nn.functional as F
 from torch import optim
 
 from wingspan import model
-from wingspan.training import collect, config, steps
+from wingspan.training import collect, config, steps, timestamps
 
 # Option-count bucket edges. A step with ``n`` candidates pads up to the
 # smallest edge ``>= n``; the 89.5% of decisions with <=4 options pad to 4 (not
@@ -202,15 +202,9 @@ def _decision_delta_returns(
         checkpoints.append(terminal[player_id])
         times = [record.steps[i].timestamp for i in indices]
         times.append(record.final_timestamp)
-        running = 0.0
-        for position in reversed(range(len(indices))):
-            reward = checkpoints[position + 1] - checkpoints[position]
-            # 0.0 ** 0 == 1.0, so γ=0 with Δt=0 (e.g. the two setup food picks
-            # at the same clock time) correctly applies no decay between them.
-            running = (
-                reward + discount ** (times[position + 1] - times[position]) * running
-            )
-            out[indices[position]] = running / score_norm
+        raw_returns = timestamps.discounted_future_returns(checkpoints, times, discount)
+        for position, idx in enumerate(indices):
+            out[idx] = raw_returns[position] / score_norm
     return out
 
 

@@ -25,7 +25,7 @@ import numpy as np
 import torch
 
 from wingspan import agents, decisions, engine, model, setup_model
-from wingspan.players import loaders, spec
+from wingspan.players import loaders, spec, value_sink
 from wingspan.training import config, policy
 from wingspan.training import setup_net as setup_net_module
 
@@ -45,6 +45,7 @@ def build_agent(
     device: torch.device,
     rng: random.Random,
     greedy: bool,
+    value_probe: value_sink.ValueProbe | None = None,
 ) -> tuple[engine.Agent, config.TrainConfig | None]:
     """Build the Agent for one seat, plus the ``TrainConfig`` its checkpoint
     was trained under (``None`` for the config-free human and random agents),
@@ -52,7 +53,9 @@ def build_agent(
     ``greedy`` applies only to ``MODEL`` seats — argmax instead of on-policy
     sampling — and is irrelevant and ignored for ``HUMAN`` / ``RANDOM``. A
     ``MODEL`` seat loads the spec's checkpoint (plus the optional setup net
-    from its run directory) and wraps it in the log-annotating policy agent."""
+    from its run directory) and wraps it in the log-annotating policy agent.
+    ``value_probe``, when supplied, receives the critic's value output after
+    each main-net forward pass so the instrumentation handler can read it."""
     if player_spec.kind is spec.PlayerKind.HUMAN:
         return agents.cli_agent(), None
     if player_spec.kind is spec.PlayerKind.RANDOM:
@@ -62,7 +65,9 @@ def build_agent(
     ), "a MODEL spec carries its checkpoint path and run dir"
     net, train_config = loaders.load_policy_net(player_spec.checkpoint_path, device)
     setup_net_instance = loaders.load_setup_net(player_spec.run_dir, device)
-    agent = _logged_policy_agent(net, device, rng, greedy, setup_net=setup_net_instance)
+    agent = _logged_policy_agent(
+        net, device, rng, greedy, setup_net=setup_net_instance, value_probe=value_probe
+    )
     return agent, train_config
 
 
@@ -121,6 +126,7 @@ def _logged_policy_agent(
     rng: random.Random,
     greedy: bool,
     setup_net: setup_net_module.SetupNet | None = None,
+    value_probe: value_sink.ValueProbe | None = None,
 ) -> engine.Agent:
     """An AI agent that, for every genuine (multi-option) decision, writes the
     policy's ranked softmax distribution into the game log before picking — by
@@ -129,7 +135,10 @@ def _logged_policy_agent(
     When ``net.include_setup`` is ``False`` (the default) and a ``SetupDecision``
     is encountered, ``setup_net`` is used instead of the main net to score the
     504 keep-combinations and log their probability distribution. Falls back to a
-    random pick when ``setup_net`` is ``None`` (e.g. no ``setup.pt`` found)."""
+    random pick when ``setup_net`` is ``None`` (e.g. no ``setup.pt`` found).
+
+    When ``value_probe`` is supplied, the critic's value output from each main-net
+    forward pass is written to it so the instrumentation handler can read it."""
 
     def agent[C: decisions.Choice](
         eng: engine.Engine,
@@ -139,7 +148,9 @@ def _logged_policy_agent(
             return decision.choices[0]
         if not net.include_setup and decisions.is_setup_decision(decision):
             return _handle_setup_decision(eng, decision, setup_net, device, greedy, rng)
-        return _handle_main_decision(eng, decision, net, device, greedy, rng)
+        return _handle_main_decision(
+            eng, decision, net, device, greedy, rng, value_probe=value_probe
+        )
 
     return agent
 
@@ -187,16 +198,19 @@ def _handle_main_decision[C: decisions.Choice](
     device: torch.device,
     greedy: bool,
     rng: random.Random,
+    value_probe: value_sink.ValueProbe | None = None,
 ) -> C:
     """Score a regular decision with one forward pass through the main policy net."""
-    # One forward pass gives the full distribution over the legal options. The
-    # net owns its encoding (a compat-era net encodes in its frozen geometry).
+    # One forward pass gives the full distribution over legal options plus the
+    # critic value. The net owns its encoding (a compat-era net uses frozen geometry).
     family_idx = decisions.family_index_for(type(decision))
     state_vec = net.encode_state(eng.state, decision)
     choice_feats = net.encode_choices(decision, eng.state)
-    logits, probs = policy.policy_logits_and_probs(
+    logits, probs, value = policy.policy_value_and_probs(
         net, device, state_vec, choice_feats, family_idx
     )
+    if value_probe is not None:
+        value_probe.record(value)
     _log_distribution(eng, decision, probs, greedy, scores=logits)
 
     # Pick from the same probs already in hand: argmax for greedy strength play,

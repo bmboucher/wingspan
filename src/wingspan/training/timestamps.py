@@ -19,6 +19,12 @@ and resolves the interpolation once the game is complete
 (:func:`finalize_timestamps`), since a turn's mid-turn decision count is only
 known after the turn ends. Deliberately torch-free so its unit tests import
 without the heavyweight training stack.
+
+:func:`discounted_future_returns` is the shared math kernel: the backward
+discounted-sum inner loop extracted from ``learner._decision_delta_returns`` so
+the timeline chart builder can reuse it without importing torch.
+:func:`finalize_provisional_timestamps` mirrors :func:`finalize_timestamps` for
+non-Step data (parallel float/int lists), used by the chart builder.
 """
 
 from __future__ import annotations
@@ -91,3 +97,61 @@ def final_timestamp(turn_counter: int) -> float:
     """The terminal checkpoint's time: the end of the final turn's window
     (one full turn after that turn's main action), shared by both seats."""
     return float(turn_counter) + 1.0
+
+
+def discounted_future_returns(
+    checkpoints: list[float], times: list[float], discount: float
+) -> list[float]:
+    """Backward discounted-sum returns for one player's decision sequence.
+
+    ``checkpoints`` has N+1 entries — N per-decision margin snapshots plus one
+    terminal value — and ``times`` has N+1 matching game-clock timestamps (the
+    N decision timestamps plus the final terminal timestamp). Returns N raw
+    return values (not divided by ``score_norm``), one per decision, computed
+    as the backward discounted sum:
+
+        G[k] = (v[k+1] − v[k]) + discount^(t[k+1] − t[k]) · G[k+1]
+
+    With ``discount == 1`` this telescopes to ``terminal − v[k]`` for every k.
+    With ``discount == 0`` it reduces to the single-step reward ``v[k+1] − v[k]``.
+    The ``0.0 ** 0 == 1.0`` Python identity means two simultaneous decisions
+    (``Δt == 0``) correctly apply no decay between them regardless of ``discount``.
+
+    This is the kernel formerly inline in ``learner._decision_delta_returns``,
+    extracted so the HTML timeline chart builder can reuse it without torch.
+    """
+    assert len(times) == len(checkpoints), "checkpoints and times must be the same length"
+    n = len(checkpoints) - 1
+    out = [0.0] * n
+    running = 0.0
+    for position in reversed(range(n)):
+        reward = checkpoints[position + 1] - checkpoints[position]
+        running = reward + discount ** (times[position + 1] - times[position]) * running
+        out[position] = running
+    return out
+
+
+def finalize_provisional_timestamps(
+    provisional: list[float], family_indices: list[int]
+) -> list[float]:
+    """Finalize provisional timestamps for a non-Step sequence.
+
+    Companion to :func:`finalize_timestamps` for callers that have parallel
+    float/int lists instead of :class:`~wingspan.training.steps.Step` objects.
+    ``provisional`` and ``family_indices`` are parallel lists (recording order)
+    of provisional timestamps and decision-family indices. Returns a new list
+    with setup-window items unchanged and in-turn items spread into each turn's
+    ``(N, N+1)`` window exactly as :func:`finalize_timestamps` does."""
+    result = list(provisional)
+    for _, group_iter in itertools.groupby(range(len(result)), key=lambda i: result[i]):
+        group_indices = list(group_iter)
+        turn_start = result[group_indices[0]]
+        if turn_start < float(_FIRST_TURN):
+            continue
+        # Skip the main action (stays at T); spread the remaining items.
+        if family_indices[group_indices[0]] == _MAIN_ACTION_FAMILY_INDEX:
+            group_indices = group_indices[1:]
+        n_mid = len(group_indices)
+        for position, idx in enumerate(group_indices, start=1):
+            result[idx] = turn_start + position / (n_mid + 1)
+    return result

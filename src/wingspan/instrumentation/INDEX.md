@@ -52,13 +52,15 @@ of training data for offline supervised learning.
 
 **`handlers/game_log_html.py`** — `GameLogHtml` (`GameLogHtmlHandler`): records
 each game as a navigable, self-contained HTML log viewer (the `wingspan play
---html` flag). Subscribes to `game_start` / `setup_applied` / `round_start` /
-`turn_start` / `game_end`; those five events fire once per `=== ... ===` log
-header, so its per-phase state snapshots zip one-to-one with the text log's
-segments. Config: `output_path` (resolved under the run output dir) and
-`index_suffix` (insert the game index before `.html` for a multi-game series).
-At `game_end` it builds a `GameLogReport` and writes the file. The
-state→model conversion and narration slicing live in
-`reporting.game_log_capture`, imported lazily inside the event methods so the
-engine-dependent code never closes the `engine` ↔ `instrumentation` import
-cycle.
+--html` flag). Subscribes to `game_start` / `setup_start` / `setup_applied` /
+`round_start` / `turn_start` / `made_decision` / `game_end`. The phase-boundary
+events fire once per `=== ... ===` log header so snapshots zip one-to-one with
+the text log. `made_decision` records a `RawTimelinePoint` per decision for the
+Timeline modal chart. Config: `output_path` and `index_suffix`. At `game_end`
+calls `build_timeline` (finalizes timestamps, computes projected-margin chart
+coords) then writes the `GameLogReport`. Call `configure_timeline(seat_configs,
+probes)` before the first game to inject per-seat `TrainConfig` and `ValueProbe`
+objects; without them the timeline shows scores only (value/target lines are gaps).
+The state→model conversion and narration/timeline building live in
+`reporting.game_log_capture`, imported lazily to avoid the `engine` ↔
+`instrumentation` import cycle.

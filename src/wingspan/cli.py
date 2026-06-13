@@ -21,6 +21,7 @@ import argparse
 import pathlib
 import random
 import sys
+import typing
 
 import torch
 import yaml
@@ -30,6 +31,10 @@ from wingspan.agents import display
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
 from wingspan.instrumentation import events as instrumentation_events
+from wingspan.players import value_sink
+
+if typing.TYPE_CHECKING:
+    from wingspan.training import config as train_config
 
 
 def main_play(argv: list[str] | None = None) -> int:
@@ -48,11 +53,17 @@ def main_play(argv: list[str] | None = None) -> int:
     # Resolve both seats up front so a bad checkpoint (or a regime mismatch
     # between two checkpoints) fails before any game runs, with a clean message
     # rather than a mid-game traceback.
+    probe_0 = value_sink.ValueProbe()
+    probe_1 = value_sink.ValueProbe()
     try:
         spec_a = players.parse_player_spec(args.p0, checkpoint_dir)
         spec_b = players.parse_player_spec(args.p1, checkpoint_dir)
-        agent_a, config_a = players.build_agent(spec_a, device, rng, args.greedy)
-        agent_b, config_b = players.build_agent(spec_b, device, rng, args.greedy)
+        agent_a, config_a = players.build_agent(
+            spec_a, device, rng, args.greedy, value_probe=probe_0
+        )
+        agent_b, config_b = players.build_agent(
+            spec_b, device, rng, args.greedy, value_probe=probe_1
+        )
         split_setup_bonus = players.resolve_split_setup_bonus((config_a, config_b))
         split_setup_food = players.resolve_split_setup_food((config_a, config_b))
     except (FileNotFoundError, ValueError) as exc:
@@ -68,7 +79,9 @@ def main_play(argv: list[str] | None = None) -> int:
         regime = "  |  opening " + ", ".join(regime_parts) if regime_parts else ""
         print(f"Seed: {seed}  |  P0: {args.p0}  vs  P1: {args.p1}{regime}")
 
-    instrumentation = _open_instrumentation(args, seed)
+    instrumentation = _open_instrumentation(
+        args, seed, (config_a, config_b), (probe_0, probe_1)
+    )
     try:
         for game_idx in range(args.games):
             eng, _, _, _ = engine.Engine.create(seed=seed + game_idx)
@@ -184,8 +197,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 # The handler name and the events the HTML game-log recorder subscribes to.
-# These five events fire once per ``=== ... ===`` header in the log, so the
+# Phase-boundary events fire once per ``=== ... ===`` header in the log so the
 # handler's per-phase snapshots align one-to-one with the log segments.
+# MADE_DECISION is included so the handler can record per-decision timeline data.
 _HTML_HANDLER_NAME = "__game_log_html__"
 _HTML_HANDLER_EVENTS = (
     instrumentation_events.EventName.GAME_START,
@@ -193,20 +207,32 @@ _HTML_HANDLER_EVENTS = (
     instrumentation_events.EventName.SETUP_APPLIED,
     instrumentation_events.EventName.ROUND_START,
     instrumentation_events.EventName.TURN_START,
+    instrumentation_events.EventName.MADE_DECISION,
     instrumentation_events.EventName.GAME_END,
 )
 
 
 def _open_instrumentation(
-    args: argparse.Namespace, seed: int
+    args: argparse.Namespace,
+    seed: int,
+    seat_configs: tuple[
+        train_config.TrainConfig | None, train_config.TrainConfig | None
+    ]
+    | None = None,
+    probes: tuple[value_sink.ValueProbe | None, value_sink.ValueProbe | None]
+    | None = None,
 ) -> dispatcher.Instrumentation:
     """Build and open the event-callback router for this run.
 
     Combines the standalone ``--instrument`` config (same shape as
     ``TrainConfig.instrumentation``) with the built-in HTML game-log recorder
     attached by ``--html``. Returns the no-op ``EMPTY`` router when neither flag
-    is given. The caller must ``close`` whatever this returns when the run
-    ends."""
+    is given. The caller must ``close`` whatever this returns when the run ends.
+
+    When ``seat_configs`` and ``probes`` are both supplied (the normal ``play``
+    path), they are injected into the HTML handler via
+    :meth:`~wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler.configure_timeline`
+    so the timeline chart can render value/target lines."""
     if args.instrument is None and args.html is None:
         return dispatcher.EMPTY
 
@@ -223,6 +249,15 @@ def _open_instrumentation(
     cfg = instrumentation_config.InstrumentationConfig.model_validate(
         {"handlers": handlers, "events": events_map}
     )
+
+    # Inject timeline probes into the HTML handler before building the router.
+    if args.html is not None and seat_configs is not None and probes is not None:
+        from wingspan.instrumentation.handlers import game_log_html as html_handler_module
+
+        html_handler = cfg.handlers[_HTML_HANDLER_NAME]
+        assert isinstance(html_handler, html_handler_module.GameLogHtmlHandler)
+        html_handler.configure_timeline(seat_configs, probes)
+
     out_dir = (
         pathlib.Path(args.instrument_out)
         if args.instrument_out is not None

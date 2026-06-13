@@ -149,6 +149,29 @@ class PhaseRecord(pydantic.BaseModel):
     setup_bonus_options: list[BonusCardInfo] = []
 
 
+class TimelinePoint(pydantic.BaseModel):
+    """One decision's snapshot for the modal timeline chart.
+
+    Coordinates are primitives so the instance serialises cleanly into the
+    page's embedded JSON. ``value_margin_p0`` and ``target_margin_p0`` are
+    "projected final P0−P1 margin" in victory-point units:
+
+    * ``value_margin_p0`` — the critic's projection at this decision.
+    * ``target_margin_p0`` — the discounted-return target the critic is trained
+      to match.
+
+    Both are ``None`` when the deciding seat has no trained net (random/human).
+    """
+
+    timestamp: float
+    player_id: int
+    score_p0: int
+    score_p1: int
+    phase_index: int
+    value_margin_p0: float | None = None
+    target_margin_p0: float | None = None
+
+
 class GameLogReport(pydantic.BaseModel):
     """The whole game: matchup metadata plus every phase in play order."""
 
@@ -157,6 +180,7 @@ class GameLogReport(pydantic.BaseModel):
     player_names: list[str]
     final_scores: list[int] | None = None
     phases: list[PhaseRecord]
+    timeline: list[TimelinePoint] = []
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +258,7 @@ _DOCUMENT = """\
     <button id="prev-round" title="Previous round">◀ Round</button>
     <button id="next-round" title="Next round">Round ▶</button>
     <span class="spacer"></span>
+    <button id="timeline-btn" title="Open game timeline chart">Timeline</button>
     <div class="toggle" id="view-toggle" role="group" aria-label="Seat view">
       <button data-view="p0">Just P0</button>
       <button data-view="both" class="active">Both</button>
@@ -242,6 +267,18 @@ _DOCUMENT = """\
   </div>
   <div id="phase-title" class="phase-title"></div>
 </header>
+<div id="chart-modal" role="dialog" aria-modal="true" aria-label="Score timeline">
+  <div id="chart-dialog">
+    <div id="chart-header">
+      <span id="chart-title">Game Timeline</span>
+      <button id="chart-close" title="Close (Esc)">✕</button>
+    </div>
+    <div id="chart-body">
+      <svg id="chart-svg-top"></svg>
+      <svg id="chart-svg-bottom"></svg>
+    </div>
+  </div>
+</div>
 <main id="content-layout">
   <section id="state-panel"></section>
   <aside id="decisions-panel">
@@ -460,6 +497,48 @@ main {
 .event-line { display: block; color: #94a3b8; padding: 1px 0; white-space: pre-wrap; }
 .event-chose { color: #4ade80; font-style: italic; }
 .event-empty { color: #64748b; font-style: italic; font-size: 11px; padding: 8px; }
+
+/* === Timeline modal === */
+#chart-modal {
+  display: none; position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.6); align-items: center; justify-content: center;
+}
+#chart-modal.open { display: flex; }
+#chart-dialog {
+  background: #0f172a; border-radius: 10px; padding: 0;
+  width: min(900px, 95vw); max-height: 90vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,.6);
+}
+#chart-header {
+  display: flex; align-items: center; padding: 10px 16px;
+  border-bottom: 1px solid #1e293b; flex-shrink: 0;
+}
+#chart-title { color: #a7f3d0; font-weight: 700; font-size: 14px; flex: 1; }
+#chart-close {
+  background: none; border: none; color: #94a3b8; font-size: 18px;
+  cursor: pointer; padding: 2px 6px; border-radius: 4px;
+}
+#chart-close:hover { background: #1e293b; color: #e2e8f0; }
+#chart-body {
+  padding: 12px 16px 16px; overflow-y: auto; flex: 1;
+  display: flex; flex-direction: column; gap: 10px;
+}
+#chart-svg-top, #chart-svg-bottom {
+  width: 100%; height: 200px; display: block;
+  background: #111827; border-radius: 6px;
+}
+.chart-label { font: 10px/1 sans-serif; fill: #94a3b8; }
+.chart-axis { stroke: #1e293b; stroke-width: 1; }
+.chart-gridline { stroke: #1e293b; stroke-width: 0.5; stroke-dasharray: 3,3; }
+.chart-line-p0 { fill: none; stroke: #93c5fd; stroke-width: 2; }
+.chart-line-p1 { fill: none; stroke: #fca5a5; stroke-width: 2; }
+.chart-line-realized { fill: none; stroke: #64748b; stroke-width: 1.5; stroke-dasharray: 4,2; }
+.chart-line-value   { fill: none; stroke: #4ade80; stroke-width: 2; }
+.chart-line-target  { fill: none; stroke: #facc15; stroke-width: 1.5; stroke-dasharray: 5,3; }
+.chart-hit { fill: transparent; cursor: pointer; }
+.chart-hit:hover { fill: rgba(255,255,255,.1); }
+.chart-legend { font: 10px/1.4 sans-serif; fill: #94a3b8; }
 """
 
 _SCRIPT = r"""
@@ -810,10 +889,183 @@ document.querySelectorAll('#view-toggle button').forEach(btn => {
 document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') step(-1);
   else if (e.key === 'ArrowRight') step(1);
+  else if (e.key === 'Escape') closeChart();
 });
 // Start on the first non-game_start phase so the empty pre-deal board is skipped.
 if (DATA.phases.length && DATA.phases[0].kind === 'game_start') {
   phaseIdx = nextMatchingPhase(-1, 1);
 }
 render();
+
+// ---- Timeline chart ----
+
+function openChart() {
+  document.getElementById('chart-modal').classList.add('open');
+  renderChart();
+}
+
+function closeChart() {
+  document.getElementById('chart-modal').classList.remove('open');
+}
+
+document.getElementById('timeline-btn').addEventListener('click', openChart);
+document.getElementById('chart-close').addEventListener('click', closeChart);
+document.getElementById('chart-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('chart-modal')) closeChart();
+});
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function polyline(points, cls) {
+  if (!points.length) return null;
+  const el = svgEl('polyline', {
+    points: points.map(([x, y]) => x + ',' + y).join(' '),
+    class: cls,
+  });
+  return el;
+}
+
+function mkSvg(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function renderPanel(svg, pts, xMin, xRange, yMin, yRange, lines, yZero, labels) {
+  const W = svg.clientWidth || 840;
+  const H = svg.clientHeight || 200;
+  const PAD = {top: 22, right: 16, bottom: 28, left: 44};
+  const cw = W - PAD.left - PAD.right;
+  const ch = H - PAD.top - PAD.bottom;
+
+  svg.innerHTML = '';
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+  const toX = t => PAD.left + ((t - xMin) / xRange) * cw;
+  const toY = v => PAD.top + ch - ((v - yMin) / yRange) * ch;
+
+  // Horizontal grid lines + y-axis labels
+  const yMax = yMin + yRange;
+  for (let i = 0; i <= 5; i++) {
+    const v = yMin + yRange * i / 5;
+    const y = toY(v);
+    svg.appendChild(mkSvg('line', {x1: PAD.left, x2: PAD.left + cw, y1: y, y2: y, class: 'chart-gridline'}));
+    const lbl = mkSvg('text', {x: PAD.left - 4, y: y + 3, 'text-anchor': 'end', class: 'chart-label'});
+    lbl.textContent = Math.round(v);
+    svg.appendChild(lbl);
+  }
+
+  // Zero line (bottom panel only)
+  if (yZero !== null && yZero >= yMin && yZero <= yMax) {
+    svg.appendChild(mkSvg('line', {
+      x1: PAD.left, x2: PAD.left + cw, y1: toY(yZero), y2: toY(yZero),
+      stroke: '#475569', 'stroke-width': '1',
+    }));
+  }
+
+  // Data lines — each series may contain nulls which split into segments
+  for (const {data, cls} of lines) {
+    let seg = [];
+    const flush = () => {
+      if (seg.length > 1) {
+        svg.appendChild(mkSvg('polyline', {
+          points: seg.map(([t, v]) => toX(t) + ',' + toY(v)).join(' '),
+          class: cls,
+        }));
+      }
+      seg = [];
+    };
+    for (const item of data) {
+      if (item === null) flush();
+      else seg.push(item);
+    }
+    flush();
+  }
+
+  // Transparent hit strips — one per unique timestamp, full chart height
+  const seen = new Set();
+  for (const pt of pts) {
+    if (seen.has(pt.timestamp)) continue;
+    seen.add(pt.timestamp);
+    const hitX = toX(pt.timestamp) - 5;
+    const hit = mkSvg('rect', {
+      x: hitX, y: PAD.top, width: 10, height: ch,
+      class: 'chart-hit', 'data-phase': pt.phase_index,
+    });
+    hit.addEventListener('click', () => {
+      phaseIdx = parseInt(hit.getAttribute('data-phase'));
+      render(); closeChart();
+    });
+    svg.appendChild(hit);
+  }
+
+  // Legend
+  let lx = PAD.left;
+  for (const {cls, label} of labels) {
+    svg.appendChild(mkSvg('line', {
+      x1: lx, x2: lx + 16, y1: PAD.top - 7, y2: PAD.top - 7, class: cls,
+    }));
+    const ltxt = mkSvg('text', {x: lx + 20, y: PAD.top - 4, class: 'chart-legend'});
+    ltxt.textContent = label;
+    svg.appendChild(ltxt);
+    lx += label.length * 6.5 + 28;
+  }
+}
+
+function renderChart() {
+  const tl = DATA.timeline || [];
+  if (!tl.length) return;
+
+  const tMin = Math.min(...tl.map(p => p.timestamp));
+  const tMax = Math.max(...tl.map(p => p.timestamp));
+  const tRange = tMax - tMin || 1;
+
+  // --- Top panel: P0 / P1 scores ---
+  const topSvg = document.getElementById('chart-svg-top');
+  const allScores = tl.flatMap(p => [p.score_p0, p.score_p1]);
+  const sMin = Math.max(0, Math.min(...allScores) - 2);
+  const sMax = Math.max(...allScores) + 2;
+  const sRange = sMax - sMin || 1;
+
+  renderPanel(topSvg, tl, tMin, tRange, sMin, sRange, [
+    {data: tl.map(p => [p.timestamp, p.score_p0]), cls: 'chart-line-p0'},
+    {data: tl.map(p => [p.timestamp, p.score_p1]), cls: 'chart-line-p1'},
+  ], null, [
+    {cls: 'chart-line-p0', label: 'P0 score (VP)'},
+    {cls: 'chart-line-p1', label: 'P1 score (VP)'},
+  ]);
+
+  // --- Bottom panel: projected margins ---
+  const bottomSvg = document.getElementById('chart-svg-bottom');
+  // --- Bottom panel: projected final P0−P1 margin ---
+  const bottomSvg = document.getElementById('chart-svg-bottom');
+  const realized = tl.map(p => [p.timestamp, p.score_p0 - p.score_p1]);
+  const valuePts = tl.map(p => p.value_margin_p0 !== null ? [p.timestamp, p.value_margin_p0] : null);
+  const targetPts = tl.map(p => p.target_margin_p0 !== null ? [p.timestamp, p.target_margin_p0] : null);
+
+  const allMargins = [
+    ...realized.map(([, v]) => v),
+    ...valuePts.filter(Boolean).map(item => item[1]),
+    ...targetPts.filter(Boolean).map(item => item[1]),
+  ];
+  const mMin = Math.min(...allMargins) - 2;
+  const mMax = Math.max(...allMargins) + 2;
+  const mRange = mMax - mMin || 1;
+  const hasValue = valuePts.some(Boolean);
+  const hasTarget = targetPts.some(Boolean);
+
+  const marginLines = [{data: realized, cls: 'chart-line-realized'}];
+  if (hasValue) marginLines.push({data: valuePts, cls: 'chart-line-value'});
+  if (hasTarget) marginLines.push({data: targetPts, cls: 'chart-line-target'});
+
+  const marginLabels = [{cls: 'chart-line-realized', label: 'Realized P0−P1 (VP)'}];
+  if (hasValue) marginLabels.push({cls: 'chart-line-value', label: 'Critic projected'});
+  if (hasTarget) marginLabels.push({cls: 'chart-line-target', label: 'Target projected'});
+
+  renderPanel(bottomSvg, tl, tMin, tRange, mMin, mRange, marginLines, 0, marginLabels);
+}
 """
