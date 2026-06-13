@@ -33,8 +33,18 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "0.3"
+MODEL_VERSION = "0.4"
 """The current artifact-compatibility version (the only place it is defined).
+
+0.4 refactored the round/cube encoding into a new leading ``turn_state`` stripe
+and shrank ``misc_scalars`` from 26 dims to 4, growing the state vector by
+5 dims (790 → 795): the 4-dim round one-hot and both 9-dim cube one-hots were
+replaced by a 26-dim player-turn one-hot (which of the 26 personal turns is
+being played, all-zeros during setup) plus a 1-bit is_first_player flag; the
+opponent cube one-hot was dropped entirely (opponent cubes are determinable from
+the player's own cubes plus the first-player flag). Pre-0.4 artifacts load and
+play through the ``wingspan.compat.v0_3`` shim (``PolicyValueNetV03`` with
+frozen 26-dim one-hot misc stripe).
 
 0.3 replaced three raw scalars in ``_summary_misc_scalars`` with one-hot
 vectors, growing the state vector by 19 dims (771 → 790): round_idx scalar

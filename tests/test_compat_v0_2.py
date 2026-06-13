@@ -151,19 +151,21 @@ def test_forward_pass(loaded_net: model.PolicyValueNet):
 
 def test_state_embed_offsets_are_frozen_to_v02(loaded_net: model.PolicyValueNet):
     """The v0.2 net must slice its 771-dim state vector at the frozen v0.2
-    offsets, not the live 790-dim ones.
+    offsets, not the live 795-dim ones.
 
-    The 0.3 misc-scalar reshape added 19 dims *ahead* of the card-index block,
-    so the live ``OFF_*`` offsets sit 19 columns too far right for a v0.2 vector.
+    The 0.4 changes added 24 dims *ahead* of the card-index block (27 dims
+    for the new turn_state stripe, minus 3 from shrinking misc from 26 to 4 dims
+    and removing the 7-dim v0.2 misc: net live-vs-v02 = 27 + 4 - 7 = 24 extra).
+    So the live ``OFF_*`` offsets sit 24 columns too far right for a v0.2 vector.
     Because the slice widths coincide, slicing live would corrupt the trunk input
     silently rather than crash (the regression found 2026-06-10). This pins the
     override so reverting it (falling back to the inherited live offsets) fails."""
     frozen = loaded_net._state_embed_offsets()
     assert frozen == v0_2.state_embed_offsets_v02()
     assert frozen == (
-        encode.OFF_CARD_INDEX - 19,
-        encode.OFF_HAND_MULTIHOT - 19,
-        encode.OFF_DECISION_TYPE - 19,
+        encode.OFF_CARD_INDEX - 24,
+        encode.OFF_HAND_MULTIHOT - 24,
+        encode.OFF_DECISION_TYPE - 24,
     )
     off_index, off_hand, off_decision = frozen
     # The three stripes stay contiguous, and the decision-type tail keeps the
@@ -279,10 +281,15 @@ class _Approx:
         )
 
 
-def test_misc_scalars_one_hot_structure():
-    """The live ``_summary_misc_scalars`` output is valid one-hot in the round
-    and cube positions: exactly one 1.0 per one-hot window, rest 0.0."""
-    from wingspan.encode import layout, state_encode
+def test_misc_scalars_scalar_structure():
+    """The live ``_summary_misc_scalars`` output is 4 normalized scalars.
+
+    As of v0.4 the round/cube one-hots moved to the new ``turn_state`` stripe;
+    ``misc_scalars`` now carries only the 4 trailing scalars from v0.3.
+    Verified against ``encode_misc_scalars_v03`` to confirm the scalars are
+    consistent between the live and frozen encoders."""
+    from wingspan.compat import v0_3
+    from wingspan.encode import state_encode
     from wingspan.engine import core as engine_core
 
     eng, *_ = engine_core.Engine.create(seed=42)
@@ -290,6 +297,36 @@ def test_misc_scalars_one_hot_structure():
     me = eng.state.players[pov]
     opp = eng.state.players[1 - pov]
     vec = state_encode._summary_misc_scalars(eng.state, me, opp)
+
+    # v0.4 misc_scalars is exactly 4 dims
+    assert len(vec) == 4, f"Expected 4 dims, got {len(vec)}"
+
+    # All values are normalized scalars in [0, ~1.5] range (not one-hots)
+    assert all(
+        v >= 0.0 for v in vec.tolist()
+    ), f"Negative values in misc_scalars: {vec}"
+
+    # The 4 scalars should match the trailing 4 dims of the frozen v0.3 stripe
+    frozen_vec = v0_3.encode_misc_scalars_v03(eng.state, me, opp)
+    assert len(frozen_vec) == 26
+    # Last 4 dims of the frozen v0.3 stripe are the same scalars
+    assert all(
+        float(vec[i]) == _Approx(float(frozen_vec[22 + i])) for i in range(4)
+    ), f"live misc={vec}, frozen v0.3 trailing 4={frozen_vec[22:]}"
+
+
+def test_misc_scalars_v03_one_hot_structure():
+    """The frozen v0.3 ``encode_misc_scalars_v03`` output is valid one-hot in the
+    round and cube positions: exactly one 1.0 per one-hot window, rest 0.0."""
+    from wingspan.compat import v0_3
+    from wingspan.encode import layout
+    from wingspan.engine import core as engine_core
+
+    eng, *_ = engine_core.Engine.create(seed=42)
+    pov = 0
+    me = eng.state.players[pov]
+    opp = eng.state.players[1 - pov]
+    vec = v0_3.encode_misc_scalars_v03(eng.state, me, opp)
 
     # Round one-hot: exactly one 1.0 in dims [0..N_ROUNDS-1]
     round_hot = vec[: layout.N_ROUNDS]
@@ -316,7 +353,7 @@ def test_misc_scalars_one_hot_structure():
     ), f"cube-opp one-hot sum={cube_opp_hot.sum()}"
     assert set(cube_opp_hot.tolist()) == {0.0, 1.0}, f"cube-opp one-hot: {cube_opp_hot}"
 
-    # Total vector length must be 26
+    # Total vector length must be 26 (v0.3 frozen dim)
     assert len(vec) == 26, f"Expected 26 dims, got {len(vec)}"
 
     # Verify the one-hot position matches the actual game state value

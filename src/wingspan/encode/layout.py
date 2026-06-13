@@ -95,8 +95,19 @@ MAX_GOAL_CATEGORIES = 20
 # N_ROUNDS: one hot position per round (0..3 → 4 dims).
 # MAX_ACTION_CUBES: one hot position per cube count (0..8 → 9 dims) — equals
 # state.ROUND_CUBES[0], the maximum cubes at the start of round 1.
+# Both are retained for the v0.2 and v0.3 compat shims that reference them.
 N_ROUNDS: int = 4
 MAX_ACTION_CUBES: int = 8
+
+# Total personal turns across all 4 rounds (8+7+6+5 = 26). Used by the
+# turn_state stripe to encode which of the player's 26 turns they are on.
+N_PLAYER_TURNS: int = sum(state.ROUND_CUBES)
+
+# Cumulative cube-count offsets per round: ROUND_CUBES[0..i-1] summed.
+# Entry i is the turn index at which round i begins.  [0, 8, 15, 21].
+_ROUND_CUBE_OFFSETS: list[int] = [
+    sum(state.ROUND_CUBES[:i]) for i in range(len(state.ROUND_CUBES))
+]
 
 # Normalization scales for raw card / board values. Picked so most values
 # land in roughly [0, 1.5]; the network can rescale internally if needed.
@@ -468,6 +479,10 @@ N_CARD_INDEX_SLOTS = N_BOARD_INDEX_SLOTS + state.TRAY_SIZE
 HAND_MULTIHOT_DIM = _BIRD_ID_DIM
 
 _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
+    _stripe_descriptors.StripeSpec(
+        name="turn_state",
+        size=N_PLAYER_TURNS + 1,  # 26-dim player-turn one-hot + is_first_player flag
+    ),
     _stripe_descriptors.StripeSpec(name="food_me", size=cards.N_FOODS),
     _stripe_descriptors.StripeSpec(name="food_opp", size=cards.N_FOODS),
     _stripe_descriptors.StripeSpec(name="board_me", size=_BOARD_CONT_STRIPE_DIM),
@@ -481,9 +496,7 @@ _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="birdfeeder", size=7),
     _stripe_descriptors.StripeSpec(
         name="misc_scalars",
-        size=N_ROUNDS
-        + (MAX_ACTION_CUBES + 1) * 2
-        + 4,  # 4-dim round one-hot + 9-dim cube×2 + 4 scalars
+        size=4,  # goal pts ×2 + tray size + deck size
     ),
     _stripe_descriptors.StripeSpec(name="round_goals", size=_ROUND_GOALS_STRIPE_DIM),
     _stripe_descriptors.StripeSpec(name="card_idx_block", size=N_CARD_INDEX_SLOTS),

@@ -33,7 +33,32 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v0.3 — one-hot round number and cube counts (current)
+### v0.4 — turn-state stripe and first-player flag (current)
+
+**FRESH change** — replaced the round one-hot and both cube one-hots in
+`misc_scalars` with a new leading `turn_state` stripe, growing the state vector
+by 5 dims (790 → 795):
+
+1. **New `turn_state` stripe (27 dims) prepended first** — a 26-dim player-turn
+   one-hot (which of the player's 26 personal turns across all 4 rounds they are
+   on) plus a 1-bit `is_first_player` flag (1.0 when the POV player goes first in
+   the current round). All-zeros during setup (`turn_counter == 0`). Turn index
+   formula: `_ROUND_CUBE_OFFSETS[round_idx] + (ROUND_CUBES[round_idx] - action_cubes_left)`.
+2. **`misc_scalars` shrank from 26 → 4 dims** — the 4-dim round one-hot and
+   both 9-dim cube one-hots were dropped; only the 4 trailing scalars remain
+   (goal pts × 2, tray size, deck size).
+
+New constants: `N_PLAYER_TURNS = 26`, `_ROUND_CUBE_OFFSETS = [0, 8, 15, 21]`.
+Constants `N_ROUNDS` and `MAX_ACTION_CUBES` are retained for backward-compat shims.
+
+Shim: `wingspan.compat.v0_3` — `PolicyValueNetV03` (overrides `encode_state`
+with frozen 26-dim one-hot misc stripe, no turn_state), `encode_state_v03`
+(790-dim frozen vector), `state_stripe_layout_v03` (frozen stripe registry).
+
+Fixture set: `tests/data/compat/v0.4/` — to be captured after this change
+merges (requires a short training run).
+
+### v0.3 — one-hot round number and cube counts
 
 **FRESH change** — replaced three raw scalars in `_summary_misc_scalars` with
 one-hot vectors, growing the state vector by 19 dims (771 → 790):

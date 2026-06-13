@@ -33,6 +33,9 @@ def encode_state(
     opp = state.players[1 - pov] if len(state.players) > 1 else me
 
     parts: list[np.ndarray] = [
+        _summary_turn_state(
+            state, me
+        ),  # layout.N_PLAYER_TURNS + 1 (turn one-hot + first-player flag)
         _summary_food(me),  # 5
         _summary_food(opp),  # 5
         _board_slots_continuous(
@@ -50,7 +53,7 @@ def encode_state(
         _opp_bonus_count(opp),  # 1 — opponent bonus-card count (hidden identity)
         np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32),
         _summary_birdfeeder(state),  # 7 (5 food faces + choice dice + reset flag)
-        _summary_misc_scalars(state, me, opp),  # 26
+        _summary_misc_scalars(state, me, opp),  # 4 (goal pts ×2, tray size, deck size)
         _round_goals_all_rounds(state, me),  # layout._ROUND_GOALS_STRIPE_DIM
         _card_index_block(me, opp, state),  # layout.N_CARD_INDEX_SLOTS — board+tray ids
         _hand_identity(me),  # layout.HAND_MULTIHOT_DIM — multi-hot of my hand
@@ -418,36 +421,45 @@ def _summary_birdfeeder(state: state.GameState) -> np.ndarray:
     )
 
 
-def _summary_misc_scalars(
-    state: state.GameState, me: state.Player, opp: state.Player
-) -> np.ndarray:
-    # 4-dim round one-hot + 9-dim cube-me one-hot + 9-dim cube-opp one-hot +
-    # 2 goal-pts scalars + 1 tray-size scalar + 1 deck-size scalar = 26 total.
-    out = np.zeros(
-        layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2 + 4, dtype=np.float32
+def _summary_turn_state(game_state: state.GameState, me: state.Player) -> np.ndarray:
+    """27 dims: 26-dim player-turn one-hot + is_first_player flag.
+
+    The turn one-hot marks which of the player's 26 personal turns (across
+    all 4 rounds) they are currently on, counting from 0. It is all-zeros
+    during setup (``turn_counter == 0``). The trailing flag is 1.0 when
+    ``me`` goes first in the current round, 0.0 when second."""
+    out = np.zeros(layout.N_PLAYER_TURNS + 1, dtype=np.float32)
+
+    # 26-dim turn one-hot (all-zeros during setup)
+    if game_state.turn_counter != 0:
+        player_turn = (
+            layout._ROUND_CUBE_OFFSETS[game_state.round_idx]
+            + state.ROUND_CUBES[game_state.round_idx]
+            - me.action_cubes_left
+        )
+        out[player_turn] = 1.0
+
+    # Is-first-player flag: 1.0 when me goes first this round.
+    out[layout.N_PLAYER_TURNS] = float(
+        me.id == (game_state.start_player + game_state.round_idx) % 2
     )
-    offset = 0
-
-    # 4-dim one-hot for current round (0..3)
-    out[offset + state.round_idx] = 1.0
-    offset += layout.N_ROUNDS
-
-    # 9-dim one-hot for my remaining action cubes (0..8)
-    out[offset + me.action_cubes_left] = 1.0
-    offset += layout.MAX_ACTION_CUBES + 1
-
-    # 9-dim one-hot for opponent remaining action cubes (0..8)
-    out[offset + opp.action_cubes_left] = 1.0
-    offset += layout.MAX_ACTION_CUBES + 1
-
-    # Scalar goal-points, tray-size, deck-size (unchanged from v0.2)
-    out[offset] = me.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE
-    out[offset + 1] = opp.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE
-    out[offset + 2] = (
-        sum(1 for bird in state.tray if bird is not None) / layout._TRAY_SIZE_SCALE
-    )
-    out[offset + 3] = len(state.bird_deck) / layout._DECK_SIZE_SCALE
     return out
+
+
+def _summary_misc_scalars(
+    game_state: state.GameState, me: state.Player, opp: state.Player
+) -> np.ndarray:
+    """4 dims: my round-goal VP, opponent round-goal VP, tray size, deck size."""
+    return np.array(
+        [
+            me.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
+            opp.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
+            sum(1 for bird in game_state.tray if bird is not None)
+            / layout._TRAY_SIZE_SCALE,
+            len(game_state.bird_deck) / layout._DECK_SIZE_SCALE,
+        ],
+        dtype=np.float32,
+    )
 
 
 def _encode_decision_type(

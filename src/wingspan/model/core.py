@@ -120,14 +120,16 @@ class PolicyValueNet(nn.Module):
         The single era-routing table: pre-0.1 → ``v0_0.PolicyValueNetV00``
         (frozen choice encoding); 0.1 → ``v0_1.PolicyValueNetV01`` (frozen
         229-wide card encoder); 0.2 → ``v0_2.PolicyValueNetV02`` (frozen
-        771-dim state geometry); current era → the live class. Used by every
-        construction seam that must honor an artifact's era — the checkpoint
-        loaders, ``from_model_config``, and the era-pinned training pipeline
-        (``TrainConfig.encoding_version``)."""
+        771-dim state geometry); 0.3 → ``v0_3.PolicyValueNetV03`` (frozen
+        790-dim state geometry, one-hot round + cubes); current era → the live
+        class. Used by every construction seam that must honor an artifact's era
+        — the checkpoint loaders, ``from_model_config``, and the era-pinned
+        training pipeline (``TrainConfig.encoding_version``)."""
         from wingspan.compat import (  # local: compat subclasses this net
             v0_0,
             v0_1,
             v0_2,
+            v0_3,
         )
 
         if v0_0.uses_v0_0_choice_encoding(artifact_version):
@@ -136,6 +138,8 @@ class PolicyValueNet(nn.Module):
             return v0_1.PolicyValueNetV01
         if v0_2.uses_v0_2_state_encoding(artifact_version):
             return v0_2.PolicyValueNetV02
+        if v0_3.uses_v0_3_state_encoding(artifact_version):
+            return v0_3.PolicyValueNetV03
         return PolicyValueNet
 
     @classmethod

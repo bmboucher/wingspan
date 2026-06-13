@@ -245,16 +245,25 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
     """The post-embedding state stripe registry for ``descriptor``, era-routed.
 
     Pre-0.3 artifacts have a 771-dim state vector (scalar round + cube encoding);
-    their registry is produced by the frozen ``compat.v0_2.state_stripe_layout_v02``
-    so the breakdown matches the checkpoint's actual trunk input. Current-era
-    (0.3+) artifacts use the live registry with the one-hot misc-scalars stripe.
+    their registry is produced by the frozen ``compat.v0_2.state_stripe_layout_v02``.
+    Pre-0.4 artifacts have a 790-dim state vector (one-hot round + cubes, no
+    turn_state stripe); their registry is produced by ``compat.v0_3.state_stripe_layout_v03``.
+    Current-era (0.4+) artifacts use the live registry with the turn_state stripe.
     """
-    from wingspan.compat import v0_2  # local: compat imports the model package
+    from wingspan.compat import v0_2, v0_3  # local: compat imports the model package
 
     arch = descriptor.architecture
     spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
     if v0_2.uses_v0_2_state_encoding(descriptor.version):
         return v0_2.state_stripe_layout_v02(
+            spec,
+            arch.card_embed_dim,
+            use_distinct_hand_model=arch.use_distinct_hand_model,
+            hand_embed_dim=arch.hand_embed_dim,
+            tray_set_embedding=arch.tray_set_embedding,
+        )
+    if v0_3.uses_v0_3_state_encoding(descriptor.version):
+        return v0_3.state_stripe_layout_v03(
             spec,
             arch.card_embed_dim,
             use_distinct_hand_model=arch.use_distinct_hand_model,

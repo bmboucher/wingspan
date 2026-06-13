@@ -51,6 +51,33 @@ def state_stripe_layout(
     stripes: list[descriptors.StripeDescriptor] = []
     off = 0
 
+    # ---- turn state (first stripe) ----
+    turn_dim = layout.N_PLAYER_TURNS + 1  # 26 turn positions + is_first_player flag
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="turn_state",
+            description=(
+                "Which of the player's 26 personal turns they are on, plus "
+                "whether they go first in the current round."
+            ),
+            offset=off,
+            size=turn_dim,
+            encoding="complex",
+            value_range="varies",
+            notes=(
+                f"{layout.N_PLAYER_TURNS + 1} values: "
+                f"player_turn_one_hot[0:{layout.N_PLAYER_TURNS}] "
+                f"({layout.N_PLAYER_TURNS} dims, all-zeros during setup), "
+                f"is_first_player[{layout.N_PLAYER_TURNS}] "
+                "(1.0 when me goes first in this round, 0.0 when second). "
+                "Turn index = cumulative_cubes_offset[round] + "
+                "(ROUND_CUBES[round] - action_cubes_left)."
+            ),
+            sub_fields=_turn_state_sub_fields(),
+        )
+    )
+    off += turn_dim
+
     # ---- food inventory ----
     stripes.append(
         descriptors.StripeDescriptor(
@@ -284,22 +311,19 @@ def state_stripe_layout(
     off += 7
 
     # ---- miscellaneous scalars ----
-    misc_dim = layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2 + 4  # 26
+    misc_dim = 4  # goal pts ×2 + tray size + deck size
     stripes.append(
         descriptors.StripeDescriptor(
             name="misc_scalars",
-            description="Miscellaneous game state (round, cubes, scores, deck).",
+            description="Miscellaneous game state (scores, deck).",
             offset=off,
             size=misc_dim,
-            encoding="complex",
-            value_range="varies",
+            encoding="vector",
+            value_range="[0, ~1]",
             notes=(
-                f"26 values: round_index one-hot[0:{layout.N_ROUNDS}] (4 dims, rounds 0–3), "
-                f"my_action_cubes one-hot[{layout.N_ROUNDS}:{layout.N_ROUNDS + layout.MAX_ACTION_CUBES + 1}] "
-                f"(9 dims, 0–{layout.MAX_ACTION_CUBES} cubes), "
-                f"opp_action_cubes one-hot[{layout.N_ROUNDS + layout.MAX_ACTION_CUBES + 1}:{layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2}] "
-                f"(9 dims), then 4 scalars: my_round_goal_pts (÷10), "
-                "opp_round_goal_pts (÷10), tray_size (÷3), deck_size (÷100)."
+                "4 scalars: my_round_goal_pts (÷10), opp_round_goal_pts (÷10), "
+                "tray_size (÷3), deck_size (÷100). "
+                "Round and cube info moved to the leading turn_state stripe."
             ),
             sub_fields=_misc_scalars_sub_fields(),
         )
@@ -603,63 +627,47 @@ def _birdfeeder_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
     return tuple(sub_fields)
 
 
-def _misc_scalars_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """26 sub-fields for the misc-scalars stripe (one-hots + scalars).
-
-    Layout: 4-dim round one-hot, 9-dim cube-me one-hot, 9-dim cube-opp
-    one-hot, then 4 trailing scalars (goal pts × 2, tray size, deck size).
-    """
+def _turn_state_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """Sub-fields for the leading turn_state stripe (26-dim one-hot + flag)."""
     from wingspan.encode import layout
 
-    sub_fields: list[descriptors.SubFieldDescriptor] = []
-
-    # 4-dim round one-hot
-    sub_fields.append(
+    return (
         descriptors.SubFieldDescriptor(
-            name="round_index",
-            description="Current round number (0–3), encoded as a 4-dim one-hot.",
+            name="player_turn",
+            description=(
+                f"Which of the player's {layout.N_PLAYER_TURNS} personal turns "
+                "they are currently on (0-indexed). All-zeros during setup."
+            ),
             relative_offset=0,
-            size=layout.N_ROUNDS,
+            size=layout.N_PLAYER_TURNS,
             encoding="one-hot",
             value_range="{0, 1}",
-            notes=f"{layout.N_ROUNDS} positions for rounds 0–3.",
-        )
-    )
-
-    # 9-dim cube-me one-hot
-    sub_fields.append(
-        descriptors.SubFieldDescriptor(
-            name="my_action_cubes",
-            description=(
-                f"My remaining action cubes this round (0–{layout.MAX_ACTION_CUBES}), "
-                f"encoded as a {layout.MAX_ACTION_CUBES + 1}-dim one-hot."
+            notes=(
+                f"{layout.N_PLAYER_TURNS} positions. "
+                "Turn index = cumulative_offset[round_idx] + "
+                "(ROUND_CUBES[round_idx] - action_cubes_left). "
+                "Offsets by round: 0, 8, 15, 21."
             ),
-            relative_offset=layout.N_ROUNDS,
-            size=layout.MAX_ACTION_CUBES + 1,
-            encoding="one-hot",
-            value_range="{0, 1}",
-            notes=f"{layout.MAX_ACTION_CUBES + 1} positions for 0–{layout.MAX_ACTION_CUBES} cubes.",
-        )
-    )
-
-    # 9-dim cube-opp one-hot
-    sub_fields.append(
+        ),
         descriptors.SubFieldDescriptor(
-            name="opp_action_cubes",
+            name="is_first_player",
             description=(
-                f"Opponent remaining action cubes this round (0–{layout.MAX_ACTION_CUBES}), "
-                f"encoded as a {layout.MAX_ACTION_CUBES + 1}-dim one-hot."
+                "1.0 when this player goes first in the current round, 0.0 when second."
             ),
-            relative_offset=layout.N_ROUNDS + layout.MAX_ACTION_CUBES + 1,
-            size=layout.MAX_ACTION_CUBES + 1,
-            encoding="one-hot",
+            relative_offset=layout.N_PLAYER_TURNS,
+            size=1,
+            encoding="binary",
             value_range="{0, 1}",
-            notes=f"{layout.MAX_ACTION_CUBES + 1} positions for 0–{layout.MAX_ACTION_CUBES} cubes.",
-        )
+            notes=(
+                "Derived as: me.id == (start_player + round_idx) % 2. "
+                "Flips every round."
+            ),
+        ),
     )
 
-    # Trailing scalars
-    scalar_base = layout.N_ROUNDS + (layout.MAX_ACTION_CUBES + 1) * 2
+
+def _misc_scalars_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """4 sub-fields for the misc-scalars stripe (trailing goal/deck scalars)."""
     scalar_entries = [
         (
             "my_round_goal_pts",
@@ -682,20 +690,18 @@ def _misc_scalars_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
             "Normalized ÷ 100.",
         ),
     ]
-    for idx, (name, desc, notes) in enumerate(scalar_entries):
-        sub_fields.append(
-            descriptors.SubFieldDescriptor(
-                name=name,
-                description=desc,
-                relative_offset=scalar_base + idx,
-                size=1,
-                encoding="scalar",
-                value_range="[0, ~1]",
-                notes=notes,
-            )
+    return tuple(
+        descriptors.SubFieldDescriptor(
+            name=name,
+            description=desc,
+            relative_offset=idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes=notes,
         )
-
-    return tuple(sub_fields)
+        for idx, (name, desc, notes) in enumerate(scalar_entries)
+    )
 
 
 def _round_goals_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:

@@ -12,6 +12,8 @@ never config flags — and the whole package is deleted wholesale at a MAJOR bum
   26-wide bonus-categories multi-hot + 180 bird-identity one-hot).
 * ``v0_2`` — the pre-0.3 misc-scalar state geometry (round ÷ 3, cubes ÷ 8;
   771-dim state vector before the one-hot round + cube stripes).
+* ``v0_3`` — the pre-0.4 state geometry (one-hot round + cubes in misc_scalars,
+  no leading turn_state stripe; 790-dim state vector).
 
 :func:`encoding_dims_for_era` is the package-level dims router: given an
 artifact version it returns the raw state/choice vector widths that era's
@@ -21,9 +23,9 @@ actually carry instead of the live ones.
 """
 
 from wingspan import encode
-from wingspan.compat import v0_0, v0_1, v0_2
+from wingspan.compat import v0_0, v0_1, v0_2, v0_3
 
-__all__ = ["encoding_dims_for_era", "v0_0", "v0_1", "v0_2"]
+__all__ = ["encoding_dims_for_era", "v0_0", "v0_1", "v0_2", "v0_3"]
 
 
 def encoding_dims_for_era(
@@ -32,14 +34,16 @@ def encoding_dims_for_era(
     """The raw ``(state_dim, choice_dim)`` an era's encoders produce under ``spec``.
 
     Routes each axis through the shim that froze it: pre-0.3 artifacts carry the
-    771-dim misc-scalar state vector (``v0_2``), and pre-0.1 artifacts carry the
+    771-dim misc-scalar state vector (``v0_2``), pre-0.4 artifacts carry the
+    790-dim one-hot state vector (``v0_3``), and pre-0.1 artifacts carry the
     reshaped-away choice geometry (``v0_0``). Current-era artifacts get the live
     widths. Raises ``ValueError`` for a malformed version string."""
-    state_dim = (
-        v0_2.state_feature_dim_v02(spec)
-        if v0_2.uses_v0_2_state_encoding(artifact_version)
-        else encode.state_size(spec)
-    )
+    if v0_2.uses_v0_2_state_encoding(artifact_version):
+        state_dim = v0_2.state_feature_dim_v02(spec)
+    elif v0_3.uses_v0_3_state_encoding(artifact_version):
+        state_dim = v0_3.state_feature_dim_v03(spec)
+    else:
+        state_dim = encode.state_size(spec)
     choice_dim = (
         v0_0.choice_feature_dim(spec)
         if v0_0.uses_v0_0_choice_encoding(artifact_version)
