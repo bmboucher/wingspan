@@ -280,6 +280,20 @@ same way `encode_state` is already frozen. So when adding an era shim, freeze
 **all** geometry the net derives from the layout, not just `encode_state` —
 every code-carried value the loaded artifact's behavior depends on.
 
+The same class recurred on 2026-06-14: the 0.4 `turn_state` stripe (27 dims,
+new at the front) shifted the hand-summary stripe 27 columns, but `_embed_state`
+still read it from the live `encode.HAND_SUMMARY_OFFSET` — a layout offset the
+era seam did not yet cover. Every pre-0.4 net with a distinct hand model had its
+hand summary mis-sliced; `encode_state` itself was byte-correct, so only the
+forward pass was wrong, and sharp checkpoints dropped to random-level play while
+their self-play training metric — which never round-trips through the shim —
+stayed healthy. The structural fix makes the seam exhaustive: `_state_embed_offsets`
+returns a `model.StateEmbedOffsets` named tuple carrying *all four* offsets
+`_embed_state` reads (card-index, hand, decision, hand-summary), and each shim
+freezes the whole tuple — different stripes precede each, so they do not share
+one delta. Import-time assertions pin the hand-summary delta to the live
+`turn_state` width, so the next inserted stripe is caught, not silently absorbed.
+
 ## The one accepted source of drift: the engine
 
 `engine.core.Engine` is shared by both players in a game and cannot fork its

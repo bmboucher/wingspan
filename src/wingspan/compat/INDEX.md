@@ -14,9 +14,13 @@ is that the rehydrated net computes identically to the saved one. The
 frozen-vector helpers (`encode_*_v0N`) are only half of it: the net also derives
 *slice offsets* from the live layout (`_embed_state` / `_embed_choices`), and
 those must move with the era too. When live and frozen widths coincide a stale
-offset corrupts silently instead of crashing (the 2026-06-10 `_embed_state` bug).
-Every code-carried value the loaded artifact's behavior depends on belongs in the
-shim — see `docs/VERSIONING.md` (FRESH vs REGIME, config- vs code-carried).
+offset corrupts silently instead of crashing (the 2026-06-10 card-index and
+2026-06-14 hand-summary `_embed_state` bugs). Every state-embed offset
+`_embed_state` reads is consolidated into `model.StateEmbedOffsets` (card-index,
+hand, decision, hand-summary), which each shim overrides as one unit — so a
+newly-inserted stripe cannot desync an offset a shim forgot. Every code-carried
+value the loaded artifact's behavior depends on belongs in the shim — see
+`docs/VERSIONING.md` (FRESH vs REGIME, config- vs code-carried).
 
 **Shims also back era-pinned training.** A resumed run carries
 `TrainConfig.encoding_version` and keeps producing artifacts at its own era
@@ -52,11 +56,25 @@ several choice-vector stripes that were added in v0.1.
   v0.2 offsets, via `v0_2.state_embed_offsets_v02`).
 - `SetupNetV01` — the setup-net twin of the frozen card encoder.
 
-**`v0_2.py`** — Pre-0.3 state-misc shim (state vector 771 → 790 via the round /
-cube one-hot reshape). All pre-0.3 nets feed the 771-dim vector.
+**`v0_2.py`** — Pre-0.3 state-misc shim (the 0.3 round / cube one-hot reshape).
+All pre-0.3 nets feed the 771-dim vector.
 - `PolicyValueNetV02` — overrides `encode_state` (frozen 7-scalar misc stripe via
   `encode_state_v02`) and `_state_embed_offsets` (the matching slice offsets).
 - `encode_state_v02` / `state_embed_offsets_v02` — the frozen 771-dim vector and
-  the `(card-index, hand, decision)` offsets it must be sliced at (live offsets
-  shifted by `_MISC_DIM_DELTA` = −19). `state_stripe_layout_v02` is the reporting
-  twin.
+  the `StateEmbedOffsets` (card-index, hand, decision, hand-summary) it must be
+  sliced at: the first three are live offsets shifted by `_MISC_DIM_DELTA` (−24
+  vs. the live 0.4 vector); hand-summary — which precedes misc, so only the
+  `turn_state` stripe sits ahead of it — shifts by `_HAND_SUMMARY_DIM_DELTA`
+  (−27). `state_stripe_layout_v02` is the reporting twin.
+
+**`v0_3.py`** — Pre-0.4 state shim (the 0.4 `turn_state` stripe + misc shrink,
+state vector 790 → 795). All pre-0.4 nets feed the 790-dim vector.
+- `PolicyValueNetV03` — overrides `encode_state` (frozen 26-dim one-hot misc, no
+  `turn_state`, via `encode_state_v03`) and `_state_embed_offsets`.
+- `encode_state_v03` / `state_embed_offsets_v03` — the frozen 790-dim vector and
+  its `StateEmbedOffsets`: card-index / hand / decision shifted by
+  `_TOTAL_DIM_DELTA` (−5), hand-summary by `_HAND_SUMMARY_DIM_DELTA` (−27, the
+  absent `turn_state` stripe). `state_stripe_layout_v03` is the reporting twin.
+- Import-time `_assert_live_layout_contract` pins the deltas and the
+  `turn_state < hand_summary < misc_scalars` ordering so a future stripe shift is
+  caught, not silently absorbed.

@@ -123,11 +123,12 @@ class PolicyValueNetV01(core.PolicyValueNet):
 
         return v0_2_module.encode_state_v02(game_state, decision, self.spec)
 
-    def _state_embed_offsets(self) -> tuple[int, int, int]:
+    def _state_embed_offsets(self) -> core.StateEmbedOffsets:
         """Slice the 771-dim v0.2 state vector at its frozen offsets — the same
         seam ``PolicyValueNetV02`` overrides (pre-0.2 nets feed the same vector),
-        so the trunk reads the card-index / hand / decision stripes at the v0.2
-        columns, not the live 790-dim ones (``PolicyValueNetV00`` inherits this)."""
+        so the trunk reads the card-index / hand / decision and hand-summary
+        stripes at the v0.2 columns, not the live 795-dim ones
+        (``PolicyValueNetV00`` inherits this)."""
         from wingspan.compat import v0_2 as v0_2_module  # local: avoids import cycle
 
         return v0_2_module.state_embed_offsets_v02()

@@ -72,6 +72,12 @@ _V03_DECK_SCALE = 100.0
 # therefore 5 dims narrower.  Pinned to -5 by _assert_live_layout_contract.
 _TOTAL_DIM_DELTA = _V03_MISC_DIM - (layout.N_PLAYER_TURNS + 1 + 4)
 
+# The hand-summary stripe (10 dims) precedes misc_scalars but follows the leading
+# turn_state stripe, so a v0.3 vector places it back by exactly the turn_state
+# width — not the misc-inclusive _TOTAL_DIM_DELTA. Pinned by
+# _assert_live_layout_contract.
+_HAND_SUMMARY_DIM_DELTA = -(layout.N_PLAYER_TURNS + 1)
+
 
 def uses_v0_3_state_encoding(artifact_version: str) -> bool:
     """Whether ``artifact_version`` uses the v0.3 (790-dim) state encoding and
@@ -156,22 +162,24 @@ def encode_state_v03(
     return np.concatenate(parts).astype(np.float32)
 
 
-def state_embed_offsets_v03() -> tuple[int, int, int]:
-    """The ``(card-index, hand-multi-hot, decision-type)`` slice offsets for the
-    frozen 790-dim v0.3 state vector.
+def state_embed_offsets_v03() -> core.StateEmbedOffsets:
+    """The frozen slice offsets ``_embed_state`` uses for the 790-dim v0.3 state
+    vector.
 
-    These are the live ``encode.layout`` offsets shifted back by
-    :data:`_TOTAL_DIM_DELTA` (-5), because the v0.4 layout added a leading
-    27-dim turn_state stripe and shrank misc from 26 to 4 dims (net +5 added
-    before the card-index / hand / decision-type positions).  ``PolicyValueNetV03``
-    overrides ``_embed_state``'s offsets with this, so an old checkpoint's state
-    vector is sliced at the columns it was written with rather than the live ones
-    (the widths coincide, so a live slice would corrupt silently — see
-    ``compat/INDEX.md``)."""
-    return (
-        layout.OFF_CARD_INDEX + _TOTAL_DIM_DELTA,
-        layout.OFF_HAND_MULTIHOT + _TOTAL_DIM_DELTA,
-        layout.OFF_DECISION_TYPE + _TOTAL_DIM_DELTA,
+    The card-index / hand-multi-hot / decision-type offsets are the live ones
+    shifted back by :data:`_TOTAL_DIM_DELTA` (-5), because the v0.4 layout added a
+    leading 27-dim turn_state stripe and shrank misc from 26 to 4 dims (net +5
+    added before those positions). The hand-summary offset sits *before*
+    misc_scalars, so it shifts by only :data:`_HAND_SUMMARY_DIM_DELTA` (-27, the
+    absent turn_state stripe). ``PolicyValueNetV03`` overrides ``_embed_state``'s
+    offsets with this, so an old checkpoint's state vector is sliced at the
+    columns it was written with rather than the live ones (the widths coincide, so
+    a live slice would corrupt silently — see ``compat/INDEX.md``)."""
+    return core.StateEmbedOffsets(
+        card_index=layout.OFF_CARD_INDEX + _TOTAL_DIM_DELTA,
+        hand_multihot=layout.OFF_HAND_MULTIHOT + _TOTAL_DIM_DELTA,
+        decision_type=layout.OFF_DECISION_TYPE + _TOTAL_DIM_DELTA,
+        hand_summary=layout.HAND_SUMMARY_OFFSET + _HAND_SUMMARY_DIM_DELTA,
     )
 
 
@@ -208,11 +216,12 @@ class PolicyValueNetV03(core.PolicyValueNet):
         trunk expects."""
         return encode_state_v03(game_state, decision, self.spec)
 
-    def _state_embed_offsets(self) -> tuple[int, int, int]:
+    def _state_embed_offsets(self) -> core.StateEmbedOffsets:
         """Slice the 790-dim v0.3 state vector at its own frozen offsets rather
         than the live 795-dim ones — without this the trunk reads the
-        card-index / hand / decision stripes 5 columns too far right (the
-        widths coincide, so it would corrupt silently, not crash)."""
+        card-index / hand / decision stripes 5 columns too far right, and the
+        hand-summary stripe 27 columns too far right (the widths coincide, so it
+        would corrupt silently, not crash)."""
         return state_embed_offsets_v03()
 
 
@@ -400,6 +409,21 @@ def _assert_live_layout_contract() -> None:
     assert _TOTAL_DIM_DELTA == -5, (
         f"v0.3 shim expects -5 dim delta between v0.4 live and v0.3 vectors, "
         f"but computed {_TOTAL_DIM_DELTA}; update the shim"
+    )
+    # The hand-summary stripe sits after turn_state but before misc_scalars in
+    # the live layout, so dropping turn_state shifts it back by exactly the
+    # turn_state width (not _TOTAL_DIM_DELTA). Pin the ordering and the delta so a
+    # stripe inserted ahead of hand_summary can't silently desync the frozen
+    # offset (the 2026-06-14 regression read it at the live column, 27 too far).
+    assert (
+        layout.STATE_CONT_LAYOUT.offset_of("turn_state")
+        < layout.STATE_CONT_LAYOUT.offset_of("hand_summary_me")
+        < layout.STATE_CONT_LAYOUT.offset_of("misc_scalars")
+    ), "v0.3 shim assumes turn_state < hand_summary_me < misc_scalars in the live layout"
+    assert _HAND_SUMMARY_DIM_DELTA == -layout.STATE_CONT_LAYOUT.size_of("turn_state"), (
+        f"v0.3 shim expects hand_summary to shift back by the turn_state width "
+        f"({layout.STATE_CONT_LAYOUT.size_of('turn_state')}), but computed "
+        f"{_HAND_SUMMARY_DIM_DELTA}; update the shim"
     )
 
 

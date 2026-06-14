@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+import typing
 
 import numpy as np
 import torch
@@ -72,13 +73,13 @@ def test_state_embed_offsets_v03_shift_by_minus_5():
     net +5 before the card-index block; the v0.3 vector is 5 dims narrower.
     The widths of the sliced regions coincide, so slicing live would corrupt
     the trunk input silently rather than crash."""
-    off_card, off_hand, off_decision = v0_3.state_embed_offsets_v03()
-    assert off_card == encode.OFF_CARD_INDEX + _V03_DIM_DELTA
-    assert off_hand == encode.OFF_HAND_MULTIHOT + _V03_DIM_DELTA
-    assert off_decision == encode.OFF_DECISION_TYPE + _V03_DIM_DELTA
+    offsets = v0_3.state_embed_offsets_v03()
+    assert offsets.card_index == encode.OFF_CARD_INDEX + _V03_DIM_DELTA
+    assert offsets.hand_multihot == encode.OFF_HAND_MULTIHOT + _V03_DIM_DELTA
+    assert offsets.decision_type == encode.OFF_DECISION_TYPE + _V03_DIM_DELTA
     # The three regions must remain contiguous (widths unchanged between eras).
-    assert off_card + encode.N_CARD_INDEX_SLOTS == off_hand
-    assert off_hand + encode.HAND_MULTIHOT_DIM == off_decision
+    assert offsets.card_index + encode.N_CARD_INDEX_SLOTS == offsets.hand_multihot
+    assert offsets.hand_multihot + encode.HAND_MULTIHOT_DIM == offsets.decision_type
 
 
 # ---------------------------------------------------------------------------
@@ -196,12 +197,12 @@ def test_policy_value_net_v03_embed_offsets():
     """The v0.3 net overrides ``_state_embed_offsets`` with the frozen -5
     shifted offsets — not the live 795-dim ones."""
     net = v0_3.PolicyValueNetV03(arch=_SMALL, state_dim=v0_3.state_feature_dim_v03())
-    assert net._state_embed_offsets() == v0_3.state_embed_offsets_v03()
-    assert net._state_embed_offsets() != (
-        encode.OFF_CARD_INDEX,
-        encode.OFF_HAND_MULTIHOT,
-        encode.OFF_DECISION_TYPE,
-    )
+    frozen = net._state_embed_offsets()
+    assert frozen == v0_3.state_embed_offsets_v03()
+    # Every field is shifted off the live layout — the card-index block by -5 and
+    # (the 2026-06-14 regression) hand_summary by the absent turn_state stripe.
+    assert frozen.card_index != encode.OFF_CARD_INDEX
+    assert frozen.hand_summary != encode.HAND_SUMMARY_OFFSET
 
 
 def test_policy_value_net_v03_encode_state_uses_frozen_encoder():
@@ -263,3 +264,57 @@ def test_from_model_config_routes_v0_3_to_shim():
     )
     live_net = model.PolicyValueNet.from_model_config(live_config)
     assert not isinstance(live_net, v0_3.PolicyValueNetV03)
+
+
+# ---------------------------------------------------------------------------
+# Hand-summary offset — the 2026-06-14 forward-pass regression
+
+
+def test_v03_hand_summary_offset_lands_on_hand_summary_stripe():
+    """Regression (2026-06-14): the v0.3 net must slice the 10-dim hand-summary
+    stripe at the column its own 790-dim vector wrote it to — 27 left of the live
+    offset, which assumes the v0.4 turn_state stripe.
+
+    ``_embed_state`` reads ``_state_embed_offsets().hand_summary``; before the fix
+    it used the live ``encode.HAND_SUMMARY_OFFSET`` constant, so a pre-0.4
+    checkpoint had its hand summary read 27 columns too far right — silent trunk
+    corruption that tanked sharp checkpoints to random-level play (encode_state
+    itself was byte-correct, so only the forward pass was wrong)."""
+    from wingspan import decisions
+    from wingspan.encode import state_encode
+
+    offsets = v0_3.state_embed_offsets_v03()
+    # The frozen offset is the live one minus the turn_state stripe width.
+    assert offsets.hand_summary == encode.HAND_SUMMARY_OFFSET - (
+        layout.N_PLAYER_TURNS + 1
+    )
+    assert offsets.hand_summary != encode.HAND_SUMMARY_OFFSET
+
+    # On a real post-setup state the frozen offset must land exactly on the
+    # hand-summary stripe encode_state_v03 wrote (the live offset would read a
+    # different stripe entirely). Random play populates the hand along the way.
+    captured: dict[str, np.ndarray] = {}
+
+    def agent[C: decisions.Choice](
+        game_engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        # Skip the opening SetupDecision: the main net never encodes it when
+        # include_setup is off (the setup model handles the opening), and its
+        # type index is out of range for the include_setup=False encoding.
+        if not decisions.is_setup_decision(decision) and "vec" not in captured:
+            me = game_engine.state.players[decision.player_id]
+            captured["vec"] = v0_3.encode_state_v03(
+                game_engine.state,
+                typing.cast("decisions.Decision[decisions.Choice]", decision),
+            )
+            captured["hand_summary"] = state_encode._summary_hand(me)
+        rng = game_engine.state.rng
+        return decision.choices[rng.randrange(len(decision.choices))]
+
+    eng, *_ = engine.Engine.create(seed=3)
+    engine.Engine.play_one_game(eng.state, (agent, agent))
+    assert "vec" in captured, "expected at least one non-setup decision"
+    sliced = captured["vec"][
+        offsets.hand_summary : offsets.hand_summary + encode.HAND_SUMMARY_DIM
+    ]
+    assert np.array_equal(sliced, captured["hand_summary"])

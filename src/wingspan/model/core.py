@@ -42,6 +42,27 @@ if typing.TYPE_CHECKING:
     from wingspan.training import runmeta
 
 
+class StateEmbedOffsets(typing.NamedTuple):
+    """The era-dependent column offsets :meth:`PolicyValueNet._embed_state` slices
+    the flat state vector on.
+
+    The live net derives them from the current ``encode.layout`` chain; a
+    frozen-geometry compat net overrides
+    :meth:`PolicyValueNet._state_embed_offsets` to return the offsets *its* era's
+    vector was written with. The four fields do not all shift by one uniform delta
+    between eras: ``card_index`` / ``hand_multihot`` / ``decision_type`` follow the
+    misc-scalars stripe, while ``hand_summary`` precedes it, so a stripe inserted
+    between them moves only a subset. Every offset ``_embed_state`` reads lives
+    here — not as a bare ``encode.*`` constant — so a shim freezes all of them at
+    once and a new stripe cannot silently desync one (see ``docs/VERSIONING.md``
+    and ``compat/INDEX.md``)."""
+
+    card_index: int
+    hand_multihot: int
+    decision_type: int
+    hand_summary: int
+
+
 class PolicyValueNet(nn.Module):
     """Actor-critic over (state, choice-set) decisions with per-family heads.
 
@@ -421,22 +442,24 @@ class PolicyValueNet(nn.Module):
             self._inference_card_table = cached
         return cached
 
-    def _state_embed_offsets(self) -> tuple[int, int, int]:
-        """The ``(card-index, hand-multi-hot, decision-type)`` slice offsets that
-        :meth:`_embed_state` splits the flat state vector on.
+    def _state_embed_offsets(self) -> StateEmbedOffsets:
+        """The column offsets :meth:`_embed_state` splits the flat state vector on
+        — the card-index block, hand multi-hot, decision-type tail, and the
+        hand-summary stripe (used when ``use_distinct_hand_model`` is on).
 
         The live net reads them from the current ``encode.layout`` chain. Era
         compat nets carry their own frozen-geometry state vector (e.g. the
-        771-dim pre-0.3 vector), so they override this to return the offsets
+        790-dim pre-0.4 vector), so they override this to return the offsets
         that vector was written with — never the live ones. Slicing an old
         vector at live offsets is silent corruption: the widths can coincide
-        (no crash) while the columns read are wrong, so this seam, not just
-        ``encode_state``, must move with the era (see ``docs/VERSIONING.md`` and
-        ``compat/INDEX.md``)."""
-        return (
-            encode.OFF_CARD_INDEX,
-            encode.OFF_HAND_MULTIHOT,
-            encode.OFF_DECISION_TYPE,
+        (no crash) while the columns read are wrong, so this seam — *every*
+        offset, not just ``encode_state`` — must move with the era (see
+        ``docs/VERSIONING.md`` and ``compat/INDEX.md``)."""
+        return StateEmbedOffsets(
+            card_index=encode.OFF_CARD_INDEX,
+            hand_multihot=encode.OFF_HAND_MULTIHOT,
+            decision_type=encode.OFF_DECISION_TYPE,
+            hand_summary=encode.HAND_SUMMARY_OFFSET,
         )
 
     def _embed_state(
@@ -455,7 +478,10 @@ class PolicyValueNet(nn.Module):
         the three tray index columns are turned into a derived multi-hot + set
         summary and passed through the same hand encoder (the tray's three
         per-slot ``card_table`` rows in ``slot_emb`` are untouched)."""
-        off_index, off_hand, off_decision = self._state_embed_offsets()
+        offsets = self._state_embed_offsets()
+        off_index = offsets.card_index
+        off_hand = offsets.hand_multihot
+        off_decision = offsets.decision_type
 
         # Card-index block -> per-slot card-table lookups, flattened. The encoder
         # always writes indices in range; the clamp only guards synthetic inputs.
@@ -468,8 +494,11 @@ class PolicyValueNet(nn.Module):
 
         if self.arch.use_distinct_hand_model:
             # Strip the 10-dim hand summary from the continuous prefix and feed
-            # it together with the multi-hot into the dedicated hand encoder.
-            hand_sum_off = encode.HAND_SUMMARY_OFFSET
+            # it together with the multi-hot into the dedicated hand encoder. The
+            # offset is era-frozen (``_state_embed_offsets``), not the live
+            # ``encode.HAND_SUMMARY_OFFSET`` — a pre-0.4 vector places it 27
+            # columns earlier (no leading turn_state stripe).
+            hand_sum_off = offsets.hand_summary
             hand_sum_end = hand_sum_off + encode.HAND_SUMMARY_DIM
             prefix = state[:, :off_index]
             continuous = torch.cat(
