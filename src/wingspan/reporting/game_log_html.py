@@ -1039,8 +1039,6 @@ function renderChart() {
     {cls: 'chart-line-p1', label: 'P1 score (VP)'},
   ]);
 
-  // --- Bottom panel: projected margins ---
-  const bottomSvg = document.getElementById('chart-svg-bottom');
   // --- Bottom panel: projected final P0−P1 margin ---
   const bottomSvg = document.getElementById('chart-svg-bottom');
   const realized = tl.map(p => [p.timestamp, p.score_p0 - p.score_p1]);
