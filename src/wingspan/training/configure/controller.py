@@ -355,7 +355,15 @@ def _begin_edit(
     view: state.ConfiguratorState, spec: fields.FieldSpec, initial: str
 ) -> None:
     view.mode = state.Mode.EDIT
-    view.edit_buffer = initial or fields.format_value(view.working, spec)
+    if initial:
+        view.edit_buffer = initial
+    elif isinstance(spec, fields.BootstrapField):
+        # format_value trims BootstrapField paths to just "label/last.pt" for
+        # display; we need the full stored path as the edit starting point so
+        # that pressing Enter without typing doesn't truncate and break it.
+        view.edit_buffer = str(fields.read_field(view.working, spec))
+    else:
+        view.edit_buffer = fields.format_value(view.working, spec)
     view.message = None
 
 
