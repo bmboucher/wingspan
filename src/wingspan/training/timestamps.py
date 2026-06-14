@@ -120,7 +120,9 @@ def discounted_future_returns(
     This is the kernel formerly inline in ``learner._decision_delta_returns``,
     extracted so the HTML timeline chart builder can reuse it without torch.
     """
-    assert len(times) == len(checkpoints), "checkpoints and times must be the same length"
+    assert len(times) == len(
+        checkpoints
+    ), "checkpoints and times must be the same length"
     n = len(checkpoints) - 1
     out = [0.0] * n
     running = 0.0

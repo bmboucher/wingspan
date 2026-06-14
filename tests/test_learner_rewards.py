@@ -116,7 +116,9 @@ def test_decision_delta_gamma_one_telescopes_to_terminal_margin():
     terminal margin (its margin_before is 0 here), i.e. the undiscounted return
     equals terminal_margin for the opening decision."""
     record = _sample_record()
-    delta = learner._decision_delta_returns(record, discount=1.0, score_norm=1.0)
+    delta = learner._decision_delta_returns(
+        record, discount=1.0, score_norm=1.0, end_game_bonus=0.0
+    )
     # Opening decision of each seat (indices 0 and 1) recovers the seat margin.
     _assert_close([delta[0], delta[1]], [5.0, -5.0])
 
@@ -134,7 +136,9 @@ def test_decision_delta_handles_single_seat_record():
         seed=0,
         final_timestamp=5.0,
     )
-    delta = learner._decision_delta_returns(record, discount=1.0, score_norm=1.0)
+    delta = learner._decision_delta_returns(
+        record, discount=1.0, score_norm=1.0, end_game_bonus=0.0
+    )
     # checkpoints [0, 4, 4] -> rewards [4, 0] -> returns [4, 0] at gamma=1.
     _assert_close(delta, [4.0, 0.0])
 
@@ -153,7 +157,9 @@ def test_decision_delta_zero_time_gap_applies_no_decay():
         seed=0,
         final_timestamp=53.0,
     )
-    delta = learner._decision_delta_returns(record, discount=0.0, score_norm=1.0)
+    delta = learner._decision_delta_returns(
+        record, discount=0.0, score_norm=1.0, end_game_bonus=0.0
+    )
     # Second step: reward 5-2=3, terminal link Δt>0 so nothing beyond it. First
     # step: reward 2, plus the second step's 3 through the Δt=0 link undecayed.
     _assert_close(delta, [5.0, 3.0])
@@ -172,7 +178,9 @@ def test_default_timestamps_degrade_to_telescoping():
         winner=0,
         seed=0,
     )
-    delta = learner._decision_delta_returns(record, discount=0.0, score_norm=1.0)
+    delta = learner._decision_delta_returns(
+        record, discount=0.0, score_norm=1.0, end_game_bonus=0.0
+    )
     _assert_close(delta, [4.0, 0.0])
 
 

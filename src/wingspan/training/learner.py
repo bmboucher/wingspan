@@ -148,30 +148,39 @@ def _flatten(
     for record in records:
         if cfg.reward_mode is config.RewardMode.DECISION_DELTA:
             record_returns = _decision_delta_returns(
-                record, cfg.reward_discount, cfg.score_norm
+                record, cfg.reward_discount, cfg.score_norm, cfg.end_game_bonus
             )
         else:
-            record_returns = _terminal_margin_returns(record, cfg.score_norm)
+            record_returns = _terminal_margin_returns(
+                record, cfg.score_norm, cfg.end_game_bonus
+            )
         flat_steps.extend(record.steps)
         returns.extend(record_returns)
     return flat_steps, returns
 
 
 def _terminal_margin_returns(
-    record: collect.GameRecord, score_norm: float
+    record: collect.GameRecord, score_norm: float, end_game_bonus: float
 ) -> list[float]:
     """The end-of-game margin from each step's player POV, scaled by ``score_norm``
-    and broadcast to every step (the historical ``terminal_margin`` reward)."""
+    and broadcast to every step (the historical ``terminal_margin`` reward).
+
+    ``end_game_bonus`` is added to seat 0's raw margin when seat 0 wins and
+    subtracted when seat 1 wins; ties receive no bonus."""
     score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
+    bonus_0 = _winner_bonus(record.winner, end_game_bonus)
     per_pov = (
-        (score_0 - score_1) / score_norm,
-        (score_1 - score_0) / score_norm,
+        (score_0 - score_1 + bonus_0) / score_norm,
+        (score_1 - score_0 - bonus_0) / score_norm,
     )
     return [per_pov[step.player_id] for step in record.steps]
 
 
 def _decision_delta_returns(
-    record: collect.GameRecord, discount: float, score_norm: float
+    record: collect.GameRecord,
+    discount: float,
+    score_norm: float,
+    end_game_bonus: float,
 ) -> list[float]:
     """Per-decision discounted returns aligned to ``record.steps`` order.
 
@@ -183,11 +192,17 @@ def _decision_delta_returns(
     per unit of game time (one full turn), not per decision step, so a
     decision-dense turn doesn't discount the future faster than a bare one.
     With γ=1 this telescopes to ``M_p - v[k]`` — the player's final margin minus
-    its margin before the decision."""
+    its margin before the decision.
+
+    ``end_game_bonus`` is folded into the terminal checkpoint before the backward
+    sweep, so it discounts back through all prior decisions at ``discount``."""
     # Terminal margin from each seat's POV (the final ``v`` for that player's
-    # last decision); player 0 and player 1 get opposite signs.
+    # last decision); player 0 and player 1 get opposite signs. The end-game
+    # bonus shifts seat 0's terminal by +bonus when seat 0 wins (and -bonus for
+    # seat 1), propagating back through all steps via the discount accumulation.
     score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
-    terminal = ((score_0 - score_1), (score_1 - score_0))
+    bonus_0 = _winner_bonus(record.winner, end_game_bonus)
+    terminal = ((score_0 - score_1 + bonus_0), (score_1 - score_0 - bonus_0))
 
     # Returns land back in record order, so route each player's discounted
     # returns through the global step index they were computed from.
@@ -206,6 +221,16 @@ def _decision_delta_returns(
         for position, idx in enumerate(indices):
             out[idx] = raw_returns[position] / score_norm
     return out
+
+
+def _winner_bonus(winner: int, end_game_bonus: float) -> float:
+    """Seat-0-POV bonus delta: ``+bonus`` when seat 0 wins, ``-bonus`` when seat 1
+    wins, ``0`` on a tie (``winner == -1``)."""
+    if winner == 0:
+        return end_game_bonus
+    if winner == 1:
+        return -end_game_bonus
+    return 0.0
 
 
 def _bucketize(flat_steps: list[steps.Step]) -> list[list[int]]:

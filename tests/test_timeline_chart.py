@@ -209,9 +209,9 @@ class _TimelineCapture(
     _phases: list[game_log_html.PhaseRecord] = pydantic.PrivateAttr(
         default_factory=list["game_log_html.PhaseRecord"]
     )
-    _probes: tuple[
-        value_sink.ValueProbe | None, value_sink.ValueProbe | None
-    ] = pydantic.PrivateAttr(default=(None, None))
+    _probes: tuple[value_sink.ValueProbe | None, value_sink.ValueProbe | None] = (
+        pydantic.PrivateAttr(default=(None, None))
+    )
 
     def open(self, context: instrumentation_config.RunContext) -> None:
         pass
@@ -360,9 +360,9 @@ def test_handler_timeline_phase_index_in_range():
     _, capture = _run_with_capture(seed=999)
     num_phases = len(capture._phases)
     for point in capture._raw_timeline:
-        assert 0 <= point.phase_index < num_phases, (
-            f"phase_index {point.phase_index} out of range [0, {num_phases})"
-        )
+        assert (
+            0 <= point.phase_index < num_phases
+        ), f"phase_index {point.phase_index} out of range [0, {num_phases})"
 
 
 def test_handler_timeline_no_value_without_probe():
@@ -418,12 +418,17 @@ def test_cli_html_timeline_data_embedded(tmp_path: pathlib.Path):
     out_path = tmp_path / "game.html"
     code = cli.main_play(
         [
-            "--p0", "random",
-            "--p1", "random",
-            "--seed", "5",
+            "--p0",
+            "random",
+            "--p1",
+            "random",
+            "--seed",
+            "5",
             "--quiet",
-            "--html", str(out_path),
-            "--instrument-out", str(tmp_path),
+            "--html",
+            str(out_path),
+            "--instrument-out",
+            str(tmp_path),
         ]
     )
     assert code == 0

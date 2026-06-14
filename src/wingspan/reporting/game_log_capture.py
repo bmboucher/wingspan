@@ -118,7 +118,9 @@ def build_timeline(
     *,
     engine: core.Engine,
     raw_points: list[RawTimelinePoint],
-    seat_configs: tuple[train_config.TrainConfig | None, train_config.TrainConfig | None],
+    seat_configs: tuple[
+        train_config.TrainConfig | None, train_config.TrainConfig | None
+    ],
 ) -> list[game_log_html.TimelinePoint]:
     """Finalize timestamps and compute per-decision chart coordinates.
 

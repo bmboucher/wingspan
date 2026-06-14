@@ -215,12 +215,12 @@ _HTML_HANDLER_EVENTS = (
 def _open_instrumentation(
     args: argparse.Namespace,
     seed: int,
-    seat_configs: tuple[
-        train_config.TrainConfig | None, train_config.TrainConfig | None
-    ]
-    | None = None,
-    probes: tuple[value_sink.ValueProbe | None, value_sink.ValueProbe | None]
-    | None = None,
+    seat_configs: (
+        tuple[train_config.TrainConfig | None, train_config.TrainConfig | None] | None
+    ) = None,
+    probes: (
+        tuple[value_sink.ValueProbe | None, value_sink.ValueProbe | None] | None
+    ) = None,
 ) -> dispatcher.Instrumentation:
     """Build and open the event-callback router for this run.
 
@@ -252,7 +252,9 @@ def _open_instrumentation(
 
     # Inject timeline probes into the HTML handler before building the router.
     if args.html is not None and seat_configs is not None and probes is not None:
-        from wingspan.instrumentation.handlers import game_log_html as html_handler_module
+        from wingspan.instrumentation.handlers import (
+            game_log_html as html_handler_module,
+        )
 
         html_handler = cfg.handlers[_HTML_HANDLER_NAME]
         assert isinstance(html_handler, html_handler_module.GameLogHtmlHandler)

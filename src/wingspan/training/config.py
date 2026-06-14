@@ -95,6 +95,12 @@ class TrainConfig(pydantic.BaseModel):
     # the player's final margin minus the current margin (time-independent).
     # Inert in ``terminal_margin`` mode.
     reward_discount: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 1.0
+    # Bonus added to the winner's terminal reward and subtracted from the loser's
+    # at the final game timestamp, before discounting (winner determined by
+    # ``GameRecord.winner``; ties receive no bonus). Sharpens the win/loss signal
+    # independently of the margin scale. Applied only to training records —
+    # evaluation games are unaffected. REGIME (shape-preserving).
+    end_game_bonus: float = 0.0
 
     # ---- evaluation (TRAINING.md §7) ----
     # Run an eval block once every N training iterations (0 disables eval).

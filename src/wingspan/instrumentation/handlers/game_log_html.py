@@ -82,14 +82,14 @@ class GameLogHtmlHandler(
     _matchup: tuple[str, str] | None = pydantic.PrivateAttr(default=None)
     _game_index: int = pydantic.PrivateAttr(default=0)
     _raw_timeline: list[game_log_capture.RawTimelinePoint] = pydantic.PrivateAttr(
-        default_factory=list
+        default_factory=list["game_log_capture.RawTimelinePoint"]
     )
     _seat_configs: tuple[
         train_config.TrainConfig | None, train_config.TrainConfig | None
     ] = pydantic.PrivateAttr(default=(None, None))
-    _probes: tuple[
-        value_sink.ValueProbe | None, value_sink.ValueProbe | None
-    ] = pydantic.PrivateAttr(default=(None, None))
+    _probes: tuple[value_sink.ValueProbe | None, value_sink.ValueProbe | None] = (
+        pydantic.PrivateAttr(default=(None, None))
+    )
 
     # ----- lifecycle ------------------------------------------------------
 
@@ -223,9 +223,7 @@ class GameLogHtmlHandler(
         seat_configs: tuple[
             train_config.TrainConfig | None, train_config.TrainConfig | None
         ],
-        probes: tuple[
-            value_sink.ValueProbe | None, value_sink.ValueProbe | None
-        ],
+        probes: tuple[value_sink.ValueProbe | None, value_sink.ValueProbe | None],
     ) -> None:
         """Inject per-seat configs and value probes for timeline chart support.
 
