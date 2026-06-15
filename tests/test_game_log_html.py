@@ -104,6 +104,7 @@ def _tiny_report() -> game_log_html.GameLogReport:
         name="American Robin",
         vp=5,
         nest="Cup",
+        wingspan_cm=23,
         habitats="Forest/Grassland",
         food_cost="invertebrate",
         egg_limit=4,
@@ -133,6 +134,7 @@ def _tiny_report() -> game_log_html.GameLogReport:
                 name="Mallard",
                 vp=3,
                 nest="Platform",
+                wingspan_cm=58,
                 habitats="Wetland",
                 food_cost="grain",
                 egg_limit=4,
@@ -196,6 +198,21 @@ def test_render_produces_self_contained_document():
     assert "card-cell" in html
     assert "board-row" in html
     assert "American Robin" in html
+
+    # Change 1: wingspan payload present and traits-line renderer shipped.
+    assert '"wingspan_cm":23' in html
+    assert "card-traits" in html
+
+    # Change 2: status/egglist markup and helper source shipped.
+    assert "card-status" in html
+    assert "card-egglist" in html
+    assert "' cached'" in html
+    assert "' tucked'" in html
+
+    # Change 3: fit-panel wiring present (the actual zoom is runtime JS only —
+    # verify visually via `wingspan play --html`).
+    assert "state-scaler" in html
+    assert "fitStatePanel" in html
 
 
 def test_embed_json_escapes_left_angle_bracket():

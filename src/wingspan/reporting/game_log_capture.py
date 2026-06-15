@@ -284,6 +284,7 @@ def _bird_cell_info(
         name=bird.name,
         vp=bird.points,
         nest=bird.nest.value,
+        wingspan_cm=bird.wingspan_cm,
         habitats="/".join(habitat.value for habitat in bird.habitats),
         food_cost=display.format_cost(bird.food_cost),
         food_cost_slots=slots,

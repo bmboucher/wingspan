@@ -42,6 +42,7 @@ class BirdCellInfo(pydantic.BaseModel):
     name: str
     vp: int
     nest: str
+    wingspan_cm: int
     habitats: str
     food_cost: str
     food_cost_slots: list[str] = []
@@ -324,10 +325,11 @@ main {
   height: calc(100vh - 130px); overflow: hidden;
 }
 #state-panel {
-  flex: 1 1 0; min-width: 0; overflow-y: auto;
+  flex: 1 1 0; min-width: 0; overflow: hidden;
   background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px;
   box-shadow: 0 2px 8px rgba(0,0,0,.08);
 }
+#state-scaler { width: 100%; }
 #decisions-panel {
   width: 320px; flex-shrink: 0; overflow-y: auto;
   background: #0f172a; border-radius: 8px; padding: 10px 12px; color: #e2e8f0;
@@ -397,10 +399,13 @@ main {
 .card-cell.pw-pink   .card-power { background: #fce7f3; }
 .card-cell.pw-yellow .card-power { background: #fef9c3; }
 .card-eggs {
-  height: 16px; padding: 0 5px; text-align: right; letter-spacing: 1px;
+  height: 16px; padding: 0 5px; letter-spacing: 1px;
   font-size: 12px; border-top: 1px solid #e2e8f0; flex-shrink: 0;
-  color: #64748b; display: flex; align-items: center; justify-content: flex-end;
+  color: #64748b; display: flex; align-items: center; justify-content: space-between;
 }
+.card-status  { font-size: 9px; letter-spacing: 0; color: #475569;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.card-egglist { flex-shrink: 0; }
 
 /* === Action cube spans === */
 .cube {
@@ -602,20 +607,32 @@ function applyFoodEmoji(text) {
     .replace(/\brodent\b/gi, '\u{1F400}');
 }
 
+function cardStatusText(bird) {
+  const parts = [];
+  if (bird.cached > 0) parts.push(bird.cached + ' cached');
+  if (bird.tucked > 0) parts.push(bird.tucked + ' tucked');
+  return parts.join(', ');
+}
+
 function cardCellHtml(bird) {
   if (!bird) return '<div class="card-cell empty"></div>';
   const pwCls = 'pw-' + esc(bird.power_color || 'none');
   const eggs = eggGlyphs(bird.eggs, bird.egg_limit);
   const cost = foodCostHtml(bird.food_cost_slots);
   const habSq = habSquaresHtml(bird.habitats);
+  const status = cardStatusText(bird);
   return '<div class="card-cell ' + pwCls + '">'
     + '<div class="vp-badge">' + bird.vp + '</div>'
     + '<div class="card-hdr">'
     +   '<div class="card-name">' + esc(bird.name) + '</div>'
-    +   '<div class="card-meta">' + cost + ' · ' + esc(bird.nest) + ' ' + habSq + '</div>'
+    +   '<div class="card-meta">' + cost + ' ' + habSq + '</div>'
+    +   '<div class="card-meta card-traits">' + esc(bird.nest) + ' · ' + bird.wingspan_cm + 'cm</div>'
     + '</div>'
     + '<div class="card-power">' + esc(bird.power_text) + '</div>'
-    + '<div class="card-eggs">' + eggs + '</div>'
+    + '<div class="card-eggs">'
+    +   '<span class="card-status">' + esc(status) + '</span>'
+    +   '<span class="card-egglist">' + eggs + '</span>'
+    + '</div>'
     + '</div>';
 }
 
@@ -805,7 +822,37 @@ function renderState(phase) {
   const bottomRow = '<div class="bottom-row">'
     + goalsPanelHtml(phase) + scoresPanelHtml(phase.panels) + bonusPanelHtml(phase)
     + '</div>';
-  document.getElementById('state-panel').innerHTML = boardsRow + middleRow + bottomRow;
+  document.getElementById('state-panel').innerHTML =
+    '<div id="state-scaler">' + boardsRow + middleRow + bottomRow + '</div>';
+  fitStatePanel();
+}
+
+function fitStatePanel() {
+  const panel = document.getElementById('state-panel');
+  const scaler = document.getElementById('state-scaler');
+  if (!panel || !scaler) return;
+
+  // Measure at natural (un-zoomed) size first.
+  scaler.style.zoom = '1';
+  const cs = getComputedStyle(panel);
+  const availW = panel.clientWidth  - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const availH = panel.clientHeight - parseFloat(cs.paddingTop)  - parseFloat(cs.paddingBottom);
+  const naturalH = scaler.scrollHeight;
+
+  // Width budget = boards row at its un-grown (max-content) width so the
+  // intentionally-wide, horizontally-scrollable hand never drags the factor down.
+  let naturalW = availW;
+  const boards = scaler.querySelector('.boards-row');
+  if (boards) {
+    const prev = boards.style.width;
+    boards.style.width = 'max-content';
+    naturalW = boards.scrollWidth;
+    boards.style.width = prev;
+  }
+
+  // Grow AND shrink to fill both dimensions, bounded by the boards width.
+  const factor = Math.min(availH / naturalH, availW / naturalW);
+  scaler.style.zoom = (isFinite(factor) && factor > 0) ? String(factor) : '1';
 }
 
 function renderLog(phase) {
@@ -898,6 +945,12 @@ if (DATA.phases.length && DATA.phases[0].kind === 'game_start') {
   phaseIdx = nextMatchingPhase(-1, 1);
 }
 render();
+
+let _fitRaf = 0;
+window.addEventListener('resize', () => {
+  cancelAnimationFrame(_fitRaf);
+  _fitRaf = requestAnimationFrame(fitStatePanel);
+});
 
 // ---- Timeline chart ----
 
