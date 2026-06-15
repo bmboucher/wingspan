@@ -52,15 +52,20 @@ of training data for offline supervised learning.
 
 **`handlers/game_log_html.py`** — `GameLogHtml` (`GameLogHtmlHandler`): records
 each game as a navigable, self-contained HTML log viewer (the `wingspan play
---html` flag). Subscribes to `game_start` / `setup_start` / `setup_applied` /
-`round_start` / `turn_start` / `made_decision` / `game_end`. Phase-boundary
-events fire once per `=== ... ===` log header so snapshots zip one-to-one with
-the text log. `made_decision` records a `RawTimelinePoint` for the Timeline chart
-and, when the `DecisionProbe` carries a `PolicyAnnotation`, also builds a
-`LogItem` (option bars + selected highlight) stored in `_decision_items`.  At
-`game_end` calls `build_timeline` then `build_report` (passing `_decision_items`
-so the capture layer merges them with the text log). Config: `output_path` and
-`index_suffix`. Call `configure_timeline(seat_configs, probes)` before the first
-game to inject per-seat `TrainConfig` and `DecisionProbe` objects; without them
-the timeline shows scores only and decision boxes omit option bars. State→model
-conversion lives in `reporting.game_log_capture`, imported lazily.
+--html` flag). Subscribes to `game_start` / `setup_start` / `round_start` /
+`turn_start` / `made_decision` / `game_end`. Phase-boundary events fire once per
+`=== ... ===` log header so snapshots zip one-to-one with the (merged) text log.
+One combined setup phase per player is created at `setup_start`; setup decisions
+are routed into per-player `SetupCaptureState` buckets rather than the flat
+`_decision_items` list. `finalize_setup_phase` is called at `game_end` to
+assemble highlighted hand/bonus and the nested food-group decision log. The
+capture layer's `_merge_secondary_setup_segments` folds the secondary
+CHOOSING BONUS CARD header into the primary segment so the zip stays aligned.
+`made_decision` records a `RawTimelinePoint` for the Timeline chart and, for
+non-setup phases with a `PolicyAnnotation`, also builds a `LogItem` (option bars
++ selected highlight) stored in `_decision_items`. At `game_end` calls
+`build_timeline` then `build_report`. Config: `output_path` and `index_suffix`.
+Call `configure_timeline(seat_configs, probes)` before the first game to inject
+per-seat `TrainConfig` and `DecisionProbe` objects; without them the timeline
+shows scores only and decision boxes omit option bars. State→model conversion
+lives in `reporting.game_log_capture`, imported lazily.

@@ -53,6 +53,7 @@ class BirdCellInfo(pydantic.BaseModel):
     cached: int
     power_color: str
     power_text: str
+    selected: bool = False
 
 
 class BoardCell(pydantic.BaseModel):
@@ -96,6 +97,7 @@ class BonusCardInfo(pydantic.BaseModel):
     vp_now: int
     count: int = 0
     pending: bool = False
+    selected: bool = False
 
 
 class PlayerPanel(pydantic.BaseModel):
@@ -141,17 +143,20 @@ class DecisionOption(pydantic.BaseModel):
 
 
 class LogItem(pydantic.BaseModel):
-    """One item in the phase's decision log: a decision, a forced move, or a note.
+    """One item in the phase's decision log: a decision, forced move, note, or group.
 
     ``kind`` controls rendering: ``"decision"`` renders as a collapsible box
     with option bars; ``"forced"`` renders as a non-collapsible outcome box;
-    ``"note"`` renders as a muted standalone notification."""
+    ``"note"`` renders as a muted standalone notification; ``"group"`` renders
+    as a collapsible parent whose body is its ``children`` items (no option bars
+    at the top level)."""
 
-    kind: typing.Literal["decision", "forced", "note"]
+    kind: typing.Literal["decision", "forced", "note", "group"]
     player_id: int | None
     text: str
     options: list[DecisionOption] = []
     forced: bool = False
+    children: list[LogItem] = []
 
 
 class PhaseRecord(pydantic.BaseModel):
@@ -396,6 +401,7 @@ main {
   display: flex; flex-direction: column; background: #fff;
 }
 .card-cell.empty { border-style: dashed; background: #f1f5f9; }
+.card-cell.selected { border: 3px solid #4ade80; box-shadow: 0 0 6px rgba(74,222,128,.35); }
 .vp-badge {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
   border-radius: 50%; background: #0f3d2e; color: #ecfdf5;
@@ -495,9 +501,8 @@ main {
   border: 1px dashed #94a3b8; border-radius: 4px;
   margin-bottom: 3px; padding: 4px 6px;
 }
-.bonus-card.pending .bonus-card-name::after {
-  content: ' (not yet chosen)'; font-size: 8px; color: #94a3b8; font-weight: 400;
-}
+.bonus-card.setup-opt:not(.selected) { opacity: .55; }
+.bonus-card.selected { border: 2px solid #4ade80; border-radius: 4px; }
 .bonus-card-name { font-weight: 700; font-size: 11px; }
 .bonus-card-condition { color: #1e40af; font-size: 9px; margin-top: 1px; font-style: italic; }
 .bonus-card-text { color: #475569; font-size: 9px; margin-top: 1px; }
@@ -528,6 +533,7 @@ main {
 
 /* Option rows inside an expanded decision */
 .di-body { padding: 4px 6px 6px; background: #111827; }
+.di-group-body { padding-left: 12px; border-left: 2px solid #334155; }
 .di-opt {
   display: flex; align-items: center; gap: 6px;
   padding: 3px 4px; border-radius: 3px; margin-bottom: 2px;
@@ -682,11 +688,12 @@ function cardStatusText(bird) {
 function cardCellHtml(bird) {
   if (!bird) return '<div class="card-cell empty"></div>';
   const pwCls = 'pw-' + esc(bird.power_color || 'none');
+  const selCls = bird.selected ? ' selected' : '';
   const eggs = eggGlyphs(bird.eggs, bird.egg_limit);
   const cost = foodCostHtml(bird.food_cost_slots);
   const habSq = habSquaresHtml(bird.habitats);
   const status = cardStatusText(bird);
-  return '<div class="card-cell ' + pwCls + '">'
+  return '<div class="card-cell ' + pwCls + selCls + '">'
     + '<div class="vp-badge">' + bird.vp + '</div>'
     + '<div class="card-hdr">'
     +   '<div class="card-name">' + esc(bird.name) + '</div>'
@@ -826,18 +833,21 @@ function scoresPanelHtml(seats) {
 }
 
 function bonusPanelHtml(phase) {
-  // For setup_start phases, show the offered-but-not-yet-chosen bonus options.
-  if (phase.kind === 'setup_start' && phase.setup_bonus_options && phase.setup_bonus_options.length) {
-    const inner = phase.setup_bonus_options.map(bc =>
-      '<div class="bonus-card pending">'
-      + '<div class="bonus-card-name">' + esc(bc.name) + '</div>'
-      + '<div class="bonus-card-condition">' + esc(bc.condition) + '</div>'
-      + '<div class="bonus-card-text">' + esc(bc.text) + '</div>'
-      + '</div>'
-    ).join('');
+  // For setup phases, show the two dealt bonus cards with the kept one highlighted.
+  if (phase.setup_bonus_options && phase.setup_bonus_options.length) {
+    const anySelected = phase.setup_bonus_options.some(bc => bc.selected);
+    const inner = phase.setup_bonus_options.map(bc => {
+      const selCls = bc.selected ? ' selected' : '';
+      return '<div class="bonus-card setup-opt' + selCls + '">'
+        + '<div class="bonus-card-name">' + esc(bc.name) + '</div>'
+        + '<div class="bonus-card-condition">' + esc(bc.condition) + '</div>'
+        + '<div class="bonus-card-text">' + esc(bc.text) + '</div>'
+        + '</div>';
+    }).join('');
+    const title = anySelected ? 'Bonus Draw (kept ✓)' : 'Bonus Draw (choosing…)';
     return '<div class="panel bonus-panel">'
       + inner
-      + '<div class="panel-title">Bonus Options (choosing...)</div>'
+      + '<div class="panel-title">' + title + '</div>'
       + '</div>';
   }
   const activeId = phase.active_player_id;
@@ -922,6 +932,47 @@ function fitStatePanel() {
   scaler.style.zoom = (isFinite(factor) && factor > 0) ? String(factor) : '1';
 }
 
+function renderLogItem(item) {
+  const seat = item.player_id === 0 ? 'p0' : item.player_id === 1 ? 'p1' : 'global';
+  const tag = item.player_id != null ? '<span class="di-tag">[P' + item.player_id + ']</span> ' : '';
+  const headerText = tag + applyFoodEmoji(esc(item.text));
+
+  if (item.kind === 'note') {
+    return '<div class="note ' + seat + '">' + headerText + '</div>';
+  }
+  if (item.kind === 'forced') {
+    return '<div class="di forced ' + seat + '">' + headerText + '</div>';
+  }
+  if (item.kind === 'group') {
+    const childHtml = (item.children || []).map(renderLogItem).join('');
+    return '<details class="di ' + seat + '">'
+      + '<summary>' + headerText + '</summary>'
+      + '<div class="di-body di-group-body">' + childHtml + '</div>'
+      + '</details>';
+  }
+
+  // decision: collapsible box with option rows
+  const opts = item.options || [];
+  const maxProb = Math.max(...opts.map(o => o.prob != null ? o.prob : 0), 1e-6);
+  const optHtml = opts.map(o => {
+    const barWidth = o.prob != null ? Math.round(o.prob / maxProb * 100) : 0;
+    const rawScore = o.score != null ? o.score : null;
+    const scoreText = rawScore != null ? (rawScore >= 0 ? '+' : '') + rawScore.toFixed(1) : '';
+    const selCls = o.selected ? ' selected' : '';
+    return '<div class="di-opt' + selCls + '">'
+      + '<span class="di-opt-label">' + applyFoodEmoji(esc(o.label)) + '</span>'
+      + '<span class="di-opt-right">'
+      +   '<span class="di-bar"><span class="di-bar-fill" style="width:' + barWidth + '%"></span></span>'
+      +   (scoreText ? '<span class="di-score">' + esc(scoreText) + '</span>' : '')
+      + '</span>'
+      + '</div>';
+  }).join('');
+  return '<details class="di ' + seat + '">'
+    + '<summary>' + headerText + '</summary>'
+    + '<div class="di-body">' + optHtml + '</div>'
+    + '</details>';
+}
+
 function renderLog(phase) {
   const log = document.getElementById('decision-log');
   const items = phase.log_items || [];
@@ -929,39 +980,7 @@ function renderLog(phase) {
     log.innerHTML = '<div class="event-empty">(no decisions for this phase)</div>';
     return;
   }
-  log.innerHTML = items.map(item => {
-    const seat = item.player_id === 0 ? 'p0' : item.player_id === 1 ? 'p1' : 'global';
-    const tag = item.player_id != null ? '<span class="di-tag">[P' + item.player_id + ']</span> ' : '';
-    const headerText = tag + applyFoodEmoji(esc(item.text));
-
-    if (item.kind === 'note') {
-      return '<div class="note ' + seat + '">' + headerText + '</div>';
-    }
-    if (item.kind === 'forced') {
-      return '<div class="di forced ' + seat + '">' + headerText + '</div>';
-    }
-
-    // decision: collapsible box with option rows
-    const opts = item.options || [];
-    const maxProb = Math.max(...opts.map(o => o.prob != null ? o.prob : 0), 1e-6);
-    const optHtml = opts.map(o => {
-      const barWidth = o.prob != null ? Math.round(o.prob / maxProb * 100) : 0;
-      const rawScore = o.score != null ? o.score : null;
-      const scoreText = rawScore != null ? (rawScore >= 0 ? '+' : '') + rawScore.toFixed(1) : '';
-      const selCls = o.selected ? ' selected' : '';
-      return '<div class="di-opt' + selCls + '">'
-        + '<span class="di-opt-label">' + applyFoodEmoji(esc(o.label)) + '</span>'
-        + '<span class="di-opt-right">'
-        +   '<span class="di-bar"><span class="di-bar-fill" style="width:' + barWidth + '%"></span></span>'
-        +   (scoreText ? '<span class="di-score">' + esc(scoreText) + '</span>' : '')
-        + '</span>'
-        + '</div>';
-    }).join('');
-    return '<details class="di ' + seat + '">'
-      + '<summary>' + headerText + '</summary>'
-      + '<div class="di-body">' + optHtml + '</div>'
-      + '</details>';
-  }).join('');
+  log.innerHTML = items.map(renderLogItem).join('');
 }
 
 function hasRound(delta) {

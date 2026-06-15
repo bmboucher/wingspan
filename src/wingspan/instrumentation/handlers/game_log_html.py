@@ -9,25 +9,28 @@ the ``=== ... ===`` log-section header that opens its segment so that
 ``zip(phases, segments)`` correctly assigns each segment's log items to the
 phase whose state it describes.
 
-  game_start    → "=== GAME START ==="             (always)
-  setup_start   → "=== SETUP: P0 CHOOSING ... ===" (always, one per player)
-  setup_applied → "=== SETUP: P0 CHOOSING BONUS CARD ===" (deferred-bonus path
-                   only; non-deferred path fires setup_applied without creating
-                   a new segment, so this handler skips phase creation for it)
-  round_start   → "=== ROUND N ... ==="
-  turn_start    → "=== P0, ROUND N, TURN M ... ==="
-  game_end      → "=== GAME END ==="
+  game_start  → "=== GAME START ==="              (always)
+  setup_start → "=== SETUP: P0 CHOOSING ... ===" (always, one per player)
+  round_start → "=== ROUND N ... ==="
+  turn_start  → "=== P0, ROUND N, TURN M ... ==="
+  game_end    → "=== GAME END ==="
+
+In the deferred-bonus regime the engine also emits a secondary
+``=== SETUP: P0 CHOOSING BONUS CARD ===`` header per player.  We create only
+one combined setup phase per player (at ``setup_start``), so
+:func:`~wingspan.reporting.game_log_capture._merge_secondary_setup_segments`
+folds that extra segment into the primary before the zip runs.
 
 The handler subscribes to ``MADE_DECISION`` when the CLI injects
 ``DecisionProbe`` objects (one per seat) via :meth:`configure_timeline`. Each
 ``made_decision`` call appends a
 :class:`~wingspan.reporting.game_log_capture.RawTimelinePoint` to
-``_raw_timeline`` (for the Timeline chart) and, when the probe carries a
-``PolicyAnnotation``, also builds a structured ``LogItem`` (for the decision
-panel) that is stored in ``_decision_items`` until ``game_end``.  At
-``game_end``, :func:`~wingspan.reporting.game_log_capture.build_timeline`
-finalizes the chart coords and ``build_report`` merges the items with the text
-log.
+``_raw_timeline`` (for the Timeline chart). During setup, the decision is also
+routed into a per-player ``SetupCaptureState`` bucket rather than the flat
+``_decision_items`` list.  At ``game_end``,
+:func:`~wingspan.reporting.game_log_capture.finalize_setup_phase` assembles the
+grouped setup log, then :func:`~wingspan.reporting.game_log_capture.build_report`
+merges remaining decision items with the text log.
 
 The actual state→model conversion lives in
 :mod:`wingspan.reporting.game_log_capture`, imported lazily inside the event
@@ -56,7 +59,6 @@ if typing.TYPE_CHECKING:
 class GameLogHtmlHandler(
     events.GameStartHandler,
     events.SetupStartHandler,
-    events.SetupAppliedHandler,
     events.RoundStartHandler,
     events.TurnStartHandler,
     events.MadeDecisionHandler,
@@ -86,9 +88,15 @@ class GameLogHtmlHandler(
     _raw_timeline: list[game_log_capture.RawTimelinePoint] = pydantic.PrivateAttr(
         default_factory=list["game_log_capture.RawTimelinePoint"]
     )
-    # (phase_index, LogItem) pairs, one per genuine AI decision.
+    # (phase_index, LogItem) pairs, one per genuine AI decision outside setup.
     _decision_items: list[tuple[int, game_log_html.LogItem]] = pydantic.PrivateAttr(
         default_factory=list[tuple[int, "game_log_html.LogItem"]]
+    )
+    # Per-player setup capture bucket; keyed by player_id.
+    _setup_captures: dict[int, game_log_capture.SetupCaptureState] = (
+        pydantic.PrivateAttr(
+            default_factory=dict[int, "game_log_capture.SetupCaptureState"]
+        )
     )
     _seat_configs: tuple[
         train_config.TrainConfig | None, train_config.TrainConfig | None
@@ -109,6 +117,7 @@ class GameLogHtmlHandler(
     def game_start(self, *, engine: core.Engine) -> None:
         self._phases = []
         self._decision_items = []
+        self._setup_captures = {}
         self._capture(engine, title="Game start", kind="game_start", active=None)
 
     def setup_start(
@@ -120,33 +129,16 @@ class GameLogHtmlHandler(
     ) -> None:
         from wingspan.reporting import game_log_capture
 
-        self._phases.append(
-            game_log_capture.capture_setup_start_phase(
-                engine,
-                index=len(self._phases),
-                title=f"{player.name} — Choose hand",
-                kind="setup_start",
-                active=player.id,
-                dealt_bonus=dealt_bonus,
-            )
+        phase = game_log_capture.capture_setup_phase(
+            engine,
+            index=len(self._phases),
+            title=f"{player.name} — Setup",
+            active=player.id,
+            dealt_bonus=dealt_bonus,
         )
-
-    def setup_applied(
-        self,
-        *,
-        engine: core.Engine,
-        player: state.Player,
-        choice: decisions.SetupChoice,
-    ) -> None:
-        # The non-deferred bonus path fires setup_applied with choice.bonus_card
-        # set — setup_start already created the phase for that segment, so adding
-        # another here would shift the zip(phases, segments) alignment off by one.
-        # Only create a phase for the deferred path (choice.bonus_card is None),
-        # which fires setup_applied at the start of the "CHOOSING BONUS CARD" segment.
-        if choice.bonus_card is not None:
-            return
-        self._capture(
-            engine, title=f"Setup — {player.name}", kind="setup", active=player.id
+        self._phases.append(phase)
+        self._setup_captures[player.id] = game_log_capture.SetupCaptureState(
+            phase_index=phase.index,
         )
 
     def round_start(self, *, engine: core.Engine, round_num: int) -> None:
@@ -182,15 +174,23 @@ class GameLogHtmlHandler(
         probe = self._probes[decision.player_id]
         value_pov, annotation = probe.take() if probe is not None else (None, None)
 
-        # Build the structured decision item when the probe carries a policy annotation.
         phase_index = len(self._phases) - 1
-        if annotation is not None:
+        current_kind = self._phases[phase_index].kind if self._phases else ""
+
+        if current_kind == "setup":
+            # Route into the per-player capture bucket instead of _decision_items.
+            capture = self._setup_captures.get(decision.player_id)
+            if capture is not None:
+                game_log_capture.record_setup_decision(
+                    capture, engine, decision, choice, annotation
+                )
+        elif annotation is not None:
             decision_item = game_log_capture.build_decision_item(
                 engine, decision, choice, annotation
             )
             self._decision_items.append((phase_index, decision_item))
 
-        # Record the timeline point (value + score margin) as before.
+        # Record the timeline point (value + score margin) regardless of phase type.
         gs = engine.state
         score_p0 = scoring.running_score(gs.players[0])
         score_p1 = scoring.running_score(gs.players[1])
@@ -218,6 +218,14 @@ class GameLogHtmlHandler(
         from wingspan.reporting import game_log_capture, game_log_html
 
         self._capture(engine, title="Final scoring", kind="game_end", active=None)
+
+        # Finalize each player's setup phase before building the report.
+        for phase in self._phases:
+            if phase.kind == "setup" and phase.active_player_id is not None:
+                capture = self._setup_captures.get(phase.active_player_id)
+                if capture is not None:
+                    game_log_capture.finalize_setup_phase(phase, capture)
+
         timeline = game_log_capture.build_timeline(
             engine=engine,
             raw_points=self._raw_timeline,
@@ -236,6 +244,7 @@ class GameLogHtmlHandler(
         self._phases = []
         self._raw_timeline = []
         self._decision_items = []
+        self._setup_captures = {}
 
     def configure_timeline(
         self,

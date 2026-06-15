@@ -109,6 +109,8 @@ def humanize_outcome(
             return f"Draws {choice.bird.name} from the tray"
         return "Draws from the deck"
     if isinstance(choice, decisions.FoodChoice):
+        if isinstance(decision, decisions.SpendFoodDecision):
+            return f"Discards {choice.food.value}"
         return f"Gains {choice.food.value}"
     if isinstance(choice, decisions.SkipChoice):
         return "Declines"

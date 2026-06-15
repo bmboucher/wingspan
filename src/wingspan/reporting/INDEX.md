@@ -26,26 +26,37 @@ arrows, a `P0 / P1 / both` seat toggle, a collapsible decision log, and a
 game-clock time, bottom = P0-relative future return (per-seat critic prediction vs
 per-seat discounted-return target, each seat shown as a separate dashed line)
 with the realized margin as context). The decision log
-renders three item kinds from `PhaseRecord.log_items: list[LogItem]`: collapsible
+renders four item kinds from `PhaseRecord.log_items: list[LogItem]`: collapsible
 `"decision"` boxes (with option bars scaled to max-probability, `+#.#` scores,
-and the selected option highlighted), non-collapsible `"forced"` outcome boxes,
-and muted `"note"` boxes for notifications. `DecisionOption(label, prob, score,
-selected)` carries each option's data. The data model holds **primitives only** —
-no engine or torch types — so the page renders from a plain JSON dump embedded in
-the document and drawn client-side by an inline script.
+and the selected option highlighted); non-collapsible `"forced"` outcome boxes;
+muted `"note"` boxes for notifications; and `"group"` collapsible parents whose
+body is their `children: list[LogItem]` rendered recursively (used for the setup
+food-group "keeps 🌾…" node). `BirdCellInfo.selected` and `BonusCardInfo.selected`
+add a green border highlight to the kept hand cards and kept bonus card in the
+setup phase. The data model holds **primitives only** — no engine or torch types
+— so the page renders from a plain JSON dump embedded in the document and drawn
+client-side by an inline script.
 
 **`game_log_capture.py`** — the engine-aware half of the game-log feature.
 `capture_phase(engine, …) -> PhaseRecord` flattens the live `GameState` into
-primitive display models. `build_decision_item(engine, decision, choice,
-annotation) -> LogItem` builds a structured decision box from a
-`PolicyAnnotation` (selecting up to 5 options by probability, always including
-the chosen one). `build_report(…, decision_items)` merges pre-built decision
-items with the engine text log (skipping distribution blocks through and
-including the `chose:` line, converting forced-single lines to `"forced"` items,
-and humanizing everything else as `"note"` items) and assembles the report.
-`build_timeline(engine, raw_points, seat_configs)` finalizes provisional
-per-decision timestamps and computes P0-relative future-return chart coordinates
-for value/target lines, reusing the `timestamps.discounted_future_returns` kernel.
+primitive display models. `capture_setup_phase(engine, …, dealt_bonus) ->
+PhaseRecord` creates the combined per-player setup phase with bonus options
+pre-populated (`pending=True`). `SetupCaptureState` is a transient per-player
+bucket filled by `record_setup_decision(capture, engine, decision, choice,
+annotation)` for each setup-context decision. `finalize_setup_phase(phase,
+capture)` sets `selected` on kept hand cards and the kept bonus, and assembles
+the `[keep_item, food_group, bonus_item]` decision log.
+`_merge_secondary_setup_segments(segments)` folds CHOOSING BONUS CARD segments
+into the preceding segment so the `zip(phases, segments)` count stays 1:1.
+`build_decision_item(engine, decision, choice, annotation) -> LogItem` builds a
+structured decision box from a `PolicyAnnotation` (up to 5 options by probability,
+always including the chosen one). `build_report(…, decision_items)` merges
+pre-built decision items with the engine text log (skips `kind=="setup"` phases,
+whose log items are already set by `finalize_setup_phase`; converts forced-single
+lines to `"forced"` items; humanizes everything else as `"note"` items) and
+assembles the report. `build_timeline(engine, raw_points, seat_configs)` finalizes
+provisional per-decision timestamps and computes P0-relative future-return chart
+coordinates for value/target lines, reusing `timestamps.discounted_future_returns`.
 Imported lazily by the `GameLogHtml` instrumentation handler so its `engine`
 dependency stays off the import-time path.
 

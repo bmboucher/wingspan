@@ -10,10 +10,14 @@ never at import time — so its dependence on ``engine`` does not close the
 ``engine`` ↔ ``instrumentation`` import cycle.
 
 Public API: :func:`capture_phase` (one snapshot without log items),
+:func:`capture_setup_phase` (snapshot for the combined per-player setup phase),
 :func:`build_decision_item` (build a structured ``LogItem`` from a
-``PolicyAnnotation``), :func:`build_timeline` (finalize timestamps and compute
-per-decision chart points), and :func:`build_report` (merge decision items with
-the text log and assemble the report).
+``PolicyAnnotation``), :func:`record_setup_decision` (route one setup decision
+into a per-player capture bucket), :func:`finalize_setup_phase` (assemble
+highlighted cards + grouped food log after all setup decisions are recorded),
+:func:`build_timeline` (finalize timestamps and compute per-decision chart
+points), and :func:`build_report` (merge decision items with the text log and
+assemble the report).
 """
 
 from __future__ import annotations
@@ -45,21 +49,21 @@ _HABITAT_LABELS: dict[cards.Habitat, str] = {
 }
 
 
-def capture_setup_start_phase(
+def capture_setup_phase(
     engine: core.Engine,
     *,
     index: int,
     title: str,
-    kind: str,
     active: int,
     dealt_bonus: list[cards.BonusCard],
 ) -> game_log_html.PhaseRecord:
-    """Snapshot state just before a player makes their setup choices.
+    """Snapshot state at the start of one player's combined setup phase.
 
     Like :func:`capture_phase` but populates ``setup_bonus_options`` with the
-    two offered bonus cards (marked ``pending=True``) so the viewer can show
-    them as dimmed/unselected in the bonus panel."""
-    phase = capture_phase(engine, index=index, title=title, kind=kind, active=active)
+    two offered bonus cards (marked ``pending=True``).  The viewer dims
+    un-selected options until :func:`finalize_setup_phase` sets ``selected``
+    on the kept card and clears the ``pending`` flag."""
+    phase = capture_phase(engine, index=index, title=title, kind="setup", active=active)
     phase.setup_bonus_options = [
         game_log_html.BonusCardInfo(
             name=bc.name,
@@ -166,6 +170,143 @@ def build_decision_item(
 # Maximum options shown in a decision box (selected always included).
 _MAX_DECISION_OPTIONS = 5
 
+# Substring that identifies the secondary setup-bonus log segment, emitted only
+# in the deferred-bonus regime.  Must not match the combined-regime header
+# "… BIRDS, FOOD, AND BONUS CARD".
+_BONUS_SEGMENT_MARKER = "CHOOSING BONUS CARD"
+
+
+class SetupCaptureState(pydantic.BaseModel):
+    """Transient accumulator for one player's setup decisions.
+
+    Created at ``setup_start`` and consumed at ``game_end`` (``finalize_setup_phase``).
+    All fields are filled in incrementally as ``record_setup_decision`` processes
+    each decision; nothing outside this module needs to inspect the fields directly."""
+
+    phase_index: int
+    kept_card_names: set[str] = pydantic.Field(default_factory=set)
+    kept_bonus_name: str | None = None
+    keep_item: game_log_html.LogItem | None = None
+    bonus_item: game_log_html.LogItem | None = None
+    food_items: list[game_log_html.LogItem] = pydantic.Field(
+        default_factory=list[game_log_html.LogItem]
+    )
+    food_spent: list[str] = pydantic.Field(default_factory=list)
+    food_gained: list[str] = pydantic.Field(default_factory=list)
+    combined_food_labels: list[str] = pydantic.Field(default_factory=list)
+
+
+def record_setup_decision(
+    capture: SetupCaptureState,
+    engine: core.Engine,
+    decision: decisions.Decision[typing.Any],
+    choice: decisions.Choice,
+    annotation: decision_probe.PolicyAnnotation | None,
+) -> None:
+    """Route one setup-context decision into the capture bucket.
+
+    Called by the instrumentation handler instead of the normal decision-item
+    path whenever the current phase is a setup phase.  Branches on the choice
+    type to fill the correct slot(s) in ``capture``."""
+    # SetupChoice: records kept cards and, in non-split regimes, food + bonus.
+    if isinstance(choice, decisions.SetupChoice):
+        capture.kept_card_names = {bird.name for bird in choice.kept_cards}
+        if choice.bonus_card is not None:
+            capture.kept_bonus_name = choice.bonus_card.name
+        if choice.kept_foods:
+            capture.combined_food_labels = [food.value for food in choice.kept_foods]
+        if annotation is not None:
+            item = build_decision_item(engine, decision, choice, annotation)
+            names = ", ".join(bird.name for bird in choice.kept_cards) or "no birds"
+            item.text = f"Keeps {names}"
+            capture.keep_item = item
+        return
+
+    # FoodChoice under SpendFoodDecision: player discards one food token.
+    if isinstance(choice, decisions.FoodChoice) and isinstance(
+        decision, decisions.SpendFoodDecision
+    ):
+        food_value = choice.food.value
+        capture.food_spent.append(food_value)
+        if annotation is not None:
+            item = build_decision_item(engine, decision, choice, annotation)
+            item.text = f"Discards {food_value}"
+            capture.food_items.append(item)
+        return
+
+    # FoodChoice under GainFoodDecision: player gains one food token.
+    if isinstance(choice, decisions.FoodChoice) and isinstance(
+        decision, decisions.GainFoodDecision
+    ):
+        food_value = choice.food.value
+        capture.food_gained.append(food_value)
+        if annotation is not None:
+            item = build_decision_item(engine, decision, choice, annotation)
+            item.text = f"Gains {food_value}"
+            capture.food_items.append(item)
+        return
+
+    # BonusCardChoice: deferred-bonus path; player picks which bonus to keep.
+    if isinstance(choice, decisions.BonusCardChoice):
+        capture.kept_bonus_name = choice.bonus_card.name
+        if annotation is not None:
+            item = build_decision_item(engine, decision, choice, annotation)
+            capture.bonus_item = item
+        return
+
+
+def finalize_setup_phase(
+    phase: game_log_html.PhaseRecord,
+    capture: SetupCaptureState,
+) -> None:
+    """Assemble the completed setup phase log from the capture bucket.
+
+    Sets the ``selected`` flag on the kept hand cards and the kept bonus card,
+    clears the ``pending`` flag on the chosen bonus, computes the kept-food
+    label list, and builds the three-node decision log (keep, food group, bonus).
+    This runs once per player at ``game_end``, before ``build_report``."""
+    # Highlight kept hand cards.
+    if phase.active_player_id is not None:
+        active_panels = [
+            panel for panel in phase.panels if panel.player_id == phase.active_player_id
+        ]
+        if active_panels:
+            for cell in active_panels[0].hand:
+                cell.selected = cell.name in capture.kept_card_names
+
+    # Highlight kept bonus and mark the chosen one as no-longer-pending.
+    for bonus_opt in phase.setup_bonus_options:
+        if bonus_opt.name == capture.kept_bonus_name:
+            bonus_opt.selected = True
+            bonus_opt.pending = False
+
+    # Derive the kept-food label list.
+    if capture.combined_food_labels:
+        kept_food_labels = capture.combined_food_labels
+    elif capture.food_spent:
+        all_food_values = [food.value for food in cards.ALL_FOODS]
+        kept_food_labels = [f for f in all_food_values if f not in capture.food_spent]
+    else:
+        kept_food_labels = capture.food_gained
+
+    # Build the food group node (only when there were food decisions to record).
+    food_group: game_log_html.LogItem | None = None
+    if capture.food_items:
+        kept_label = ", ".join(kept_food_labels) if kept_food_labels else "no food"
+        food_group = game_log_html.LogItem(
+            kind="group",
+            player_id=phase.active_player_id,
+            text=f"Keeps {kept_label}",
+            children=list(capture.food_items),
+        )
+
+    # Assemble the phase log: [keep-choice, food-group, bonus-choice] (skipping None).
+    phase.log_items = [
+        item
+        for item in (capture.keep_item, food_group, capture.bonus_item)
+        if item is not None
+    ]
+
 
 def build_timeline(
     *,
@@ -260,11 +401,16 @@ def build_report(
 ) -> game_log_html.GameLogReport:
     """Merge structured decision items with the text log and assemble the report.
 
-    For each phase, the pre-built ``decision_items`` (keyed by ``phase_index``)
-    are consumed in order as decision headers are encountered in the text log;
-    remaining lines become ``note`` or ``forced`` ``LogItem``s.  Segments and
-    phases are paired in order; any count mismatch degrades gracefully."""
-    # Group decision items by phase index for efficient per-phase lookup.
+    For each non-setup phase, the pre-built ``decision_items`` (keyed by
+    ``phase_index``) are consumed in order as decision headers are encountered in
+    the text log; remaining lines become ``note`` or ``forced`` ``LogItem``s.
+    Setup phases already have their ``log_items`` set by
+    :func:`finalize_setup_phase` and are skipped in the text-log loop.
+
+    ``_merge_secondary_setup_segments`` folds any secondary CHOOSING BONUS CARD
+    segment into the preceding segment first so the ``zip(phases, segments)``
+    count stays 1:1 after we create only one phase per player."""
+    # Group non-setup decision items by phase index for per-phase lookup.
     items_by_phase: dict[int, collections.deque[game_log_html.LogItem]] = (
         collections.defaultdict(collections.deque)
     )
@@ -272,7 +418,12 @@ def build_report(
         items_by_phase[phase_index].append(log_item)
 
     segments = _split_log_into_segments(engine.state.log_entries)
+    segments = _merge_secondary_setup_segments(segments)
+
     for phase, segment in zip(phases, segments):
+        if phase.kind == "setup":
+            # log_items already set by finalize_setup_phase; skip text-log pass.
+            continue
         phase_queue = items_by_phase.get(phase.index, collections.deque())
         phase.log_items = _segment_log_items(
             segment, is_turn=phase.kind == "turn", phase_decision_items=phase_queue
@@ -456,6 +607,31 @@ def _feeder_slots(feeder: state.Birdfeeder) -> list[str | None]:
 
 
 #### Log segmentation ####
+
+
+def _merge_secondary_setup_segments(
+    segments: list[list[state.LogEntry]],
+) -> list[list[state.LogEntry]]:
+    """Fold deferred-bonus setup segments into the preceding primary segment.
+
+    In the split-bonus regime the engine emits two ``=== ===`` headers per
+    player: the primary CHOOSING BIRDS header and a secondary CHOOSING BONUS
+    CARD header.  After this change we create only one phase per player, so the
+    secondary segment must be folded into the primary to keep the
+    ``zip(phases, segments)`` count aligned.
+
+    Any segment whose header line contains ``_BONUS_SEGMENT_MARKER`` is appended
+    (without its header line) to the previous segment and removed.  In the
+    combined or food-split regimes no such header exists, so the list is
+    returned unchanged."""
+    merged: list[list[state.LogEntry]] = []
+    for segment in segments:
+        header_text = segment[0].text if segment else ""
+        if merged and _BONUS_SEGMENT_MARKER in header_text:
+            merged[-1].extend(segment[1:])
+        else:
+            merged.append(segment)
+    return merged
 
 
 def _split_log_into_segments(

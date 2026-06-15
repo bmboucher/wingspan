@@ -25,19 +25,18 @@ import pydantic
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from wingspan import agents, engine
+from wingspan import agents, cards, engine, state
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import events as instrumentation_events
 from wingspan.reporting import game_log_capture, game_log_html
 
 if typing.TYPE_CHECKING:
-    from wingspan import decisions, state
     from wingspan.engine import core
 
 _HEADER_PREFIX = "==="
 _CAPTURE_EVENTS = [
     "game_start",
-    "setup_applied",
+    "setup_start",
     "round_start",
     "turn_start",
     "game_end",
@@ -46,13 +45,13 @@ _CAPTURE_EVENTS = [
 
 class _PhaseRecorder(
     instrumentation_events.GameStartHandler,
-    instrumentation_events.SetupAppliedHandler,
+    instrumentation_events.SetupStartHandler,
     instrumentation_events.RoundStartHandler,
     instrumentation_events.TurnStartHandler,
 ):
     """A test-only handler that snapshots a phase at each mid-game capture event.
 
-    It mirrors the four mid-game events the production ``GameLogHtml`` handler
+    It mirrors the mid-game events the production ``GameLogHtml`` handler
     subscribes to, appending each ``capture_phase`` result to a public list the
     assertions read directly. Game-end is intentionally omitted: the caller
     appends the final-scoring phase itself, exactly as the real ``game_end``
@@ -66,14 +65,23 @@ class _PhaseRecorder(
     def game_start(self, *, engine: core.Engine) -> None:
         self._snap(engine, "Game start", "game_start", None)
 
-    def setup_applied(
+    def setup_start(
         self,
         *,
         engine: core.Engine,
         player: state.Player,
-        choice: decisions.SetupChoice,
+        dealt_bonus: list[cards.BonusCard],
     ) -> None:
-        self._snap(engine, f"Setup — {player.name}", "setup", player.id)
+        # Mirror the production handler: create one combined setup phase per player.
+        self.captured.append(
+            game_log_capture.capture_setup_phase(
+                engine,
+                index=len(self.captured),
+                title=f"{player.name} — Setup",
+                active=player.id,
+                dealt_bonus=dealt_bonus,
+            )
+        )
 
     def round_start(self, *, engine: core.Engine, round_num: int) -> None:
         self._snap(engine, f"Round {round_num + 1}", "round", None)
@@ -266,6 +274,305 @@ def test_write_game_log_html_creates_file(tmp_path: pathlib.Path):
     assert out_path.read_text(encoding="utf-8").startswith("<!DOCTYPE html>")
 
 
+#### Renderer — new setup features ####
+
+
+def test_selected_bird_cell_renders_selected_class():
+    """A BirdCellInfo with selected=True renders card-cell … selected in the HTML."""
+    report = _tiny_report()
+    phase = report.phases[0]
+    # Replace hand with one selected bird and one non-selected bird.
+    phase.panels[0].hand = [
+        game_log_html.BirdCellInfo(
+            name="Kept Bird",
+            vp=2,
+            nest="Cup",
+            wingspan_cm=20,
+            habitats="Forest",
+            food_cost="seed",
+            egg_limit=3,
+            eggs=0,
+            tucked=0,
+            cached=0,
+            power_color="brown",
+            power_text="",
+            selected=True,
+        ),
+        game_log_html.BirdCellInfo(
+            name="Discarded Bird",
+            vp=1,
+            nest="Cup",
+            wingspan_cm=18,
+            habitats="Grassland",
+            food_cost="",
+            egg_limit=2,
+            eggs=0,
+            tucked=0,
+            cached=0,
+            power_color="white",
+            power_text="",
+            selected=False,
+        ),
+    ]
+    html = game_log_html.render_game_log_html(report)
+    # The payload embeds the selected flag; the JS reads it to add the CSS class.
+    assert '"selected":true' in html
+    # The JS source renders the selected class.
+    assert "selCls" in html
+
+
+def test_group_log_item_renders_nested_details():
+    """A 'group' LogItem renders a collapsible parent with nested child items."""
+    report = _tiny_report()
+    child = game_log_html.LogItem(
+        kind="decision",
+        player_id=0,
+        text="Discards seed",
+        options=[game_log_html.DecisionOption(label="seed", prob=0.9, selected=True)],
+    )
+    group = game_log_html.LogItem(
+        kind="group",
+        player_id=0,
+        text="Keeps seed, fish",
+        children=[child],
+    )
+    report.phases[0].log_items = [group]
+    html = game_log_html.render_game_log_html(report)
+    # The payload carries the group item and its children.
+    assert '"kind":"group"' in html
+    assert "Keeps seed, fish" in html
+    assert "Discards seed" in html
+    # The JS renders groups with the group-body style.
+    assert "di-group-body" in html
+    assert "renderLogItem" in html
+
+
+def test_setup_bonus_options_selected_class():
+    """A selected setup bonus option carries the 'selected' class flag in payload."""
+    report = _tiny_report()
+    report.phases[0].setup_bonus_options = [
+        game_log_html.BonusCardInfo(
+            name="Cartographer",
+            condition="Birds with a claw",
+            text="3 / 4 / 5 birds",
+            vp_now=0,
+            pending=False,
+            selected=True,
+        ),
+        game_log_html.BonusCardInfo(
+            name="Bird Counter",
+            condition="Birds in wetland",
+            text="2 / 4 birds",
+            vp_now=0,
+            pending=True,
+            selected=False,
+        ),
+    ]
+    html = game_log_html.render_game_log_html(report)
+    # The selected bonus flag lands in the payload; JS reads it for the CSS class.
+    assert '"selected":true' in html
+    assert "setup-opt" in html
+
+
+#### Capture — finalize_setup_phase ####
+
+
+def _make_phase_with_hand(
+    active_id: int, hand_names: list[str]
+) -> game_log_html.PhaseRecord:
+    """A minimal PhaseRecord with the given hand for the active player."""
+    hand = [
+        game_log_html.BirdCellInfo(
+            name=name,
+            vp=1,
+            nest="Cup",
+            wingspan_cm=20,
+            habitats="Forest",
+            food_cost="",
+            egg_limit=2,
+            eggs=0,
+            tucked=0,
+            cached=0,
+            power_color="white",
+            power_text="",
+        )
+        for name in hand_names
+    ]
+    panel = game_log_html.PlayerPanel(
+        player_id=active_id,
+        name=f"P{active_id}",
+        action_cubes_left=8,
+        rows=[
+            game_log_html.HabitatRow(
+                label="Forest",
+                cells=[game_log_html.BoardCell(bird=None)] * 5,
+            )
+        ]
+        * 3,
+        hand=hand,
+        food=[],
+        score=game_log_html.ScoreBreakdown(
+            birds=0, eggs=0, tucked=0, cached=0, bonus=0, goals=0, total=0
+        ),
+        bonus_cards=[],
+    )
+    return game_log_html.PhaseRecord(
+        index=0,
+        title="P0 — Setup",
+        kind="setup",
+        round_idx=None,
+        active_player_id=active_id,
+        panels=[panel],
+        tray=[],
+        feeder_text="",
+        round_goals=[],
+        setup_bonus_options=[
+            game_log_html.BonusCardInfo(
+                name="Cartographer",
+                condition="claw",
+                text="3 / 4",
+                vp_now=0,
+                pending=True,
+            ),
+            game_log_html.BonusCardInfo(
+                name="Bird Counter",
+                condition="wetland",
+                text="2 / 4",
+                vp_now=0,
+                pending=True,
+            ),
+        ],
+    )
+
+
+def test_finalize_setup_phase_highlights_kept_cards():
+    """finalize_setup_phase sets selected=True on kept cards only."""
+    phase = _make_phase_with_hand(0, ["Robin", "Mallard", "Egret"])
+    capture = game_log_capture.SetupCaptureState(
+        phase_index=0,
+        kept_card_names={"Robin", "Egret"},
+        kept_bonus_name="Cartographer",
+    )
+    game_log_capture.finalize_setup_phase(phase, capture)
+
+    hand = phase.panels[0].hand
+    assert hand[0].name == "Robin" and hand[0].selected
+    assert hand[1].name == "Mallard" and not hand[1].selected
+    assert hand[2].name == "Egret" and hand[2].selected
+
+
+def test_finalize_setup_phase_marks_kept_bonus():
+    """finalize_setup_phase sets selected=True and pending=False on the kept bonus."""
+    phase = _make_phase_with_hand(0, ["Robin"])
+    capture = game_log_capture.SetupCaptureState(
+        phase_index=0,
+        kept_card_names={"Robin"},
+        kept_bonus_name="Cartographer",
+    )
+    game_log_capture.finalize_setup_phase(phase, capture)
+
+    opts = phase.setup_bonus_options
+    kept = next(bc for bc in opts if bc.name == "Cartographer")
+    other = next(bc for bc in opts if bc.name == "Bird Counter")
+    assert kept.selected and not kept.pending
+    assert not other.selected and other.pending
+
+
+def test_finalize_setup_phase_food_group_node():
+    """finalize_setup_phase builds a food group node when food_items are present."""
+    phase = _make_phase_with_hand(0, ["Robin"])
+    child = game_log_html.LogItem(kind="decision", player_id=0, text="Discards fish")
+    capture = game_log_capture.SetupCaptureState(
+        phase_index=0,
+        kept_card_names={"Robin"},
+        kept_bonus_name=None,
+        food_spent=["fish", "rodent"],
+        food_items=[child],
+    )
+    game_log_capture.finalize_setup_phase(phase, capture)
+
+    # A group node should appear in the log items (no keep_item or bonus_item set).
+    assert len(phase.log_items) == 1
+    group = phase.log_items[0]
+    assert group.kind == "group"
+    assert "Keeps" in group.text
+    assert child in group.children
+
+
+def test_finalize_setup_phase_assembles_all_three_nodes():
+    """finalize_setup_phase produces [keep_item, food_group, bonus_item] when all present."""
+    phase = _make_phase_with_hand(0, ["Robin"])
+    keep_item = game_log_html.LogItem(kind="decision", player_id=0, text="Keeps Robin")
+    bonus_item = game_log_html.LogItem(
+        kind="decision", player_id=0, text="Keeps Cartographer"
+    )
+    child = game_log_html.LogItem(kind="decision", player_id=0, text="Discards fish")
+    capture = game_log_capture.SetupCaptureState(
+        phase_index=0,
+        kept_card_names={"Robin"},
+        kept_bonus_name="Cartographer",
+        keep_item=keep_item,
+        bonus_item=bonus_item,
+        food_spent=["fish"],
+        food_items=[child],
+    )
+    game_log_capture.finalize_setup_phase(phase, capture)
+
+    assert len(phase.log_items) == 3
+    assert phase.log_items[0] is keep_item
+    assert phase.log_items[1].kind == "group"
+    assert phase.log_items[2] is bonus_item
+
+
+#### Capture — _merge_secondary_setup_segments ####
+
+
+def _make_log_entries(texts: list[str]) -> list[state.LogEntry]:
+    """Build a list of LogEntry objects from plain text strings."""
+    return [state.LogEntry(text=text, player_id=None) for text in texts]
+
+
+def test_merge_secondary_setup_segments_folds_bonus_card_header():
+    """A CHOOSING BONUS CARD segment is folded into the preceding segment."""
+    entries = _make_log_entries(
+        [
+            "=== SETUP: P0 CHOOSING BIRDS ===",
+            "Dealt hand (5): ...",
+            "[P0] SetupDecision ...",
+            "=== SETUP: P0 CHOOSING BONUS CARD ===",
+            "[P0] BirdPowerPickBonusCardDecision ...",
+        ]
+    )
+    # Split into raw segments (two headers = two segments).
+    from wingspan.reporting import game_log_capture as glc
+
+    segments = glc._split_log_into_segments(entries)  # type: ignore[attr-defined]
+    assert len(segments) == 2
+
+    merged = glc._merge_secondary_setup_segments(segments)  # type: ignore[attr-defined]
+    assert len(merged) == 1
+    # Header from the primary segment, body entries from both.
+    assert merged[0][0].text.startswith("=== SETUP: P0 CHOOSING BIRDS")
+    texts = [entry.text for entry in merged[0]]
+    assert any("CHOOSING BONUS CARD" not in text for text in texts[1:])
+    assert any("BirdPowerPickBonusCardDecision" in text for text in texts)
+
+
+def test_merge_secondary_setup_segments_no_op_for_combined_regime():
+    """In combined regime (single header) the segments are returned unchanged."""
+    entries = _make_log_entries(
+        [
+            "=== SETUP: P0 CHOOSING BIRDS, FOOD, AND BONUS CARD ===",
+            "Dealt hand (5): ...",
+        ]
+    )
+    from wingspan.reporting import game_log_capture as glc
+
+    segments = glc._split_log_into_segments(entries)  # type: ignore[attr-defined]
+    merged = glc._merge_secondary_setup_segments(segments)  # type: ignore[attr-defined]
+    assert len(merged) == len(segments) == 1
+
+
 #### Capture over a full game ####
 
 
@@ -273,12 +580,12 @@ def test_capture_phases_align_one_to_one_with_log_headers():
     eng, *_ = engine.Engine.create(seed=2024)
     rng = random.Random(2024)
     phases = _run_and_capture(eng, rng)
-    header_count = sum(
+    # In the combined/random regime there are no secondary setup headers, so
+    # raw count == merged count; phases should align 1:1 with merged segments.
+    raw_headers = sum(
         1 for entry in eng.state.log_entries if entry.text.startswith(_HEADER_PREFIX)
     )
-    # One capture per === header means build_report's per-header segmentation
-    # pairs every phase with its decision log items and leaves nothing over.
-    assert len(phases) == header_count
+    assert len(phases) == raw_headers
 
 
 def test_capture_kind_counts_match_game_shape():
@@ -342,10 +649,10 @@ def _run_and_capture(
     """Drive one game through a recording handler and return its phase records,
     with the final-scoring phase appended.
 
-    The recorder subscribes to the four mid-game capture events; the final phase
-    is captured directly afterwards, exactly as the production handler's
-    ``game_end`` does, so the returned list aligns one-to-one with the log's
-    ``=== ... ===`` headers."""
+    The recorder subscribes to setup_start (one phase per player), round_start,
+    and turn_start; the final phase is captured directly afterwards, exactly as
+    the production handler's ``game_end`` does, so the returned list aligns
+    one-to-one with the (merged) log's ``=== ... ===`` headers."""
     recorder = _PhaseRecorder()
     cfg = instrumentation_config.InstrumentationConfig.model_validate(
         {
