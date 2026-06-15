@@ -63,6 +63,7 @@ def capture_setup_start_phase(
     phase.setup_bonus_options = [
         game_log_html.BonusCardInfo(
             name=bc.name,
+            condition=bc.condition,
             text=display.strip_ansi(bc.vp_text),
             vp_now=0,
             count=0,
@@ -404,6 +405,7 @@ def _bonus_card_info(
     """A held bonus card with its current VP and qualifying count for this player."""
     return game_log_html.BonusCardInfo(
         name=bc.name,
+        condition=bc.condition,
         text=display.strip_ansi(bc.vp_text),
         vp_now=scoring.bonus_score(player, bc),
         count=scoring.bonus_qualifying_count(player, bc),

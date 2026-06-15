@@ -151,7 +151,10 @@ def _tiny_report() -> game_log_html.GameLogReport:
         ),
         bonus_cards=[
             game_log_html.BonusCardInfo(
-                name="Bird Bander", text="3 / 4 birds", vp_now=3
+                name="Bird Bander",
+                condition="Birds with a band",
+                text="3 / 4 birds",
+                vp_now=3,
             )
         ],
     )

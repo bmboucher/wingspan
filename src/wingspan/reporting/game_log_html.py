@@ -91,6 +91,7 @@ class BonusCardInfo(pydantic.BaseModel):
     """A held bonus card with its scoring text, current VP, and qualifying count."""
 
     name: str
+    condition: str
     text: str
     vp_now: int
     count: int = 0
@@ -491,13 +492,14 @@ main {
 }
 .bonus-card:last-child { border-bottom: none; }
 .bonus-card.pending {
-  opacity: 0.55; border: 1px dashed #94a3b8; border-radius: 4px;
-  background: #1e293b; margin-bottom: 3px; padding: 4px 6px;
+  border: 1px dashed #94a3b8; border-radius: 4px;
+  margin-bottom: 3px; padding: 4px 6px;
 }
 .bonus-card.pending .bonus-card-name::after {
   content: ' (not yet chosen)'; font-size: 8px; color: #94a3b8; font-weight: 400;
 }
 .bonus-card-name { font-weight: 700; font-size: 11px; }
+.bonus-card-condition { color: #1e40af; font-size: 9px; margin-top: 1px; font-style: italic; }
 .bonus-card-text { color: #475569; font-size: 9px; margin-top: 1px; }
 .bonus-vp {
   display: inline-block; background: #0f3d2e; color: #ecfdf5;
@@ -829,6 +831,7 @@ function bonusPanelHtml(phase) {
     const inner = phase.setup_bonus_options.map(bc =>
       '<div class="bonus-card pending">'
       + '<div class="bonus-card-name">' + esc(bc.name) + '</div>'
+      + '<div class="bonus-card-condition">' + esc(bc.condition) + '</div>'
       + '<div class="bonus-card-text">' + esc(bc.text) + '</div>'
       + '</div>'
     ).join('');
@@ -851,6 +854,7 @@ function bonusPanelHtml(phase) {
         +   ' <span class="bonus-vp">' + bc.vp_now + ' VP</span>'
         +   ' <span class="bonus-count">' + bc.count + ' qualifying</span>'
         + '</div>'
+        + '<div class="bonus-card-condition">' + esc(bc.condition) + '</div>'
         + '<div class="bonus-card-text">' + esc(bc.text) + '</div>'
         + '</div>';
     }
