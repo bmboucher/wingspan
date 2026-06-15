@@ -544,26 +544,27 @@ main {
 .di-opt.selected .di-opt-label { color: #e2e8f0; }
 .di-opt-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .di-bar {
-  width: 60px; height: 6px; border-radius: 3px;
-  background: #1e293b; overflow: hidden;
+  width: 70px; height: 8px; border-radius: 4px;
+  background: #334155; overflow: hidden;
 }
-.di-bar-fill { height: 100%; border-radius: 3px; background: #475569; }
-.di.p0 .di-bar-fill { background: #3b82f6; }
-.di.p1 .di-bar-fill { background: #ef4444; }
+.di-bar-fill { height: 100%; border-radius: 4px; background: #64748b; }
+.di.p0 .di-bar-fill { background: #60a5fa; }
+.di.p1 .di-bar-fill { background: #f87171; }
 .di-score {
   font-size: 9px; color: #64748b; font-family: 'Fira Code', Consolas, monospace;
   min-width: 34px; text-align: right;
 }
 .di-opt.selected .di-score { color: #a7f3d0; }
 
-/* Note boxes: muted standalone notifications */
+/* Note boxes: same format as decision headers, neutral slate color scheme */
 .note {
-  padding: 4px 9px; margin-bottom: 3px; border-radius: 4px;
-  font-size: 10px; color: #64748b; background: #0f172a;
-  border-left: 2px solid #1e293b;
+  padding: 5px 9px; margin-bottom: 4px; border-radius: 5px;
+  font-size: 11px; font-weight: 500; line-height: 1.35;
+  color: #94a3b8; background: #1e293b;
+  border: 1px solid #334155; border-left: 3px solid #475569;
 }
-.note.p0 { border-left-color: #1e3a5f; }
-.note.p1 { border-left-color: #3f1515; }
+.note.p0 { border-left-color: #3b82f6; }
+.note.p1 { border-left-color: #ef4444; }
 
 /* === Timeline modal === */
 #chart-modal {
@@ -938,9 +939,16 @@ function renderLog(phase) {
 
     // decision: collapsible box with option rows
     const opts = item.options || [];
+    const scoredOpts = opts.filter(o => o.score != null);
+    const hasScores = scoredOpts.length > 0;
+    const maxScore = hasScores ? Math.max(...scoredOpts.map(o => o.score)) : 0;
+    const minScore = hasScores ? Math.min(...scoredOpts.map(o => o.score)) : 0;
+    const scoreRange = maxScore - minScore;
     const maxProb = Math.max(...opts.map(o => o.prob != null ? o.prob : 0), 1e-6);
     const optHtml = opts.map(o => {
-      const barWidth = o.prob != null ? Math.round(o.prob / maxProb * 100) : 0;
+      const barWidth = hasScores && o.score != null && scoreRange > 0
+        ? Math.round((o.score - minScore) / scoreRange * 100)
+        : (o.prob != null ? Math.round(o.prob / maxProb * 100) : 0);
       const rawScore = o.score != null ? o.score : null;
       const scoreText = rawScore != null ? (rawScore >= 0 ? '+' : '') + rawScore.toFixed(1) : '';
       const selCls = o.selected ? ' selected' : '';
