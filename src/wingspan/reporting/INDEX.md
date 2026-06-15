@@ -24,25 +24,38 @@ page that replays one `wingspan play` game phase-by-phase: a sticky state panel
 arrows, a `P0 / P1 / both` seat toggle, a collapsible decision log, and a
 **Timeline modal** (button opens two stacked SVG panels: top = per-player VP over
 game-clock time, bottom = P0-relative future return (per-seat critic prediction vs
-discounted-return target) with the realized margin as context). The data model (`GameLogReport`,
-`PhaseRecord`, `TimelinePoint`, `PlayerPanel`, `BirdCellInfo`, …) holds
-**primitives only** — no engine or torch types — so the page renders from a plain
-JSON dump embedded in the document and drawn client-side by an inline script.
-`GameLogReport.timeline: list[TimelinePoint] = []` defaults to empty, preserving
-backward compatibility for existing callers.
+discounted-return target) with the realized margin as context). The decision log
+renders three item kinds from `PhaseRecord.log_items: list[LogItem]`: collapsible
+`"decision"` boxes (with option bars scaled to max-probability, `+#.#` scores,
+and the selected option highlighted), non-collapsible `"forced"` outcome boxes,
+and muted `"note"` boxes for notifications. `DecisionOption(label, prob, score,
+selected)` carries each option's data. The data model holds **primitives only** —
+no engine or torch types — so the page renders from a plain JSON dump embedded in
+the document and drawn client-side by an inline script.
 
 **`game_log_capture.py`** — the engine-aware half of the game-log feature.
-`capture_phase(engine, …) -> PhaseRecord` flattens the live `GameState` (both
-seats' boards/hands/food/scores, the shared tray/feeder/goals) into the
-primitive display models; `build_report(…)` splits the engine's interleaved text
-log into one decision-narration block per phase (on `=== ... ===` headers,
-dropping each turn's verbose state-summary prefix) and assembles the
-`GameLogReport`. `build_timeline(engine, raw_points, seat_configs)` finalizes
-provisional per-decision timestamps (via `timestamps.finalize_provisional_timestamps`)
-and computes P0-relative future-return chart coordinates for value/target lines,
-reusing the `timestamps.discounted_future_returns` kernel. Imported lazily by the
-`GameLogHtml` instrumentation handler so its `engine` dependency stays off the
-import-time path.
+`capture_phase(engine, …) -> PhaseRecord` flattens the live `GameState` into
+primitive display models. `build_decision_item(engine, decision, choice,
+annotation) -> LogItem` builds a structured decision box from a
+`PolicyAnnotation` (selecting up to 5 options by probability, always including
+the chosen one). `build_report(…, decision_items)` merges pre-built decision
+items with the engine text log (skipping distribution blocks through and
+including the `chose:` line, converting forced-single lines to `"forced"` items,
+and humanizing everything else as `"note"` items) and assembles the report.
+`build_timeline(engine, raw_points, seat_configs)` finalizes provisional
+per-decision timestamps and computes P0-relative future-return chart coordinates
+for value/target lines, reusing the `timestamps.discounted_future_returns` kernel.
+Imported lazily by the `GameLogHtml` instrumentation handler so its `engine`
+dependency stays off the import-time path.
+
+**`humanize.py`** — leaf humanizer module with no engine or torch imports.
+`humanize_choice(choice, gs, player_id)` → concise option label per Choice
+subclass. `humanize_outcome(decision, choice, gs)` → third-person summary for
+the collapsed decision header. `humanize_note(text)` → strips the `[Name]`
+prefix and pattern-rewrites common engine notifications (plays, egg lays, card
+draws, food gains, power activations, birdfeeder resets). `humanize_forced(label)`
+→ rewrites `display_label()` patterns (deck, tray slot, board target) to
+human-friendly text.
 
 **`svg.py`** — SVG architecture-diagram builder. `build_arch_svg(arch:
 ModelArchitecture) -> str` renders the trunk / choice-encoder / scorer-head /

@@ -25,7 +25,7 @@ import numpy as np
 import torch
 
 from wingspan import agents, decisions, engine, model, setup_model
-from wingspan.players import loaders, spec, value_sink
+from wingspan.players import decision_probe, loaders, spec
 from wingspan.training import config, policy
 from wingspan.training import setup_net as setup_net_module
 
@@ -45,7 +45,7 @@ def build_agent(
     device: torch.device,
     rng: random.Random,
     greedy: bool,
-    value_probe: value_sink.ValueProbe | None = None,
+    value_probe: decision_probe.DecisionProbe | None = None,
 ) -> tuple[engine.Agent, config.TrainConfig | None]:
     """Build the Agent for one seat, plus the ``TrainConfig`` its checkpoint
     was trained under (``None`` for the config-free human and random agents),
@@ -126,7 +126,7 @@ def _logged_policy_agent(
     rng: random.Random,
     greedy: bool,
     setup_net: setup_net_module.SetupNet | None = None,
-    value_probe: value_sink.ValueProbe | None = None,
+    value_probe: decision_probe.DecisionProbe | None = None,
 ) -> engine.Agent:
     """An AI agent that, for every genuine (multi-option) decision, writes the
     policy's ranked softmax distribution into the game log before picking — by
@@ -147,7 +147,9 @@ def _logged_policy_agent(
         if len(decision.choices) == 1:
             return decision.choices[0]
         if not net.include_setup and decisions.is_setup_decision(decision):
-            return _handle_setup_decision(eng, decision, setup_net, device, greedy, rng)
+            return _handle_setup_decision(
+                eng, decision, setup_net, device, greedy, rng, value_probe=value_probe
+            )
         return _handle_main_decision(
             eng, decision, net, device, greedy, rng, value_probe=value_probe
         )
@@ -162,6 +164,7 @@ def _handle_setup_decision[C: decisions.Choice](
     device: torch.device,
     greedy: bool,
     rng: random.Random,
+    value_probe: decision_probe.DecisionProbe | None = None,
 ) -> C:
     """Score a SetupDecision with the setup net (or randomly if unavailable)."""
     if setup_net is None:
@@ -182,6 +185,14 @@ def _handle_setup_decision[C: decisions.Choice](
         chosen_idx = int(np.argmax(probs))
     else:
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
+    if value_probe is not None:
+        value_probe.record_policy(
+            decision_probe.PolicyAnnotation(
+                probs=probs.tolist(),
+                scores=scores.tolist(),
+                chosen_idx=chosen_idx,
+            )
+        )
     chosen = decision.choices[chosen_idx]
     deciding_player_name = eng.state.players[decision.player_id].name
     eng.log_global(
@@ -198,7 +209,7 @@ def _handle_main_decision[C: decisions.Choice](
     device: torch.device,
     greedy: bool,
     rng: random.Random,
-    value_probe: value_sink.ValueProbe | None = None,
+    value_probe: decision_probe.DecisionProbe | None = None,
 ) -> C:
     """Score a regular decision with one forward pass through the main policy net."""
     # One forward pass gives the full distribution over legal options plus the
@@ -209,8 +220,6 @@ def _handle_main_decision[C: decisions.Choice](
     logits, probs, value = policy.policy_value_and_probs(
         net, device, state_vec, choice_feats, family_idx
     )
-    if value_probe is not None:
-        value_probe.record(value)
     _log_distribution(eng, decision, probs, greedy, scores=logits)
 
     # Pick from the same probs already in hand: argmax for greedy strength play,
@@ -221,6 +230,15 @@ def _handle_main_decision[C: decisions.Choice](
         chosen_idx = int(np.argmax(probs))
     else:
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
+    if value_probe is not None:
+        value_probe.record(value)
+        value_probe.record_policy(
+            decision_probe.PolicyAnnotation(
+                probs=probs.tolist(),
+                scores=logits.tolist(),
+                chosen_idx=chosen_idx,
+            )
+        )
     chosen = decision.choices[chosen_idx]
     deciding_player_name = eng.state.players[decision.player_id].name
     eng.log_global(

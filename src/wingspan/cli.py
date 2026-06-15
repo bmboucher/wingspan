@@ -31,7 +31,7 @@ from wingspan.agents import display
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
 from wingspan.instrumentation import events as instrumentation_events
-from wingspan.players import value_sink
+from wingspan.players import decision_probe
 
 if typing.TYPE_CHECKING:
     from wingspan.training import config as train_config
@@ -53,8 +53,8 @@ def main_play(argv: list[str] | None = None) -> int:
     # Resolve both seats up front so a bad checkpoint (or a regime mismatch
     # between two checkpoints) fails before any game runs, with a clean message
     # rather than a mid-game traceback.
-    probe_0 = value_sink.ValueProbe()
-    probe_1 = value_sink.ValueProbe()
+    probe_0 = decision_probe.DecisionProbe()
+    probe_1 = decision_probe.DecisionProbe()
     try:
         spec_a = players.parse_player_spec(args.p0, checkpoint_dir)
         spec_b = players.parse_player_spec(args.p1, checkpoint_dir)
@@ -219,7 +219,8 @@ def _open_instrumentation(
         tuple[train_config.TrainConfig | None, train_config.TrainConfig | None] | None
     ) = None,
     probes: (
-        tuple[value_sink.ValueProbe | None, value_sink.ValueProbe | None] | None
+        tuple[decision_probe.DecisionProbe | None, decision_probe.DecisionProbe | None]
+        | None
     ) = None,
 ) -> dispatcher.Instrumentation:
     """Build and open the event-callback router for this run.

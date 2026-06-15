@@ -3,28 +3,31 @@
 This is the engine-aware half of the HTML game-log feature: it reads a
 ``GameState`` (and the bonus-scoring helpers) to flatten each phase into the
 primitive display models in :mod:`wingspan.reporting.game_log_html`, and it
-splits the engine's interleaved text log into one decision-narration block per
-phase. It is imported lazily by
+splits the engine's interleaved text log into one ``LogItem`` block per phase.
+It is imported lazily by
 :class:`wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler` —
 never at import time — so its dependence on ``engine`` does not close the
 ``engine`` ↔ ``instrumentation`` import cycle.
 
-Public API: :func:`capture_phase` (one narration-less snapshot),
-:func:`build_timeline` (finalize timestamps and compute per-decision chart
-points), and :func:`build_report` (attach narration from the log and assemble
-the report).
+Public API: :func:`capture_phase` (one snapshot without log items),
+:func:`build_decision_item` (build a structured ``LogItem`` from a
+``PolicyAnnotation``), :func:`build_timeline` (finalize timestamps and compute
+per-decision chart points), and :func:`build_report` (merge decision items with
+the text log and assemble the report).
 """
 
 from __future__ import annotations
 
+import collections
 import typing
 
 import pydantic
 
-from wingspan import cards, state
+from wingspan import cards, decisions, state
 from wingspan.agents import display
 from wingspan.engine import scoring
-from wingspan.reporting import game_log_html
+from wingspan.players import decision_probe
+from wingspan.reporting import game_log_html, humanize
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -91,7 +94,7 @@ def capture_phase(
         feeder_text=gs.birdfeeder.format(),
         feeder_slots=_feeder_slots(gs.birdfeeder),
         round_goals=_round_goal_infos(gs),
-        narration=[],
+        log_items=[],
     )
 
 
@@ -112,6 +115,55 @@ class RawTimelinePoint(pydantic.BaseModel):
     score_p1: int
     phase_index: int
     value_pov: float | None = None
+
+
+def build_decision_item(
+    engine: core.Engine,
+    decision: decisions.Decision[typing.Any],
+    choice: decisions.Choice,
+    annotation: decision_probe.PolicyAnnotation,
+) -> game_log_html.LogItem:
+    """Build a structured ``LogItem`` for one genuine AI decision.
+
+    Selects up to ``_MAX_DECISION_OPTIONS`` options by probability (always
+    including the chosen option even if it falls outside the top N) and builds
+    a ``DecisionOption`` for each using the humanizer.  The ``text`` field
+    holds the humanized outcome summary shown in the collapsed header."""
+    gs = engine.state
+    n_choices = len(decision.choices)
+    ranked = sorted(
+        range(n_choices), key=lambda idx: annotation.probs[idx], reverse=True
+    )
+
+    # Top-N by probability, then force-include the selected option if absent.
+    shown_indices = ranked[:_MAX_DECISION_OPTIONS]
+    if annotation.chosen_idx not in shown_indices:
+        shown_indices = shown_indices[:-1] + [annotation.chosen_idx]
+
+    options: list[game_log_html.DecisionOption] = []
+    for idx in shown_indices:
+        idx_choice = decision.choices[idx]
+        options.append(
+            game_log_html.DecisionOption(
+                label=humanize.humanize_choice(
+                    idx_choice, gs, player_id=decision.player_id
+                ),
+                prob=annotation.probs[idx],
+                score=annotation.scores[idx] if annotation.scores is not None else None,
+                selected=(idx == annotation.chosen_idx),
+            )
+        )
+
+    return game_log_html.LogItem(
+        kind="decision",
+        player_id=decision.player_id,
+        text=humanize.humanize_outcome(decision, choice, gs),
+        options=options,
+    )
+
+
+# Maximum options shown in a decision box (selected always included).
+_MAX_DECISION_OPTIONS = 5
 
 
 def build_timeline(
@@ -203,14 +255,28 @@ def build_report(
     seed: int | None,
     matchup: tuple[str, str] | None,
     timeline: list[game_log_html.TimelinePoint] | None = None,
+    decision_items: list[tuple[int, game_log_html.LogItem]] | None = None,
 ) -> game_log_html.GameLogReport:
-    """Attach each log segment's narration to its phase and assemble the report.
+    """Merge structured decision items with the text log and assemble the report.
 
-    Segments and phases are paired in order; any count mismatch (no engine path
-    produces one) degrades gracefully by pairing the common prefix."""
+    For each phase, the pre-built ``decision_items`` (keyed by ``phase_index``)
+    are consumed in order as decision headers are encountered in the text log;
+    remaining lines become ``note`` or ``forced`` ``LogItem``s.  Segments and
+    phases are paired in order; any count mismatch degrades gracefully."""
+    # Group decision items by phase index for efficient per-phase lookup.
+    items_by_phase: dict[int, collections.deque[game_log_html.LogItem]] = (
+        collections.defaultdict(collections.deque)
+    )
+    for phase_index, log_item in decision_items or []:
+        items_by_phase[phase_index].append(log_item)
+
     segments = _split_log_into_segments(engine.state.log_entries)
     for phase, segment in zip(phases, segments):
-        phase.narration = _segment_narration(segment, is_turn=phase.kind == "turn")
+        phase_queue = items_by_phase.get(phase.index, collections.deque())
+        phase.log_items = _segment_log_items(
+            segment, is_turn=phase.kind == "turn", phase_decision_items=phase_queue
+        )
+
     final_scores = [player.final_score for player in engine.state.players]
     return game_log_html.GameLogReport(
         seed=seed,
@@ -407,27 +473,66 @@ def _split_log_into_segments(
     return segments
 
 
-def _segment_narration(
-    segment: list[state.LogEntry], *, is_turn: bool
-) -> list[game_log_html.NarrationLine]:
-    """The decision lines of one phase: the segment minus its header (the title
-    already shows it) and, for a turn, minus the verbose state-summary block.
+def _segment_log_items(
+    segment: list[state.LogEntry],
+    *,
+    is_turn: bool,
+    phase_decision_items: collections.deque[game_log_html.LogItem],
+) -> list[game_log_html.LogItem]:
+    """Convert one log segment into a list of ``LogItem``s.
 
-    A turn segment opens with ``log_turn_summary``'s board / hand / tray / score
-    / bonus lines, terminated by the single blank line the engine logs before
-    the action; that whole prefix is dropped because the pinned panel already
-    shows the same state structurally."""
-    body = segment[1:]
+    Decision header lines (``is_decision_start``) pop a pre-built item from
+    ``phase_decision_items`` (always 1:1 for AI seats) and skip the distribution
+    text block through and including the following ``chose:`` line.  Forced
+    single-choice lines become ``"forced"`` items.  Everything else becomes a
+    ``"note"`` item processed through the humanizer.
+
+    A turn segment opens with the verbose board/hand/score summary; the whole
+    prefix up to the first blank line is dropped (the panel already shows it)."""
+    body = segment[1:]  # skip the === header line
     if is_turn:
         body = _drop_summary_block(body)
-    return [
-        game_log_html.NarrationLine(
-            player_id=entry.player_id,
-            text=display.strip_ansi(entry.text),
-            is_decision_start=_is_decision_start(entry.text),
-        )
-        for entry in body
-    ]
+
+    result: list[game_log_html.LogItem] = []
+    body_iter = iter(body)
+
+    for entry in body_iter:
+        text = display.strip_ansi(entry.text)
+
+        if _is_decision_start(text):
+            # Consume the structured decision item for this AI decision.
+            if phase_decision_items:
+                result.append(phase_decision_items.popleft())
+            # Skip the distribution block (option lines + chose: line).
+            for skip_entry in body_iter:
+                if "chose:" in display.strip_ansi(skip_entry.text):
+                    break
+
+        elif "skipping decision, only 1 choice: " in text:
+            # Engine logged a forced single-option decision.
+            label = text.split("only 1 choice: ", 1)[-1]
+            result.append(
+                game_log_html.LogItem(
+                    kind="forced",
+                    player_id=entry.player_id,
+                    text=humanize.humanize_forced(label),
+                    forced=True,
+                )
+            )
+
+        else:
+            # Regular notification: humanize and show as a note.
+            cleaned = humanize.humanize_note(text)
+            if cleaned:
+                result.append(
+                    game_log_html.LogItem(
+                        kind="note",
+                        player_id=entry.player_id,
+                        text=cleaned,
+                    )
+                )
+
+    return result
 
 
 def _drop_summary_block(body: list[state.LogEntry]) -> list[state.LogEntry]:

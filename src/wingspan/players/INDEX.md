@@ -31,12 +31,19 @@ both use the same loading and logging conventions.
   `expected_encoding_key` derives an era's true widths via
   `compat.encoding_dims_for_era`.
 
+**`decision_probe.py`** — `DecisionProbe`: a one-slot mailbox ferrying the critic
+value *and* a `PolicyAnnotation` (probs, scores, chosen_idx) from the AI agent to
+the instrumentation handler across the agent↔handler decoupling. `record(value)`
+stores the critic output; `record_policy(annotation)` stores the distribution;
+`take()` returns and clears both as `(float|None, PolicyAnnotation|None)`.
+
 **`factory.py`** — `build_agent(spec, device, rng, greedy) -> (Agent, TrainConfig|None)`:
 the top-level factory. Maps each `PlayerSpec.kind` to the appropriate agent
-constructor. Policy agents write a per-decision annotation to the game log at every
-genuine decision.
+constructor. AI policy agents record a `PolicyAnnotation` on the `DecisionProbe`
+after every genuine decision (after `chosen_idx` is resolved), enabling the HTML
+viewer's decision-box option bars.
 
-Log annotation format: `[P#] <DecisionType> | N choices | [greedy] | head:<family>`
-followed by indented choice lines (4 spaces). The chose-line reads
-`[P#] chose: <label> (xx.xxx%)`. All log lines use `decision.player_id` for
-attribution — correct even when a pink power triggers the opponent's decision.
+Log annotation format (text log, unchanged): `[P#] <DecisionType> | N choices |
+[greedy] | head:<family>` followed by indented choice lines (4 spaces). The
+chose-line reads `[P#] chose: <label> (xx.xxx%)`. All log lines use
+`decision.player_id` for attribution.

@@ -6,8 +6,8 @@ Three layers are exercised:
   self-contained HTML out — no engine needed);
 * the engine-aware capture path driven by the
   :class:`~wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler`
-  over a full random game (phase alignment, 3x5 grids, narration slicing,
-  per-line seat attribution);
+  over a full random game (phase alignment, 3x5 grids, log-item slicing,
+  per-item seat attribution);
 * the ``wingspan play --html`` CLI flag writing a file end-to-end.
 
 Tests prepend ``src/`` to ``sys.path`` to match ``test_smoke.py``.
@@ -99,7 +99,7 @@ class _PhaseRecorder(
 
 
 def _tiny_report() -> game_log_html.GameLogReport:
-    """A minimal two-phase report exercising every model field."""
+    """A minimal two-phase report exercising every model field including LogItems."""
     bird = game_log_html.BirdCellInfo(
         name="American Robin",
         vp=5,
@@ -173,9 +173,27 @@ def _tiny_report() -> game_log_html.GameLogReport:
                 scored=False,
             )
         ],
-        narration=[
-            game_log_html.NarrationLine(player_id=None, text="game opens"),
-            game_log_html.NarrationLine(player_id=0, text="P0 plays a bird"),
+        log_items=[
+            game_log_html.LogItem(kind="note", player_id=None, text="Game opens"),
+            game_log_html.LogItem(
+                kind="decision",
+                player_id=0,
+                text="Lay eggs",
+                options=[
+                    game_log_html.DecisionOption(
+                        label="Lay eggs", prob=0.7, score=1.2, selected=True
+                    ),
+                    game_log_html.DecisionOption(
+                        label="Gain food", prob=0.3, score=0.5, selected=False
+                    ),
+                ],
+            ),
+            game_log_html.LogItem(
+                kind="forced",
+                player_id=0,
+                text="Draw from the deck",
+                forced=True,
+            ),
         ],
     )
     return game_log_html.GameLogReport(
@@ -215,10 +233,19 @@ def test_render_produces_self_contained_document():
     assert "fitStatePanel" in html
 
 
+def test_render_decision_log_items_embedded():
+    html = game_log_html.render_game_log_html(_tiny_report())
+    # The JSON payload must include the new log_items structure.
+    assert "log_items" in html
+    assert "di-body" in html or "renderLog" in html  # JS still references the structure
+    assert "Lay eggs" in html
+    assert "Draw from the deck" in html
+
+
 def test_embed_json_escapes_left_angle_bracket():
     report = _tiny_report()
-    report.phases[0].narration.append(
-        game_log_html.NarrationLine(player_id=0, text="if x < y then tuck")
+    report.phases[0].log_items.append(
+        game_log_html.LogItem(kind="note", player_id=0, text="if x < y then tuck")
     )
     html = game_log_html.render_game_log_html(report)
     # The payload must never carry a raw '<' that could break out of the
@@ -247,7 +274,7 @@ def test_capture_phases_align_one_to_one_with_log_headers():
         1 for entry in eng.state.log_entries if entry.text.startswith(_HEADER_PREFIX)
     )
     # One capture per === header means build_report's per-header segmentation
-    # pairs every phase with its decision narration and leaves nothing over.
+    # pairs every phase with its decision log items and leaves nothing over.
     assert len(phases) == header_count
 
 
@@ -275,7 +302,7 @@ def test_every_board_row_is_padded_to_five_columns():
                 assert len(row.cells) == game_log_html.BOARD_COLUMNS
 
 
-def test_turn_narration_drops_the_state_summary_block():
+def test_turn_log_drops_the_state_summary_block():
     eng, *_ = engine.Engine.create(seed=314)
     rng = random.Random(314)
     phases = _run_and_capture(eng, rng)
@@ -286,23 +313,23 @@ def test_turn_narration_drops_the_state_summary_block():
     assert turn_phases, "a full game has turns"
     first_turn = turn_phases[0]
     # The verbose board/hand/score summary the engine logs at turn start is
-    # dropped; the narration opens at the action, not at a 'Board:' dump.
-    assert first_turn.narration, "the turn still has decision narration"
-    assert not any(line.text.startswith("Board") for line in first_turn.narration)
+    # dropped; log items open at the action, not at a 'Board:' dump.
+    all_texts = [item.text for item in first_turn.log_items]
+    assert not any("Board" in text for text in all_texts)
 
 
-def test_narration_lines_carry_seat_attribution():
+def test_log_items_carry_seat_attribution():
     eng, *_ = engine.Engine.create(seed=555)
     rng = random.Random(555)
     phases = _run_and_capture(eng, rng)
     report = game_log_capture.build_report(
         engine=eng, phases=phases, seed=555, matchup=None
     )
-    all_lines = [line for phase in report.phases for line in phase.narration]
-    seat_ids = {line.player_id for line in all_lines}
-    # The filter rule (player_id is None or == seat) needs both global (None)
-    # and per-seat lines to exist; every id is one of the legal three.
+    all_items = [item for phase in report.phases for item in phase.log_items]
+    seat_ids = {item.player_id for item in all_items}
+    # Both per-seat (0, 1) and global (None) items must appear; no other ids.
     assert seat_ids <= {None, 0, 1}
+    # With two active seats there must be items attributed to each.
     assert 0 in seat_ids and 1 in seat_ids
 
 

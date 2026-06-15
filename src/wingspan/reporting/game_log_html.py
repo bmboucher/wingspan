@@ -24,6 +24,7 @@ Public API: :func:`render_game_log_html` (report -> HTML string) and
 from __future__ import annotations
 
 import pathlib
+import typing
 
 import pydantic
 
@@ -125,16 +126,35 @@ class RoundGoalInfo(pydantic.BaseModel):
     p1_count: int = 0
 
 
-class NarrationLine(pydantic.BaseModel):
-    """A single decision-log line, tagged with the deciding seat (None = global)."""
+class DecisionOption(pydantic.BaseModel):
+    """One offered option within a decision box in the decision log.
 
+    ``prob`` is the policy's softmax probability (``None`` when unavailable);
+    ``score`` is the raw logit used for ranking (``None`` for the setup-net
+    value-only mode); ``selected`` marks the option that was actually played."""
+
+    label: str
+    prob: float | None = None
+    score: float | None = None
+    selected: bool = False
+
+
+class LogItem(pydantic.BaseModel):
+    """One item in the phase's decision log: a decision, a forced move, or a note.
+
+    ``kind`` controls rendering: ``"decision"`` renders as a collapsible box
+    with option bars; ``"forced"`` renders as a non-collapsible outcome box;
+    ``"note"`` renders as a muted standalone notification."""
+
+    kind: typing.Literal["decision", "forced", "note"]
     player_id: int | None
     text: str
-    is_decision_start: bool = False
+    options: list[DecisionOption] = []
+    forced: bool = False
 
 
 class PhaseRecord(pydantic.BaseModel):
-    """One navigable phase: its header, both seats' state, and its narration."""
+    """One navigable phase: its header, both seats' state, and its log items."""
 
     index: int
     title: str
@@ -146,7 +166,7 @@ class PhaseRecord(pydantic.BaseModel):
     feeder_text: str
     feeder_slots: list[str | None] = []
     round_goals: list[RoundGoalInfo]
-    narration: list[NarrationLine]
+    log_items: list[LogItem] = []
     setup_bonus_options: list[BonusCardInfo] = []
 
 
@@ -485,24 +505,65 @@ main {
 }
 .bonus-count { display: inline-block; color: #64748b; font-size: 9px; }
 
-/* === Collapsible decision event boxes === */
-.event-box { margin-bottom: 3px; border-radius: 4px; overflow: hidden; }
-.event-box > summary {
-  cursor: pointer; padding: 4px 8px; font-size: 11px; font-weight: 600;
-  font-family: 'Fira Code', Consolas, monospace;
-  list-style: none; user-select: none; display: block;
-}
-.event-box > summary::-webkit-details-marker { display: none; }
-.event-box.event-p0 > summary { background: #1e3a5f; color: #93c5fd; }
-.event-box.event-p1 > summary { background: #3f1515; color: #fca5a5; }
-.event-box.event-global > summary { background: #1e293b; color: #cbd5e1; }
-.event-content {
-  padding: 3px 8px 5px; background: #111827;
-  font-family: 'Fira Code', Consolas, monospace; font-size: 10px;
-}
-.event-line { display: block; color: #94a3b8; padding: 1px 0; white-space: pre-wrap; }
-.event-chose { color: #4ade80; font-style: italic; }
+/* === Decision-log items === */
 .event-empty { color: #64748b; font-style: italic; font-size: 11px; padding: 8px; }
+
+/* Shared header style for decision + forced boxes */
+.di {
+  margin-bottom: 4px; border-radius: 5px; overflow: hidden;
+  border: 1px solid transparent;
+}
+.di summary, .di.forced {
+  padding: 5px 9px; font-size: 11px; font-weight: 600; line-height: 1.35;
+  cursor: pointer; list-style: none; user-select: none; display: block;
+}
+.di summary::-webkit-details-marker { display: none; }
+.di.forced { cursor: default; }
+.di-tag { opacity: 0.65; margin-right: 4px; }
+.di.p0 summary, .di.p0.forced { background: #1e3a5f; color: #93c5fd; border-color: #1e4a7f; }
+.di.p1 summary, .di.p1.forced { background: #3f1515; color: #fca5a5; border-color: #5a1f1f; }
+.di.global summary, .di.global.forced { background: #1e293b; color: #cbd5e1; border-color: #2d3f55; }
+
+/* Option rows inside an expanded decision */
+.di-body { padding: 4px 6px 6px; background: #111827; }
+.di-opt {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 4px; border-radius: 3px; margin-bottom: 2px;
+  border: 1px solid transparent;
+}
+.di-opt.selected {
+  border-color: #4ade80; background: rgba(74,222,128,.08);
+}
+.di-opt.selected::before {
+  content: '▸'; color: #4ade80; font-size: 10px; flex-shrink: 0;
+}
+.di-opt-label {
+  flex: 1; font-size: 10px; color: #94a3b8; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.di-opt.selected .di-opt-label { color: #e2e8f0; }
+.di-opt-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.di-bar {
+  width: 60px; height: 6px; border-radius: 3px;
+  background: #1e293b; overflow: hidden;
+}
+.di-bar-fill { height: 100%; border-radius: 3px; background: #475569; }
+.di.p0 .di-bar-fill { background: #3b82f6; }
+.di.p1 .di-bar-fill { background: #ef4444; }
+.di-score {
+  font-size: 9px; color: #64748b; font-family: 'Fira Code', Consolas, monospace;
+  min-width: 34px; text-align: right;
+}
+.di-opt.selected .di-score { color: #a7f3d0; }
+
+/* Note boxes: muted standalone notifications */
+.note {
+  padding: 4px 9px; margin-bottom: 3px; border-radius: 4px;
+  font-size: 10px; color: #64748b; background: #0f172a;
+  border-left: 2px solid #1e293b;
+}
+.note.p0 { border-left-color: #1e3a5f; }
+.note.p1 { border-left-color: #3f1515; }
 
 /* === Timeline modal === */
 #chart-modal {
@@ -858,35 +919,42 @@ function fitStatePanel() {
 
 function renderLog(phase) {
   const log = document.getElementById('decision-log');
-  if (!phase.narration.length) {
+  const items = phase.log_items || [];
+  if (!items.length) {
     log.innerHTML = '<div class="event-empty">(no decisions for this phase)</div>';
     return;
   }
+  log.innerHTML = items.map(item => {
+    const seat = item.player_id === 0 ? 'p0' : item.player_id === 1 ? 'p1' : 'global';
+    const tag = item.player_id != null ? '<span class="di-tag">[P' + item.player_id + ']</span> ' : '';
+    const headerText = tag + applyFoodEmoji(esc(item.text));
 
-  // Group lines into decision events: each event begins at is_decision_start=true.
-  // Any lines before the first decision start form an implicit global event.
-  const events = [];
-  let current = null;
-  for (const line of phase.narration) {
-    if (line.is_decision_start || current === null) {
-      current = { player_id: line.player_id, lines: [line] };
-      events.push(current);
-    } else {
-      current.lines.push(line);
+    if (item.kind === 'note') {
+      return '<div class="note ' + seat + '">' + headerText + '</div>';
     }
-  }
+    if (item.kind === 'forced') {
+      return '<div class="di forced ' + seat + '">' + headerText + '</div>';
+    }
 
-  log.innerHTML = events.map(ev => {
-    const who = ev.player_id === 0 ? 'event-p0' : ev.player_id === 1 ? 'event-p1' : 'event-global';
-    const header = ev.lines[0];
-    const rest = ev.lines.slice(1);
-    const body = rest.map(l => {
-      const cls = l.text.includes('chose:') ? ' event-chose' : '';
-      return '<span class="event-line' + cls + '">' + applyFoodEmoji(esc(l.text || ' ')) + '</span>';
+    // decision: collapsible box with option rows
+    const opts = item.options || [];
+    const maxProb = Math.max(...opts.map(o => o.prob != null ? o.prob : 0), 1e-6);
+    const optHtml = opts.map(o => {
+      const barWidth = o.prob != null ? Math.round(o.prob / maxProb * 100) : 0;
+      const rawScore = o.score != null ? o.score : null;
+      const scoreText = rawScore != null ? (rawScore >= 0 ? '+' : '') + rawScore.toFixed(1) : '';
+      const selCls = o.selected ? ' selected' : '';
+      return '<div class="di-opt' + selCls + '">'
+        + '<span class="di-opt-label">' + applyFoodEmoji(esc(o.label)) + '</span>'
+        + '<span class="di-opt-right">'
+        +   '<span class="di-bar"><span class="di-bar-fill" style="width:' + barWidth + '%"></span></span>'
+        +   (scoreText ? '<span class="di-score">' + esc(scoreText) + '</span>' : '')
+        + '</span>'
+        + '</div>';
     }).join('');
-    return '<details class="event-box ' + who + '" open>'
-      + '<summary>' + applyFoodEmoji(esc(header.text)) + '</summary>'
-      + '<div class="event-content">' + body + '</div>'
+    return '<details class="di ' + seat + '">'
+      + '<summary>' + headerText + '</summary>'
+      + '<div class="di-body">' + optHtml + '</div>'
       + '</details>';
   }).join('');
 }

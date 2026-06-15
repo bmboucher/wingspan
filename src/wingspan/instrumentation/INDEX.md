@@ -53,14 +53,14 @@ of training data for offline supervised learning.
 **`handlers/game_log_html.py`** — `GameLogHtml` (`GameLogHtmlHandler`): records
 each game as a navigable, self-contained HTML log viewer (the `wingspan play
 --html` flag). Subscribes to `game_start` / `setup_start` / `setup_applied` /
-`round_start` / `turn_start` / `made_decision` / `game_end`. The phase-boundary
+`round_start` / `turn_start` / `made_decision` / `game_end`. Phase-boundary
 events fire once per `=== ... ===` log header so snapshots zip one-to-one with
-the text log. `made_decision` records a `RawTimelinePoint` per decision for the
-Timeline modal chart. Config: `output_path` and `index_suffix`. At `game_end`
-calls `build_timeline` (finalizes timestamps, computes future-return chart
-coords) then writes the `GameLogReport`. Call `configure_timeline(seat_configs,
-probes)` before the first game to inject per-seat `TrainConfig` and `ValueProbe`
-objects; without them the timeline shows scores only (value/target lines are gaps).
-The state→model conversion and narration/timeline building live in
-`reporting.game_log_capture`, imported lazily to avoid the `engine` ↔
-`instrumentation` import cycle.
+the text log. `made_decision` records a `RawTimelinePoint` for the Timeline chart
+and, when the `DecisionProbe` carries a `PolicyAnnotation`, also builds a
+`LogItem` (option bars + selected highlight) stored in `_decision_items`.  At
+`game_end` calls `build_timeline` then `build_report` (passing `_decision_items`
+so the capture layer merges them with the text log). Config: `output_path` and
+`index_suffix`. Call `configure_timeline(seat_configs, probes)` before the first
+game to inject per-seat `TrainConfig` and `DecisionProbe` objects; without them
+the timeline shows scores only and decision boxes omit option bars. State→model
+conversion lives in `reporting.game_log_capture`, imported lazily.
