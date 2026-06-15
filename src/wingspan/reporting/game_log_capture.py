@@ -318,10 +318,11 @@ def build_timeline(
 ) -> list[game_log_html.TimelinePoint]:
     """Finalize timestamps and compute per-decision chart coordinates.
 
-    Reads the game's final scores from ``engine`` to compute the discounted-
-    return targets that match what ``learner._decision_delta_returns`` computes.
-    Returns an empty list when ``raw_points`` is empty (game with no decisions)."""
-    from wingspan.training import timestamps
+    Reads the game's final scores from ``engine`` and each seat's
+    ``reward_mode`` to compute the target line so it matches the training
+    signal the critic was actually trained on.  Returns an empty list when
+    ``raw_points`` is empty (game with no decisions)."""
+    from wingspan.training import config as train_config, timestamps
 
     if not raw_points:
         return []
@@ -332,7 +333,7 @@ def build_timeline(
     final_ts = timestamps.finalize_provisional_timestamps(provisional_ts, family_idxs)
     game_end_ts = timestamps.final_timestamp(engine.state.turn_counter)
 
-    # Compute discounted returns per player (matching learner._decision_delta_returns).
+    # Terminal margin from each seat's POV (P0's is positive when P0 leads).
     final_score_p0 = engine.state.players[0].final_score or 0
     final_score_p1 = engine.state.players[1].final_score or 0
     terminal_per_player = (
@@ -340,7 +341,8 @@ def build_timeline(
         float(final_score_p1 - final_score_p0),
     )
 
-    # Build a {index: target_raw} map (raw = before / score_norm division).
+    # Build a {index: target_raw} map (raw = before / score_norm division),
+    # matching the actual training signal for each seat's reward_mode.
     target_raw: dict[int, float] = {}
     for player_id in (0, 1):
         cfg = seat_configs[player_id]
@@ -349,6 +351,16 @@ def build_timeline(
         indices = [i for i, pt in enumerate(raw_points) if pt.player_id == player_id]
         if not indices:
             continue
+
+        # terminal_margin: critic is trained on the flat end-of-game margin
+        # broadcast to every decision, so the target is constant at the terminal.
+        if cfg.reward_mode is train_config.RewardMode.TERMINAL_MARGIN:
+            for idx in indices:
+                target_raw[idx] = terminal_per_player[player_id]
+            continue
+
+        # decision_delta: critic is trained on the discounted future margin
+        # change, so the target telescopes toward 0 at the end.
         checkpoints = [raw_points[i].margin_before for i in indices]
         checkpoints.append(terminal_per_player[player_id])
         times = [final_ts[i] for i in indices]

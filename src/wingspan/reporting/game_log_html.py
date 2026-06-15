@@ -181,12 +181,14 @@ class TimelinePoint(pydantic.BaseModel):
 
     Coordinates are primitives so the instance serialises cleanly into the
     page's embedded JSON. ``value_return_p0`` and ``target_return_p0`` are the
-    P0-relative discounted future return (the P0−P1 margin change still to come)
-    in victory-point units:
+    P0-relative return in victory-point units:
 
     * ``value_return_p0`` — the critic's predicted return at this decision.
-    * ``target_return_p0`` — the actual discounted return the critic is trained
-      to match (equals ``terminal − current`` at γ=1).
+    * ``target_return_p0`` — the training target the critic is trained to match.
+      Shape depends on the seat's ``reward_mode``: a flat constant at the
+      terminal margin for ``terminal_margin`` (the critic converges onto it near
+      game end as outcome uncertainty resolves); a discounted future return
+      telescoping toward 0 for ``decision_delta``.
 
     Both are ``None`` when the deciding seat has no trained net (random/human).
     """

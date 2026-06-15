@@ -404,7 +404,7 @@ def test_build_timeline_value_and_target_none_without_configs():
 
 def test_build_timeline_returns_exclude_realized():
     """``value_return_p0`` and ``target_return_p0`` are the bare P0-relative
-    discounted future return, not ``realized + return``.
+    discounted future return (``decision_delta`` mode), not ``realized + return``.
 
     At γ=1 the target telescopes to ``terminal − margin_before`` (not flat),
     and the critic return equals ``sign · value_pov · score_norm`` with no
@@ -439,7 +439,11 @@ def test_build_timeline_returns_exclude_realized():
             value_pov=-0.5,
         ),
     ]
-    cfg = train_config.TrainConfig(reward_discount=1.0, score_norm=2.0)
+    cfg = train_config.TrainConfig(
+        reward_discount=1.0,
+        score_norm=2.0,
+        reward_mode=train_config.RewardMode.DECISION_DELTA,
+    )
     timeline = game_log_capture.build_timeline(
         engine=eng,
         raw_points=raw_points,
@@ -456,6 +460,56 @@ def test_build_timeline_returns_exclude_realized():
 
     # The two values must differ — a flat line is the bug's symptom.
     assert timeline[0].target_return_p0 != timeline[1].target_return_p0
+
+
+def test_build_timeline_terminal_margin_flat_target():
+    """In ``terminal_margin`` mode the target is constant at the final margin.
+
+    All decisions, regardless of ``margin_before``, get the same P0-relative
+    target: the terminal point delta (P0 minus P1).  Including a P1 decision
+    verifies the sign flip still yields the same P0-relative constant."""
+    eng, *_ = engine.Engine.create(seed=1)
+    eng.state.players[0].final_score = 10
+    eng.state.players[1].final_score = 4
+    eng.state.turn_counter = 52
+
+    main_family = _main_family()
+    raw_points = [
+        game_log_capture.RawTimelinePoint(
+            player_id=0,
+            margin_before=3.0,
+            provisional_timestamp=1.0,
+            family_idx=main_family,
+            score_p0=5,
+            score_p1=2,
+            phase_index=0,
+            value_pov=1.0,
+        ),
+        game_log_capture.RawTimelinePoint(
+            player_id=1,
+            margin_before=2.0,
+            provisional_timestamp=2.0,
+            family_idx=main_family,
+            score_p0=6,
+            score_p1=3,
+            phase_index=0,
+            value_pov=0.5,
+        ),
+    ]
+    cfg = train_config.TrainConfig(
+        reward_discount=1.0,
+        score_norm=2.0,
+        reward_mode=train_config.RewardMode.TERMINAL_MARGIN,
+    )
+    timeline = game_log_capture.build_timeline(
+        engine=eng,
+        raw_points=raw_points,
+        seat_configs=(cfg, cfg),
+    )
+
+    # Both decisions get the flat P0-relative terminal: 10 − 4 = 6.0.
+    assert math.isclose(timeline[0].target_return_p0 or 0.0, 6.0)
+    assert math.isclose(timeline[1].target_return_p0 or 0.0, 6.0)
 
 
 def test_build_timeline_empty_for_no_decisions():
