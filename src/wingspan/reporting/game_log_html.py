@@ -544,10 +544,10 @@ main {
 .di-opt.selected .di-opt-label { color: #e2e8f0; }
 .di-opt-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .di-bar {
-  width: 70px; height: 8px; border-radius: 4px;
+  display: block; width: 70px; height: 8px; border-radius: 4px;
   background: #334155; overflow: hidden;
 }
-.di-bar-fill { height: 100%; border-radius: 4px; background: #fbbf24; }
+.di-bar-fill { display: block; height: 100%; border-radius: 4px; background: #fbbf24; }
 .di.p0 .di-bar-fill { background: #facc15; }
 .di.p1 .di-bar-fill { background: #fb923c; }
 .di-score {
