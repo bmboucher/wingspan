@@ -165,23 +165,22 @@ def build_timeline(
         for position, idx in enumerate(indices):
             target_raw[idx] = raw_returns[position]
 
-    # Assemble TimelinePoint objects — value/target are P0-relative, in VP.
+    # Assemble TimelinePoint objects — value/target are P0-relative future returns, in VP.
     result: list[game_log_html.TimelinePoint] = []
     for idx, (pt, ts) in enumerate(zip(raw_points, final_ts)):
         cfg = seat_configs[pt.player_id]
         score_norm = cfg.score_norm if cfg is not None else 1.0
         sign = 1 if pt.player_id == 0 else -1
-        realized = pt.score_p0 - pt.score_p1
 
-        # Critic: denormalize and project to P0-relative final margin.
-        value_margin: float | None = None
+        # Critic: denormalize the predicted return to P0-relative VP.
+        value_return: float | None = None
         if pt.value_pov is not None and cfg is not None:
-            value_margin = realized + sign * pt.value_pov * score_norm
+            value_return = sign * pt.value_pov * score_norm
 
         # Target: raw return is already in VP (not normalized); convert to P0.
-        target_margin: float | None = None
+        target_return: float | None = None
         if idx in target_raw:
-            target_margin = realized + sign * target_raw[idx]
+            target_return = sign * target_raw[idx]
 
         result.append(
             game_log_html.TimelinePoint(
@@ -190,8 +189,8 @@ def build_timeline(
                 score_p0=pt.score_p0,
                 score_p1=pt.score_p1,
                 phase_index=pt.phase_index,
-                value_margin_p0=value_margin,
-                target_margin_p0=target_margin,
+                value_return_p0=value_return,
+                target_return_p0=target_return,
             )
         )
     return result

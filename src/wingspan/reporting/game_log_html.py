@@ -153,12 +153,13 @@ class TimelinePoint(pydantic.BaseModel):
     """One decision's snapshot for the modal timeline chart.
 
     Coordinates are primitives so the instance serialises cleanly into the
-    page's embedded JSON. ``value_margin_p0`` and ``target_margin_p0`` are
-    "projected final P0−P1 margin" in victory-point units:
+    page's embedded JSON. ``value_return_p0`` and ``target_return_p0`` are the
+    P0-relative discounted future return (the P0−P1 margin change still to come)
+    in victory-point units:
 
-    * ``value_margin_p0`` — the critic's projection at this decision.
-    * ``target_margin_p0`` — the discounted-return target the critic is trained
-      to match.
+    * ``value_return_p0`` — the critic's predicted return at this decision.
+    * ``target_return_p0`` — the actual discounted return the critic is trained
+      to match (equals ``terminal − current`` at γ=1).
 
     Both are ``None`` when the deciding seat has no trained net (random/human).
     """
@@ -168,8 +169,8 @@ class TimelinePoint(pydantic.BaseModel):
     score_p0: int
     score_p1: int
     phase_index: int
-    value_margin_p0: float | None = None
-    target_margin_p0: float | None = None
+    value_return_p0: float | None = None
+    target_return_p0: float | None = None
 
 
 class GameLogReport(pydantic.BaseModel):
@@ -535,6 +536,7 @@ main {
 .chart-line-p1 { fill: none; stroke: #fca5a5; stroke-width: 2; }
 .chart-line-realized { fill: none; stroke: #64748b; stroke-width: 1.5; stroke-dasharray: 4,2; }
 .chart-line-value   { fill: none; stroke: #4ade80; stroke-width: 2; }
+.chart-line-value-p1 { fill: none; stroke: #22d3ee; stroke-width: 2; }
 .chart-line-target  { fill: none; stroke: #facc15; stroke-width: 1.5; stroke-dasharray: 5,3; }
 .chart-hit { fill: transparent; cursor: pointer; }
 .chart-hit:hover { fill: rgba(255,255,255,.1); }
@@ -1039,30 +1041,35 @@ function renderChart() {
     {cls: 'chart-line-p1', label: 'P1 score (VP)'},
   ]);
 
-  // --- Bottom panel: projected final P0−P1 margin ---
+  // --- Bottom panel: P0-relative future return (critic prediction vs target) ---
   const bottomSvg = document.getElementById('chart-svg-bottom');
   const realized = tl.map(p => [p.timestamp, p.score_p0 - p.score_p1]);
-  const valuePts = tl.map(p => p.value_margin_p0 !== null ? [p.timestamp, p.value_margin_p0] : null);
-  const targetPts = tl.map(p => p.target_margin_p0 !== null ? [p.timestamp, p.target_margin_p0] : null);
+  const valueP0 = tl.filter(p => p.player_id === 0 && p.value_return_p0 !== null)
+                    .map(p => [p.timestamp, p.value_return_p0]);
+  const valueP1 = tl.filter(p => p.player_id === 1 && p.value_return_p0 !== null)
+                    .map(p => [p.timestamp, p.value_return_p0]);
+  const targetPts = tl.filter(p => p.target_return_p0 !== null)
+                      .map(p => [p.timestamp, p.target_return_p0]);
 
   const allMargins = [
     ...realized.map(([, v]) => v),
-    ...valuePts.filter(Boolean).map(item => item[1]),
-    ...targetPts.filter(Boolean).map(item => item[1]),
+    ...valueP0.map(([, v]) => v),
+    ...valueP1.map(([, v]) => v),
+    ...targetPts.map(([, v]) => v),
   ];
   const mMin = Math.min(...allMargins) - 2;
   const mMax = Math.max(...allMargins) + 2;
   const mRange = mMax - mMin || 1;
-  const hasValue = valuePts.some(Boolean);
-  const hasTarget = targetPts.some(Boolean);
 
   const marginLines = [{data: realized, cls: 'chart-line-realized'}];
-  if (hasValue) marginLines.push({data: valuePts, cls: 'chart-line-value'});
-  if (hasTarget) marginLines.push({data: targetPts, cls: 'chart-line-target'});
+  if (valueP0.length) marginLines.push({data: valueP0, cls: 'chart-line-value'});
+  if (valueP1.length) marginLines.push({data: valueP1, cls: 'chart-line-value-p1'});
+  if (targetPts.length) marginLines.push({data: targetPts, cls: 'chart-line-target'});
 
   const marginLabels = [{cls: 'chart-line-realized', label: 'Realized P0−P1 (VP)'}];
-  if (hasValue) marginLabels.push({cls: 'chart-line-value', label: 'Critic projected'});
-  if (hasTarget) marginLabels.push({cls: 'chart-line-target', label: 'Target projected'});
+  if (valueP0.length) marginLabels.push({cls: 'chart-line-value', label: 'P0 critic return'});
+  if (valueP1.length) marginLabels.push({cls: 'chart-line-value-p1', label: 'P1 critic return'});
+  if (targetPts.length) marginLabels.push({cls: 'chart-line-target', label: 'Target return'});
 
   renderPanel(bottomSvg, tl, tMin, tRange, mMin, mRange, marginLines, 0, marginLabels);
 }

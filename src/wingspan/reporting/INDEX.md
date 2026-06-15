@@ -23,8 +23,8 @@ page that replays one `wingspan play` game phase-by-phase: a sticky state panel
 (3x5 board grids, hands, tray, food, scores, bonus cards, round goals), prev/next
 arrows, a `P0 / P1 / both` seat toggle, a collapsible decision log, and a
 **Timeline modal** (button opens two stacked SVG panels: top = per-player VP over
-game-clock time, bottom = P0-relative projected final margin with realized,
-critic-value, and discounted-return target lines). The data model (`GameLogReport`,
+game-clock time, bottom = P0-relative future return (per-seat critic prediction vs
+discounted-return target) with the realized margin as context). The data model (`GameLogReport`,
 `PhaseRecord`, `TimelinePoint`, `PlayerPanel`, `BirdCellInfo`, …) holds
 **primitives only** — no engine or torch types — so the page renders from a plain
 JSON dump embedded in the document and drawn client-side by an inline script.
@@ -39,7 +39,7 @@ log into one decision-narration block per phase (on `=== ... ===` headers,
 dropping each turn's verbose state-summary prefix) and assembles the
 `GameLogReport`. `build_timeline(engine, raw_points, seat_configs)` finalizes
 provisional per-decision timestamps (via `timestamps.finalize_provisional_timestamps`)
-and computes P0-relative projected-margin chart coordinates for value/target lines,
+and computes P0-relative future-return chart coordinates for value/target lines,
 reusing the `timestamps.discounted_future_returns` kernel. Imported lazily by the
 `GameLogHtml` instrumentation handler so its `engine` dependency stays off the
 import-time path.

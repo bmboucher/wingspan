@@ -34,6 +34,7 @@ from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import events as instrumentation_events
 from wingspan.players import value_sink
 from wingspan.reporting import game_log_capture, game_log_html
+from wingspan.training import config as train_config
 from wingspan.training import timestamps
 
 if typing.TYPE_CHECKING:
@@ -388,7 +389,7 @@ def test_build_timeline_produces_monotone_timestamps():
 
 
 def test_build_timeline_value_and_target_none_without_configs():
-    """With ``seat_configs=(None, None)`` the value/target margin fields are all
+    """With ``seat_configs=(None, None)`` the value/target return fields are all
     ``None`` — score-only degradation path for human/random seats."""
     eng, capture = _run_with_capture(seed=789)
     timeline = game_log_capture.build_timeline(
@@ -397,8 +398,64 @@ def test_build_timeline_value_and_target_none_without_configs():
         seat_configs=(None, None),
     )
     for point in timeline:
-        assert point.value_margin_p0 is None
-        assert point.target_margin_p0 is None
+        assert point.value_return_p0 is None
+        assert point.target_return_p0 is None
+
+
+def test_build_timeline_returns_exclude_realized():
+    """``value_return_p0`` and ``target_return_p0`` are the bare P0-relative
+    discounted future return, not ``realized + return``.
+
+    At γ=1 the target telescopes to ``terminal − margin_before`` (not flat),
+    and the critic return equals ``sign · value_pov · score_norm`` with no
+    realized margin term added.  The key bug symptom was a flat target line;
+    asserting two distinct values catches any regression that re-adds ``realized``."""
+    eng, *_ = engine.Engine.create(seed=1)
+    eng.state.players[0].final_score = 10
+    eng.state.players[1].final_score = 4
+    eng.state.turn_counter = 52
+
+    # Two P0 decisions with non-zero score_p0/score_p1 so realized ≠ 0.
+    main_family = _main_family()
+    raw_points = [
+        game_log_capture.RawTimelinePoint(
+            player_id=0,
+            margin_before=3.0,
+            provisional_timestamp=1.0,
+            family_idx=main_family,
+            score_p0=5,
+            score_p1=2,
+            phase_index=0,
+            value_pov=1.0,
+        ),
+        game_log_capture.RawTimelinePoint(
+            player_id=0,
+            margin_before=7.0,
+            provisional_timestamp=2.0,
+            family_idx=main_family,
+            score_p0=8,
+            score_p1=1,
+            phase_index=0,
+            value_pov=-0.5,
+        ),
+    ]
+    cfg = train_config.TrainConfig(reward_discount=1.0, score_norm=2.0)
+    timeline = game_log_capture.build_timeline(
+        engine=eng,
+        raw_points=raw_points,
+        seat_configs=(cfg, None),
+    )
+
+    # Critic return = sign · value_pov · score_norm (no realized term).
+    assert math.isclose(timeline[0].value_return_p0 or 0.0, 1.0 * 2.0)
+    assert math.isclose(timeline[1].value_return_p0 or 0.0, -0.5 * 2.0)
+
+    # At γ=1 target telescopes to terminal − margin_before = 6 − margin_before.
+    assert math.isclose(timeline[0].target_return_p0 or 0.0, 6.0 - 3.0)
+    assert math.isclose(timeline[1].target_return_p0 or 0.0, 6.0 - 7.0)
+
+    # The two values must differ — a flat line is the bug's symptom.
+    assert timeline[0].target_return_p0 != timeline[1].target_return_p0
 
 
 def test_build_timeline_empty_for_no_decisions():

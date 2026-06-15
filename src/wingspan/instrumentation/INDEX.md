@@ -57,7 +57,7 @@ each game as a navigable, self-contained HTML log viewer (the `wingspan play
 events fire once per `=== ... ===` log header so snapshots zip one-to-one with
 the text log. `made_decision` records a `RawTimelinePoint` per decision for the
 Timeline modal chart. Config: `output_path` and `index_suffix`. At `game_end`
-calls `build_timeline` (finalizes timestamps, computes projected-margin chart
+calls `build_timeline` (finalizes timestamps, computes future-return chart
 coords) then writes the `GameLogReport`. Call `configure_timeline(seat_configs,
 probes)` before the first game to inject per-seat `TrainConfig` and `ValueProbe`
 objects; without them the timeline shows scores only (value/target lines are gaps).
