@@ -1170,14 +1170,17 @@ function renderChart() {
                     .map(p => [p.timestamp, p.value_return_p0]);
   const valueP1 = tl.filter(p => p.player_id === 1 && p.value_return_p0 !== null)
                     .map(p => [p.timestamp, p.value_return_p0]);
-  const targetPts = tl.filter(p => p.target_return_p0 !== null)
-                      .map(p => [p.timestamp, p.target_return_p0]);
+  const targetP0 = tl.filter(p => p.player_id === 0 && p.target_return_p0 !== null)
+                     .map(p => [p.timestamp, p.target_return_p0]);
+  const targetP1 = tl.filter(p => p.player_id === 1 && p.target_return_p0 !== null)
+                     .map(p => [p.timestamp, p.target_return_p0]);
 
   const allMargins = [
     ...realized.map(([, v]) => v),
     ...valueP0.map(([, v]) => v),
     ...valueP1.map(([, v]) => v),
-    ...targetPts.map(([, v]) => v),
+    ...targetP0.map(([, v]) => v),
+    ...targetP1.map(([, v]) => v),
   ];
   const mMin = Math.min(...allMargins) - 2;
   const mMax = Math.max(...allMargins) + 2;
@@ -1186,12 +1189,14 @@ function renderChart() {
   const marginLines = [{data: realized, cls: 'chart-line-realized'}];
   if (valueP0.length) marginLines.push({data: valueP0, cls: 'chart-line-value'});
   if (valueP1.length) marginLines.push({data: valueP1, cls: 'chart-line-value-p1'});
-  if (targetPts.length) marginLines.push({data: targetPts, cls: 'chart-line-target'});
+  if (targetP0.length) marginLines.push({data: targetP0, cls: 'chart-line-target'});
+  if (targetP1.length) marginLines.push({data: targetP1, cls: 'chart-line-target-p1'});
 
   const marginLabels = [{cls: 'chart-line-realized', label: 'Realized P0−P1 (VP)'}];
   if (valueP0.length) marginLabels.push({cls: 'chart-line-value', label: 'P0 critic return'});
   if (valueP1.length) marginLabels.push({cls: 'chart-line-value-p1', label: 'P1 critic return'});
-  if (targetPts.length) marginLabels.push({cls: 'chart-line-target', label: 'Target return'});
+  if (targetP0.length) marginLabels.push({cls: 'chart-line-target',    label: 'P0 target'});
+  if (targetP1.length) marginLabels.push({cls: 'chart-line-target-p1', label: 'P1 target'});
 
   renderPanel(bottomSvg, tl, tMin, tRange, mMin, mRange, marginLines, 0, marginLabels);
 }

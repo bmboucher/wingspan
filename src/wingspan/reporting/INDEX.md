@@ -24,7 +24,8 @@ page that replays one `wingspan play` game phase-by-phase: a sticky state panel
 arrows, a `P0 / P1 / both` seat toggle, a collapsible decision log, and a
 **Timeline modal** (button opens two stacked SVG panels: top = per-player VP over
 game-clock time, bottom = P0-relative future return (per-seat critic prediction vs
-discounted-return target) with the realized margin as context). The decision log
+per-seat discounted-return target, each seat shown as a separate dashed line)
+with the realized margin as context). The decision log
 renders three item kinds from `PhaseRecord.log_items: list[LogItem]`: collapsible
 `"decision"` boxes (with option bars scaled to max-probability, `+#.#` scores,
 and the selected option highlighted), non-collapsible `"forced"` outcome boxes,
