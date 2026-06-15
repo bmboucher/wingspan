@@ -543,6 +543,7 @@ main {
 .chart-line-value   { fill: none; stroke: #4ade80; stroke-width: 2; }
 .chart-line-value-p1 { fill: none; stroke: #22d3ee; stroke-width: 2; }
 .chart-line-target  { fill: none; stroke: #facc15; stroke-width: 1.5; stroke-dasharray: 5,3; }
+.chart-line-target-p1 { fill: none; stroke: #fb923c; stroke-width: 1.5; stroke-dasharray: 5,3; }
 .chart-hit { fill: transparent; cursor: pointer; }
 .chart-hit:hover { fill: rgba(255,255,255,.1); }
 .chart-legend { font: 10px/1.4 sans-serif; fill: #94a3b8; }
