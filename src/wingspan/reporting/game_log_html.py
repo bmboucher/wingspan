@@ -547,9 +547,9 @@ main {
   width: 70px; height: 8px; border-radius: 4px;
   background: #334155; overflow: hidden;
 }
-.di-bar-fill { height: 100%; border-radius: 4px; background: #64748b; }
-.di.p0 .di-bar-fill { background: #60a5fa; }
-.di.p1 .di-bar-fill { background: #f87171; }
+.di-bar-fill { height: 100%; border-radius: 4px; background: #fbbf24; }
+.di.p0 .di-bar-fill { background: #facc15; }
+.di.p1 .di-bar-fill { background: #fb923c; }
 .di-score {
   font-size: 9px; color: #64748b; font-family: 'Fira Code', Consolas, monospace;
   min-width: 34px; text-align: right;
@@ -939,16 +939,9 @@ function renderLog(phase) {
 
     // decision: collapsible box with option rows
     const opts = item.options || [];
-    const scoredOpts = opts.filter(o => o.score != null);
-    const hasScores = scoredOpts.length > 0;
-    const maxScore = hasScores ? Math.max(...scoredOpts.map(o => o.score)) : 0;
-    const minScore = hasScores ? Math.min(...scoredOpts.map(o => o.score)) : 0;
-    const scoreRange = maxScore - minScore;
     const maxProb = Math.max(...opts.map(o => o.prob != null ? o.prob : 0), 1e-6);
     const optHtml = opts.map(o => {
-      const barWidth = hasScores && o.score != null && scoreRange > 0
-        ? Math.round((o.score - minScore) / scoreRange * 100)
-        : (o.prob != null ? Math.round(o.prob / maxProb * 100) : 0);
+      const barWidth = o.prob != null ? Math.round(o.prob / maxProb * 100) : 0;
       const rawScore = o.score != null ? o.score : null;
       const scoreText = rawScore != null ? (rawScore >= 0 ? '+' : '') + rawScore.toFixed(1) : '';
       const selCls = o.selected ? ' selected' : '';
