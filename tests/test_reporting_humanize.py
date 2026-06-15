@@ -205,7 +205,9 @@ def _stub_bonus(name: str) -> cards.BonusCard:
 def test_humanize_choice_play_bird():
     gs = _empty_gs()
     choice = decisions.PlayBirdChoice(
-        label="mallard-wetland", bird=_stub_bird("Mallard"), habitat=cards.Habitat.WETLAND
+        label="mallard-wetland",
+        bird=_stub_bird("Mallard"),
+        habitat=cards.Habitat.WETLAND,
     )
     result = humanize.humanize_choice(choice, gs)
     assert "Mallard" in result
@@ -214,7 +216,9 @@ def test_humanize_choice_play_bird():
 
 def test_humanize_choice_bonus_card():
     gs = _empty_gs()
-    choice = decisions.BonusCardChoice(label="ethologist", bonus_card=_stub_bonus("Ethologist"))
+    choice = decisions.BonusCardChoice(
+        label="ethologist", bonus_card=_stub_bonus("Ethologist")
+    )
     assert humanize.humanize_choice(choice, gs) == "Ethologist"
 
 
@@ -311,7 +315,9 @@ def test_humanize_choice_board_target_with_bird():
             break
     if not found:
         # Empty board path: returns habitat+slot text, not an error.
-        choice = decisions.BoardTargetChoice(label="slot", habitat=cards.Habitat.FOREST, slot=0)
+        choice = decisions.BoardTargetChoice(
+            label="slot", habitat=cards.Habitat.FOREST, slot=0
+        )
         result = humanize.humanize_choice(choice, gs, player_id=0)
         assert "Forest" in result or "slot" in result.lower()
 
@@ -323,7 +329,9 @@ def test_humanize_choice_board_target_with_bird():
 def test_humanize_outcome_play_bird():
     gs = _empty_gs()
     bird = _stub_bird("Mallard")
-    choice = decisions.PlayBirdChoice(label="mallard", bird=bird, habitat=cards.Habitat.WETLAND)
+    choice = decisions.PlayBirdChoice(
+        label="mallard", bird=bird, habitat=cards.Habitat.WETLAND
+    )
     decision = decisions.PlayBirdDecision(player_id=0, prompt="", choices=[choice])
     assert humanize.humanize_outcome(decision, choice, gs) == "Plays Mallard in Wetland"
 
@@ -331,9 +339,15 @@ def test_humanize_outcome_play_bird():
 def test_humanize_outcome_draw_source_tray():
     gs = _empty_gs()
     bird = _stub_bird("Mallard")
-    choice = decisions.DrawSourceChoice(label="tray[0]=Mallard", source="tray", tray_index=0, bird=bird)
-    decision = decisions.DrawCardsPickSourceDecision(player_id=0, prompt="", choices=[choice])
-    assert humanize.humanize_outcome(decision, choice, gs) == "Draws Mallard from the tray"
+    choice = decisions.DrawSourceChoice(
+        label="tray[0]=Mallard", source="tray", tray_index=0, bird=bird
+    )
+    decision = decisions.DrawCardsPickSourceDecision(
+        player_id=0, prompt="", choices=[choice]
+    )
+    assert (
+        humanize.humanize_outcome(decision, choice, gs) == "Draws Mallard from the tray"
+    )
 
 
 def test_humanize_outcome_food():
@@ -345,8 +359,12 @@ def test_humanize_outcome_food():
 
 def test_humanize_outcome_bonus_card():
     gs = _empty_gs()
-    choice = decisions.BonusCardChoice(label="ethologist", bonus_card=_stub_bonus("Ethologist"))
-    decision = decisions.BirdPowerPickBonusCardDecision(player_id=0, prompt="", choices=[choice])
+    choice = decisions.BonusCardChoice(
+        label="ethologist", bonus_card=_stub_bonus("Ethologist")
+    )
+    decision = decisions.BirdPowerPickBonusCardDecision(
+        player_id=0, prompt="", choices=[choice]
+    )
     result = humanize.humanize_outcome(decision, choice, gs)
     assert "Ethologist" in result
 
@@ -354,7 +372,9 @@ def test_humanize_outcome_bonus_card():
 def test_humanize_outcome_bird_choice():
     gs = _empty_gs()
     choice = decisions.BirdChoice(label="mallard", bird=_stub_bird("Mallard"))
-    decision = decisions.DiscardBirdForFoodDecision(player_id=0, prompt="", choices=[choice])
+    decision = decisions.DiscardBirdForFoodDecision(
+        player_id=0, prompt="", choices=[choice]
+    )
     assert humanize.humanize_outcome(decision, choice, gs) == "Picks Mallard"
 
 
@@ -366,7 +386,9 @@ def test_humanize_outcome_setup():
     )
     # humanize_outcome only uses decision.player_id for BoardTargetChoice; use
     # model_construct to avoid triggering choice-type validation on the decision.
-    decision = decisions.MainActionDecision.model_construct(player_id=0, prompt="", choices=[choice])
+    decision = decisions.MainActionDecision.model_construct(
+        player_id=0, prompt="", choices=[choice]
+    )
     result = humanize.humanize_outcome(decision, choice, gs)
     assert "Mallard" in result
 
@@ -374,14 +396,18 @@ def test_humanize_outcome_setup():
 def test_humanize_outcome_habitat():
     gs = _empty_gs()
     choice = decisions.HabitatChoice(label="grassland", habitat=cards.Habitat.GRASSLAND)
-    decision = decisions.MainActionDecision.model_construct(player_id=0, prompt="", choices=[choice])
+    decision = decisions.MainActionDecision.model_construct(
+        player_id=0, prompt="", choices=[choice]
+    )
     assert humanize.humanize_outcome(decision, choice, gs) == "Grassland"
 
 
 def test_humanize_outcome_reset_birdfeeder():
     gs = _empty_gs()
     choice = decisions.ResetBirdfeederChoice(label="reset")
-    decision = decisions.ResetBirdfeederDecision(player_id=0, prompt="", choices=[choice])
+    decision = decisions.ResetBirdfeederDecision(
+        player_id=0, prompt="", choices=[choice]
+    )
     assert humanize.humanize_outcome(decision, choice, gs) == "Resets birdfeeder"
 
 
@@ -394,8 +420,12 @@ def test_humanize_outcome_tuck_activate():
 
 def test_humanize_outcome_pay_cost():
     gs = _empty_gs()
-    choice = decisions.PayCostChoice(label="discard egg for card", paid_egg_count=1, gained_card_count=1)
-    decision = decisions.AcceptExchangeDecision(player_id=0, prompt="", choices=[choice])
+    choice = decisions.PayCostChoice(
+        label="discard egg for card", paid_egg_count=1, gained_card_count=1
+    )
+    decision = decisions.AcceptExchangeDecision(
+        player_id=0, prompt="", choices=[choice]
+    )
     result = humanize.humanize_outcome(decision, choice, gs)
     assert "discard egg for card" in result
 
@@ -407,7 +437,9 @@ def test_humanize_outcome_food_payment():
     pool = state_module.FoodPool()
     pool[cards.Food.SEED] = 1
     choice = decisions.FoodPaymentChoice(label="1seed", payment=pool)
-    decision = decisions.MainActionDecision.model_construct(player_id=0, prompt="", choices=[choice])
+    decision = decisions.MainActionDecision.model_construct(
+        player_id=0, prompt="", choices=[choice]
+    )
     result = humanize.humanize_outcome(decision, choice, gs)
     assert "seed" in result
 
@@ -419,7 +451,9 @@ def test_humanize_outcome_played_bird():
     bird = _stub_bird("American Robin")
     played = state_module.PlayedBird.model_construct(bird=bird, eggs=0)
     choice = decisions.PlayedBirdChoice(label="robin", played_bird=played)
-    decision = decisions.BirdPowerPickPlayedBirdDecision(player_id=0, prompt="", choices=[choice])
+    decision = decisions.BirdPowerPickPlayedBirdDecision(
+        player_id=0, prompt="", choices=[choice]
+    )
     assert humanize.humanize_outcome(decision, choice, gs) == "Uses American Robin"
 
 
