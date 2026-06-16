@@ -74,7 +74,7 @@ def build_status(
         iteration=state.iteration,
         completed_iterations=completed,
         target_iterations=state.target_iterations,
-        max_iterations=state.config.max_iterations,
+        max_iterations=state.config.run.max_iterations,
         pct_complete=_pct_complete(completed, state),
         total_games=state.total_games,
         total_decisions=state.total_decisions,
@@ -109,7 +109,7 @@ def _opponent_label(generation: int) -> str:
 
 def _pct_complete(completed: int, state: runstate.RunState) -> float:
     """Percent toward the target milestone, falling back to ``max_iterations``."""
-    denom = state.target_iterations or state.config.max_iterations
+    denom = state.target_iterations or state.config.run.max_iterations
     if denom <= 0:
         return 0.0
     return min(100.0, 100.0 * completed / denom)

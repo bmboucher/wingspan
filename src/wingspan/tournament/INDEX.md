@@ -16,7 +16,9 @@ from CLI flags; validated on parse.
   entrant.
 - `load_competitors(config) -> list[Competitor]` — discovers runs in the
   checkpoint directory, resolves each spec via `players.factory`, and loads the
-  agent. On-disk run discovery reads `model_config.json` from each subdirectory.
+  agent. On-disk run discovery keys off each subdirectory's `last.pt` and reads
+  its config descriptor via the dispatching `runmeta.read_model_config`
+  (`run_config_<stamp>.json` for ≥0.5, legacy `model_config.json` otherwise).
 
 **`schedule.py`** — `RoundRobinSchedule(competitors) -> list[Match]`: generates
 the complete list of head-to-head pairings (each ordered pair plays `games_per_pair`

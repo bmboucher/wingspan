@@ -55,7 +55,7 @@ class GettingBetterChart:
         # flushed (or in tests with no run on disk) we fall back to the live
         # in-memory history.
         full_history = metrics_log.read_iteration_history(
-            self.state.config.checkpoint_dir
+            self.state.config.run.checkpoint_dir
         )
         if not full_history:
             full_history = self.state.history
@@ -138,7 +138,9 @@ def _winrate_block(
     the 50% level when it falls within the chart range."""
     plot_cols = max(1, width - geometry.GUTTER_W)
     it_lo, it_hi = convergence.full_range(history)
-    ewma = convergence.winrate_ewma_points(history, state.config.eval_ewma_alpha)
+    ewma = convergence.winrate_ewma_points(
+        history, state.config.opponent.eval_ewma_alpha
+    )
 
     # Dynamic floor derived from the global minimum in history; series 0 = red
     # (below 50%, higher canvas priority), series 1 = green (above 50%).
@@ -207,7 +209,7 @@ def _score_margin_block(
     margin axis carries a zero line when its range straddles zero."""
     plot_cols = max(1, width - geometry.GUTTER_W * 2)
     it_lo, it_hi = convergence.score_margin_window(history)
-    alpha = state.config.eval_ewma_alpha
+    alpha = state.config.opponent.eval_ewma_alpha
     score = [
         pt for pt in convergence.score_ewma_points(history, alpha) if pt[0] >= it_lo
     ]
@@ -263,8 +265,8 @@ def _winrate_threshold_pct(state: runstate.RunState) -> float:
     """The win-rate the dashed threshold line marks: the bootstrap graduation
     bar during the random phase, the opponent-advance bar otherwise."""
     if _is_random_phase(state):
-        return state.config.random_phase_win_rate * 100.0
-    return state.config.opponent_reset_win_rate * 100.0
+        return state.config.opponent.random_phase_win_rate * 100.0
+    return state.config.opponent.opponent_reset_win_rate * 100.0
 
 
 def _score_margin_title(state: runstate.RunState, width: int) -> text.Text:

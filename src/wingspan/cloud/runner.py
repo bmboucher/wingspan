@@ -44,7 +44,7 @@ class HeadlessRunner:
         self._run = run
         self._config = run.train
         self._sync = sync
-        self._ckpt_dir = pathlib.Path(self._config.checkpoint_dir)
+        self._ckpt_dir = pathlib.Path(self._config.run.checkpoint_dir)
         self._git_sha = _git_sha()
         self._session_stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self._started_at = datetime.datetime.now(datetime.UTC).isoformat(
@@ -80,9 +80,9 @@ class HeadlessRunner:
         _LOG.info(
             "run '%s' started · %d games/iter · target %s · device %s",
             self._run.run_name,
-            self._config.games_per_iter,
-            self._config.target_iterations or "—",
-            self._config.device,
+            self._config.run.games_per_iter,
+            self._config.run.target_iterations or "—",
+            self._config.misc.device,
         )
 
         self._supervise()
@@ -95,7 +95,7 @@ class HeadlessRunner:
 
     def _restore_from_s3(self) -> None:
         """Pull prior run state from S3 so the loop's resume continues the run."""
-        if not (self._config.resume and self._run.sync.download_on_start):
+        if not (self._config.run.resume and self._run.sync.download_on_start):
             return
         try:
             pulled = self._sync.download_run(self._ckpt_dir)
@@ -108,9 +108,14 @@ class HeadlessRunner:
         """Downgrade a ``cuda`` request to ``cpu`` when no GPU is present, matching
         the dashboard's fallback so a misconfigured device never crashes the loop
         at model construction (training is CPU-only anyway)."""
-        if self._config.device.startswith("cuda") and not torch.cuda.is_available():
+        if (
+            self._config.misc.device.startswith("cuda")
+            and not torch.cuda.is_available()
+        ):
             _LOG.warning("cuda requested but unavailable — falling back to cpu")
-            self._config = self._config.model_copy(update={"device": "cpu"})
+            self._config = self._config.model_copy(
+                update={"misc": self._config.misc.model_copy(update={"device": "cpu"})}
+            )
 
     #### Supervision loop ####
 

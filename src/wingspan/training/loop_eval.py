@@ -41,8 +41,8 @@ def maybe_evaluate(
     if training_loop.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT:
         return None, 0.0
     if (
-        training_loop.config.eval_every <= 0
-        or iteration % training_loop.config.eval_every != 0
+        training_loop.config.run.eval_every <= 0
+        or iteration % training_loop.config.run.eval_every != 0
     ):
         return None, 0.0
     with training_loop.lock:
@@ -50,7 +50,7 @@ def maybe_evaluate(
         training_loop.state.eval_game_in_iter = 0
         training_loop.state.eval_games_in_iter = 2 * training_loop.config.eval_pairs
     start = time.monotonic()
-    eval_seed = training_loop.config.seed * 7919 + iteration * 101 + 1
+    eval_seed = training_loop.config.misc.seed * 7919 + iteration * 101 + 1
     # CPU eval fans across the same worker pool collection uses; CUDA keeps
     # the in-process sequential path (one shared GPU beats a model per
     # process). Both paths run identical per-game logic, so results match.
@@ -108,7 +108,7 @@ def maybe_graduate_from_random_phase(training_loop: "loop.TrainingLoop") -> None
     """
     if training_loop.state.training_phase != runstate.TrainingPhase.RANDOM_OPPONENT:
         return
-    threshold = training_loop.config.random_phase_win_rate
+    threshold = training_loop.config.opponent.random_phase_win_rate
     with training_loop.lock:
         ewma = training_loop.state.collection_win_rate_ewma()
         if ewma is None or ewma < threshold:
@@ -147,8 +147,8 @@ def maybe_advance_opponent(
     if training_loop.state.training_phase != runstate.TrainingPhase.SELF_PLAY:
         return
 
-    threshold = training_loop.config.opponent_reset_win_rate
-    max_iters = training_loop.config.opponent_max_iterations
+    threshold = training_loop.config.opponent.opponent_reset_win_rate
+    max_iters = training_loop.config.opponent.opponent_max_iterations
 
     # Evaluate both triggers under the lock so iteration / EWMA are consistent.
     ewma_snap: metrics.EvalEwma | None

@@ -135,7 +135,7 @@ def _mode_pill(view: state.ConfiguratorState) -> text.Text:
     color = _MODE_COLOR[view.mode]
     pill = text.Text(no_wrap=True, end="")
     pill.append(f" {_MODE_LABEL[view.mode]} ", style=f"bold {theme.CANVAS} on {color}")
-    pill.append(f"  {view.working.device}", style=theme.TEXT_DIM2)
+    pill.append(f"  {view.working.misc.device}", style=theme.TEXT_DIM2)
     return pill
 
 
@@ -154,7 +154,7 @@ def _context_row(view: state.ConfiguratorState) -> table.Table:
     left = text.Text(no_wrap=True, end="")
     left.append("editing ", style=theme.TEXT_MUTED)
     left.append(source, style=theme.TEXT_PRIMARY)
-    left.append(f"   {view.working.checkpoint_dir}/", style=theme.TEXT_DIM2)
+    left.append(f"   {view.working.run.checkpoint_dir}/", style=theme.TEXT_DIM2)
     grid.add_row(left, _status_chip(view))
     return grid
 
@@ -402,27 +402,28 @@ def _detail_hint(view: state.ConfiguratorState, spec: fields.FieldSpec) -> str:
         return f"→ {cfg.eval_pairs} mirrored pairs = {2 * cfg.eval_pairs} games"
     if spec.attr == "max_iterations" and view.status() is runs.RunStatus.RESUMABLE:
         start = (view.summary.iteration or 0) + 1
-        if cfg.max_iterations > 0:
-            return (
-                f"→ resumes at iter {start}, stops at {start + cfg.max_iterations - 1}"
-            )
+        if cfg.run.max_iterations > 0:
+            return f"→ resumes at iter {start}, stops at {start + cfg.run.max_iterations - 1}"
         return "→ resumes and runs until you stop it"
     if (
         spec.attr == "device"
-        and cfg.device.startswith("cuda")
+        and cfg.misc.device.startswith("cuda")
         and not view.cuda_available
     ):
         return "→ cuda unavailable — will fall back to cpu"
-    if spec.attr == "opponent_reset_win_rate" and cfg.opponent_reset_win_rate == 0:
+    if (
+        spec.attr == "opponent_reset_win_rate"
+        and cfg.opponent.opponent_reset_win_rate == 0
+    ):
         return "→ 0 disables opponent advancement"
-    if spec.attr == "history_len" and cfg.history_len < charts.CHART_WINDOW:
+    if spec.attr == "history_len" and cfg.run.history_len < charts.CHART_WINDOW:
         return f"→ below the {charts.CHART_WINDOW}-iter chart window"
     return ""
 
 
 def _bootstrap_hint(view: state.ConfiguratorState) -> str:
     """Detail-panel hint for the bootstrap_opponent field."""
-    value = view.working.bootstrap_opponent
+    value = view.working.opponent.bootstrap_opponent
     if value == "none":
         return "→ no bootstrap phase — starts directly in self-play"
     if value == "random":
@@ -453,7 +454,7 @@ def _find_archive_entry(
 ) -> runs.ArchiveEntry | None:
     """Return the :class:`~runs.ArchiveEntry` whose ``last.pt`` equals
     ``checkpoint_path``, or ``None`` if it is not a known archive."""
-    checkpoint_dir = pathlib.Path(view.working.checkpoint_dir)
+    checkpoint_dir = pathlib.Path(view.working.run.checkpoint_dir)
     for entry in view.summary.archives:
         expected = str(
             checkpoint_dir
@@ -705,7 +706,7 @@ def _kv(label: str, value: str) -> text.Text:
 
 
 def _specs_in(
-    section: fields.ConfigSection, cfg: config.TrainConfig
+    section: fields.ConfigSection, cfg: config.RunConfig
 ) -> list[fields.FieldSpec]:
     return [
         spec

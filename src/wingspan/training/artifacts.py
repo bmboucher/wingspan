@@ -18,14 +18,23 @@ OPPONENT_CKPT = "opponent.pt"  # the frozen "player to beat" (TRAINING.md §7)
 METRICS_LOG = "metrics.jsonl"  # one IterationMetrics row per line, appended
 GAMES_LOG = "games.jsonl"  # one GameOutcome row per finished game, appended
 
-# Human-readable JSON sidecars (``wingspan.training.runmeta``). The model
-# descriptor is one-per-run (rewritten each startup); the process records are
-# one-per-session, dated, and accumulate across restarts.
+# Human-readable JSON sidecars (``wingspan.training.runmeta``).
+#
+# ≥0.5 runs write a single dated unified file per session:
+RUN_CONFIG_PREFIX = (
+    "run_config_"  # unified config name stem → ``run_config_<stamp>.json``
+)
+RUN_CONFIG_GLOB = "run_config_*.json"  # the dated per-session unified config records
+#
+# ≤0.4 legacy files (still read for backward compat; no longer written):
 MODEL_CONFIG_JSON = "model_config.json"  # weight-compatibility descriptor
-INSPECT_REPORT_JSON = "model_inspect.json"  # encoding + parameter breakdown sidecar
-MODEL_SUMMARY_HTML = "model_summary.html"  # standalone browser-readable model report
+SETUP_CONFIG_JSON_LEGACY = "setup_config.json"  # (alias: same as SETUP_CONFIG_JSON)
 PROCESS_PREFIX = "process_"  # session record name stem -> ``process_<stamp>.json``
 PROCESS_GLOB = "process_*.json"  # the dated per-session process records
+#
+# Written for all versions:
+INSPECT_REPORT_JSON = "model_inspect.json"  # encoding + parameter breakdown sidecar
+MODEL_SUMMARY_HTML = "model_summary.html"  # standalone browser-readable model report
 
 # Compact monitoring snapshot (``wingspan.cloud.status``): a tiny JSON the cloud
 # runner refreshes frequently and the monitor reads, so a run's progress is
@@ -34,12 +43,12 @@ PROCESS_GLOB = "process_*.json"  # the dated per-session process records
 STATUS_JSON = "status.json"  # one RunStatus snapshot (overwritten each refresh)
 GAMES_SUBDIR = "games"  # immutable per-game-log chunks, grouped by session
 
-# Setup-model artifacts (only written when ``TrainConfig.use_setup_model``): the
-# setup net's resumable checkpoint, its weight-compatibility descriptor, and the
+# Setup-model artifacts (only written when ``RunConfig.architecture.use_setup_model``):
+# the setup net's resumable checkpoint, its weight-compatibility descriptor, and the
 # append-only log of (setup features, realized margin) samples the one-time
 # offline fit reads back. They sit beside the main-net artifacts above.
 SETUP_CKPT = "setup.pt"  # setup net + optimizer + offline-fit-done flag
-SETUP_CONFIG_JSON = "setup_config.json"  # setup-net shape descriptor
+SETUP_CONFIG_JSON = "setup_config.json"  # setup-net shape descriptor (legacy ≤0.4)
 SETUP_DATA_LOG = "setup_data.jsonl"  # one (features, margin) sample per line
 
 # The subfolder under ``checkpoint_dir`` where a finished run's artifacts are

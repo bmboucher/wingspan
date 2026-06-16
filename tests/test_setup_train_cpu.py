@@ -19,17 +19,23 @@ _CONSTANT_MARGIN = 7.0
 
 
 def _config() -> config.TrainConfig:
-    return config.TrainConfig(
-        use_setup_model=True,
-        setup_hidden_layers=(32, 16),
-        setup_lr=1e-2,
-        # Regressing a constant target converges long before 40 epochs at this
-        # lr; 40 keeps the learns-the-margin assertion comfortable at half the
-        # original 80-epoch runtime.
-        setup_offline_epochs=40,
-        setup_offline_batch_size=32,
-        score_norm=50.0,
-        seed=0,
+    return config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            use_setup_model=True,
+            setup=config.SetupNetArchitecture(hidden_layers=(32, 16)),
+        ),
+        training=config.TrainingConfig(
+            # Regressing a constant target converges long before 40 epochs at this
+            # lr; 40 keeps the learns-the-margin assertion comfortable at half the
+            # original 80-epoch runtime.
+            score_norm=50.0,
+            setup=config.SetupTrainingConfig(
+                lr=1e-2,
+                offline_epochs=40,
+                offline_batch_size=32,
+            ),
+        ),
+        misc=config.MiscConfig(seed=0),
     )
 
 
@@ -51,14 +57,14 @@ def test_offline_fit_learns_constant_margin(tmp_path: pathlib.Path):
     cfg = _config()
     device = torch.device("cpu")
     net = setup_net.SetupNet(arch=cfg.setup_arch).to(device)
-    optimizer = optim.Adam(net.parameters(), lr=cfg.setup_lr)
+    optimizer = optim.Adam(net.parameters(), lr=cfg.training.setup.lr)
     store = setup_model.SetupDataStore(tmp_path / "setup_data.jsonl")
     store.append(_samples(256))
 
     stats = setup_learner.offline_fit(net, optimizer, store, cfg, device)
 
     assert stats.n_samples == 256
-    assert stats.n_epochs == cfg.setup_offline_epochs
+    assert stats.n_epochs == cfg.training.setup.offline_epochs
     assert np.isfinite(stats.loss)
     # The net should learn to predict the constant margin (within a loose band).
     assert abs(stats.pred_margin_mean - _CONSTANT_MARGIN) < 2.0
@@ -69,7 +75,7 @@ def test_online_update_runs_one_epoch():
     cfg = _config()
     device = torch.device("cpu")
     net = setup_net.SetupNet(arch=cfg.setup_arch).to(device)
-    optimizer = optim.Adam(net.parameters(), lr=cfg.setup_lr)
+    optimizer = optim.Adam(net.parameters(), lr=cfg.training.setup.lr)
 
     stats = setup_learner.online_update(net, optimizer, _samples(64), cfg, device)
     assert stats.n_samples == 64
@@ -81,7 +87,7 @@ def test_empty_offline_fit_is_noop(tmp_path: pathlib.Path):
     cfg = _config()
     device = torch.device("cpu")
     net = setup_net.SetupNet(arch=cfg.setup_arch).to(device)
-    optimizer = optim.Adam(net.parameters(), lr=cfg.setup_lr)
+    optimizer = optim.Adam(net.parameters(), lr=cfg.training.setup.lr)
     store = setup_model.SetupDataStore(tmp_path / "empty.jsonl")
     stats = setup_learner.offline_fit(net, optimizer, store, cfg, device)
     assert stats.n_samples == 0

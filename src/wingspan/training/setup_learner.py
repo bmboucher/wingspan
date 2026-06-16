@@ -45,7 +45,7 @@ def offline_fit(
     net: setup_net.SetupNet,
     optimizer: optim.Optimizer,
     store: record.SetupDataStore,
-    cfg: config.TrainConfig,
+    cfg: config.RunConfig,
     device: torch.device,
 ) -> metrics.SetupUpdateStats:
     """Fit the setup net to every recorded sample (the one-time pass at
@@ -56,7 +56,13 @@ def offline_fit(
     if features.shape[0] == 0:
         return _empty_stats()
     return _fit(
-        net, optimizer, features, margins, cfg, device, epochs=cfg.setup_offline_epochs
+        net,
+        optimizer,
+        features,
+        margins,
+        cfg,
+        device,
+        epochs=cfg.training.setup.offline_epochs,
     )
 
 
@@ -64,7 +70,7 @@ def online_update(
     net: setup_net.SetupNet,
     optimizer: optim.Optimizer,
     samples: list[record.SetupSample],
-    cfg: config.TrainConfig,
+    cfg: config.RunConfig,
     device: torch.device,
 ) -> metrics.SetupUpdateStats:
     """One MSE epoch over this iteration's freshly collected setup samples."""
@@ -79,7 +85,7 @@ def actor_critic_update(
     net: setup_net.SetupNet,
     optimizer: optim.Optimizer,
     samples: list[record.SetupSample],
-    cfg: config.TrainConfig,
+    cfg: config.RunConfig,
     device: torch.device,
 ) -> metrics.SetupUpdateStats:
     """One on-policy REINFORCE + value-MSE + entropy pass over this iteration's
@@ -119,7 +125,9 @@ def actor_critic_update(
         loss = _ac_group_loss(group_samples, net, cfg, device)
         optimizer.zero_grad()
         loss.backward()  # pyright: ignore[reportUnknownMemberType]
-        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=cfg.grad_clip)
+        torch.nn.utils.clip_grad_norm_(
+            net.parameters(), max_norm=cfg.training.grad_clip
+        )
         optimizer.step()
         total_loss += float(loss.detach())
         n_batches += 1
@@ -137,7 +145,7 @@ def actor_critic_update(
                     ].astype(np.float32),
                     device=device,
                 )
-                predicted_chosen.append(float(net(feats)[0]) * cfg.score_norm)
+                predicted_chosen.append(float(net(feats)[0]) * cfg.training.score_norm)
 
     net.eval()
     return metrics.SetupUpdateStats(
@@ -176,7 +184,7 @@ def _fit(
     optimizer: optim.Optimizer,
     features: np.ndarray,
     margins: np.ndarray,
-    cfg: config.TrainConfig,
+    cfg: config.RunConfig,
     device: torch.device,
     *,
     epochs: int,
@@ -184,9 +192,9 @@ def _fit(
     """Run ``epochs`` shuffled-minibatch MSE passes of ``net(features)`` against
     ``margins / score_norm`` and return the averaged stats."""
     n_samples = features.shape[0]
-    targets = margins / cfg.score_norm
-    generator = np.random.default_rng(cfg.seed)
-    batch_size = cfg.setup_offline_batch_size
+    targets = margins / cfg.training.score_norm
+    generator = np.random.default_rng(cfg.misc.seed)
+    batch_size = cfg.training.setup.offline_batch_size
 
     net.train()
     total_loss = 0.0
@@ -201,7 +209,9 @@ def _fit(
             loss = F.mse_loss(pred, target_t)
             optimizer.zero_grad()
             loss.backward()  # pyright: ignore[reportUnknownMemberType]
-            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=cfg.grad_clip)
+            torch.nn.utils.clip_grad_norm_(
+                net.parameters(), max_norm=cfg.training.grad_clip
+            )
             optimizer.step()
             total_loss += float(loss.detach())
             n_batches += 1
@@ -220,7 +230,7 @@ def _fit(
 def _mean_predicted_margin(
     net: setup_net.SetupNet,
     features: np.ndarray,
-    cfg: config.TrainConfig,
+    cfg: config.RunConfig,
     device: torch.device,
 ) -> float:
     """Mean predicted margin (in points) over a capped subsample of ``features``,
@@ -229,13 +239,13 @@ def _mean_predicted_margin(
     with torch.no_grad():
         feats_t = torch.tensor(sample, dtype=torch.float32, device=device)
         pred = net(feats_t).cpu().numpy()
-    return float(pred.mean()) * cfg.score_norm
+    return float(pred.mean()) * cfg.training.score_norm
 
 
 def _ac_group_loss(
     group_samples: list[record.SetupSample],
     net: setup_net.SetupNet,
-    cfg: config.TrainConfig,
+    cfg: config.RunConfig,
     device: torch.device,
 ) -> torch.Tensor:
     """Compute the combined actor-critic loss for one group of samples that share
@@ -269,7 +279,7 @@ def _ac_group_loss(
         assert sample.chosen_idx is not None
         chosen = sample.chosen_idx
         target = torch.tensor(
-            sample.margin / cfg.score_norm, dtype=torch.float32, device=device
+            sample.margin / cfg.training.score_norm, dtype=torch.float32, device=device
         )
 
         # Policy gradient: advantage weighted log-prob of chosen action.
@@ -286,9 +296,9 @@ def _ac_group_loss(
 
     scale = 1.0 / batch_size
     return (
-        scale * cfg.setup_pg_coef * total_pg_loss
-        + scale * cfg.setup_value_coef * total_val_loss
-        - scale * cfg.setup_entropy_coef * total_entropy
+        scale * cfg.training.setup.pg_coef * total_pg_loss
+        + scale * cfg.training.setup.value_coef * total_val_loss
+        - scale * cfg.training.setup.entropy_coef * total_entropy
     )
 
 

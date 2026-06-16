@@ -166,7 +166,7 @@ class RunProgress(pydantic.BaseModel):
 class RunState(pydantic.BaseModel):
     """Everything the dashboard needs to repaint a single frame."""
 
-    config: config.TrainConfig
+    config: config.RunConfig
     phase: Phase = Phase.STARTING
 
     # Monotonic wall-clock anchors (seconds). ``stopped_monotonic`` freezes the
@@ -418,7 +418,7 @@ class RunState(pydantic.BaseModel):
         opponent's saturated win-rate forward. None until the first eval against
         the current opponent lands.
         """
-        alpha = self.config.eval_ewma_alpha
+        alpha = self.config.opponent.eval_ewma_alpha
         win: float | None = None
         margin: float | None = None
         for item in self.history:
@@ -445,7 +445,7 @@ class RunState(pydantic.BaseModel):
         the graduation gate and the dashboard read a steadier trend than any one
         noisy 256-game iteration. None until the first such iteration lands.
         """
-        alpha = self.config.eval_ewma_alpha
+        alpha = self.config.opponent.eval_ewma_alpha
         win: float | None = None
         for item in self.history:
             if item.collection_win_rate is None:
@@ -465,7 +465,7 @@ class RunState(pydantic.BaseModel):
         ``config.eval_ewma_alpha``, so the COLLECT inset can show an EWMA margin
         beside its EWMA win-rate. None until the first such iteration lands.
         """
-        alpha = self.config.eval_ewma_alpha
+        alpha = self.config.opponent.eval_ewma_alpha
         margin: float | None = None
         for item in self.history:
             if item.collection_win_rate is None:
@@ -512,7 +512,7 @@ class RunState(pydantic.BaseModel):
         (computed over that iteration's games), not a σ re-derived from EWMA'd
         moments — the dashboard then divides by √games_per_iter for its 95% CI.
         """
-        alpha = self.config.produce_ewma_alpha
+        alpha = self.config.misc.produce_ewma_alpha
         in_random_phase = self.training_phase == TrainingPhase.RANDOM_OPPONENT
         breakdown: metrics.ScoreBreakdown | None = None
         winner: metrics.ScoreBreakdown | None = None
@@ -643,14 +643,14 @@ class RunState(pydantic.BaseModel):
         self.self_play_seconds = progress.self_play_seconds
 
 
-def new_run_state(cfg: config.TrainConfig) -> RunState:
+def new_run_state(cfg: config.RunConfig) -> RunState:
     """Build a fresh ``RunState`` with both clocks anchored at 'now'."""
     anchor = time.monotonic()
     return RunState(
         config=cfg,
         start_monotonic=anchor,
         iter_start_monotonic=anchor,
-        games_in_iter=cfg.games_per_iter,
+        games_in_iter=cfg.run.games_per_iter,
     )
 
 

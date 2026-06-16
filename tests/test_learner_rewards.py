@@ -75,8 +75,12 @@ def _sample_record() -> collect.GameRecord:
 
 def _cfg(reward_mode: config.RewardMode, discount: float = 1.0) -> config.TrainConfig:
     """A config with ``score_norm=1`` so returns equal the raw (discounted) deltas."""
-    return config.TrainConfig(
-        reward_mode=reward_mode, reward_discount=discount, score_norm=1.0
+    return config.RunConfig(
+        training=config.TrainingConfig(
+            reward_mode=reward_mode,
+            reward_discount=discount,
+            score_norm=1.0,
+        ),
     )
 
 
@@ -187,10 +191,12 @@ def test_default_timestamps_degrade_to_telescoping():
 def test_score_norm_scales_decision_delta_returns():
     """``score_norm`` divides the returns, exactly as in terminal mode."""
     record = _sample_record()
-    cfg = config.TrainConfig(
-        reward_mode=config.RewardMode.DECISION_DELTA,
-        reward_discount=1.0,
-        score_norm=5.0,
+    cfg = config.RunConfig(
+        training=config.TrainingConfig(
+            reward_mode=config.RewardMode.DECISION_DELTA,
+            reward_discount=1.0,
+            score_norm=5.0,
+        )
     )
     _, returns = learner._flatten([record], cfg)
     _assert_close(returns, [1.0, -1.0, 0.4, -0.8, 0.0])

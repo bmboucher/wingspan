@@ -28,7 +28,9 @@ from wingspan.training import config
 # a per-run directory under the container workdir. The durable copy is in S3, so
 # this is throwaway space the run reconstructs on startup.
 _DEFAULT_WORKDIR = "/work"
-_DEFAULT_CHECKPOINT_DIR = "checkpoints"  # mirrors TrainConfig.checkpoint_dir's default
+_DEFAULT_CHECKPOINT_DIR = (
+    "checkpoints"  # mirrors RunConfig.run.checkpoint_dir's default
+)
 
 
 class S3Config(pydantic.BaseModel):
@@ -79,19 +81,23 @@ class CloudRunFile(pydantic.BaseModel):
     def _align_train_to_run(self) -> CloudRunFile:
         """Make the top-level ``run_name`` authoritative over the ``train`` block.
 
-        The training loop keys its on-disk artifacts off ``train.run_name`` /
-        ``train.checkpoint_dir``; rather than make the user repeat them, derive
+        The training loop keys its on-disk artifacts off ``train.run.run_name`` /
+        ``train.run.checkpoint_dir``; rather than make the user repeat them, derive
         both from the single top-level ``run_name`` (and, for cloud runs, a
         per-run scratch dir under the container workdir when the YAML left the
         default), so one ``run_name`` drives the S3 prefix, the local directory,
         and the run label together.  For local runs (``s3`` absent) the
         ``checkpoint_dir`` default is kept as-is.
         """
-        updates: dict[str, str] = {"run_name": self.run_name}
-        if self.s3 is not None and self.train.checkpoint_dir == _DEFAULT_CHECKPOINT_DIR:
+        run_updates: dict[str, str] = {"run_name": self.run_name}
+        if (
+            self.s3 is not None
+            and self.train.run.checkpoint_dir == _DEFAULT_CHECKPOINT_DIR
+        ):
             scratch = pathlib.PurePosixPath(_DEFAULT_WORKDIR) / self.run_name
-            updates["checkpoint_dir"] = str(scratch)
-        self.train = self.train.model_copy(update=updates)
+            run_updates["checkpoint_dir"] = str(scratch)
+        updated_run = self.train.run.model_copy(update=run_updates)
+        self.train = self.train.model_copy(update={"run": updated_run})
         return self
 
 

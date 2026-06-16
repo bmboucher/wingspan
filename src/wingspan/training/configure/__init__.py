@@ -1,7 +1,7 @@
 """The FLIGHT PLAN configurator screen — interactive pre-flight and live training.
 
 ``wingspan dashboard`` opens this full-screen TUI to edit every configurable
-:class:`~wingspan.training.config.TrainConfig` hyperparameter, manage the runs
+:class:`~wingspan.training.config.RunConfig` hyperparameter, manage the runs
 stored in a checkpoint directory (archive an existing run to a side folder, or
 overwrite it, before starting a fresh one), and then Start / Resume into the
 live training display. The package is split by concern:

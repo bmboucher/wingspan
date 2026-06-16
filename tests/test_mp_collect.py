@@ -28,13 +28,17 @@ _SMALL_CARD_ENCODER_LAYERS = (32,)
 
 
 def _small_config(tmp_path: pathlib.Path) -> config.TrainConfig:
-    return config.TrainConfig(
-        device="cpu",
-        checkpoint_dir=str(tmp_path),
-        trunk_layers=_SMALL_LAYERS,
-        choice_layers=_SMALL_LAYERS,
-        card_embed_dim=_SMALL_CARD_EMBED_DIM,
-        card_encoder_layers=_SMALL_CARD_ENCODER_LAYERS,
+    return config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(checkpoint_dir=str(tmp_path)),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=_SMALL_LAYERS,
+                choice_layers=_SMALL_LAYERS,
+                card_embed_dim=_SMALL_CARD_EMBED_DIM,
+                card_encoder_layers=_SMALL_CARD_ENCODER_LAYERS,
+            ),
+        ),
     )
 
 

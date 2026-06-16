@@ -33,7 +33,50 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v0.4 — turn-state stripe and first-player flag (current)
+### v0.5 — unified run-config file (current)
+
+**Config-container change, NOT an encoding change.** This MINOR bump is unusual:
+the encoding is byte-for-byte identical to 0.4 — `state_dim` / `choice_dim` / the
+card feature vector are unchanged — so **no `wingspan.compat.v0_4` shim exists or
+is needed.** A 0.4 artifact is encoding-identical to live and already falls
+through the live paths (`encoding_dims_for_era`, `PolicyValueNet.class_for_version`,
+the `uses_v0_*` gates) with no 0.4 entry. The MINOR bump exists only so the old
+and new on-disk *config-file* formats can never share a version.
+
+What changed is the per-run config layout. The three files a run used to scatter
+its configuration across —
+
+* `process_<stamp>.json` (the flat `TrainConfig` + session context),
+* `model_config.json` (the weight-compat descriptor), and
+* `setup_config.json` (the setup-net descriptor)
+
+— collapse into **one dated `run_config_<stamp>.json`** per session
+(`config.RunConfigFile`), wrapping the new hierarchical `RunConfig`. `RunConfig`
+(formerly `TrainConfig`, kept as an alias) groups every hyperparameter into six
+nested sections: `architecture` (by submodel) · `run` · `training` · `opponent` ·
+`engine` · `misc`. `ModelConfig` / `SetupConfig` survive as the *in-memory*
+inference descriptors; only their on-disk source changes.
+
+Backward compatibility is two presence-dispatched seams, both **outside** the
+`compat` package (this is a config-format reader dispatch, not an encoding shim):
+
+1. **Run-directory reads** — `runmeta.read_model_config` /
+   `setup_runmeta.read_setup_config` derive the descriptor from
+   `run_config_<stamp>.json` when present, else fall back to the legacy file.
+   The v0.0–v0.2 fixture dirs carry only legacy files → legacy branch → the
+   existing compat tests pass unmodified.
+2. **Embedded `.pt` reads** — `config.run_config_from_artifact(raw, version)`
+   validates a ≥0.5 nested dict directly and reshapes a ≤0.4 flat dict into the
+   six sections (preserving the legacy `bootstrap_opponent` migration).
+
+Shim: none (config-container only — see above).
+
+Fixture set: a v0.5 run directory (the unified format) is to be captured after
+this change merges (requires a short training run), as with v0.4. The format
+itself is covered by `tests/test_run_config.py` (flat→nested migration + dated
+file round-trip) and by the live-loop write/read in `test_training_dashboard.py`.
+
+### v0.4 — turn-state stripe and first-player flag
 
 **FRESH change** — replaced the round one-hot and both cube one-hots in
 `misc_scalars` with a new leading `turn_state` stripe, growing the state vector
@@ -214,8 +257,8 @@ encodings' features (that is the point), and superseded eras become
 *producing* paths — a new training feature must either work at every
 same-MAJOR era or refuse one explicitly. Moving a line of work onto a new
 encoding still means a fresh run at the live era, optionally bootstrapped
-against the old model via `bootstrap_opponent_checkpoint` (which loads
-through the shims).
+against the old model via `opponent.bootstrap_opponent` (a checkpoint path,
+which loads through the shims).
 
 ## Compat shims — the one sanctioned mechanism
 
@@ -315,10 +358,13 @@ belongs on the net side of the seam instead.
 ## Format rules
 
 - **Every artifact is self-describing; loaders refuse what isn't.** Every
-  checkpoint embeds its `config` and its `version`; every run directory carries
-  `model_config.json` (+ `setup_config.json` when the setup model is on).
-  Never add an "assume compatible" branch, a second on-disk location for the
-  same datum, or a ghost entry kept only for index stability.
+  checkpoint embeds its `config` and its `version`. A ≥0.5 run directory carries
+  one dated `run_config_<stamp>.json` (the `ModelConfig` / `SetupConfig`
+  descriptors are *derived* from it); a ≤0.4 directory carries the legacy
+  `model_config.json` (+ `setup_config.json` when the setup model is on), read
+  via presence dispatch. Never add an "assume compatible" branch, a second
+  on-disk location for the same datum, or a ghost entry kept only for index
+  stability.
 - **The stable orders are part of the checkpoint format.**
   `ALL_DECISION_CLASSES`, `ALL_DECISION_FAMILIES`, the `encode/layout.py`
   offset chain, and the `cards.parse.catalog` card-index maps are append-only;

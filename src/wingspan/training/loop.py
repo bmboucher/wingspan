@@ -68,7 +68,7 @@ _SYSMON_INTERVAL_SECONDS = 1.0
 class TrainingLoop:
     """A resumable, stoppable self-play training run feeding a live RunState."""
 
-    def __init__(self, cfg: config.TrainConfig, *, pause_at_target: bool = True):
+    def __init__(self, cfg: config.RunConfig, *, pause_at_target: bool = True):
         # Pin the config to a resumable checkpoint's artifact era before
         # anything derives from it (net class and dims, encoders, stamps), so a
         # run started before a FRESH encoding change resumes at its own frozen
@@ -79,10 +79,10 @@ class TrainingLoop:
         # [C]ontinue / [E]nd input (the dashboard) or finalizes the milestone and
         # ends the run (the headless cloud runner passes ``False``).
         self._pause_at_target = pause_at_target
-        self.device = torch.device(cfg.device)
+        self.device = torch.device(cfg.misc.device)
         if self.device.type == "cpu":
             torch.set_num_threads(_CPU_INTRAOP_THREADS)
-        loop_checkpoint.seed_everything(cfg.seed)
+        loop_checkpoint.seed_everything(cfg.misc.seed)
         # The net class and dims are era-routed: an era-pinned run constructs
         # the matching compat subclass at its frozen widths.
         net_cls = model.PolicyValueNet.class_for_version(cfg.encoding_version)
@@ -93,11 +93,13 @@ class TrainingLoop:
             arch=cfg.arch,
             spec=cfg.encoding_spec,
         ).to(self.device)
-        self.optimizer: optim.Optimizer = optim.Adam(self.net.parameters(), lr=cfg.lr)
+        self.optimizer: optim.Optimizer = optim.Adam(
+            self.net.parameters(), lr=cfg.training.lr
+        )
         self.lock = threading.RLock()
         self.state = runstate.new_run_state(cfg)
         self._stop = threading.Event()
-        self._ckpt_dir = pathlib.Path(cfg.checkpoint_dir)
+        self._ckpt_dir = pathlib.Path(cfg.run.checkpoint_dir)
         # The frozen reference opponent the eval plays against; None = the random
         # agent (generation 0). Loaded from ``opponent.pt`` on resume when the
         # restored run had already advanced past the random agent.
@@ -117,8 +119,8 @@ class TrainingLoop:
         # Pre-mark the offline fit done when there is no warmup schedule
         # (setup_train_iter == 0 means MODEL_DRIVEN from iteration 0 — no
         # offline fit window was ever recorded, so the one-time fit is skipped).
-        self._setup_fit_done = cfg.setup_train_iter == 0
-        if cfg.use_setup_model:
+        self._setup_fit_done = cfg.training.setup.train_iter == 0
+        if cfg.architecture.use_setup_model:
             self._setup_net, self._setup_optimizer = loop_setup.build_setup_net(self)
             self._setup_store = setup_model.SetupDataStore(
                 self._ckpt_dir / artifacts.SETUP_DATA_LOG
@@ -180,7 +182,7 @@ class TrainingLoop:
         with self.lock:
             self.state.push_event(
                 runstate.EventKind.INFO,
-                f"run started · {self.config.games_per_iter} games/iter · {self.device}",
+                f"run started · {self.config.run.games_per_iter} games/iter · {self.device}",
             )
         try:
             iteration = self._start_iteration
@@ -214,8 +216,8 @@ class TrainingLoop:
         # with ``--iterations N`` does N more rather than stopping immediately.
         done_this_session = iteration - self._start_iteration
         return (
-            self.config.max_iterations > 0
-            and done_this_session >= self.config.max_iterations
+            self.config.run.max_iterations > 0
+            and done_this_session >= self.config.run.max_iterations
         )
 
     #### System monitor ####
@@ -261,7 +263,7 @@ class TrainingLoop:
         # iteration's collection so the net is trained before it drives selection.
         setup_phase = (
             loop_setup.setup_phase_for(self, iteration)
-            if self.config.use_setup_model
+            if self.config.architecture.use_setup_model
             else None
         )
         if setup_phase is not None:

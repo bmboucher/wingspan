@@ -223,7 +223,7 @@ def collect_inset(state: runstate.RunState, height: int) -> list[text.Text]:
         body.append(
             _inset_kv(
                 "graduate @",
-                f"{state.config.random_phase_win_rate * 100:.0f}%",
+                f"{state.config.opponent.random_phase_win_rate * 100:.0f}%",
                 theme.TEXT_DIM2,
             )
         )

@@ -1,33 +1,27 @@
 """Per-run JSON metadata sidecars: the model descriptor and the session log.
 
-These complement the binary checkpoints with the two human-readable JSON
-artifacts a long run leaves behind in its checkpoint dir, alongside ``last.pt``
-and the ``metrics.jsonl`` / ``games.jsonl`` history logs:
+These complement the binary checkpoints with the human-readable JSON artifacts
+a training run leaves in its checkpoint dir alongside ``last.pt`` and the
+``metrics.jsonl`` / ``games.jsonl`` history logs.
 
-* ``model_config.json`` — the weight-compatibility descriptor (network shape +
-  judgment-family head order). One per run, rewritten on every startup. If any
-  field here changes the previously-saved weights can no longer be trusted, and
-  the resume gate (``loop._architecture_matches``) refuses to load them.
+**≥0.5 runs** write a single dated ``run_config_<stamp>.json``
+(:class:`config.RunConfigFile`) per session.  All the data that used to be
+spread across three files (``model_config.json``, ``setup_config.json``,
+``process_<stamp>.json``) lives in one place; ``model_config.json`` and
+``setup_config.json`` are no longer written.
 
-* ``process_<stamp>.json`` — one *session's* meta-configuration (the batch size,
-  learning rate, eval cadence, device, … — the full :class:`config.TrainConfig`
-  in force) plus the runtime context it started in (git SHA, the iteration it
-  resumed from, the wall-clock start). A run is stopped and restarted many
-  times; each startup drops a fresh dated file, so the sequence of these files
-  is the run's session ledger.
-
-The writers are split out of ``loop`` (and kept torch-free) so they can be unit
-tested without a training run, mirroring the ``artifacts`` / ``runs`` split. The
-caller supplies the timestamp strings so these functions stay pure.
+**≤0.4 run directories** still carry the legacy three-file layout.  The reader
+functions (:func:`read_model_config`, :func:`read_run_config`) dispatch on
+presence so old run dirs load without any migration.
 
 This module also owns the descriptor-derived reporting seam (the ``*_for`` /
 ``build_*`` functions): every layout, input width, and parameter count shown by
-``wingspan inspect`` or written to ``model_inspect.json`` /
-``model_summary.html`` derives from a :class:`ModelConfig` descriptor and is
-**era-routed by its artifact version** (pre-0.1 descriptors get the frozen
+``wingspan inspect`` or written to ``model_inspect.json`` / ``model_summary.html``
+derives from a :class:`ModelConfig` descriptor and is **era-routed by its
+artifact version** (pre-0.1 descriptors get the frozen
 ``wingspan.compat.v0_0`` geometry). The run-start writers funnel through the
 same seam via :func:`_descriptor_for`, so a run's reports are consistent with
-its ``model_config.json`` by construction.
+the saved config by construction.
 """
 
 from __future__ import annotations
@@ -41,19 +35,20 @@ from wingspan.encode import stripes as encode_stripes
 from wingspan.reporting import html as report
 from wingspan.training import artifacts, config
 
-# Up to this many same-second restarts get a unique ``process_<stamp>-N.json``
+# Up to this many same-second restarts get a unique ``run_config_<stamp>-N.json``
 # before the writer gives up de-duplicating and overwrites the base name.
 _MAX_SESSION_SUFFIX = 1000
 
 
 class ModelConfig(pydantic.BaseModel):
-    """The full network descriptor written to ``model_config.json``.
+    """The full network descriptor written to ``model_config.json`` (legacy) or
+    derived from ``run_config_<stamp>.json`` (≥0.5).
 
     Carries the encoding dims and family-head order the net was trained against
     plus its complete :class:`architecture.ModelArchitecture` topology, so the
     file both reads as a one-glance summary of the run's network *and* fully
     reconstitutes it (``model.PolicyValueNet.from_model_config``). The
-    weight-compatibility signature ``TrainConfig.architecture_key`` is derived
+    weight-compatibility signature ``RunConfig.architecture_key`` is derived
     from exactly these fields, so a change to any of them invalidates
     previously-trained weights.
     """
@@ -71,29 +66,22 @@ class ModelConfig(pydantic.BaseModel):
 
 
 class SessionRecord(pydantic.BaseModel):
-    """One training session's process record (``process_<stamp>.json``).
+    """One training session's process record (legacy ``process_<stamp>.json``).
 
-    Embeds the full :class:`config.TrainConfig` in force (so the batch sizes and
-    every other knob are captured without field drift) plus the runtime context
-    the session began in.
+    Kept for backward-compat deserialization of ≤0.4 run dirs only.
+    ≥0.5 runs use :class:`config.RunConfigFile` instead.
     """
 
     run_name: str
-    started_at: str  # ISO-8601 local start time
+    started_at: str
     git_sha: str | None
-    resumed: bool  # whether this session continued an existing run
-    resumed_from_iteration: int  # 0 for a fresh start
-    config: config.TrainConfig
+    resumed: bool
+    resumed_from_iteration: int
+    config: config.RunConfig
 
 
 class InspectReport(pydantic.BaseModel):
-    """The encoding + parameter breakdown saved as ``model_inspect.json``.
-
-    Written alongside ``model_config.json`` at the start of every fresh run so
-    the checkpoint directory is fully self-documenting: the state and choice
-    stripe registry explains every input element, and the parameter report gives
-    the per-layer accounting for the network's trainable weight count.
-    """
+    """The encoding + parameter breakdown saved as ``model_inspect.json``."""
 
     state_layout: encode_stripes.VectorLayout
     choice_layout: encode_stripes.VectorLayout
@@ -101,24 +89,43 @@ class InspectReport(pydantic.BaseModel):
     total_params: int
 
 
-def write_model_config(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
-    """Write (overwriting) ``model_config.json`` for ``cfg`` and return its path."""
-    descriptor = _descriptor_for(cfg)
-    path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
-    path.write_text(descriptor.model_dump_json(indent=2), encoding="utf-8")
+# ---------------------------------------------------------------------------
+# Writers
+# ---------------------------------------------------------------------------
+
+
+def write_run_config(
+    checkpoint_dir: str,
+    cfg: config.RunConfig,
+    *,
+    stamp: str,
+    started_at: str,
+    git_sha: str | None,
+    resumed_from_iteration: int,
+) -> pathlib.Path:
+    """Write a fresh dated ``run_config_<stamp>.json`` for this session (≥0.5).
+
+    Replaces the three legacy writers (model_config + setup_config + process).
+    ``stamp`` is a filesystem-safe timestamp supplied by the caller (pure /
+    testable); same-second collisions get a ``-N`` suffix."""
+    file = config.RunConfigFile(
+        version=cfg.architecture.encoding_version,
+        saved_at=started_at,
+        started_at=started_at,
+        git_sha=git_sha,
+        resumed=resumed_from_iteration > 0,
+        resumed_from_iteration=resumed_from_iteration,
+        config=cfg,
+    )
+    path = _unique_session_path(
+        _ensure_dir(checkpoint_dir), stamp, artifacts.RUN_CONFIG_PREFIX
+    )
+    path.write_text(file.model_dump_json(indent=2), encoding="utf-8")
     return path
 
 
-def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathlib.Path:
-    """Write (overwriting) ``model_inspect.json`` for ``cfg`` and return its path.
-
-    Derives everything from the same descriptor :func:`write_model_config`
-    writes, via :func:`build_inspect_report`, so the JSON breakdown is
-    consistent with the run's ``model_config.json`` by construction. The file
-    is self-documenting: every input element is named and described, and the
-    parameter count matches ``sum(p.numel())`` of the equivalent
-    :class:`~wingspan.model.PolicyValueNet`.
-    """
+def write_inspect_report(checkpoint_dir: str, cfg: config.RunConfig) -> pathlib.Path:
+    """Write (overwriting) ``model_inspect.json`` for ``cfg`` and return its path."""
     inspect_report = build_inspect_report(_descriptor_for(cfg))
     path = _ensure_dir(checkpoint_dir) / artifacts.INSPECT_REPORT_JSON
     path.write_text(inspect_report.model_dump_json(indent=2), encoding="utf-8")
@@ -126,17 +133,9 @@ def write_inspect_report(checkpoint_dir: str, cfg: config.TrainConfig) -> pathli
 
 
 def write_model_summary_html(
-    checkpoint_dir: str, cfg: config.TrainConfig
+    checkpoint_dir: str, cfg: config.RunConfig
 ) -> pathlib.Path:
-    """Write (overwriting) ``model_summary.html`` for ``cfg`` and return its path.
-
-    Produces a self-contained browser-readable summary covering the full
-    state/choice vector layouts (with per-element drill-down), the network
-    architecture diagram, and the per-layer parameter accounting.  Regenerated
-    on every startup, matching the contract of :func:`write_model_config`, and
-    built by the same :func:`build_model_summary_html` that ``wingspan inspect
-    --html`` uses — the two surfaces are identical by construction.
-    """
+    """Write (overwriting) ``model_summary.html`` for ``cfg`` and return its path."""
     html_content = build_model_summary_html(
         _descriptor_for(cfg), cfg.setup_arch, cfg.setup_encoding
     )
@@ -145,15 +144,60 @@ def write_model_summary_html(
     return path
 
 
-def read_model_config(checkpoint_dir: str) -> ModelConfig:
-    """Read the ``model_config.json`` topology descriptor from ``checkpoint_dir``.
+# ---------------------------------------------------------------------------
+# Readers
+# ---------------------------------------------------------------------------
 
-    Pairs with :func:`write_model_config`: the returned descriptor reconstitutes
-    the run's network via ``model.PolicyValueNet.from_model_config``. Raises
-    ``FileNotFoundError`` if the run has no descriptor on disk, and
-    ``version.IncompatibleArtifactError`` when the descriptor's artifact version
-    is outside the current code's load guarantee."""
-    path = pathlib.Path(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
+
+def read_run_config(checkpoint_dir: str) -> config.RunConfigFile:
+    """Read the newest ``run_config_<stamp>.json`` from ``checkpoint_dir``.
+
+    Only present in ≥0.5 run directories. Raises ``FileNotFoundError`` when
+    none exists (callers that need backward compat should check first)."""
+    directory = pathlib.Path(checkpoint_dir)
+    matches = sorted(directory.glob(artifacts.RUN_CONFIG_GLOB))
+    if not matches:
+        raise FileNotFoundError(
+            f"No {artifacts.RUN_CONFIG_GLOB} found in {checkpoint_dir}"
+        )
+    newest = matches[-1]
+    file = config.RunConfigFile.model_validate_json(newest.read_text(encoding="utf-8"))
+    version.check_artifact_compatible(
+        file.version, what=f"{newest.name} at {checkpoint_dir}"
+    )
+    return file
+
+
+def read_model_config(checkpoint_dir: str) -> ModelConfig:
+    """Read the weight-compatibility descriptor from ``checkpoint_dir``.
+
+    Dispatches by presence:
+
+    * **≥0.5** run dirs contain ``run_config_<stamp>.json`` — the descriptor is
+      derived from the newest file's ``config`` field.
+    * **≤0.4** run dirs contain ``model_config.json`` — read directly (legacy
+      path, unchanged so compat tests pass).
+
+    Raises ``FileNotFoundError`` if neither artifact is present, and
+    ``version.IncompatibleArtifactError`` when the version is outside the load
+    guarantee.
+    """
+    directory = pathlib.Path(checkpoint_dir)
+
+    # ≥0.5 path: derive ModelConfig from the unified file.
+    unified_matches = sorted(directory.glob(artifacts.RUN_CONFIG_GLOB))
+    if unified_matches:
+        file = config.RunConfigFile.model_validate_json(
+            unified_matches[-1].read_text(encoding="utf-8")
+        )
+        version.check_artifact_compatible(
+            file.version,
+            what=f"{unified_matches[-1].name} at {checkpoint_dir}",
+        )
+        return _descriptor_for(file.config)
+
+    # ≤0.4 legacy path: read model_config.json directly.
+    path = directory / artifacts.MODEL_CONFIG_JSON
     descriptor = ModelConfig.model_validate_json(path.read_text(encoding="utf-8"))
     version.check_artifact_compatible(
         descriptor.version, what=f"{artifacts.MODEL_CONFIG_JSON} at {checkpoint_dir}"
@@ -161,14 +205,29 @@ def read_model_config(checkpoint_dir: str) -> ModelConfig:
     return descriptor
 
 
-def build_inspect_report(descriptor: ModelConfig) -> InspectReport:
-    """The encoding + parameter breakdown for ``descriptor``, era-routed.
+# ---------------------------------------------------------------------------
+# Legacy writer (kept for tests / manual tooling; not called by the loop)
+# ---------------------------------------------------------------------------
 
-    The single source behind ``model_inspect.json`` and the ``wingspan
-    inspect`` tables: every layout and count derives from the run's own
-    descriptor — never the live encoder alone — so the report matches the
-    checkpoint the descriptor describes regardless of its artifact era.
-    """
+
+def write_model_config(checkpoint_dir: str, cfg: config.RunConfig) -> pathlib.Path:
+    """Write (overwriting) ``model_config.json`` for ``cfg`` and return its path.
+
+    Called only by tooling that targets ≤0.4 run directories; the training loop
+    uses :func:`write_run_config` for ≥0.5 runs."""
+    descriptor = _descriptor_for(cfg)
+    path = _ensure_dir(checkpoint_dir) / artifacts.MODEL_CONFIG_JSON
+    path.write_text(descriptor.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Descriptor-derived reporting seam
+# ---------------------------------------------------------------------------
+
+
+def build_inspect_report(descriptor: ModelConfig) -> InspectReport:
+    """The encoding + parameter breakdown for ``descriptor``, era-routed."""
     param_report = param_report_for(descriptor)
     return InspectReport(
         state_layout=state_layout_for(descriptor),
@@ -183,17 +242,7 @@ def build_model_summary_html(
     setup_arch: setup_model.SetupArchitecture,
     setup_encoding: setup_model.SetupEncoding | None = None,
 ) -> str:
-    """The standalone ``model_summary.html`` document for ``descriptor``.
-
-    The single builder behind both the run-start writer
-    (:func:`write_model_summary_html`) and ``wingspan inspect --html``, so the
-    two surfaces are identical by construction. ``setup_arch`` is the one
-    datum not on the descriptor (it lives in ``setup_config.json``); the
-    separate setup model is active exactly when the main net does not carry
-    setup (``include_setup`` off). ``setup_encoding`` controls which stripes
-    appear in the setup vector breakdown — defaults to ``SetupEncoding()`` (the
-    pre-0.2 all-splits-off layout) when not supplied.
-    """
+    """The standalone ``model_summary.html`` document for ``descriptor``."""
     enc = setup_encoding if setup_encoding is not None else setup_model.SetupEncoding()
     return report.generate_html_report(
         state_layout_for(descriptor),
@@ -213,13 +262,10 @@ def build_model_summary_html(
 
 def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
     """The per-layer / per-block parameter accounting for ``descriptor``'s net,
-    with both the choice-encoder and card-encoder input widths era-routed so the
-    totals match the actual checkpoint — ``sum(p.numel())`` of the net
-    ``model.PolicyValueNet.from_model_config`` reconstitutes."""
+    era-routed so totals match the actual checkpoint."""
     from wingspan.compat import v0_1  # local: compat imports the model package
 
     arch = descriptor.architecture
-    # Pre-0.2 checkpoints have a 229-wide card encoder; use the frozen dim.
     card_feat_in = (
         v0_1.CARD_FEATURE_DIM_V01
         if v0_1.uses_v0_1_card_feature_encoding(descriptor.version)
@@ -242,14 +288,7 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
 
 
 def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
-    """The post-embedding state stripe registry for ``descriptor``, era-routed.
-
-    Pre-0.3 artifacts have a 771-dim state vector (scalar round + cube encoding);
-    their registry is produced by the frozen ``compat.v0_2.state_stripe_layout_v02``.
-    Pre-0.4 artifacts have a 790-dim state vector (one-hot round + cubes, no
-    turn_state stripe); their registry is produced by ``compat.v0_3.state_stripe_layout_v03``.
-    Current-era (0.4+) artifacts use the live registry with the turn_state stripe.
-    """
+    """The post-embedding state stripe registry for ``descriptor``, era-routed."""
     from wingspan.compat import v0_2, v0_3  # local: compat imports the model package
 
     arch = descriptor.architecture
@@ -280,9 +319,7 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
 
 
 def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
-    """The post-embedding choice stripe registry for ``descriptor``,
-    era-routed: pre-0.1 artifacts get the frozen v0.0 registry (habitat
-    stripe, 180-wide bird one-hot), current ones the live registry."""
+    """The post-embedding choice stripe registry for ``descriptor``, era-routed."""
     from wingspan.compat import v0_0  # local: compat imports the model package
 
     spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
@@ -294,9 +331,7 @@ def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
 
 
 def choice_input_dim_for(descriptor: ModelConfig) -> int:
-    """The choice encoder's first-``Linear`` input width for ``descriptor``,
-    era-routed: the pre-0.1 formula has no ``include_setup`` axis (the keep
-    multi-hot rode the bird stripe)."""
+    """The choice encoder's first-``Linear`` input width for ``descriptor``."""
     from wingspan.compat import v0_0  # local: compat imports the model package
 
     if v0_0.uses_v0_0_choice_encoding(descriptor.version):
@@ -311,10 +346,7 @@ def choice_input_dim_for(descriptor: ModelConfig) -> int:
 
 
 def choice_extra_for(descriptor: ModelConfig) -> int:
-    """The choice encoder's passthrough width for ``descriptor`` — the row
-    columns that are not card-region embedding lookups (the architecture
-    diagram's "additional inputs" count), era-routed like
-    :func:`choice_input_dim_for`."""
+    """The choice encoder's passthrough width for ``descriptor``, era-routed."""
     from wingspan.compat import v0_0  # local: compat imports the model package
 
     if v0_0.uses_v0_0_choice_encoding(descriptor.version):
@@ -324,28 +356,34 @@ def choice_extra_for(descriptor: ModelConfig) -> int:
     )
 
 
+# ---------------------------------------------------------------------------
+# Legacy session-record writer (≤0.4; kept for any tooling that needs it)
+# ---------------------------------------------------------------------------
+
+
 def write_session_record(
     checkpoint_dir: str,
-    cfg: config.TrainConfig,
+    cfg: config.RunConfig,
     *,
     stamp: str,
     started_at: str,
     git_sha: str | None,
     resumed_from_iteration: int,
 ) -> pathlib.Path:
-    """Write a fresh dated ``process_<stamp>.json`` for this session and return
-    its path. ``stamp`` is a filesystem-safe timestamp supplied by the caller (so
-    this stays pure / testable); a same-second collision gets a ``-N`` suffix so
-    rapid restarts never clobber a prior session's record."""
+    """Write a legacy ``process_<stamp>.json`` and return its path.
+
+    Not called by the training loop for ≥0.5 runs; kept for tooling / tests."""
     record = SessionRecord(
-        run_name=cfg.run_name,
+        run_name=cfg.run.run_name,
         started_at=started_at,
         git_sha=git_sha,
         resumed=resumed_from_iteration > 0,
         resumed_from_iteration=resumed_from_iteration,
         config=cfg,
     )
-    path = _unique_session_path(_ensure_dir(checkpoint_dir), stamp)
+    path = _unique_session_path(
+        _ensure_dir(checkpoint_dir), stamp, artifacts.PROCESS_PREFIX
+    )
     path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
     return path
 
@@ -353,20 +391,18 @@ def write_session_record(
 ###### PRIVATE #######
 
 
-def _descriptor_for(cfg: config.TrainConfig) -> ModelConfig:
+def _descriptor_for(cfg: config.RunConfig) -> ModelConfig:
     """The :class:`ModelConfig` descriptor for ``cfg``, stamped at the run's
-    artifact era (``cfg.encoding_version`` — the live version for new runs) —
-    the single construction every run-start writer shares, so the JSON / HTML
-    reports describe exactly what ``model_config.json`` records, era-routed
-    layouts included."""
+    artifact era — the single construction every writer and reporter shares."""
+    arch_cfg = cfg.architecture
     return ModelConfig(
-        run_name=cfg.run_name,
-        state_dim=cfg.state_dim,
-        choice_dim=cfg.choice_dim,
-        family_order=cfg.family_order,
+        run_name=cfg.run.run_name,
+        state_dim=arch_cfg.state_dim,
+        choice_dim=arch_cfg.choice_dim,
+        family_order=arch_cfg.family_order,
         architecture=cfg.arch,
         include_setup=cfg.encoding_spec.include_setup,
-        version=cfg.encoding_version,
+        version=arch_cfg.encoding_version,
     )
 
 
@@ -376,14 +412,16 @@ def _ensure_dir(checkpoint_dir: str) -> pathlib.Path:
     return path
 
 
-def _unique_session_path(directory: pathlib.Path, stamp: str) -> pathlib.Path:
-    """``process_<stamp>.json`` if free, else ``…-1`` / ``…-2`` / … so two
+def _unique_session_path(
+    directory: pathlib.Path, stamp: str, prefix: str
+) -> pathlib.Path:
+    """``<prefix><stamp>.json`` if free, else ``…-1`` / ``…-2`` / … so two
     same-second startups never overwrite each other's session record."""
-    base = directory / f"{artifacts.PROCESS_PREFIX}{stamp}.json"
+    base = directory / f"{prefix}{stamp}.json"
     if not base.exists():
         return base
     for index in range(1, _MAX_SESSION_SUFFIX):
-        candidate = directory / f"{artifacts.PROCESS_PREFIX}{stamp}-{index}.json"
+        candidate = directory / f"{prefix}{stamp}-{index}.json"
         if not candidate.exists():
             return candidate
     return base

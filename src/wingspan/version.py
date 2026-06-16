@@ -33,8 +33,18 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "0.4"
+MODEL_VERSION = "0.5"
 """The current artifact-compatibility version (the only place it is defined).
+
+0.5 unifies the per-run config files (``model_config.json``,
+``setup_config.json``, ``process_<stamp>.json``) into a single
+``run_config_<stamp>.json`` with a hierarchical Pydantic model. This is a
+**config-container-only** bump — the encoding and network architecture are
+identical to 0.4 (same ``state_dim`` / ``choice_dim`` / card features). No
+``compat/v0_4.py`` encoding shim is needed: 0.4 artifacts already fall through
+to live encoding paths unchanged. The only compat work is a config-format reader
+dispatch in ``runmeta`` / ``setup_runmeta`` (≤0.4 run dirs still carry the
+legacy trio; ≥0.5 dirs carry only ``run_config_<stamp>.json``).
 
 0.4 refactored the round/cube encoding into a new leading ``turn_state`` stripe
 and shrank ``misc_scalars`` from 26 dims to 4, growing the state vector by

@@ -31,10 +31,11 @@ sync:
   status_interval_seconds: 5
   checkpoint_upload_iters: 2
 train:
-  games_per_iter: 16
-  max_iterations: 4
-  target_iterations: 4
-  eval_games: 8
+  run:
+    games_per_iter: 16
+    max_iterations: 4
+    target_iterations: 4
+    eval_games: 8
 """
 
 
@@ -46,16 +47,17 @@ def test_parse_run_file_injects_run_name_and_scratch_dir() -> None:
     assert run.sync.checkpoint_upload_iters == 2
     # run_name is authoritative over the train block; checkpoint_dir defaults to
     # a per-run scratch dir under the container workdir.
-    assert run.train.run_name == "testrun"
-    assert run.train.checkpoint_dir == "/work/testrun"
-    assert run.train.games_per_iter == 16
-    assert run.train.target_iterations == 4
+    assert run.train.run.run_name == "testrun"
+    assert run.train.run.checkpoint_dir == "/work/testrun"
+    assert run.train.run.games_per_iter == 16
+    assert run.train.run.target_iterations == 4
 
 
 def test_parse_run_file_preserves_explicit_checkpoint_dir() -> None:
-    text = _SAMPLE_YAML + "  checkpoint_dir: /data/custom\n"
+    # 4-space indent nests under the train.run section (a RunSettings field).
+    text = _SAMPLE_YAML + "    checkpoint_dir: /data/custom\n"
     run = runfile.parse_run_file(text)
-    assert run.train.checkpoint_dir == "/data/custom"
+    assert run.train.run.checkpoint_dir == "/data/custom"
 
 
 def test_parse_run_file_requires_bucket() -> None:

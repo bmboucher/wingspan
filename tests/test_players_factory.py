@@ -34,27 +34,47 @@ def test_no_ai_seats_defaults_to_combined():
 def test_split_regime_checkpoint_activates_split():
     """A single split-regime checkpoint (mixed with a config-free seat) is
     enough to run the game in the split regime."""
-    cfg = config.TrainConfig(use_setup_model=True, split_setup_bonus=True)
+    cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            use_setup_model=True, split_setup_bonus=True
+        )
+    )
     assert players.resolve_split_setup_bonus((cfg, None)) is True
 
 
 def test_split_flag_is_gated_on_setup_model():
     """``split_setup_bonus`` is inert without the setup model (the
     ``split_setup_bonus_active`` gating), so such a checkpoint stays combined."""
-    cfg = config.TrainConfig(use_setup_model=False, split_setup_bonus=True)
+    cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            use_setup_model=False, split_setup_bonus=True
+        )
+    )
     assert players.resolve_split_setup_bonus((cfg, None)) is False
 
 
 def test_combined_regime_checkpoints_stay_combined():
     """Two combined-regime checkpoints agree on the combined default."""
-    cfg = config.TrainConfig(use_setup_model=True, split_setup_bonus=False)
+    cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            use_setup_model=True, split_setup_bonus=False
+        )
+    )
     assert players.resolve_split_setup_bonus((cfg, cfg)) is False
 
 
 def test_disagreeing_regimes_raise():
     """Checkpoints trained under different regimes cannot share a faithful game."""
-    split_cfg = config.TrainConfig(use_setup_model=True, split_setup_bonus=True)
-    combined_cfg = config.TrainConfig(use_setup_model=True, split_setup_bonus=False)
+    split_cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            use_setup_model=True, split_setup_bonus=True
+        )
+    )
+    combined_cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            use_setup_model=True, split_setup_bonus=False
+        )
+    )
     with pytest.raises(ValueError, match="split_setup_bonus"):
         players.resolve_split_setup_bonus((split_cfg, combined_cfg))
 

@@ -176,34 +176,36 @@ class ProcessCollector:
     spawns nothing.
     """
 
-    def __init__(self, cfg: config.TrainConfig, num_workers: int | None = None):
+    def __init__(self, cfg: config.RunConfig, num_workers: int | None = None):
         self._arch = _WorkerArch(
             encoding_version=cfg.encoding_version,
             state_dim=cfg.state_dim,
             choice_dim=cfg.choice_dim,
             arch=cfg.arch,
             include_setup=cfg.encoding_spec.include_setup,
-            setup_enabled=cfg.use_setup_model,
-            setup_arch=cfg.setup_arch if cfg.use_setup_model else None,
+            setup_enabled=cfg.architecture.use_setup_model,
+            setup_arch=cfg.setup_arch if cfg.architecture.use_setup_model else None,
             setup_encoding=cfg.setup_encoding,
-            setup_hand_combos=cfg.setup_hand_combos,
-            setup_food_sets=cfg.setup_food_sets,
-            setup_tuples_per_batch=cfg.setup_tuples_per_batch,
-            setup_temperature=cfg.setup_policy_temperature,
-            setup_greedy=cfg.setup_policy_greedy,
+            setup_hand_combos=cfg.training.setup.hand_combos,
+            setup_food_sets=cfg.training.setup.food_sets,
+            setup_tuples_per_batch=cfg.training.setup.tuples_per_batch,
+            setup_temperature=cfg.training.setup.policy_temperature,
+            setup_greedy=cfg.training.setup.policy_greedy,
             split_setup_bonus=cfg.split_setup_bonus_active,
             split_setup_food=cfg.split_setup_food_active,
             setup_use_actor_critic=(
-                cfg.setup_use_actor_critic if cfg.use_setup_model else False
+                cfg.architecture.setup.use_actor_critic
+                if cfg.architecture.use_setup_model
+                else False
             ),
             bootstrap_opponent_checkpoint=cfg.bootstrap_opponent_checkpoint,
         )
-        self._weights_path = pathlib.Path(cfg.checkpoint_dir) / _WEIGHTS_FILENAME
-        self._opponent_path = pathlib.Path(cfg.checkpoint_dir) / _OPPONENT_FILENAME
+        self._weights_path = pathlib.Path(cfg.run.checkpoint_dir) / _WEIGHTS_FILENAME
+        self._opponent_path = pathlib.Path(cfg.run.checkpoint_dir) / _OPPONENT_FILENAME
         self._setup_weights_path = (
-            pathlib.Path(cfg.checkpoint_dir) / _SETUP_WEIGHTS_FILENAME
+            pathlib.Path(cfg.run.checkpoint_dir) / _SETUP_WEIGHTS_FILENAME
         )
-        self._num_workers = num_workers or _default_worker_count(cfg.games_per_iter)
+        self._num_workers = num_workers or _default_worker_count(cfg.run.games_per_iter)
         self._pool: futures.ProcessPoolExecutor | None = None
         self._weights_version = 0
         self._setup_weights_version = 0

@@ -72,7 +72,9 @@ def _cfg(tmp_path: pathlib.Path, **overrides: object) -> config.TrainConfig:
         **_SMALL_ARCH,
     }
     base.update(overrides)
-    return config.TrainConfig.model_validate(base)
+    # The flat keys above are routed to their nested sections by the same
+    # migration the loaders use for ≤0.4 artifacts.
+    return config.run_config_from_artifact(base, version.MODEL_VERSION)
 
 
 def _iter_metrics(iteration: int) -> metrics.IterationMetrics:
@@ -127,7 +129,9 @@ def _write_prefield_v02_checkpoint(
     net = _build_era_net(era_cfg)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     raw_config = era_cfg.model_dump()
-    raw_config.pop("encoding_version")
+    # Pre-field shape: the era marker postdates the run, so the embedded config
+    # carries no encoding_version (now nested under ``architecture``).
+    raw_config["architecture"].pop("encoding_version")
     payload: dict[str, typing.Any] = {
         "config": raw_config,
         "model": net.state_dict() if model_state is None else model_state,
@@ -147,7 +151,7 @@ def _write_prefield_v02_checkpoint(
 
 
 def test_default_config_is_live_era():
-    cfg = config.TrainConfig(device="cpu")
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
     assert cfg.encoding_version == version.MODEL_VERSION
     assert cfg.state_dim == encode.state_size(cfg.encoding_spec)
     assert cfg.architecture_key[0] == version.MODEL_VERSION
@@ -196,13 +200,13 @@ def test_class_for_version_routes_each_era():
 
 def test_train_config_from_artifact_adopts_the_payload_stamp(tmp_path: pathlib.Path):
     raw = _cfg(tmp_path).model_dump()
-    raw.pop("encoding_version")
+    raw["architecture"].pop("encoding_version")
     adopted = config.train_config_from_artifact(raw, "0.2")
     assert adopted.encoding_version == "0.2"
     assert adopted.state_dim == _V02_STATE_DIM
     # A config that already carries the field keeps it — the field is the
     # config's own record; the stamp only fills the pre-field gap.
-    explicit = {**raw, "encoding_version": version.MODEL_VERSION}
+    explicit = _cfg(tmp_path).model_dump()  # architecture.encoding_version == live
     kept = config.train_config_from_artifact(explicit, "0.2")
     assert kept.encoding_version == version.MODEL_VERSION
 
@@ -318,8 +322,8 @@ def test_resumed_run_keeps_stamping_its_own_era(tmp_path: pathlib.Path):
         ),
     )
     assert payload["version"] == "0.2"
-    assert payload["config"]["encoding_version"] == "0.2"
-    assert payload["config"]["state_dim"] == _V02_STATE_DIM
+    assert payload["config"]["architecture"]["encoding_version"] == "0.2"
+    assert payload["config"]["architecture"]["state_dim"] == _V02_STATE_DIM
 
     runmeta.write_model_config(str(tmp_path), training.config)
     descriptor = runmeta.read_model_config(str(tmp_path))

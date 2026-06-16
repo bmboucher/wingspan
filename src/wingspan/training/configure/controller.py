@@ -3,7 +3,7 @@
 :func:`run_configurator` opens a ``rich`` ``Live`` on the alternate screen, polls
 keys without blocking (so the screen reflows on resize and the edit caret
 animates), and dispatches each keypress against the :class:`state.ConfiguratorState`
-until the user launches a run (returns the chosen :class:`config.TrainConfig`) or
+until the user launches a run (returns the chosen :class:`config.RunConfig`) or
 quits (returns ``None``). It builds no torch model itself — the network is only
 constructed afterward by ``app._run_training`` — so nothing that can raise a CUDA
 or load error runs inside the alternate-screen block.
@@ -51,10 +51,10 @@ _SAVE_DEFAULTS_CHARS = frozenset("dD")
 
 
 def run_configurator(
-    initial: config.TrainConfig,
+    initial: config.RunConfig,
     console: rich_console.Console,
     cuda_available: bool,
-) -> config.TrainConfig | None:
+) -> config.RunConfig | None:
     """Run the FLIGHT PLAN screen. Returns the config to launch, or ``None`` if
     the user quit (or the terminal can't host a full-screen TUI)."""
     if not _interactive(console):
@@ -65,13 +65,13 @@ def run_configurator(
 
 
 def build_initial_state(
-    initial: config.TrainConfig, cuda_available: bool
+    initial: config.RunConfig, cuda_available: bool
 ) -> state.ConfiguratorState:
     """Inspect the target directory and seed the editor. When a readable run is
     already there, start from *its* saved settings (so the user tunes the actual
     run, not argparse defaults), keeping the directory they pointed at; for a
     fresh target, prefer the user's saved defaults file over factory defaults."""
-    summary = runs.inspect_run(initial.checkpoint_dir)
+    summary = runs.inspect_run(initial.run.checkpoint_dir)
     working, seeded = _seed_from_summary(initial, summary)
     seeded_from_user_defaults = False
     defaults_warning: str | None = None
@@ -97,8 +97,8 @@ def build_initial_state(
 
 
 def _seed_from_summary(
-    current: config.TrainConfig, summary: runs.RunSummary
-) -> tuple[config.TrainConfig, bool]:
+    current: config.RunConfig, summary: runs.RunSummary
+) -> tuple[config.RunConfig, bool]:
     """Decide the editor's working config for an inspected directory: when it
     holds a run whose saved config still reads cleanly, seed from *those*
     settings (keeping the directory pointed at) so the user tunes the actual
@@ -121,9 +121,11 @@ def _seed_from_summary(
         and not summary.config_invalid
         and summary.train_config is not None
     ):
-        seeded = summary.train_config.model_copy(
-            update={"checkpoint_dir": current.checkpoint_dir}
+        saved = summary.train_config
+        updated_run = saved.run.model_copy(
+            update={"checkpoint_dir": current.run.checkpoint_dir}
         )
+        seeded = saved.model_copy(update={"run": updated_run})
         return seeded, True
     return current, False
 
@@ -147,7 +149,7 @@ def dispatch(view: state.ConfiguratorState, event: keys.KeyEvent) -> state.Outco
 
 def _run_loop(
     console: rich_console.Console, view: state.ConfiguratorState
-) -> config.TrainConfig | None:
+) -> config.RunConfig | None:
     frame = 0
     last_render = -_HEARTBEAT_FRAMES
     try:
@@ -319,7 +321,7 @@ def _cycle_bootstrap(view: state.ConfiguratorState, direction: int) -> state.Out
     # Build the full choices list: fixed options first, then archives latest-first.
     archive_paths = [
         str(
-            pathlib.Path(view.working.checkpoint_dir)
+            pathlib.Path(view.working.run.checkpoint_dir)
             / artifacts.ARCHIVE_SUBDIR
             / entry.label
             / artifacts.LAST_CKPT
@@ -396,7 +398,7 @@ def _commit_edit(view: state.ConfiguratorState) -> state.Outcome:
     if error is not None:
         view.notify(state.MessageKind.ERROR, error)
         return state.Outcome.CONTINUE
-    changed_dir = updated.checkpoint_dir != view.working.checkpoint_dir
+    changed_dir = updated.run.checkpoint_dir != view.working.run.checkpoint_dir
     era_moved = _update_working(view, updated)
     view.mode = state.Mode.NAVIGATE
     view.edit_buffer = ""
@@ -478,7 +480,9 @@ def _launch(view: state.ConfiguratorState, resume: bool) -> state.Outcome:
     cfg = view.working
     if not resume and cfg.encoding_version != version.MODEL_VERSION:
         cfg = config.with_encoding_version(cfg, version.MODEL_VERSION)
-    view.working = cfg.model_copy(update={"resume": resume})
+    view.working = cfg.model_copy(
+        update={"run": cfg.run.model_copy(update={"resume": resume})}
+    )
     return state.Outcome.LAUNCH
 
 
@@ -517,7 +521,7 @@ def _apply_confirm(
     if action is state.ConfirmAction.ARCHIVE_ONLY:
         return _archive_then(view, launch=False)
     if action is state.ConfirmAction.RESET_TO_DEFAULTS:
-        return _apply_reset(view, config.TrainConfig(), "factory defaults")
+        return _apply_reset(view, config.RunConfig(), "factory defaults")
     if action is state.ConfirmAction.RESET_TO_USER_DEFAULTS:
         return _apply_reset_to_user_defaults(view)
     return _overwrite_then_fresh(view)
@@ -525,7 +529,7 @@ def _apply_confirm(
 
 def _archive_then(view: state.ConfiguratorState, launch: bool) -> state.Outcome:
     label = runs.default_archive_label(view.summary, _timestamp())
-    result = runs.archive_run(view.working.checkpoint_dir, label)
+    result = runs.archive_run(view.working.run.checkpoint_dir, label)
     view.mode = state.Mode.NAVIGATE
     view.confirm = None
     if not result.ok:
@@ -542,7 +546,7 @@ def _archive_then(view: state.ConfiguratorState, launch: bool) -> state.Outcome:
 
 
 def _overwrite_then_fresh(view: state.ConfiguratorState) -> state.Outcome:
-    removed = runs.clear_run(view.working.checkpoint_dir)
+    removed = runs.clear_run(view.working.run.checkpoint_dir)
     view.confirm = None
     view.notify(
         state.MessageKind.WARN, f"removed {len(removed)} files — starting fresh"
@@ -560,7 +564,7 @@ def _fresh_confirm(view: state.ConfiguratorState) -> state.ConfirmPrompt:
         else "—"
     )
     lines = [
-        f"A run already exists in {view.working.checkpoint_dir}/:",
+        f"A run already exists in {view.working.run.checkpoint_dir}/:",
         f"  iter {iteration:04d} · {games:,} games · best {best}",
         "",
         "Archive moves it to archive/<label>/ — kept and recoverable.",
@@ -597,7 +601,7 @@ def _archive_only_confirm(view: state.ConfiguratorState) -> state.ConfirmPrompt:
     return state.ConfirmPrompt(
         title="ARCHIVE THIS RUN",
         lines=[
-            f"Move the run in {view.working.checkpoint_dir}/ to:",
+            f"Move the run in {view.working.run.checkpoint_dir}/ to:",
             f"  archive/{label_hint}",
             "",
             "The directory is then clean; you stay on this screen.",
@@ -666,12 +670,12 @@ def _apply_reset_to_user_defaults(view: state.ConfiguratorState) -> state.Outcom
 
 
 def _apply_reset(
-    view: state.ConfiguratorState, defaults: config.TrainConfig, label: str
+    view: state.ConfiguratorState, defaults: config.RunConfig, label: str
 ) -> state.Outcome:
-    _update_working(
-        view,
-        defaults.model_copy(update={"checkpoint_dir": view.working.checkpoint_dir}),
+    updated_run = defaults.run.model_copy(
+        update={"checkpoint_dir": view.working.run.checkpoint_dir}
     )
+    _update_working(view, defaults.model_copy(update={"run": updated_run}))
     view.seeded_from_saved = False
     view.seeded_from_user_defaults = False
     view.mode = state.Mode.NAVIGATE
@@ -683,7 +687,7 @@ def _apply_reset(
 #### Shared ####
 
 
-def _update_working(view: state.ConfiguratorState, updated: config.TrainConfig) -> bool:
+def _update_working(view: state.ConfiguratorState, updated: config.RunConfig) -> bool:
     """Install a mutated working config: reset newly-hidden fields, then
     re-align the era against the inspected run (the saved run's era while the
     architecture still matches it, the live MODEL_VERSION otherwise). Returns
@@ -714,7 +718,7 @@ def _notify_era_moved(view: state.ConfiguratorState) -> None:
 def _reinspect(view: state.ConfiguratorState) -> None:
     """Re-read the (possibly newly-pointed-at) directory; refresh the summary
     and the saved-config baseline without disturbing the user's working edits."""
-    view.summary = runs.inspect_run(view.working.checkpoint_dir)
+    view.summary = runs.inspect_run(view.working.run.checkpoint_dir)
     view.saved = view.summary.train_config
     # Re-run the same seeding decision the initial build used, so the header,
     # the changed-field markers, and what Start does all stay consistent with
@@ -727,7 +731,7 @@ def _reinspect(view: state.ConfiguratorState) -> None:
     # carried over: re-align so e.g. pointing an era-pinned working config at
     # an empty directory un-pins it to the live version.
     view.working = runs.align_era(view.summary, view.working)
-    view.notify(state.MessageKind.INFO, f"inspected {view.working.checkpoint_dir}/")
+    view.notify(state.MessageKind.INFO, f"inspected {view.working.run.checkpoint_dir}/")
 
 
 def _timestamp() -> str:

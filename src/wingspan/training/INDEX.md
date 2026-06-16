@@ -13,50 +13,67 @@ and blocks until the loop stops or the user hits Ctrl-C.
 
 ## Config and metadata
 
-**`config.py`** — `TrainConfig`: the self-describing hyperparameter object.
-Key fields:
-- Loop shape: `games_per_iter`, `max_iterations`, `target_iterations`.
-- Optimization: `lr`, `value_coef`, `entropy_coef`, `grad_clip`, `score_norm`,
-  `reward_mode` (`RewardMode`: `terminal_margin` | `decision_delta`) and
-  `reward_discount` (γ for the decision-delta return, applied per unit of
-  game-clock time — see `timestamps.py`). Both REGIME.
-- Evaluation: `eval_every`, `eval_games`, `opponent_reset_win_rate`.
-- Bootstrap: `initial_vs_random`, `random_phase_win_rate`,
-  `bootstrap_opponent_checkpoint` (optional path to a `.pt` checkpoint used
-  as the bootstrap-phase opponent instead of the random agent; CPU-only,
-  requires `initial_vs_random=True`).
-- Architecture: `arch: ModelArchitecture` (assembled via the `arch` property
-  from flat fields so `TrainConfig` serializes flat).
-- Era: `encoding_version` — the artifact era the run trains at (adopted from
-  the run dir on resume, never user-edited); `state_dim` / `choice_dim` are
-  era-routed from it (`compat.encoding_dims_for_era`), and it leads
-  `architecture_key`. See "Training resume: era pinning" in
-  `docs/VERSIONING.md`.
-- Derived: `architecture_key`, `state_dim`, `choice_dim`, `encoding_spec`.
-- Module functions: `train_config_from_artifact(raw, artifact_version)` —
-  validate a payload's embedded config at the payload's own era (pre-field
-  configs derive `encoding_version` from the `version` stamp);
-  `with_encoding_version(cfg, era)` — validated era-pinned copy.
+**`config.py`** — `RunConfig`: the self-describing hyperparameter object,
+organized into six nested **section sub-models** (`TrainConfig` is a kept alias
+for `RunConfig`). Raw scalar reads are nested; the heavily-used derivations stay
+top-level computed properties so call sites don't churn.
+- `architecture: ArchitectureConfig` — topology + encoding-shape toggles +
+  era-synced dims. `main: MainNetArchitecture` (trunk/choice/head widths, card +
+  hand encoders), `setup: SetupNetArchitecture`, the `use_setup_model` /
+  `split_setup_*` toggles, and the era-synced `encoding_version` / `state_dim` /
+  `choice_dim` / `family_order`.
+- `run: RunSettings` — `games_per_iter`, `max_iterations`, `target_iterations`,
+  `eval_every`, `eval_games`, `checkpoint_dir`, `run_name`, `resume`, `history_len`.
+- `training: TrainingConfig` — `lr`, `value_coef`, `entropy_coef`, `grad_clip`,
+  `score_norm`, `reward_mode` (`terminal_margin` | `decision_delta`),
+  `reward_discount` (both REGIME), and `setup: SetupTrainingConfig` (setup-net
+  `lr`, schedule `record_start_iter` / `train_iter`, offline-fit + actor-critic knobs).
+- `opponent: OpponentConfig` — `bootstrap_opponent` (`"none"` | `"random"` |
+  ckpt path; a path is CPU-only), `random_phase_win_rate`,
+  `opponent_reset_win_rate`, `opponent_max_iterations`, `eval_ewma_alpha`.
+- `engine: EngineConfig` — documented placeholder for future
+  encoding-independent game-variant knobs (empty today).
+- `misc: MiscConfig` — `seed`, `device`, `produce_ewma_alpha`, `instrumentation`.
+- Top-level computed properties (delegating into sections): `arch:
+  ModelArchitecture`, `setup_arch`, `setup_encoding`, `architecture_key`,
+  `setup_architecture_key`, `encoding_spec`, `encoding_version`, `state_dim`,
+  `choice_dim`, `family_order`, `eval_pairs`, `initial_vs_random`,
+  `bootstrap_opponent_checkpoint`, `split_setup_*_active`, `trunk/choice_hidden`.
+  `encoding_version` is the artifact era the run trains at (adopted from the run
+  dir on resume, never user-edited); `state_dim` / `choice_dim` are era-routed
+  from it. See "Training resume: era pinning" in `docs/VERSIONING.md`.
+- `RunConfigFile` — the dated on-disk wrapper (`version`, `saved_at`,
+  `started_at`, `git_sha`, `resumed`, `resumed_from_iteration`, `config`).
+- Module functions: `run_config_from_artifact(raw, artifact_version)`
+  (`train_config_from_artifact` alias) — validate a payload's embedded config at
+  its own era; a ≥0.5 dict is nested and passes through, a ≤0.4 dict is *flat*
+  and reshaped into the six sections (legacy `bootstrap_opponent` migration
+  preserved); pre-field configs derive `encoding_version` from the `version`
+  stamp. `with_encoding_version(cfg, era)` — validated era-pinned copy.
 
 **`artifacts.py`** — `ArtifactPaths(checkpoint_dir)`: canonical on-disk
 filenames. Constants: `LAST_CKPT`, `BEST_CKPT`, `OPPONENT_CKPT`,
-`METRICS_LOG`, `GAMES_LOG`, `MODEL_CONFIG`, `PROCESS_JSON`. Used everywhere
-that writes or reads from a run directory.
+`METRICS_LOG`, `GAMES_LOG`, `RUN_CONFIG_PREFIX` / `RUN_CONFIG_GLOB` (the unified
+≥0.5 file), and the legacy `MODEL_CONFIG` / `PROCESS_JSON` / `PROCESS_GLOB`
+(read for ≤0.4 dirs). Used everywhere that writes or reads from a run directory.
 
-**`runmeta.py`** — Sidecar JSON files and the era-routed descriptor reporting
-seam:
-- `ModelConfig` — written to `model_config.json`; carries `run_name`,
+**`runmeta.py`** — The unified config file, the legacy sidecars (read-only for
+≤0.4 dirs), and the era-routed descriptor reporting seam:
+- `write_run_config(...)` / `read_run_config(dir) -> RunConfigFile` — write/read
+  the dated `run_config_<stamp>.json` (≥0.5); the writer replaces the three
+  legacy writers, and `read_run_config` raises `FileNotFoundError` on ≤0.4 dirs.
+- `ModelConfig` — the in-memory weight-compat descriptor; carries `run_name`,
   `state_dim`, `choice_dim`, `family_order`, `architecture`, `include_setup`,
-  `version`.
-- `write_model_config(...)`, `read_model_config(path) -> ModelConfig` — the
-  sanctioned write/read pair; `read_model_config` applies compat shims by version.
-- Reporting seam: `choice_layout_for(descriptor)`, `param_report_for(descriptor,
-  net)`, `build_model_summary_html(descriptor, report)` — all route by the
-  descriptor's version so compat-era reports are correct without touching the
-  live encoder.
+  `version`. `read_model_config(dir) -> ModelConfig` **dispatches on presence**:
+  derived from `run_config_<stamp>.json` when one exists, else read from the
+  legacy `model_config.json` (with compat shims by version).
+- Reporting seam: `choice_layout_for(descriptor)`, `param_report_for(descriptor)`,
+  `build_model_summary_html(descriptor, ...)` — all route by the descriptor's
+  version so compat-era reports are correct without touching the live encoder.
 
-**`setup_runmeta.py`** — Analogous sidecar for the setup model:
-`SetupConfig`, `write_setup_config`, `read_setup_config`.
+**`setup_runmeta.py`** — `SetupConfig` for the setup model; `read_setup_config`
+dispatches the same way (derived from the unified file for ≥0.5, legacy
+`setup_config.json` for ≤0.4).
 
 ## Training loop orchestrator
 
@@ -69,8 +86,11 @@ Key members:
 
 **`loop_resume.py`** — `maybe_resume(loop)`: loads `LAST_CKPT` if present,
 validates `architecture_key` (alarm + fresh start on mismatch, including when
-the weights themselves fail to load), initializes phase and target, writes the
-`process_<stamp>.json` sidecar. `adopt_checkpoint_era(cfg)` — called by
+the weights themselves fail to load), initializes phase and target.
+`write_run_metadata(loop)` drops this startup's `run_config_<stamp>.json` (plus
+the inspect report + summary HTML); `reset_history_logs_if_fresh(loop)` clears a
+prior run's logs and stale session records (both `run_config_*.json` and legacy
+`process_*.json`) on a non-resumed start. `adopt_checkpoint_era(cfg)` — called by
 `TrainingLoop.__init__` before the net is built: pins the config to the
 resumable checkpoint's era when that adoption is exactly what makes the keys
 agree (era-pinned resume across a FRESH change), and re-keys any *fresh*

@@ -186,18 +186,33 @@ def test_validator_rejects_tray_set_embedding_without_hand_model():
             use_distinct_hand_model=False, tray_set_embedding=True
         )
     with pytest.raises(pydantic.ValidationError):
-        config.TrainConfig(
-            device="cpu", use_distinct_hand_model=False, tray_set_embedding=True
+        config.RunConfig(
+            misc=config.MiscConfig(device="cpu"),
+            architecture=config.ArchitectureConfig(
+                main=config.MainNetArchitecture(
+                    use_distinct_hand_model=False, tray_set_embedding=True
+                )
+            ),
         )
 
 
 def test_tray_flag_changes_shape_key_for_fresh_restart():
     """Turning the flag on must register as a weight-incompatible change (the
     documented FRESH mechanism) — old checkpoints then restart cleanly."""
-    cfg_off = config.TrainConfig(
-        device="cpu", use_distinct_hand_model=True, tray_set_embedding=False
+    cfg_off = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_distinct_hand_model=True, tray_set_embedding=False
+            )
+        ),
     )
-    cfg_on = config.TrainConfig(
-        device="cpu", use_distinct_hand_model=True, tray_set_embedding=True
+    cfg_on = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_distinct_hand_model=True, tray_set_embedding=True
+            )
+        ),
     )
     assert cfg_off.architecture_key != cfg_on.architecture_key

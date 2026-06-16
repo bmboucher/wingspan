@@ -99,7 +99,7 @@ class RunSummary(pydantic.BaseModel):
     # The saved run's hyperparameters (named ``train_config`` rather than
     # ``config`` so the field does not shadow the ``config`` module in its own
     # annotation at class-definition time).
-    train_config: config.TrainConfig | None = None
+    train_config: config.RunConfig | None = None
     # The checkpoint carried no embedded config, or one that no longer validates
     # (e.g. a value since constrained out of bounds). The payload still loaded,
     # but the run is treated as not-resumable so Start routes through the
@@ -148,7 +148,7 @@ def inspect_run(checkpoint_dir: str) -> RunSummary:
 
 
 def architecture_compatible(
-    saved: config.TrainConfig | None, current: config.TrainConfig
+    saved: config.RunConfig | None, current: config.RunConfig
 ) -> bool:
     """Whether ``current`` can resume a run saved with ``saved``. Checkpoints are
     self-describing: one with no readable embedded config (``saved is None``) is
@@ -156,7 +156,7 @@ def architecture_compatible(
     return saved is not None and saved.architecture_key == current.architecture_key
 
 
-def resolve_status(summary: RunSummary, working: config.TrainConfig) -> RunStatus:
+def resolve_status(summary: RunSummary, working: config.RunConfig) -> RunStatus:
     """Classify what Start will do against ``summary`` for the working config."""
     if not summary.exists:
         return RunStatus.EMPTY
@@ -167,7 +167,7 @@ def resolve_status(summary: RunSummary, working: config.TrainConfig) -> RunStatu
     return RunStatus.INCOMPATIBLE
 
 
-def align_era(summary: RunSummary, working: config.TrainConfig) -> config.TrainConfig:
+def align_era(summary: RunSummary, working: config.RunConfig) -> config.RunConfig:
     """Re-pin ``working``'s era after any mutation: the saved run's era while
     the re-keyed working config stays architecture-compatible with it (so Start
     resumes at the run's own frozen geometry), the live MODEL_VERSION otherwise
@@ -247,7 +247,7 @@ def default_archive_label(summary: RunSummary, timestamp: str) -> str:
 
     ``timestamp`` is supplied by the caller (so this stays pure / testable)."""
     run_name = (
-        summary.train_config.run_name if summary.train_config is not None else "run"
+        summary.train_config.run.run_name if summary.train_config is not None else "run"
     )
     iteration = summary.iteration if summary.iteration is not None else 0
     return f"{_sanitize(run_name)}_iter{iteration:04d}_{timestamp}"
@@ -291,7 +291,7 @@ def clear_run(checkpoint_dir: str) -> list[str]:
 ###### PRIVATE #######
 
 
-def _with_era(cfg: config.TrainConfig, era: str) -> config.TrainConfig:
+def _with_era(cfg: config.RunConfig, era: str) -> config.RunConfig:
     """``cfg`` re-keyed at ``era`` — ``cfg`` itself when already there, so the
     common no-op path skips a full re-validation."""
     if cfg.encoding_version == era:
@@ -326,7 +326,7 @@ def _fill_from_payload(summary: RunSummary, payload: dict[str, typing.Any]) -> N
     else:
         artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
         try:
-            summary.train_config = config.train_config_from_artifact(
+            summary.train_config = config.run_config_from_artifact(
                 raw_config, artifact_version
             )
         except pydantic.ValidationError:
@@ -362,6 +362,7 @@ def _archive_sources(path: pathlib.Path) -> list[pathlib.Path]:
     sources.extend(sorted(path.glob(artifacts.LOG_GLOB)))
     sources.extend(sorted(path.glob(artifacts.TMP_GLOB)))
     sources.extend(sorted(path.glob(artifacts.PROCESS_GLOB)))
+    sources.extend(sorted(path.glob(artifacts.RUN_CONFIG_GLOB)))
     sources.extend(path / name for name in _SWEEP_BEFORE_LAST)
     sources.append(path / artifacts.LAST_CKPT)
     # De-dup (a glob could re-list a named artifact) while preserving order, and

@@ -31,20 +31,22 @@ from wingspan.training import config
 DEFAULTS_FILENAME = "configurator_defaults.json"
 """The defaults file name, anchored at the process working directory."""
 
-EXCLUDED_FIELDS: frozenset[str] = frozenset(
-    {
-        "encoding_version",
-        "state_dim",
-        "choice_dim",
-        "family_order",
-        "resume",
-        "checkpoint_dir",
-        "run_name",
-        "device",
-    }
-)
-"""``TrainConfig`` fields that are never persisted (and are stripped on load,
-so a hand-edited file cannot smuggle them back in)."""
+EXCLUDED_FIELDS: list[str] = [
+    "encoding_version",
+    "state_dim",
+    "choice_dim",
+    "family_order",
+    "checkpoint_dir",
+    "run_name",
+    "resume",
+    "device",
+]
+"""Flat field names stripped from the saved settings by :func:`save_defaults`.
+
+These are per-run identity, era, and launch-time fields that do not travel with
+the defaults file. They are removed from their respective nested sections
+(``architecture``, ``run``, ``misc``) by :func:`_strip_identity_fields` before
+the envelope is written."""
 
 
 class DefaultsFile(pydantic.BaseModel):
@@ -52,8 +54,8 @@ class DefaultsFile(pydantic.BaseModel):
 
     saved_with_version: str  # MODEL_VERSION at save time (diagnostics only)
     saved_at: str  # ISO timestamp of the save
-    # The raw TrainConfig dump minus EXCLUDED_FIELDS. Deliberately untyped: it
-    # is a cross-version payload validated against the *current* TrainConfig on
+    # The raw RunConfig dump minus identity/era fields. Deliberately untyped: it
+    # is a cross-version payload validated against the *current* RunConfig on
     # load, the same pattern as a checkpoint's embedded raw config.
     settings: dict[str, typing.Any]
 
@@ -64,20 +66,19 @@ class LoadedDefaults(pydantic.BaseModel):
     not shadow the ``config`` module in its own annotation (the same pattern
     as ``runs.RunSummary``)."""
 
-    train_config: config.TrainConfig | None = None
+    train_config: config.RunConfig | None = None
     warning: str | None = None
 
 
 def save_defaults(
-    cfg: config.TrainConfig, directory: pathlib.Path | None = None
+    cfg: config.RunConfig, directory: pathlib.Path | None = None
 ) -> pathlib.Path:
     """Write ``cfg``'s reusable settings to the defaults file and return its
     path. ``directory`` overrides the working directory (tests only)."""
-    settings = {
-        key: value
-        for key, value in cfg.model_dump(mode="json").items()
-        if key not in EXCLUDED_FIELDS
-    }
+    # Dump the full nested config then strip the per-run identity fields so
+    # the saved file contains only transferable hyperparameters.
+    settings = cfg.model_dump(mode="json")
+    _strip_identity_fields(settings)
     envelope = DefaultsFile(
         saved_with_version=version.MODEL_VERSION,
         saved_at=datetime.datetime.now().isoformat(timespec="seconds"),
@@ -89,7 +90,7 @@ def save_defaults(
 
 
 def load_defaults(
-    current: config.TrainConfig, directory: pathlib.Path | None = None
+    current: config.RunConfig, directory: pathlib.Path | None = None
 ) -> LoadedDefaults:
     """Read the defaults file and validate it into a config that keeps
     ``current``'s run-identity fields (checkpoint dir, run name, device,
@@ -103,20 +104,12 @@ def load_defaults(
     try:
         envelope = DefaultsFile.model_validate_json(path.read_text(encoding="utf-8"))
         saved_with = envelope.saved_with_version
-        settings = {
-            key: value
-            for key, value in envelope.settings.items()
-            if key not in EXCLUDED_FIELDS
-        }
-        loaded = config.TrainConfig.model_validate(
-            {
-                **settings,
-                "checkpoint_dir": current.checkpoint_dir,
-                "run_name": current.run_name,
-                "device": current.device,
-                "resume": current.resume,
-            }
-        )
+        settings = envelope.settings
+        # Strip any stale identity fields that might have been saved by older code
+        # or hand-edited in; then inject the current run's identity fields.
+        _strip_identity_fields(settings)
+        _inject_identity_fields(settings, current)
+        loaded = config.RunConfig.model_validate(settings)
     except (OSError, ValueError, pydantic.ValidationError):
         # ValueError covers json decode errors raised by model_validate_json.
         return LoadedDefaults(
@@ -133,3 +126,45 @@ def load_defaults(
 
 def _defaults_path(directory: pathlib.Path | None) -> pathlib.Path:
     return (directory or pathlib.Path.cwd()) / DEFAULTS_FILENAME
+
+
+def _strip_identity_fields(settings: dict[str, typing.Any]) -> None:
+    """Remove per-run identity and era fields from a nested ``RunConfig`` dump
+    in place. These are never persisted to the defaults file because they are
+    properties of a specific run directory or a launch-time decision."""
+    # Remove the architecture era + synced dims (re-derived on load from live code).
+    arch = settings.get("architecture")
+    if isinstance(arch, dict):
+        arch_typed = typing.cast("dict[str, typing.Any]", arch)
+        for key in ("encoding_version", "state_dim", "choice_dim", "family_order"):
+            arch_typed.pop(key, None)
+
+    # Remove run-identity fields from the ``run`` section.
+    run = settings.get("run")
+    if isinstance(run, dict):
+        run_typed = typing.cast("dict[str, typing.Any]", run)
+        for key in ("checkpoint_dir", "run_name", "resume"):
+            run_typed.pop(key, None)
+
+    # Remove the device from the ``misc`` section.
+    misc = settings.get("misc")
+    if isinstance(misc, dict):
+        misc_typed = typing.cast("dict[str, typing.Any]", misc)
+        misc_typed.pop("device", None)
+
+
+def _inject_identity_fields(
+    settings: dict[str, typing.Any], current: config.RunConfig
+) -> None:
+    """Write the current run's identity fields into the nested settings dict.
+    Called before validating so the loaded config targets the correct directory
+    and uses the correct device."""
+    if "run" not in settings or not isinstance(settings["run"], dict):
+        settings["run"] = {}
+    settings["run"]["checkpoint_dir"] = current.run.checkpoint_dir
+    settings["run"]["run_name"] = current.run.run_name
+    settings["run"]["resume"] = current.run.resume
+
+    if "misc" not in settings or not isinstance(settings["misc"], dict):
+        settings["misc"] = {}
+    settings["misc"]["device"] = current.misc.device

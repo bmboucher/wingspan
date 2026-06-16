@@ -54,7 +54,11 @@ def _iteration_metrics(
 
 
 def test_build_status_progress_and_opponent() -> None:
-    cfg = config.TrainConfig(games_per_iter=16, max_iterations=10, target_iterations=10)
+    cfg = config.RunConfig(
+        run=config.RunSettings(
+            games_per_iter=16, max_iterations=10, target_iterations=10
+        )
+    )
     state = runstate.new_run_state(cfg)
     state.iteration = 4
     state.last_iter = _iteration_metrics(4, games_per_sec=12.5)
@@ -79,7 +83,9 @@ def test_build_status_progress_and_opponent() -> None:
 
 
 def test_build_status_finished_carries_final_eval() -> None:
-    cfg = config.TrainConfig(games_per_iter=16, max_iterations=4, target_iterations=4)
+    cfg = config.RunConfig(
+        run=config.RunSettings(games_per_iter=16, max_iterations=4, target_iterations=4)
+    )
     state = runstate.new_run_state(cfg)
     state.phase = runstate.Phase.DONE
     state.pinned_stats = metrics.FinalEvalStats(

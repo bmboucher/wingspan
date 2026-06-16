@@ -53,7 +53,7 @@ def commit_iteration(
         iter_phase_for_timing = training_loop.state.training_phase
         training_loop.state.last_iter = iter_metrics
         training_loop.state.history.append(iter_metrics)
-        cap = training_loop.config.history_len
+        cap = training_loop.config.run.history_len
         if len(training_loop.state.history) > cap:
             del training_loop.state.history[: len(training_loop.state.history) - cap]
         if not np.isfinite(stats.loss):

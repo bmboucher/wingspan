@@ -52,8 +52,8 @@ def collect_games(
     if setup_phase is not None:
         return collect_with_setup(training_loop, iteration, setup_phase, vs_random)
     seeds = [
-        training_loop.config.seed * 1_000_000 + iteration * 10_000 + game_idx
-        for game_idx in range(training_loop.config.games_per_iter)
+        training_loop.config.misc.seed * 1_000_000 + iteration * 10_000 + game_idx
+        for game_idx in range(training_loop.config.run.games_per_iter)
     ]
     # CPU collection is GIL-bound under threads, so it fans across worker
     # processes; CUDA collection keeps the in-process batched-inference path
@@ -103,9 +103,9 @@ def collect_with_setup_sequential(
 ) -> list[collect.GameRecord]:
     """In-process setup collection (the non-CPU fallback)."""
     generator = setup_model.RandomSetupGenerator(
-        hand_combos=training_loop.config.setup_hand_combos,
-        food_sets=training_loop.config.setup_food_sets,
-        tuples_per_batch=training_loop.config.setup_tuples_per_batch,
+        hand_combos=training_loop.config.training.setup.hand_combos,
+        food_sets=training_loop.config.training.setup.food_sets,
+        tuples_per_batch=training_loop.config.training.setup.tuples_per_batch,
         split_food=training_loop.config.split_setup_food_active,
     )
     records: list[collect.GameRecord] = []
@@ -130,12 +130,12 @@ def collect_with_setup_sequential(
             spec,
             generator,
             setup_policy_net,
-            training_loop.config.setup_policy_temperature,
+            training_loop.config.training.setup.policy_temperature,
             opponent,
             split_setup_bonus=training_loop.config.split_setup_bonus_active,
             split_setup_food=training_loop.config.split_setup_food_active,
-            setup_greedy=training_loop.config.setup_policy_greedy,
-            use_actor_critic=training_loop.config.setup_use_actor_critic,
+            setup_greedy=training_loop.config.training.setup.policy_greedy,
+            use_actor_critic=training_loop.config.architecture.setup.use_actor_critic,
         )
         records.append(record)
         record_collected_game(training_loop, record)

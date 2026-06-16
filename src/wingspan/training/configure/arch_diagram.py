@@ -224,8 +224,8 @@ def _diagram_rows(
         block_start[section] = len(rows)
         rows.extend(block_rows)
 
-    if cfg.use_setup_model:
-        if cfg.setup_use_actor_critic:
+    if cfg.architecture.use_setup_model:
+        if cfg.architecture.setup.use_actor_critic:
             add("setup", _setup_input_box(view, content_w))
             block_start["setup_value"] = len(rows)
             block_start["setup_policy"] = len(rows)
@@ -286,17 +286,21 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
     (with ``+LN`` / ``+drop`` tags) plus the total — still live, just chromeless."""
     cfg = view.working
     extras: list[str] = []
-    if cfg.layernorm:
+    if cfg.architecture.main.layernorm:
         extras.append("+LN")
-    if cfg.dropout > 0.0:
-        extras.append(f"+d{_fmt_dropout(cfg.dropout)}")
+    if cfg.architecture.main.dropout > 0.0:
+        extras.append(f"+d{_fmt_dropout(cfg.architecture.main.dropout)}")
     tags = ("  " + " ".join(extras)) if extras else ""
     trunk_in = _trunk_in(cfg)
     choice_in = _choice_in(cfg)
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
-    if cfg.use_setup_model:
-        chain = _chain(_setup_readout_in(cfg), (*cfg.setup_hidden_layers, 1))
-        setup_chain = f"V:{chain} P:{chain}" if cfg.setup_use_actor_critic else chain
+    if cfg.architecture.use_setup_model:
+        chain = _chain(
+            _setup_readout_in(cfg), (*cfg.architecture.setup.hidden_layers, 1)
+        )
+        setup_chain = (
+            f"V:{chain} P:{chain}" if cfg.architecture.setup.use_actor_critic else chain
+        )
     else:
         setup_chain = "off"
     rows = [
@@ -304,17 +308,26 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
         _compact_line(
             "CARD",
             _chain(
-                encode.CARD_FEATURE_DIM, cfg.card_encoder_layers + (cfg.card_embed_dim,)
+                encode.CARD_FEATURE_DIM,
+                cfg.architecture.main.card_encoder_layers
+                + (cfg.architecture.main.card_embed_dim,),
             ),
         ),
-        _compact_line("TRUNK", _chain(trunk_in, cfg.trunk_layers), tags),
-        _compact_line("CHOICE", _chain(choice_in, cfg.choice_layers), tags),
         _compact_line(
-            "VALUE", _chain(cfg.arch.trunk_embed_width, (*cfg.value_layers, 1))
+            "TRUNK", _chain(trunk_in, cfg.architecture.main.trunk_layers), tags
+        ),
+        _compact_line(
+            "CHOICE", _chain(choice_in, cfg.architecture.main.choice_layers), tags
+        ),
+        _compact_line(
+            "VALUE",
+            _chain(
+                cfg.arch.trunk_embed_width, (*cfg.architecture.main.value_layers, 1)
+            ),
         ),
         _compact_line(
             "DECIDE",
-            f"{_chain(concat, (*cfg.head_layers, 1))} ×{len(cfg.family_order)}",
+            f"{_chain(concat, (*cfg.architecture.main.head_layers, 1))} ×{len(cfg.family_order)}",
         ),
         _total_row(view),
     ]
@@ -347,12 +360,12 @@ def _setup_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]
     block = _setup_block(view)
     entries = _block_op_entries(
         view,
-        (*cfg.setup_hidden_layers, 1),
+        (*cfg.architecture.setup.hidden_layers, 1),
         _BlockKind.READOUT,
         block.layers,
         _SETUP_OP_FIELDS,
-        activation=str(cfg.setup_activation),
-        dropout=cfg.setup_dropout,
+        activation=str(cfg.architecture.setup.activation),
+        dropout=cfg.architecture.setup.dropout,
         layernorm=False,
     )
     caption = [
@@ -433,17 +446,17 @@ def _setup_value_column(
 ) -> list[text.Text]:
     """The value readout head of the setup net (actor-critic mode)."""
     cfg = view.working
-    n_layers = len(cfg.setup_hidden_layers) + 1
+    n_layers = len(cfg.architecture.setup.hidden_layers) + 1
     head_layers = block.layers[:n_layers]
     per_head = sum(layer.params for layer in head_layers)
     entries = _block_op_entries(
         view,
-        (*cfg.setup_hidden_layers, 1),
+        (*cfg.architecture.setup.hidden_layers, 1),
         _BlockKind.READOUT,
         head_layers,
         _SETUP_OP_FIELDS,
-        activation=str(cfg.setup_activation),
-        dropout=cfg.setup_dropout,
+        activation=str(cfg.architecture.setup.activation),
+        dropout=cfg.architecture.setup.dropout,
         layernorm=False,
     )
     return _model_block(
@@ -465,17 +478,17 @@ def _setup_policy_column(
 ) -> list[text.Text]:
     """The policy readout head of the setup net (actor-critic mode)."""
     cfg = view.working
-    n_layers = len(cfg.setup_hidden_layers) + 1
+    n_layers = len(cfg.architecture.setup.hidden_layers) + 1
     head_layers = block.layers[n_layers:]
     per_head = sum(layer.params for layer in head_layers)
     entries = _block_op_entries(
         view,
-        (*cfg.setup_hidden_layers, 1),
+        (*cfg.architecture.setup.hidden_layers, 1),
         _BlockKind.READOUT,
         head_layers,
         _SETUP_OP_FIELDS,
-        activation=str(cfg.setup_activation),
-        dropout=cfg.setup_dropout,
+        activation=str(cfg.architecture.setup.activation),
+        dropout=cfg.architecture.setup.dropout,
         layernorm=False,
     )
     return _model_block(
@@ -500,17 +513,19 @@ def _card_encoder_box(view: state.ConfiguratorState, content_w: int) -> list[tex
     Applies a final activation when ``encoder_final_activation`` is True."""
     cfg = view.working
     report = _param_report(view)
-    widths = cfg.card_encoder_layers + (cfg.card_embed_dim,)
+    widths = cfg.architecture.main.card_encoder_layers + (
+        cfg.architecture.main.card_embed_dim,
+    )
     entries = _block_op_entries(
         view,
         widths,
         _BlockKind.BODY_CHOICE,
         report.embed.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.activation),
-        dropout=cfg.dropout,
-        layernorm=cfg.layernorm,
-        final_activation=cfg.encoder_final_activation,
+        activation=str(cfg.architecture.main.activation),
+        dropout=cfg.architecture.main.dropout,
+        layernorm=cfg.architecture.main.layernorm,
+        final_activation=cfg.architecture.main.encoder_final_activation,
     )
     return _model_block(
         view,
@@ -519,7 +534,7 @@ def _card_encoder_box(view: state.ConfiguratorState, content_w: int) -> list[tex
         in_caption=[(f"in {encode.CARD_FEATURE_DIM} (attrs ⊕ id)", theme.TEXT_DIM2)],
         entries=entries,
         sigma_total=report.embed.total,
-        out_caption=("→ ", str(cfg.card_embed_dim)),
+        out_caption=("→ ", str(cfg.architecture.main.card_embed_dim)),
         width=content_w,
         tap=True,
         dashed=False,
@@ -590,13 +605,13 @@ def _state_trunk_column(
     extra = cfg.state_dim - encode.N_CARD_INDEX_SLOTS - encode.HAND_MULTIHOT_DIM
     entries = _block_op_entries(
         view,
-        cfg.trunk_layers,
+        cfg.architecture.main.trunk_layers,
         _BlockKind.BODY_TRUNK,
         report.trunk.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.activation),
-        dropout=cfg.dropout,
-        layernorm=cfg.layernorm,
+        activation=str(cfg.architecture.main.activation),
+        dropout=cfg.architecture.main.dropout,
+        layernorm=cfg.architecture.main.layernorm,
     )
     block = _model_block(
         view,
@@ -605,7 +620,7 @@ def _state_trunk_column(
         in_caption=[(f"in {trunk_in}", theme.TEXT_DIM2)],
         entries=entries,
         sigma_total=report.trunk.total,
-        out_caption=("M = ", str(cfg.trunk_layers[-1])),
+        out_caption=("M = ", str(cfg.architecture.main.trunk_layers[-1])),
         width=width,
         tap=True,
         dashed=False,
@@ -624,14 +639,14 @@ def _choice_encoder_column(
     extra = _choice_extra(cfg)
     entries = _block_op_entries(
         view,
-        cfg.choice_layers,
+        cfg.architecture.main.choice_layers,
         _BlockKind.BODY_CHOICE,
         report.choice.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.activation),
-        dropout=cfg.dropout,
-        layernorm=cfg.layernorm,
-        final_activation=cfg.encoder_final_activation,
+        activation=str(cfg.architecture.main.activation),
+        dropout=cfg.architecture.main.dropout,
+        layernorm=cfg.architecture.main.layernorm,
+        final_activation=cfg.architecture.main.encoder_final_activation,
     )
     block = _model_block(
         view,
@@ -640,7 +655,7 @@ def _choice_encoder_column(
         in_caption=[(f"in {choice_in}", theme.TEXT_DIM2)],
         entries=entries,
         sigma_total=report.choice.total,
-        out_caption=("N = ", str(cfg.choice_layers[-1])),
+        out_caption=("N = ", str(cfg.architecture.main.choice_layers[-1])),
         width=width,
         tap=True,
         dashed=False,
@@ -678,12 +693,12 @@ def _value_column(
     trunk_m = cfg.arch.trunk_embed_width
     entries = _block_op_entries(
         view,
-        (*cfg.value_layers, 1),
+        (*cfg.architecture.main.value_layers, 1),
         _BlockKind.READOUT,
         report.value.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.activation),
-        dropout=cfg.dropout,
+        activation=str(cfg.architecture.main.activation),
+        dropout=cfg.architecture.main.dropout,
         layernorm=False,
     )
     return _model_block(
@@ -711,12 +726,12 @@ def _decision_column(
     per_head = sum(layer.params for layer in report.scorer.layers)
     entries = _block_op_entries(
         view,
-        (*cfg.head_layers, 1),
+        (*cfg.architecture.main.head_layers, 1),
         _BlockKind.READOUT,
         report.scorer.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.activation),
-        dropout=cfg.dropout,
+        activation=str(cfg.architecture.main.activation),
+        dropout=cfg.architecture.main.dropout,
         layernorm=False,
     )
     caption = [(f"in {concat} ", theme.TEXT_DIM2), (f"×{families}", _DECISION_BORDER)]
@@ -1097,7 +1112,7 @@ def _total_row(view: state.ConfiguratorState) -> text.Text:
         f"≈ {text_helpers.human_count(report.total)}", style=f"bold {theme.TEXT_BRIGHT}"
     )
     line.append(" params", style=theme.TEXT_MUTED)
-    if view.working.use_setup_model:
+    if view.working.architecture.use_setup_model:
         setup = _setup_block(view)
         line.append(
             f"  · setup {text_helpers.human_count(setup.total)} (separate)",
@@ -1123,34 +1138,34 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
     )
 
 
-def _trunk_in(cfg: config.TrainConfig) -> int:
+def _trunk_in(cfg: config.RunConfig) -> int:
     """The working config's post-embedding trunk input width, every embedding
     knob threaded."""
     return encode.trunk_input_dim(
         cfg.state_dim,
-        cfg.card_embed_dim,
-        use_distinct_hand_model=cfg.use_distinct_hand_model,
-        hand_embed_dim=cfg.hand_embed_dim,
-        tray_set_embedding=cfg.tray_set_embedding,
+        cfg.architecture.main.card_embed_dim,
+        use_distinct_hand_model=cfg.architecture.main.use_distinct_hand_model,
+        hand_embed_dim=cfg.architecture.main.hand_embed_dim,
+        tray_set_embedding=cfg.architecture.main.tray_set_embedding,
     )
 
 
-def _choice_in(cfg: config.TrainConfig | _StaticConfig) -> int:
+def _choice_in(cfg: config.RunConfig | _StaticConfig) -> int:
     """The choice encoder's first-``Linear`` input width. The static adapter
     carries a precomputed value (era-routed by the caller through the
     descriptor seam — ``runmeta.choice_input_dim_for``); a live
-    ``TrainConfig`` (the interactive configurator) is always the current
+    ``RunConfig`` (the interactive configurator) is always the current
     era."""
     if isinstance(cfg, _StaticConfig):
         return cfg.choice_in
     return encode.choice_input_dim(
         cfg.choice_dim,
-        cfg.card_embed_dim,
+        cfg.architecture.main.card_embed_dim,
         include_setup=cfg.encoding_spec.include_setup,
     )
 
 
-def _choice_extra(cfg: config.TrainConfig | _StaticConfig) -> int:
+def _choice_extra(cfg: config.RunConfig | _StaticConfig) -> int:
     """The choice encoder's passthrough "additional inputs" count — every card
     region (the candidate identity, the board-index block, and — when setup is
     in the main net — the kept-set multi-hot) is embedded, so the extra count
@@ -1163,7 +1178,7 @@ def _choice_extra(cfg: config.TrainConfig | _StaticConfig) -> int:
     )
 
 
-def _setup_readout_in(cfg: config.TrainConfig) -> int:
+def _setup_readout_in(cfg: config.RunConfig) -> int:
     """The setup net's readout-MLP input width under the working main
     architecture (whose embedder copies size the embedded candidate)."""
     return setup_model.setup_readout_input_dim(cfg.setup_encoding.total_dim, cfg.arch)
@@ -1208,23 +1223,14 @@ def _fmt_dropout(dropout: float) -> str:
 #### Static rendering (for wingspan-inspect, no focus state) ####
 
 
-class _StaticConfig(pydantic.BaseModel):
-    """Minimal working-config adapter for focus-free diagram rendering.
-
-    Exposes the attributes the diagram draw functions read from a real
-    ``TrainConfig``, so :func:`render_static` can drive them without
-    constructing a full training config. The choice-encoder widths are
-    *precomputed* by the caller (era-routed through the descriptor seam)
-    rather than derived from the live encoder — see :func:`_choice_in` /
-    :func:`_choice_extra` — so an old run's diagram shows its own geometry."""
+class _StaticMain(pydantic.BaseModel):
+    """The ``architecture.main`` topology knobs the diagram reads, projected from
+    the caller-supplied :class:`~wingspan.architecture.ModelArchitecture`."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    state_dim: int
-    choice_dim: int
-    choice_in: int
-    choice_extra: int
     card_embed_dim: int
+    card_encoder_layers: architecture.Widths
     use_distinct_hand_model: bool
     hand_embed_dim: int | None
     tray_set_embedding: bool
@@ -1232,20 +1238,58 @@ class _StaticConfig(pydantic.BaseModel):
     choice_layers: architecture.Widths
     head_layers: architecture.Widths
     value_layers: architecture.Widths
-    card_encoder_layers: architecture.Widths
     activation: architecture.ActivationName
     layernorm: bool
     dropout: float
     encoder_final_activation: bool
+
+
+class _StaticSetup(pydantic.BaseModel):
+    """The ``architecture.setup`` topology knobs the diagram reads, projected from
+    the caller-supplied :class:`~wingspan.setup_model.SetupArchitecture`."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    hidden_layers: architecture.Widths
+    activation: architecture.ActivationName
+    dropout: float
+    use_actor_critic: bool = False
+
+
+class _StaticArchitecture(pydantic.BaseModel):
+    """The ``architecture`` section slice the diagram reads — ``main`` / ``setup``
+    topology plus the setup-model toggle."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    main: _StaticMain
+    setup: _StaticSetup
+    use_setup_model: bool = False
+
+
+class _StaticConfig(pydantic.BaseModel):
+    """Minimal working-config adapter for focus-free diagram rendering.
+
+    Mirrors the nested ``RunConfig`` attributes the diagram draw functions read
+    (``architecture.main`` / ``architecture.setup`` topology, ``arch``,
+    ``family_order``, the setup descriptors, and the synced dims), so
+    :func:`render_static` can drive the shared row builders without a full
+    training config. The choice-encoder widths (``choice_in`` / ``choice_extra``)
+    are *precomputed* by the caller (era-routed through the descriptor seam — see
+    :func:`_choice_in` / :func:`_choice_extra`) rather than derived from the live
+    encoder, so an old run's diagram shows its own geometry."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    state_dim: int
+    choice_dim: int
+    choice_in: int
+    choice_extra: int
+    architecture: _StaticArchitecture
     arch: architecture.ModelArchitecture
     family_order: tuple[str, ...]
     setup_arch: setup_model.SetupArchitecture
     setup_encoding: setup_model.SetupEncoding
-    setup_hidden_layers: architecture.Widths
-    setup_activation: architecture.ActivationName
-    setup_dropout: float
-    setup_use_actor_critic: bool = False
-    use_setup_model: bool = False
 
 
 class _StaticView(pydantic.BaseModel):
@@ -1294,28 +1338,34 @@ def render_static(
         choice_dim=choice_dim,
         choice_in=choice_in,
         choice_extra=choice_extra,
-        card_embed_dim=arch.card_embed_dim,
-        use_distinct_hand_model=arch.use_distinct_hand_model,
-        hand_embed_dim=arch.hand_embed_dim,
-        tray_set_embedding=arch.tray_set_embedding,
-        trunk_layers=arch.trunk_layers,
-        choice_layers=arch.choice_layers,
-        head_layers=arch.head_layers,
-        value_layers=arch.value_layers,
-        card_encoder_layers=arch.card_encoder_layers,
-        activation=arch.activation,
-        layernorm=arch.layernorm,
-        dropout=arch.dropout,
-        encoder_final_activation=arch.encoder_final_activation,
+        architecture=_StaticArchitecture(
+            main=_StaticMain(
+                card_embed_dim=arch.card_embed_dim,
+                card_encoder_layers=arch.card_encoder_layers,
+                use_distinct_hand_model=arch.use_distinct_hand_model,
+                hand_embed_dim=arch.hand_embed_dim,
+                tray_set_embedding=arch.tray_set_embedding,
+                trunk_layers=arch.trunk_layers,
+                choice_layers=arch.choice_layers,
+                head_layers=arch.head_layers,
+                value_layers=arch.value_layers,
+                activation=arch.activation,
+                layernorm=arch.layernorm,
+                dropout=arch.dropout,
+                encoder_final_activation=arch.encoder_final_activation,
+            ),
+            setup=_StaticSetup(
+                hidden_layers=resolved_setup_arch.hidden_layers,
+                activation=resolved_setup_arch.activation,
+                dropout=resolved_setup_arch.dropout,
+                use_actor_critic=resolved_setup_arch.use_policy_head,
+            ),
+            use_setup_model=use_setup_model,
+        ),
         arch=arch,
         family_order=family_order,
         setup_arch=resolved_setup_arch,
         setup_encoding=resolved_setup_encoding,
-        setup_hidden_layers=resolved_setup_arch.hidden_layers,
-        setup_activation=resolved_setup_arch.activation,
-        setup_dropout=resolved_setup_arch.dropout,
-        setup_use_actor_critic=resolved_setup_arch.use_policy_head,
-        use_setup_model=use_setup_model,
     )
     view = _StaticView(working=cfg)
     rows, _ = _diagram_rows(typing.cast("state.ConfiguratorState", view), width)

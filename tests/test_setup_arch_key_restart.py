@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 torch = pytest.importorskip("torch")
 
-from wingspan import setup_model  # noqa: E402
+from wingspan import setup_model, version  # noqa: E402
 from wingspan.training import (  # noqa: E402
     artifacts,
     config,
@@ -46,7 +46,9 @@ def _cfg(tmp_path: pathlib.Path, **overrides: object) -> config.TrainConfig:
         "setup_hidden_layers": (16,),
     }
     base.update(overrides)
-    return config.TrainConfig.model_validate(base)
+    # The flat keys above are routed to their nested sections by the same
+    # migration the loaders use for ≤0.4 artifacts.
+    return config.run_config_from_artifact(base, version.MODEL_VERSION)
 
 
 def test_key_changes_with_embedder_shapes(tmp_path: pathlib.Path):

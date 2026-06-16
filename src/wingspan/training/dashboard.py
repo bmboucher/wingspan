@@ -429,7 +429,7 @@ def _produce_stats_block(
 ) -> rich_console.Group:
     """The game-length and margin readouts, each with a 95% confidence interval
     (z·σ/√n, n = games per iteration) on the EWMA-smoothed per-cycle σ."""
-    games_per_iter = state.config.games_per_iter
+    games_per_iter = state.config.run.games_per_iter
     rows = [
         ("Decisions/game", f"{stats.decisions:.1f}", stats.decisions_std),
         ("Score margin", f"{stats.margin:+.1f}", stats.margin_std),
@@ -505,7 +505,7 @@ def _health(state: runstate.RunState) -> panel.Panel:
 
 def _health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
     last = state.last_iter
-    grad_clip = state.config.grad_clip
+    grad_clip = state.config.training.grad_clip
     specs: list[tuple[str, str, list[float], str]] = []
     if last is not None:
         specs = [

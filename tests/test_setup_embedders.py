@@ -39,16 +39,22 @@ _MEANPOOL_MAIN = _DISTINCT_MAIN.model_copy(
 
 
 def _loop_config(tmp_path: pathlib.Path) -> config.TrainConfig:
-    return config.TrainConfig(
-        device="cpu",
-        checkpoint_dir=str(tmp_path),
-        use_setup_model=True,
-        use_distinct_hand_model=True,
-        trunk_layers=(32, 32),
-        choice_layers=(32, 32),
-        card_embed_dim=8,
-        setup_hidden_layers=(16,),
-        resume=False,
+    return config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(
+            checkpoint_dir=str(tmp_path),
+            resume=False,
+        ),
+        architecture=config.ArchitectureConfig(
+            use_setup_model=True,
+            main=config.MainNetArchitecture(
+                use_distinct_hand_model=True,
+                trunk_layers=(32, 32),
+                choice_layers=(32, 32),
+                card_embed_dim=8,
+            ),
+            setup=config.SetupNetArchitecture(hidden_layers=(16,)),
+        ),
     )
 
 

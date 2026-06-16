@@ -44,9 +44,9 @@ def setup_phase_for(
     up to ``setup_train_iter``, then model-driven.  A pure function of the
     iteration + thresholds, so it recomputes correctly on resume.
     """
-    if iteration < training_loop.config.setup_record_start_iter:
+    if iteration < training_loop.config.training.setup.record_start_iter:
         return collect.SetupPhase.RANDOM_NO_RECORD
-    if iteration < training_loop.config.setup_train_iter:
+    if iteration < training_loop.config.training.setup.train_iter:
         return collect.SetupPhase.RANDOM_RECORD
     return collect.SetupPhase.MODEL_DRIVEN
 
@@ -120,7 +120,7 @@ def update_setup(
         assert training_loop._setup_optimizer is not None
         # Route to the actor-critic update when the policy head is enabled,
         # otherwise use the plain MSE regression on the value head.
-        if training_loop.config.setup_use_actor_critic:
+        if training_loop.config.architecture.setup.use_actor_critic:
             stats = setup_learner.actor_critic_update(
                 training_loop._setup_net,
                 training_loop._setup_optimizer,
@@ -169,7 +169,7 @@ def build_setup_net(
     ).to(training_loop.device)
     optimizer = optim.Adam(
         [param for param in net.parameters() if param.requires_grad],
-        lr=training_loop.config.setup_lr,
+        lr=training_loop.config.training.setup.lr,
     )
     return net, optimizer
 
@@ -188,7 +188,7 @@ def sync_setup_embedders(training_loop: "loop.TrainingLoop") -> None:
     training_loop._setup_net.card_encoder.load_state_dict(
         training_loop.net.card_encoder.state_dict()
     )
-    if training_loop.config.use_distinct_hand_model:
+    if training_loop.config.architecture.main.use_distinct_hand_model:
         training_loop._setup_net.hand_encoder.load_state_dict(
             training_loop.net.hand_encoder.state_dict()
         )
@@ -206,7 +206,7 @@ def maybe_resume_setup(training_loop: "loop.TrainingLoop") -> None:
     """
     if training_loop._setup_net is None or training_loop._setup_optimizer is None:
         return
-    if not training_loop.config.resume:
+    if not training_loop.config.run.resume:
         return
     path = training_loop._ckpt_dir / artifacts.SETUP_CKPT
     if not path.exists():
@@ -247,7 +247,7 @@ def maybe_resume_setup(training_loop: "loop.TrainingLoop") -> None:
         )
         return
     for group in training_loop._setup_optimizer.param_groups:
-        group["lr"] = training_loop.config.setup_lr
+        group["lr"] = training_loop.config.training.setup.lr
     training_loop._setup_fit_done = bool(payload.get("setup_fit_done", False))
     training_loop.state.push_event(
         runstate.EventKind.INFO,
@@ -290,7 +290,7 @@ def setup_architecture_matches(
         # Rehydrated at the payload's own era for uniformity with the main
         # gate; the setup key itself is era-independent (no setup encoding has
         # changed shape between eras the dims router distinguishes).
-        saved = training_config.train_config_from_artifact(raw_config, artifact_version)
+        saved = training_config.run_config_from_artifact(raw_config, artifact_version)
     except pydantic.ValidationError:
         return False
     return saved.setup_architecture_key == training_loop.config.setup_architecture_key

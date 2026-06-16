@@ -27,9 +27,11 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   `nudge(cfg, spec, direction) -> (TrainConfig, str | None)`.
 
 **`runs.py`** — Run management:
-- `RunSummary(run_name, iteration, best_win_rate, last_updated)` — compact
-  snapshot of a run read from `status.json` / `model_config.json`.
-- `inspect_run(run_dir) -> RunSummary` — reads the run directory.
+- `RunSummary(checkpoint_dir, exists, readable, train_config, …)` — compact
+  snapshot of a run, its embedded config rehydrated at the artifact's era.
+- `inspect_run(run_dir) -> RunSummary` — reads the run directory, keying off
+  `last.pt` and rehydrating its embedded config via
+  `config.run_config_from_artifact`.
 - `resolve_status(summary, working) -> RunStatus` — what Start will do
   (EMPTY / RESUMABLE / INCOMPATIBLE / UNREADABLE), gated on
   `architecture_compatible` (the `architecture_key` comparison).

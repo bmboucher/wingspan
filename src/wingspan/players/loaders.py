@@ -35,7 +35,7 @@ from wingspan.training import setup_runmeta
 
 def load_policy_net(
     checkpoint_path: pathlib.Path, device: torch.device
-) -> tuple[model.PolicyValueNet, config.TrainConfig]:
+) -> tuple[model.PolicyValueNet, config.RunConfig]:
     """Load a ``PolicyValueNet`` from a training checkpoint, rebuilding it from
     the ``TrainConfig`` stored alongside the weights so the caller need not know
     the network's layer widths; the parsed config is returned with the net so
@@ -74,10 +74,10 @@ def load_policy_net(
     # the frozen widths the weights actually carry, and the era routing
     # (``class_for_version``) selects the compat subclass whose encoders and
     # slice geometry match them.
-    saved = config.train_config_from_artifact(payload["config"], artifact_version)
+    saved = config.run_config_from_artifact(payload["config"], artifact_version)
     net_cls = model.PolicyValueNet.class_for_version(artifact_version)
     if net_cls is model.PolicyValueNet:
-        current = config.TrainConfig()
+        current = config.RunConfig()
         if encoding_key(saved) != encoding_key(current):
             raise ValueError(
                 "Checkpoint encoding layout is incompatible with the current code:\n"
@@ -162,7 +162,7 @@ def load_setup_net(
     return net_instance.to(device)
 
 
-def encoding_key(cfg: config.TrainConfig) -> tuple[int, int, tuple[str, ...]]:
+def encoding_key(cfg: config.RunConfig) -> tuple[int, int, tuple[str, ...]]:
     """The encoding-compatibility signature: the parts of the architecture that
     must agree with the live ``encode`` / ``decisions`` modules for a checkpoint
     to consume freshly-encoded inputs (the layer widths are excluded — they are

@@ -82,11 +82,19 @@ def test_policy_and_value_raises_without_policy_head():
 
 
 def _make_config() -> config.TrainConfig:
-    return config.TrainConfig(
-        setup_use_actor_critic=True,
-        setup_record_start_iter=0,
-        setup_train_iter=1,
-        setup_hidden_layers=(16, 8),
+    return config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            setup=config.SetupNetArchitecture(
+                hidden_layers=(16, 8),
+                use_actor_critic=True,
+            ),
+        ),
+        training=config.TrainingConfig(
+            setup=config.SetupTrainingConfig(
+                record_start_iter=0,
+                train_iter=1,
+            ),
+        ),
     )
 
 
@@ -232,11 +240,19 @@ def test_play_game_with_setup_ac_data_in_model_driven():
     all_candidates."""
     from wingspan import setup_model as sm
 
-    net_cfg = config.TrainConfig(
-        setup_use_actor_critic=True,
-        setup_record_start_iter=0,
-        setup_train_iter=1,
-        setup_hidden_layers=(16, 8),
+    net_cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            setup=config.SetupNetArchitecture(
+                hidden_layers=(16, 8),
+                use_actor_critic=True,
+            )
+        ),
+        training=config.TrainingConfig(
+            setup=config.SetupTrainingConfig(
+                record_start_iter=0,
+                train_iter=1,
+            )
+        ),
     )
     main_net_cfg = net_cfg  # reuse for building nets
     device = torch.device("cpu")
@@ -282,10 +298,16 @@ def test_play_game_with_setup_no_ac_data_without_flag():
     """use_actor_critic=False (default) → SetupSamples have chosen_idx=None."""
     from wingspan import setup_model as sm
 
-    net_cfg = config.TrainConfig(
-        setup_use_actor_critic=False,
-        setup_record_start_iter=0,
-        setup_train_iter=1,
+    net_cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(
+            setup=config.SetupNetArchitecture(use_actor_critic=False)
+        ),
+        training=config.TrainingConfig(
+            setup=config.SetupTrainingConfig(
+                record_start_iter=0,
+                train_iter=1,
+            )
+        ),
     )
     device = torch.device("cpu")
 

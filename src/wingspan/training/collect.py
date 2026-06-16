@@ -119,7 +119,7 @@ class SetupGameSpec(pydantic.BaseModel):
 
 
 def build_setup_specs(
-    cfg: config.TrainConfig, iteration: int, phase: SetupPhase
+    cfg: config.RunConfig, iteration: int, phase: SetupPhase
 ) -> list[SetupGameSpec]:
     """One :class:`SetupGameSpec` per game this iteration.
 
@@ -128,10 +128,10 @@ def build_setup_specs(
     explore that deal's keeps) but keep distinct continuation seeds. In the
     model-driven phase each game deals independently and the setup net chooses per
     seat, so deal and continuation seeds coincide."""
-    base = cfg.seed * 1_000_000 + iteration * 10_000
-    tuples_per_batch = cfg.setup_tuples_per_batch
+    base = cfg.misc.seed * 1_000_000 + iteration * 10_000
+    tuples_per_batch = cfg.training.setup.tuples_per_batch
     specs: list[SetupGameSpec] = []
-    for game_idx in range(cfg.games_per_iter):
+    for game_idx in range(cfg.run.games_per_iter):
         game_seed = base + game_idx
         if phase is SetupPhase.MODEL_DRIVEN:
             specs.append(

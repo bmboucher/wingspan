@@ -322,7 +322,8 @@ def build_timeline(
     ``reward_mode`` to compute the target line so it matches the training
     signal the critic was actually trained on.  Returns an empty list when
     ``raw_points`` is empty (game with no decisions)."""
-    from wingspan.training import config as train_config, timestamps
+    from wingspan.training import config as train_config
+    from wingspan.training import timestamps
 
     if not raw_points:
         return []
@@ -354,7 +355,7 @@ def build_timeline(
 
         # terminal_margin: critic is trained on the flat end-of-game margin
         # broadcast to every decision, so the target is constant at the terminal.
-        if cfg.reward_mode is train_config.RewardMode.TERMINAL_MARGIN:
+        if cfg.training.reward_mode is train_config.RewardMode.TERMINAL_MARGIN:
             for idx in indices:
                 target_raw[idx] = terminal_per_player[player_id]
             continue
@@ -366,7 +367,7 @@ def build_timeline(
         times = [final_ts[i] for i in indices]
         times.append(game_end_ts)
         raw_returns = timestamps.discounted_future_returns(
-            checkpoints, times, cfg.reward_discount
+            checkpoints, times, cfg.training.reward_discount
         )
         for position, idx in enumerate(indices):
             target_raw[idx] = raw_returns[position]
@@ -375,7 +376,7 @@ def build_timeline(
     result: list[game_log_html.TimelinePoint] = []
     for idx, (pt, ts) in enumerate(zip(raw_points, final_ts)):
         cfg = seat_configs[pt.player_id]
-        score_norm = cfg.score_norm if cfg is not None else 1.0
+        score_norm = cfg.training.score_norm if cfg is not None else 1.0
         sign = 1 if pt.player_id == 0 else -1
 
         # Critic: denormalize the predicted return to P0-relative VP.

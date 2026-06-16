@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
 ###### PRIVATE #######
 
 
-def _run_training(cfg: config.TrainConfig, term: console.Console) -> bool:
+def _run_training(cfg: config.RunConfig, term: console.Console) -> bool:
     """Train + live-monitor one run.
 
     Returns ``True`` iff the user chose ``[E]nd run`` at a target milestone and
@@ -91,30 +91,32 @@ def _run_training(cfg: config.TrainConfig, term: console.Console) -> bool:
     # to re-open the configurator.
     if training.state.user_target_choice == "end":
         term.print(
-            f"\n  Archiving run to {cfg.checkpoint_dir}/{artifacts.ARCHIVE_SUBDIR}/…"
+            f"\n  Archiving run to {cfg.run.checkpoint_dir}/{artifacts.ARCHIVE_SUBDIR}/…"
         )
-        config_runs.archive_run(cfg.checkpoint_dir, cfg.run_name)
+        config_runs.archive_run(cfg.run.checkpoint_dir, cfg.run.run_name)
         return True
     return False
 
 
-def _resolve_device(cfg: config.TrainConfig) -> config.TrainConfig:
+def _resolve_device(cfg: config.RunConfig) -> config.RunConfig:
     """Downgrade a ``cuda`` request to ``cpu`` when CUDA is unavailable, so a
     configurator- or flag-chosen ``cuda`` on a CPU-only host still runs instead
     of crashing the loop at model construction."""
-    if cfg.device.startswith("cuda") and not torch.cuda.is_available():
-        return cfg.model_copy(update={"device": "cpu"})
+    if cfg.misc.device.startswith("cuda") and not torch.cuda.is_available():
+        return cfg.model_copy(
+            update={"misc": cfg.misc.model_copy(update={"device": "cpu"})}
+        )
     return cfg
 
 
-def _configure_file_logging(cfg: config.TrainConfig) -> None:
+def _configure_file_logging(cfg: config.RunConfig) -> None:
     """Route all logging to ``{checkpoint_dir}/{run_name}.log`` so the engine's
     soft warnings (e.g. the 504-wide setup decision) never bleed onto the
     alternate-screen dashboard. Installing a root handler also suppresses the
     default last-resort stderr handler."""
-    log_dir = pathlib.Path(cfg.checkpoint_dir)
+    log_dir = pathlib.Path(cfg.run.checkpoint_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(log_dir / f"{cfg.run_name}.log", encoding="utf-8")
+    handler = logging.FileHandler(log_dir / f"{cfg.run.run_name}.log", encoding="utf-8")
     handler.setFormatter(
         logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     )
@@ -238,7 +240,7 @@ def _print_summary(term: console.Console, state: runstate.RunState) -> None:
     if state.opponent_generation > 0:
         artifact_list += f", {artifacts.OPPONENT_CKPT}"
     term.print(
-        f"  checkpoints      : {state.config.checkpoint_dir}/  ({artifact_list})"
+        f"  checkpoints      : {state.config.run.checkpoint_dir}/  ({artifact_list})"
     )
     if state.error:
         term.rule("[bold red]error[/bold red]")
@@ -317,31 +319,41 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _config_from_namespace(args: argparse.Namespace) -> config.TrainConfig:
+def _config_from_namespace(args: argparse.Namespace) -> config.RunConfig:
     """Build the run config from parsed flags. The ``cuda``->``cpu`` fallback is
     deferred to :func:`_resolve_device` so both this and the configurator path
     funnel device safety through one place."""
-    return config.TrainConfig(
-        games_per_iter=args.games_per_iter,
-        max_iterations=args.iterations,
-        lr=args.lr,
-        entropy_coef=args.entropy_coef,
-        value_coef=args.value_coef,
-        eval_every=args.eval_every,
-        eval_games=args.eval_games,
-        trunk_layers=_parse_layers(args.trunk_layers),
-        choice_layers=_parse_layers(args.choice_layers),
-        head_layers=_parse_layers(args.head_layers),
-        value_layers=_parse_layers(args.value_layers),
-        activation=architecture.ActivationName(args.activation),
-        dropout=args.dropout,
-        layernorm=args.layernorm,
-        card_embed_dim=args.card_embed_dim,
-        seed=args.seed,
-        device=args.device,
-        checkpoint_dir=args.checkpoint_dir,
-        run_name=args.run_name,
-        resume=args.resume,
+    return config.RunConfig(
+        run=config.RunSettings(
+            games_per_iter=args.games_per_iter,
+            max_iterations=args.iterations,
+            eval_every=args.eval_every,
+            eval_games=args.eval_games,
+            checkpoint_dir=args.checkpoint_dir,
+            run_name=args.run_name,
+            resume=args.resume,
+        ),
+        training=config.TrainingConfig(
+            lr=args.lr,
+            entropy_coef=args.entropy_coef,
+            value_coef=args.value_coef,
+        ),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=_parse_layers(args.trunk_layers),
+                choice_layers=_parse_layers(args.choice_layers),
+                head_layers=_parse_layers(args.head_layers),
+                value_layers=_parse_layers(args.value_layers),
+                activation=architecture.ActivationName(args.activation),
+                dropout=args.dropout,
+                layernorm=args.layernorm,
+                card_embed_dim=args.card_embed_dim,
+            ),
+        ),
+        misc=config.MiscConfig(
+            seed=args.seed,
+            device=args.device,
+        ),
     )
 
 

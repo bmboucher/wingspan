@@ -96,9 +96,9 @@ class ConfirmPrompt(pydantic.BaseModel):
 class ConfiguratorState(pydantic.BaseModel):
     """Everything the screen needs to repaint a single configurator frame."""
 
-    working: config.TrainConfig  # the config being edited / to be launched
+    working: config.RunConfig  # the config being edited / to be launched
     summary: runs.RunSummary  # the run currently on disk in checkpoint_dir
-    saved: config.TrainConfig | None = None  # the saved run's config, if any
+    saved: config.RunConfig | None = None  # the saved run's config, if any
     cuda_available: bool = True
     selected_attr: str = ""  # which field is focused
     mode: Mode = Mode.NAVIGATE

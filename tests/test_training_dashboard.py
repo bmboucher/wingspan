@@ -28,8 +28,9 @@ pytest.importorskip("rich")
 
 import rich.console as rich_console
 
-from wingspan import decisions
+from wingspan import decisions, version
 from wingspan.training import (
+    artifacts,
     charts,
     config,
     dashboard,
@@ -145,7 +146,9 @@ def _sample_iteration(breakdown: metrics.ScoreBreakdown) -> metrics.IterationMet
 
 
 def test_dashboard_renders_empty_state():
-    empty = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    empty = runstate.new_run_state(
+        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    )
     # The colored render must produce a substantial frame without raising; the
     # per-character gradient splits the wordmark across ANSI runs, so content is
     # asserted against a plain (uncolored) render instead.
@@ -155,7 +158,9 @@ def test_dashboard_renders_empty_state():
 
 @pytest.mark.parametrize("width", [128, 84])
 def test_dashboard_renders_populated_state(width: int):
-    state = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    state = runstate.new_run_state(
+        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    )
     breakdown = metrics.ScoreBreakdown(
         birds=27, eggs=14, cached=9, tucked=6, goals=7, bonus=5
     )
@@ -195,7 +200,9 @@ def test_system_monitor_sample():
 
 
 def test_dashboard_header_gauges():
-    state = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    state = runstate.new_run_state(
+        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    )
     state.system = metrics.SystemStats(
         cpu_percent=58.9, ram_used_gb=27.0, ram_total_gb=68.6, proc_rss_gb=1.3
     )
@@ -220,18 +227,24 @@ def _run_to_completion(training: loop.TrainingLoop) -> None:
 
 
 def test_training_loop_one_iteration(tmp_path: pathlib.Path):
-    cfg = config.TrainConfig(
-        device="cpu",
-        games_per_iter=2,
-        max_iterations=1,
-        eval_every=1,
-        eval_games=2,
-        trunk_layers=(32, 32),
-        choice_layers=(32, 32),
-        checkpoint_dir=str(tmp_path),
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(
+            games_per_iter=2,
+            max_iterations=1,
+            eval_every=1,
+            eval_games=2,
+            checkpoint_dir=str(tmp_path),
+        ),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=(32, 32),
+                choice_layers=(32, 32),
+            )
+        ),
         # Exercise the self-play + eval path directly (the random-opponent
         # bootstrap phase pauses eval; that path is covered separately).
-        bootstrap_opponent="none",
+        opponent=config.OpponentConfig(bootstrap_opponent="none"),
     )
     training = loop.TrainingLoop(cfg)
     _run_to_completion(training)  # synchronous (no worker thread), deterministic
@@ -248,10 +261,9 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
     assert (tmp_path / "best.pt").exists()
     assert (tmp_path / "metrics.jsonl").exists()
 
-    # The four required run artifacts are all left behind: the model descriptor,
-    # this session's dated process record, and one game-history row per game.
-    assert (tmp_path / "model_config.json").exists()
-    assert len(list(tmp_path.glob("process_*.json"))) == 1
+    # The required run artifacts are all left behind: the dated unified config
+    # record and one game-history row per game.
+    assert len(list(tmp_path.glob(artifacts.RUN_CONFIG_GLOB))) == 1
     game_rows = [
         line for line in (tmp_path / "games.jsonl").read_text().splitlines() if line
     ]
@@ -271,18 +283,24 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
 
 
 def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
-    cfg = config.TrainConfig(
-        device="cpu",
-        games_per_iter=2,
-        max_iterations=1,
-        eval_every=1,
-        eval_games=2,
-        trunk_layers=(32, 32),
-        choice_layers=(32, 32),
-        checkpoint_dir=str(tmp_path),
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(
+            games_per_iter=2,
+            max_iterations=1,
+            eval_every=1,
+            eval_games=2,
+            checkpoint_dir=str(tmp_path),
+        ),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=(32, 32),
+                choice_layers=(32, 32),
+            ),
+        ),
         # Resume continuity is tested on the self-play + eval regime; the
         # bootstrap phase has its own resume/graduation coverage.
-        bootstrap_opponent="none",
+        opponent=config.OpponentConfig(bootstrap_opponent="none"),
     )
     first = loop.TrainingLoop(cfg)
     _run_to_completion(first)
@@ -307,7 +325,7 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     assert any("resumed" in line.text for line in resumed.state.events)
 
     _run_to_completion(resumed)  # one more iteration continues the checkpoint counts
-    assert resumed.state.total_games == games + cfg.games_per_iter
+    assert resumed.state.total_games == games + cfg.run.games_per_iter
     assert resumed.state.iteration == last_iter + 1
 
     # The game-history log was appended across the resume (not truncated), and
@@ -315,16 +333,18 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     game_rows = [
         line for line in (tmp_path / "games.jsonl").read_text().splitlines() if line
     ]
-    assert len(game_rows) == games + cfg.games_per_iter
-    assert len(list(tmp_path.glob("process_*.json"))) == 2
+    assert len(game_rows) == games + cfg.run.games_per_iter
+    assert len(list(tmp_path.glob(artifacts.RUN_CONFIG_GLOB))) == 2
 
     # --no-resume ignores the checkpoint and starts fresh.
-    fresh = loop.TrainingLoop(cfg.model_copy(update={"resume": False}))
+    fresh = loop.TrainingLoop(
+        cfg.model_copy(update={"run": cfg.run.model_copy(update={"resume": False})})
+    )
     assert fresh.state.total_games == 0
     # A fresh start clears the prior run's game log and stale session records,
-    # leaving only this startup's process file.
+    # leaving only this startup's run config file.
     assert (tmp_path / "games.jsonl").read_text() == ""
-    assert len(list(tmp_path.glob("process_*.json"))) == 1
+    assert len(list(tmp_path.glob(artifacts.RUN_CONFIG_GLOB))) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -361,12 +381,17 @@ def _bootstrap_config(
         "eval_ewma_alpha": 0.3,
     }
     base.update(overrides)
-    return config.TrainConfig.model_validate(base)
+    # The flat keys above are routed to their nested sections by the same
+    # migration the loaders use for ≤0.4 artifacts.
+    return config.run_config_from_artifact(base, version.MODEL_VERSION)
 
 
 def test_collection_win_rate_ewma():
     state = runstate.new_run_state(
-        config.TrainConfig(device="cpu", eval_ewma_alpha=0.3)
+        config.RunConfig(
+            misc=config.MiscConfig(device="cpu"),
+            opponent=config.OpponentConfig(eval_ewma_alpha=0.3),
+        )
     )
     assert state.collection_win_rate_ewma() is None  # nothing folded yet
 
@@ -387,7 +412,10 @@ def test_collection_win_rate_ewma():
 
 def test_collection_margin_ewma():
     state = runstate.new_run_state(
-        config.TrainConfig(device="cpu", eval_ewma_alpha=0.3)
+        config.RunConfig(
+            misc=config.MiscConfig(device="cpu"),
+            opponent=config.OpponentConfig(eval_ewma_alpha=0.3),
+        )
     )
     assert state.collection_margin_ewma() is None  # nothing folded yet
 
@@ -409,7 +437,9 @@ def test_collection_margin_ewma():
 def test_produce_ewma_resets_at_self_play_graduation():
     # IN-GAME PERFORMANCE folds only the current phase's rows, so the EWMA restarts
     # fresh at graduation instead of dragging the vs-random character forward.
-    state = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    state = runstate.new_run_state(
+        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    )
     state.history.append(_bootstrap_iteration(0.9, margin=30.0))  # birds=20, margin 30
     self_play = _sample_iteration(metrics.ScoreBreakdown(eggs=12.0)).model_copy(
         update={"avg_margin": 0.0}
@@ -432,7 +462,7 @@ def test_produce_ewma_resets_at_self_play_graduation():
 
 
 def test_training_phase_round_trips_through_progress():
-    cfg = config.TrainConfig(device="cpu")
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
     # The empty snapshot defaults to the steady-state regime.
     assert runstate.RunProgress().training_phase is runstate.TrainingPhase.SELF_PLAY
 

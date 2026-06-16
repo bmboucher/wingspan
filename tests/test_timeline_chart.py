@@ -439,10 +439,12 @@ def test_build_timeline_returns_exclude_realized():
             value_pov=-0.5,
         ),
     ]
-    cfg = train_config.TrainConfig(
-        reward_discount=1.0,
-        score_norm=2.0,
-        reward_mode=train_config.RewardMode.DECISION_DELTA,
+    cfg = train_config.RunConfig(
+        training=train_config.TrainingConfig(
+            reward_discount=1.0,
+            score_norm=2.0,
+            reward_mode=train_config.RewardMode.DECISION_DELTA,
+        ),
     )
     timeline = game_log_capture.build_timeline(
         engine=eng,
@@ -496,10 +498,12 @@ def test_build_timeline_terminal_margin_flat_target():
             value_pov=0.5,
         ),
     ]
-    cfg = train_config.TrainConfig(
-        reward_discount=1.0,
-        score_norm=2.0,
-        reward_mode=train_config.RewardMode.TERMINAL_MARGIN,
+    cfg = train_config.RunConfig(
+        training=train_config.TrainingConfig(
+            reward_discount=1.0,
+            score_norm=2.0,
+            reward_mode=train_config.RewardMode.TERMINAL_MARGIN,
+        ),
     )
     timeline = game_log_capture.build_timeline(
         engine=eng,

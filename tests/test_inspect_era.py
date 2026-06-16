@@ -132,7 +132,10 @@ def test_run_start_html_matches_the_descriptor_rebuild(tmp_path: pathlib.Path):
     """``write_model_summary_html`` (the cfg path) and
     ``build_model_summary_html`` on the read-back descriptor produce identical
     documents — the by-construction consistency contract."""
-    cfg = config.TrainConfig(device="cpu", run_name="html-parity")
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(run_name="html-parity"),
+    )
     runmeta.write_model_config(str(tmp_path), cfg)
     original = runmeta.write_model_summary_html(str(tmp_path), cfg).read_text(
         encoding="utf-8"
@@ -145,7 +148,10 @@ def test_run_start_inspect_json_matches_the_descriptor_rebuild(
     tmp_path: pathlib.Path,
 ):
     """``model_inspect.json`` reproduces exactly from the run's descriptor."""
-    cfg = config.TrainConfig(device="cpu", run_name="json-parity")
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(run_name="json-parity"),
+    )
     runmeta.write_model_config(str(tmp_path), cfg)
     written = runmeta.write_inspect_report(str(tmp_path), cfg).read_text(
         encoding="utf-8"
@@ -197,7 +203,10 @@ def test_inspect_html_reproduces_the_run_start_report(
     """``wingspan inspect --html`` into a run directory regenerates the exact
     ``model_summary.html`` the run wrote at startup — same builder, same
     descriptor — instead of clobbering it with a live-encoder view."""
-    cfg = config.TrainConfig(device="cpu", run_name="html-regen")
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(run_name="html-regen"),
+    )
     runmeta.write_model_config(str(tmp_path), cfg)
     original = runmeta.write_model_summary_html(str(tmp_path), cfg).read_text(
         encoding="utf-8"

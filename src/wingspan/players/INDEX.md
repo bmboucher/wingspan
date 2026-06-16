@@ -13,7 +13,8 @@ both use the same loading and logging conventions.
 - `"human"` → interactive CLI agent.
 - `"random"` → uniform-random agent.
 - `"<name>"` → named run in the default checkpoint directory.
-- `"/path/to/run/"` → run directory with `model_config.json`.
+- `"/path/to/run/"` → run directory carrying its config descriptor
+  (`run_config_<stamp>.json` for ≥0.5, legacy `model_config.json` otherwise).
 - `"/path/to/checkpoint.pt"` → bare checkpoint file.
 `PlayerSpec` carries the resolved `kind` enum and the raw string for error messages.
 
@@ -21,11 +22,13 @@ both use the same loading and logging conventions.
 - `load_policy_net(path: Path, spec: EncodingSpec) -> PolicyValueNet` — loads a
   `.pt` checkpoint, checks its embedded `version` via `version.py`, rehydrates
   the embedded config at the payload's era
-  (`config.train_config_from_artifact`), and constructs the era's net class at
-  the era's dims (`PolicyValueNet.class_for_version`).
-- `load_policy_net_from_run_dir(run_dir: Path) -> PolicyValueNet` — reads
-  `model_config.json` from a run directory, locates the `BEST` checkpoint, and
-  delegates to `load_policy_net`.
+  (`config.run_config_from_artifact`, which reshapes a ≤0.4 flat config into the
+  nested sections), and constructs the era's net class at the era's dims
+  (`PolicyValueNet.class_for_version`).
+- `load_policy_net_from_run_dir(run_dir: Path) -> PolicyValueNet` — reads the
+  run's descriptor via `runmeta.read_model_config` (which dispatches on
+  `run_config_<stamp>.json` vs legacy `model_config.json`), locates the `BEST`
+  checkpoint, and delegates to `load_policy_net`.
 - `encoding_key` / `descriptor_encoding_key` / `expected_encoding_key` — the
   encoding-compatibility signatures both paths verify before seating a net;
   `expected_encoding_key` derives an era's true widths via

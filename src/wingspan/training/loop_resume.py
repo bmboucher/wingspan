@@ -37,7 +37,6 @@ from wingspan.training import (
     loop_eval,
     runmeta,
     runstate,
-    setup_runmeta,
 )
 
 if typing.TYPE_CHECKING:
@@ -53,7 +52,7 @@ def maybe_resume(training_loop: "loop.TrainingLoop") -> None:
     skipped with a dashboard alarm rather than crashing — the run then starts
     fresh (and the next checkpoint will overwrite the mismatched one).
     """
-    if not training_loop.config.resume:
+    if not training_loop.config.run.resume:
         return
     last = training_loop._ckpt_dir / artifacts.LAST_CKPT
     if not last.exists():
@@ -122,7 +121,7 @@ def init_training_phase(training_loop: "loop.TrainingLoop") -> None:
         training_loop.state.push_event(
             runstate.EventKind.INFO,
             "bootstrap: collecting vs random opponent · eval paused "
-            f"until {training_loop.config.random_phase_win_rate * 100:.0f}% win-rate",
+            f"until {training_loop.config.opponent.random_phase_win_rate * 100:.0f}% win-rate",
         )
 
 
@@ -136,16 +135,18 @@ def init_target_if_fresh(training_loop: "loop.TrainingLoop") -> None:
     if training_loop._start_iteration > 0:
         return
     with training_loop.lock:
-        training_loop.state.target_iterations = training_loop.config.target_iterations
+        training_loop.state.target_iterations = (
+            training_loop.config.run.target_iterations
+        )
 
 
 def reset_history_logs_if_fresh(training_loop: "loop.TrainingLoop") -> None:
     """Clear a previous run's history when this run did not resume.
 
     Truncates both append-only logs (``metrics.jsonl`` / ``games.jsonl``) and
-    removes the prior run's dated ``process_*.json`` session records, so a
-    fresh run never appends its rows onto stale history.  A resumed run keeps
-    and continues its logs.
+    removes the prior run's dated session records (``run_config_*.json`` for
+    ≥0.5 runs, ``process_*.json`` for legacy), so a fresh run never appends its
+    rows onto stale history.  A resumed run keeps and continues its logs.
     """
     if training_loop._start_iteration > 0:
         return
@@ -153,6 +154,8 @@ def reset_history_logs_if_fresh(training_loop: "loop.TrainingLoop") -> None:
         log_path = training_loop._ckpt_dir / name
         if log_path.exists():
             log_path.write_text("", encoding="utf-8")
+    for stale_session in training_loop._ckpt_dir.glob(artifacts.RUN_CONFIG_GLOB):
+        stale_session.unlink(missing_ok=True)
     for stale_session in training_loop._ckpt_dir.glob(artifacts.PROCESS_GLOB):
         stale_session.unlink(missing_ok=True)
     # The setup-sample log is append-only history too — clear it on a fresh
@@ -164,40 +167,32 @@ def reset_history_logs_if_fresh(training_loop: "loop.TrainingLoop") -> None:
 def write_run_metadata(training_loop: "loop.TrainingLoop") -> None:
     """Drop this startup's JSON sidecars.
 
-    Writes (overwrites) the model descriptor and a fresh dated process record.
-    Called once per session after the resume decision, so the process record
-    can note where it resumed from.
+    For ≥0.5 runs: writes a single dated ``run_config_<stamp>.json`` (the
+    unified config file) plus the inspect report and model summary HTML.
+    The three legacy files (model_config.json, setup_config.json,
+    process_<stamp>.json) are no longer written. Called once per session after
+    the resume decision so the unified file can note where it resumed from.
     """
     now = datetime.datetime.now()
-    runmeta.write_model_config(
-        training_loop.config.checkpoint_dir, training_loop.config
-    )
-    runmeta.write_inspect_report(
-        training_loop.config.checkpoint_dir, training_loop.config
-    )
-    runmeta.write_model_summary_html(
-        training_loop.config.checkpoint_dir, training_loop.config
-    )
-    if training_loop.config.use_setup_model:
-        setup_runmeta.write_setup_config(
-            training_loop.config.checkpoint_dir, training_loop.config
-        )
-    session_path = runmeta.write_session_record(
-        training_loop.config.checkpoint_dir,
+    checkpoint_dir = training_loop.config.run.checkpoint_dir
+    session_path = runmeta.write_run_config(
+        checkpoint_dir,
         training_loop.config,
         stamp=now.strftime("%Y%m%d-%H%M%S"),
         started_at=now.isoformat(timespec="seconds"),
         git_sha=loop_checkpoint.git_sha(),
         resumed_from_iteration=training_loop._start_iteration,
     )
+    runmeta.write_inspect_report(checkpoint_dir, training_loop.config)
+    runmeta.write_model_summary_html(checkpoint_dir, training_loop.config)
     training_loop.state.push_event(
         runstate.EventKind.INFO, f"session log → {session_path.name}"
     )
 
 
 def adopt_checkpoint_era(
-    cfg: training_config.TrainConfig,
-) -> training_config.TrainConfig:
+    cfg: training_config.RunConfig,
+) -> training_config.RunConfig:
     """The era seam: pin ``cfg`` to a resumable checkpoint's artifact era, or
     un-pin a fresh launch back to the live :data:`version.MODEL_VERSION`.
 
@@ -220,7 +215,7 @@ def adopt_checkpoint_era(
     era is right for every entry point by construction rather than relying on
     each launcher (dashboard, cloud runner, tests) to remember it.
     """
-    saved = _resumable_saved_config(cfg) if cfg.resume else None
+    saved = _resumable_saved_config(cfg) if cfg.run.resume else None
     if saved is not None:
         candidate = _config_at_era(cfg, saved.encoding_version)
         if candidate.architecture_key == saved.architecture_key:
@@ -228,7 +223,7 @@ def adopt_checkpoint_era(
                 logging.info(
                     "Resumable checkpoint in %s is era %s — pinning this run "
                     "to it (state_dim %d, choice_dim %d)",
-                    cfg.checkpoint_dir,
+                    cfg.run.checkpoint_dir,
                     saved.encoding_version,
                     candidate.state_dim,
                     candidate.choice_dim,
@@ -245,13 +240,13 @@ def adopt_checkpoint_era(
 
 
 def _resumable_saved_config(
-    cfg: training_config.TrainConfig,
-) -> training_config.TrainConfig | None:
+    cfg: training_config.RunConfig,
+) -> training_config.RunConfig | None:
     """The saved config embedded in ``cfg``'s ``last.pt``, rehydrated at the
     payload's own artifact era; ``None`` when there is no checkpoint, the
     payload is unreadable, or it carries no valid config (all of which defer
     the fresh-vs-alarm decision to ``maybe_resume``)."""
-    last = pathlib.Path(cfg.checkpoint_dir) / artifacts.LAST_CKPT
+    last = pathlib.Path(cfg.run.checkpoint_dir) / artifacts.LAST_CKPT
     if not last.exists():
         return None
     try:
@@ -263,14 +258,14 @@ def _resumable_saved_config(
         if raw_config is None:
             return None
         artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
-        return training_config.train_config_from_artifact(raw_config, artifact_version)
+        return training_config.run_config_from_artifact(raw_config, artifact_version)
     except Exception:  # noqa: BLE001 — an unreadable payload defers to maybe_resume
         return None
 
 
 def _config_at_era(
-    cfg: training_config.TrainConfig, era: str
-) -> training_config.TrainConfig:
+    cfg: training_config.RunConfig, era: str
+) -> training_config.RunConfig:
     """``cfg`` re-keyed at ``era`` — ``cfg`` itself when already there, so the
     common no-op path skips a full re-validation."""
     if cfg.encoding_version == era:
@@ -326,7 +321,7 @@ def architecture_matches(
         return False  # not a self-describing checkpoint — refuse
     artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
     try:
-        saved = training_config.train_config_from_artifact(raw_config, artifact_version)
+        saved = training_config.run_config_from_artifact(raw_config, artifact_version)
     except pydantic.ValidationError:
         return False
     return saved.architecture_key == training_loop.config.architecture_key
@@ -336,4 +331,4 @@ def reset_optimizer_lr(training_loop: "loop.TrainingLoop") -> None:
     """Apply this run's learning rate after loading an optimizer that may have
     saved a different one (Adam's momentum is kept; only the step size moves)."""
     for group in training_loop.optimizer.param_groups:
-        group["lr"] = training_loop.config.lr
+        group["lr"] = training_loop.config.training.lr

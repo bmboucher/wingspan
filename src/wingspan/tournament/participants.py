@@ -1,7 +1,8 @@
 """Tournament competitors: on-disk discovery and agent loading.
 
 A competitor is either a trained model (a checkpoint directory holding
-``last.pt`` + ``model_config.json``) or the built-in random agent. The data
+``last.pt`` plus its config descriptor — ``run_config_<stamp>.json`` for ≥0.5
+runs, legacy ``model_config.json`` for ≤0.4) or the built-in random agent. The data
 shapes (:class:`~models.ParticipantSpec`, :class:`~models.RunOption`,
 :class:`~models.ParticipantKind`) live in :mod:`models`; this module provides
 the operational functions that turn those specs into live agents and discover
@@ -117,10 +118,11 @@ def load_player(
 
 
 def _loadable(checkpoint_dir: str, summary: runs.RunSummary) -> bool:
-    """Whether a run dir can be played: a readable ``last.pt``, the
-    ``model_config.json`` descriptor the shared run-dir loader rebuilds the net
-    from, and a saved encoding matching the live encoder (a stale-dim run
-    cannot consume freshly-encoded states, so it is not offered)."""
+    """Whether a run dir can be played: a readable ``last.pt``, the config
+    descriptor the shared run-dir loader rebuilds the net from (read via the
+    dispatching ``runmeta.read_model_config``), and a saved encoding matching the
+    live encoder (a stale-dim run cannot consume freshly-encoded states, so it is
+    not offered)."""
     if not (summary.exists and summary.readable):
         return False
     return _encoding_compatible(checkpoint_dir)
@@ -150,7 +152,7 @@ def _option_from_summary(
     """Build a :class:`~models.RunOption` from an inspected run. Archived runs
     display by their archive label; the active run displays by its run name."""
     run_name = (
-        summary.train_config.run_name if summary.train_config is not None else "run"
+        summary.train_config.run.run_name if summary.train_config is not None else "run"
     )
     return models.RunOption(
         checkpoint_dir=checkpoint_dir,

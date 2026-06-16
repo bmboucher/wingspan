@@ -1,13 +1,13 @@
-"""The editable ``TrainConfig`` fields: per-kind display metadata and the pure
+"""The editable ``RunConfig`` fields: per-kind display metadata and the pure
 read / format / commit / nudge helpers the configurator builds on.
 
 There is one :class:`FieldSpec` subclass per *kind* of value (mirroring the
 ``decisions.Choice`` hierarchy) so consumers branch via ``isinstance`` and read
 typed, always-present attributes instead of ``None``-checking a flat spec. The
 bounds a value must satisfy are deliberately NOT duplicated here — they live as
-declarative ``Annotated[..., Field(...)]`` constraints on ``TrainConfig`` itself,
+declarative ``Annotated[..., Field(...)]`` constraints on ``RunConfig`` itself,
 and every edit is committed through :func:`commit` / :func:`nudge`, which route
-the candidate value through ``TrainConfig.model_validate`` so an out-of-range
+the candidate value through ``RunConfig.model_validate`` so an out-of-range
 value is rejected by the model. This module carries only presentation metadata,
 the nudge step, and the parse layer.
 
@@ -92,7 +92,7 @@ class FieldSpec(pydantic.BaseModel):
     group: str | None = None
     # When set, the field is shown and navigable only when this predicate returns
     # True for the current working config. None = always visible.
-    visible_when: typing.Callable[[config.TrainConfig], bool] | None = None
+    visible_when: typing.Callable[[config.RunConfig], bool] | None = None
 
 
 class IntField(FieldSpec):
@@ -168,7 +168,7 @@ def spec_for(attr: str) -> FieldSpec:
     return _BY_ATTR[attr]
 
 
-def editable_attrs(cfg: config.TrainConfig | None = None) -> list[str]:
+def editable_attrs(cfg: config.RunConfig | None = None) -> list[str]:
     """Editable attribute names in form display order (section order, then FIELD_SPECS
     order within each section).
 
@@ -185,30 +185,39 @@ def editable_attrs(cfg: config.TrainConfig | None = None) -> list[str]:
     ]
 
 
-def reset_hidden_fields(cfg: config.TrainConfig) -> config.TrainConfig:
+def reset_hidden_fields(cfg: config.RunConfig) -> config.RunConfig:
     """Reset any field that is currently hidden (``visible_when`` returns False) to
     its factory default. Called after every config mutation so hidden state never
     lingers when the user re-enables a feature group."""
     defaults = _DEFAULTS
-    updates: dict[str, object] = {}
+    has_changes = False
     for spec in FIELD_SPECS:
         if spec.visible_when is not None and not spec.visible_when(cfg):
-            default_val = getattr(defaults, spec.attr)
-            if getattr(cfg, spec.attr) != default_val:
-                updates[spec.attr] = default_val
-    if not updates:
+            if read_field(cfg, spec) != read_field(defaults, spec):
+                has_changes = True
+                break
+    if not has_changes:
         return cfg
-    return config.TrainConfig.model_validate({**cfg.model_dump(), **updates})
+    # Apply all hidden-field resets by rebuilding through the nested path mapping.
+    data = cfg.model_dump()
+    for spec in FIELD_SPECS:
+        if spec.visible_when is not None and not spec.visible_when(cfg):
+            default_val = read_field(defaults, spec)
+            if read_field(cfg, spec) != default_val:
+                _inject_nested(data, spec.attr, default_val)
+    return config.RunConfig.model_validate(data)
 
 
-def read_field(cfg: config.TrainConfig, spec: FieldSpec) -> FieldValue:
-    """The current value of ``spec``'s field. The single localized cast bridges
-    the dynamic attribute-name access — every editable field is a ``FieldValue``,
-    so re-typing the ``getattr`` result here keeps ``Any`` out of every caller."""
-    return typing.cast("FieldValue", getattr(cfg, spec.attr))
+def read_field(cfg: config.RunConfig, spec: FieldSpec) -> FieldValue:
+    """The current value of ``spec``'s field, navigating the nested section path.
+
+    The single localized cast bridges the dynamic attribute-name access —
+    every editable field is a ``FieldValue``, so re-typing the result here
+    keeps ``Any`` out of every caller."""
+    return typing.cast("FieldValue", _read_nested(cfg, spec.attr))
 
 
-def format_value(cfg: config.TrainConfig, spec: FieldSpec) -> str:
+def format_value(cfg: config.RunConfig, spec: FieldSpec) -> str:
     """The display string for ``spec``'s current value."""
     value = read_field(cfg, spec)
     if isinstance(spec, OptionalIntField) and value is None:
@@ -240,7 +249,7 @@ def default_string(spec: FieldSpec) -> str:
 
 
 def is_changed(
-    working: config.TrainConfig, saved: config.TrainConfig | None, spec: FieldSpec
+    working: config.RunConfig, saved: config.RunConfig | None, spec: FieldSpec
 ) -> bool:
     """Whether ``spec`` differs from the saved run's value (False if no saved
     run) — drives the changed-field marker."""
@@ -250,8 +259,8 @@ def is_changed(
 
 
 def commit(
-    cfg: config.TrainConfig, spec: FieldSpec, raw: str
-) -> tuple[config.TrainConfig, str | None]:
+    cfg: config.RunConfig, spec: FieldSpec, raw: str
+) -> tuple[config.RunConfig, str | None]:
     """Parse ``raw`` per ``spec``'s kind and return ``(new_cfg, None)`` on
     success, or ``(cfg, error)`` if it cannot parse or the model rejects it.
     Failure is signalled by the error string — ``None`` is a *valid* parse for
@@ -263,8 +272,8 @@ def commit(
 
 
 def nudge(
-    cfg: config.TrainConfig, spec: FieldSpec, direction: int
-) -> tuple[config.TrainConfig, str | None]:
+    cfg: config.RunConfig, spec: FieldSpec, direction: int
+) -> tuple[config.RunConfig, str | None]:
     """Apply a LEFT (``direction == -1``) / RIGHT (``+1``) step to ``spec``.
 
     Numeric fields step by ``spec.step`` and are validated; a choice cycles; a
@@ -356,13 +365,15 @@ def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue, str | None]:
 
 
 def _validated_update(
-    cfg: config.TrainConfig, spec: FieldSpec, value: FieldValue
-) -> tuple[config.TrainConfig, str | None]:
+    cfg: config.RunConfig, spec: FieldSpec, value: FieldValue
+) -> tuple[config.RunConfig, str | None]:
     """Apply ``value`` to ``spec``'s field through ``model_validate`` so the
-    model's declarative bounds reject anything out of range."""
-    candidate: dict[str, object] = {**cfg.model_dump(), spec.attr: value}
+    model's declarative bounds reject anything out of range. Injects into the
+    correct nested section dict before validation."""
+    data = cfg.model_dump()
+    _inject_nested(data, spec.attr, value)
     try:
-        return config.TrainConfig.model_validate(candidate), None
+        return config.RunConfig.model_validate(data), None
     except pydantic.ValidationError as error:
         return cfg, _friendly_error(spec, error)
 
@@ -375,8 +386,8 @@ def _friendly_error(spec: FieldSpec, error: pydantic.ValidationError) -> str:
 
 
 def _cycle_choice(
-    cfg: config.TrainConfig, spec: ChoiceField, direction: int
-) -> config.TrainConfig:
+    cfg: config.RunConfig, spec: ChoiceField, direction: int
+) -> config.RunConfig:
     current = format_value(cfg, spec)
     index = spec.choices.index(current) if current in spec.choices else 0
     chosen = spec.choices[(index + direction) % len(spec.choices)]
@@ -384,25 +395,145 @@ def _cycle_choice(
     return updated
 
 
-def _read_int(cfg: config.TrainConfig, spec: FieldSpec) -> int:
+def _read_int(cfg: config.RunConfig, spec: FieldSpec) -> int:
     value = read_field(cfg, spec)
     return value if isinstance(value, int) else 0
 
 
-def _read_float(cfg: config.TrainConfig, spec: FieldSpec) -> float:
+def _read_float(cfg: config.RunConfig, spec: FieldSpec) -> float:
     value = read_field(cfg, spec)
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
-def _read_fallback_int(cfg: config.TrainConfig, spec: OptionalIntField) -> int:
+def _read_fallback_int(cfg: config.RunConfig, spec: OptionalIntField) -> int:
     """The integer value an unset :class:`OptionalIntField` currently tracks."""
-    fallback = typing.cast("int | None", getattr(cfg, spec.fallback_attr))
+    fallback = typing.cast("FieldValue", _read_nested(cfg, spec.fallback_attr))
     return fallback if isinstance(fallback, int) else 0
 
 
-def _read_layers(cfg: config.TrainConfig, spec: FieldSpec) -> tuple[int, ...]:
+def _read_layers(cfg: config.RunConfig, spec: FieldSpec) -> tuple[int, ...]:
     value = read_field(cfg, spec)
     return value if isinstance(value, tuple) else ()
+
+
+# ---------------------------------------------------------------------------
+# Nested-path routing for each editable attr.
+#
+# Maps each ``FieldSpec.attr`` to its dotted location inside ``RunConfig``.
+# Two-element tuples are ``(section, field)``; three-element tuples are
+# ``(section, subsection, field)`` (for ``training.setup.*`` fields).
+# The ``_read_nested`` / ``_inject_nested`` helpers use this table so the
+# rest of the module never has to know which section a field lives in.
+
+_ATTR_PATH: dict[str, tuple[str, ...]] = {
+    # run section
+    "games_per_iter": ("run", "games_per_iter"),
+    "max_iterations": ("run", "max_iterations"),
+    "target_iterations": ("run", "target_iterations"),
+    "target_eval_games": ("run", "target_eval_games"),
+    "eval_every": ("run", "eval_every"),
+    "eval_games": ("run", "eval_games"),
+    "checkpoint_dir": ("run", "checkpoint_dir"),
+    "run_name": ("run", "run_name"),
+    "resume": ("run", "resume"),
+    "history_len": ("run", "history_len"),
+    # training section
+    "lr": ("training", "lr"),
+    "value_coef": ("training", "value_coef"),
+    "entropy_coef": ("training", "entropy_coef"),
+    "grad_clip": ("training", "grad_clip"),
+    "score_norm": ("training", "score_norm"),
+    "reward_mode": ("training", "reward_mode"),
+    "reward_discount": ("training", "reward_discount"),
+    "end_game_bonus": ("training", "end_game_bonus"),
+    # training.setup section
+    "setup_lr": ("training", "setup", "lr"),
+    "setup_policy_temperature": ("training", "setup", "policy_temperature"),
+    "setup_policy_greedy": ("training", "setup", "policy_greedy"),
+    "setup_record_start_iter": ("training", "setup", "record_start_iter"),
+    "setup_train_iter": ("training", "setup", "train_iter"),
+    "setup_hand_combos": ("training", "setup", "hand_combos"),
+    "setup_food_sets": ("training", "setup", "food_sets"),
+    "setup_tuples_per_batch": ("training", "setup", "tuples_per_batch"),
+    "setup_offline_epochs": ("training", "setup", "offline_epochs"),
+    "setup_offline_batch_size": ("training", "setup", "offline_batch_size"),
+    "setup_pg_coef": ("training", "setup", "pg_coef"),
+    "setup_value_coef": ("training", "setup", "value_coef"),
+    "setup_entropy_coef": ("training", "setup", "entropy_coef"),
+    # opponent section
+    "bootstrap_opponent": ("opponent", "bootstrap_opponent"),
+    "random_phase_win_rate": ("opponent", "random_phase_win_rate"),
+    "opponent_reset_win_rate": ("opponent", "opponent_reset_win_rate"),
+    "opponent_max_iterations": ("opponent", "opponent_max_iterations"),
+    "eval_ewma_alpha": ("opponent", "eval_ewma_alpha"),
+    # misc section
+    "seed": ("misc", "seed"),
+    "device": ("misc", "device"),
+    "produce_ewma_alpha": ("misc", "produce_ewma_alpha"),
+    # architecture section (top-level toggles)
+    "use_setup_model": ("architecture", "use_setup_model"),
+    "split_setup_bonus": ("architecture", "split_setup_bonus"),
+    "split_setup_food": ("architecture", "split_setup_food"),
+    # architecture.main section
+    "trunk_layers": ("architecture", "main", "trunk_layers"),
+    "choice_layers": ("architecture", "main", "choice_layers"),
+    "head_layers": ("architecture", "main", "head_layers"),
+    "value_layers": ("architecture", "main", "value_layers"),
+    "head_layers_mode": ("architecture", "main", "head_layers_mode"),
+    "head_layers_main_action": ("architecture", "main", "head_layers_main_action"),
+    "head_layers_draw_bird": ("architecture", "main", "head_layers_draw_bird"),
+    "head_layers_discard_bird": ("architecture", "main", "head_layers_discard_bird"),
+    "head_layers_gain_food": ("architecture", "main", "head_layers_gain_food"),
+    "head_layers_spend_food": ("architecture", "main", "head_layers_spend_food"),
+    "head_layers_lay_egg": ("architecture", "main", "head_layers_lay_egg"),
+    "head_layers_pay_egg": ("architecture", "main", "head_layers_pay_egg"),
+    "head_layers_skip_optional": ("architecture", "main", "head_layers_skip_optional"),
+    "head_layers_choose_bonus": ("architecture", "main", "head_layers_choose_bonus"),
+    "head_layers_misc_rare": ("architecture", "main", "head_layers_misc_rare"),
+    "head_layers_play_bird": ("architecture", "main", "head_layers_play_bird"),
+    "head_layers_reset_birdfeeder": (
+        "architecture",
+        "main",
+        "head_layers_reset_birdfeeder",
+    ),
+    "head_layers_setup": ("architecture", "main", "head_layers_setup"),
+    "activation": ("architecture", "main", "activation"),
+    "dropout": ("architecture", "main", "dropout"),
+    "layernorm": ("architecture", "main", "layernorm"),
+    "card_embed_dim": ("architecture", "main", "card_embed_dim"),
+    "card_encoder_layers": ("architecture", "main", "card_encoder_layers"),
+    "use_distinct_hand_model": ("architecture", "main", "use_distinct_hand_model"),
+    "hand_encoder_layers": ("architecture", "main", "hand_encoder_layers"),
+    "hand_embed_dim": ("architecture", "main", "hand_embed_dim"),
+    "tray_set_embedding": ("architecture", "main", "tray_set_embedding"),
+    "encoder_final_activation": ("architecture", "main", "encoder_final_activation"),
+    # architecture.setup section
+    "setup_hidden_layers": ("architecture", "setup", "hidden_layers"),
+    "setup_activation": ("architecture", "setup", "activation"),
+    "setup_dropout": ("architecture", "setup", "dropout"),
+    "setup_use_actor_critic": ("architecture", "setup", "use_actor_critic"),
+}
+
+
+def _read_nested(cfg: config.RunConfig, attr: str) -> object:
+    """Read the value of ``attr`` from ``cfg`` by navigating the nested path in
+    ``_ATTR_PATH``. Raises ``KeyError`` for unknown attrs (a programming error)."""
+    path = _ATTR_PATH[attr]
+    obj: object = cfg
+    for key in path:
+        obj = getattr(obj, key)
+    return obj
+
+
+def _inject_nested(data: dict[str, object], attr: str, value: object) -> None:
+    """Write ``value`` into the nested ``data`` dict at the location described by
+    ``_ATTR_PATH[attr]``. ``data`` is the result of ``RunConfig.model_dump()``
+    and is mutated in place."""
+    path = _ATTR_PATH[attr]
+    node: dict[str, object] = data  # type: ignore[assignment]
+    for key in path[:-1]:
+        node = node[key]  # type: ignore[assignment]
+    node[path[-1]] = value
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +627,8 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.OPTIM,
         step=0.05,
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.reward_mode == config.RewardMode.DECISION_DELTA,
+        visible_when=lambda cfg: cfg.training.reward_mode
+        == config.RewardMode.DECISION_DELTA,
         help="Discount γ for the decision-delta return, per game turn of clock "
         "time: a decision's own margin change plus γ^Δt·(future per-decision "
         "changes). γ=0 = immediate change only; γ=1 = final margin minus the "
@@ -592,7 +724,7 @@ FIELD_SPECS: list[FieldSpec] = [
         group="bootstrap",
         step=0.05,
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.initial_vs_random,
+        visible_when=lambda cfg: cfg.initial_vs_random,  # top-level property
         help="Smoothed collection win-rate (vs random) at which the bootstrap "
         "phase freezes self·gen1 and switches to self-play. Lowering it below "
         "the current win-rate graduates immediately.",
@@ -638,7 +770,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "uniform",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "uniform",
         help="Per-family scorer hidden widths between the M+N concat and the final "
         "logit. Empty (←  to 0 layers) = a direct (M+N)→1 readout. Fresh run.",
     ),
@@ -650,7 +782,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the main-action family. Fresh run.",
     ),
     LayersField(
@@ -661,7 +793,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the draw-bird family. Fresh run.",
     ),
     LayersField(
@@ -672,7 +804,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the discard-bird family. Fresh run.",
     ),
     LayersField(
@@ -683,7 +815,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the gain-food family. Fresh run.",
     ),
     LayersField(
@@ -694,7 +826,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the spend-food family. Fresh run.",
     ),
     LayersField(
@@ -705,7 +837,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the lay-egg family. Fresh run.",
     ),
     LayersField(
@@ -716,7 +848,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the pay-egg family. Fresh run.",
     ),
     LayersField(
@@ -727,7 +859,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the skip-optional family. Fresh run.",
     ),
     LayersField(
@@ -738,7 +870,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the choose-bonus family. Fresh run.",
     ),
     LayersField(
@@ -749,7 +881,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the misc-rare family. Fresh run.",
     ),
     LayersField(
@@ -760,7 +892,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the play-bird family. Fresh run.",
     ),
     LayersField(
@@ -771,7 +903,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the reset-birdfeeder family. Fresh run.",
     ),
     LayersField(
@@ -782,7 +914,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.head_layers_mode == "per_family",
+        visible_when=lambda cfg: cfg.architecture.main.head_layers_mode == "per_family",
         help="Scorer head hidden widths for the setup family. Fresh run.",
     ),
     LayersField(
@@ -882,7 +1014,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="units",
         min_len=0,
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.use_distinct_hand_model,
+        visible_when=lambda cfg: cfg.architecture.main.use_distinct_hand_model,
         help="Hand encoder MLP hidden widths (input→output). Active only when "
         "'distinct hand MLP' is on. Output width is the hand embed dim below. "
         "Empty = a single linear projection. Fresh run.",
@@ -897,7 +1029,7 @@ FIELD_SPECS: list[FieldSpec] = [
         none_label="= card embed",
         fallback_attr="card_embed_dim",
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.use_distinct_hand_model,
+        visible_when=lambda cfg: cfg.architecture.main.use_distinct_hand_model,
         help="Output width N of the hand encoder — the multi-card *set* embedding "
         "(the hand, and every other card set embedded through it). Type 'none' to "
         "track card embed dim (M). Fresh run.",
@@ -909,7 +1041,7 @@ FIELD_SPECS: list[FieldSpec] = [
         group="hand model",
         choices=["True", "False"],
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.use_distinct_hand_model,
+        visible_when=lambda cfg: cfg.architecture.main.use_distinct_hand_model,
         help="Feed the trunk one hand-encoder embedding of the face-up tray *set* "
         "beside the three per-slot card lookups (3·M + N tray dims). Requires the "
         "distinct hand MLP; on by default alongside it. Fresh run.",
@@ -969,7 +1101,7 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.SETUP,
         choices=["True", "False"],
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Only with the setup model on: the setup net picks cards/food while "
         "the bonus card is deferred to the in-game CHOOSE_BONUS head (asked over a "
         "round-1 opening). Feeds that head more data; shape-preserving, so it never "
@@ -981,7 +1113,7 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.SETUP,
         choices=["True", "False"],
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Only with the setup model on: the setup net picks cards only while "
         "food is deferred to sequential in-game GAIN_FOOD/SPEND_FOOD decisions "
         "(2/1/0 gains for 3/4/5 birds kept; 1/2 spends for 1/2 birds kept). "
@@ -995,7 +1127,7 @@ FIELD_SPECS: list[FieldSpec] = [
         group="network",
         unit="units",
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Setup-net MLP hidden widths (input→output). Type to set sizes; ←/→ "
         "adds/removes a layer. Changing it restarts ONLY the setup net (the main "
         "run resumes); the setup net then refits from its recorded samples.",
@@ -1007,7 +1139,7 @@ FIELD_SPECS: list[FieldSpec] = [
         group="network",
         choices=[name.value for name in architecture.ActivationName],
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Activation for the setup net's MLP blocks (resumable for the main "
         "run; reinterprets the setup net).",
     ),
@@ -1018,7 +1150,7 @@ FIELD_SPECS: list[FieldSpec] = [
         group="network",
         step=0.05,
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Dropout after each setup-net activation (training only). 0 disables.",
     ),
     FloatField(
@@ -1028,7 +1160,7 @@ FIELD_SPECS: list[FieldSpec] = [
         group="network",
         step=1e-4,
         scientific=True,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Adam step size for the setup net's MSE updates (its own optimizer).",
     ),
     ChoiceField(
@@ -1038,7 +1170,7 @@ FIELD_SPECS: list[FieldSpec] = [
         group="network",
         choices=["True", "False"],
         impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Add a policy head to the setup net and train with REINFORCE + value "
         "baseline + entropy bonus instead of plain MSE. Adds a second readout MLP "
         "of identical shape — setup-FRESH (invalidates setup.pt). Greedy and "
@@ -1052,9 +1184,9 @@ FIELD_SPECS: list[FieldSpec] = [
         group="network",
         step=0.05,
         visible_when=lambda cfg: (
-            cfg.use_setup_model
-            and not cfg.setup_policy_greedy
-            and not cfg.setup_use_actor_critic
+            cfg.architecture.use_setup_model
+            and not cfg.training.setup.policy_greedy
+            and not cfg.architecture.setup.use_actor_critic
         ),
         help="Softmax temperature over the 504 candidates' predicted margins when "
         "sampling a setup during collection (eval takes the argmax). Ignored when "
@@ -1067,7 +1199,10 @@ FIELD_SPECS: list[FieldSpec] = [
         group="network",
         choices=["True", "False"],
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model and not cfg.setup_use_actor_critic,
+        visible_when=lambda cfg: (
+            cfg.architecture.use_setup_model
+            and not cfg.architecture.setup.use_actor_critic
+        ),
         help="When True, collection takes the hard argmax over predicted margins "
         "instead of softmax sampling — trains the in-game model on the best "
         "setup the setup net knows. Eval always uses argmax regardless. Hidden "
@@ -1080,7 +1215,9 @@ FIELD_SPECS: list[FieldSpec] = [
         group="actor-critic",
         step=0.1,
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model and cfg.setup_use_actor_critic,
+        visible_when=lambda cfg: (
+            cfg.architecture.use_setup_model and cfg.architecture.setup.use_actor_critic
+        ),
         help="Policy-gradient loss weight for the setup actor-critic update "
         "(REINFORCE term).",
     ),
@@ -1091,7 +1228,9 @@ FIELD_SPECS: list[FieldSpec] = [
         group="actor-critic",
         step=0.1,
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model and cfg.setup_use_actor_critic,
+        visible_when=lambda cfg: (
+            cfg.architecture.use_setup_model and cfg.architecture.setup.use_actor_critic
+        ),
         help="Value-head MSE loss weight for the setup actor-critic update "
         "(baseline regression term).",
     ),
@@ -1103,7 +1242,9 @@ FIELD_SPECS: list[FieldSpec] = [
         step=0.005,
         scientific=True,
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model and cfg.setup_use_actor_critic,
+        visible_when=lambda cfg: (
+            cfg.architecture.use_setup_model and cfg.architecture.setup.use_actor_critic
+        ),
         help="Entropy-bonus weight for the setup actor-critic update (encourages "
         "exploration; 0 disables).",
     ),
@@ -1115,7 +1256,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="iters",
         step=100,
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Iteration at which to start recording (setup, margin) samples — "
         "below it setups are random and unrecorded (skips early bad data).",
     ),
@@ -1127,7 +1268,7 @@ FIELD_SPECS: list[FieldSpec] = [
         unit="iters",
         step=100,
         impact=ChangeImpact.REGIME,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Iteration at which the setup net is fit once offline on the recorded "
         "window and then drives selection + trains on-policy. Must exceed record "
         "start.",
@@ -1138,7 +1279,7 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.SETUP,
         group="sample generation",
         step=1,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Random generator: joint (P0,P1) keep-combos sampled per shared-deal "
         "batch.",
     ),
@@ -1148,7 +1289,7 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.SETUP,
         group="sample generation",
         step=1,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Random generator: food keeps sampled per kept hand (softmax-biased "
         "toward food that pays for more hand/tray birds).",
     ),
@@ -1158,7 +1299,7 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.SETUP,
         group="sample generation",
         step=1,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Random generator: joint setups sampled per batch = games sharing one "
         "deal (should divide games/iter).",
     ),
@@ -1168,7 +1309,7 @@ FIELD_SPECS: list[FieldSpec] = [
         section=ConfigSection.SETUP,
         group="sample generation",
         step=5,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Epochs over the recorded window in the one-time offline fit.",
     ),
     IntField(
@@ -1178,13 +1319,13 @@ FIELD_SPECS: list[FieldSpec] = [
         group="sample generation",
         unit="samples",
         step=64,
-        visible_when=lambda cfg: cfg.use_setup_model,
+        visible_when=lambda cfg: cfg.architecture.use_setup_model,
         help="Minibatch size for the setup net's offline fit and on-policy steps.",
     ),
 ]
 
 _BY_ATTR: dict[str, FieldSpec] = {spec.attr: spec for spec in FIELD_SPECS}
-_DEFAULTS = config.TrainConfig()
+_DEFAULTS = config.RunConfig()
 _FLOAT_ROUND = 6  # decimal places a nudged float is rounded to (kills FP crud)
 # Width seeded when a RIGHT-nudge adds the first layer to an empty list.
 _NEW_LAYER_WIDTH = 128

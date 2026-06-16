@@ -104,8 +104,12 @@ def test_vs_random_records_only_net_seat():
 
 
 def test_build_setup_specs_batches_share_deal():
-    cfg = config.TrainConfig(
-        use_setup_model=True, games_per_iter=8, setup_tuples_per_batch=4
+    cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(use_setup_model=True),
+        run=config.RunSettings(games_per_iter=8),
+        training=config.TrainingConfig(
+            setup=config.SetupTrainingConfig(tuples_per_batch=4)
+        ),
     )
     specs = collect.build_setup_specs(
         cfg, iteration=10, phase=collect.SetupPhase.RANDOM_RECORD
@@ -120,7 +124,10 @@ def test_build_setup_specs_batches_share_deal():
 
 
 def test_model_driven_specs_deal_per_game():
-    cfg = config.TrainConfig(use_setup_model=True, games_per_iter=4)
+    cfg = config.RunConfig(
+        architecture=config.ArchitectureConfig(use_setup_model=True),
+        run=config.RunSettings(games_per_iter=4),
+    )
     specs = collect.build_setup_specs(
         cfg, iteration=10, phase=collect.SetupPhase.MODEL_DRIVEN
     )

@@ -25,24 +25,31 @@ sync:
   games_chunk_mb: 8             # ...or sooner once the un-offloaded tail exceeds this size
   download_on_start: true       # pull prior state from S3 before resuming
 
-# Maps 1:1 onto wingspan.training.config.TrainConfig — every hyperparameter is
-# valid here. run_name / checkpoint_dir are injected from the top-level run_name,
-# so they need not be repeated. Omitted fields use TrainConfig's defaults.
+# Maps 1:1 onto wingspan.training.config.RunConfig — every hyperparameter is
+# valid here, grouped into the config's six sections (architecture / run /
+# training / opponent / engine / misc). run_name / checkpoint_dir are injected
+# from the top-level run_name, so they need not be repeated. Omitted fields use
+# RunConfig's defaults.
 train:
-  device: cpu
-  games_per_iter: 256
-  # The run trains until target_iterations, runs a large fixed-model eval, writes
-  # final_<n>.pt + final_eval_<n>.json to S3, and exits. Keep target <= max.
-  max_iterations: 5000
-  target_iterations: 5000
-  target_eval_games: 0          # 0 = auto (10 x eval_games)
-  lr: 3.0e-4
-  eval_every: 5
-  eval_games: 128
-  trunk_layers: [128, 128]
-  choice_layers: [128, 128]
-  head_layers: [128]
-  value_layers: []
-  card_embed_dim: 64
-  use_setup_model: true
-  seed: 0
+  architecture:
+    use_setup_model: true
+    main:
+      trunk_layers: [128, 128]
+      choice_layers: [128, 128]
+      head_layers: [128]
+      value_layers: []
+      card_embed_dim: 64
+  run:
+    games_per_iter: 256
+    # The run trains until target_iterations, runs a large fixed-model eval, writes
+    # final_<n>.pt + final_eval_<n>.json to S3, and exits. Keep target <= max.
+    max_iterations: 5000
+    target_iterations: 5000
+    target_eval_games: 0          # 0 = auto (10 x eval_games)
+    eval_every: 5
+    eval_games: 128
+  training:
+    lr: 3.0e-4
+  misc:
+    device: cpu
+    seed: 0

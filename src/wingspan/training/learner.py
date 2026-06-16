@@ -56,7 +56,7 @@ def update(
     net: model.PolicyValueNet,
     optimizer: optim.Optimizer,
     records: list[collect.GameRecord],
-    cfg: config.TrainConfig,
+    cfg: config.RunConfig,
     device: torch.device,
 ) -> UpdateStats:
     """Run one length-bucketed REINFORCE update over ``records``' steps."""
@@ -104,14 +104,20 @@ def update(
     policy_loss = -(logp_all * norm_advantage).mean()
     value_loss = F.mse_loss(value_all, return_all)
     entropy = entropy_all.mean()
-    loss = policy_loss + cfg.value_coef * value_loss - cfg.entropy_coef * entropy
+    loss = (
+        policy_loss
+        + cfg.training.value_coef * value_loss
+        - cfg.training.entropy_coef * entropy
+    )
 
     optimizer.zero_grad()
     # torch's stub types Tensor.backward with unknown parameters; the precise
     # typing of the loss chain (unlike the Any-typed Module-call path) surfaces
     # that stub gap, so the narrow suppression is on the stub, not our logic.
     loss.backward()  # pyright: ignore[reportUnknownMemberType]
-    grad_norm = torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=cfg.grad_clip)
+    grad_norm = torch.nn.utils.clip_grad_norm_(
+        net.parameters(), max_norm=cfg.training.grad_clip
+    )
     optimizer.step()
 
     return UpdateStats(
@@ -130,7 +136,7 @@ def update(
 
 
 def _flatten(
-    records: list[collect.GameRecord], cfg: config.TrainConfig
+    records: list[collect.GameRecord], cfg: config.RunConfig
 ) -> tuple[list[steps.Step], list[float]]:
     """Flatten every game's steps and pair each with its REINFORCE return.
 
@@ -146,13 +152,16 @@ def _flatten(
     flat_steps: list[steps.Step] = []
     returns: list[float] = []
     for record in records:
-        if cfg.reward_mode is config.RewardMode.DECISION_DELTA:
+        if cfg.training.reward_mode is config.RewardMode.DECISION_DELTA:
             record_returns = _decision_delta_returns(
-                record, cfg.reward_discount, cfg.score_norm, cfg.end_game_bonus
+                record,
+                cfg.training.reward_discount,
+                cfg.training.score_norm,
+                cfg.training.end_game_bonus,
             )
         else:
             record_returns = _terminal_margin_returns(
-                record, cfg.score_norm, cfg.end_game_bonus
+                record, cfg.training.score_norm, cfg.training.end_game_bonus
             )
         flat_steps.extend(record.steps)
         returns.extend(record_returns)

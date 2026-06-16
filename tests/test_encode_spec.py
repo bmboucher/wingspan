@@ -148,8 +148,14 @@ def test_from_model_config_round_trips_include_setup():
 
 
 def test_config_syncs_dims_to_use_setup_model_and_is_fresh_on_toggle():
-    on = config.TrainConfig(device="cpu", use_setup_model=True)
-    off = config.TrainConfig(device="cpu", use_setup_model=False)
+    on = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(use_setup_model=True),
+    )
+    off = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(use_setup_model=False),
+    )
     assert on.state_dim == encode.state_size(_EXCLUDE)
     assert off.state_dim == encode.state_size(_INCLUDE)
     assert on.choice_dim == encode.choice_feature_dim(_EXCLUDE)

@@ -42,9 +42,9 @@ def _write_descriptor(directory: pathlib.Path, *, choice_dim_offset: int = 0) ->
     writer (``runmeta.write_model_config``) — a version-less descriptor would
     read as the pre-0.1 era and be expected to carry the frozen ``compat.v0_0``
     dims instead of the live ones."""
-    cfg = config.TrainConfig()
+    cfg = config.RunConfig()
     descriptor = runmeta.ModelConfig(
-        run_name=cfg.run_name,
+        run_name=cfg.run.run_name,
         state_dim=cfg.state_dim,
         choice_dim=cfg.choice_dim + choice_dim_offset,
         family_order=cfg.family_order,

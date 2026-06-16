@@ -30,8 +30,15 @@ from wingspan.training import artifacts, config, metrics, runmeta
 
 
 def test_write_model_config_round_trips(tmp_path: pathlib.Path):
-    cfg = config.TrainConfig(
-        device="cpu", run_name="alpha", trunk_layers=(64, 64), choice_layers=(64, 64)
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(run_name="alpha"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=(64, 64),
+                choice_layers=(64, 64),
+            ),
+        ),
     )
     path = runmeta.write_model_config(str(tmp_path), cfg)
     assert path.name == artifacts.MODEL_CONFIG_JSON
@@ -51,10 +58,22 @@ def test_write_model_config_round_trips(tmp_path: pathlib.Path):
 
 def test_write_model_config_overwrites(tmp_path: pathlib.Path):
     runmeta.write_model_config(
-        str(tmp_path), config.TrainConfig(device="cpu", card_embed_dim=64)
+        str(tmp_path),
+        config.RunConfig(
+            misc=config.MiscConfig(device="cpu"),
+            architecture=config.ArchitectureConfig(
+                main=config.MainNetArchitecture(card_embed_dim=64)
+            ),
+        ),
     )
     runmeta.write_model_config(
-        str(tmp_path), config.TrainConfig(device="cpu", card_embed_dim=96)
+        str(tmp_path),
+        config.RunConfig(
+            misc=config.MiscConfig(device="cpu"),
+            architecture=config.ArchitectureConfig(
+                main=config.MainNetArchitecture(card_embed_dim=96)
+            ),
+        ),
     )
     descriptor = runmeta.read_model_config(str(tmp_path))
     # Rewritten in place, not appended.
@@ -64,16 +83,20 @@ def test_write_model_config_overwrites(tmp_path: pathlib.Path):
 def test_model_config_reconstitutes_net(tmp_path: pathlib.Path):
     """The saved descriptor rebuilds a net whose weights match the original's
     shapes, so a run's network can be reconstituted from ``model_config.json``."""
-    cfg = config.TrainConfig(
-        device="cpu",
-        trunk_layers=(96, 48),
-        choice_layers=(64, 48),
-        head_layers=(32,),
-        value_layers=(16,),
-        activation=config.architecture.ActivationName.GELU,
-        dropout=0.1,
-        layernorm=True,
-        card_embed_dim=48,
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=(96, 48),
+                choice_layers=(64, 48),
+                head_layers=(32,),
+                value_layers=(16,),
+                activation=config.architecture.ActivationName.GELU,
+                dropout=0.1,
+                layernorm=True,
+                card_embed_dim=48,
+            ),
+        ),
     )
     original = model.PolicyValueNet(arch=cfg.arch)
     runmeta.write_model_config(str(tmp_path), cfg)
@@ -91,7 +114,10 @@ def test_model_config_reconstitutes_net(tmp_path: pathlib.Path):
 
 
 def test_write_session_record_captures_context(tmp_path: pathlib.Path):
-    cfg = config.TrainConfig(device="cpu", run_name="beta", games_per_iter=256)
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(run_name="beta", games_per_iter=256),
+    )
     path = runmeta.write_session_record(
         str(tmp_path),
         cfg,
@@ -105,13 +131,13 @@ def test_write_session_record_captures_context(tmp_path: pathlib.Path):
     assert record.run_name == "beta" and record.git_sha == "abc1234"
     assert record.resumed is False and record.resumed_from_iteration == 0
     # The full config is embedded — the batch size and every other knob.
-    assert record.config.games_per_iter == 256
+    assert record.config.run.games_per_iter == 256
 
 
 def test_write_session_record_resumed_flag(tmp_path: pathlib.Path):
     path = runmeta.write_session_record(
         str(tmp_path),
-        config.TrainConfig(device="cpu"),
+        config.RunConfig(misc=config.MiscConfig(device="cpu")),
         stamp="20260530-200000",
         started_at="2026-05-30T20:00:00",
         git_sha=None,
@@ -122,7 +148,7 @@ def test_write_session_record_resumed_flag(tmp_path: pathlib.Path):
 
 
 def test_write_session_record_unique_on_collision(tmp_path: pathlib.Path):
-    cfg = config.TrainConfig(device="cpu")
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
     first = runmeta.write_session_record(
         str(tmp_path),
         cfg,

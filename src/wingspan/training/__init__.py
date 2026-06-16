@@ -14,7 +14,7 @@ decision taxonomy the policy network is trained over.
 
 The package is split by concern:
 
-- ``config``    — ``TrainConfig`` (self-describing hyperparameters, TRAINING.md §5.1)
+- ``config``    — ``RunConfig`` (self-describing hyperparameters, TRAINING.md §5.1)
 - ``metrics``   — ``ScoreBreakdown`` / ``FamilyCounts`` / ``IterationMetrics``
 - ``policy``    — single-decision sampling (collect) + greedy (eval)
 - ``collect``   — self-play game → recorded steps + score breakdown
@@ -27,11 +27,11 @@ The package is split by concern:
 """
 
 from wingspan.training.app import main
-from wingspan.training.config import TrainConfig
+from wingspan.training.config import RunConfig
 from wingspan.training.loop import TrainingLoop
 
 __all__ = [
-    "TrainConfig",
+    "RunConfig",
     "TrainingLoop",
     "main",
 ]

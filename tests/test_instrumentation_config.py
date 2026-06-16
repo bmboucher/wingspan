@@ -76,10 +76,12 @@ def test_nested_under_train_config():
     pytest.importorskip("torch")
     from wingspan.training import config as train_config
 
-    cfg = train_config.TrainConfig(
-        instrumentation=config.InstrumentationConfig.model_validate(_RAW)
+    cfg = train_config.RunConfig(
+        misc=train_config.MiscConfig(
+            instrumentation=config.InstrumentationConfig.model_validate(_RAW)
+        )
     )
-    restored = train_config.TrainConfig.model_validate(cfg.model_dump())
-    _assert_recovered(restored.instrumentation)
+    restored = train_config.RunConfig.model_validate(cfg.model_dump())
+    _assert_recovered(restored.misc.instrumentation)
     # Attaching instrumentation must not change the network-shape signature.
-    assert restored.architecture_key == train_config.TrainConfig().architecture_key
+    assert restored.architecture_key == train_config.RunConfig().architecture_key

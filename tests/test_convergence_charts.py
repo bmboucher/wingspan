@@ -108,7 +108,10 @@ def _render(
 def _state(tmp_path: pathlib.Path) -> runstate.RunState:
     """A run state whose checkpoint dir is an empty tmp dir, so the charts read
     no on-disk history and fall back to the in-memory ``state.history``."""
-    cfg = config.TrainConfig(device="cpu", checkpoint_dir=str(tmp_path / "ckpt"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(checkpoint_dir=str(tmp_path / "ckpt")),
+    )
     return runstate.new_run_state(cfg)
 
 
@@ -185,9 +188,13 @@ def test_score_ewma_smooths_every_iteration():
 
 
 def test_opponent_change_iterations_round_trip():
-    state = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    state = runstate.new_run_state(
+        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    )
     state.opponent_change_iterations.extend([120, 340])
-    restored = runstate.new_run_state(config.TrainConfig(device="cpu"))
+    restored = runstate.new_run_state(
+        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    )
     restored.restore_progress(state.to_progress())
     assert restored.opponent_change_iterations == [120, 340]
 
