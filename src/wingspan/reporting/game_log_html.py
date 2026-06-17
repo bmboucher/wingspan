@@ -28,6 +28,8 @@ import typing
 
 import pydantic
 
+from wingspan.reporting import game_log_csv
+
 # Number of board columns per habitat row — the viewer always draws this many
 # cells so the board reads as a fixed 3x5 grid (empty slots shown hollow).
 BOARD_COLUMNS = 5
@@ -224,11 +226,13 @@ def render_game_log_html(report: GameLogReport) -> str:
     script, so the same string is valid whether saved to disk or served."""
     title = _page_title(report)
     payload = _embed_json(report)
+    csv_uri = game_log_csv.timeline_csv_data_uri(report)
     return _DOCUMENT.format(
         title=title,
         css=_CSS,
         payload=payload,
         script=_SCRIPT,
+        csv_uri=csv_uri,
     )
 
 
@@ -301,6 +305,7 @@ _DOCUMENT = """\
   <div id="chart-dialog">
     <div id="chart-header">
       <span id="chart-title">Game Timeline</span>
+      <a id="chart-csv" href="{csv_uri}" download="timeline.csv" title="Download timeline data as CSV (critic/target values are P0-relative VP)">⬇ CSV</a>
       <button id="chart-close" title="Close (Esc)">✕</button>
     </div>
     <div id="chart-body">
@@ -598,6 +603,12 @@ main {
   cursor: pointer; padding: 2px 6px; border-radius: 4px;
 }
 #chart-close:hover { background: #1e293b; color: #e2e8f0; }
+#chart-csv {
+  color: #94a3b8; font-size: 12px; text-decoration: none;
+  background: #1e293b; border: 1px solid #334155; border-radius: 4px;
+  padding: 2px 8px; margin-right: 8px; white-space: nowrap;
+}
+#chart-csv:hover { background: #334155; color: #e2e8f0; }
 #chart-body {
   padding: 12px 16px 16px; overflow-y: auto; flex: 1;
   display: flex; flex-direction: column; gap: 10px;

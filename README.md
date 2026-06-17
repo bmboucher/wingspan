@@ -62,7 +62,10 @@ action-by-action log per game, and `--quiet` suppresses the per-game summary.
 game one phase/turn at a time — prev/next arrows, a `P0 / P1 / both` seat toggle,
 3x5 board grids pinned at the top, and a collapsible decision log beneath (for a
 `--games` series the game index is inserted before the extension, `game.html ->
-game.0.html`).
+game.0.html`).  The **Timeline** modal (opened via the toolbar button) shows score
+lines and per-seat critic/target return lines; it includes a **⬇ CSV** download
+link that yields one row per in-game decision with columns for timestamp,
+player, scores, and per-seat critic/target values (P0-relative VP margins).
 
 ## Train an agent
 

@@ -37,6 +37,16 @@ setup phase. The data model holds **primitives only** — no engine or torch typ
 — so the page renders from a plain JSON dump embedded in the document and drawn
 client-side by an inline script.
 
+**`game_log_csv.py`** — CSV export for the timeline data embedded in a game log.
+`timeline_to_csv(report: GameLogReport) -> str` renders `report.timeline` as a
+header-plus-rows CSV: one row per `TimelinePoint`, with the critic and training-target
+columns sparse (only the moving seat's pair is filled; the other seat's cells are blank),
+exactly mirroring the bottom panel of the timeline chart.  All critic / target values are
+**P0-relative future-return margins in VP**.  `timeline_csv_data_uri(report) -> str`
+wraps the CSV as a `data:text/csv;charset=utf-8;base64,…` URI for use as a download-link
+`href`.  The module depends only on the stdlib (`base64`, `csv`, `io`) and references
+`GameLogReport` under `TYPE_CHECKING` to avoid a runtime import cycle.
+
 **`game_log_capture.py`** — the engine-aware half of the game-log feature.
 `capture_phase(engine, …) -> PhaseRecord` flattens the live `GameState` into
 primitive display models. `capture_setup_phase(engine, …, dealt_bonus) ->
