@@ -119,13 +119,19 @@ class _WorkerArch(pydantic.BaseModel):
     # ``initial_vs_random`` phase opponent). ``None`` = random agent.
     # Static for the run — set once when the pool is spawned.
     bootstrap_opponent_checkpoint: str | None = None
+    # Path to the DAgger expert checkpoint. ``None`` = DAgger disabled.
+    # The expert may be a different architecture/era than the student; workers
+    # load it as a full net (not just a greedy agent) so they can call
+    # ``policy_probs`` and label each decision with the expert's soft distribution.
+    dagger_expert_checkpoint: str | None = None
 
 
 class _GameTask(pydantic.BaseModel):
     """One unit of work shipped to a worker: which weights to play under (by
     on-disk path + version) and which game seed to play. ``vs_random`` selects
     the bootstrap phase, where the net plays seat 0 against the random agent
-    instead of self-play."""
+    instead of self-play. ``dagger_active`` signals the DAgger clone phase,
+    where the worker also runs the expert net to label each decision."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -133,12 +139,14 @@ class _GameTask(pydantic.BaseModel):
     weights_version: int
     seed: int
     vs_random: bool = False
+    dagger_active: bool = False
 
 
 class _SetupGameTask(pydantic.BaseModel):
     """One setup-model game: the policy weights to play under, the setup-net
     weights (used only in the model-driven phase), and the per-game setup
-    directive. ``vs_random`` selects the bootstrap phase (net at seat 0)."""
+    directive. ``vs_random`` selects the bootstrap phase (net at seat 0).
+    ``dagger_active`` signals the DAgger clone phase."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -148,6 +156,7 @@ class _SetupGameTask(pydantic.BaseModel):
     setup_weights_version: int
     spec: collect.SetupGameSpec
     vs_random: bool = False
+    dagger_active: bool = False
 
 
 class _EvalTask(pydantic.BaseModel):
@@ -199,6 +208,7 @@ class ProcessCollector:
                 else False
             ),
             bootstrap_opponent_checkpoint=cfg.bootstrap_opponent_checkpoint,
+            dagger_expert_checkpoint=cfg.dagger_expert_checkpoint,
         )
         self._weights_path = pathlib.Path(cfg.run.checkpoint_dir) / _WEIGHTS_FILENAME
         self._opponent_path = pathlib.Path(cfg.run.checkpoint_dir) / _OPPONENT_FILENAME
@@ -225,6 +235,7 @@ class ProcessCollector:
         on_game_done: typing.Callable[[collect.GameRecord], None] | None = None,
         should_stop: typing.Callable[[], bool] | None = None,
         vs_random: bool = False,
+        dagger_active: bool = False,
     ) -> list[collect.GameRecord]:
         """Play ``len(seeds)`` games across the worker pool — self-play, or (when
         ``vs_random``) the net at seat 0 against the random agent.
@@ -233,7 +244,11 @@ class ProcessCollector:
         and fires ``on_game_done`` as each game completes (from this thread, so
         the callback may safely touch shared state under the caller's lock).
         ``should_stop`` is polled as games finish; once set, pending games are
-        cancelled and games already in flight are awaited and kept."""
+        cancelled and games already in flight are awaited and kept.
+
+        ``dagger_active`` signals the DAgger clone phase: each worker also runs
+        the frozen expert net to label each decision with the expert's soft policy
+        distribution (loaded once per worker from ``_WorkerArch.dagger_expert_checkpoint``)."""
         if not seeds:
             return []
         pool = self._ensure_pool()
@@ -245,6 +260,7 @@ class ProcessCollector:
                 weights_version=self._weights_version,
                 seed=seed,
                 vs_random=vs_random,
+                dagger_active=dagger_active,
             )
             for seed in seeds
         ]
@@ -271,6 +287,7 @@ class ProcessCollector:
         on_game_done: typing.Callable[[collect.GameRecord], None] | None = None,
         should_stop: typing.Callable[[], bool] | None = None,
         vs_random: bool = False,
+        dagger_active: bool = False,
     ) -> list[collect.GameRecord]:
         """Play one game per ``SetupGameSpec`` across the worker pool with setups
         chosen by the random generator / setup net (mirrors :meth:`collect_games`
@@ -295,6 +312,7 @@ class ProcessCollector:
                 setup_weights_version=self._setup_weights_version,
                 spec=spec,
                 vs_random=vs_random,
+                dagger_active=dagger_active,
             )
             for spec in specs
         ]
@@ -443,6 +461,10 @@ _worker_weights_version: int = -1
 # net); refreshed when the broadcast opponent generation advances.
 _worker_opponent_net: model.PolicyValueNet | None = None
 _worker_opponent_version: int = -1
+# DAgger expert: loaded once on the first DAgger-active task and reused across
+# iterations (the expert is frozen for the whole run).  ``None`` when DAgger is
+# not configured or the arch carries no expert path.
+_worker_dagger_expert_net: model.PolicyValueNet | None = None
 # Setup-model worker state: the local setup net + its broadcast version, the
 # random generator, and the softmax temperature. Built in ``_worker_init`` only
 # when the run uses the setup model.
@@ -535,9 +557,37 @@ def _bootstrap_opponent_agent(arch: _WorkerArch, seed: int) -> engine.Agent | No
     return policy.greedy_agent(policy_net, torch.device("cpu"))
 
 
+def _dagger_expert_net(arch: _WorkerArch) -> model.PolicyValueNet | None:
+    """Return the DAgger expert net (loaded once, then cached), or ``None``.
+
+    Unlike the bootstrap opponent (which becomes a greedy agent), the DAgger
+    expert is kept as a full net so ``policy_probs`` can compute its soft
+    distribution.  The expert may be a different architecture/era than the
+    student — ``load_policy_net`` handles the era-routing.
+    """
+    global _worker_dagger_expert_net
+    if arch.dagger_expert_checkpoint is None:
+        return None
+    if _worker_dagger_expert_net is not None:
+        return _worker_dagger_expert_net
+    # Function-level import to break the circular dependency (same rationale as
+    # ``_bootstrap_opponent_agent``).
+    import wingspan.players.loaders as loaders  # noqa: PLC0415
+
+    expert_net, _ = loaders.load_policy_net(
+        pathlib.Path(arch.dagger_expert_checkpoint),
+        torch.device("cpu"),
+    )
+    expert_net.eval()
+    _worker_dagger_expert_net = expert_net
+    return _worker_dagger_expert_net
+
+
 def _worker_play(task: _GameTask) -> collect.GameRecord:
     """Play one seeded game under the task's weights — self-play, or the net
-    (seat 0) vs the random agent in the bootstrap phase."""
+    (seat 0) vs the random agent in the bootstrap phase.  In the DAgger clone
+    phase (``task.dagger_active``), each decision is also labeled with the
+    frozen expert's soft policy distribution."""
     net = _worker_net
     device = _worker_device
     arch = _worker_arch
@@ -552,7 +602,8 @@ def _worker_play(task: _GameTask) -> collect.GameRecord:
             opponent = agents.random_agent(
                 random.Random(task.seed ^ _OPPONENT_RNG_SALT)
             )
-    return _compact(collect.play_game(net, device, rng, task.seed, opponent))
+    expert_net = _dagger_expert_net(arch) if task.dagger_active else None
+    return _compact(collect.play_game(net, device, rng, task.seed, opponent, expert_net))
 
 
 def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
@@ -586,6 +637,7 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             opponent = agents.random_agent(
                 random.Random(task.spec.continuation_seed ^ _OPPONENT_RNG_SALT)
             )
+    expert_net = _dagger_expert_net(arch) if task.dagger_active else None
     return _compact(
         collect.play_game_with_setup(
             net,
@@ -599,6 +651,7 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             split_setup_food=arch.split_setup_food,
             setup_greedy=_worker_setup_greedy,
             use_actor_critic=_worker_setup_use_actor_critic,
+            expert_net=expert_net,
         )
     )
 
@@ -640,6 +693,8 @@ def _compact(record: collect.GameRecord) -> collect.GameRecord:
     for step in record.steps:
         step.state = step.state.astype(np.float16)
         step.choices = step.choices.astype(np.float16)
+        if step.expert_probs is not None:
+            step.expert_probs = step.expert_probs.astype(np.float16)
     # The setup samples' multi-hot/one-hot features are exact in float16 (0/1)
     # and the small count/goal stripes lose nothing meaningful; the margin stays
     # a float. Halving the feature payload mirrors the step compaction above.

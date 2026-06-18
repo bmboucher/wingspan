@@ -893,7 +893,106 @@ and cross-product assembly that normal random generation performs.
 Both flags can be active simultaneously. Neither touches `MODEL_VERSION` or
 `setup_architecture_key`.
 
-### 6.7 Using a pre-trained checkpoint as the bootstrap opponent
+### 6.7 DAgger behavioral cloning (clone-then-RL)
+
+#### What it does
+
+By default every run starts from random weights. **DAgger** (Dataset Aggregation)
+behavioral cloning lets a frozen prior checkpoint (the **expert**) teach a new
+student network before the RL loop begins. For the first `clone_iters` iterations:
+
+1. The **student** plays both seats of self-play (on-policy rollouts — DAgger's
+   defining property vs vanilla BC: the labeled states are the ones the student
+   actually visits, not the expert's).
+2. At each decision, the frozen **expert** also receives the same legal options
+   and produces its full soft policy distribution (`policy_probs`).
+3. The expert's soft distribution is stored as `Step.expert_probs` (IPC-only;
+   not persisted to `games.jsonl`).
+4. The learner updates via **cross-entropy to the expert's soft targets** (plus
+   the usual value-head MSE to warm the critic); the policy-gradient and entropy
+   terms are disabled. The loss is:
+   `loss = CE(student, expert) + value_coef * value_MSE`
+
+After `clone_iters` iterations the expert is dropped, `Step.expert_probs` is no
+longer computed, and the run reverts to the normal actor-critic REINFORCE loop.
+A resumed run past `clone_iters` simply finds DAgger inactive — no config change
+required.
+
+#### Config
+
+```yaml
+# Run B clones from run A's checkpoint, then switches to RL at iteration 10:
+train:
+  run:
+    checkpoint_dir: checkpoints-run-b
+  opponent:
+    bootstrap_opponent: none   # incompatible with DAgger clone phase (see below)
+  dagger:
+    expert_checkpoint: checkpoints/last.pt   # frozen expert; any prior .pt
+    clone_iters: 10                          # pure imitation for iters 0..9
+```
+
+The configurator's EVAL section exposes both fields as a "dagger" group (alongside
+the bootstrap group). `dagger_expert_checkpoint` cycles like `bootstrap_opponent`:
+`none` / archived run paths / custom path. `clone_iters` is an int field.
+
+#### Constraints
+
+- **device=cpu required.** The expert runs one forward pass per decision in the
+  `mp_collect` worker process — the same CPU-only per-game net machinery used by
+  the bootstrap opponent. Setting `device=cuda` with an expert path raises a
+  `ValueError` at startup. (Collection always uses `mp_collect` on CPU; only the
+  learner's backprop step would benefit from CUDA, and it costs <0.2s/iter.)
+- **bootstrap_opponent must be 'none' when clone_iters > 0.** The bootstrap phase
+  puts the student at seat 0 only (vs random/opponent at seat 1), so the expert
+  would label only seat 0's decisions. DAgger requires self-play — both seats are
+  the student, so the expert labels both. The validator enforces
+  `clone_iters > 0 ⟹ bootstrap_opponent == 'none'`.
+- **clone_iters >= 1 when expert is set.** A path with `clone_iters=0` is a silent
+  no-op that the validator rejects.
+
+#### Cross-architecture expert
+
+The expert may be a **different architecture or era** than the student. The expert
+labels decisions at collection time through its *own* encoder (`expert_net.encode_state` /
+`expert_net.encode_choices`), so its feature widths are self-consistent regardless of
+the student's geometry. Candidate-index alignment is guaranteed by construction:
+both nets receive the same `Decision` object; `encode_choices` iterates
+`enumerate(decision.choices)`, so row `i` is candidate `i` for any net.
+
+#### Family-skip guard (SETUP)
+
+`SETUP` is always last in `decisions.ALL_DECISION_FAMILIES`. If the expert was
+trained without the SETUP head (`include_setup=False`, i.e. `use_setup_model=False`
+in its architecture) and the student has the SETUP head, SETUP decisions are not
+labeled (`expert_probs=None`) and are masked out of the imitation mean via the
+`has_expert` tensor. With matching architectures this never fires.
+
+#### Collection throughput during the clone phase
+
+The clone phase roughly **doubles the per-decision collection cost**: one student
+forward + one expert forward per decision (~130/game), both in the same worker
+process on CPU. Expect the dashboard's **g/s** readout to drop ~40–50% during
+`clone_iters` iterations and recover fully once DAgger deactivates at iteration
+`clone_iters`. The learner update phase is unchanged (the value head runs as
+always; cross-entropy replaces the policy-gradient term, which is of similar
+compute cost).
+
+#### Dashboard metrics
+
+During the clone phase `metrics.jsonl` carries a non-null `imitation_loss` (the
+mask-weighted mean CE to the expert's soft targets). After `clone_iters` it is
+`null`. The log events append `· DAgger clone` to the COLLECT line during the
+clone phase.
+
+#### Versioning
+
+REGIME (no `MODEL_VERSION` bump, no compat shim). The `DaggerConfig` section
+defaults to disabled; pre-DAgger configs validate unchanged. See `docs/VERSIONING.md`.
+
+---
+
+### 6.8 Using a pre-trained checkpoint as the bootstrap opponent
 
 #### The run-A → run-B pattern
 

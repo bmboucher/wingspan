@@ -77,6 +77,7 @@ def build_iteration_metrics(
     win_rate: float | None,
     setup_phase: collect.SetupPhase | None,
     setup_stats: metrics.SetupUpdateStats | None,
+    imitation_phase: bool = False,
 ) -> metrics.IterationMetrics:
     """Aggregate one iteration's records + update stats into an :class:`~metrics.IterationMetrics` row."""
     n_games = len(records)
@@ -151,6 +152,7 @@ def build_iteration_metrics(
         setup_samples_recorded=(
             setup_stats.n_samples if setup_stats is not None else None
         ),
+        imitation_loss=stats.imitation_loss if imitation_phase else None,
     )
 
 

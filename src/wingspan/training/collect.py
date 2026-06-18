@@ -163,6 +163,7 @@ def play_game(
     rng: random.Random,
     seed: int,
     opponent_agent: engine.Agent | None = None,
+    expert_net: model.PolicyValueNet | None = None,
 ) -> GameRecord:
     """Play one game and return its recorded transitions + scores.
 
@@ -171,10 +172,16 @@ def play_game(
     ``opponent_agent`` (the random-opponent bootstrap phase), the net plays
     seat 0 and ``opponent_agent`` plays seat 1; only the net's decisions are
     recorded, since the opponent's off-policy moves are not trained on.
+
+    ``expert_net`` is the frozen DAgger expert (a prior checkpoint, possibly a
+    different architecture/era).  When provided, each recorded step's
+    ``expert_probs`` is filled with the expert's soft policy distribution over
+    the same legal options, computed through the expert's *own* encoder so
+    cross-era labeling works correctly.
     """
     eng = new_engine(seed)
     recorded: list[training_steps.Step] = []
-    net_agent = _recording_agent(net, device, rng, recorded)
+    net_agent = _recording_agent(net, device, rng, recorded, expert_net)
     agent_a, agent_b = (
         (net_agent, net_agent)
         if opponent_agent is None
@@ -210,6 +217,7 @@ def play_game_with_setup(
     split_setup_food: bool = False,
     setup_greedy: bool = False,
     use_actor_critic: bool = False,
+    expert_net: model.PolicyValueNet | None = None,
 ) -> GameRecord:
     """Play one game whose setups are chosen externally (the setup-model path).
 
@@ -235,7 +243,7 @@ def play_game_with_setup(
     eng = new_engine(spec.deal_seed)
     main_rng = random.Random(spec.continuation_seed)
     recorded: list[training_steps.Step] = []
-    net_agent = _recording_agent(net, device, main_rng, recorded)
+    net_agent = _recording_agent(net, device, main_rng, recorded, expert_net)
     if opponent_agent is None:
         agent_a, agent_b = net_agent, net_agent
         net_seats = (0, 1)
@@ -396,10 +404,20 @@ def _recording_agent(
     device: torch.device,
     rng: random.Random,
     record_into: list[training_steps.Step],
+    expert_net: model.PolicyValueNet | None = None,
 ) -> engine.Agent:
     """An agent that samples from the policy and appends every multi-option
     decision it makes to ``record_into`` (both seats share the buffer, tagged
-    by ``player_id``)."""
+    by ``player_id``).
+
+    When ``expert_net`` is provided (the DAgger clone phase), each step is also
+    labeled with the expert's soft policy distribution over the same legal
+    candidates, computed through the expert's own encoder.  The guard
+    ``family_idx < expert_net.num_families`` handles the edge case where the
+    expert was trained without the SETUP head (``include_setup=False``) while
+    the student has it — safe because SETUP is always last in
+    ``decisions.ALL_DECISION_FAMILIES``.
+    """
 
     def agent[C: decisions.Choice](
         eng: engine.Engine,
@@ -420,6 +438,19 @@ def _recording_agent(
         chosen_idx = policy.sample_action(
             net, device, state_vec, choice_feats, family_idx, rng
         )
+
+        # DAgger expert labeling: compute expert's soft distribution using its
+        # own encoder.  Candidate-index alignment is guaranteed: both nets receive
+        # the same ``decision`` object and ``encode_choices`` iterates
+        # ``enumerate(decision.choices)`` so row i = candidate i for any net.
+        expert_probs: np.ndarray | None = None
+        if expert_net is not None and family_idx < expert_net.num_families:
+            ex_state = expert_net.encode_state(eng.state, decision)
+            ex_choices = expert_net.encode_choices(decision, eng.state)
+            expert_probs = policy.policy_probs(
+                expert_net, device, ex_state, ex_choices, family_idx
+            )
+
         record_into.append(
             training_steps.Step(
                 state=state_vec,
@@ -432,6 +463,7 @@ def _recording_agent(
                 timestamp=timestamps.provisional_timestamp(
                     decision, eng.state.turn_counter
                 ),
+                expert_probs=expert_probs,
             )
         )
         return decision.choices[chosen_idx]

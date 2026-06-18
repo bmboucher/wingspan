@@ -300,6 +300,30 @@ def validate_bootstrap_opponent(training_loop: "loop.TrainingLoop") -> None:
     del net  # free immediately; workers reload from the path on demand
 
 
+def validate_dagger_expert(training_loop: "loop.TrainingLoop") -> None:
+    """Load the DAgger expert checkpoint once at startup to fail fast on bad paths.
+
+    Mirrors :func:`validate_bootstrap_opponent`: a missing file, corrupt payload,
+    or incompatible encoding layout raises immediately.  The expert may be a
+    different architecture/era than the student — ``load_policy_net`` handles
+    era-routing — so only basic load-ability is verified here.
+    """
+    path = training_loop.config.dagger_expert_checkpoint
+    if path is None:
+        return
+    import wingspan.players.loaders as loaders  # noqa: PLC0415
+
+    net, saved = loaders.load_policy_net(pathlib.Path(path), torch.device("cpu"))
+    logging.info(
+        "DAgger expert loaded: path=%s state_dim=%d choice_dim=%d clone_iters=%d",
+        path,
+        saved.state_dim,
+        saved.choice_dim,
+        training_loop.config.dagger.clone_iters,
+    )
+    del net  # free immediately; workers reload from the path on demand
+
+
 ###### PRIVATE #######
 
 

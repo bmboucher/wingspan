@@ -34,6 +34,7 @@ def collect_games(
     training_loop: "loop.TrainingLoop",
     iteration: int,
     setup_phase: collect.SetupPhase | None,
+    dagger_active: bool = False,
 ) -> list[collect.GameRecord]:
     """Play ``games_per_iter`` games with batched inference, updating the
     live state as each game finishes so the dashboard advances mid-iteration.
@@ -45,12 +46,18 @@ def collect_games(
     When the setup model is enabled (``setup_phase`` is not None), setups are
     chosen externally via the setup-aware collection path instead of by the
     in-game policy.
+
+    ``dagger_active`` signals the DAgger clone phase: each decision is labeled
+    with the frozen expert's soft policy distribution.  Only supported on CPU
+    (the DAgger validator enforces ``device='cpu'``).
     """
     vs_random = (
         training_loop.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT
     )
     if setup_phase is not None:
-        return collect_with_setup(training_loop, iteration, setup_phase, vs_random)
+        return collect_with_setup(
+            training_loop, iteration, setup_phase, vs_random, dagger_active
+        )
     seeds = [
         training_loop.config.misc.seed * 1_000_000 + iteration * 10_000 + game_idx
         for game_idx in range(training_loop.config.run.games_per_iter)
@@ -59,7 +66,7 @@ def collect_games(
     # processes; CUDA collection keeps the in-process batched-inference path
     # (one shared GPU forward beats one model copy per process).
     if training_loop.device.type == "cpu":
-        return collect_multiprocess(training_loop, seeds, vs_random)
+        return collect_multiprocess(training_loop, seeds, vs_random, dagger_active)
     return batched_collect.collect_games(
         training_loop.net,
         training_loop.device,
@@ -75,6 +82,7 @@ def collect_with_setup(
     iteration: int,
     setup_phase: collect.SetupPhase,
     vs_random: bool,
+    dagger_active: bool = False,
 ) -> list[collect.GameRecord]:
     """Collect games whose setups are chosen by the random generator / setup net.
 
@@ -92,6 +100,7 @@ def collect_with_setup(
             on_game_done=lambda rec: record_collected_game(training_loop, rec),
             should_stop=training_loop._stop.is_set,
             vs_random=vs_random,
+            dagger_active=dagger_active,
         )
     return collect_with_setup_sequential(training_loop, specs, vs_random)
 
@@ -146,6 +155,7 @@ def collect_multiprocess(
     training_loop: "loop.TrainingLoop",
     seeds: list[int],
     vs_random: bool,
+    dagger_active: bool = False,
 ) -> list[collect.GameRecord]:
     """Collect across worker processes; the pool is built on first use and
     reused across iterations (closed in ``run``'s teardown)."""
@@ -156,6 +166,7 @@ def collect_multiprocess(
         on_game_done=lambda rec: record_collected_game(training_loop, rec),
         should_stop=training_loop._stop.is_set,
         vs_random=vs_random,
+        dagger_active=dagger_active,
     )
 
 

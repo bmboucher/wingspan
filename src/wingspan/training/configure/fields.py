@@ -511,6 +511,9 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "setup_activation": ("architecture", "setup", "activation"),
     "setup_dropout": ("architecture", "setup", "dropout"),
     "setup_use_actor_critic": ("architecture", "setup", "use_actor_critic"),
+    # dagger section
+    "dagger_expert_checkpoint": ("dagger", "expert_checkpoint"),
+    "clone_iters": ("dagger", "clone_iters"),
 }
 
 
@@ -715,6 +718,30 @@ FIELD_SPECS: list[FieldSpec] = [
         "A checkpoint path loads that run's weights as the fixed opponent. "
         "←/→ cycles through none / random / archived runs; press enter to type a "
         "custom path. Only a path requires device='cpu'.",
+    ),
+    BootstrapField(
+        attr="dagger_expert_checkpoint",
+        label="dagger expert",
+        section=ConfigSection.EVAL,
+        group="dagger",
+        impact=ChangeImpact.REGIME,
+        help="DAgger expert checkpoint path. 'none' disables behavioral cloning. "
+        "A checkpoint path enables the imitation-learning warm-start: the student "
+        "plays its own rollouts while the frozen expert labels each decision with its "
+        "soft policy distribution. Requires device='cpu'; incompatible with a "
+        "non-'none' bootstrap opponent. ←/→ cycles through none / archived runs.",
+    ),
+    IntField(
+        attr="clone_iters",
+        label="clone iters",
+        section=ConfigSection.EVAL,
+        group="dagger",
+        step=1,
+        impact=ChangeImpact.REGIME,
+        help="Number of initial iterations to train the student via cross-entropy "
+        "to the DAgger expert's soft targets. After this many iterations the expert "
+        "is dropped and training reverts to the normal actor-critic loop. "
+        "Ignored when dagger expert = 'none'. Must be >= 1 when an expert is set.",
     ),
     FloatField(
         attr="random_phase_win_rate",

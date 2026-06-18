@@ -209,6 +209,8 @@ class IterationMetrics(pydantic.BaseModel):
     grad_norm: float
     advantage_mean: float
     advantage_std: float
+    # Non-null only during DAgger clone iterations; null in normal RL mode.
+    imitation_loss: float | None = None
 
     # averaged outcomes over this iteration's player-games
     avg_self_score: float  # mean final score per player-game

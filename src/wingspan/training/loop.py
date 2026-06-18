@@ -138,6 +138,7 @@ class TrainingLoop:
         loop_setup.sync_setup_embedders(self)
         loop_resume.init_training_phase(self)
         loop_resume.validate_bootstrap_opponent(self)
+        loop_resume.validate_dagger_expert(self)
         loop_resume.init_target_if_fresh(self)
         loop_resume.reset_history_logs_if_fresh(self)
         loop_resume.write_run_metadata(self)
@@ -275,8 +276,16 @@ class TrainingLoop:
             ):
                 loop_setup.run_offline_setup_fit(self)
 
+        # DAgger clone phase: pure imitation for the first clone_iters iterations.
+        # vs_random is driven independently by training_phase; the DAgger validator
+        # ensures bootstrap_opponent == "none" when clone_iters > 0, so there is
+        # no conflict between the two modes.
+        imitation_phase = self.config.dagger_active_at(iteration)
+
         collect_start = time.monotonic()
-        records = loop_collect.collect_games(self, iteration, setup_phase)
+        records = loop_collect.collect_games(
+            self, iteration, setup_phase, dagger_active=imitation_phase
+        )
         collect_seconds = time.monotonic() - collect_start
         if not records:
             return  # stopped before completing any game this iteration
@@ -288,11 +297,13 @@ class TrainingLoop:
                 runstate.EventKind.INFO,
                 f"COLLECT {len(records)} games in {collect_seconds:.1f}s · "
                 f"{games_per_sec:.1f} g/s · "
-                f"avg {loop_metrics.avg_points(records):.1f} pts/game",
+                f"avg {loop_metrics.avg_points(records):.1f} pts/game"
+                + (" · DAgger clone" if imitation_phase else ""),
             )
         update_start = time.monotonic()
         stats = learner.update(
-            self.net, self.optimizer, records, self.config, self.device
+            self.net, self.optimizer, records, self.config, self.device,
+            imitation_phase=imitation_phase,
         )
         update_seconds = time.monotonic() - update_start
         with self.lock:
@@ -336,6 +347,7 @@ class TrainingLoop:
             win_rate,
             setup_phase,
             setup_stats,
+            imitation_phase=imitation_phase,
         )
         loop_checkpoint.commit_iteration(
             self, iter_metrics, stats, eval_result, records

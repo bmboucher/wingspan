@@ -34,11 +34,16 @@ top-level computed properties so call sites don't churn.
 - `engine: EngineConfig` — documented placeholder for future
   encoding-independent game-variant knobs (empty today).
 - `misc: MiscConfig` — `seed`, `device`, `produce_ewma_alpha`, `instrumentation`.
+- `dagger: DaggerConfig` — `expert_checkpoint` (`.pt` path or `"none"`),
+  `clone_iters` (pure imitation iters before RL). Cross-section validators:
+  expert set ⟹ `device='cpu'`, `clone_iters >= 1`; `clone_iters > 0` ⟹
+  `bootstrap_opponent == 'none'`. REGIME (see `docs/TRAINING.md §6.7`).
 - Top-level computed properties (delegating into sections): `arch:
   ModelArchitecture`, `setup_arch`, `setup_encoding`, `architecture_key`,
   `setup_architecture_key`, `encoding_spec`, `encoding_version`, `state_dim`,
   `choice_dim`, `family_order`, `eval_pairs`, `initial_vs_random`,
-  `bootstrap_opponent_checkpoint`, `split_setup_*_active`, `trunk/choice_hidden`.
+  `bootstrap_opponent_checkpoint`, `dagger_expert_checkpoint`,
+  `dagger_active_at(iteration: int) -> bool`, `split_setup_*_active`, `trunk/choice_hidden`.
   `encoding_version` is the artifact era the run trains at (adopted from the run
   dir on resume, never user-edited); `state_dim` / `choice_dim` are era-routed
   from it. See "Training resume: era pinning" in `docs/VERSIONING.md`.
@@ -95,7 +100,9 @@ prior run's logs and stale session records (both `run_config_*.json` and legacy
 resumable checkpoint's era when that adoption is exactly what makes the keys
 agree (era-pinned resume across a FRESH change), and re-keys any *fresh*
 launch at the live `MODEL_VERSION` so a new run never inherits a stale era
-(`docs/VERSIONING.md`).
+(`docs/VERSIONING.md`). `validate_dagger_expert(loop)` — called on `__init__`
+after `validate_bootstrap_opponent`; loads the DAgger expert checkpoint to
+fail-fast on a bad path (no-op when expert is `None`).
 
 **`loop_collect.py`** — `run_collection(loop, iteration) -> CollectResult`:
 dispatches to `mp_collect.ProcessCollector` (CPU) or `batched_collect` (CUDA)
@@ -146,11 +153,14 @@ collection) and `greedy_agent(net, spec) -> Agent` (argmax, for eval). Both
 call `net.encode_state` / `net.encode_choices` — never the raw encoder.
 
 **`steps.py`** — `Step(state, choices, chosen_idx, player_id, family_idx,
-margin_before, timestamp)` — the recorded self-play transition consumed by the
-learner. `margin_before` is the deciding player's running margin (own −
-opponent) before the decision, differenced into the `decision_delta` return;
-`timestamp` is the decision's game-clock time (see `timestamps.py`). Stored as
-fp16 arrays during IPC.
+margin_before, timestamp, expert_probs=None)` — the recorded self-play transition
+consumed by the learner. `margin_before` is the deciding player's running margin
+(own − opponent) before the decision, differenced into the `decision_delta`
+return; `timestamp` is the decision's game-clock time (see `timestamps.py`).
+`expert_probs: np.ndarray | None` — shape `(n_choices,)`, the DAgger expert's
+soft policy distribution, set at collection time when `dagger_active=True`; `None`
+in RL mode or for SETUP steps when the expert lacks the SETUP head. IPC-only
+(not persisted to `games.jsonl`). All arrays stored as fp16 during IPC.
 
 **`timestamps.py`** — The game clock for time-based discounting: setup
 decisions at 0 / 1/3 / 2/3, turn N's main action at exactly N (the engine's
@@ -162,10 +172,13 @@ terminal checkpoint (`GameRecord.final_timestamp`). Torch-free.
 
 ## Learning
 
-**`learner.py`** — `Learner(net, optimizer, config)`:
-- `update(steps: list[Step]) -> LearnerResult` — length-bucketed REINFORCE with
-  advantage normalisation. Groups steps by game length, computes returns,
-  normalizes advantages, runs one Adam step per bucket.
+**`learner.py`** — `update(net, optimizer, records, cfg, device, imitation_phase=False)`:
+- Length-bucketed REINFORCE with advantage normalisation (normal RL mode).
+- In the DAgger imitation phase (`imitation_phase=True`): loss is
+  `CE(student, expert) + value_coef * value_MSE`; policy-gradient and entropy
+  terms are zero. The `has_expert` mask (1.0 when `Step.expert_probs` is not
+  `None`) weights the CE mean; `clamp(min=1)` guards the all-unlabeled bucket.
+  Returns `UpdateStats` with `imitation_loss: float` (0.0 in RL mode).
 - `_flatten` pairs each step with its return per `cfg.reward_mode`:
   `_terminal_margin_returns` broadcasts the end-of-game margin; for
   `decision_delta`, `_decision_delta_returns` discounts per-decision

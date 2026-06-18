@@ -17,7 +17,10 @@ baseline honest and the memory sane:
   critic has become.
 
 The loss is the standard actor-critic sum
-``policy_loss + VALUE_COEF·value_loss − ENTROPY_COEF·entropy`` (TRAINING.md §3.3).
+``policy_loss + VALUE_COEF·value_loss − ENTROPY_COEF·entropy`` (TRAINING.md §3.3),
+or, in the DAgger imitation phase, ``imitation_loss + VALUE_COEF·value_loss``
+where ``imitation_loss`` is the mask-weighted cross-entropy to the expert's soft
+targets (the value head is kept to warm the critic for the RL handoff).
 """
 
 from __future__ import annotations
@@ -49,6 +52,8 @@ class UpdateStats(pydantic.BaseModel):
     grad_norm: float
     advantage_mean: float
     advantage_std: float
+    # Non-zero only during DAgger clone iterations; 0.0 in RL mode.
+    imitation_loss: float = 0.0
     n_steps: int
 
 
@@ -58,8 +63,16 @@ def update(
     records: list[collect.GameRecord],
     cfg: config.RunConfig,
     device: torch.device,
+    imitation_phase: bool = False,
 ) -> UpdateStats:
-    """Run one length-bucketed REINFORCE update over ``records``' steps."""
+    """Run one length-bucketed update over ``records``' steps.
+
+    In the normal RL mode (``imitation_phase=False``) this is a standard
+    actor-critic REINFORCE step.  In the DAgger imitation phase
+    (``imitation_phase=True``) the policy-gradient and entropy terms are
+    replaced by cross-entropy to each step's recorded ``expert_probs``; the
+    value-head MSE loss is kept to warm the critic for the RL handoff.
+    """
     flat_steps, returns = _flatten(records, cfg)
     if not flat_steps:
         return UpdateStats(
@@ -70,6 +83,7 @@ def update(
             grad_norm=0.0,
             advantage_mean=0.0,
             advantage_std=0.0,
+            imitation_loss=0.0,
             n_steps=0,
         )
 
@@ -79,8 +93,12 @@ def update(
     values: list[torch.Tensor] = []
     entropies: list[torch.Tensor] = []
     returns_parts: list[torch.Tensor] = []
+    imitation_ces: list[torch.Tensor] = []
+    has_experts: list[torch.Tensor] = []
     for bucket in _bucketize(flat_steps):
-        logp, value, entropy = _forward_bucket(net, device, flat_steps, bucket)
+        logp, value, entropy, imitation_ce, has_expert = _forward_bucket(
+            net, device, flat_steps, bucket
+        )
         chosen_logps.append(logp)
         values.append(value)
         entropies.append(entropy)
@@ -89,26 +107,47 @@ def update(
                 [returns[i] for i in bucket], dtype=torch.float32, device=device
             )
         )
+        imitation_ces.append(imitation_ce)
+        has_experts.append(has_expert)
 
     logp_all = torch.cat(chosen_logps)
     value_all = torch.cat(values)
     entropy_all = torch.cat(entropies)
     return_all = torch.cat(returns_parts)
+    imitation_ce_all = torch.cat(imitation_ces)
+    has_expert_all = torch.cat(has_experts)
 
-    # Advantage = return − baseline, normalized across the batch (TRAINING.md §3.3).
-    advantage = return_all - value_all.detach()
-    adv_mean = advantage.mean()
-    adv_std = advantage.std()
-    norm_advantage = (advantage - adv_mean) / (adv_std + _ADV_STD_EPS)
-
-    policy_loss = -(logp_all * norm_advantage).mean()
     value_loss = F.mse_loss(value_all, return_all)
-    entropy = entropy_all.mean()
-    loss = (
-        policy_loss
-        + cfg.training.value_coef * value_loss
-        - cfg.training.entropy_coef * entropy
-    )
+
+    if imitation_phase:
+        # Pure imitation: minimize cross-entropy to expert's soft targets.
+        # Mask-weighted mean over labeled steps only; clamp(min=1) guards the
+        # all-unlabeled edge (family_idx >= expert_net.num_families, i.e.
+        # SETUP steps when the expert was trained without the SETUP head).
+        imitation_loss_t = (imitation_ce_all * has_expert_all).sum() / (
+            has_expert_all.sum().clamp(min=1)
+        )
+        loss = imitation_loss_t + cfg.training.value_coef * value_loss
+        # No policy-gradient or entropy in imitation mode.
+        policy_loss_t = torch.zeros(1, device=device)
+        entropy_t = torch.zeros(1, device=device)
+        adv_mean = torch.zeros(1, device=device)
+        adv_std = torch.zeros(1, device=device)
+    else:
+        # Advantage = return − baseline, normalized across the batch (TRAINING.md §3.3).
+        advantage = return_all - value_all.detach()
+        adv_mean = advantage.mean()
+        adv_std = advantage.std()
+        norm_advantage = (advantage - adv_mean) / (adv_std + _ADV_STD_EPS)
+
+        policy_loss_t = -(logp_all * norm_advantage).mean()
+        entropy_t = entropy_all.mean()
+        loss = (
+            policy_loss_t
+            + cfg.training.value_coef * value_loss
+            - cfg.training.entropy_coef * entropy_t
+        )
+        imitation_loss_t = torch.zeros(1, device=device)
 
     optimizer.zero_grad()
     # torch's stub types Tensor.backward with unknown parameters; the precise
@@ -122,12 +161,13 @@ def update(
 
     return UpdateStats(
         loss=float(loss.detach()),
-        policy_loss=float(policy_loss.detach()),
+        policy_loss=float(policy_loss_t.detach()),
         value_loss=float(value_loss.detach()),
-        entropy=float(entropy.detach()),
+        entropy=float(entropy_t.detach()),
         grad_norm=float(grad_norm),
         advantage_mean=float(adv_mean.detach()),
         advantage_std=float(adv_std.detach()),
+        imitation_loss=float(imitation_loss_t.detach()),
         n_steps=len(flat_steps),
     )
 
@@ -283,22 +323,38 @@ def _forward_bucket(
     device: torch.device,
     flat_steps: list[steps.Step],
     bucket: list[int],
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Forward one bucket (padded to its own width) and return per-step
-    ``(chosen_logp, value, entropy)`` tensors with grad attached."""
+    ``(chosen_logp, value, entropy, imitation_ce, has_expert)`` tensors with
+    grad attached.
+
+    ``imitation_ce[i]`` is the cross-entropy between the student's distribution
+    and the expert's soft target for step ``i``; ``has_expert[i]`` is 1.0 when
+    that step carries a DAgger label, 0.0 otherwise (family-skip or RL mode).
+    Both are always computed — the caller uses ``has_expert`` as a mask so the
+    RL path is zero-cost (imitation_ce is valid but multiplied by 0)."""
     width = max(flat_steps[i].choices.shape[0] for i in bucket)
     batch = len(bucket)
     state_batch = np.stack([flat_steps[i].state for i in bucket])
     choice_batch = np.zeros((batch, width, net.choice_dim), dtype=np.float32)
     mask_batch = np.zeros((batch, width), dtype=np.float32)
+    # Zero-initialized: padded columns contribute nothing to imitation CE even
+    # without explicit masking (expert_t[pad] == 0, so -0 * legal_logp = 0).
+    expert_batch = np.zeros((batch, width), dtype=np.float32)
+    has_expert_batch = np.zeros(batch, dtype=np.float32)
     for row, i in enumerate(bucket):
         count = flat_steps[i].choices.shape[0]
         choice_batch[row, :count] = flat_steps[i].choices
         mask_batch[row, :count] = 1.0
+        if flat_steps[i].expert_probs is not None:
+            expert_batch[row, :count] = flat_steps[i].expert_probs
+            has_expert_batch[row] = 1.0
 
     state_t = torch.tensor(state_batch, dtype=torch.float32, device=device)
     choice_t = torch.tensor(choice_batch, dtype=torch.float32, device=device)
     mask_t = torch.tensor(mask_batch, dtype=torch.float32, device=device)
+    expert_t = torch.tensor(expert_batch, dtype=torch.float32, device=device)
+    has_expert_t = torch.tensor(has_expert_batch, dtype=torch.float32, device=device)
     idx_t = torch.tensor(
         [flat_steps[i].chosen_idx for i in bucket], dtype=torch.long, device=device
     )
@@ -310,9 +366,12 @@ def _forward_bucket(
     logp = F.log_softmax(logits, dim=-1)
     chosen_logp = logp.gather(1, idx_t.unsqueeze(1)).squeeze(1)
 
-    # Entropy over legal slots only; torch.where avoids 0*-inf=NaN on padding.
+    # Entropy + imitation CE over legal slots; torch.where avoids 0*-inf=NaN on padding.
     zeros = torch.zeros_like(logp)
     legal_logp = torch.where(mask_t > 0.5, logp, zeros)
     legal_p = torch.where(mask_t > 0.5, logp.exp(), zeros)
     entropy = -(legal_p * legal_logp).sum(dim=-1)
-    return chosen_logp, value, entropy
+    # CE to expert soft targets: sum over the legal window.  Padded columns in
+    # expert_t are 0 by construction so they contribute nothing to the sum.
+    imitation_ce = -(expert_t * legal_logp).sum(dim=-1)
+    return chosen_logp, value, entropy, imitation_ce, has_expert_t

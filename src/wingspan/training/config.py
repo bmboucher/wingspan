@@ -309,6 +309,32 @@ class MiscConfig(pydantic.BaseModel):
     )
 
 
+class DaggerConfig(pydantic.BaseModel):
+    """DAgger behavioral cloning configuration (7th RunConfig section).
+
+    When ``expert_checkpoint`` names a ``.pt`` checkpoint, the first
+    ``clone_iters`` training iterations collect games with the *student* policy
+    but label each multi-option decision with the frozen expert's soft policy
+    distribution.  The learner then minimizes cross-entropy to those targets
+    instead of running the normal REINFORCE actor-critic update — pure imitation
+    for ``clone_iters`` iterations, then the expert is dropped and training
+    reverts to the standard RL loop (TRAINING.md DAgger section).
+
+    This is a REGIME change: all fields are config-carried and training-only,
+    add no tensor-shape geometry, and leave ``encode_state``/``encode_choices``/
+    ``PolicyValueNet.forward`` untouched — so a rehydrated artifact computes
+    identically at play time and no ``MODEL_VERSION`` bump is needed.
+    """
+
+    # ``"none"`` disables DAgger; a ``.pt`` path loads the expert checkpoint.
+    # ``"random"`` is accepted by the cycling widget but treated as ``"none"``
+    # by ``RunConfig.dagger_expert_checkpoint`` so the feature stays inactive.
+    expert_checkpoint: str = "none"
+    # Number of initial iterations to run in pure-imitation mode before
+    # switching to the normal RL loop. 0 = never clone (default).
+    clone_iters: typing.Annotated[int, pydantic.Field(ge=0)] = 0
+
+
 # ---------------------------------------------------------------------------
 # Top-level RunConfig
 # ---------------------------------------------------------------------------
@@ -317,7 +343,7 @@ class MiscConfig(pydantic.BaseModel):
 class RunConfig(pydantic.BaseModel):
     """Every hyperparameter for one training run, versioned and self-describing.
 
-    Organized into six sections; all computed properties (``arch``,
+    Organized into seven sections; all computed properties (``arch``,
     ``setup_arch``, ``encoding_spec``, ``architecture_key``, etc.) stay at the
     top level so their heavily-used call sites do not churn.
     """
@@ -330,6 +356,7 @@ class RunConfig(pydantic.BaseModel):
     opponent: OpponentConfig = pydantic.Field(default_factory=OpponentConfig)
     engine: EngineConfig = pydantic.Field(default_factory=EngineConfig)
     misc: MiscConfig = pydantic.Field(default_factory=MiscConfig)
+    dagger: DaggerConfig = pydantic.Field(default_factory=DaggerConfig)
 
     # ------------------------------------------------------------------
     # Cross-section validators
@@ -342,6 +369,28 @@ class RunConfig(pydantic.BaseModel):
             if self.misc.device != "cpu":
                 raise ValueError(
                     "a bootstrap checkpoint requires device='cpu' (mp_collect only)"
+                )
+        return self
+
+    @pydantic.model_validator(mode="after")
+    def _check_dagger_config(self) -> "RunConfig":
+        """DAgger expert constraints (mirrors ``_check_bootstrap_opponent``)."""
+        expert = self.dagger_expert_checkpoint
+        if expert is not None:
+            if self.misc.device != "cpu":
+                raise ValueError(
+                    "a DAgger expert checkpoint requires device='cpu' (mp_collect only)"
+                )
+            if self.dagger.clone_iters < 1:
+                raise ValueError(
+                    "dagger.clone_iters must be >= 1 when an expert_checkpoint is set"
+                )
+        if self.dagger.clone_iters > 0:
+            if self.opponent.bootstrap_opponent != "none":
+                raise ValueError(
+                    "dagger.clone_iters > 0 requires opponent.bootstrap_opponent = 'none' "
+                    "(bootstrap and DAgger clone phases are incompatible: both seats must "
+                    "be the student for DAgger's on-policy labeling to work)"
                 )
         return self
 
@@ -384,6 +433,24 @@ class RunConfig(pydantic.BaseModel):
     def initial_vs_random(self) -> bool:
         """Whether the bootstrap phase is active."""
         return self.opponent.bootstrap_opponent != "none"
+
+    @property
+    def dagger_expert_checkpoint(self) -> str | None:
+        """The checkpoint path to load as the DAgger expert, or ``None`` when
+        DAgger is disabled (``expert_checkpoint`` is ``"none"`` or ``"random"``)."""
+        value = self.dagger.expert_checkpoint
+        return None if value in ("none", "random") else value
+
+    def dagger_active_at(self, iteration: int) -> bool:
+        """Whether DAgger expert labeling is active for ``iteration``.
+
+        True only when an expert checkpoint is configured and the iteration is
+        within the first ``clone_iters`` iterations (the pure-imitation window).
+        """
+        return (
+            self.dagger_expert_checkpoint is not None
+            and iteration < self.dagger.clone_iters
+        )
 
     @property
     def bootstrap_opponent_checkpoint(self) -> str | None:

@@ -82,7 +82,22 @@ run the frozen 795-dim state (no playability stripes) and narrower choice rows (
 Fixture set: `tests/data/compat/v0.6/` — to be captured after this change merges
 (requires a short 0.6 training run), same pattern as v0.4/v0.5.
 
-### v0.5 — unified run-config file
+### v0.5 — unified run-config file (REGIME additions)
+
+#### DAgger behavioral cloning (REGIME)
+
+Added `DaggerConfig` as a 7th `RunConfig` section (`dagger.expert_checkpoint`,
+`dagger.clone_iters`). Config-carried and training-only: no tensor shape changes,
+no featurizer change, no `MODEL_VERSION` bump, no compat shim. A run resumed
+past `clone_iters` simply finds `dagger_active_at(iteration) == False` and trains
+normally — the field survives the round-trip via `run_config_from_artifact`'s
+default `DaggerConfig()`. Mirrors `reward_mode` in versioning classification.
+
+`Step.expert_probs` is IPC/in-memory only: the `games.jsonl` serializer writes
+`metrics.GameOutcome` (via `loop_metrics.game_outcome`), never `Step`, so there
+is no on-disk format change from this field.
+
+---
 
 **Config-container change, NOT an encoding change.** This MINOR bump is unusual:
 the encoding is byte-for-byte identical to 0.4 — `state_dim` / `choice_dim` / the

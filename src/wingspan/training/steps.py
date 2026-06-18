@@ -40,3 +40,9 @@ class Step(pydantic.BaseModel):
     # ``decision_delta`` reward mode's λ^Δt discounting; the default keeps
     # fixtures that omit it valid.
     timestamp: float = 0.0
+    # DAgger expert soft-target probabilities: shape ``(n_choices,)``, aligned
+    # to the ``choices`` rows so ``expert_probs[i]`` is the expert's probability
+    # for candidate ``i``. ``None`` when no expert is active for this game or
+    # when the step's ``family_idx >= expert_net.num_families`` (the SETUP-head
+    # guard — SETUP is last in ``decisions.ALL_DECISION_FAMILIES``).
+    expert_probs: np.ndarray | None = None
