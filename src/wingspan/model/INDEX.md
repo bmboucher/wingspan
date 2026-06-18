@@ -28,8 +28,16 @@ the main actor-critic network. Key structure:
   a checkpoint for inference.
 - `PolicyValueNet.class_for_version(artifact_version) -> type[PolicyValueNet]`
   — the single era-routing table (pre-0.1 → `PolicyValueNetV00`, 0.1 →
-  `…V01`, 0.2 → `…V02`, live otherwise); used by `from_model_config`, the
-  checkpoint loaders, and the era-pinned training pipeline.
+  `…V01`, 0.2 → `…V02`, 0.3 → `…V03`, 0.4/0.5 → `…V04`, live otherwise);
+  used by `from_model_config`, the checkpoint loaders, and the era-pinned
+  training pipeline.
+- `StateEmbedOffsets(card_index, hand_multihot, decision_type, hand_summary)`
+  — NamedTuple seam frozen by era shims so `_embed_state` slices each era's
+  vector at its own offsets (the v0.6 insertion of two playability stripes shifts
+  `decision_type` by +360; earlier eras override via `_state_embed_offsets()`).
+- `ChoiceEmbedOffsets(board_idx, bird_id, becomes_playable, kept_multihot)`
+  — NamedTuple seam for the choice encoder; `becomes_playable` is `None` for
+  pre-0.6 shims that lack the stripe, `kept_multihot` is `None` outside setup.
 
 **`mlp.py`** — Shared MLP building blocks used by both the policy net and the
 setup net so they produce byte-identical stacks from the same width list:

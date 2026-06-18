@@ -1140,13 +1140,16 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
 
 def _trunk_in(cfg: config.RunConfig) -> int:
     """The working config's post-embedding trunk input width, every embedding
-    knob threaded."""
+    knob threaded. Passes ``n_playable_multihots=N_HAND_PLAYABLE_MULTIHOTS`` for
+    live configs (the state vector includes two 180-dim playability stripes that
+    the model embeds rather than passing through as continuous features)."""
     return encode.trunk_input_dim(
         cfg.state_dim,
         cfg.architecture.main.card_embed_dim,
         use_distinct_hand_model=cfg.architecture.main.use_distinct_hand_model,
         hand_embed_dim=cfg.architecture.main.hand_embed_dim,
         tray_set_embedding=cfg.architecture.main.tray_set_embedding,
+        n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
     )
 
 
@@ -1155,26 +1158,29 @@ def _choice_in(cfg: config.RunConfig | _StaticConfig) -> int:
     carries a precomputed value (era-routed by the caller through the
     descriptor seam — ``runmeta.choice_input_dim_for``); a live
     ``RunConfig`` (the interactive configurator) is always the current
-    era."""
+    era (has_becomes_playable=True for v0.6+)."""
     if isinstance(cfg, _StaticConfig):
         return cfg.choice_in
     return encode.choice_input_dim(
         cfg.choice_dim,
         cfg.architecture.main.card_embed_dim,
         include_setup=cfg.encoding_spec.include_setup,
+        has_becomes_playable=True,
     )
 
 
 def _choice_extra(cfg: config.RunConfig | _StaticConfig) -> int:
     """The choice encoder's passthrough "additional inputs" count — every card
-    region (the candidate identity, the board-index block, and — when setup is
-    in the main net — the kept-set multi-hot) is embedded, so the extra count
-    excludes them all. Era-precomputed on the static adapter
+    region (the candidate identity, the board-index block, becomes_playable, and —
+    when setup is in the main net — the kept-set multi-hot) is embedded, so the
+    extra count excludes them all. Era-precomputed on the static adapter
     (``runmeta.choice_extra_for``)."""
     if isinstance(cfg, _StaticConfig):
         return cfg.choice_extra
     return encode.choice_passthrough_dim(
-        cfg.choice_dim, include_setup=cfg.encoding_spec.include_setup
+        cfg.choice_dim,
+        include_setup=cfg.encoding_spec.include_setup,
+        has_becomes_playable=True,
     )
 
 

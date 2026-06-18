@@ -103,12 +103,14 @@ class PolicyValueNetV01(core.PolicyValueNet):
 
     The card encoder's first linear was trained against 229-wide input rows;
     this subclass overrides :meth:`_build_card_encoder` to keep that width and
-    register the frozen v0.1 feature table. The state encoding is also frozen
-    at the v0.2 (771-dim) geometry via :meth:`encode_state` *and*
+    register the frozen v0.1 feature table. The state encoding is frozen at the
+    v0.2 (771-dim) geometry via :meth:`encode_state` and
     :meth:`_state_embed_offsets` (which slices it), because the v0.3 change that
-    grew state to 790 dims postdates these checkpoints. Choice
-    encoding is identical to the live era. Constructed by the version-routing
-    loaders (``PolicyValueNet.from_model_config``,
+    grew state to 790 dims postdates these checkpoints. The choice encoder also
+    uses pre-0.6 geometry: :meth:`_choice_embed_offsets` returns
+    ``becomes_playable=None`` so the encoder width matches the checkpoint, not
+    the live 0.6+ formula that includes the becomes_playable embedding. Constructed
+    by the version-routing loaders (``PolicyValueNet.from_model_config``,
     ``players.loaders.load_policy_net``) — never by the training pipeline.
     """
 
@@ -123,6 +125,18 @@ class PolicyValueNetV01(core.PolicyValueNet):
 
         return v0_2_module.encode_state_v02(game_state, decision, self.spec)
 
+    def encode_choices(
+        self,
+        decision: decisions.Decision[decisions.Choice],
+        game_state: state.GameState,
+    ) -> np.ndarray:
+        """Produce the pre-0.6 choice rows for ``decision`` — the live encoding
+        without the ``becomes_playable`` stripe (added in v0.6, absent from v0.1
+        checkpoints). The 215-dim format this net was trained on."""
+        return encode.encode_choices(
+            decision, game_state, self.spec, has_becomes_playable=False
+        )
+
     def _state_embed_offsets(self) -> core.StateEmbedOffsets:
         """Slice the 771-dim v0.2 state vector at its frozen offsets — the same
         seam ``PolicyValueNetV02`` overrides (pre-0.2 nets feed the same vector),
@@ -132,6 +146,22 @@ class PolicyValueNetV01(core.PolicyValueNet):
         from wingspan.compat import v0_2 as v0_2_module  # local: avoids import cycle
 
         return v0_2_module.state_embed_offsets_v02()
+
+    def _choice_embed_offsets(self) -> core.ChoiceEmbedOffsets:
+        """The frozen pre-0.6 choice embed offsets — no ``becomes_playable`` column.
+
+        The v0.1/v0.2 choice row predates the ``becomes_playable`` stripe added in
+        v0.6; returning ``becomes_playable=None`` here keeps ``_build_choice_encoder``
+        from adding that embedding to the input width, matching the checkpoint's
+        actual first-linear shape (``PolicyValueNetV00`` inherits this)."""
+        return core.ChoiceEmbedOffsets(
+            board_idx=encode.CHOICE_BOARD_IDX_OFFSET,
+            bird_id=encode.CHOICE_BIRD_ID_OFFSET,
+            becomes_playable=None,
+            kept_multihot=(
+                encode.CHOICE_KEPT_MULTIHOT_OFFSET if self.include_setup else None
+            ),
+        )
 
     def _build_card_encoder(self, arch: architecture.ModelArchitecture) -> None:
         """Register ``card_encoder`` at the frozen 229-wide input, and

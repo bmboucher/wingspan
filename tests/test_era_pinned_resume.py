@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 torch = pytest.importorskip("torch")
 
 from wingspan import compat, encode, model, version  # noqa: E402
-from wingspan.compat import v0_0, v0_1, v0_2  # noqa: E402
+from wingspan.compat import v0_0, v0_1, v0_2, v0_4  # noqa: E402
 from wingspan.training import (  # noqa: E402
     artifacts,
     batched_collect,
@@ -161,7 +161,8 @@ def test_era_pinned_config_derives_frozen_dims(tmp_path: pathlib.Path):
     live = _cfg(tmp_path)
     pinned = _cfg(tmp_path, encoding_version="0.2")
     assert pinned.state_dim == _V02_STATE_DIM
-    assert pinned.choice_dim == live.choice_dim  # choice geometry unchanged in 0.3
+    # v0.2 choice geometry is the pre-0.6 frozen dim (becomes_playable was added in 0.6).
+    assert pinned.choice_dim == v0_4.choice_feature_dim_v04(pinned.encoding_spec)
     assert pinned.architecture_key[0] == "0.2"
     assert pinned.architecture_key != live.architecture_key
 
@@ -179,8 +180,16 @@ def test_encoding_dims_for_era_routes_each_era():
         _V02_STATE_DIM,
         _V00_CHOICE_DIM,
     )
-    assert compat.encoding_dims_for_era("0.1", spec) == (_V02_STATE_DIM, live_dims[1])
-    assert compat.encoding_dims_for_era("0.2", spec) == (_V02_STATE_DIM, live_dims[1])
+    # v0.1 and v0.2 predate the v0.6 becomes_playable stripe; their choice dim is frozen.
+    pre_v06_choice_dim = v0_4.choice_feature_dim_v04(spec)
+    assert compat.encoding_dims_for_era("0.1", spec) == (
+        _V02_STATE_DIM,
+        pre_v06_choice_dim,
+    )
+    assert compat.encoding_dims_for_era("0.2", spec) == (
+        _V02_STATE_DIM,
+        pre_v06_choice_dim,
+    )
     assert compat.encoding_dims_for_era(version.MODEL_VERSION, spec) == live_dims
     # The include-setup axis stays orthogonal to the era axis.
     setup_spec = encode.spec_for(False)

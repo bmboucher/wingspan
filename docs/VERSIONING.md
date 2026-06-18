@@ -33,7 +33,56 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v0.5 — unified run-config file (current)
+### v0.6 — playability-aware hand copies (current)
+
+**FRESH change** — added two playability-filtered hand multi-hots to the state vector
+and a `becomes_playable` multi-hot to every choice row, growing the state by 360 dims
+(795 → 1155) and each choice row by 180 dims:
+
+1. **State: `hand_playable_me` (180 dims)** — birds in the active player's hand that
+   are playable right now (food affordable + open habitat slot + eggs sufficient).
+   Inserted immediately after `hand_multihot`, before the decision-type one-hot.
+2. **State: `hand_playable_eggs_me` (180 dims)** — birds in hand where food is
+   affordable and a habitat slot is open, but the player lacks the required eggs
+   ("egg-blocked"). Inserted right after `hand_playable_me`.
+3. **Choice: `becomes_playable` (180 dims)** — birds in hand that transition from
+   not-playable to playable as a direct result of the food or egg(s) this choice
+   grants. Appended after `bonus_value` in each choice row. Filled on:
+   - `FoodChoice` (`GainFoodDecision`) — exact, one food gained.
+   - `PayCostChoice` skip_optional exchanges — optimistic best-case: feeder food
+     when `gained_food_count > 0`, egg unlock when `gained_egg_count > 0`.
+   - `GAIN_FOOD` and `LAY_EGGS` `MainActionChoice` rows — optimistic best-case
+     (feeder foods / `lay_eggs_count()` eggs respectively).
+   - **Not** on `BoardTargetChoice` (`LayEggDecision`): the egg is already committed
+     and the gain is constant across slots — no choice-relevant signal there.
+4. **Each new multi-hot is embedded through the shared hand encoder** (derived 10-dim
+   summary via `card_summary_matrix` when `use_distinct_hand_model` is on, mean-pool
+   otherwise), so the trunk sees a learned dense summary rather than a raw bit vector.
+
+**REGIME change: tray `set_embedding` default flipped** — `tray_set_embedding` default
+changed `True → False` in `ModelArchitecture`. Old checkpoints carry `tray_set_embedding=True`
+in their config and load unchanged via the config-carry mechanism; the code and validator
+are retained for backward compat (removal at next MAJOR bump). New 0.6 runs never enable
+the tray hand model.
+
+**Config-carried setup change: `include_turn1_playable`** — `SetupEncoding` gains
+`include_turn1_playable: bool = False`. When enabled, a 180-dim `turn1_playable`
+multi-hot (birds from `kept_cards` payable from `kept_foods` on turn 1) is appended to
+the setup feature vector and embedded through the hand encoder. Existing setup configs
+deserialize with the flag absent → `False` → old `total_dim` preserved → no setup shim
+needed. New 0.6 runs enable it by default.
+
+Shim: `wingspan.compat.v0_4` — covers **both 0.4 and 0.5 artifacts** (encoding-identical
+pair; the 0.5 bump was config-container only). `PolicyValueNetV04` overrides
+`encode_state` / `encode_choices` / `_state_embed_offsets` / `_choice_embed_offsets` to
+run the frozen 795-dim state (no playability stripes) and narrower choice rows (no
+`becomes_playable`). `uses_v0_4_encoding(v)` predicate covers `(0,4) <= (major,minor)
+< (0,6)`.
+
+Fixture set: `tests/data/compat/v0.6/` — to be captured after this change merges
+(requires a short 0.6 training run), same pattern as v0.4/v0.5.
+
+### v0.5 — unified run-config file
 
 **Config-container change, NOT an encoding change.** This MINOR bump is unusual:
 the encoding is byte-for-byte identical to 0.4 — `state_dim` / `choice_dim` / the

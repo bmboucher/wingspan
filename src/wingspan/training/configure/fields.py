@@ -505,7 +505,6 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "use_distinct_hand_model": ("architecture", "main", "use_distinct_hand_model"),
     "hand_encoder_layers": ("architecture", "main", "hand_encoder_layers"),
     "hand_embed_dim": ("architecture", "main", "hand_embed_dim"),
-    "tray_set_embedding": ("architecture", "main", "tray_set_embedding"),
     "encoder_final_activation": ("architecture", "main", "encoder_final_activation"),
     # architecture.setup section
     "setup_hidden_layers": ("architecture", "setup", "hidden_layers"),
@@ -1033,18 +1032,6 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Output width N of the hand encoder — the multi-card *set* embedding "
         "(the hand, and every other card set embedded through it). Type 'none' to "
         "track card embed dim (M). Fresh run.",
-    ),
-    ChoiceField(
-        attr="tray_set_embedding",
-        label="tray set embedding",
-        section=ConfigSection.MODEL,
-        group="hand model",
-        choices=["True", "False"],
-        impact=ChangeImpact.FRESH,
-        visible_when=lambda cfg: cfg.architecture.main.use_distinct_hand_model,
-        help="Feed the trunk one hand-encoder embedding of the face-up tray *set* "
-        "beside the three per-slot card lookups (3·M + N tray dims). Requires the "
-        "distinct hand MLP; on by default alongside it. Fresh run.",
     ),
     IntField(
         attr="seed",

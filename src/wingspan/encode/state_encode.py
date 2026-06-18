@@ -57,6 +57,8 @@ def encode_state(
         _round_goals_all_rounds(state, me),  # layout._ROUND_GOALS_STRIPE_DIM
         _card_index_block(me, opp, state),  # layout.N_CARD_INDEX_SLOTS — board+tray ids
         _hand_identity(me),  # layout.HAND_MULTIHOT_DIM — multi-hot of my hand
+        _hand_playable(me),  # layout.HAND_MULTIHOT_DIM — playable right now
+        _hand_playable_eggs(me),  # layout.HAND_MULTIHOT_DIM — egg-blocked but ready
         _encode_decision_type(
             decision, spec
         ),  # layout.decision_type_dim(spec) (stays last)
@@ -157,6 +159,29 @@ def _hand_identity(player: state.Player) -> np.ndarray:
     size only)."""
     vec = np.zeros(layout._BIRD_ID_DIM, dtype=np.float32)
     for bird in player.hand:
+        vec[cards.bird_index(bird)] = 1.0
+    return vec
+
+
+def _hand_playable(player: state.Player) -> np.ndarray:
+    """Multi-hot of hand birds playable right now (food, slot, and eggs all met)."""
+    from wingspan.engine import playability
+
+    vec = np.zeros(layout._BIRD_ID_DIM, dtype=np.float32)
+    playable_now, _ = playability.classify_hand_playability(player)
+    for bird in playable_now:
+        vec[cards.bird_index(bird)] = 1.0
+    return vec
+
+
+def _hand_playable_eggs(player: state.Player) -> np.ndarray:
+    """Multi-hot of hand birds where food is affordable and a slot is open, but
+    the egg cost is not yet met."""
+    from wingspan.engine import playability
+
+    vec = np.zeros(layout._BIRD_ID_DIM, dtype=np.float32)
+    _, playable_if_eggs = playability.classify_hand_playability(player)
+    for bird in playable_if_eggs:
         vec[cards.bird_index(bird)] = 1.0
     return vec
 

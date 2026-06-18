@@ -119,9 +119,9 @@ class ModelArchitecture(pydantic.BaseModel):
     # the shared hand encoder from a tray multi-hot + summary the model derives
     # from the three tray index columns. The tray's three per-slot card-table
     # lookups are unchanged, so the tray contributes 3·M + N dims in total.
-    # Defaults to True alongside ``use_distinct_hand_model``; ``False`` configs
-    # (and the checkpoints they describe) remain supported.
-    tray_set_embedding: bool = True
+    # Defaults to False for new runs (REGIME change from the old True default —
+    # saved configs carry their own value, so existing checkpoints are unaffected).
+    tray_set_embedding: bool = False
     # When True, the card, hand, and choice encoders apply a final activation
     # after their last layer, consistent with the trunk. Default False preserves
     # the behaviour of checkpoints written before this field was introduced —

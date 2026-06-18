@@ -303,10 +303,12 @@ def _assert_live_layout_contract() -> None:
     assert layout._OFF_BIRD_ID - layout._OFF_BOARD_IDX == _BOARD_IDX_SLOTS
     # The live candidate column is a single index directly before the bonus
     # tail (bonus_id through bonus_value), one contiguous block of identical
-    # width in both eras.
+    # width in both eras. The becomes_playable stripe was added AFTER bonus_value
+    # in v0.6, growing _CHOICE_BASE_DIM by 180 — use CHOICE_BECOMES_PLAYABLE_OFFSET
+    # as the boundary so this assertion does not include the new stripe.
     assert layout._CHOICE_BIRD_ID_DIM == 1
     assert layout._OFF_BONUS_ID == layout._OFF_BIRD_ID + 1
-    assert layout._CHOICE_BASE_DIM - layout._OFF_BONUS_ID == (
+    assert layout.CHOICE_BECOMES_PLAYABLE_OFFSET - layout._OFF_BONUS_ID == (
         _CHOICE_BASE_DIM - _OFF_BONUS_ID
     )
     # Trailing conditional stripes: setup_agg, then the kept multi-hot sized
@@ -329,8 +331,10 @@ def _copy_shared_blocks(
     rows[:, _OFF_BOARD_IDX:_OFF_BIRD_ID] = live_rows[
         :, layout._OFF_BOARD_IDX : layout._OFF_BIRD_ID
     ]
+    # Copy bonus_id through bonus_value; stop before the v0.6 becomes_playable
+    # stripe (layout.CHOICE_BECOMES_PLAYABLE_OFFSET) which the v0.0 row lacks.
     rows[:, _OFF_BONUS_ID:_OFF_SETUP] = live_rows[
-        :, layout._OFF_BONUS_ID : layout._CHOICE_BASE_DIM
+        :, layout._OFF_BONUS_ID : layout.CHOICE_BECOMES_PLAYABLE_OFFSET
     ]
     if spec.include_setup:
         rows[:, _OFF_SETUP : _OFF_SETUP + _SETUP_DIM] = live_rows[

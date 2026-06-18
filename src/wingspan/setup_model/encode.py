@@ -226,6 +226,17 @@ def encode_setup_candidate(
             affinity / layout._GOAL_COUNT_SCALE
         )
 
+    # 9. Turn-1 playability multi-hot (only when include_turn1_playable): which
+    # kept cards could be played on turn 1 given the kept foods.
+    if encoding.include_turn1_playable:
+        from wingspan.engine import playability as _playability
+
+        playable = _playability.setup_turn1_playable(
+            candidate.kept_cards, candidate.kept_foods
+        )
+        for bird in playable:
+            vec[encoding.off_turn1_playable + cards.bird_index(bird)] = 1.0
+
     return vec
 
 

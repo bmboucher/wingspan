@@ -691,11 +691,13 @@ def _param_report_for(cfg: config.TrainConfig) -> architecture.ParamReport:
             use_distinct_hand_model=main.use_distinct_hand_model,
             hand_embed_dim=main.hand_embed_dim,
             tray_set_embedding=main.tray_set_embedding,
+            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
         ),
         choice_in=encode.choice_input_dim(
             cfg.choice_dim,
             main.card_embed_dim,
             include_setup=cfg.encoding_spec.include_setup,
+            has_becomes_playable=True,
         ),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,

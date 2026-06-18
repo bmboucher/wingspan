@@ -57,6 +57,13 @@ here too; each `BonusCard.scoring_rule` is dispatched through a registry.
 `enumerate_payments(food_pool, cost) -> list[FoodPool]` (all valid payment
 combinations). Used by both `actions.py` and the encoder.
 
+**`playability.py`** — Pure playability predicates over `state.Player`:
+`classify_hand_playability(player) -> (playable_now, egg_blocked)` (the two
+hand multi-hot sources), `newly_playable_after_food`, `newly_playable_after_egg`,
+`gainable_feeder_foods`, `newly_playable_after_feeder_food`, and
+`setup_turn1_playable`. Imported **locally** inside encoder functions to keep
+`encode` engine-free at import time.
+
 **`log_format.py`** — Formatting helpers for the game log: `format_bird_log`,
 `format_food_log`, etc. Pure string functions; no engine state.
 

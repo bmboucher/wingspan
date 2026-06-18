@@ -64,6 +64,7 @@ class SetupEncoding(pydantic.BaseModel):
 
     split_food: bool = False
     split_bonus: bool = False
+    include_turn1_playable: bool = False
 
     # ---- offset properties (all derived, no stored state) ----
 
@@ -116,9 +117,17 @@ class SetupEncoding(pydantic.BaseModel):
         return self.off_bonus_value + bonus_value_dim
 
     @property
+    def off_turn1_playable(self) -> int:
+        """Start of the turn1_playable multi-hot (only when ``include_turn1_playable``)."""
+        return self.off_goal_affinity + _GOAL_AFFINITY_DIM
+
+    @property
     def total_dim(self) -> int:
         """Total feature-vector length for this encoding configuration."""
-        return self.off_goal_affinity + _GOAL_AFFINITY_DIM
+        base = self.off_goal_affinity + _GOAL_AFFINITY_DIM
+        if self.include_turn1_playable:
+            base += _KEPT_CARDS_DIM  # 180-dim multi-hot of turn-1-playable birds
+        return base
 
 
 # A setup-net shape signature: the hidden-layer widths plus whether the policy
@@ -163,18 +172,30 @@ class SetupArchitecture(pydantic.BaseModel):
 
 
 def setup_readout_input_dim(
-    feature_dim: int, main_arch: architecture.ModelArchitecture
+    feature_dim: int,
+    main_arch: architecture.ModelArchitecture,
+    *,
+    include_turn1_playable: bool = False,
 ) -> int:
     """The setup readout MLP's first-``Linear`` input width: the raw
     ``feature_dim`` vector with the kept-cards multi-hot replaced by one
     ``N``-wide set embedding and the tray index columns replaced by
     ``TRAY_SIZE`` ``M``-wide card-table rows plus one more ``N``-wide tray-set
     embedding (``M = card_embed_dim``, ``N = hand_embed_width``). The single
-    source of truth shared by ``SetupNet`` and the parameter accounting."""
+    source of truth shared by ``SetupNet`` and the parameter accounting.
+
+    When ``include_turn1_playable`` is active, the trailing 180-dim multi-hot
+    is embedded as one extra ``hand_embed_width``-wide set embedding."""
     passthrough = feature_dim - cards.n_birds() - state.TRAY_SIZE
+    n_hand_sets = 2  # kept set + tray set
+    if include_turn1_playable:
+        # The 180-dim turn1_playable multi-hot sits in passthrough but gets
+        # embedded as a card set -> subtract the raw dims, add one set embedding.
+        passthrough -= _KEPT_CARDS_DIM
+        n_hand_sets += 1
     return (
         passthrough
-        + 2 * main_arch.hand_embed_width
+        + n_hand_sets * main_arch.hand_embed_width
         + state.TRAY_SIZE * main_arch.card_embed_dim
     )
 
@@ -217,7 +238,9 @@ def count_setup_parameters(
             main_arch,
         )
     )
-    readout_in = setup_readout_input_dim(feature_dim, main_arch)
+    readout_in = setup_readout_input_dim(
+        feature_dim, main_arch, include_turn1_playable=False
+    )
     # When the policy head is present there are two readout MLPs of identical
     # shape (value + policy), so their parameter count doubles.
     readout = architecture.readout_layers(readout_in, setup_arch.hidden_layers)

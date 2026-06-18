@@ -222,6 +222,7 @@ _CHOICE_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="bonus_delta", size=_BONUS_DELTA_DIM),
     _stripe_descriptors.StripeSpec(name="goal_delta", size=_GOAL_DELTA_DIM),
     _stripe_descriptors.StripeSpec(name="bonus_value", size=_BONUS_VALUE_DIM),
+    _stripe_descriptors.StripeSpec(name="becomes_playable", size=_BIRD_ID_DIM),
 ]
 _CHOICE_SETUP_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="setup_agg", size=_SETUP_DIM),
@@ -477,6 +478,11 @@ _ROUND_GOALS_STRIPE_DIM = _NUM_ROUNDS * _ROUND_GOAL_SLOT_DIM
 N_BOARD_INDEX_SLOTS = 2 * _SLOTS_PER_BOARD  # POV board + opponent board
 N_CARD_INDEX_SLOTS = N_BOARD_INDEX_SLOTS + state.TRAY_SIZE
 HAND_MULTIHOT_DIM = _BIRD_ID_DIM
+N_HAND_PLAYABLE_MULTIHOTS = 2
+"""Number of extra hand-playability multi-hot stripes appended after ``hand_multihot``
+in the state vector: ``hand_playable_me`` (playable right now) and
+``hand_playable_eggs_me`` (egg-blocked but food/slot ready). Pre-0.6 artifacts
+have 0 extra stripes; the compat shim freezes the offsets at the old values."""
 
 _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(
@@ -501,6 +507,10 @@ _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="round_goals", size=_ROUND_GOALS_STRIPE_DIM),
     _stripe_descriptors.StripeSpec(name="card_idx_block", size=N_CARD_INDEX_SLOTS),
     _stripe_descriptors.StripeSpec(name="hand_multihot", size=HAND_MULTIHOT_DIM),
+    _stripe_descriptors.StripeSpec(name="hand_playable_me", size=HAND_MULTIHOT_DIM),
+    _stripe_descriptors.StripeSpec(
+        name="hand_playable_eggs_me", size=HAND_MULTIHOT_DIM
+    ),
 ]
 STATE_CONT_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
     _STATE_CONT_STRIPE_SPECS
@@ -539,6 +549,8 @@ CHOICE_BONUS_ID_OFFSET = _OFF_BONUS_ID
 CHOICE_SETUP_OFFSET = _OFF_SETUP
 CHOICE_KEPT_MULTIHOT_OFFSET = _OFF_KEPT_MULTIHOT
 CHOICE_KEPT_MULTIHOT_DIM = _KEPT_MULTIHOT_DIM
+CHOICE_BECOMES_PLAYABLE_OFFSET: int = CHOICE_BASE_LAYOUT.offset_of("becomes_playable")
+CHOICE_BECOMES_PLAYABLE_DIM: int = _BIRD_ID_DIM
 
 
 def trunk_input_dim(
@@ -548,6 +560,7 @@ def trunk_input_dim(
     use_distinct_hand_model: bool = False,
     hand_embed_dim: int | None = None,
     tray_set_embedding: bool = False,
+    n_playable_multihots: int = 0,
 ) -> int:
     """The state trunk's first-``Linear`` input width: the flat ``state_dim`` with
     the card-index block and the hand multi-hot replaced by their shared-embedding
@@ -569,6 +582,12 @@ def trunk_input_dim(
     hand encoder, derived in-model from the three tray index columns — the tray's
     per-slot card-table lookups are unchanged, giving 3·M + N tray dims in total.
 
+    ``n_playable_multihots`` counts the extra hand-playability multi-hot blocks that
+    follow the hand multi-hot in the state vector (``N_HAND_PLAYABLE_MULTIHOTS`` in
+    live encoding, 0 for pre-0.6 compat shims). Each is removed from the flat
+    state and re-embedded through the same hand encoder (or mean-pooled), adding
+    one ``hand_embed_dim``-wide vector per block.
+
     This is the single source of truth for the post-embedding width (used by both
     ``model.PolicyValueNet`` and the configurator's parameter accounting)."""
     hand_width = (
@@ -580,8 +599,11 @@ def trunk_input_dim(
         state_dim
         - N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings
         - HAND_MULTIHOT_DIM  # hand multi-hot -> one hand embedding
+        - n_playable_multihots
+        * HAND_MULTIHOT_DIM  # extra playability multi-hots removed
         + N_CARD_INDEX_SLOTS * card_embed_dim
         + hand_width
+        + n_playable_multihots * hand_width  # each embedded as a card set
     )
     if use_distinct_hand_model:
         base -= HAND_SUMMARY_DIM
@@ -591,7 +613,11 @@ def trunk_input_dim(
 
 
 def choice_input_dim(
-    choice_dim: int, card_embed_dim: int, *, include_setup: bool = False
+    choice_dim: int,
+    card_embed_dim: int,
+    *,
+    include_setup: bool = False,
+    has_becomes_playable: bool = True,
 ) -> int:
     """The per-choice encoder's first-``Linear`` input width: the flat
     ``choice_dim`` with the candidate's bird-index column AND the 15-slot
@@ -600,7 +626,11 @@ def choice_input_dim(
     ``include_setup``, the trailing kept_multihot stripe likewise collapses to
     one summed embedding; ``choice_dim`` alone cannot reveal whether the
     trailing setup stripes are present, so the flag is explicit (default
-    matches ``DEFAULT_SPEC``)."""
+    matches ``DEFAULT_SPEC``).
+
+    When ``has_becomes_playable`` is True (the live 0.6+ encoding), the
+    ``becomes_playable`` 180-dim multi-hot is replaced by one summed embedding;
+    set to False for pre-0.6 compat shims whose choice vector lacks the stripe."""
     base = (
         choice_dim
         - CHOICE_BIRD_ID_DIM  # candidate index column -> one embedding
@@ -608,18 +638,27 @@ def choice_input_dim(
         + card_embed_dim
         + CHOICE_BOARD_IDX_SLOTS * card_embed_dim
     )
+    if has_becomes_playable:
+        base += (
+            card_embed_dim - CHOICE_BECOMES_PLAYABLE_DIM
+        )  # multi-hot -> one embedding
     if include_setup:
         base += card_embed_dim - CHOICE_KEPT_MULTIHOT_DIM  # multi-hot -> one embedding
     return base
 
 
-def choice_passthrough_dim(choice_dim: int, *, include_setup: bool = False) -> int:
+def choice_passthrough_dim(
+    choice_dim: int, *, include_setup: bool = False, has_becomes_playable: bool = True
+) -> int:
     """The choice columns that pass straight through to the encoder — the flat
     ``choice_dim`` minus every card-region stripe the model replaces with a
     shared-embedding lookup (the candidate index column, the 15-slot
-    board-index block, and — when ``include_setup`` — the kept-set multi-hot).
+    board-index block, the ``becomes_playable`` multi-hot when present, and —
+    when ``include_setup`` — the kept-set multi-hot).
     The architecture diagram's "additional inputs" count."""
     extra = choice_dim - CHOICE_BIRD_ID_DIM - CHOICE_BOARD_IDX_SLOTS
+    if has_becomes_playable:
+        extra -= CHOICE_BECOMES_PLAYABLE_DIM
     if include_setup:
         extra -= CHOICE_KEPT_MULTIHOT_DIM
     return extra

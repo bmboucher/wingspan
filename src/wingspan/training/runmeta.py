@@ -263,13 +263,24 @@ def build_model_summary_html(
 def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
     """The per-layer / per-block parameter accounting for ``descriptor``'s net,
     era-routed so totals match the actual checkpoint."""
-    from wingspan.compat import v0_1  # local: compat imports the model package
+    from wingspan.compat import v0_1, v0_4  # local: compat imports the model package
 
     arch = descriptor.architecture
     card_feat_in = (
         v0_1.CARD_FEATURE_DIM_V01
         if v0_1.uses_v0_1_card_feature_encoding(descriptor.version)
         else encode.CARD_FEATURE_DIM
+    )
+    # Pre-0.6 artifacts (0.0–0.5) have 0 playability multi-hots; v0.6+ have
+    # N_HAND_PLAYABLE_MULTIHOTS.  The playability stripes were added in 0.6, so
+    # any same-major version below 0.6 must use n_playable=0.
+    parsed_ver = version.parse_version(descriptor.version)
+    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
+    n_playable = (
+        0
+        if (parsed_ver.major, parsed_ver.minor)
+        < (playability_ver.major, playability_ver.minor)
+        else encode.N_HAND_PLAYABLE_MULTIHOTS
     )
     return architecture.count_parameters(
         arch,
@@ -280,6 +291,7 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
             use_distinct_hand_model=arch.use_distinct_hand_model,
             hand_embed_dim=arch.hand_embed_dim,
             tray_set_embedding=arch.tray_set_embedding,
+            n_playable_multihots=n_playable,
         ),
         choice_in=choice_input_dim_for(descriptor),
         num_families=len(descriptor.family_order),
@@ -331,28 +343,48 @@ def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
 
 
 def choice_input_dim_for(descriptor: ModelConfig) -> int:
-    """The choice encoder's first-``Linear`` input width for ``descriptor``."""
-    from wingspan.compat import v0_0  # local: compat imports the model package
+    """The choice encoder's first-``Linear`` input width for ``descriptor``.
+
+    Era-routed: v0.0 artifacts use the v0.0 formula (no board-idx slots, 180-wide
+    bird one-hot); pre-0.6 artifacts use the live formula but with
+    ``has_becomes_playable=False`` (no becomes_playable stripe); v0.6+ use the
+    live formula with ``has_becomes_playable=True``."""
+    from wingspan.compat import v0_0, v0_4  # local: compat imports the model package
 
     if v0_0.uses_v0_0_choice_encoding(descriptor.version):
         return v0_0.choice_input_dim(
             descriptor.choice_dim, descriptor.architecture.card_embed_dim
         )
+    parsed_ver = version.parse_version(descriptor.version)
+    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
+    has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
+        playability_ver.major,
+        playability_ver.minor,
+    )
     return encode.choice_input_dim(
         descriptor.choice_dim,
         descriptor.architecture.card_embed_dim,
         include_setup=descriptor.include_setup,
+        has_becomes_playable=has_becomes,
     )
 
 
 def choice_extra_for(descriptor: ModelConfig) -> int:
     """The choice encoder's passthrough width for ``descriptor``, era-routed."""
-    from wingspan.compat import v0_0  # local: compat imports the model package
+    from wingspan.compat import v0_0, v0_4  # local: compat imports the model package
 
     if v0_0.uses_v0_0_choice_encoding(descriptor.version):
         return v0_0.choice_passthrough_dim(descriptor.choice_dim)
+    parsed_ver = version.parse_version(descriptor.version)
+    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
+    has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
+        playability_ver.major,
+        playability_ver.minor,
+    )
     return encode.choice_passthrough_dim(
-        descriptor.choice_dim, include_setup=descriptor.include_setup
+        descriptor.choice_dim,
+        include_setup=descriptor.include_setup,
+        has_becomes_playable=has_becomes,
     )
 
 

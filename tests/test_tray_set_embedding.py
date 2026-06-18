@@ -81,11 +81,15 @@ def test_flag_on_appends_exactly_the_tray_set_embedding():
         _ARCH_ON.card_embed_dim,
         use_distinct_hand_model=True,
         tray_set_embedding=True,
+        n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
     )
 
-    # The shared prefix (continuous + slot embeddings) and suffix (the hand
-    # embedding) are bit-identical; only the new block differs.
-    prefix = emb_off.shape[-1] - set_width
+    # The shared prefix (continuous + slot embeddings) is everything before the
+    # first set embedding; the suffix (hand + playability embeddings) follows the
+    # tray block.  There are 1 + N_HAND_PLAYABLE_MULTIHOTS set-width blocks at the
+    # tail of emb_off (hand plus the two playability copies), so the prefix ends
+    # that many set-widths before the end.
+    prefix = emb_off.shape[-1] - (1 + encode.N_HAND_PLAYABLE_MULTIHOTS) * set_width
     assert torch.equal(emb_on[..., :prefix], emb_off[..., :prefix])
     assert torch.equal(emb_on[..., prefix + set_width :], emb_off[..., prefix:])
 

@@ -411,6 +411,45 @@ def state_stripe_layout(
     )
     off += hand_dim
 
+    # ---- hand-playability multi-hots (v0.6+: two 180-dim stripes) ----
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="hand_playable_me",
+            description=(
+                f"Multi-hot of my hand birds that are playable right now "
+                "(food affordable, at least one open habitat slot, egg cost met)."
+            ),
+            offset=off,
+            size=hand_dim,
+            encoding="multi-hot",
+            value_range="{0, 1}",
+            notes=(
+                "Indexed by stable bird order from cards.bird_index(). "
+                "Embedded through the shared card embedder (same as hand_multihot)."
+            ),
+        )
+    )
+    off += hand_dim
+
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="hand_playable_eggs_me",
+            description=(
+                f"Multi-hot of my hand birds where food is affordable and a habitat "
+                "slot is open, but the egg cost is not yet met."
+            ),
+            offset=off,
+            size=hand_dim,
+            encoding="multi-hot",
+            value_range="{0, 1}",
+            notes=(
+                "Indexed by stable bird order from cards.bird_index(). "
+                "Embedded through the shared card embedder (same as hand_multihot)."
+            ),
+        )
+    )
+    off += hand_dim
+
     # ---- decision-type one-hot (always last; setup column present iff include_setup) ----
     decision_dim = layout.decision_type_dim(spec)
     active_classes = decisions.active_decision_classes(spec.include_setup)

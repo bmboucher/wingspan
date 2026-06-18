@@ -229,4 +229,15 @@ def choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
                 f"a {kept}-wide multi-hot over all core birds."
             ),
         ),
+        "becomes_playable": _EmbedRule(
+            new_size=card_embed_dim,
+            encoding="card-embedding (becomes-playable set, summed)",
+            value_range="learned",
+            notes=(
+                f"The set of hand birds that would become playable by accepting this "
+                f"choice -> one {card_embed_dim}-dim embedding, summed over the "
+                f"birds' shared card vectors. Raw encoding is a "
+                f"{layout.CHOICE_BECOMES_PLAYABLE_DIM}-wide multi-hot over all core birds."
+            ),
+        ),
     }

@@ -1,7 +1,7 @@
 # pyright: reportPrivateUsage=false
-# (tests call the shim's package-private _TOTAL_DIM_DELTA and check the live
-# layout's stripe constants — a deliberate compat coupling, matching the
-# convention in test_compat_shim_v0_0.py and compat/v0_3.py)
+# (tests call the shim's package-private _TOTAL_DIM_DELTA / _V04_ENCODING_DELTA
+# and check the live layout's stripe constants — a deliberate compat coupling,
+# matching the convention in test_compat_shim_v0_0.py and compat/v0_3.py)
 """Unit tests for the ``wingspan.compat.v0_3`` state-encoding shim.
 
 The end-to-end proof that a real pre-0.4 checkpoint loads and plays lives in
@@ -38,7 +38,10 @@ _SMALL = architecture.ModelArchitecture(
 
 # The v0.3 fixture's expected state geometry.
 _V03_STATE_DIM = 790
-_V03_DIM_DELTA = -5  # live 795 - frozen 790
+# Delta from v0.4 turn_state/misc change only (-5); applies to card_index and hand_multihot.
+_V04_ENCODING_DELTA = -5
+# Total live-to-v0.3 delta: -5 (v0.4 encoding) + -360 (v0.6 playability stripes).
+_V03_TOTAL_DIM_DELTA = -365  # live 1155 - frozen 790
 
 
 # ---------------------------------------------------------------------------
@@ -56,29 +59,44 @@ def test_version_predicate_selects_only_0_3_range():
 
 
 def test_state_feature_dim_v03_is_790():
-    """The frozen v0.3 state width is exactly 790 (live 795 minus 5)."""
+    """The frozen v0.3 state width is exactly 790 (live 1155 minus 365).
+
+    The 365-dim gap breaks down as:
+    - 5 dims: v0.4 turn_state/misc change (added 27-dim turn_state, shrank
+      misc from 26 → 4 dims, net +5 before card-index block).
+    - 360 dims: v0.6 playability stripes (2 × 180-dim hand-playable multi-hots
+      appended after hand_multihot, before decision_type).
+    """
     assert v0_3.state_feature_dim_v03() == _V03_STATE_DIM
-    assert v0_3.state_feature_dim_v03() == encode.state_size() + _V03_DIM_DELTA
-    assert v0_3._TOTAL_DIM_DELTA == _V03_DIM_DELTA
+    assert v0_3.state_feature_dim_v03() == encode.state_size() + _V03_TOTAL_DIM_DELTA
+    assert v0_3._TOTAL_DIM_DELTA == _V03_TOTAL_DIM_DELTA
+    assert v0_3._V04_ENCODING_DELTA == _V04_ENCODING_DELTA
 
 
 # ---------------------------------------------------------------------------
 # Embed offsets
 
 
-def test_state_embed_offsets_v03_shift_by_minus_5():
-    """The v0.3 embed offsets sit 5 columns left of the live v0.4 offsets.
+def test_state_embed_offsets_v03_shift_by_correct_deltas():
+    """The v0.3 embed offsets sit at positions specific to each stripe's era history.
 
-    v0.4 added a 27-dim turn_state stripe and shrank misc from 26 → 4 dims,
-    net +5 before the card-index block; the v0.3 vector is 5 dims narrower.
-    The widths of the sliced regions coincide, so slicing live would corrupt
-    the trunk input silently rather than crash."""
+    card_index / hand_multihot: shifted by -5 (the v0.4 turn_state/misc delta).
+    These stripes sit AFTER the turn_state/misc block but BEFORE the v0.6
+    playability stripes, so only the v0.4 encoding change moves them.
+
+    decision_type: shifted by -365 (v0.4 -5 plus v0.6 -360). It sits after
+    BOTH the turn_state/misc block AND the two playability multi-hot stripes.
+
+    The widths of all three sliced regions are identical across eras, so slicing
+    at the live offsets would corrupt the trunk input silently rather than crash."""
     offsets = v0_3.state_embed_offsets_v03()
-    assert offsets.card_index == encode.OFF_CARD_INDEX + _V03_DIM_DELTA
-    assert offsets.hand_multihot == encode.OFF_HAND_MULTIHOT + _V03_DIM_DELTA
-    assert offsets.decision_type == encode.OFF_DECISION_TYPE + _V03_DIM_DELTA
-    # The three regions must remain contiguous (widths unchanged between eras).
+    assert offsets.card_index == encode.OFF_CARD_INDEX + _V04_ENCODING_DELTA
+    assert offsets.hand_multihot == encode.OFF_HAND_MULTIHOT + _V04_ENCODING_DELTA
+    assert offsets.decision_type == encode.OFF_DECISION_TYPE + _V03_TOTAL_DIM_DELTA
+    # card_index and hand_multihot must remain contiguous (widths unchanged).
     assert offsets.card_index + encode.N_CARD_INDEX_SLOTS == offsets.hand_multihot
+    # hand_multihot and decision_type must remain contiguous in the v0.3 era
+    # (the v0.6 playability stripes are absent from the frozen vector).
     assert offsets.hand_multihot + encode.HAND_MULTIHOT_DIM == offsets.decision_type
 
 
@@ -100,12 +118,17 @@ def test_encode_state_v03_output_is_790_dims():
     assert vec.dtype == np.float32
 
 
-def test_encode_state_v03_is_5_dims_narrower_than_live():
-    """v0.3 state vector must be exactly 5 dims narrower than the live one."""
+def test_encode_state_v03_is_365_dims_narrower_than_live():
+    """v0.3 state vector must be exactly 365 dims narrower than the live one.
+
+    The gap breaks down as:
+    - 5 dims: v0.4 turn_state/misc change.
+    - 360 dims: v0.6 playability stripes (2 × 180 hand-playable multi-hots).
+    """
     eng, *_ = engine.Engine.create(seed=7)
     v03_vec = v0_3.encode_state_v03(eng.state)
     live_vec = encode.encode_state(eng.state)
-    assert len(live_vec) - len(v03_vec) == 5
+    assert len(live_vec) - len(v03_vec) == abs(_V03_TOTAL_DIM_DELTA)
 
 
 # ---------------------------------------------------------------------------
@@ -161,19 +184,20 @@ def test_state_stripe_layout_v03_has_26_dim_misc():
     assert "opp_action_cubes" in sub_names
 
 
-def test_state_stripe_layout_v03_total_is_5_less_than_live():
-    """The v0.3 layout's total_size is 5 less than the live layout's.
+def test_state_stripe_layout_v03_total_is_365_less_than_live():
+    """The v0.3 layout's total_size is 365 less than the live layout's.
 
     ``VectorLayout.total_size`` includes the post-embedding representation
     (card-index stripes store embed-dim columns, not raw indices), so the
-    absolute value is not 790 — but the 5-dim gap between v0.3 and v0.4 must
-    be preserved so the trunk input remains consistently shaped."""
+    absolute value differs from 790 — but the 365-dim gap between v0.3 and the
+    live v0.6 layout must be preserved so the trunk input is sized correctly.
+    (The gap was 5 between v0.3 and v0.4; v0.6 adds 360 more for playability.)"""
     from wingspan.encode.stripes import state as live_state_stripes
 
     frozen_layout = v0_3.state_stripe_layout_v03()
     live_layout = live_state_stripes.state_stripe_layout()
-    assert frozen_layout.total_size == live_layout.total_size + _V03_DIM_DELTA, (
-        f"Expected v0.3 total_size to be 5 less than live "
+    assert frozen_layout.total_size == live_layout.total_size + _V03_TOTAL_DIM_DELTA, (
+        f"Expected v0.3 total_size to be 365 less than live "
         f"({live_layout.total_size}), got {frozen_layout.total_size}"
     )
 

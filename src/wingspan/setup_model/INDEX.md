@@ -13,8 +13,11 @@ format is not coupled to it.
 **`architecture.py`** — `SetupArchitecture(hidden_layers, activation, dropout,
 layernorm)` — frozen topology descriptor for the setup MLP, analogous to
 `ModelArchitecture` for the policy net. `shape_key(arch) -> tuple` — the
-checkpoint-invalidating subset of fields (used by the FRESH-restart gate in the
-training loop).
+checkpoint-invalidating subset of fields. `SetupEncoding` — the config-carried
+encoding descriptor; `include_turn1_playable: bool = False` (v0.6+) appends a
+180-dim turn-1-playability multi-hot to the feature vector when enabled; old
+setup configs deserialize with the flag absent → `False` → old `total_dim`
+unchanged (no setup shim needed).
 
 **`candidates.py`** — The keep-set options the setup model scores:
 - `SetupCandidate(kept_cards, kept_foods, bonus_card)` — one keep option (a
@@ -26,10 +29,12 @@ training loop).
   a single deferred sentinel (`kept_foods=()`), producing 64 candidates for a
   5-card / 2-bonus deal instead of 504.
 
-**`encode.py`** — `encode_candidate(candidate: SetupCandidate, gs: GameState)
+**`encode.py`** — `encode_setup_candidate(candidate: SetupCandidate, gs: GameState, encoding: SetupEncoding)
 -> np.ndarray`: per-candidate feature encoder. Features include: kept bird
 one-hots, habitat coverage, food-cost histogram, egg-limit sum, nest-type
-mix, and kept-food vector. Output width matches `stripes.setup_input_dim()`.
+mix, kept-food vector, and (when `encoding.include_turn1_playable`) a 180-dim
+multi-hot of birds payable from `kept_foods` on turn 1. Output width matches
+`encoding.total_dim`.
 
 **`stripes.py`** — `setup_stripe_layout() -> VectorLayout` and
 `setup_input_dim() -> int`. Programmatic stripe registry for the setup input

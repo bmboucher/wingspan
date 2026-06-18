@@ -63,6 +63,19 @@ class StateEmbedOffsets(typing.NamedTuple):
     hand_summary: int
 
 
+class ChoiceEmbedOffsets(typing.NamedTuple):
+    """The era-dependent column offsets :meth:`PolicyValueNet._embed_choices` slices
+    the flat choice row on.
+
+    ``becomes_playable`` is ``None`` for pre-0.6 eras (the stripe did not exist);
+    ``kept_multihot`` is ``None`` when ``include_setup`` is ``False``."""
+
+    board_idx: int
+    bird_id: int
+    becomes_playable: int | None
+    kept_multihot: int | None
+
+
 class PolicyValueNet(nn.Module):
     """Actor-critic over (state, choice-set) decisions with per-family heads.
 
@@ -142,15 +155,16 @@ class PolicyValueNet(nn.Module):
         (frozen choice encoding); 0.1 → ``v0_1.PolicyValueNetV01`` (frozen
         229-wide card encoder); 0.2 → ``v0_2.PolicyValueNetV02`` (frozen
         771-dim state geometry); 0.3 → ``v0_3.PolicyValueNetV03`` (frozen
-        790-dim state geometry, one-hot round + cubes); current era → the live
-        class. Used by every construction seam that must honor an artifact's era
-        — the checkpoint loaders, ``from_model_config``, and the era-pinned
-        training pipeline (``TrainConfig.encoding_version``)."""
+        790-dim state geometry, one-hot round + cubes); 0.4–0.5 →
+        ``v0_4.PolicyValueNetV04`` (frozen 795-dim state + no becomes_playable
+        choice stripe); current era → the live class. Used by every construction
+        seam that must honor an artifact's era."""
         from wingspan.compat import (  # local: compat subclasses this net
             v0_0,
             v0_1,
             v0_2,
             v0_3,
+            v0_4,
         )
 
         if v0_0.uses_v0_0_choice_encoding(artifact_version):
@@ -161,6 +175,8 @@ class PolicyValueNet(nn.Module):
             return v0_2.PolicyValueNetV02
         if v0_3.uses_v0_3_state_encoding(artifact_version):
             return v0_3.PolicyValueNetV03
+        if v0_4.uses_v0_4_encoding(artifact_version):
+            return v0_4.PolicyValueNetV04
         return PolicyValueNet
 
     @classmethod
@@ -331,8 +347,9 @@ class PolicyValueNet(nn.Module):
 
         When ``use_distinct_hand_model`` is on, a dedicated MLP encodes a card
         set's [multi-hot ⊕ set-summary] representation to ``hand_embed_width``
-        dims. When ``tray_set_embedding`` is also on, the per-card summary
-        table lets ``_embed_state`` derive tray multi-hots from index columns."""
+        dims. The per-card summary table (``card_summary_matrix``) is registered
+        whenever the distinct hand model is active — needed for the playability
+        multi-hot blocks and, when ``tray_set_embedding`` is also on, the tray set."""
         if arch.use_distinct_hand_model:
             self.hand_encoder, _ = mlp.build_body(
                 encode.HAND_ENCODER_INPUT_DIM,
@@ -342,7 +359,6 @@ class PolicyValueNet(nn.Module):
                 layernorm=arch.layernorm,
                 final_activation=arch.encoder_final_activation,
             )
-        if arch.tray_set_embedding:
             self.register_buffer(
                 "card_summary_matrix",
                 torch.tensor(encode.card_summary_matrix(), dtype=torch.float32),
@@ -356,15 +372,23 @@ class PolicyValueNet(nn.Module):
 
         The trunk reads continuous state features plus looked-up card embeddings
         (index block → one embedding per slot, hand → mean-pool or dedicated
-        encoder, tray set when enabled). Always keeps a final activation — its
-        output is an internal representation consumed by both the value head and
-        the scorer concat."""
+        encoder, tray set when enabled, plus any extra playability multi-hot
+        blocks). Always keeps a final activation — its output is an internal
+        representation consumed by both the value head and the scorer concat."""
+        offsets = self._state_embed_offsets()
+        # Count extra hand-playability multi-hot blocks between hand_multihot and
+        # decision_type. Live encoding has N_HAND_PLAYABLE_MULTIHOTS; pre-0.6
+        # compat shims return the old decision_type offset so this is 0.
+        n_extra = (
+            offsets.decision_type - offsets.hand_multihot
+        ) // encode.HAND_MULTIHOT_DIM - 1
         trunk_in_dim = encode.trunk_input_dim(
             state_dim,
             arch.card_embed_dim,
             use_distinct_hand_model=arch.use_distinct_hand_model,
             hand_embed_dim=arch.hand_embed_dim,
             tray_set_embedding=arch.tray_set_embedding,
+            n_playable_multihots=n_extra,
         )
         self.state_trunk, _ = mlp.build_body(
             trunk_in_dim,
@@ -383,8 +407,12 @@ class PolicyValueNet(nn.Module):
         The per-choice encoder reads each candidate's non-identity features plus
         its card identity embedded through the shared card table. Applies a final
         activation when ``arch.encoder_final_activation`` is True."""
+        cho = self._choice_embed_offsets()
         choice_in_dim = encode.choice_input_dim(
-            choice_dim, arch.card_embed_dim, include_setup=self.include_setup
+            choice_dim,
+            arch.card_embed_dim,
+            include_setup=self.include_setup,
+            has_becomes_playable=(cho.becomes_playable is not None),
         )
         self.choice_encoder, _ = mlp.build_body(
             choice_in_dim,
@@ -462,42 +490,61 @@ class PolicyValueNet(nn.Module):
             hand_summary=encode.HAND_SUMMARY_OFFSET,
         )
 
+    def _choice_embed_offsets(self) -> ChoiceEmbedOffsets:
+        """The column offsets :meth:`_embed_choices` splits the flat choice row on.
+
+        Returns offsets for the live encoding. Compat subclasses override to return
+        their era's frozen offsets (``becomes_playable=None`` for pre-0.6 eras)."""
+        return ChoiceEmbedOffsets(
+            board_idx=encode.CHOICE_BOARD_IDX_OFFSET,
+            bird_id=encode.CHOICE_BIRD_ID_OFFSET,
+            becomes_playable=encode.CHOICE_BECOMES_PLAYABLE_OFFSET,
+            kept_multihot=(
+                encode.CHOICE_KEPT_MULTIHOT_OFFSET if self.include_setup else None
+            ),
+        )
+
     def _embed_state(
         self, state: torch.Tensor, card_table: torch.Tensor
     ) -> torch.Tensor:
         """Turn the flat state ``(B, state_dim)`` into the trunk's input by
         replacing the card-identity columns with shared card vectors: the index
         block becomes one ``card_table`` row per slot (flattened), and the hand
-        multi-hot becomes a hand embedding (mean-pooled or from a dedicated encoder),
-        both concatenated with the continuous features.
+        multi-hot (plus any playability multi-hots) becomes hand/set embeddings,
+        all concatenated with the continuous features.
 
         When ``use_distinct_hand_model`` is on the 10-dim hand-summary stripe is
         removed from the continuous block and redirected into the hand encoder,
-        so the trunk's continuous feed is correspondingly narrower. When
-        ``tray_set_embedding`` is also on, one tray-*set* embedding is appended:
-        the three tray index columns are turned into a derived multi-hot + set
-        summary and passed through the same hand encoder (the tray's three
-        per-slot ``card_table`` rows in ``slot_emb`` are untouched)."""
+        so the trunk's continuous feed is correspondingly narrower. Each extra
+        playability multi-hot block is embedded through the same encoder (or
+        mean-pooled) and appended after the hand embedding. When
+        ``tray_set_embedding`` is also on, one tray-*set* embedding is appended."""
         offsets = self._state_embed_offsets()
         off_index = offsets.card_index
         off_hand = offsets.hand_multihot
         off_decision = offsets.decision_type
 
-        # Card-index block -> per-slot card-table lookups, flattened. The encoder
-        # always writes indices in range; the clamp only guards synthetic inputs.
+        # Card-index block -> per-slot card-table lookups, flattened.
         card_idx = (
             state[:, off_index:off_hand].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
         )
         slot_emb = card_table[card_idx].reshape(card_idx.shape[0], -1)
 
-        hand_multihot = state[:, off_hand:off_decision]
+        # The hand span may contain N extra playability multi-hots appended after
+        # the hand multi-hot; n_total encodes how many 180-dim blocks are present.
+        hand_span = state[:, off_hand:off_decision]
+        n_total = hand_span.shape[-1] // encode.HAND_MULTIHOT_DIM
+        hand_multihot = hand_span[:, : encode.HAND_MULTIHOT_DIM]
+        extra_multihots = [
+            hand_span[
+                :, (k * encode.HAND_MULTIHOT_DIM) : ((k + 1) * encode.HAND_MULTIHOT_DIM)
+            ]
+            for k in range(1, n_total)
+        ]
 
         if self.arch.use_distinct_hand_model:
             # Strip the 10-dim hand summary from the continuous prefix and feed
-            # it together with the multi-hot into the dedicated hand encoder. The
-            # offset is era-frozen (``_state_embed_offsets``), not the live
-            # ``encode.HAND_SUMMARY_OFFSET`` — a pre-0.4 vector places it 27
-            # columns earlier (no leading turn_state stripe).
+            # it together with the multi-hot into the dedicated hand encoder.
             hand_sum_off = offsets.hand_summary
             hand_sum_end = hand_sum_off + encode.HAND_SUMMARY_DIM
             prefix = state[:, :off_index]
@@ -513,6 +560,17 @@ class PolicyValueNet(nn.Module):
             hand_emb = hand_model.embed_card_set(
                 self.hand_encoder, hand_multihot, hand_summary
             )
+            # Embed each extra multi-hot as a card set through the same hand encoder.
+            extra_embs = [
+                hand_model.embed_card_set(
+                    self.hand_encoder,
+                    mh,
+                    hand_model.set_summary_from_multihot(
+                        mh, self.card_summary_matrix[1:]
+                    ),
+                )
+                for mh in extra_multihots
+            ]
         else:
             continuous = torch.cat(
                 [state[:, :off_index], state[:, off_decision:]], dim=-1
@@ -521,9 +579,15 @@ class PolicyValueNet(nn.Module):
             hand_sum = hand_multihot @ card_table[1:]
             hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
             hand_emb = hand_sum / hand_count
+            # Extra multi-hots: mean-pool through card table (same as the hand).
+            extra_embs: list[torch.Tensor] = []
+            for mh in extra_multihots:
+                mh_sum = mh @ card_table[1:]
+                mh_count = mh.sum(dim=-1, keepdim=True).clamp(min=1.0)
+                extra_embs.append(mh_sum / mh_count)
 
         if not self.arch.tray_set_embedding:
-            return torch.cat([continuous, slot_emb, hand_emb], dim=-1)
+            return torch.cat([continuous, slot_emb, hand_emb, *extra_embs], dim=-1)
 
         # Tray-set embedding: the trailing TRAY_SIZE index columns become a
         # derived multi-hot + set summary, embedded through the shared hand
@@ -538,7 +602,9 @@ class PolicyValueNet(nn.Module):
         tray_set_emb = hand_model.embed_card_set(
             self.hand_encoder, tray_multihot, tray_summary
         )
-        return torch.cat([continuous, slot_emb, tray_set_emb, hand_emb], dim=-1)
+        return torch.cat(
+            [continuous, slot_emb, tray_set_emb, hand_emb, *extra_embs], dim=-1
+        )
 
     def _embed_choices(
         self, choices: torch.Tensor, card_table: torch.Tensor
@@ -547,19 +613,18 @@ class PolicyValueNet(nn.Module):
         encoder's input by mapping the candidate's card regions through the
         shared card table and concatenating them with the remaining features.
 
-        The 15-slot board-index block (occupant ids plus the placement rows'
-        landing-slot marker) sits immediately before the candidate bird-index
-        column; the board indices become one ``card_embed_dim`` vector per slot
-        (flattened, index 0 = the table's padding row) and the candidate index
-        becomes a single ``card_embed_dim`` vector, explicitly zeroed when the
-        column is 0 so a non-bird row contributes nothing. Those two offsets
-        are spec-invariant; the trailing kept_multihot stripe (a setup pick's
-        kept-set multi-hot) exists only when ``include_setup`` and is summed
-        through the card table into one more vector. Everything else —
-        including bonus_id and the setup_agg stripe — passes through."""
-        off_board = encode.CHOICE_BOARD_IDX_OFFSET
-        off_bird = encode.CHOICE_BIRD_ID_OFFSET  # == off_board + board-index slots
+        The 15-slot board-index block sits immediately before the candidate
+        bird-index column; both become shared-embedding lookups. The
+        ``becomes_playable`` multi-hot (0.6+) and the trailing ``kept_multihot``
+        stripe (when ``include_setup``) are each summed through the card table
+        into one more embedding. Everything else passes through. Pre-0.6 compat
+        shims return ``becomes_playable=None`` from ``_choice_embed_offsets``
+        and take the legacy code path."""
+        cho = self._choice_embed_offsets()
+        off_board = cho.board_idx
+        off_bird = cho.bird_id
         end_bird = off_bird + encode.CHOICE_BIRD_ID_DIM
+
         board_idx = (
             choices[..., off_board:off_bird].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
         )
@@ -569,13 +634,45 @@ class PolicyValueNet(nn.Module):
         cand_mask = (cand_idx > 0).unsqueeze(-1).to(card_table.dtype)
         cand_emb = card_table[cand_idx] * cand_mask
         board_emb = card_table[board_idx].reshape(*board_idx.shape[:-1], -1)
-        if self.include_setup:
-            off_kept = encode.CHOICE_KEPT_MULTIHOT_OFFSET
-            kept_multihot = choices[..., off_kept:]
-            kept_emb = kept_multihot @ card_table[1:]
+
+        off_becomes = cho.becomes_playable  # None for pre-0.6
+        off_kept = cho.kept_multihot  # None when not include_setup
+
+        if off_becomes is not None and off_kept is not None:
+            # 0.6+, include_setup: becomes_playable then setup_agg then kept_multihot.
+            off_setup = off_becomes + encode.CHOICE_BECOMES_PLAYABLE_DIM
+            becomes_mh = choices[..., off_becomes:off_setup]
+            becomes_emb = becomes_mh @ card_table[1:]
+            kept_mh = choices[..., off_kept:]
+            kept_emb = kept_mh @ card_table[1:]
+            rest = torch.cat(
+                [
+                    choices[..., :off_board],
+                    choices[..., end_bird:off_becomes],
+                    choices[..., off_setup:off_kept],
+                ],
+                dim=-1,
+            )
+            return torch.cat([rest, cand_emb, board_emb, becomes_emb, kept_emb], dim=-1)
+        elif off_becomes is not None:
+            # 0.6+, no setup: becomes_playable is the last stripe.
+            becomes_mh = choices[..., off_becomes:]
+            becomes_emb = becomes_mh @ card_table[1:]
+            rest = torch.cat(
+                [choices[..., :off_board], choices[..., end_bird:off_becomes]], dim=-1
+            )
+            return torch.cat([rest, cand_emb, board_emb, becomes_emb], dim=-1)
+        elif off_kept is not None:
+            # Pre-0.6, include_setup: no becomes_playable stripe.
+            kept_mh = choices[..., off_kept:]
+            kept_emb = kept_mh @ card_table[1:]
             rest = torch.cat(
                 [choices[..., :off_board], choices[..., end_bird:off_kept]], dim=-1
             )
             return torch.cat([rest, cand_emb, board_emb, kept_emb], dim=-1)
-        rest = torch.cat([choices[..., :off_board], choices[..., end_bird:]], dim=-1)
-        return torch.cat([rest, cand_emb, board_emb], dim=-1)
+        else:
+            # Pre-0.6, no setup: simplest case.
+            rest = torch.cat(
+                [choices[..., :off_board], choices[..., end_bird:]], dim=-1
+            )
+            return torch.cat([rest, cand_emb, board_emb], dim=-1)

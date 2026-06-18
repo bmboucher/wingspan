@@ -20,6 +20,8 @@ re-exported from ``layout`` / ``state_encode``.
 from wingspan.encode.choice_encode import encode_choices
 from wingspan.encode.layout import (
     CARD_FEATURE_DIM,
+    CHOICE_BECOMES_PLAYABLE_DIM,
+    CHOICE_BECOMES_PLAYABLE_OFFSET,
     CHOICE_BIRD_ID_DIM,
     CHOICE_BIRD_ID_OFFSET,
     CHOICE_BOARD_IDX_OFFSET,
@@ -40,6 +42,7 @@ from wingspan.encode.layout import (
     MAX_GOAL_CATEGORIES,
     N_BOARD_INDEX_SLOTS,
     N_CARD_INDEX_SLOTS,
+    N_HAND_PLAYABLE_MULTIHOTS,
     OFF_CARD_INDEX,
     OFF_DECISION_TYPE,
     OFF_HAND_MULTIHOT,
@@ -64,6 +67,8 @@ from wingspan.encode.state_encode import (
 
 __all__ = [
     "CARD_FEATURE_DIM",
+    "CHOICE_BECOMES_PLAYABLE_DIM",
+    "CHOICE_BECOMES_PLAYABLE_OFFSET",
     "CHOICE_BIRD_ID_DIM",
     "CHOICE_BIRD_ID_OFFSET",
     "CHOICE_BOARD_IDX_OFFSET",
@@ -85,6 +90,7 @@ __all__ = [
     "MAX_GOAL_CATEGORIES",
     "N_BOARD_INDEX_SLOTS",
     "N_CARD_INDEX_SLOTS",
+    "N_HAND_PLAYABLE_MULTIHOTS",
     "OFF_CARD_INDEX",
     "OFF_DECISION_TYPE",
     "OFF_HAND_MULTIHOT",

@@ -162,7 +162,10 @@ def test_model_candidate_embedding_is_a_masked_lookup():
     embedded = net._embed_choices(choices, card_table)
 
     assert embedded.shape[-1] == encode.choice_input_dim(net.choice_dim, embed_dim)
-    rest_width = net.choice_dim - encode.CHOICE_BOARD_IDX_SLOTS - 1
+    # ``_embed_choices`` concatenates [rest, cand_emb, board_emb, becomes_emb].
+    # ``rest`` is the passthrough slice (everything except board-idx, bird-id,
+    # and becomes_playable columns), so ``cand_emb`` starts at passthrough width.
+    rest_width = encode.choice_passthrough_dim(net.choice_dim)
     candidate_slice = embedded[..., rest_width : rest_width + embed_dim]
     assert torch.all(candidate_slice[0, 0] == 0.0)
     assert torch.allclose(candidate_slice[0, 1], card_table[bird_index + 1])

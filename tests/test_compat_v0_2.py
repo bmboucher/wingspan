@@ -98,11 +98,14 @@ def test_v0_2_net_uses_compat_shim(loaded_net: model.PolicyValueNet):
     encoding are unchanged between eras so choice_dim matches the live encoder."""
     assert not isinstance(loaded_net, v0_1.PolicyValueNetV01)
     assert isinstance(loaded_net, v0_2.PolicyValueNetV02)
-    # state_dim must be the frozen 771, not the live 790
+    # state_dim must be the frozen 771, not the live 1155
     assert loaded_net.state_dim == 771
     assert loaded_net.state_dim != encode.state_size(loaded_net.spec)
-    # choice_dim is unchanged: still matches the live encoder
-    assert loaded_net.choice_dim == encode.choice_feature_dim(loaded_net.spec)
+    # choice_dim is the frozen pre-0.6 format (no becomes_playable stripe)
+    descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
+    assert loaded_net.choice_dim == descriptor.choice_dim
+    # The v0.6+ live row is wider by becomes_playable.
+    assert loaded_net.choice_dim != encode.choice_feature_dim(loaded_net.spec)
 
 
 def test_policy_net_loads_state_dict(
@@ -153,27 +156,34 @@ def test_forward_pass(loaded_net: model.PolicyValueNet):
 
 def test_state_embed_offsets_are_frozen_to_v02(loaded_net: model.PolicyValueNet):
     """The v0.2 net must slice its 771-dim state vector at the frozen v0.2
-    offsets, not the live 795-dim ones.
+    offsets, not the live 1155-dim ones.
 
-    The 0.4 changes added 24 dims *ahead* of the card-index block (27 dims
-    for the new turn_state stripe, minus 3 from shrinking misc from 26 to 4 dims
-    and removing the 7-dim v0.2 misc: net live-vs-v02 = 27 + 4 - 7 = 24 extra).
-    So the live ``OFF_*`` offsets sit 24 columns too far right for a v0.2 vector.
-    Because the slice widths coincide, slicing live would corrupt the trunk input
-    silently rather than crash (the regression found 2026-06-10). This pins the
-    override so reverting it (falling back to the inherited live offsets) fails."""
+    Three deltas apply selectively by stripe position:
+
+    * ``card_index``, ``hand_multihot``: shifted by -24 (the v0.4
+      turn_state/misc delta — 27 dims absent turn_state minus 3 from misc
+      shrink = -24). These stripes sit BEFORE the v0.6 playability stripes.
+    * ``decision_type``: additionally shifted by -360 for the two v0.6
+      playability multi-hot stripes (180 × 2 = 360 dims). decision_type is
+      derived directly as hand_multihot + HAND_MULTIHOT_DIM so the three
+      stripes remain contiguous in the frozen vector.
+    * ``hand_summary``: shifted only by the absent turn_state stripe width
+      (not -24, since it precedes misc_scalars — the 2026-06-14 regression).
+
+    Because slice widths coincide, slicing live would corrupt silently."""
     frozen = loaded_net._state_embed_offsets()
     assert frozen == v0_2.state_embed_offsets_v02()
     assert frozen == model.StateEmbedOffsets(
-        card_index=encode.OFF_CARD_INDEX - 24,
-        hand_multihot=encode.OFF_HAND_MULTIHOT - 24,
-        decision_type=encode.OFF_DECISION_TYPE - 24,
-        # hand_summary precedes misc_scalars, so it shifts by only the turn_state
-        # width — not -24 (the 2026-06-14 forward-pass regression).
+        card_index=encode.OFF_CARD_INDEX + v0_2._MISC_DIM_DELTA,
+        hand_multihot=encode.OFF_HAND_MULTIHOT + v0_2._MISC_DIM_DELTA,
+        # decision_type is derived from hand_multihot so the stripes are contiguous
+        # in the v0.2 vector (no playability stripes between them).
+        decision_type=encode.OFF_HAND_MULTIHOT
+        + v0_2._MISC_DIM_DELTA
+        + encode.HAND_MULTIHOT_DIM,
         hand_summary=encode.HAND_SUMMARY_OFFSET + v0_2._HAND_SUMMARY_DIM_DELTA,
     )
-    # The three stripes stay contiguous, and the decision-type tail keeps the
-    # exact width it has live (the reshape only shifted its start, not its size).
+    # card_index → hand_multihot → decision_type must remain contiguous.
     assert frozen.card_index + encode.N_CARD_INDEX_SLOTS == frozen.hand_multihot
     assert frozen.hand_multihot + encode.HAND_MULTIHOT_DIM == frozen.decision_type
     assert loaded_net.state_dim - frozen.decision_type == (
@@ -416,18 +426,22 @@ def test_misc_scalars_v03_one_hot_structure():
 
 def test_choice_layout_routes_to_the_live_registry():
     """``choice_layout_for`` on a 0.2 descriptor uses the live stripe table
-    (no habitat stripe) at the live choice-encoder input width."""
+    (no habitat stripe) with the pre-0.6 choice-encoder input width (no
+    becomes_playable embedding)."""
     descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
     layout = runmeta.choice_layout_for(descriptor)
     names = [stripe.name for stripe in layout.stripes]
     assert "habitat" not in names
+    # The pre-0.6 encoder width omits the becomes_playable embedding.
     expected_input = encode.choice_input_dim(
         descriptor.choice_dim,
         descriptor.architecture.card_embed_dim,
         include_setup=descriptor.include_setup,
+        has_becomes_playable=False,
     )
-    assert layout.total_size == expected_input
     assert runmeta.choice_input_dim_for(descriptor) == expected_input
     assert runmeta.choice_extra_for(descriptor) == encode.choice_passthrough_dim(
-        descriptor.choice_dim, include_setup=descriptor.include_setup
+        descriptor.choice_dim,
+        include_setup=descriptor.include_setup,
+        has_becomes_playable=False,
     )

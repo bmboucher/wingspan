@@ -77,9 +77,11 @@ def _assert_shared_stripes_match(v00_row: np.ndarray, live_row: np.ndarray) -> N
         v00_row[v0_0._OFF_PAY : v0_0._OFF_BOARD_IDX],
         live_row[layout._OFF_PAY : layout._OFF_BOARD_IDX],
     )
+    # Stop before layout.CHOICE_BECOMES_PLAYABLE_OFFSET: the becomes_playable
+    # stripe was added in v0.6 after bonus_value; it is not present in v0.0 rows.
     assert np.array_equal(
         v00_row[v0_0._OFF_BONUS_ID : v0_0._OFF_SETUP],
-        live_row[layout._OFF_BONUS_ID : layout._CHOICE_BASE_DIM],
+        live_row[layout._OFF_BONUS_ID : layout.CHOICE_BECOMES_PLAYABLE_OFFSET],
     )
 
 

@@ -315,6 +315,29 @@ def raw_choice_stripe_layout(
 
     end = layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_DIM
 
+    # ---- becomes_playable (v0.6+: 180-dim multi-hot in the base spec) ----
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="becomes_playable",
+            description=(
+                "Multi-hot of hand birds that would become playable as a consequence "
+                "of accepting this choice (e.g. gaining the food or eggs that unlock "
+                "a bird from hand). Zero when the choice has no such effect."
+            ),
+            offset=layout.CHOICE_BECOMES_PLAYABLE_OFFSET,
+            size=layout.CHOICE_BECOMES_PLAYABLE_DIM,
+            encoding="multi-hot",
+            value_range="{0, 1}",
+            notes=(
+                f"Indexed by stable bird order from cards.bird_index() "
+                f"({layout.CHOICE_BECOMES_PLAYABLE_DIM} dims). Filled for "
+                "FoodChoice (GainFoodDecision context), MainActionChoice (GAIN_FOOD / "
+                "LAY_EGGS), and PayCostChoice rows that include a food or egg gain."
+            ),
+        )
+    )
+    end += layout.CHOICE_BECOMES_PLAYABLE_DIM
+
     # ---- setup stripes (trailing; present only when the main model carries setup) ----
     if spec.include_setup:
         stripes.append(

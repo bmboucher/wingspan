@@ -88,10 +88,14 @@ def test_setup_config_carries_the_explicit_version():
 def test_v0_1_net_uses_compat_shim(loaded_net: model.PolicyValueNet):
     """A 0.1 descriptor reconstructs as PolicyValueNetV01 (frozen 229-wide card
     encoder) — not the live net (which has a 224-wide card encoder since 0.2).
-    Choice encoding is unchanged between eras so choice_dim still matches live."""
+    The frozen choice_dim from the descriptor is preserved (v0.6 added the
+    becomes_playable stripe to the live choice row, but v0.1 predates it)."""
     assert not isinstance(loaded_net, v0_0.PolicyValueNetV00)
     assert isinstance(loaded_net, v0_1.PolicyValueNetV01)
-    assert loaded_net.choice_dim == encode.choice_feature_dim(loaded_net.spec)
+    descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
+    assert loaded_net.choice_dim == descriptor.choice_dim
+    # The v0.6+ live row is wider by becomes_playable.
+    assert loaded_net.choice_dim != encode.choice_feature_dim(loaded_net.spec)
 
 
 def test_policy_net_loads_state_dict(
@@ -159,18 +163,27 @@ def test_param_report_matches_the_loaded_net(loaded_net: model.PolicyValueNet):
 
 def test_choice_layout_routes_to_the_live_registry():
     """``choice_layout_for`` on a 0.1 descriptor is the live stripe table —
-    no resurrected habitat stripe — at the live choice-encoder input width."""
+    no resurrected habitat stripe — with a choice-encoder input width matching
+    the pre-0.6 format (no becomes_playable embedding).
+
+    v0.6 added the becomes_playable stripe to the choice row; v0.1 artifacts
+    predate it.  ``choice_input_dim_for`` therefore uses
+    ``has_becomes_playable=False``, giving a different total than the live
+    default (which assumes becomes_playable is present)."""
     descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
     layout = runmeta.choice_layout_for(descriptor)
     names = [stripe.name for stripe in layout.stripes]
     assert "habitat" not in names
+    # The pre-0.6 encoder width omits the becomes_playable embedding.
     expected_input = encode.choice_input_dim(
         descriptor.choice_dim,
         descriptor.architecture.card_embed_dim,
         include_setup=descriptor.include_setup,
+        has_becomes_playable=False,
     )
-    assert layout.total_size == expected_input
     assert runmeta.choice_input_dim_for(descriptor) == expected_input
     assert runmeta.choice_extra_for(descriptor) == encode.choice_passthrough_dim(
-        descriptor.choice_dim, include_setup=descriptor.include_setup
+        descriptor.choice_dim,
+        include_setup=descriptor.include_setup,
+        has_becomes_playable=False,
     )

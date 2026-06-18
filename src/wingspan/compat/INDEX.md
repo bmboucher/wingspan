@@ -73,8 +73,22 @@ state vector 790 → 795). All pre-0.4 nets feed the 790-dim vector.
   `turn_state`, via `encode_state_v03`) and `_state_embed_offsets`.
 - `encode_state_v03` / `state_embed_offsets_v03` — the frozen 790-dim vector and
   its `StateEmbedOffsets`: card-index / hand / decision shifted by
-  `_TOTAL_DIM_DELTA` (−5), hand-summary by `_HAND_SUMMARY_DIM_DELTA` (−27, the
-  absent `turn_state` stripe). `state_stripe_layout_v03` is the reporting twin.
-- Import-time `_assert_live_layout_contract` pins the deltas and the
-  `turn_state < hand_summary < misc_scalars` ordering so a future stripe shift is
-  caught, not silently absorbed.
+  `_TOTAL_DIM_DELTA` (−365 vs. live v0.6; −5 from the v0.4 misc change, −360 from
+  the v0.6 playability stripes), hand-summary by `_HAND_SUMMARY_DIM_DELTA` (−27).
+  `state_stripe_layout_v03` is the reporting twin.
+- Import-time `_assert_live_layout_contract` pins the deltas and ordering.
+
+**`v0_4.py`** — Pre-0.6 state+choice shim (the 0.6 playability multi-hots; covers
+both 0.4 and 0.5, which are encoding-identical). State vector 795 → 1155; choice
+row +180.
+- `uses_v0_4_encoding(v) -> bool` — True when `(0,4) ≤ (major,minor) < (0,6)`.
+- `PolicyValueNetV04` — overrides `encode_state` (no `hand_playable_me` /
+  `hand_playable_eggs_me` stripes, via `encode_state_v04`), `encode_choices`
+  (no `becomes_playable` stripe, via `encode_choices_v04`), `_state_embed_offsets`
+  (`decision_type` shifted −360; card-index / hand / summary unchanged), and
+  `_choice_embed_offsets` (`becomes_playable=None`).
+- `encode_state_v04` / `state_embed_offsets_v04` / `state_feature_dim_v04` —
+  frozen 795-dim state, frozen offsets, frozen dim.
+- `encode_choices_v04` / `choice_feature_dim_v04` — frozen narrower choice rows.
+- Import-time `_assert_live_layout_contract` pins N_HAND_PLAYABLE_MULTIHOTS==2,
+  stripe ordering, and the −360/−180 deltas.

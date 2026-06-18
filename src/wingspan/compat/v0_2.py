@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from wingspan import decisions, state, version
+from wingspan import decisions, encode, state, version
 from wingspan.encode import layout, state_encode
 from wingspan.encode.stripes import descriptors as stripe_descriptors
 from wingspan.model import core
@@ -70,13 +70,23 @@ _V02_TRAY_SCALE = 3.0  # tray occupancy / 3.0
 _V02_DECK_SCALE = 100.0  # deck size / 100.0
 
 # The signed width change between the live v0.4 state vector and the frozen
-# v0.2 vector.  Live has a leading turn_state stripe (N_PLAYER_TURNS+1 = 27 dims)
-# plus a 4-dim misc stripe; v0.2 has no turn_state stripe and a 7-dim misc stripe.
-# Net difference: 7 - (27 + 4) = -24.  Every stripe that follows the v0.2 misc
-# position — the card-index block, the hand multi-hot, and the decision-type tail —
-# sits 24 columns earlier in the 771-dim v0.2 vector than in the live 795-dim one.
+# v0.2 vector.  Live v0.4 has a leading turn_state stripe (N_PLAYER_TURNS+1 = 27
+# dims) plus a 4-dim misc stripe; v0.2 has no turn_state stripe and a 7-dim misc
+# stripe. Net difference: 7 - (27 + 4) = -24.  card_index, hand_multihot, and
+# decision_type sit 24 columns earlier in the 771-dim v0.2 vector than in the live
+# v0.4 795-dim one (before the v0.6 playability stripes were added).
 # Pinned to -24 by _assert_live_layout_contract.
 _MISC_DIM_DELTA = _V02_MISC_DIM - (layout.N_PLAYER_TURNS + 1 + 4)
+
+# The v0.6 playability-stripe width delta (−360). These stripes were added AFTER
+# hand_multihot and BEFORE decision_type, so decision_type and the total state dim
+# both shift by this amount relative to the live v0.6 layout.
+_PLAYABILITY_DELTA = -(layout.N_HAND_PLAYABLE_MULTIHOTS * layout.HAND_MULTIHOT_DIM)
+
+# Combined delta from live v0.6 to frozen v0.2: -24 (v0.4 turn_state/misc) + -360
+# (v0.6 playability stripes) = -384.  Used for state_feature_dim_v02 and for
+# decision_type in state_embed_offsets_v02 (which sits after both changes).
+_TOTAL_DIM_DELTA = _MISC_DIM_DELTA + _PLAYABILITY_DELTA
 
 # The hand-summary stripe (10 dims) precedes misc_scalars but follows the leading
 # turn_state stripe, so a pre-0.4 vector places it back by exactly the turn_state
@@ -167,10 +177,16 @@ def state_embed_offsets_v02() -> core.StateEmbedOffsets:
     state vector is sliced at the columns it was written with rather than the
     live ones (the widths coincide, so a live slice would corrupt silently — see
     ``compat/INDEX.md``)."""
+    # decision_type sits immediately after hand_multihot in the pre-0.6 state
+    # vector (the v0.6 playability stripes were not present yet), so we derive
+    # it from hand_multihot rather than using layout.OFF_DECISION_TYPE directly.
+    # Using the live OFF_DECISION_TYPE would inflate n_extra in _build_trunk by
+    # the new playability stripe count, building a trunk too wide for old weights.
+    hand_multihot = layout.OFF_HAND_MULTIHOT + _MISC_DIM_DELTA
     return core.StateEmbedOffsets(
         card_index=layout.OFF_CARD_INDEX + _MISC_DIM_DELTA,
-        hand_multihot=layout.OFF_HAND_MULTIHOT + _MISC_DIM_DELTA,
-        decision_type=layout.OFF_DECISION_TYPE + _MISC_DIM_DELTA,
+        hand_multihot=hand_multihot,
+        decision_type=hand_multihot + layout.HAND_MULTIHOT_DIM,
         hand_summary=layout.HAND_SUMMARY_OFFSET + _HAND_SUMMARY_DIM_DELTA,
     )
 
@@ -178,12 +194,12 @@ def state_embed_offsets_v02() -> core.StateEmbedOffsets:
 def state_feature_dim_v02(spec: layout.EncodingSpec = layout.DEFAULT_SPEC) -> int:
     """The frozen v0.2 state-vector width (771 under the default spec).
 
-    The live width shifted by :data:`_MISC_DIM_DELTA` (-24) — the size of
+    The live width shifted by :data:`_TOTAL_DIM_DELTA` (-384) — the size of
     :func:`encode_state_v02`'s output and the ``state_dim`` every pre-0.3 net
     was built with. The era-dims router (``compat.encoding_dims_for_era``) uses
     this so an era-pinned ``TrainConfig`` derives the dims its checkpoints
     actually carry."""
-    return layout.state_feature_dim(spec) + _MISC_DIM_DELTA
+    return layout.state_feature_dim(spec) + _TOTAL_DIM_DELTA
 
 
 class PolicyValueNetV02(core.PolicyValueNet):
@@ -192,10 +208,13 @@ class PolicyValueNetV02(core.PolicyValueNet):
 
     The state trunk was trained against 771-dim inputs (scalar round + scalar
     cubes); this subclass overrides :meth:`encode_state` to keep that width
-    and feed the frozen v0.2 state vector.  Choice encoding and the card
-    encoder are identical to the live era.  Constructed by the version-routing
-    loaders (``PolicyValueNet.from_model_config``,
-    ``players.loaders.load_policy_net``) — never by the training pipeline.
+    and feed the frozen v0.2 state vector. The choice encoder also uses pre-0.6
+    geometry: :meth:`_choice_embed_offsets` returns ``becomes_playable=None`` so
+    the encoder width matches the checkpoint (the ``becomes_playable`` stripe was
+    added in v0.6, after these checkpoints). The card encoder is identical to the
+    live era. Constructed by the version-routing loaders
+    (``PolicyValueNet.from_model_config``, ``players.loaders.load_policy_net``)
+    — never by the training pipeline.
     """
 
     def encode_state(
@@ -207,13 +226,41 @@ class PolicyValueNetV02(core.PolicyValueNet):
         yielding a 771-dim vector this checkpoint's trunk expects."""
         return encode_state_v02(game_state, decision, self.spec)
 
+    def encode_choices(
+        self,
+        decision: decisions.Decision[decisions.Choice],
+        game_state: state.GameState,
+    ) -> np.ndarray:
+        """Produce the pre-0.6 choice rows for ``decision`` — the live encoding
+        without the ``becomes_playable`` stripe (added in v0.6, absent from v0.2
+        checkpoints). The 215-dim format this net was trained on."""
+        return encode.encode_choices(
+            decision, game_state, self.spec, has_becomes_playable=False
+        )
+
     def _state_embed_offsets(self) -> core.StateEmbedOffsets:
         """Slice the 771-dim v0.2 state vector at its own frozen offsets rather
-        than the live 795-dim ones — without this the trunk reads the
-        card-index / hand / decision stripes 24 columns too far right, and the
-        hand-summary stripe 27 columns too far right (the widths coincide, so it
-        would corrupt silently, not crash)."""
+        than the live 1155-dim ones — without this the trunk reads the
+        card-index / hand stripes 24 columns too far right and decision_type 384
+        columns too far right (the widths coincide, so it would corrupt silently,
+        not crash)."""
         return state_embed_offsets_v02()
+
+    def _choice_embed_offsets(self) -> core.ChoiceEmbedOffsets:
+        """The frozen pre-0.6 choice embed offsets — no ``becomes_playable`` column.
+
+        The v0.2 choice row predates the ``becomes_playable`` stripe added in v0.6;
+        returning ``becomes_playable=None`` here keeps ``_build_choice_encoder``
+        from adding that embedding to the input width, matching the checkpoint's
+        actual first-linear shape."""
+        return core.ChoiceEmbedOffsets(
+            board_idx=layout.CHOICE_BOARD_IDX_OFFSET,
+            bird_id=layout.CHOICE_BIRD_ID_OFFSET,
+            becomes_playable=None,
+            kept_multihot=(
+                layout.CHOICE_KEPT_MULTIHOT_OFFSET if self.include_setup else None
+            ),
+        )
 
 
 def state_stripe_layout_v02(
@@ -242,20 +289,26 @@ def state_stripe_layout_v02(
         tray_set_embedding=tray_set_embedding,
     )
 
+    # Stripes present in the live v0.6 layout that did not exist in v0.2:
+    # - "turn_state": added in v0.4 (27 dims).
+    # - "hand_playable_me", "hand_playable_eggs_me": added in v0.6 (180 dims each).
+    _V02_OMITTED_STRIPES = frozenset(
+        {"turn_state", "hand_playable_me", "hand_playable_eggs_me"}
+    )
+
     # Rebuild the stripe list for the 771-dim v0.2 vector:
     # - Skip the leading turn_state stripe (not present in v0.2).
+    # - Skip the two hand-playability stripes (added in v0.6).
     # - Replace misc_scalars with the frozen 7-dim scalar version.
     # - Shift all stripes after turn_state by _MISC_DIM_DELTA (-24) so their
     #   reported offsets match the 771-dim v0.2 vector positions.
     #   (state_embed_offsets_v02 applies the same shift to the model's slice offsets.)
     patched: list[stripe_descriptors.StripeDescriptor] = []
-    seen_turn_state = False
     seen_misc = False
     running_offset = 0
     for stripe in live_layout.stripes:
-        if stripe.name == "turn_state" and not seen_turn_state:
-            # turn_state was added in v0.4; omit it entirely from the v0.2 layout.
-            seen_turn_state = True
+        if stripe.name in _V02_OMITTED_STRIPES:
+            # Omit entirely — not present in v0.2.
             continue
         elif stripe.name == "misc_scalars" and not seen_misc:
             seen_misc = True
@@ -352,9 +405,10 @@ def _misc_scalars_v02_sub_fields(
 def _assert_live_layout_contract() -> None:
     """Import-time pins for the invariants the shim relies on.
 
-    The shim omits the live turn_state stripe and splices a frozen 7-dim misc
-    stripe in place of the live 4-dim one, producing a 771-dim v0.2 vector.
-    The live vector is 795 dims (0.4); the gap is -24 (_MISC_DIM_DELTA).
+    The shim omits the live turn_state stripe, splices a frozen 7-dim misc stripe
+    in place of the live 4-dim one, and omits the v0.6 playability multi-hot
+    stripes, producing a 771-dim v0.2 vector. The live vector is 1155 dims
+    (v0.6); the total gap is -384 (_TOTAL_DIM_DELTA = _MISC_DIM_DELTA + _PLAYABILITY_DELTA).
     """
     assert layout.N_ROUNDS == 4, (
         f"v0.2 shim freezes N_ROUNDS at 4, but live value is {layout.N_ROUNDS}; "
@@ -370,12 +424,18 @@ def _assert_live_layout_contract() -> None:
         f"v0.2 shim expects live misc-scalars stripe to be {live_misc_dim} dims, "
         f"but found {actual_misc_dim}; update the shim"
     )
-    # The model's frozen slice offsets (state_embed_offsets_v02) shift by -24:
-    # v0.2 has no turn_state (27 dims absent) and a 7-dim misc vs. 4-dim live
-    # (7 - 4 = +3 but without the 27-dim turn_state = 7 - 31 = -24).
+    # The v0.4 encoding delta: v0.2 has no turn_state (27 dims absent) and a 7-dim
+    # misc vs. 4-dim live (7 - 4 = +3 but without the 27-dim turn_state = -24).
+    # This applies only to card_index and hand_multihot (before playability stripes).
     assert _MISC_DIM_DELTA == -24, (
-        f"v0.2 shim expects -24 dim delta between v0.4 live and v0.2 vectors, "
+        f"v0.2 shim expects -24 encoding delta (v0.4 turn_state/misc change), "
         f"but computed {_MISC_DIM_DELTA}; update the shim"
+    )
+    # The v0.6 playability-stripe delta: -360 (2 × 180-dim stripes after hand_multihot).
+    # Combined with _MISC_DIM_DELTA gives the total live-to-v0.2 gap: -384.
+    assert _TOTAL_DIM_DELTA == -384, (
+        f"v0.2 shim expects -384 total dim delta (live v0.6 to frozen v0.2), "
+        f"but computed {_TOTAL_DIM_DELTA}; update the shim"
     )
     # The hand-summary stripe sits after turn_state but before misc_scalars in
     # the live layout, so dropping turn_state shifts it back by exactly the

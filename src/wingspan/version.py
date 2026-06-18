@@ -33,8 +33,17 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "0.5"
+MODEL_VERSION = "0.6"
 """The current artifact-compatibility version (the only place it is defined).
+
+0.6 adds hand-playability multi-hot stripes to both the state and choice
+vectors, and adds a ``becomes_playable`` stripe to the choice spec. State grows
+by 2 × 180 = 360 dims (795 → 1155); each choice grows by 180 dims. The default
+``tray_set_embedding`` is flipped to ``False`` (REGIME — saved configs carry
+their own value, so existing checkpoints are unaffected by the default change).
+Pre-0.6 artifacts load and play through the ``wingspan.compat.v0_4`` shim
+(``PolicyValueNetV04`` with frozen 795-dim state encoding and the pre-0.6 choice
+encoding without the ``becomes_playable`` stripe).
 
 0.5 unifies the per-run config files (``model_config.json``,
 ``setup_config.json``, ``process_<stamp>.json``) into a single
