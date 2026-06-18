@@ -15,67 +15,85 @@ RTX 4080, 12-core CPU, the `model.PolicyValueNet` defaults) rather than guessed.
 The measured profile is in §1 and is the foundation for every later decision.
 
 > **Status — as-built (read me first).** This document was written as a forward
-> *plan*; much of it now ships. The live trainer is `python -m wingspan.training`
-> (the `wingspan.training` package), which already implements: length-bucketed
-> batches (§4.2a), Python/NumPy/torch seeding (§5), a paired-game evaluation
-> harness with a 95% CI and a frozen-opponent ladder (§7), resumable full
-> checkpoints — model + optimizer + counters + config + git SHA (§5.1), and
-> parallel **CPU** self-play workers with per-iteration weight broadcast (§4.1).
-> **Training is CPU-only now** — the CUDA framing below ("collect on CPU, update
-> on GPU", §1.4/§4) is historical; the update also runs on CPU.
+> *plan*; most of it now ships. The live trainer is `python -m wingspan.training`
+> (the `wingspan.training` package). **Already implemented:**
 >
-> Still open: PPO + reuse epochs and GAE (§3.4), a frozen `iter_N.pt` league
-> (§5.2), the shared card embedding (§6.3), and per-card visit-count logging (§8).
+> - **Length-bucketed batches** (§4.2a) — `learner._BUCKET_EDGES =
+>   (2,4,8,16,32,64,128,256,512,2048)`; the old single-pad-to-widest tensor is gone.
+> - **Parallel collection** (§4.1) — a persistent CPU process pool
+>   (`mp_collect.ProcessCollector`) *and* an in-process CUDA batched-inference
+>   collector (`batched_collect.BatchedCollector`); per-iteration weight broadcast.
+> - **The shared card embedding** (§6.3) — one card table is read everywhere a
+>   bird appears (board, tray, hand, choices), via integer index stripes.
+> - **A paired-game evaluation harness** (§7) — mirrored deals, 95% CI, mean
+>   margin, and an *advancing frozen-opponent ladder* (random → gen1 → gen2 → …).
+> - **Resumable checkpoints** (§5.1) — model + optimizer + config + metrics +
+>   progress counters + git SHA + encoding-era stamp, written atomically as
+>   `last.pt`/`best.pt`/`opponent.pt`, plus `metrics.jsonl` and `games.jsonl`.
+> - **Seeding** of Python / NumPy / torch (§5); a **separate setup model** with an
+>   opt-in actor-critic mode (§6.4–6.5); and a **`decision_delta` reward mode**
+>   alongside the default `terminal_margin` (§2).
 >
-> Two caveats on the numbers/claims below: the §1.1 measured sizes predate the
-> encoder expansion (as of the landing-slot encoding the state vector is **768**
-> and the choice vector **215**, not 282/260 — re-measure before quoting), and
-> checkpoints do **not** store RNG state, so a resumed
+> **Device.** Both CPU and CUDA are supported (the §1.4/§4 "collect on CPU, update
+> on GPU" framing is no longer a hard split): CPU runs collect through the process
+> pool; CUDA runs the batched collector and the learner update on the GPU.
+>
+> **Still open:** PPO + reuse epochs and GAE (§3.4 — the update is still
+> REINFORCE + value baseline, with advantage normalization already in place); a
+> frozen multi-checkpoint **league + Elo** (§5.2/§7 — only the single advancing
+> ladder exists today); flatten + segment-softmax (§4.2b); and per-card
+> visit-count logging (§8).
+>
+> Two caveats on the numbers below. (1) The §1.1 sizes have been **re-measured
+> against current `main`**: state vector **795**, choice vector **215**,
+> **21** decision classes, **~1.02 M** parameters with the shared embedding — the
+> old 532 k / 13-heads-are-80%-of-params framing is obsolete (the heads are now
+> ~39%, the trunk ~37%). (2) Checkpoints do **not** store RNG state, so a resumed
 > session is *not* bit-for-bit identical — but every collected game is
-> seed-reproducible from `config.seed`, so the per-game logs are stable. Engine
-> fidelity as of this pass: all core bird powers fire (including the four pink
-> "when another player …" reactors) and all 16 round goals score, pinned by
+> seed-reproducible from `config.misc.seed`, so the per-game logs are stable.
+> Engine fidelity as of this pass: all core bird powers fire (including the four
+> pink "when another player …" reactors) and all 16 round goals score, pinned by
 > `tests/test_power_coverage.py` and `tests/test_round_goal_coverage.py`.
 
 ---
 
 ## 0. TL;DR — the program in one page
 
-The single most important finding: **the GPU is not the bottleneck and the
-network is not too small. The bottleneck is everything around them** — how data
-is generated, how it is batched, how progress is measured. Fix those first;
-reach for a bigger model last.
+The single most important finding (still true): **the GPU is not the bottleneck.
+The bottleneck is everything around it** — how data is generated, how it is
+batched, how progress is measured. The infrastructure half of that program has
+since been built; the algorithm and capacity half remains.
 
-Priorities, in order. Each links to its section.
+Priorities, in order. Each links to its section; ✅ = shipped, ☐ = still open.
 
-1. **Fix three correctness/scaling defects before any long run** (§4.2, §4.3):
-   - The choice-tensor is padded to the *widest* decision in the batch (the
-     504-option opening draft), so **97.6 % of that tensor is padding** and the
-     default 32-game update already peaks at **11.4 GB** of GPU memory — a 64-game
-     run would run out of memory on a 16 GB card. → length-bucket the batch.
-   - A `PlayBirdDecision` can exceed the `MAX_CHOICES_HARD = 600` safety cap
-     (we saw **637**) and crash collection. It is trajectory-dependent, so it
-     *will* surface during a long unattended run. → raise/remove the cap.
-   - Self-play runs network inference on whatever `--device` is set; on `cuda`
-     it is **2× slower** than CPU because each decision is a batch-of-one
-     forward pass. → collect on CPU, update on GPU.
+1. ✅ **The three correctness/scaling defects are fixed** (§4.2, §4.3):
+   - The choice-tensor is no longer padded to the *widest* decision in the batch;
+     it is **length-bucketed** (edges `2…2048`), so the ≤4-option majority pads to
+     4, not 504. The old "97.6 % padding, 11.4 GB peak" failure mode is gone.
+   - The `MAX_CHOICES_HARD` assert that crashed collection on a wide
+     `PlayBirdDecision` is **removed** — replaced by soft logging thresholds plus
+     the play-bird cost split (the wide payment enumeration moved to
+     `PayBirdFoodDecision`).
+   - Collection routes by device: **CPU process pool** or **CUDA batched
+     inference** (§4.1) — batch-of-one GPU inference is no longer on the path.
 
-2. **Build an honest evaluation harness** (§7). Today the only metric is
-   "player 0's self-play win rate," which is ~50 % *by symmetry* and measures
-   nothing. Without a real yardstick you cannot tell whether any change helped.
+2. ✅ **An honest evaluation harness exists** (§7): mirrored paired games against a
+   fixed reference opponent, a 95 % CI, mean margin, and an advancing
+   frozen-opponent ladder. (Still open: a multi-checkpoint league + Elo.)
 
-3. **Replace plain REINFORCE with PPO + a normalized advantage** (§3.4). The
-   current update has very high variance because every one of a game's ~140
-   decisions is credited with the *same* end-of-game margin.
+3. ☐ **Replace plain REINFORCE with PPO** (§3.4). The update is REINFORCE + a
+   value baseline with **advantage normalization already in place**; PPO's
+   clipped reuse epochs and GAE are the remaining algorithm upgrade.
 
-4. **Parallelize self-play across CPU workers** (§4.1). Collection is the wall —
-   ~163 ms/game on one core. Ten workers turn ~22 k games/hour into ~200 k/hour,
-   the difference between a two-day run and an overnight one.
+4. ✅ **Self-play is parallelized** (§4.1) — a persistent CPU worker pool with
+   per-iteration weight broadcast, plus an optional CUDA batched collector.
 
-5. **Only then consider a bigger network** (§6), and only on evidence of
-   *underfitting* measured against the §7 yardstick. The per-family heads are
-   already **80 % of the parameters**; the shared "read the board" trunk is the
-   cheap part and is the more likely thing to widen.
+5. ☐ **Only then consider a bigger network** (§6), and only on evidence of
+   *underfitting* measured against the §7 yardstick. Note the parameter budget
+   has shifted: with the shared embedding and the wider trunk, the per-family
+   heads are now ~**39 %** of parameters and the shared trunk ~**37 %** — the
+   trunk is no longer the cheap part, but it is still the thing that lifts every
+   head at once when widened.
 
 A concrete phased schedule with exit criteria is in §9.
 
@@ -90,37 +108,47 @@ it produces. Here is this game, as the encoder and engine actually emit it.
 
 | Quantity | Value | Source |
 |---|---|---|
-| State vector length | **768** | `encode.state_size()` |
-| Per-choice feature length | **215** | `encode.CHOICE_FEATURE_DIM` |
-| Judgment-family heads | **13** | `decisions.ALL_DECISION_FAMILIES` |
-| Distinct decision classes | **17** | `decisions.ALL_DECISION_CLASSES` |
-| Total parameters (`hidden=128`) | **532,110** | `PolicyValueNet` |
+| State vector length | **795** | `encode.state_size()` |
+| Per-choice feature length | **215** | `encode.choice_feature_dim()` |
+| Judgment-family heads (main net) | **12** | `decisions.active_decision_families(False)` |
+| Distinct decision classes | **21** | `decisions.ALL_DECISION_CLASSES` |
+| Total parameters (default arch) | **1,015,949** | `model.PolicyValueNet()` |
 
-Where those half-million parameters live is the surprise:
+The main net carries **12** family heads, not 13: `setup` is its own model by
+default (§6.4), so the `SETUP` head is excluded from `PolicyValueNet`.
+
+Where the ~1 M parameters live has *inverted* since this document was first
+written — the shared card embedding and the wider trunk pulled the centre of
+mass out of the heads:
 
 | Component | Parameters | Share |
 |---|---|---|
-| State trunk (shared) | 52,736 | 9.9 % |
-| Per-choice encoder (shared) | 49,920 | 9.4 % |
-| **13 scoring heads** | **429,325** | **80.7 %** |
+| State trunk (shared) | 376,576 | 37.1 % |
+| Per-choice encoder (shared) | 173,184 | 17.0 % |
+| Card encoder + shared embedding | 37,056 | 3.6 % |
+| Hand encoder (shared) | 32,704 | 3.2 % |
+| **12 scoring heads** | **396,300** | **39.0 %** |
 | Value head (shared) | 129 | 0.0 % |
 
-Each head is a `256 → 128 → 1` MLP (≈33 k parameters), and there are 13 of them.
-The "expensive shared representation" the design prizes (the trunk) is actually
-the *cheapest* part of the network. This matters for §6: if you ever add
-capacity, the heads are where parameters multiply fastest, and most heads are
-data-starved (next).
+The heads (39 %) and the shared trunk (37 %) are now comparable; the trunk is no
+longer the "cheapest part." This still matters for §6, but the lesson flips: the
+shared representation is now a first-class consumer of the parameter budget, so
+widening it is a real (not free) capacity decision — just one that lifts every
+head and the critic at once.
 
 > **Term — MLP (multi-layer perceptron):** the plainest kind of neural network,
 > a stack of `Linear` layers with a nonlinearity (here `ReLU`) between them.
-> "`256 → 128 → 1`" means it takes a 256-number input, squeezes it to 128, then
-> to a single score.
+> Each scoring head takes the concatenated trunk+choice context, runs it through
+> a small MLP, and emits a single score.
 
 ### 1.2 A game's decisions, by judgment family
 
 A self-play game records on average **~140 trainable decisions** (range 106–191
 over 20 games; single-option forced moves are not recorded). But those decisions
-are wildly unevenly distributed across the 13 heads:
+are wildly unevenly distributed across the heads. The table below is the
+original 20-game profile, including the `setup` row; note that `setup` is now
+scored by its own separate model (§6.4), so it is no longer one of the main net's
+12 family heads — but the data-imbalance lesson is unchanged:
 
 | Family (one head) | Steps/game | Share | |
 |---|--:|--:|---|
@@ -166,9 +194,15 @@ Almost every decision is small, but a few are enormous:
 | 21–100 | 1.5 % |
 | 101–504 | 1.9 % |
 
+> **Historical (pre-bucketing).** The measurements in this subsection describe
+> the original single-pad-to-widest training step. They are kept because they are
+> the *motivation* for the fix — length-bucketing (§4.2a) — which has since
+> shipped, so the pathological numbers below no longer occur. The choice-feature
+> width is also now **215**, not the 260 used in the worked example below.
+
 89.5 % of decisions offer four options or fewer. But the opening draft offers
 **504**, and a food-rich late-game `PlayBirdDecision` can offer **several
-hundred** (we observed 376, 370, even 637). The training step currently stacks
+hundred** (we observed 376, 370, even 637). The old training step stacked
 *all* decisions in a batch into one tensor padded to the widest one:
 
 > **Term — padding & masking:** neural nets want rectangular tensors, but our
@@ -186,9 +220,9 @@ Measured on a default 32-game batch (4,428 steps):
 - One update on this batch: **1.78 s on the GPU** (32 s on CPU), peaking at
   **11.41 GB** of GPU memory.
 
-On a 16 GB RTX 4080, the *default* configuration already uses 71 % of the card,
-purely to store padding. Double the games and it runs out of memory. This is the
-highest-leverage single fix in the document (§4.2).
+On a 16 GB RTX 4080, the *default* configuration used 71 % of the card purely to
+store padding, and doubling the games would have run it out of memory. This was
+the highest-leverage single fix in the document; it is now done (§4.2a).
 
 ### 1.4 Throughput: collection dominates, the update is trivial
 
@@ -200,9 +234,12 @@ highest-leverage single fix in the document (§4.2).
 | Gradient update, 4,428 steps, CPU | 32 s | — |
 
 The asymmetry is the whole story of §4. Generating data is sequential, Python-
-bound, and slow; the gradient update on a half-million-parameter net is nearly
-free on a modern GPU. **A single GPU spends almost all of its time idle, waiting
-for the next batch of games.** Every throughput recommendation follows from this.
+bound, and slow; the gradient update on a ~1 M-parameter net is nearly free on a
+modern GPU. **A single sequential collector leaves the GPU mostly idle, waiting
+for the next batch of games.** Every throughput recommendation follows from this
+— and the two collectors that answer it (CPU process pool, CUDA batched
+inference) have since shipped (§4.1). The per-game timings below were measured on
+the original sequential path and are kept as the motivating profile.
 
 ---
 
@@ -273,9 +310,12 @@ repeat (one ITERATION):
   periodically: EVALUATE vs. fixed opponents (§7) and CHECKPOINT (§5).
 ```
 
-The current `train.py` already implements a primitive version of steps 1–3
-(REINFORCE with a value baseline, one full-batch update per iteration). The
-recommendations below evolve it; they do not throw it away.
+The `wingspan.training` package implements steps 1–4 today: REINFORCE with a
+value baseline and **advantage normalization**, a **length-bucketed** update
+(one forward/backward per bucket, losses summed — §4.2a), parallel collection,
+periodic paired evaluation, and atomic checkpointing. What it does *not* yet do
+is PPO's clipped reuse epochs and GAE (§3.4). The recommendations below evolve
+it; they do not throw it away.
 
 ### 3.2 How big should an "epoch" be?
 
@@ -341,22 +381,19 @@ training so the policy is allowed to sharpen), gradient clipping at `5.0`
 (already present — caps the update size so one freak batch cannot wreck the
 weights).
 
-**Two changes to make now:**
+**Both of the changes this section originally called for have shipped:**
 
-1. **Normalize the advantage per batch** — subtract its mean, divide by its
-   standard deviation, before the policy loss. Right now the advantage scale is
-   tied to the arbitrary `SCORE_ADVANTAGE_NORM = 50` constant and shrinks as the
-   critic improves, which silently changes the effective learning rate over
-   training. Normalizing makes gradient magnitudes stable from the first
-   iteration to the last. This is standard practice and essentially free.
+1. ✅ **Advantage is normalized per batch** — `learner` centres the advantage and
+   divides by its standard deviation (`_ADV_STD_EPS = 1e-6`) before the policy
+   loss, so gradient magnitudes are stable from the first iteration to the last
+   regardless of how good the critic is. The raw return is scaled by
+   `training.score_norm` first; normalization removes any remaining dependence on
+   that constant's exact value.
 
-2. **Drop epsilon-greedy exploration** (`DEFAULT_EPSILON = 0.05`). Policy
-   gradient is *on-policy*: the math assumes the action you learn from was drawn
-   from the current policy π. Epsilon-greedy instead takes a uniformly-random
-   action 5 % of the time — those steps were *not* drawn from π, so the gradient
-   on them is biased (correcting it properly would need importance weighting).
-   The softmax already explores; control exploration with the entropy bonus (and
-   optionally a sampling temperature), not with epsilon. Cleaner and unbiased.
+2. ✅ **Epsilon-greedy is gone.** Collection samples purely from the policy
+   softmax (the setup model has its own `policy_temperature` knob). This keeps the
+   update on-policy without importance weighting; exploration is controlled by the
+   entropy bonus, as intended.
 
 **How often to update.** One update *per minibatch*:
 
@@ -431,6 +468,14 @@ gradient update is nearly free. The job of this section is to keep the GPU fed.
 
 ### 4.1 Decouple actors from the learner; parallelize collection
 
+> **Status: shipped.** Both collectors described here exist. On CPU,
+> `mp_collect.ProcessCollector` runs a persistent worker pool (reused across
+> iterations to amortize Windows spawn cost, capped at 16 workers) with weights
+> broadcast each iteration via a versioned on-disk `_mp_weights.pt`. On CUDA,
+> `batched_collect.BatchedCollector` runs the "batched-inference actor loop"
+> described at the end of this subsection — many games stepped concurrently
+> through one batched forward pass. The collector is chosen by `misc.device`.
+
 The standard scalable-RL architecture, scaled to one machine:
 
 - **Actors** — a pool of worker *processes* (not threads — Python's GIL
@@ -468,55 +513,59 @@ log a per-card visit count (how often each bird was offered/played) and watch
 when the quantities you care about stop moving. The throughput table is why
 §4.1 is a priority — without it, 10⁶ games is a weekend; with it, an afternoon.
 
-**A faster alternative to many processes** (optional, more code): a single
-*batched-inference* actor loop that steps many games forward in lockstep,
-collecting all the games' current decisions into one batched forward pass. This
-turns the 2× GPU penalty into a GPU *win* by giving it real batches, and avoids
-process overhead — but it is fiddly because games desynchronize (different
-games reach decisions at different times). Start with the process pool; consider
-batched inference only if collection is still the wall after parallelizing.
+**The batched-inference alternative (now shipped as `batched_collect`).** Instead
+of many processes, a single loop steps many games forward concurrently and
+collects their current decisions into one batched forward pass — turning the
+batch-of-one GPU penalty into a GPU *win*, and avoiding process overhead. It is
+fiddlier because games desynchronize (different games reach decisions at
+different times); `BatchedCollector` handles this with a batch-inference server
+that blocks until every live game has a pending request, then runs one
+padded/masked forward and hands results back. It is the CUDA-path collector;
+the CPU path uses the process pool.
 
 ### 4.2 Kill the padding (the 42× memory win)
 
-§1.3 measured that 97.6 % of the choice tensor is padding and that the default
-update peaks at 11.4 GB. Two fixes, in increasing order of cleanliness:
+§1.3 measured that 97.6 % of the choice tensor was padding and that the default
+update peaked at 11.4 GB. Two fixes, in increasing order of cleanliness:
 
-**(a) Length-bucketing — the quick win.** Group the batch's steps into buckets
-by option-count (e.g. `≤4`, `≤8`, `≤16`, `≤64`, `≤512`) and pad *within* each
-bucket. The 89.5 % of decisions with ≤4 options then pad to 4, not 504. Run one
-forward/backward per bucket and sum the losses. Measured effect: choice-tensor
-memory drops from 2.32 GB to ~0.055 GB. A few dozen lines; do this first.
+**(a) Length-bucketing — the quick win. ✅ Shipped.** `learner` groups the batch's
+steps into buckets by option-count (`_BUCKET_EDGES = (2, 4, 8, 16, 32, 64, 128,
+256, 512, 2048)`, each step assigned to the smallest edge ≥ its option count) and
+pads *within* each bucket. The 89.5 % of decisions with ≤4 options pad to 4, not
+504. Each bucket gets one forward/backward and the losses are summed over a single
+shared backward pass — roughly a 40× memory reduction versus the old flat pad.
 
-**(b) Flatten + segment-softmax — the clean design.** Eliminate padding
+**(b) Flatten + segment-softmax — the clean design. ☐ Still open.** Eliminate
+padding
 entirely. Concatenate every candidate across the whole batch into one
 `(ΣK, choice_dim)` matrix (here ΣK ≈ 52 k, not 4428×504 ≈ 2.2 M), run the
 choice-encoder once over it, gather each candidate's decision-context, score,
 and do a *segmented* softmax — a softmax computed independently per decision
 using a per-candidate "which decision do I belong to" segment id (via
 `scatter`/`index_add`-style reductions). A 2-option decision and the 504-option
-draft are then handled by identical code with zero waste, and the
-`MAX_CHOICES_HARD` cap (§4.3) becomes irrelevant. More work than bucketing;
-adopt it when the encoder is touched next.
+draft are then handled by identical code with zero waste, and even the bucketing
+(§4.2a) becomes unnecessary. More work than bucketing; adopt it when the encoder
+is touched next.
 
-### 4.3 Remove the choice-count crash
+### 4.3 The choice-count crash is gone ✅
 
-`encode.MAX_CHOICES_HARD = 600` is an `assert` that aborts collection if a
-decision exceeds it. A food-rich `PlayBirdDecision` enumerates one candidate per
-`(bird, habitat, payment)` combination and **can exceed 600** — we hit **637**
-on the first 32-game attempt with fresh weights. It is *trajectory-dependent*,
-so it does not happen every run, which makes it worse: it will ambush a long
-unattended run hours in. Fixes: raise the cap substantially (e.g. 2,000), or
-remove the hard assert and rely on the soft warning plus the bucketing/segment
-machinery (which handles any width). Either way, this must be resolved before
-the first multi-thousand-game run. Optionally, also bound the payment
-enumeration so a single decision cannot generate a pathological number of
-near-duplicate wild-payment candidates.
+The original `MAX_CHOICES_HARD = 600` `assert` aborted collection if any decision
+exceeded it. A food-rich `PlayBirdDecision` enumerated one candidate per
+`(bird, habitat, payment)` combination and could exceed 600 — we hit **637** on
+the first 32-game attempt with fresh weights, a *trajectory-dependent* crash that
+would have ambushed a long unattended run hours in. Two fixes landed and together
+remove it:
 
-*(Update: the play-bird cost split shrank `PlayBirdDecision` to one candidate
-per `(bird, habitat)` pair — bounded by hand size × 3. The payment enumeration
-moved to the follow-up `PayBirdFoodDecision`, whose width is the payment count
-for a single bird; the food-rich wild-payment blow-up concern now applies
-there, not to the play menu.)*
+- **The hard assert is removed.** `encode.layout` now carries only soft logging
+  thresholds — `SOFT_CHOICE_WARN_THRESHOLD = 20` (log a warning above this) and
+  `RUNAWAY_CHOICE_THRESHOLD = 10000` (log a likely-bug warning) — and the encoder
+  never truncates or aborts. Width is handled downstream by length-bucketing
+  (§4.2a), whose largest bucket edge is 2,048.
+- **The play-bird cost split** shrank `PlayBirdDecision` to one candidate per
+  `(bird, habitat)` pair (bounded by hand size × 3). The payment enumeration moved
+  to the follow-up `PayBirdFoodDecision`, whose width is the payment count for a
+  single bird — so the food-rich wild-payment blow-up, if it recurs, is bounded
+  there and absorbed by the buckets, not a crash.
 
 ### 4.4 Headroom for later
 
@@ -537,14 +586,28 @@ worth knowing they exist:
 
 ## 5. Checkpointing and reproducibility
 
-The current code saves `{model, args}` once, at the very end. That is
-inadequate for runs measured in hours and for a project whose *output is
-analysis* (which demands reproducibility).
+This section's program is **largely shipped.** Checkpoints are now full and
+resumable, written atomically every iteration; what remains open is the frozen
+multi-checkpoint *league* (§5.2) and per-card logging (§8). The original
+motivation — the old code saved `{model, args}` once at the very end, inadequate
+for hour-long runs and for a project whose *output is analysis* — is preserved
+below for context.
 
 ### 5.1 What a checkpoint must contain
 
 A checkpoint has to let you (a) resume a crashed run *exactly*, and (b) re-derive
-results later. Save a single dict per checkpoint:
+results later. **As shipped**, `loop_checkpoint.atomic_save` writes a single dict
+per checkpoint containing: `config` (the full `RunConfig.model_dump()`), `model`
+(`state_dict`), `optimizer` (Adam moments), `metrics` (this iteration's
+`IterationMetrics`), `progress` (resumable counters — iteration, opponent
+generation, phase), `git_sha`, and `version` (the run's *encoding era*, not the
+live `MODEL_VERSION` — era-pinned resume, see `docs/VERSIONING.md`). The one thing
+it deliberately does **not** carry is RNG state, so resume is not bit-for-bit
+identical (each game is still seed-reproducible from `config.misc.seed`).
+
+The illustrative sketch below predates the real `RunConfig` (a nested Pydantic
+config — `architecture` / `run` / `training` / `opponent` / `engine` / `misc`),
+but conveys the intent of a self-describing checkpoint:
 
 ```python
 # illustrative — house style: Pydantic config, module-qualified imports
@@ -587,21 +650,22 @@ Two details that are easy to skip and painful to omit:
 
 ### 5.2 Cadence, retention, and safety
 
-- **Every iteration:** atomically overwrite `last.pt` (write to a temp file,
-  then `os.replace` — a crash mid-write must not corrupt the only checkpoint).
-- **Gated on evaluation (§7):** keep `best.pt`, updated only when eval strength
-  improves. The last checkpoint is not always the best one.
-- **Every N iterations:** write an immutable snapshot `iter_{n}.pt`. These form
-  the **league** — the frozen past selves used both as evaluation opponents
-  (§7) and, optionally, as self-play opponents to stop the policy from chasing
-  its own tail.
-- **Reproducibility hygiene** (this is a research loop, so this is the
-  proportionate slice of "MLOps"): seed Python, NumPy, and torch at startup
-  (the current `main` seeds Python's `random` but not torch's weight init);
-  record the git SHA and full `TrainConfig`; append per-iteration metrics to a
-  `metrics.jsonl` next to the checkpoints. A spreadsheet-grade log is enough to
-  start; graduate to MLflow or Weights & Biases if you want hosted dashboards
-  and run comparison, but do not block training on that infrastructure.
+- ✅ **Every iteration:** atomically overwrite `last.pt` (`atomic_save` writes a
+  temp file then moves it, so a crash mid-write cannot corrupt the checkpoint).
+- ✅ **Gated on evaluation (§7):** keep `best.pt`, updated only when eval strength
+  improves within a generation. The last checkpoint is not always the best one.
+- ✅ **The advancing opponent:** `opponent.pt` is frozen whenever the policy beats
+  the current reference, forming the §7 ladder (random → gen1 → gen2 → …).
+- ☐ **Still open — the immutable `iter_{n}.pt` league.** Today only the *single*
+  advancing opponent is retained, not a set of frozen past selves. A true league
+  (many `iter_{n}.pt` snapshots used as evaluation *and* self-play opponents to
+  stop the policy chasing its own tail) and the Elo over it (§7.3) remain to do.
+- ✅ **Reproducibility hygiene:** Python, NumPy, and torch are all seeded at
+  startup; the git SHA and full `RunConfig` travel in every checkpoint;
+  per-iteration metrics append to `metrics.jsonl` and per-game outcomes to
+  `games.jsonl` beside the checkpoints. A spreadsheet-grade log is enough to
+  start; graduate to MLflow or Weights & Biases for hosted dashboards if wanted,
+  but do not block training on that infrastructure.
 
 ---
 
@@ -613,11 +677,11 @@ first.
 
 ### 6.1 The meta-point: capacity is not this project's bottleneck
 
-A 0.5 M-parameter network is *small*; the RTX 4080 could train 10–50 M parameters
-for this game without strain. But more parameters will not help until the data
-generation (§4.1), batching (§4.2), algorithm (§3.4), and evaluation (§7) are
-sound, **and** there is measured evidence of underfitting. Spend the capacity
-budget last.
+A ~1 M-parameter network is still *small*; the RTX 4080 could train 10–50 M
+parameters for this game without strain. The data generation (§4.1), batching
+(§4.2), evaluation (§7), and the shared card embedding (§6.3) are now sound, so
+the remaining preconditions before spending capacity are the algorithm upgrade
+(§3.4) **and** measured evidence of underfitting. Spend the capacity budget last.
 
 ### 6.2 The procedure (model-agnostic, and the answer to "when do I add neurons?")
 
@@ -648,20 +712,21 @@ budget last.
 
 ### 6.3 If/when you do scale, in priority order for *this* network
 
-- **Share the card embedding (do this regardless — it is an improvement, not
-  just more capacity).** Today a bird's identity is read by *two unrelated*
-  weight matrices: the hand multi-hot goes through the state trunk, the
-  candidate one-hot through the choice encoder. So "American Robin" has two
-  separate learned meanings depending on whether it sits in your hand or on the
-  table. Replace both with one shared `nn.Embedding(180, d)` (and `(26, d)` for
-  bonus cards). The card's representation becomes consistent everywhere it
-  appears, it generalizes better, and — the project's headline goal — that
-  single embedding table *is* the per-card power readout (the `bird_id` stripe
-  embedded through the shared card table, DECISIONS.md §1).
+- ✅ **Share the card embedding (done).** A bird's identity used to be read by
+  *two unrelated* weight matrices — the hand multi-hot through the state trunk,
+  the candidate one-hot through the choice encoder — so "American Robin" had two
+  separate learned meanings depending on whether it sat in your hand or on the
+  table. It is now one shared card table (an `nn.Embedding` over the 180 birds,
+  plus bonus cards), read everywhere a bird appears via integer index stripes
+  (`bird_id`, `board_idx`; DECISIONS.md §1). The card's representation is
+  consistent everywhere, it generalizes better, and — the project's headline goal
+  — that single embedding table *is* the per-card power readout.
 - **Widen the trunk before the heads.** The shared "read the board" trunk is the
-  thing every decision and the critic depend on, and at `hidden=128` it is the
-  cheap part of the net (§1.1). Widening it to 256–512 lifts every head and the
-  critic at once. Widening the heads helps only the families that exercise them.
+  thing every decision and the critic depend on. It is no longer the cheap part
+  of the net — at the default `(128, 128)` it is already ~37 % of parameters
+  (§1.1) — so widening it to 256–512 is a real capacity decision, but it lifts
+  every head and the critic at once, whereas widening a head helps only the
+  families that exercise it.
 - **Sit the heads on the data.** Give `macro_action`, `play_bird`,
   `bird_acquisition`, and `gain_food` more width; keep the rare heads small.
 
@@ -672,8 +737,9 @@ budget last.
 effort:
 
 - **Keep them deliberately small** so they cannot overfit their few examples
-  (the design already pools the two rarest decisions into `misc_rare` for
-  exactly this reason — DECISIONS.md §2.10).
+  (the design already pools three rare, unrelated judgments — which habitat to
+  move a bird into, which played bird's power to repeat, and who gains food first
+  — into `misc_rare` for exactly this reason — DECISIONS.md §2.10).
 - **Lean on the shared trunk and shared card embedding** so a starved head
   inherits a good board representation and good card vectors, and only has to
   learn a thin final mapping.
@@ -744,9 +810,10 @@ samples via softmax (`setup_policy_temperature` still applies). The full
 persisted to the JSONL store — the offline bootstrap format is unchanged.
 
 **IPC cost.** Each sample carries a `(K, SETUP_FEATURE_DIM)` float16 array.
-With K=504 (bonus included) and SETUP_FEATURE_DIM=28 (current), that is
-~28 KB/sample, ~56 KB/game, ~14 MB/iteration at 256 games — well within
-the IPC budget. If the feature dimension grows, re-measure.
+With K=504 (bonus included) and `setup_model.SETUP_FEATURE_DIM = 308` (current),
+that is ~303 KB/sample, ~0.6 MB/game (two seats), ~155 MB/iteration at 256 games.
+That is no longer negligible — re-measure against the IPC budget, and note that
+`split_setup_bonus` (§6.6) halves K to 252, roughly halving this cost.
 
 **Training (MODEL_DRIVEN phase).** One on-policy REINFORCE step replaces the
 plain MSE `online_update`:
@@ -777,8 +844,8 @@ trains on-policy once MODEL_DRIVEN collection begins.
 
 Start with the defaults. Raise `setup_entropy_coef` (0.05–0.1) if the policy
 collapses to deterministic early; lower it once the policy is stable. The
-`setup_temperature` parameter still governs sampling independently of entropy
-regularization — they are complementary.
+`setup_policy_temperature` parameter (default 0.5) still governs sampling
+independently of entropy regularization — they are complementary.
 
 **This is a setup-FRESH change.** Toggling `setup_use_actor_critic` changes
 `SetupArchitecture.shape_key` and will invalidate any existing `setup.pt`,
@@ -876,15 +943,18 @@ may be slightly worse than the checkpoint's actual trained opening.
 
 ## 7. Evaluating out-of-sample performance
 
-This is the most important thing the project currently lacks. Without it, none
-of the choices above can be judged.
+The core harness now exists (`training.evaluate` / `loop_eval`); what remains
+open is the multi-checkpoint league and the Elo over it (§7.3). The reasoning
+that motivated it is preserved below.
 
-### 7.1 Why the current metric is empty
+### 7.1 Why a raw self-play win rate is empty
 
-The training log reports "player 0 wins." In self-play **both seats are the same
-network**, so this number measures only the first-player advantage plus noise —
-it sits near 50 % no matter how strong or weak the policy is. It cannot tell you
-whether yesterday's run was better than today's.
+A naive training log that reports "player 0 wins" measures nothing. In self-play
+**both seats are the same network**, so that number reflects only the
+first-player advantage plus noise — it sits near 50 % no matter how strong or
+weak the policy is. It cannot tell you whether yesterday's run beat today's.
+**As shipped**, evaluation instead plays the policy against a *fixed* reference
+opponent (§7.3), which is the part that carries signal.
 
 ### 7.2 What "out-of-sample" means here
 
@@ -896,6 +966,14 @@ whether yesterday's run was better than today's.
 > against **opponents the policy did not train against**.
 
 ### 7.3 The evaluation harness
+
+> **Status.** `evaluate.evaluate_vs_opponent` plays `n_pairs` *mirrored* deals
+> against a fixed reference opponent in greedy mode and returns an `EvalResult`
+> with win rate, a 95 % CI, mean margin, and the opponent's generation. The
+> reference is the **random agent** during the bootstrap phase, then an
+> **advancing frozen self** (`opponent.pt`) once the policy graduates
+> (`loop_eval`). ☐ Still open: a fixed heuristic agent, a *multi-checkpoint*
+> league (only the single advancing opponent is kept today), and Elo over it.
 
 Play a fixed suite of games against **reference opponents**, with the policy in
 **greedy mode** (pick the argmax option, no sampling, no entropy — you are
@@ -954,17 +1032,21 @@ When eval strength diverges from training metrics, trust eval.
 This is a research training loop, not a deployed service, so skip the
 production-serving apparatus (containers, canaries, latency SLOs). The parts of
 standard ML-ops that *do* apply are **experiment tracking** and **training-health
-monitoring**. Log per iteration, to `metrics.jsonl` and/or a tracker:
+monitoring**. Most of this list now ships as `IterationMetrics` rows appended to
+`metrics.jsonl`, plus per-game `GameOutcome` rows in `games.jsonl`. ✅/☐ marks
+shipped vs open:
 
-- iteration, wall-clock, total games, games/sec (throughput regression alarm);
-- loss components: policy, value, entropy, total; gradient norm;
-- advantage mean/std (sanity on normalization);
-- per-family: step count this iteration, policy entropy, loss;
-- eval block (every N iterations): win rate + CI and margin vs. each reference,
-  league Elo;
-- **per-card visit counts** — how often each of the 180 birds was offered and
-  played. This is both a data-starvation monitor and the raw material for the
-  card-power analysis the project exists to produce.
+- ✅ iteration, wall-clock, total games, games/sec (throughput regression alarm);
+- ✅ loss components: policy, value, entropy, total; gradient norm;
+- ✅ advantage mean/std (sanity on normalization);
+- ◑ per-family **step counts** this iteration (`family_counts`) ship; per-family
+  **policy entropy and loss** disaggregation does not yet;
+- ✅ eval block (every N iterations): win rate + CI and margin vs. the current
+  reference — ☐ league Elo still open (§7.3);
+- ☐ **per-card visit counts** — how often each of the 180 birds was offered and
+  played. Still open, and the single most valuable missing log: it is both a
+  data-starvation monitor and the raw material for the card-power analysis the
+  project exists to produce.
 
 Alert (even just a printed warning) if: games/sec collapses, any loss goes
 non-finite, policy entropy crashes to ~0 early (premature collapse — raise the
@@ -977,37 +1059,41 @@ entropy bonus), or win-rate-vs-random stops climbing (pipeline is broken).
 Tie it together. Do not start a phase until the previous one's exit criterion is
 met — that discipline is what keeps the analysis trustworthy.
 
-**Phase 0 — Make it correct and safe (hours).**
-Fix the `MAX_CHOICES_HARD` crash (§4.3); length-bucket the batch (§4.2a); seed
-torch and write a full resumable checkpoint (§5); add the evaluation harness vs.
-the random agent (§7). *Exit:* a 200-game run completes without crashing or
-OOM-ing, checkpoints resume cleanly (weights + optimizer + counters; collected
-games stay seed-reproducible, though resume is not bit-for-bit — RNG state is not
-stored), and you can print an honest win-rate-vs-random with a confidence
-interval.
+**Phase 0 — Make it correct and safe (hours). ✅ Done.**
+The `MAX_CHOICES_HARD` crash is removed (§4.3); the batch is length-bucketed
+(§4.2a); torch is seeded and a full resumable checkpoint is written (§5); the
+evaluation harness vs. the random agent exists (§7). The exit criteria are met: a
+run completes without crashing or OOM-ing, checkpoints resume (weights +
+optimizer + counters; games stay seed-reproducible, though resume is not
+bit-for-bit — RNG state is not stored), and the loop prints an honest
+win-rate-vs-random with a confidence interval.
 
-**Phase 1 — An honest single-machine baseline (a day).**
-Synchronous loop, REINFORCE + value baseline + advantage normalization, drop
-epsilon (§3.3). Batch 128 games/iteration. *Exit:* win rate vs. random climbs
-decisively past ~90 % and the strength curve is smooth — proof the pipeline
-learns. If it does not, debug here; do not proceed.
+**Phase 1 — An honest single-machine baseline. ◑ Pipeline built; verify the
+curve.**
+The loop is REINFORCE + value baseline + advantage normalization with epsilon
+dropped (§3.3); the default batch is `run.games_per_iter`. What remains is the
+*empirical* exit check on a given run: win rate vs. random must climb decisively
+past ~90 % with a smooth strength curve. If a run does not show that, debug here
+before proceeding.
 
-**Phase 2 — Scale throughput (a day, then runs get cheap).**
-Parallel CPU actors + GPU learner with per-iteration weight broadcast (§4.1).
-*Exit:* ≥ ~50 games/sec sustained and the GPU is no longer the idle component.
+**Phase 2 — Scale throughput. ✅ Done.**
+Parallel CPU actors (`mp_collect`) with per-iteration weight broadcast, plus the
+CUDA batched collector (`batched_collect`) (§4.1). *Exit (per run):* confirm the
+collector keeps the learner fed — the GPU should no longer be the idle component.
 
-**Phase 3 — Strengthen the algorithm (days).**
-PPO with reuse epochs + GAE (§3.4); add the league and league-Elo evaluation and
-occasional league opponents (§7). *Exit:* league Elo rises monotonically over a
-long run; the policy beats its Phase-1 self head-to-head by a clear margin.
+**Phase 3 — Strengthen the algorithm (days). ☐ Open.**
+PPO with reuse epochs + GAE (§3.4); add the multi-checkpoint league, league-Elo
+evaluation, and occasional league opponents (§7). *Exit:* league Elo rises
+monotonically over a long run; the policy beats its Phase-1 self head-to-head by
+a clear margin.
 
-**Phase 4 — Grow capacity only if warranted (ongoing).**
-Adopt the shared card embedding (§6.3) — worthwhile on its own. Then, only on
+**Phase 4 — Grow capacity only if warranted (ongoing). ◑ Embedding done.**
+The shared card embedding (§6.3) is adopted — worthwhile on its own. Then, only on
 measured underfitting (§6.2), widen the trunk and the high-traffic heads, and
-give the starved heads (§6.4) auxiliary supervision or a separate `setup` model.
-*Exit (per change):* the bigger model beats the smaller one head-to-head by more
-than the confidence interval. If it does not, revert — you were not capacity-
-bound.
+give the starved heads (§6.4) auxiliary supervision (the separate `setup` model
+already exists). *Exit (per change):* the bigger model beats the smaller one
+head-to-head by more than the confidence interval. If it does not, revert — you
+were not capacity-bound.
 
 Underlying all phases: every result is reproducible (seeded, git-stamped,
 config-logged), and the harness — not intuition — decides whether a change
@@ -1017,20 +1103,21 @@ helped.
 
 ## 10. Summary of concrete recommendations
 
-| # | Recommendation | Section | Why |
-|---|---|---|---|
-| 1 | Length-bucket (then segment-softmax) the batch | §4.2 | 42× less memory; default run already hits 11.4 GB |
-| 2 | Raise/remove `MAX_CHOICES_HARD` | §4.3 | 637-option play crashes collection intermittently |
-| 3 | Collect on CPU, update on GPU | §1.4, §4.1 | batch-1 GPU inference is 2× slower |
-| 4 | Build an eval harness (fixed opponents, paired games, CIs) | §7 | self-play win rate is ~50 % and measures nothing |
-| 5 | Batch = 64–256 **games**/iteration (start 128) | §3.2 | count games, not steps — one terminal reward/game |
-| 6 | Normalize advantages; drop epsilon-greedy | §3.3 | stable gradients; keep the update on-policy |
-| 7 | REINFORCE → PPO + GAE | §3.4 | more learning per expensive game; lower variance |
-| 8 | Parallel CPU actors + GPU learner | §4.1 | collection is the wall: ~46 h → ~5 h for 1 M games |
-| 9 | Full resumable checkpoints + league + metrics log | §5, §8 | resume, reproduce, evaluate, and analyze |
-| 10 | Share the card embedding; widen trunk before heads | §6.3 | consistent per-card readout; cheap shared lift |
-| 11 | Size heads to data; special-case `setup`/rare heads | §1.2, §6.4 | 370× data imbalance across heads |
-| 12 | Add capacity last, only on measured underfitting | §6 | the heads are already 80 % of params; data/algo bind first |
+| # | Recommendation | Section | Status | Why |
+|---|---|---|---|---|
+| 1 | Length-bucket the batch (segment-softmax later) | §4.2 | ✅ / ☐ | ~40× less memory; old run hit 11.4 GB |
+| 2 | Remove `MAX_CHOICES_HARD` | §4.3 | ✅ | 637-option play crashed collection intermittently |
+| 3 | Route collection by device (CPU pool / CUDA batched) | §1.4, §4.1 | ✅ | batch-1 GPU inference was 2× slower |
+| 4 | Eval harness (fixed opponent, paired games, CIs) | §7 | ✅ | self-play win rate is ~50 % and measures nothing |
+| 5 | Batch = 64–256 **games**/iteration | §3.2 | ✅ | count games, not steps — one terminal reward/game |
+| 6 | Normalize advantages; drop epsilon-greedy | §3.3 | ✅ | stable gradients; keep the update on-policy |
+| 7 | REINFORCE → PPO + GAE | §3.4 | ☐ | more learning per expensive game; lower variance |
+| 8 | Parallel CPU actors + CUDA batched collector | §4.1 | ✅ | collection is the wall: ~46 h → ~5 h for 1 M games |
+| 9 | Full resumable checkpoints + metrics/games logs | §5, §8 | ✅ | resume, reproduce, evaluate |
+| 9b | Multi-checkpoint league + Elo + per-card visit logs | §5.2, §7, §8 | ☐ | catch tail-chasing; card-power readout |
+| 10 | Share the card embedding; widen trunk before heads | §6.3 | ✅ / ☐ | consistent per-card readout; shared lift |
+| 11 | Size heads to data; special-case `setup`/rare heads | §1.2, §6.4 | ✅ | 370× data imbalance; setup is its own model |
+| 12 | Add capacity last, only on measured underfitting | §6 | ☐ | heads ~39 % of params now; algo/data bind first |
 
 ---
 
