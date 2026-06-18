@@ -41,20 +41,34 @@ from wingspan.instrumentation import config as instrumentation_config
 
 
 class RewardMode(enum.StrEnum):
-    """How a decision's REINFORCE return is computed from a finished game.
+    """How credit is assigned across decisions from a finished game.
 
-    ``TERMINAL_MARGIN`` broadcasts the single end-of-game score margin to every
-    decision (the historical default). ``DECISION_DELTA`` instead credits each
-    decision with the change in the player's score margin (own − opponent) over
-    the interval until that player's next decision, accumulated into a return
-    discounted by ``reward_discount`` per unit of game-clock time between
-    decisions (``Step.timestamp`` — one unit per game turn) — a per-decision
-    credit signal. Both are shape-preserving (REGIME), so toggling them never
-    restarts the network.
+    ``TERMINAL_MARGIN`` broadcasts the single end-of-game score (margin or
+    own score, per ``RewardBasis``) to every decision. ``DECISION_DELTA``
+    instead credits each decision with the change in the player's value from
+    that decision onward, accumulated into a return discounted by
+    ``reward_discount`` per unit of game-clock time between decisions
+    (``Step.timestamp`` — one unit per game turn). Both modes are
+    shape-preserving (REGIME), so toggling them never restarts the network.
     """
 
     TERMINAL_MARGIN = "terminal_margin"
     DECISION_DELTA = "decision_delta"
+
+
+class RewardBasis(enum.StrEnum):
+    """What quantity is used as the reward signal after a finished game.
+
+    ``MARGIN`` uses the score margin (own − opponent) so each seat gets
+    opposite-sign rewards — gradient pushes toward beating the opponent.
+    ``OWN_SCORE`` uses each player's own absolute final score so both seats
+    receive positive rewards — gradient pushes toward maximizing raw score
+    regardless of what the opponent scores. Shape-preserving (REGIME) —
+    toggling never restarts the network.
+    """
+
+    MARGIN = "margin"
+    OWN_SCORE = "own_score"
 
 
 def _default_family_order() -> tuple[str, ...]:
@@ -250,6 +264,7 @@ class TrainingConfig(pydantic.BaseModel):
     grad_clip: typing.Annotated[float, pydantic.Field(gt=0.0)] = 5.0
     score_norm: typing.Annotated[float, pydantic.Field(gt=0.0)] = 50.0
     reward_mode: RewardMode = RewardMode.TERMINAL_MARGIN
+    reward_basis: RewardBasis = RewardBasis.MARGIN
     reward_discount: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 1.0
     end_game_bonus: float = 0.0
     setup: SetupTrainingConfig = pydantic.Field(default_factory=SetupTrainingConfig)

@@ -140,17 +140,19 @@ def _flatten(
 ) -> tuple[list[steps.Step], list[float]]:
     """Flatten every game's steps and pair each with its REINFORCE return.
 
-    Two reward modes (``cfg.reward_mode``), both giving the two seats opposite
-    signs in a decisive game (TRAINING.md §2's opposite-signed self-play rewards):
+    Two orthogonal axes (``cfg.training``):
 
-    * ``terminal_margin`` — every step gets the single end-of-game score margin
-      from its player's POV, scaled by ``score_norm``.
-    * ``decision_delta`` — each step gets the sum of per-decision margin changes
-      from that step onward, each discounted by ``reward_discount`` per unit of
-      game-clock time between checkpoints (``_decision_delta_returns``).
+    * ``reward_mode`` — *how* credit spreads across steps:
+      ``terminal_margin`` broadcasts the end-of-game value to every step;
+      ``decision_delta`` credits each step with only the change in value from
+      that step onward, discounted by ``reward_discount`` per game-clock unit.
+    * ``reward_basis`` — *what* quantity is used as the value:
+      ``margin`` uses own − opponent score (seats get opposite signs);
+      ``own_score`` uses each player's absolute final score (both positive).
     """
     flat_steps: list[steps.Step] = []
     returns: list[float] = []
+    basis = cfg.training.reward_basis
     for record in records:
         if cfg.training.reward_mode is config.RewardMode.DECISION_DELTA:
             record_returns = _decision_delta_returns(
@@ -158,10 +160,11 @@ def _flatten(
                 cfg.training.reward_discount,
                 cfg.training.score_norm,
                 cfg.training.end_game_bonus,
+                basis,
             )
         else:
             record_returns = _terminal_margin_returns(
-                record, cfg.training.score_norm, cfg.training.end_game_bonus
+                record, cfg.training.score_norm, cfg.training.end_game_bonus, basis
             )
         flat_steps.extend(record.steps)
         returns.extend(record_returns)
@@ -169,19 +172,31 @@ def _flatten(
 
 
 def _terminal_margin_returns(
-    record: collect.GameRecord, score_norm: float, end_game_bonus: float
+    record: collect.GameRecord,
+    score_norm: float,
+    end_game_bonus: float,
+    basis: config.RewardBasis,
 ) -> list[float]:
-    """The end-of-game margin from each step's player POV, scaled by ``score_norm``
-    and broadcast to every step (the historical ``terminal_margin`` reward).
+    """The end-of-game value from each step's player POV, broadcast to every step.
 
-    ``end_game_bonus`` is added to seat 0's raw margin when seat 0 wins and
-    subtracted when seat 1 wins; ties receive no bonus."""
+    With ``MARGIN`` basis, value = own − opponent score; seats get opposite signs.
+    ``end_game_bonus`` is added/subtracted symmetrically (``_winner_bonus``).
+    With ``OWN_SCORE`` basis, value = player's own absolute score; both seats
+    are positive and ``end_game_bonus`` is added only to the winner's score."""
     score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
-    bonus_0 = _winner_bonus(record.winner, end_game_bonus)
-    per_pov = (
-        (score_0 - score_1 + bonus_0) / score_norm,
-        (score_1 - score_0 - bonus_0) / score_norm,
-    )
+    if basis is config.RewardBasis.OWN_SCORE:
+        bonus_0 = end_game_bonus if record.winner == 0 else 0.0
+        bonus_1 = end_game_bonus if record.winner == 1 else 0.0
+        per_pov = (
+            (score_0 + bonus_0) / score_norm,
+            (score_1 + bonus_1) / score_norm,
+        )
+    else:
+        bonus_0 = _winner_bonus(record.winner, end_game_bonus)
+        per_pov = (
+            (score_0 - score_1 + bonus_0) / score_norm,
+            (score_1 - score_0 - bonus_0) / score_norm,
+        )
     return [per_pov[step.player_id] for step in record.steps]
 
 
@@ -190,28 +205,30 @@ def _decision_delta_returns(
     discount: float,
     score_norm: float,
     end_game_bonus: float,
+    basis: config.RewardBasis,
 ) -> list[float]:
     """Per-decision discounted returns aligned to ``record.steps`` order.
 
-    For each player the recorded ``margin_before`` checkpoints plus the terminal
-    margin form a value sequence ``v`` with game-clock times ``t`` (each step's
-    ``timestamp`` plus the record's ``final_timestamp``); the per-step reward is
-    ``v[k+1] - v[k]`` and the return is the backward discounted sum
-    ``G[k] = r[k] + γ^(t[k+1]−t[k])·G[k+1]``, scaled by ``score_norm`` — γ decays
-    per unit of game time (one full turn), not per decision step, so a
-    decision-dense turn doesn't discount the future faster than a bare one.
-    With γ=1 this telescopes to ``M_p - v[k]`` — the player's final margin minus
-    its margin before the decision.
+    For each player the recorded value checkpoints (``margin_before`` with
+    ``MARGIN`` basis; ``score_before`` with ``OWN_SCORE`` basis) plus the
+    terminal value form a sequence ``v`` with game-clock times ``t``; the
+    per-step reward is ``v[k+1] - v[k]`` and the return is the backward
+    discounted sum ``G[k] = r[k] + γ^(t[k+1]−t[k])·G[k+1]``, scaled by
+    ``score_norm``. With ``MARGIN`` basis the two seats get opposite signs;
+    with ``OWN_SCORE`` basis both are positive.
 
-    ``end_game_bonus`` is folded into the terminal checkpoint before the backward
-    sweep, so it discounts back through all prior decisions at ``discount``."""
-    # Terminal margin from each seat's POV (the final ``v`` for that player's
-    # last decision); player 0 and player 1 get opposite signs. The end-game
-    # bonus shifts seat 0's terminal by +bonus when seat 0 wins (and -bonus for
-    # seat 1), propagating back through all steps via the discount accumulation.
+    ``end_game_bonus`` is folded into the terminal checkpoint before the
+    backward sweep so it discounts back through all prior decisions."""
     score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
-    bonus_0 = _winner_bonus(record.winner, end_game_bonus)
-    terminal = ((score_0 - score_1 + bonus_0), (score_1 - score_0 - bonus_0))
+
+    # Terminal value for each seat (the final ``v`` in the checkpoint sequence).
+    if basis is config.RewardBasis.OWN_SCORE:
+        bonus_0 = end_game_bonus if record.winner == 0 else 0.0
+        bonus_1 = end_game_bonus if record.winner == 1 else 0.0
+        terminal = (score_0 + bonus_0, score_1 + bonus_1)
+    else:
+        bonus_0 = _winner_bonus(record.winner, end_game_bonus)
+        terminal = (score_0 - score_1 + bonus_0, score_1 - score_0 - bonus_0)
 
     # Returns land back in record order, so route each player's discounted
     # returns through the global step index they were computed from.
@@ -222,7 +239,10 @@ def _decision_delta_returns(
         ]
         if not indices:
             continue
-        checkpoints = [record.steps[i].margin_before for i in indices]
+        if basis is config.RewardBasis.OWN_SCORE:
+            checkpoints = [record.steps[i].score_before for i in indices]
+        else:
+            checkpoints = [record.steps[i].margin_before for i in indices]
         checkpoints.append(terminal[player_id])
         times = [record.steps[i].timestamp for i in indices]
         times.append(record.final_timestamp)

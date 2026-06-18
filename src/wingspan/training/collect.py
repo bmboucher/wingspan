@@ -340,12 +340,21 @@ def running_margin(game: state.GameState, player_id: int) -> float:
     """``player_id``'s live score margin (own − opponent) if the game ended now.
 
     Recorded as each :class:`training_steps.Step`'s ``margin_before`` and
-    differenced into the per-decision ``decision_delta`` return (``learner._flatten``).
-    Shared by both recording agents so the sequential and batched collectors
-    snapshot the margin identically."""
+    differenced into the per-decision ``decision_delta`` return with
+    ``MARGIN`` basis (``learner._flatten``). Shared by both recording agents
+    so the sequential and batched collectors snapshot the margin identically."""
     own = scoring.running_score(game.players[player_id])
     opponent = scoring.running_score(game.players[1 - player_id])
     return float(own - opponent)
+
+
+def running_own_score(game: state.GameState, player_id: int) -> float:
+    """``player_id``'s own live score if the game ended now.
+
+    Recorded as each :class:`training_steps.Step`'s ``score_before`` and
+    differenced into the per-decision ``decision_delta`` return with
+    ``OWN_SCORE`` basis (``learner._flatten``)."""
+    return float(scoring.running_score(game.players[player_id]))
 
 
 def player_breakdown(player: state.Player) -> metrics.ScoreBreakdown:
@@ -419,6 +428,7 @@ def _recording_agent(
                 player_id=decision.player_id,
                 family_idx=family_idx,
                 margin_before=running_margin(eng.state, decision.player_id),
+                score_before=running_own_score(eng.state, decision.player_id),
                 timestamp=timestamps.provisional_timestamp(
                     decision, eng.state.turn_counter
                 ),

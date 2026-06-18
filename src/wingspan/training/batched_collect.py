@@ -337,6 +337,7 @@ def _batched_recording_agent(
                 player_id=decision.player_id,
                 family_idx=family_idx,
                 margin_before=collect.running_margin(eng.state, decision.player_id),
+                score_before=collect.running_own_score(eng.state, decision.player_id),
                 timestamp=timestamps.provisional_timestamp(
                     decision, eng.state.turn_counter
                 ),

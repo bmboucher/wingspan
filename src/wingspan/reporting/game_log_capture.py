@@ -334,16 +334,18 @@ def build_timeline(
     final_ts = timestamps.finalize_provisional_timestamps(provisional_ts, family_idxs)
     game_end_ts = timestamps.final_timestamp(engine.state.turn_counter)
 
-    # Terminal margin from each seat's POV (P0's is positive when P0 leads).
+    # Terminal value for each seat under each reward_basis.
     final_score_p0 = engine.state.players[0].final_score or 0
     final_score_p1 = engine.state.players[1].final_score or 0
-    terminal_per_player = (
+    terminal_margin = (
         float(final_score_p0 - final_score_p1),
         float(final_score_p1 - final_score_p0),
     )
+    terminal_own_score = (float(final_score_p0), float(final_score_p1))
 
     # Build a {index: target_raw} map (raw = before / score_norm division),
-    # matching the actual training signal for each seat's reward_mode.
+    # matching the actual training signal for each seat's reward_mode and
+    # reward_basis.
     target_raw: dict[int, float] = {}
     for player_id in (0, 1):
         cfg = seat_configs[player_id]
@@ -353,17 +355,35 @@ def build_timeline(
         if not indices:
             continue
 
-        # terminal_margin: critic is trained on the flat end-of-game margin
-        # broadcast to every decision, so the target is constant at the terminal.
+        basis = cfg.training.reward_basis
+        own_score_basis = basis is train_config.RewardBasis.OWN_SCORE
+        terminal = (
+            terminal_own_score[player_id]
+            if own_score_basis
+            else terminal_margin[player_id]
+        )
+
+        # terminal_margin: critic target is the flat end-of-game value broadcast
+        # to every decision.
         if cfg.training.reward_mode is train_config.RewardMode.TERMINAL_MARGIN:
             for idx in indices:
-                target_raw[idx] = terminal_per_player[player_id]
+                target_raw[idx] = terminal
             continue
 
-        # decision_delta: critic is trained on the discounted future margin
-        # change, so the target telescopes toward 0 at the end.
-        checkpoints = [raw_points[i].margin_before for i in indices]
-        checkpoints.append(terminal_per_player[player_id])
+        # decision_delta: critic target telescopes toward 0 at the end. With
+        # OWN_SCORE basis, checkpoints are the player's own live score at each
+        # decision (score_p0 / score_p1 in RawTimelinePoint); with MARGIN basis,
+        # checkpoints are the running margin (margin_before).
+        if own_score_basis:
+            checkpoints = [
+                float(
+                    raw_points[i].score_p0 if player_id == 0 else raw_points[i].score_p1
+                )
+                for i in indices
+            ]
+        else:
+            checkpoints = [raw_points[i].margin_before for i in indices]
+        checkpoints.append(terminal)
         times = [final_ts[i] for i in indices]
         times.append(game_end_ts)
         raw_returns = timestamps.discounted_future_returns(
