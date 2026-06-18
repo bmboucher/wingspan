@@ -1,20 +1,26 @@
-"""The gradient update: length-bucketed REINFORCE with a value baseline.
+"""The gradient update: length-bucketed actor-critic with optional PPO / GAE.
 
-One :func:`update` call performs a single on-policy REINFORCE step over all the
-steps of an iteration's games, with the two TRAINING.md fixes that make the
-baseline honest and the memory sane:
+:func:`update` dispatches between two update paths:
 
-* **Length-bucketing (TRAINING.md §4.2a).** Stacking every decision into one tensor padded
-  to the widest decision in the batch (the 504-option opening draft, or a
-  food-rich 600+-option play) wastes ~97% of the tensor on padding and peaks
-  GPU memory near 11 GB on a default batch. Instead steps are grouped into
-  option-count buckets and padded only to each bucket's own width — a ~40×
-  memory reduction — then their losses are summed over one shared backward.
+* **Single-pass (default)** — one length-bucketed REINFORCE step with advantage
+  normalization and an optional DAgger imitation loss (``imitation_phase=True``).
+  This is today's path; defaults reproduce it byte-for-byte.
 
-* **Advantage normalization (TRAINING.md §3.3).** Advantages are centered and scaled to unit
-  std across the whole batch before the policy loss, so the gradient magnitude
-  stays stable from the first iteration to the last regardless of how good the
-  critic has become.
+* **Reuse path** — activated when ``cfg.training.policy_loss`` is ``PPO`` or
+  ``cfg.training.reward_mode`` is ``GAE``. Advantages are computed **once** from
+  captured ``Step.behavior_logp`` / ``Step.value_pred``, normalized, then reused
+  across ``ppo_reuse_epochs`` backward passes (one epoch when only GAE is on).
+  PPO uses the clipped surrogate ``−min(ratio·A, clip(ratio,1±ε)·A)``; REINFORCE
+  with GAE uses ``−(logp·A)``. Both share the length-bucketed forward pass.
+
+Common to both paths:
+
+* **Length-bucketing (TRAINING.md §4.2a):** steps grouped into option-count
+  buckets padded only to each bucket's own width (≈40× memory reduction vs. a
+  single padded tensor).
+
+* **Advantage normalization (TRAINING.md §3.3):** advantages centered and scaled
+  to unit std before the policy loss.
 
 The loss is the standard actor-critic sum
 ``policy_loss + VALUE_COEF·value_loss − ENTROPY_COEF·entropy`` (TRAINING.md §3.3),
@@ -55,6 +61,9 @@ class UpdateStats(pydantic.BaseModel):
     # Non-zero only during DAgger clone iterations; 0.0 in RL mode.
     imitation_loss: float = 0.0
     n_steps: int
+    # PPO diagnostics — 0.0 on the single-pass (REINFORCE / DAgger) path.
+    clip_fraction: float = 0.0
+    approx_kl: float = 0.0
 
 
 def update(
@@ -67,11 +76,35 @@ def update(
 ) -> UpdateStats:
     """Run one length-bucketed update over ``records``' steps.
 
-    In the normal RL mode (``imitation_phase=False``) this is a standard
-    actor-critic REINFORCE step.  In the DAgger imitation phase
-    (``imitation_phase=True``) the policy-gradient and entropy terms are
-    replaced by cross-entropy to each step's recorded ``expert_probs``; the
-    value-head MSE loss is kept to warm the critic for the RL handoff.
+    Dispatches to the single-pass REINFORCE path (today's algorithm, including
+    DAgger imitation mode) or the PPO / GAE reuse path based on
+    ``cfg.training.policy_loss`` and ``cfg.training.reward_mode``.  The default
+    config always dispatches to single-pass, preserving existing behaviour.
+    """
+    ppo = cfg.training.policy_loss is config.PolicyLoss.PPO
+    gae = cfg.training.reward_mode is config.RewardMode.GAE
+    if imitation_phase or (not ppo and not gae):
+        return _update_single_pass(
+            net, optimizer, records, cfg, device, imitation_phase
+        )
+    return _update_reuse(net, optimizer, records, cfg, device, ppo=ppo, gae=gae)
+
+
+###### PRIVATE #######
+
+
+def _update_single_pass(
+    net: model.PolicyValueNet,
+    optimizer: optim.Optimizer,
+    records: list[collect.GameRecord],
+    cfg: config.RunConfig,
+    device: torch.device,
+    imitation_phase: bool = False,
+) -> UpdateStats:
+    """One length-bucketed REINFORCE / DAgger update (single backward pass).
+
+    This is today's ``update()`` body extracted verbatim — the canonical path
+    for the default config (REINFORCE + MC returns) and all DAgger clone iters.
     """
     flat_steps, returns = _flatten(records, cfg)
     if not flat_steps:
@@ -172,7 +205,221 @@ def update(
     )
 
 
-###### PRIVATE #######
+def _update_reuse(
+    net: model.PolicyValueNet,
+    optimizer: optim.Optimizer,
+    records: list[collect.GameRecord],
+    cfg: config.RunConfig,
+    device: torch.device,
+    ppo: bool,
+    gae: bool,
+) -> UpdateStats:
+    """PPO / GAE update with fixed advantages and optional epoch reuse.
+
+    Advantages are computed once from captured ``Step.behavior_logp`` /
+    ``Step.value_pred``, normalized, then reused across ``ppo_reuse_epochs``
+    backward passes (one epoch when only GAE is on). The PPO clipped surrogate
+    is used when ``ppo=True``; otherwise REINFORCE with GAE advantages.
+    """
+    # Pre-compute fixed advantages from captured data (never re-estimated).
+    flat_steps, advantages, value_targets = _flatten_with_advantages(records, cfg)
+    if not flat_steps:
+        return UpdateStats(
+            loss=0.0,
+            policy_loss=0.0,
+            value_loss=0.0,
+            entropy=0.0,
+            grad_norm=0.0,
+            advantage_mean=0.0,
+            advantage_std=0.0,
+            n_steps=0,
+        )
+
+    # Normalize advantages once across the whole batch.
+    adv_arr = np.array(advantages, dtype=np.float32)
+    adv_mean = float(adv_arr.mean())
+    adv_std = float(adv_arr.std())
+    norm_adv = ((adv_arr - adv_mean) / (adv_std + _ADV_STD_EPS)).tolist()
+
+    # Fixed per-step scalars (stable across epochs; only the forward graph changes).
+    old_logp_list = [step.behavior_logp for step in flat_steps]
+    buckets = _bucketize(flat_steps)
+    n_epochs = cfg.training.ppo_reuse_epochs if ppo else 1
+    eps = cfg.training.ppo_clip_eps
+
+    last_loss = last_ploss = last_vloss = last_ent = last_gnorm = 0.0
+    last_clip = last_kl = 0.0
+
+    for _ in range(n_epochs):
+        chosen_logps_e: list[torch.Tensor] = []
+        values_e: list[torch.Tensor] = []
+        entropies_e: list[torch.Tensor] = []
+        adv_parts: list[torch.Tensor] = []
+        vt_parts: list[torch.Tensor] = []
+        old_logp_parts: list[torch.Tensor] = []
+
+        for bucket in buckets:
+            logp_b, value_b, entropy_b, _, _ = _forward_bucket(
+                net, device, flat_steps, bucket
+            )
+            chosen_logps_e.append(logp_b)
+            values_e.append(value_b)
+            entropies_e.append(entropy_b)
+            adv_parts.append(
+                torch.tensor(
+                    [norm_adv[i] for i in bucket], dtype=torch.float32, device=device
+                )
+            )
+            vt_parts.append(
+                torch.tensor(
+                    [value_targets[i] for i in bucket],
+                    dtype=torch.float32,
+                    device=device,
+                )
+            )
+            if ppo:
+                old_logp_parts.append(
+                    torch.tensor(
+                        [old_logp_list[i] for i in bucket],
+                        dtype=torch.float32,
+                        device=device,
+                    )
+                )
+
+        logp_all = torch.cat(chosen_logps_e)
+        value_flat = torch.cat(values_e)
+        entropy_t = torch.cat(entropies_e).mean()
+        adv_all = torch.cat(adv_parts)
+        vt_all = torch.cat(vt_parts)
+        value_loss = F.mse_loss(value_flat, vt_all)
+
+        if ppo:
+            old_logp_all = torch.cat(old_logp_parts)
+            ratio = (logp_all - old_logp_all).exp()
+            surr1 = ratio * adv_all
+            surr2 = ratio.clamp(1.0 - eps, 1.0 + eps) * adv_all
+            policy_loss_t = -torch.min(surr1, surr2).mean()
+            last_clip = float(((ratio - 1.0).abs() > eps).float().mean().detach())
+            last_kl = float((old_logp_all - logp_all).mean().detach())
+        else:
+            policy_loss_t = -(logp_all * adv_all).mean()
+            last_clip = 0.0
+            last_kl = 0.0
+
+        loss = (
+            policy_loss_t
+            + cfg.training.value_coef * value_loss
+            - cfg.training.entropy_coef * entropy_t
+        )
+
+        optimizer.zero_grad()
+        loss.backward()  # pyright: ignore[reportUnknownMemberType]
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            net.parameters(), max_norm=cfg.training.grad_clip
+        )
+        optimizer.step()
+
+        last_loss = float(loss.detach())
+        last_ploss = float(policy_loss_t.detach())
+        last_vloss = float(value_loss.detach())
+        last_ent = float(entropy_t.detach())
+        last_gnorm = float(grad_norm)
+
+    return UpdateStats(
+        loss=last_loss,
+        policy_loss=last_ploss,
+        value_loss=last_vloss,
+        entropy=last_ent,
+        grad_norm=last_gnorm,
+        advantage_mean=adv_mean,
+        advantage_std=adv_std,
+        n_steps=len(flat_steps),
+        clip_fraction=last_clip,
+        approx_kl=last_kl,
+    )
+
+
+def _flatten_with_advantages(
+    records: list[collect.GameRecord], cfg: config.RunConfig
+) -> tuple[list[steps.Step], list[float], list[float]]:
+    """Flatten records and compute ``(flat_steps, advantages, value_targets)``
+    for the PPO/GAE reuse path.
+
+    With ``GAE`` reward mode the GAE kernel runs per-player using captured
+    ``value_pred`` checkpoints.  With MC returns (other modes) the advantage is
+    ``G − step.value_pred`` (fixed from capture time) and the value target is
+    ``G`` (the MC return).
+    """
+    if cfg.training.reward_mode is config.RewardMode.GAE:
+        return _gae_flatten(records, cfg)
+
+    # PPO with MC returns: fix advantages pre-epoch so each reuse epoch sees the
+    # same targets (value_pred captured at collection, not re-estimated each pass).
+    flat_steps, returns = _flatten(records, cfg)
+    advantages = [ret - step.value_pred for ret, step in zip(returns, flat_steps)]
+    return flat_steps, advantages, returns
+
+
+def _gae_flatten(
+    records: list[collect.GameRecord], cfg: config.RunConfig
+) -> tuple[list[steps.Step], list[float], list[float]]:
+    """GAE advantages and value targets aligned to flattened record steps.
+
+    Mirrors ``_decision_delta_returns``'s per-player checkpoint routing but
+    calls ``timestamps.gae_advantages`` instead of ``discounted_future_returns``.
+    """
+    flat_steps: list[steps.Step] = []
+    advantages: list[float] = []
+    value_targets: list[float] = []
+
+    basis = cfg.training.reward_basis
+    discount = cfg.training.reward_discount
+    lam = cfg.training.gae_lambda
+    score_norm = cfg.training.score_norm
+    end_bonus = cfg.training.end_game_bonus
+
+    for record in records:
+        score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
+
+        # Terminal values (same logic as _decision_delta_returns).
+        if basis is config.RewardBasis.OWN_SCORE:
+            bonus_0 = end_bonus if record.winner == 0 else 0.0
+            bonus_1 = end_bonus if record.winner == 1 else 0.0
+            terminal = (score_0 + bonus_0, score_1 + bonus_1)
+        else:
+            bonus_0 = _winner_bonus(record.winner, end_bonus)
+            terminal = (score_0 - score_1 + bonus_0, score_1 - score_0 - bonus_0)
+
+        n_record_steps = len(record.steps)
+        out_adv = [0.0] * n_record_steps
+        out_vt = [0.0] * n_record_steps
+
+        for player_id in (0, 1):
+            indices = [
+                i for i, step in enumerate(record.steps) if step.player_id == player_id
+            ]
+            if not indices:
+                continue
+            if basis is config.RewardBasis.OWN_SCORE:
+                checkpoints = [record.steps[i].score_before for i in indices]
+            else:
+                checkpoints = [record.steps[i].margin_before for i in indices]
+            checkpoints.append(terminal[player_id])
+            times = [record.steps[i].timestamp for i in indices]
+            times.append(record.final_timestamp)
+            values = [record.steps[i].value_pred for i in indices]
+            adv, vt = timestamps.gae_advantages(
+                checkpoints, times, values, score_norm, discount, lam
+            )
+            for position, idx in enumerate(indices):
+                out_adv[idx] = adv[position]
+                out_vt[idx] = vt[position]
+
+        flat_steps.extend(record.steps)
+        advantages.extend(out_adv)
+        value_targets.extend(out_vt)
+
+    return flat_steps, advantages, value_targets
 
 
 def _flatten(

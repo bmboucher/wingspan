@@ -435,9 +435,13 @@ def _recording_agent(
         family_idx = decisions.family_index_for(type(decision))
         state_vec = net.encode_state(eng.state, decision)
         choice_feats = net.encode_choices(decision, eng.state)
-        chosen_idx = policy.sample_action(
-            net, device, state_vec, choice_feats, family_idx, rng
+        n_choices = choice_feats.shape[0]
+
+        # Use policy_value_and_probs so we capture the critic value in one pass.
+        _, probs, value = policy.policy_value_and_probs(
+            net, device, state_vec, choice_feats, family_idx
         )
+        chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
 
         # DAgger expert labeling: compute expert's soft distribution using its
         # own encoder.  Candidate-index alignment is guaranteed: both nets receive
@@ -464,6 +468,8 @@ def _recording_agent(
                     decision, eng.state.turn_counter
                 ),
                 expert_probs=expert_probs,
+                behavior_logp=policy.behavior_logp(probs, chosen_idx, n_choices),
+                value_pred=value,
             )
         )
         return decision.choices[chosen_idx]

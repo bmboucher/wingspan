@@ -99,6 +99,20 @@ def sample_index_from_probs(
     return _weighted_index(rng, (probs / total).tolist())
 
 
+def behavior_logp(probs: np.ndarray, chosen_idx: int, n_choices: int) -> float:
+    """Log probability of ``chosen_idx`` under the collection-time softmax.
+
+    Mirrors the degeneracy fallback in :func:`sample_index_from_probs`: returns
+    ``−log(n_choices)`` (the uniform log-prob) when the distribution is
+    degenerate (non-finite or all-zero), so the PPO ratio is 1 for those steps.
+    Clamps the non-degenerate case to avoid ``log(0)``."""
+    total = float(probs.sum())
+    if not np.isfinite(total) or total <= 0.0:
+        return -float(np.log(max(n_choices, 1)))
+    p_chosen = float(probs[chosen_idx]) / total
+    return float(np.log(max(p_chosen, 1e-45)))
+
+
 def policy_value_and_probs(
     net: model.PolicyValueNet,
     device: torch.device,

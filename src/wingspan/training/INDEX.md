@@ -25,9 +25,11 @@ top-level computed properties so call sites don't churn.
 - `run: RunSettings` — `games_per_iter`, `max_iterations`, `target_iterations`,
   `eval_every`, `eval_games`, `checkpoint_dir`, `run_name`, `resume`, `history_len`.
 - `training: TrainingConfig` — `lr`, `value_coef`, `entropy_coef`, `grad_clip`,
-  `score_norm`, `reward_mode` (`terminal_margin` | `decision_delta`),
-  `reward_discount` (both REGIME), and `setup: SetupTrainingConfig` (setup-net
-  `lr`, schedule `record_start_iter` / `train_iter`, offline-fit + actor-critic knobs).
+  `score_norm`, `reward_mode` (`terminal_margin` | `decision_delta` | `gae`),
+  `reward_discount` (REGIME), PPO/GAE knobs (all REGIME): `policy_loss`
+  (`"reinforce"` | `"ppo"`), `ppo_clip_eps` (0.2), `ppo_reuse_epochs` (4),
+  `gae_lambda` (0.95), and `setup: SetupTrainingConfig` (setup-net `lr`,
+  schedule `record_start_iter` / `train_iter`, offline-fit + actor-critic knobs).
 - `opponent: OpponentConfig` — `bootstrap_opponent` (`"none"` | `"random"` |
   ckpt path; a path is CPU-only), `random_phase_win_rate`,
   `opponent_reset_win_rate`, `opponent_max_iterations`, `eval_ewma_alpha`.
@@ -153,14 +155,18 @@ collection) and `greedy_agent(net, spec) -> Agent` (argmax, for eval). Both
 call `net.encode_state` / `net.encode_choices` — never the raw encoder.
 
 **`steps.py`** — `Step(state, choices, chosen_idx, player_id, family_idx,
-margin_before, timestamp, expert_probs=None)` — the recorded self-play transition
-consumed by the learner. `margin_before` is the deciding player's running margin
-(own − opponent) before the decision, differenced into the `decision_delta`
-return; `timestamp` is the decision's game-clock time (see `timestamps.py`).
-`expert_probs: np.ndarray | None` — shape `(n_choices,)`, the DAgger expert's
-soft policy distribution, set at collection time when `dagger_active=True`; `None`
-in RL mode or for SETUP steps when the expert lacks the SETUP head. IPC-only
-(not persisted to `games.jsonl`). All arrays stored as fp16 during IPC.
+margin_before, timestamp, expert_probs=None, behavior_logp=0.0, value_pred=0.0)`
+— the recorded self-play transition consumed by the learner. `margin_before` is
+the deciding player's running margin (own − opponent) before the decision,
+differenced into the `decision_delta` return; `timestamp` is the decision's
+game-clock time (see `timestamps.py`). `expert_probs: np.ndarray | None` —
+shape `(n_choices,)`, the DAgger expert's soft policy distribution; `None` in RL
+mode. `behavior_logp: float` — log π_old(chosen) under the collection policy,
+used as the PPO denominator; `0.0` default preserves old fixtures. `value_pred:
+float` — critic V(s) in normalized-return units, used by the GAE kernel and as
+the PPO baseline; `0.0` default preserves old fixtures. All three optional fields
+are filled by both collectors at inference time. IPC-only (not persisted to
+`games.jsonl`).
 
 **`timestamps.py`** — The game clock for time-based discounting: setup
 decisions at 0 / 1/3 / 2/3, turn N's main action at exactly N (the engine's
@@ -168,23 +174,35 @@ decisions at 0 / 1/3 / 2/3, turn N's main action at exactly N (the engine's
 `provisional_timestamp(decision, turn_counter)` at record time,
 `finalize_timestamps(recorded)` once the game is complete (the interpolation
 needs each turn's full decision count), `final_timestamp(turn_counter)` for the
-terminal checkpoint (`GameRecord.final_timestamp`). Torch-free.
+terminal checkpoint (`GameRecord.final_timestamp`). Torch-free. Also contains
+`gae_advantages(checkpoints, times, values, score_norm, discount, lam) ->
+(advantages, value_targets)` — a torch-free backward GAE sweep; with λ=1,γ=1
+reduces to `decision_delta` advantage `G/score_norm − V`; with λ=0 collapses to
+one-step TD residual.
 
 ## Learning
 
 **`learner.py`** — `update(net, optimizer, records, cfg, device, imitation_phase=False)`:
-- Length-bucketed REINFORCE with advantage normalisation (normal RL mode).
-- In the DAgger imitation phase (`imitation_phase=True`): loss is
-  `CE(student, expert) + value_coef * value_MSE`; policy-gradient and entropy
-  terms are zero. The `has_expert` mask (1.0 when `Step.expert_probs` is not
-  `None`) weights the CE mean; `clamp(min=1)` guards the all-unlabeled bucket.
-  Returns `UpdateStats` with `imitation_loss: float` (0.0 in RL mode).
-- `_flatten` pairs each step with its return per `cfg.reward_mode`:
+dispatches to one of two paths based on `cfg.training.policy_loss` and
+`cfg.training.reward_mode`:
+- **Single-pass path** (`_update_single_pass`): today's length-bucketed REINFORCE
+  with advantage normalization. Used when `policy_loss=REINFORCE` and
+  `reward_mode ∈ {terminal_margin, decision_delta}`, and always during DAgger
+  (`imitation_phase=True`). DAgger loss is `CE(student, expert) +
+  value_coef * value_MSE`; RL mode is `policy_loss + value_coef * value_MSE −
+  entropy_coef * entropy`. Returns `UpdateStats` with `imitation_loss: float`
+  (0.0 in RL mode), `clip_fraction=0.0`, `approx_kl=0.0`.
+- **Reuse path** (`_update_reuse`): activated when `policy_loss=PPO` or
+  `reward_mode=GAE`. Advantages + value targets are computed **once** from the
+  captured `Step.behavior_logp` / `Step.value_pred` (via `_flatten_with_advantages`
+  / `_gae_flatten`), normalized, then reused across `ppo_reuse_epochs` backward
+  passes. PPO uses the clipped surrogate `−min(ratio·A, clip(ratio,1±ε)·A)`;
+  REINFORCE+GAE uses `−(logp·A)`. Returns `UpdateStats` with `clip_fraction` and
+  `approx_kl` from the final epoch.
+- `_flatten` pairs each step with its MC return per `cfg.reward_mode`:
   `_terminal_margin_returns` broadcasts the end-of-game margin; for
   `decision_delta`, `_decision_delta_returns` discounts per-decision
-  `margin_before` deltas by γ^Δt of game-clock time between checkpoints
-  (γ = `reward_discount`, Δt from `Step.timestamp` /
-  `GameRecord.final_timestamp`) into each step's return.
+  `margin_before` deltas by γ^Δt into each step's return.
 
 **`setup_net.py`** — `SetupNet(arch: SetupArchitecture, input_dim)`: the setup
 model's MLP value-regressor. Single scalar output (predicted final score).

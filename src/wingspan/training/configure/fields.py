@@ -446,6 +446,10 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "reward_mode": ("training", "reward_mode"),
     "reward_discount": ("training", "reward_discount"),
     "end_game_bonus": ("training", "end_game_bonus"),
+    "policy_loss": ("training", "policy_loss"),
+    "ppo_clip_eps": ("training", "ppo_clip_eps"),
+    "ppo_reuse_epochs": ("training", "ppo_reuse_epochs"),
+    "gae_lambda": ("training", "gae_lambda"),
     # training.setup section
     "setup_lr": ("training", "setup", "lr"),
     "setup_policy_temperature": ("training", "setup", "policy_temperature"),
@@ -620,8 +624,9 @@ FIELD_SPECS: list[FieldSpec] = [
         help="How each decision's return is computed. 'terminal_margin' broadcasts "
         "the end-of-game margin to every decision; 'decision_delta' credits each "
         "decision with its own margin change, discounted per unit of game-clock "
-        "time (one game turn). Shape-preserving — reinterprets an in-progress "
-        "run but resumes the weights.",
+        "time; 'gae' uses the GAE critic-bootstrapped advantage (requires "
+        "behavior_logp / value_pred captured at collection time). "
+        "Shape-preserving — reinterprets an in-progress run but resumes weights.",
     ),
     FloatField(
         attr="reward_discount",
@@ -630,11 +635,54 @@ FIELD_SPECS: list[FieldSpec] = [
         step=0.05,
         impact=ChangeImpact.REGIME,
         visible_when=lambda cfg: cfg.training.reward_mode
-        == config.RewardMode.DECISION_DELTA,
-        help="Discount γ for the decision-delta return, per game turn of clock "
-        "time: a decision's own margin change plus γ^Δt·(future per-decision "
-        "changes). γ=0 = immediate change only; γ=1 = final margin minus the "
-        "current margin. Delta mode only.",
+        in (config.RewardMode.DECISION_DELTA, config.RewardMode.GAE),
+        help="Discount γ for the decision-delta / GAE return, per game turn of "
+        "clock time. γ=0 = immediate change only; γ=1 = final margin minus the "
+        "current margin. Delta and GAE modes only.",
+    ),
+    FloatField(
+        attr="gae_lambda",
+        label="GAE lambda λ",
+        section=ConfigSection.OPTIM,
+        step=0.05,
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.training.reward_mode is config.RewardMode.GAE,
+        help="GAE bias-variance trade-off λ (Schulman et al. 2016). λ=1 reduces "
+        "to the full MC advantage (high variance, low bias); λ=0 reduces to "
+        "one-step TD (low variance, high bias). Default 0.95. GAE mode only.",
+    ),
+    ChoiceField(
+        attr="policy_loss",
+        label="policy loss",
+        section=ConfigSection.OPTIM,
+        choices=[pl.value for pl in config.PolicyLoss],
+        impact=ChangeImpact.REGIME,
+        help="Policy-gradient objective. 'reinforce' = standard log-prob weighted "
+        "advantage (default). 'ppo' = PPO clipped surrogate, enabling safe "
+        "multi-epoch reuse of each collected batch via 'PPO reuse epochs'. "
+        "Shape-preserving — reinterprets an in-progress run but resumes weights.",
+    ),
+    IntField(
+        attr="ppo_reuse_epochs",
+        label="PPO reuse epochs",
+        section=ConfigSection.OPTIM,
+        step=1,
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.training.policy_loss is config.PolicyLoss.PPO,
+        help="Number of full-batch gradient passes over each collected batch. "
+        "More epochs extract more learning per collection round at the cost of "
+        "policy lag (mitigated by the PPO clip). PPO mode only.",
+    ),
+    FloatField(
+        attr="ppo_clip_eps",
+        label="PPO clip ε",
+        section=ConfigSection.OPTIM,
+        step=0.05,
+        impact=ChangeImpact.REGIME,
+        visible_when=lambda cfg: cfg.training.policy_loss is config.PolicyLoss.PPO,
+        help="PPO probability-ratio clip radius. The surrogate is clipped to "
+        "[1−ε, 1+ε] × advantage, preventing large policy updates within a "
+        "reuse epoch. Default 0.2. PPO mode only.",
     ),
     IntField(
         attr="eval_every",

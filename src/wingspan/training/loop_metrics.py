@@ -153,6 +153,8 @@ def build_iteration_metrics(
             setup_stats.n_samples if setup_stats is not None else None
         ),
         imitation_loss=stats.imitation_loss if imitation_phase else None,
+        clip_fraction=stats.clip_fraction,
+        approx_kl=stats.approx_kl,
     )
 
 

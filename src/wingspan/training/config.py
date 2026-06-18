@@ -48,12 +48,33 @@ class RewardMode(enum.StrEnum):
     instead credits each decision with the change in the player's value from
     that decision onward, accumulated into a return discounted by
     ``reward_discount`` per unit of game-clock time between decisions
-    (``Step.timestamp`` — one unit per game turn). Both modes are
-    shape-preserving (REGIME), so toggling them never restarts the network.
+    (``Step.timestamp`` — one unit per game turn). ``GAE`` uses the
+    Generalized Advantage Estimation kernel: the TD residuals
+    ``δ_t = r_t + γV(s_{t+1}) − V(s_t)`` are accumulated backward with
+    ``(γλ)^Δt`` decay (``gae_lambda`` controls λ); value targets are
+    ``A_t + V(s_t)``. Requires ``behavior_logp`` / ``value_pred`` captured at
+    collection time. All modes are shape-preserving (REGIME).
     """
 
     TERMINAL_MARGIN = "terminal_margin"
     DECISION_DELTA = "decision_delta"
+    GAE = "gae"
+
+
+class PolicyLoss(enum.StrEnum):
+    """The policy-gradient objective used in the gradient update.
+
+    ``REINFORCE`` applies the standard log-probability-weighted advantage loss
+    ``−(log π · A).mean()``.  ``PPO`` uses the clipped surrogate
+    ``−min(ratio·A, clip(ratio, 1±ε)·A).mean()`` (Schulman et al. 2017),
+    where ``ratio = exp(logπ_new − logπ_old)`` and ``logπ_old`` is captured at
+    collection time (``Step.behavior_logp``).  PPO enables safe multi-epoch
+    reuse of each collected batch (``ppo_reuse_epochs``).  Both are
+    shape-preserving (REGIME).
+    """
+
+    REINFORCE = "reinforce"
+    PPO = "ppo"
 
 
 class RewardBasis(enum.StrEnum):
@@ -268,6 +289,12 @@ class TrainingConfig(pydantic.BaseModel):
     reward_discount: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 1.0
     end_game_bonus: float = 0.0
     setup: SetupTrainingConfig = pydantic.Field(default_factory=SetupTrainingConfig)
+    # PPO / GAE algorithm knobs — REGIME (shape-preserving, no MODEL_VERSION bump).
+    # Defaults reproduce today's REINFORCE behaviour exactly.
+    policy_loss: PolicyLoss = PolicyLoss.REINFORCE
+    ppo_clip_eps: typing.Annotated[float, pydantic.Field(gt=0.0)] = 0.2
+    ppo_reuse_epochs: typing.Annotated[int, pydantic.Field(ge=1)] = 4
+    gae_lambda: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 0.95
 
 
 class OpponentConfig(pydantic.BaseModel):

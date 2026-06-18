@@ -133,6 +133,52 @@ def discounted_future_returns(
     return out
 
 
+def gae_advantages(
+    checkpoints: list[float],
+    times: list[float],
+    values: list[float],
+    score_norm: float,
+    discount: float,
+    lam: float,
+) -> tuple[list[float], list[float]]:
+    """GAE advantages and value targets for one player's decision sequence.
+
+    ``checkpoints`` has N+1 entries (N per-decision margin/score snapshots plus
+    the terminal value); ``times`` has N+1 matching game-clock timestamps; and
+    ``values`` has N per-decision critic estimates V(s_t) in normalized-return
+    units.  Returns ``(advantages, value_targets)`` — both length N — computed
+    via the backward TD sweep:
+
+        reward  = (checkpoint[k+1] − checkpoint[k]) / score_norm
+        next_v  = values[k+1] if k+1 < N else 0.0  (terminal: V = 0)
+        δ[k]    = reward + discount^Δt · next_v − values[k]
+        A[k]    = δ[k] + (discount·λ)^Δt · A[k+1]
+        target[k] = A[k] + values[k]
+
+    With λ=1, γ=1 this reduces exactly to the ``decision_delta`` advantage
+    ``G/score_norm − V`` and target ``G/score_norm`` — the correctness check.
+    With λ=0 it reduces to one-step TD.
+
+    Deliberately torch-free (parallel to :func:`discounted_future_returns`) so
+    unit tests import without the training stack.
+    """
+    n = len(values)
+    assert len(checkpoints) == n + 1, "checkpoints must be length N+1"
+    assert len(times) == n + 1, "times must be length N+1"
+    advantages = [0.0] * n
+    value_targets = [0.0] * n
+    running = 0.0
+    for position in reversed(range(n)):
+        reward = (checkpoints[position + 1] - checkpoints[position]) / score_norm
+        dt = times[position + 1] - times[position]
+        next_v = values[position + 1] if position + 1 < n else 0.0
+        delta = reward + discount**dt * next_v - values[position]
+        running = delta + (discount * lam) ** dt * running
+        advantages[position] = running
+        value_targets[position] = running + values[position]
+    return advantages, value_targets
+
+
 def finalize_provisional_timestamps(
     provisional: list[float], family_indices: list[int]
 ) -> list[float]:

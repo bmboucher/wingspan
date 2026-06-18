@@ -302,7 +302,11 @@ class TrainingLoop:
             )
         update_start = time.monotonic()
         stats = learner.update(
-            self.net, self.optimizer, records, self.config, self.device,
+            self.net,
+            self.optimizer,
+            records,
+            self.config,
+            self.device,
             imitation_phase=imitation_phase,
         )
         update_seconds = time.monotonic() - update_start

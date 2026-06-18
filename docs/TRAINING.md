@@ -38,11 +38,12 @@ The measured profile is in §1 and is the foundation for every later decision.
 > on GPU" framing is no longer a hard split): CPU runs collect through the process
 > pool; CUDA runs the batched collector and the learner update on the GPU.
 >
-> **Still open:** PPO + reuse epochs and GAE (§3.4 — the update is still
-> REINFORCE + value baseline, with advantage normalization already in place); a
-> frozen multi-checkpoint **league + Elo** (§5.2/§7 — only the single advancing
-> ladder exists today); flatten + segment-softmax (§4.2b); and per-card
-> visit-count logging (§8).
+> **Still open:** a frozen multi-checkpoint **league + Elo** (§5.2/§7 — only
+> the single advancing ladder exists today); flatten + segment-softmax (§4.2b);
+> and per-card visit-count logging (§8).
+>
+> **Now shipped:** PPO + reuse epochs and GAE (§3.4) — see the `policy_loss`,
+> `ppo_clip_eps`, `ppo_reuse_epochs`, and `gae_lambda` config knobs.
 >
 > Two caveats on the numbers below. (1) The §1.1 sizes have been **re-measured
 > against current `main`**: state vector **795**, choice vector **215**,
@@ -81,9 +82,10 @@ Priorities, in order. Each links to its section; ✅ = shipped, ☐ = still open
    fixed reference opponent, a 95 % CI, mean margin, and an advancing
    frozen-opponent ladder. (Still open: a multi-checkpoint league + Elo.)
 
-3. ☐ **Replace plain REINFORCE with PPO** (§3.4). The update is REINFORCE + a
-   value baseline with **advantage normalization already in place**; PPO's
-   clipped reuse epochs and GAE are the remaining algorithm upgrade.
+3. ✅ **PPO + GAE shipped** (§3.4). The algorithm upgrade is done: PPO's clipped
+   reuse epochs and GAE are opt-in REGIME knobs (`policy_loss`, `reward_mode=gae`,
+   `ppo_clip_eps`, `ppo_reuse_epochs`, `gae_lambda`). Defaults reproduce today's
+   REINFORCE behavior exactly; minibatching (§3.3/§4.2b) is still deferred.
 
 4. ✅ **Self-play is parallelized** (§4.1) — a persistent CPU worker pool with
    per-iteration weight broadcast, plus an optional CUDA batched collector.
@@ -422,11 +424,12 @@ adopt PPO before going asynchronous.
 Do not jump straight to the fanciest algorithm; climb this ladder and stop when
 the strength curve (§7) plateaus.
 
-1. **REINFORCE + value baseline + advantage normalization** (today, plus the
-   §3.3 fixes). Get a clean baseline strength curve from this. It is enough to
-   crush a random opponent and to validate the whole pipeline.
+1. ✅ **REINFORCE + value baseline + advantage normalization** (shipped). Gets a
+   clean baseline strength curve. Enough to crush a random opponent and validate
+   the whole pipeline.
 
-2. **PPO (Proximal Policy Optimization)** — the recommended workhorse.
+2. ✅ **PPO (Proximal Policy Optimization)** — **shipped**. Set via
+   `policy_loss = "ppo"` in the training config.
    - **What it adds:** it lets you safely take *several* gradient passes over
      each collected batch (the "reuse epochs" of §3.2) instead of one, by
      *clipping* the update so the new policy can't move too far from the policy
@@ -436,11 +439,18 @@ the strength curve (§7) plateaus.
    - **Why it matters here:** games are expensive (§1.4) and data is discarded
      after each iteration. PPO extracts 3–10× more signal from each batch before
      throwing it away.
-   - **Settings to start:** clip ε = 0.2, reuse epochs = 4, minibatch ≈ 4,096,
-     advantage normalization on.
+   - **Config knobs** (all REGIME — no checkpoint restart):
+     - `policy_loss = "ppo"` — enables clipped surrogate; default `"reinforce"`
+       reproduces today's behavior exactly.
+     - `ppo_clip_eps = 0.2` — clip radius ε in `clip(ratio, 1±ε)`.
+     - `ppo_reuse_epochs = 4` — reuse passes per collected batch; 1 = single pass.
+   - **Note:** full-batch reuse (no minibatching). Minibatch shuffling (§4.2b)
+     is still deferred as a follow-up.
+   - **Diagnostics:** `clip_fraction` and `approx_kl` are logged each iteration
+     and appear in `metrics.jsonl` (0.0 on the single-pass / DAgger path).
 
-3. **GAE (Generalized Advantage Estimation)** — adopt alongside PPO for variance
-   reduction.
+3. ✅ **GAE (Generalized Advantage Estimation)** — **shipped**. Set via
+   `reward_mode = "gae"` alongside `policy_loss = "ppo"` for variance reduction.
    - **The problem it solves:** today every one of a game's ~140 decisions is
      credited with the *same* terminal margin. A brilliant turn in a game you
      lost gets a negative signal; a blunder in a game you won gets a positive
@@ -449,9 +459,15 @@ the strength curve (§7) plateaus.
      states to assign each decision a more *local* advantage — "how much better
      did the position get right after this move?" — instead of waiting for the
      final score. A knob λ (≈0.95) trades off the high variance of waiting for
-     the end against the bias of trusting the critic. With pure terminal rewards
-     and no bootstrapping (today's setup), the advantage is just `G − V(s)`;
-     GAE's benefit appears once the critic is good enough to bootstrap from.
+     the end against the bias of trusting the critic. With λ=1,γ=1 it reduces
+     exactly to the `decision_delta` advantage `G/score_norm − V`; as λ→0 it
+     collapses to a one-step TD residual.
+   - **Config knob** (REGIME): `gae_lambda = 0.95` (visible in the configurator
+     when `reward_mode = "gae"`).
+   - **Implementation note:** `behavior_logp` (old log-prob) and `value_pred`
+     (critic V(s) in normalized-return units) are captured at collection time and
+     stored on each `Step`. The `gae_advantages` kernel in `timestamps.py` runs a
+     torch-free backward sweep per player per game.
 
 **Beyond PPO** there is the AlphaZero family (search-guided self-play with MCTS).
 It is powerful but a poor early fit for Wingspan: the game has **hidden
@@ -1184,11 +1200,11 @@ Parallel CPU actors (`mp_collect`) with per-iteration weight broadcast, plus the
 CUDA batched collector (`batched_collect`) (§4.1). *Exit (per run):* confirm the
 collector keeps the learner fed — the GPU should no longer be the idle component.
 
-**Phase 3 — Strengthen the algorithm (days). ☐ Open.**
-PPO with reuse epochs + GAE (§3.4); add the multi-checkpoint league, league-Elo
-evaluation, and occasional league opponents (§7). *Exit:* league Elo rises
-monotonically over a long run; the policy beats its Phase-1 self head-to-head by
-a clear margin.
+**Phase 3 — Strengthen the algorithm (days). ◑ Algorithm done; league open.**
+PPO + GAE (§3.4) are now shipped REGIME knobs. Still open: the multi-checkpoint
+league, league-Elo evaluation, and occasional league opponents (§7). *Exit:*
+league Elo rises monotonically over a long run; the policy beats its Phase-1
+self head-to-head by a clear margin.
 
 **Phase 4 — Grow capacity only if warranted (ongoing). ◑ Embedding done.**
 The shared card embedding (§6.3) is adopted — worthwhile on its own. Then, only on
@@ -1214,7 +1230,7 @@ helped.
 | 4 | Eval harness (fixed opponent, paired games, CIs) | §7 | ✅ | self-play win rate is ~50 % and measures nothing |
 | 5 | Batch = 64–256 **games**/iteration | §3.2 | ✅ | count games, not steps — one terminal reward/game |
 | 6 | Normalize advantages; drop epsilon-greedy | §3.3 | ✅ | stable gradients; keep the update on-policy |
-| 7 | REINFORCE → PPO + GAE | §3.4 | ☐ | more learning per expensive game; lower variance |
+| 7 | REINFORCE → PPO + GAE | §3.4 | ✅ | more learning per expensive game; lower variance |
 | 8 | Parallel CPU actors + CUDA batched collector | §4.1 | ✅ | collection is the wall: ~46 h → ~5 h for 1 M games |
 | 9 | Full resumable checkpoints + metrics/games logs | §5, §8 | ✅ | resume, reproduce, evaluate |
 | 9b | Multi-checkpoint league + Elo + per-card visit logs | §5.2, §7, §8 | ☐ | catch tail-chasing; card-power readout |

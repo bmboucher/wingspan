@@ -230,9 +230,7 @@ def test_learner_imitation_phase_produces_finite_loss(
         collect.play_game(net, device, rng, seed=10, expert_net=net),
         collect.play_game(net, device, rng, seed=11, expert_net=net),
     ]
-    stats = learner.update(
-        net, optimizer, records, cfg, device, imitation_phase=True
-    )
+    stats = learner.update(net, optimizer, records, cfg, device, imitation_phase=True)
 
     assert np.isfinite(stats.imitation_loss), "imitation_loss must be finite"
     assert stats.imitation_loss >= 0.0
@@ -279,9 +277,7 @@ def test_learner_imitation_phase_all_none_expert_probs(
 
     # Play a game WITHOUT the expert — all expert_probs are None.
     records = [collect.play_game(net, device, rng, seed=30, expert_net=None)]
-    stats = learner.update(
-        net, optimizer, records, cfg, device, imitation_phase=True
-    )
+    stats = learner.update(net, optimizer, records, cfg, device, imitation_phase=True)
 
     # imitation_loss = 0 / clamp(0, min=1) = 0.0 (no NaN crash)
     assert stats.imitation_loss == pytest.approx(0.0, abs=1e-7)
@@ -393,9 +389,7 @@ def test_dagger_field_commit_roundtrip(tmp_path: pathlib.Path) -> None:
         opponent=config.OpponentConfig(bootstrap_opponent="none"),
         dagger=config.DaggerConfig(clone_iters=5),
     )
-    new_cfg, error = fields.commit(
-        cfg, _DAGGER_FIELD_SPEC, "path/to/expert.pt.gz"
-    )
+    new_cfg, error = fields.commit(cfg, _DAGGER_FIELD_SPEC, "path/to/expert.pt.gz")
     assert error is None
     assert new_cfg.dagger.expert_checkpoint == "path/to/expert.pt.gz"
 

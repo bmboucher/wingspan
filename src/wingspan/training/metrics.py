@@ -211,6 +211,9 @@ class IterationMetrics(pydantic.BaseModel):
     advantage_std: float
     # Non-null only during DAgger clone iterations; null in normal RL mode.
     imitation_loss: float | None = None
+    # PPO diagnostics — 0.0 on the single-pass (REINFORCE / DAgger) path.
+    clip_fraction: float = 0.0
+    approx_kl: float = 0.0
 
     # averaged outcomes over this iteration's player-games
     avg_self_score: float  # mean final score per player-game

@@ -46,3 +46,13 @@ class Step(pydantic.BaseModel):
     # when the step's ``family_idx >= expert_net.num_families`` (the SETUP-head
     # guard — SETUP is last in ``decisions.ALL_DECISION_FAMILIES``).
     expert_probs: np.ndarray | None = None
+    # Log probability of ``chosen_idx`` under the collection-time policy
+    # π_old — used by the PPO clipped surrogate ratio = exp(logπ_new − logπ_old).
+    # Matches the degeneracy fallback in ``policy.sample_index_from_probs``:
+    # ``−log(n)`` when the distribution is degenerate. Default keeps old
+    # fixtures valid; fresh collection always fills it.
+    behavior_logp: float = 0.0
+    # Critic V(s) at this decision in normalized-return units (value head output,
+    # trained against G/score_norm). Used as the PPO baseline and for GAE
+    # bootstrapping. Default keeps old fixtures valid; fresh collection fills it.
+    value_pred: float = 0.0

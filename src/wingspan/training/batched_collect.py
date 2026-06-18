@@ -120,7 +120,7 @@ class _InferenceRequest:
     game thread parks on ``done`` until the server writes ``probs`` and sets it.
     """
 
-    __slots__ = ("state_vec", "choice_feats", "family_idx", "probs", "done")
+    __slots__ = ("state_vec", "choice_feats", "family_idx", "probs", "value", "done")
 
     def __init__(
         self, state_vec: np.ndarray, choice_feats: np.ndarray, family_idx: int
@@ -129,6 +129,7 @@ class _InferenceRequest:
         self.choice_feats = choice_feats
         self.family_idx = family_idx
         self.probs: np.ndarray = _EMPTY_PROBS
+        self.value: float = 0.0
         self.done = threading.Event()
 
 
@@ -204,8 +205,12 @@ class _BatchInferenceServer:
 
     def infer(
         self, state_vec: np.ndarray, choice_feats: np.ndarray, family_idx: int
-    ) -> np.ndarray:
-        """Submit one decision and block until the batched forward fills it."""
+    ) -> tuple[np.ndarray, float]:
+        """Submit one decision and block until the batched forward fills it.
+
+        Returns ``(probs, value)`` where ``probs`` is the per-candidate softmax
+        distribution and ``value`` is the critic scalar (normalized-return units)
+        — both filled by :func:`_fill_probs_batch` before the event is set."""
         request = _InferenceRequest(state_vec, choice_feats, family_idx)
         with self._cond:
             self._pending.append(request)
@@ -215,7 +220,7 @@ class _BatchInferenceServer:
             if len(self._pending) >= self._active:
                 self._cond.notify_all()
         request.done.wait()
-        return request.probs
+        return request.probs, request.value
 
     def _serve(self) -> None:
         while True:
@@ -327,8 +332,9 @@ def _batched_recording_agent(
         family_idx = decisions.family_index_for(type(decision))
         state_vec = server.encode_state(eng.state, decision)
         choice_feats = server.encode_choices(decision, eng.state)
-        probs = server.infer(state_vec, choice_feats, family_idx)
-        chosen_idx = policy.sample_index_from_probs(probs, choice_feats.shape[0], rng)
+        n_choices = choice_feats.shape[0]
+        probs, value = server.infer(state_vec, choice_feats, family_idx)
+        chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
         record_into.append(
             steps.Step(
                 state=state_vec,
@@ -341,6 +347,8 @@ def _batched_recording_agent(
                 timestamp=timestamps.provisional_timestamp(
                     decision, eng.state.turn_counter
                 ),
+                behavior_logp=policy.behavior_logp(probs, chosen_idx, n_choices),
+                value_pred=value,
             )
         )
         return decision.choices[chosen_idx]
@@ -375,14 +383,16 @@ def _fill_probs_batch(
         families[i] = request.family_idx
 
     with torch.no_grad():
-        logits, _ = net(
+        logits, value_t = net(
             torch.tensor(states, dtype=torch.float32, device=device),
             torch.tensor(choices, dtype=torch.float32, device=device),
             torch.tensor(mask, dtype=torch.float32, device=device),
             torch.tensor(families, dtype=torch.long, device=device),
         )
         probs = F.softmax(logits, dim=-1).cpu().numpy()
+        values = value_t.cpu().numpy()
 
     for i, request in enumerate(batch):
         k = request.choice_feats.shape[0]
         request.probs = probs[i, :k]
+        request.value = float(values[i])

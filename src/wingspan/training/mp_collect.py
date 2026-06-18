@@ -248,7 +248,8 @@ class ProcessCollector:
 
         ``dagger_active`` signals the DAgger clone phase: each worker also runs
         the frozen expert net to label each decision with the expert's soft policy
-        distribution (loaded once per worker from ``_WorkerArch.dagger_expert_checkpoint``)."""
+        distribution (loaded once per worker from ``_WorkerArch.dagger_expert_checkpoint``).
+        """
         if not seeds:
             return []
         pool = self._ensure_pool()
@@ -603,7 +604,9 @@ def _worker_play(task: _GameTask) -> collect.GameRecord:
                 random.Random(task.seed ^ _OPPONENT_RNG_SALT)
             )
     expert_net = _dagger_expert_net(arch) if task.dagger_active else None
-    return _compact(collect.play_game(net, device, rng, task.seed, opponent, expert_net))
+    return _compact(
+        collect.play_game(net, device, rng, task.seed, opponent, expert_net)
+    )
 
 
 def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
