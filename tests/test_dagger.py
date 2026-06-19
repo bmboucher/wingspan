@@ -215,7 +215,8 @@ def test_collect_play_game_labels_steps_with_expert(
         assert step.expert_probs is not None
         assert step.expert_probs.shape == (step.choices.shape[0],)
         # The probabilities should be non-negative and sum to 1 (to float32 tolerance).
-        assert float(np.sum(step.expert_probs)) == pytest.approx(1.0, abs=1e-4)
+        # (pytest.approx is untyped under strict pyright; use abs directly)
+        assert abs(float(np.sum(step.expert_probs)) - 1.0) < 1e-4
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +262,7 @@ def test_learner_imitation_phase_produces_finite_loss(
 
     assert np.isfinite(stats.imitation_loss), "imitation_loss must be finite"
     assert stats.imitation_loss >= 0.0
-    assert stats.policy_loss == pytest.approx(0.0, abs=1e-6)
+    assert abs(stats.policy_loss) < 1e-6  # pytest.approx untyped under strict pyright
     assert np.isfinite(stats.loss)
     assert np.isfinite(stats.value_loss)
 
@@ -283,7 +284,9 @@ def test_learner_rl_phase_has_zero_imitation_loss(
     records = [collect.play_game(net, device, rng, seed=20)]
     stats = learner.update(net, optimizer, records, cfg, device, imitation_phase=False)
 
-    assert stats.imitation_loss == pytest.approx(0.0, abs=1e-7)
+    assert (
+        abs(stats.imitation_loss) < 1e-7
+    )  # pytest.approx untyped under strict pyright
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +310,9 @@ def test_learner_imitation_phase_all_none_expert_probs(
     stats = learner.update(net, optimizer, records, cfg, device, imitation_phase=True)
 
     # imitation_loss = 0 / clamp(0, min=1) = 0.0 (no NaN crash)
-    assert stats.imitation_loss == pytest.approx(0.0, abs=1e-7)
+    assert (
+        abs(stats.imitation_loss) < 1e-7
+    )  # pytest.approx untyped under strict pyright
     assert np.isfinite(stats.loss)
 
 

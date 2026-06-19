@@ -1375,24 +1375,24 @@ FIELD_SPECS: list[FieldSpec] = [
     ),
     ChoiceField(
         attr="split_setup_bonus",
-        label="bonus pick",
+        label="includes bonus",
         group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
-        choices=["in setup model", "in-game"],
+        choices=["True", "False"],
         impact=ChangeImpact.REGIME,
         visible_when=_use_setup,
-        help="'in setup model' = setup net picks the bonus card. "
-        "'in-game' = bonus pick is deferred to the in-game CHOOSE_BONUS head. "
+        help="True = setup net picks the bonus card. "
+        "False = bonus pick is deferred to the in-game CHOOSE_BONUS head. "
         "Shape-preserving.",
     ),
     ChoiceField(
         attr="split_setup_food",
-        label="food pick",
+        label="includes food",
         group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
-        choices=["in setup model", "in-game"],
+        choices=["True", "False"],
         impact=ChangeImpact.REGIME,
         visible_when=_use_setup,
-        help="'in setup model' = setup net picks food. "
-        "'in-game' = food deferred to sequential GAIN_FOOD/SPEND_FOOD decisions. "
+        help="True = setup net picks food. "
+        "False = food deferred to sequential GAIN_FOOD/SPEND_FOOD decisions. "
         "Shape-preserving.",
     ),
     LayersField(

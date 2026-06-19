@@ -239,18 +239,15 @@ class _FormView:
 
 
 # Per-depth display style for group_path headers.
+# Depth 0 = top-level section, 1 = group, 2 = subgroup.
 _DEPTH_INDENT = ["", "  ", "    "]
-_DEPTH_GLYPH = ["", "· ", "▸ "]
 _DEPTH_STYLE = [f"bold {theme.TEXT_MUTED}", theme.TEXT_DIM2, theme.TEXT_MUTED]
 
 
 def _depth_header(name: str, depth: int) -> text.Text:
     capped = min(depth, len(_DEPTH_INDENT) - 1)
     out = text.Text(no_wrap=True, end="")
-    out.append(
-        f"{_DEPTH_INDENT[capped]}{_DEPTH_GLYPH[capped]}{name}",
-        style=_DEPTH_STYLE[capped],
-    )
+    out.append(f"{_DEPTH_INDENT[capped]}{name}", style=_DEPTH_STYLE[capped])
     return out
 
 
@@ -261,7 +258,11 @@ def _field_row(
     changed = fields.is_changed(view.working, view.saved, spec)
     editing = focused and view.mode is state.Mode.EDIT
 
+    # Indent field rows to sit visually under their deepest group header.
+    # group_path length 1 = under a top-level section (2-space indent),
+    # length 2 = under a group (4-space indent), length 3 = under a subgroup (6-space).
     line = text.Text(no_wrap=True, end="")
+    line.append("  " * len(spec.group_path), style="")
     line.append(f"{_row_marker(focused, changed)} ", style=_marker_color(view, spec))
     line.append(spec.label.ljust(_LABEL_W), style=_label_color(focused, changed, spec))
     line.append(_value_text(view, spec, editing, frame))
