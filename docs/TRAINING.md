@@ -937,35 +937,34 @@ required.
 #### Config
 
 ```yaml
-# Run B clones from run A's checkpoint, then switches to RL at iteration 10:
+# Run B clones from run A's checkpoint for 10 iters, then continues bootstrap + RL:
 train:
   run:
     checkpoint_dir: checkpoints-run-b
   opponent:
-    bootstrap_opponent: none   # incompatible with DAgger clone phase (see below)
+    bootstrap_opponent: checkpoints/archive/run-a/last.pt  # expert = bootstrap
   dagger:
-    expert_checkpoint: checkpoints/last.pt   # frozen expert; any prior .pt
-    clone_iters: 10                          # pure imitation for iters 0..9
+    clone_iters: 10   # imitation for iters 0..9; RL + bootstrap continues after
 ```
 
-The configurator's EVAL section exposes both fields as a "dagger" group (alongside
-the bootstrap group). `dagger_expert_checkpoint` cycles like `bootstrap_opponent`:
-`none` / archived run paths / custom path. `clone_iters` is an int field.
+The configurator's TRAINING ▸ CLONING group exposes `clone_iters` when
+`bootstrap_opponent` is a checkpoint path. The expert is always the bootstrap
+checkpoint — there is no separate `expert_checkpoint` field in the UI. After
+`clone_iters`, the bootstrap phase continues until graduation; imitation stops.
 
 #### Constraints
 
 - **device=cpu required.** The expert runs one forward pass per decision in the
   `mp_collect` worker process — the same CPU-only per-game net machinery used by
-  the bootstrap opponent. Setting `device=cuda` with an expert path raises a
-  `ValueError` at startup. (Collection always uses `mp_collect` on CPU; only the
-  learner's backprop step would benefit from CUDA, and it costs <0.2s/iter.)
-- **bootstrap_opponent must be 'none' when clone_iters > 0.** The bootstrap phase
-  puts the student at seat 0 only (vs random/opponent at seat 1), so the expert
-  would label only seat 0's decisions. DAgger requires self-play — both seats are
-  the student, so the expert labels both. The validator enforces
-  `clone_iters > 0 ⟹ bootstrap_opponent == 'none'`.
-- **clone_iters >= 1 when expert is set.** A path with `clone_iters=0` is a silent
-  no-op that the validator rejects.
+  the bootstrap opponent. Setting `device=cuda` with a checkpoint bootstrap opponent
+  is caught at launch by `validate_launchable` (a pre-flight warning, not a hard
+  model-level rejection). Collection always uses `mp_collect` on CPU.
+- **Expert is the bootstrap checkpoint.** `dagger_expert_checkpoint` is derived from
+  `bootstrap_opponent_checkpoint`. Cloning against "none" or "random" bootstrap is
+  not supported (expert would be None, DAgger is inactive).
+- **clone_iters=0 disables cloning.** Setting `clone_iters=0` is always valid;
+  DAgger is simply inactive. The old `dagger.expert_checkpoint` field is retained
+  for backward-compatibility with old run files but is ignored at runtime.
 
 #### Cross-architecture expert
 

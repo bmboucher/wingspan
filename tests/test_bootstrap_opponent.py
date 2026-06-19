@@ -105,11 +105,14 @@ def test_bootstrap_opponent_path_sets_checkpoint() -> None:
 
 
 def test_config_rejects_bootstrap_path_on_cuda() -> None:
-    with pytest.raises(Exception, match="requires device='cpu'"):
-        config.RunConfig(
-            opponent=config.OpponentConfig(bootstrap_opponent="some/path.pt"),
-            misc=config.MiscConfig(device="cuda"),
-        )
+    # The cross-field check moved to validate_launchable (Workstream E).
+    # Construction no longer raises; the problem surfaces at launch time.
+    cfg = config.RunConfig(
+        opponent=config.OpponentConfig(bootstrap_opponent="some/path.pt"),
+        misc=config.MiscConfig(device="cuda"),
+    )
+    problems = config.validate_launchable(cfg)
+    assert any("cpu" in problem for problem in problems)
 
 
 def test_config_accepts_none_and_random_on_any_device() -> None:
@@ -218,8 +221,7 @@ def test_worker_game_vs_v0_1_bootstrap_opponent(tmp_path: pathlib.Path) -> None:
 _BOOTSTRAP_FIELD_SPEC = fields.BootstrapField(
     attr="bootstrap_opponent",
     label="bootstrap opponent",
-    section=fields.ConfigSection.EVAL,
-    group="bootstrap",
+    group_path=("COLLECTION", "BOOTSTRAP"),
     help="Bootstrap phase opponent.",
 )
 

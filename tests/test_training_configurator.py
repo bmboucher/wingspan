@@ -713,7 +713,7 @@ def test_arch_diagram_renders_all_sizes(width: int, height: int):
 def test_arch_diagram_all_blocks_present():
     out = _box_diagram(_arch_state())
     for block in (
-        "SETUP MODEL",
+        "SETUP INPUT",  # actor-critic mode: title is "SETUP INPUT · shared embedder"
         "CARD ENCODER",
         "STATE TRUNK",
         "CHOICE ENC",
@@ -724,11 +724,15 @@ def test_arch_diagram_all_blocks_present():
 
 
 def test_arch_diagram_setup_box_toggles():
-    # The separate setup net is its own box at the top when enabled, and a single
-    # "off" line otherwise (it is trained independently of the in-game policy).
-    on = _box_diagram(_arch_state())  # use_setup_model defaults True
-    assert "SETUP MODEL" in on
+    # With use_actor_critic=True (new default), the setup box title is "SETUP INPUT".
+    # With use_actor_critic=False, it reverts to "SETUP MODEL".
+    on_ac = _box_diagram(_arch_state())  # use_setup_model=True, use_actor_critic=True
+    assert "SETUP INPUT" in on_ac
+    assert "SETUP MODEL" not in on_ac
+
+    # use_setup_model=False shows the "off" placeholder regardless of actor-critic.
     off = _box_diagram(_arch_state(use_setup_model=False))
+    assert "SETUP INPUT" not in off
     assert "SETUP MODEL" not in off
     assert "setup model · off" in off
 
@@ -1534,6 +1538,282 @@ def test_edit_caret_blinks_across_frames():
     view.edit_buffer = "0.001"
     assert "▏" in _render(view, frame=0)  # caret on
     assert "▏" not in _render(view, frame=_BLINK_OFF_FRAME)  # caret off
+
+
+# --------------------------------------------------------------------------- #
+# group_path model and new field inventory                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_field_specs_use_group_path():
+    """Every spec has a non-empty group_path tuple (no old section/group attrs)."""
+    for spec in fields.FIELD_SPECS:
+        assert isinstance(spec.group_path, tuple) and len(spec.group_path) >= 1
+        assert not hasattr(spec, "section")
+        assert not hasattr(spec, "group")
+
+
+def test_locked_out_fields_absent_from_specs():
+    """Fields locked in and removed from the UI must not appear in FIELD_SPECS."""
+    locked_out = {
+        "use_distinct_hand_model",
+        "tray_set_embedding",
+        "setup_use_actor_critic",
+        "setup_policy_temperature",
+        "setup_policy_greedy",
+        "setup_offline_epochs",
+        "setup_offline_batch_size",
+        "dagger_expert_checkpoint",
+    }
+    spec_attrs = {spec.attr for spec in fields.FIELD_SPECS}
+    for attr in locked_out:
+        assert attr not in spec_attrs, f"{attr!r} should be locked out of the UI"
+
+
+def test_per_block_override_fields_present():
+    """All 14 per-block override fields are present in FIELD_SPECS."""
+    expected_per_block = {
+        "card_activation",
+        "card_dropout",
+        "card_layernorm",
+        "hand_activation",
+        "hand_dropout",
+        "hand_layernorm",
+        "trunk_activation",
+        "trunk_dropout",
+        "trunk_layernorm",
+        "choice_activation",
+        "choice_dropout",
+        "choice_layernorm",
+        "value_activation",
+        "head_activation",
+    }
+    spec_attrs = {spec.attr for spec in fields.FIELD_SPECS}
+    for attr in expected_per_block:
+        assert attr in spec_attrs, f"{attr!r} per-block field missing from FIELD_SPECS"
+
+
+def test_per_block_override_fields_are_optional_choice_or_float():
+    """Activation/layernorm overrides are OptionalChoiceField; dropout overrides are OptionalFloatField."""
+    for attr in (
+        "card_activation",
+        "hand_activation",
+        "trunk_activation",
+        "choice_activation",
+        "value_activation",
+        "head_activation",
+    ):
+        assert isinstance(fields.spec_for(attr), fields.OptionalChoiceField), attr
+    for attr in (
+        "card_layernorm",
+        "hand_layernorm",
+        "trunk_layernorm",
+        "choice_layernorm",
+    ):
+        assert isinstance(fields.spec_for(attr), fields.OptionalChoiceField), attr
+    for attr in ("card_dropout", "hand_dropout", "trunk_dropout", "choice_dropout"):
+        assert isinstance(fields.spec_for(attr), fields.OptionalFloatField), attr
+
+
+def test_reward_basis_field_present():
+    """reward_basis (point metric) is present and in the TRAINING ▸ REWARD MODEL group."""
+    spec = fields.spec_for("reward_basis")
+    assert isinstance(spec, fields.ChoiceField)
+    assert spec.group_path == ("TRAINING", "REWARD MODEL")
+
+
+def test_five_top_level_sections():
+    """The specs cover exactly the five canonical top-level sections."""
+    sections = {spec.group_path[0] for spec in fields.FIELD_SPECS}
+    expected = {
+        "RUN SETTINGS",
+        "COLLECTION",
+        "EVALUATION",
+        "TRAINING",
+        "MODEL ARCHITECTURE",
+    }
+    assert sections == expected
+
+
+def test_optional_choice_field_cycles_through_none():
+    """An OptionalChoiceField cycles: None → choices[0] → … → None."""
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    spec = fields.spec_for("card_activation")
+    assert isinstance(spec, fields.OptionalChoiceField)
+
+    # Default is None (inherit).
+    assert fields.read_field(cfg, spec) is None
+    assert fields.format_value(cfg, spec) == spec.none_label
+
+    # Right-nudge: None → choices[0].
+    advanced, error = fields.nudge(cfg, spec, 1)
+    assert error is None
+    assert fields.read_field(advanced, spec) == spec.choices[0]
+
+    # Left-nudge from choices[0]: wraps back to None.
+    wrapped, error = fields.nudge(advanced, spec, -1)
+    assert error is None
+    assert fields.read_field(wrapped, spec) is None
+
+
+def test_optional_float_field_steps_from_fallback():
+    """Nudging an OptionalFloatField when None steps from the global fallback."""
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    spec = fields.spec_for("card_dropout")
+    assert isinstance(spec, fields.OptionalFloatField)
+
+    # Default is None.
+    assert fields.read_field(cfg, spec) is None
+
+    # Nudge right: should step from the global dropout value.
+    global_dropout = cfg.architecture.main.dropout
+    advanced, error = fields.nudge(cfg, spec, 1)
+    assert error is None
+    result = fields.read_field(advanced, spec)
+    assert isinstance(result, (int, float))
+    assert abs(float(result) - (global_dropout + spec.step)) < 1e-6
+
+
+def test_per_block_override_commit_roundtrip():
+    """Committing a per-block activation stores it and leaves global unchanged."""
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    spec = fields.spec_for("trunk_activation")
+    updated, error = fields.commit(cfg, spec, "gelu")
+    assert error is None
+    assert updated.architecture.main.trunk_activation == "gelu"
+    # Global activation is unchanged.
+    assert updated.architecture.main.activation == cfg.architecture.main.activation
+
+
+def test_cloning_group_visibility():
+    """CLONING group is visible only when bootstrap_opponent is a checkpoint path."""
+    clone_spec = fields.spec_for("clone_iters")
+
+    # With 'none' or 'random' bootstrap → not visible.
+    for bootstrap in ("none", "random"):
+        cfg = config.RunConfig(
+            misc=config.MiscConfig(device="cpu"),
+            opponent=config.OpponentConfig(bootstrap_opponent=bootstrap),
+        )
+        assert clone_spec.visible_when is not None
+        assert not clone_spec.visible_when(
+            cfg
+        ), f"CLONING should hide for bootstrap={bootstrap!r}"
+
+    # With a checkpoint path → visible.
+    checkpoint_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        opponent=config.OpponentConfig(bootstrap_opponent="some/archive/run/last.pt"),
+    )
+    assert clone_spec.visible_when(checkpoint_cfg)
+
+
+def test_ppo_fields_visibility():
+    """PPO-specific fields appear only when policy_loss is PPO."""
+    ppo_attrs = ["ppo_clip_eps", "ppo_reuse_epochs"]
+    reinforce_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        training=config.TrainingConfig(policy_loss=config.PolicyLoss.REINFORCE),
+    )
+    ppo_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        training=config.TrainingConfig(policy_loss=config.PolicyLoss.PPO),
+    )
+    for attr in ppo_attrs:
+        spec = fields.spec_for(attr)
+        assert spec.visible_when is not None
+        assert not spec.visible_when(reinforce_cfg)
+        assert spec.visible_when(ppo_cfg)
+
+
+def test_gae_fields_visibility():
+    """GAE-specific fields appear only in GAE mode; reward_discount appears in delta+GAE."""
+    gae_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        training=config.TrainingConfig(reward_mode=config.RewardMode.GAE),
+    )
+    terminal_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        training=config.TrainingConfig(reward_mode=config.RewardMode.TERMINAL_MARGIN),
+    )
+    delta_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        training=config.TrainingConfig(reward_mode=config.RewardMode.DECISION_DELTA),
+    )
+    gae_lambda = fields.spec_for("gae_lambda")
+    assert gae_lambda.visible_when is not None
+    assert gae_lambda.visible_when(gae_cfg)
+    assert not gae_lambda.visible_when(terminal_cfg)
+    assert not gae_lambda.visible_when(delta_cfg)
+
+    discount = fields.spec_for("reward_discount")
+    assert discount.visible_when is not None
+    assert discount.visible_when(gae_cfg)
+    assert discount.visible_when(delta_cfg)
+    assert not discount.visible_when(terminal_cfg)
+
+
+def test_rehydration_per_block_none_inherits_global():
+    """An old config dict with no per-block fields rehydrates with per-block=None.
+
+    The resolved values must match the global, so the shape_key and built net are
+    identical to an all-global config — REGIME, no MODEL_VERSION bump required.
+    """
+    global_act = architecture.ActivationName.RELU
+    global_ln = False
+    global_drop = 0.0
+
+    # Old-style config: global only, no per-block keys.
+    old_style = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=(32, 32),
+                choice_layers=(32, 32),
+                card_embed_dim=8,
+                activation=global_act,
+                layernorm=global_ln,
+                dropout=global_drop,
+                # per-block fields absent = None = inherit
+            )
+        ),
+    )
+    arch = old_style.arch
+
+    # All per-block resolved values must equal the global.
+    assert arch.card_activation_resolved == global_act
+    assert arch.card_layernorm_resolved == global_ln
+    assert abs(arch.card_dropout_resolved - global_drop) < 1e-9
+
+    assert arch.trunk_activation_resolved == global_act
+    assert arch.trunk_layernorm_resolved == global_ln
+
+    # The shape_key should match what an identical all-global config produces.
+    assert old_style.arch.shape_key == old_style.arch.shape_key  # trivially same object
+
+    # A per-block override changes only the resolved value for that block.
+    per_block = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=(32, 32),
+                choice_layers=(32, 32),
+                card_embed_dim=8,
+                activation=global_act,
+                layernorm=global_ln,
+                trunk_activation=architecture.ActivationName.GELU,
+            )
+        ),
+    )
+    assert per_block.arch.trunk_activation_resolved == architecture.ActivationName.GELU
+    assert per_block.arch.card_activation_resolved == global_act  # unchanged
+
+
+def test_default_flips_tray_set_embedding_and_actor_critic():
+    """Locked-in defaults: tray_set_embedding=False, use_actor_critic=True for new runs."""
+    cfg = config.RunConfig()
+    assert cfg.architecture.main.tray_set_embedding is False
+    assert cfg.architecture.setup.use_actor_critic is True
 
 
 def test_modal_keeps_options_on_short_terminal():

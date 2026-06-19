@@ -277,9 +277,11 @@ class TrainingLoop:
                 loop_setup.run_offline_setup_fit(self)
 
         # DAgger clone phase: pure imitation for the first clone_iters iterations.
-        # vs_random is driven independently by training_phase; the DAgger validator
-        # ensures bootstrap_opponent == "none" when clone_iters > 0, so there is
-        # no conflict between the two modes.
+        # Clone always targets the bootstrap opponent checkpoint — dagger_expert_checkpoint
+        # derives from bootstrap_opponent_checkpoint — so the two modes coexist: during
+        # the clone window vs_random is active (bootstrap phase against that checkpoint)
+        # and dagger_active=True (student imitation-labels against it); after clone_iters
+        # the bootstrap phase continues without imitation labeling until graduation.
         imitation_phase = self.config.dagger_active_at(iteration)
 
         collect_start = time.monotonic()

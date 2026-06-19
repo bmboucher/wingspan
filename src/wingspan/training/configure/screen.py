@@ -19,7 +19,7 @@ import rich.console as rich_console
 from rich import align, box, layout, panel, table, text
 
 from wingspan import version
-from wingspan.training import artifacts, charts, config, theme
+from wingspan.training import artifacts, charts, theme
 from wingspan.training.configure import arch_diagram, fields, runs, state
 
 _WORDMARK = "🪶 WINGSPAN  FLIGHT PLAN"
@@ -184,9 +184,12 @@ def _form_panel(view: state.ConfiguratorState, frame: int) -> panel.Panel:
 
 
 class _FormView:
-    """The scrollable list of editable fields, grouped by section. A width/
-    height-aware renderable: it reads the panel height each frame and slides a
-    viewport so the focused field stays visible, marking clipped rows."""
+    """The scrollable list of editable fields, grouped by ``group_path``. A
+    width/height-aware renderable: it reads the panel height each frame and
+    slides a viewport so the focused field stays visible, marking clipped rows.
+    Headers are emitted depth-first: a section header fires when the first path
+    element changes; a group header fires when the second changes; a subgroup
+    header when the third changes."""
 
     def __init__(self, view: state.ConfiguratorState, frame: int):
         self.view = view
@@ -215,37 +218,39 @@ class _FormView:
     def _rows(self) -> tuple[list[text.Text], int]:
         rows: list[text.Text] = []
         selected_row = 0
-        for section in fields.SECTION_ORDER:
-            visible_specs = _specs_in(section, self.view.working)
-            if not visible_specs:
-                continue
-            rows.append(_section_header(section))
-
-            # Emit group headers as non-navigable separator rows when the
-            # group name changes; suppress if the group is None (ungrouped).
-            current_group: str | None = None
-            first_in_section = True
-            for spec in visible_specs:
-                if first_in_section or spec.group != current_group:
-                    first_in_section = False
-                    current_group = spec.group
-                    if current_group is not None:
-                        rows.append(_group_header(current_group))
-                if spec.attr == self.view.selected_attr:
-                    selected_row = len(rows)
-                rows.append(_field_row(self.view, spec, self.frame))
+        visible_specs = [
+            spec
+            for spec in fields.FIELD_SPECS
+            if spec.visible_when is None or spec.visible_when(self.view.working)
+        ]
+        # Track the last-emitted path so we only emit headers for levels that
+        # change (depth 0 = section, 1 = group, 2 = subgroup).
+        current_path: tuple[str, ...] = ()
+        for spec in visible_specs:
+            path = spec.group_path
+            for depth in range(len(path)):
+                if depth >= len(current_path) or path[depth] != current_path[depth]:
+                    rows.append(_depth_header(path[depth], depth))
+            current_path = path
+            if spec.attr == self.view.selected_attr:
+                selected_row = len(rows)
+            rows.append(_field_row(self.view, spec, self.frame))
         return rows, selected_row
 
 
-def _section_header(section: fields.ConfigSection) -> text.Text:
-    out = text.Text(no_wrap=True, end="")
-    out.append(f"{section.value.upper()}", style=f"bold {theme.TEXT_MUTED}")
-    return out
+# Per-depth display style for group_path headers.
+_DEPTH_INDENT = ["", "  ", "    "]
+_DEPTH_GLYPH = ["", "· ", "▸ "]
+_DEPTH_STYLE = [f"bold {theme.TEXT_MUTED}", theme.TEXT_DIM2, theme.TEXT_MUTED]
 
 
-def _group_header(group: str) -> text.Text:
+def _depth_header(name: str, depth: int) -> text.Text:
+    capped = min(depth, len(_DEPTH_INDENT) - 1)
     out = text.Text(no_wrap=True, end="")
-    out.append(f"  · {group}", style=theme.TEXT_DIM2)
+    out.append(
+        f"{_DEPTH_INDENT[capped]}{_DEPTH_GLYPH[capped]}{name}",
+        style=_DEPTH_STYLE[capped],
+    )
     return out
 
 
@@ -383,12 +388,18 @@ def _impact_note(impact: fields.ChangeImpact) -> str:
 def _detail_constraint(spec: fields.FieldSpec) -> str:
     if isinstance(spec, fields.BootstrapField):
         return "none / random / archive path  ←/→ cycles  enter to type"
+    if isinstance(spec, fields.OptionalChoiceField):
+        return f"{spec.none_label} / " + " / ".join(spec.choices)
     if isinstance(spec, fields.ChoiceField):
         return " / ".join(spec.choices)
     if isinstance(spec, fields.LayersField):
         return "type widths (e.g. 256,128) · ←/→ adds/removes a layer"
+    if isinstance(spec, fields.OptionalIntField):
+        return f"step {spec.step}  or '{spec.none_label}' to inherit"
     if isinstance(spec, fields.IntField):
         return f"step {spec.step}"
+    if isinstance(spec, fields.OptionalFloatField):
+        return f"step {spec.step:g}  or 'none' to inherit"
     if isinstance(spec, fields.FloatField):
         return f"step {spec.step:g}"
     return ""
@@ -703,14 +714,3 @@ def _kv(label: str, value: str) -> text.Text:
     out.append(f"{label:<11}", style=theme.TEXT_MUTED)
     out.append(value, style=theme.TEXT_PRIMARY)
     return out
-
-
-def _specs_in(
-    section: fields.ConfigSection, cfg: config.RunConfig
-) -> list[fields.FieldSpec]:
-    return [
-        spec
-        for spec in fields.FIELD_SPECS
-        if spec.section is section
-        and (spec.visible_when is None or spec.visible_when(cfg))
-    ]

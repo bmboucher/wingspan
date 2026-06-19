@@ -480,6 +480,13 @@ def _launch(view: state.ConfiguratorState, resume: bool) -> state.Outcome:
     cfg = view.working
     if not resume and cfg.encoding_version != version.MODEL_VERSION:
         cfg = config.with_encoding_version(cfg, version.MODEL_VERSION)
+
+    # Validate cross-field constraints before handing off to the training loop.
+    problems = config.validate_launchable(cfg)
+    if problems:
+        view.notify(state.MessageKind.WARN, "cannot launch — " + "; ".join(problems))
+        return state.Outcome.CONTINUE
+
     view.working = cfg.model_copy(
         update={"run": cfg.run.model_copy(update={"resume": resume})}
     )

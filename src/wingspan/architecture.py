@@ -35,12 +35,17 @@ type Widths = tuple[typing.Annotated[int, pydantic.Field(ge=1)], ...]
 # The weight-shape signature of an architecture: the parts that, if changed,
 # make previously-trained weights unloadable (activation / dropout are excluded —
 # they leave every tensor shape intact, so a resumed run may change them).
+# The four per-block layernorm bools replace the former single global layernorm
+# slot; old configs resolve all four to the global, so matching is preserved.
 type ShapeKey = tuple[
     tuple[int, ...],  # trunk_layers
     tuple[int, ...],  # choice_layers
     tuple[int, ...],  # head_layers
     tuple[int, ...],  # value_layers
-    bool,  # layernorm
+    bool,  # card_layernorm_resolved
+    bool,  # hand_layernorm_resolved
+    bool,  # trunk_layernorm_resolved
+    bool,  # choice_layernorm_resolved
     int,  # card_embed_dim
     tuple[int, ...],  # card_encoder_layers
     tuple[tuple[int, ...], ...] | None,  # per_family_head_layers
@@ -129,6 +134,28 @@ class ModelArchitecture(pydantic.BaseModel):
     # this default and inference runs without the final relu, unchanged.
     encoder_final_activation: bool = False
 
+    # Per-block activation/dropout/layernorm overrides — None = inherit the global
+    # field above. Old checkpoints that predate these fields rehydrate to None→global
+    # and compute identically (REGIME: no MODEL_VERSION bump, no compat shim).
+    # Body blocks (card / hand / trunk / choice) have all three knobs.
+    # Readout heads (value / scorer) have activation only — no dropout/LN on readouts.
+    card_activation: ActivationName | None = None
+    card_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
+    card_layernorm: bool | None = None
+    hand_activation: ActivationName | None = None
+    hand_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
+    hand_layernorm: bool | None = None
+    trunk_activation: ActivationName | None = None
+    trunk_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
+    trunk_layernorm: bool | None = None
+    choice_activation: ActivationName | None = None
+    choice_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = (
+        None
+    )
+    choice_layernorm: bool | None = None
+    value_activation: ActivationName | None = None
+    head_activation: ActivationName | None = None
+
     @pydantic.model_validator(mode="after")
     def _check_tray_set_embedding(self) -> "ModelArchitecture":
         """The tray-set embedding reuses the hand encoder, so it cannot exist
@@ -170,6 +197,113 @@ class ModelArchitecture(pydantic.BaseModel):
             return self.per_family_head_layers[family_index]
         return self.head_layers
 
+    # Per-block resolved activation / dropout / layernorm.  Each returns the
+    # block-level override when set, otherwise falls back to the global field.
+
+    @property
+    def card_activation_resolved(self) -> ActivationName:
+        """Resolved activation for the card encoder."""
+        return (
+            self.card_activation
+            if self.card_activation is not None
+            else self.activation
+        )
+
+    @property
+    def card_dropout_resolved(self) -> float:
+        """Resolved dropout for the card encoder."""
+        return self.card_dropout if self.card_dropout is not None else self.dropout
+
+    @property
+    def card_layernorm_resolved(self) -> bool:
+        """Resolved LayerNorm flag for the card encoder."""
+        return (
+            self.card_layernorm if self.card_layernorm is not None else self.layernorm
+        )
+
+    @property
+    def hand_activation_resolved(self) -> ActivationName:
+        """Resolved activation for the hand encoder."""
+        return (
+            self.hand_activation
+            if self.hand_activation is not None
+            else self.activation
+        )
+
+    @property
+    def hand_dropout_resolved(self) -> float:
+        """Resolved dropout for the hand encoder."""
+        return self.hand_dropout if self.hand_dropout is not None else self.dropout
+
+    @property
+    def hand_layernorm_resolved(self) -> bool:
+        """Resolved LayerNorm flag for the hand encoder."""
+        return (
+            self.hand_layernorm if self.hand_layernorm is not None else self.layernorm
+        )
+
+    @property
+    def trunk_activation_resolved(self) -> ActivationName:
+        """Resolved activation for the state trunk."""
+        return (
+            self.trunk_activation
+            if self.trunk_activation is not None
+            else self.activation
+        )
+
+    @property
+    def trunk_dropout_resolved(self) -> float:
+        """Resolved dropout for the state trunk."""
+        return self.trunk_dropout if self.trunk_dropout is not None else self.dropout
+
+    @property
+    def trunk_layernorm_resolved(self) -> bool:
+        """Resolved LayerNorm flag for the state trunk."""
+        return (
+            self.trunk_layernorm if self.trunk_layernorm is not None else self.layernorm
+        )
+
+    @property
+    def choice_activation_resolved(self) -> ActivationName:
+        """Resolved activation for the choice encoder."""
+        return (
+            self.choice_activation
+            if self.choice_activation is not None
+            else self.activation
+        )
+
+    @property
+    def choice_dropout_resolved(self) -> float:
+        """Resolved dropout for the choice encoder."""
+        return self.choice_dropout if self.choice_dropout is not None else self.dropout
+
+    @property
+    def choice_layernorm_resolved(self) -> bool:
+        """Resolved LayerNorm flag for the choice encoder."""
+        return (
+            self.choice_layernorm
+            if self.choice_layernorm is not None
+            else self.layernorm
+        )
+
+    @property
+    def value_activation_resolved(self) -> ActivationName:
+        """Resolved activation for the value (critic) head."""
+        return (
+            self.value_activation
+            if self.value_activation is not None
+            else self.activation
+        )
+
+    @property
+    def head_activation_resolved(self) -> ActivationName:
+        """Resolved activation for the scorer (actor) heads."""
+        return (
+            self.head_activation
+            if self.head_activation is not None
+            else self.activation
+        )
+
     @property
     def shape_key(self) -> ShapeKey:
         """The weight-compatibility signature (everything that changes a tensor
@@ -179,7 +313,10 @@ class ModelArchitecture(pydantic.BaseModel):
             self.choice_layers,
             self.head_layers,
             self.value_layers,
-            self.layernorm,
+            self.card_layernorm_resolved,
+            self.hand_layernorm_resolved,
+            self.trunk_layernorm_resolved,
+            self.choice_layernorm_resolved,
             self.card_embed_dim,
             self.card_encoder_layers,
             self.per_family_head_layers,
@@ -294,7 +431,10 @@ def count_parameters(
         hand_block = BlockParam(
             label="HAND",
             layers=body_layers(
-                hand_feat_in, arch.hand_encoder_layers + (arch.hand_embed_width,), arch
+                hand_feat_in,
+                arch.hand_encoder_layers + (arch.hand_embed_width,),
+                arch,
+                layernorm=arch.hand_layernorm_resolved,
             ),
         )
 
@@ -302,14 +442,29 @@ def count_parameters(
         embed=BlockParam(
             label="EMBED",
             layers=body_layers(
-                card_feat_in, arch.card_encoder_layers + (arch.card_embed_dim,), arch
+                card_feat_in,
+                arch.card_encoder_layers + (arch.card_embed_dim,),
+                arch,
+                layernorm=arch.card_layernorm_resolved,
             ),
         ),
         trunk=BlockParam(
-            label="TRUNK", layers=body_layers(trunk_in, arch.trunk_layers, arch)
+            label="TRUNK",
+            layers=body_layers(
+                trunk_in,
+                arch.trunk_layers,
+                arch,
+                layernorm=arch.trunk_layernorm_resolved,
+            ),
         ),
         choice=BlockParam(
-            label="CHOICE", layers=body_layers(choice_in, arch.choice_layers, arch)
+            label="CHOICE",
+            layers=body_layers(
+                choice_in,
+                arch.choice_layers,
+                arch,
+                layernorm=arch.choice_layernorm_resolved,
+            ),
         ),
         scorer=_scorer_block(arch, scorer_in, num_families),
         value=BlockParam(
@@ -345,18 +500,27 @@ def _linear_params(in_features: int, out_features: int) -> int:
 
 
 def body_layers(
-    in_dim: int, widths: Widths, arch: ModelArchitecture
+    in_dim: int,
+    widths: Widths,
+    arch: ModelArchitecture,
+    *,
+    layernorm: bool | None = None,
 ) -> tuple[LayerParam, ...]:
     """Per-layer counts for a body block (trunk / choice encoder / card or hand
-    encoder): each width is a ``Linear`` followed — when ``arch.layernorm`` — by a
+    encoder): each width is a ``Linear`` followed — when layernorm — by a
     ``LayerNorm`` on every layer, mirroring ``mlp.build_body`` (activation /
     dropout add no params). Public because the setup net's parameter accounting
     (``setup_model.count_setup_parameters``) reuses it for the frozen embedder
-    copies the setup net carries."""
+    copies the setup net carries.
+
+    ``layernorm`` overrides the block's per-block-resolved value; when ``None``
+    the function falls back to ``arch.layernorm`` (the global default, used by
+    the setup net and SVG diagram callers that don't carry per-block state)."""
+    use_layernorm = layernorm if layernorm is not None else arch.layernorm
     layers: list[LayerParam] = []
     prev = in_dim
     for width in widths:
-        norm = 2 * width if arch.layernorm else 0
+        norm = 2 * width if use_layernorm else 0
         layers.append(
             LayerParam(
                 in_features=prev,

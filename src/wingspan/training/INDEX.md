@@ -37,18 +37,25 @@ top-level computed properties so call sites don't churn.
   encoding-independent game-variant knobs (empty today).
 - `misc: MiscConfig` — `seed`, `device`, `produce_ewma_alpha`, `instrumentation`.
 - `dagger: DaggerConfig` — `expert_checkpoint` (`.pt` path or `"none"`),
-  `clone_iters` (pure imitation iters before RL). Cross-section validators:
-  expert set ⟹ `device='cpu'`, `clone_iters >= 1`; `clone_iters > 0` ⟹
-  `bootstrap_opponent == 'none'`. REGIME (see `docs/TRAINING.md §6.7`).
+  `clone_iters` (pure imitation iters before RL). `dagger.expert_checkpoint` is
+  retained for old-artifact loading but ignored at runtime — the active expert is
+  always derived from `bootstrap_opponent_checkpoint` (Workstream C). Cross-section
+  validation moved to module-level `validate_launchable(cfg) -> list[str]` (launch-
+  time check, not a model_validator) so in-progress edits never get hard-rejected.
 - Top-level computed properties (delegating into sections): `arch:
   ModelArchitecture`, `setup_arch`, `setup_encoding`, `architecture_key`,
   `setup_architecture_key`, `encoding_spec`, `encoding_version`, `state_dim`,
   `choice_dim`, `family_order`, `eval_pairs`, `initial_vs_random`,
-  `bootstrap_opponent_checkpoint`, `dagger_expert_checkpoint`,
-  `dagger_active_at(iteration: int) -> bool`, `split_setup_*_active`, `trunk/choice_hidden`.
+  `bootstrap_opponent_checkpoint`, `dagger_expert_checkpoint` (derived from
+  `bootstrap_opponent_checkpoint`), `dagger_active_at(iteration: int) -> bool`,
+  `split_setup_*_active`, `trunk/choice_hidden`.
   `encoding_version` is the artifact era the run trains at (adopted from the run
   dir on resume, never user-edited); `state_dim` / `choice_dim` are era-routed
   from it. See "Training resume: era pinning" in `docs/VERSIONING.md`.
+- `validate_launchable(cfg) -> list[str]` — launch-time only checks: checkpoint
+  bootstrap on cuda, setup schedule order, target > max iterations. Returns
+  human-readable problems; empty = safe to start. Called by the configurator's
+  `[S]tart` / `[N]ew` path and the headless launcher.
 - `RunConfigFile` — the dated on-disk wrapper (`version`, `saved_at`,
   `started_at`, `git_sha`, `resumed`, `resumed_from_iteration`, `config`).
 - Module functions: `run_config_from_artifact(raw, artifact_version)`

@@ -97,6 +97,34 @@ default `DaggerConfig()`. Mirrors `reward_mode` in versioning classification.
 `metrics.GameOutcome` (via `loop_metrics.game_outcome`), never `Step`, so there
 is no on-disk format change from this field.
 
+#### Clone + bootstrap unification (accepted loop drift)
+
+`dagger_expert_checkpoint` now derives from `bootstrap_opponent_checkpoint` instead
+of `dagger.expert_checkpoint`. Old runs that set `dagger.expert_checkpoint` with
+`bootstrap_opponent="none"` will no longer clone on resume (the derived property
+returns `None`). This is accepted drift under the engine's shared-seat exemption:
+the training loop is shared by both seats and cannot fork by era, so loop-level
+behavior changes are accepted drift. The `dagger.expert_checkpoint` field is
+retained in the model so old artifacts load without errors.
+
+#### Per-block activation/dropout/layernorm overrides (REGIME)
+
+Added 14 optional per-block override fields to `ModelArchitecture` and
+`MainNetArchitecture`: `{card,hand,trunk,choice}_{activation,dropout,layernorm}`,
+`{value,head}_activation`. All default to `None` = "inherit the global".
+Old artifacts (which carry no per-block keys) rehydrate with all 14 as `None`,
+resolved identically to the global — **REGIME, no `MODEL_VERSION` bump, no compat
+shim.** The `ShapeKey` now includes 4 resolved per-block layernorm bools (replacing
+the single `layernorm` bool at position 4); old artifacts produce an identical key
+because `None` → global for all four.
+
+#### Locked-in defaults flip (REGIME)
+
+`MainNetArchitecture.tray_set_embedding` default flipped `True → False`;
+`SetupNetArchitecture.use_actor_critic` default flipped `False → True`. Old
+artifacts carry their own saved values and are unaffected. New runs get the
+locked value.
+
 ---
 
 **Config-container change, NOT an encoding change.** This MINOR bump is unusual:

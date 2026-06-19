@@ -203,9 +203,15 @@ def test_inspect_html_reproduces_the_run_start_report(
     """``wingspan inspect --html`` into a run directory regenerates the exact
     ``model_summary.html`` the run wrote at startup — same builder, same
     descriptor — instead of clobbering it with a live-encoder view."""
+    # Explicitly disable use_actor_critic so cfg.setup_arch.use_policy_head matches
+    # SetupArchitecture() default (False) — inspect --html has no setup config to read
+    # from and falls back to SetupArchitecture(), which still defaults use_policy_head=False.
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(run_name="html-regen"),
+        architecture=config.ArchitectureConfig(
+            setup=config.SetupNetArchitecture(use_actor_critic=False),
+        ),
     )
     runmeta.write_model_config(str(tmp_path), cfg)
     original = runmeta.write_model_summary_html(str(tmp_path), cfg).read_text(

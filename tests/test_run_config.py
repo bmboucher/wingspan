@@ -164,3 +164,73 @@ def test_read_run_config_missing_raises(tmp_path: pathlib.Path):
     inventing a default (callers needing legacy support check first)."""
     with pytest.raises(FileNotFoundError):
         runmeta.read_run_config(str(tmp_path))
+
+
+#### validate_launchable ####
+
+
+def test_validate_launchable_clean_config_returns_empty():
+    """A factory-default config has no launchable problems."""
+    assert config.validate_launchable(config.RunConfig()) == []
+
+
+def test_validate_launchable_checkpoint_bootstrap_on_cuda_flagged():
+    """A checkpoint bootstrap opponent with device='cuda' is flagged."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cuda"),
+        opponent=config.OpponentConfig(bootstrap_opponent="some/path.pt"),
+    )
+    problems = config.validate_launchable(cfg)
+    assert any("cpu" in problem for problem in problems)
+
+
+def test_validate_launchable_random_bootstrap_on_cuda_ok():
+    """'random' or 'none' bootstrap on cuda is allowed."""
+    for bootstrap in ("random", "none"):
+        cfg = config.RunConfig(
+            misc=config.MiscConfig(device="cuda"),
+            opponent=config.OpponentConfig(bootstrap_opponent=bootstrap),
+        )
+        assert config.validate_launchable(cfg) == []
+
+
+def test_validate_launchable_setup_schedule_bad_order_flagged():
+    """train_iter ≤ record_start_iter is flagged."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(use_setup_model=True),
+        training=config.TrainingConfig(
+            setup=config.SetupTrainingConfig(train_iter=100, record_start_iter=200)
+        ),
+    )
+    problems = config.validate_launchable(cfg)
+    assert any("record_start_iter" in problem for problem in problems)
+
+
+def test_validate_launchable_target_exceeds_max_flagged():
+    """target_iterations > max_iterations when both nonzero is flagged."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(target_iterations=500, max_iterations=100),
+    )
+    problems = config.validate_launchable(cfg)
+    assert any("target_iterations" in problem for problem in problems)
+
+
+def test_validate_launchable_clone_iters_with_checkpoint_validates():
+    """clone_iters > 0 with a checkpoint bootstrap_opponent validates cleanly.
+
+    This is the original bug: prior to Workstream E this combination raised a
+    ValidationError because the cross-field validator rejected it. Now the config
+    is valid and validate_launchable returns no problems (device='cpu' satisfied).
+    """
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        opponent=config.OpponentConfig(
+            bootstrap_opponent="checkpoints/archive/run_iter500/last.pt"
+        ),
+        dagger=config.DaggerConfig(clone_iters=5),
+    )
+    # Must not raise; dagger_active_at correctly returns True before clone_iters.
+    assert cfg.dagger_active_at(0) is True
+    assert config.validate_launchable(cfg) == []

@@ -153,11 +153,32 @@ class MainNetArchitecture(pydantic.BaseModel):
     use_distinct_hand_model: bool = True
     hand_encoder_layers: architecture.Widths = (128,)
     hand_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] | None = None
-    tray_set_embedding: bool = True
+    # Locked to False: new runs never embed the tray as a set (old checkpoints
+    # carry their own value and continue working).
+    tray_set_embedding: bool = False
 
     # When enabled, card/hand/choice encoders apply a final activation after
     # their last layer. Saved so old checkpoints keep their original behaviour.
     encoder_final_activation: bool = True
+
+    # Per-block activation/dropout/layernorm overrides (None = inherit global).
+    # Old run files that predate these fields rehydrate to None→global (REGIME).
+    card_activation: architecture.ActivationName | None = None
+    card_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
+    card_layernorm: bool | None = None
+    hand_activation: architecture.ActivationName | None = None
+    hand_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
+    hand_layernorm: bool | None = None
+    trunk_activation: architecture.ActivationName | None = None
+    trunk_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
+    trunk_layernorm: bool | None = None
+    choice_activation: architecture.ActivationName | None = None
+    choice_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = (
+        None
+    )
+    choice_layernorm: bool | None = None
+    value_activation: architecture.ActivationName | None = None
+    head_activation: architecture.ActivationName | None = None
 
 
 class SetupNetArchitecture(pydantic.BaseModel):
@@ -168,8 +189,9 @@ class SetupNetArchitecture(pydantic.BaseModel):
     ] = (128, 64)
     activation: architecture.ActivationName = architecture.ActivationName.RELU
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
-    # When True, a policy head is added to the setup net (setup-FRESH change).
-    use_actor_critic: bool = False
+    # Locked to True: new runs always use actor-critic for the setup net.
+    # Old checkpoints carry their own value (False = value-only) and still load.
+    use_actor_critic: bool = True
 
 
 class ArchitectureConfig(pydantic.BaseModel):
@@ -386,70 +408,13 @@ class RunConfig(pydantic.BaseModel):
     dagger: DaggerConfig = pydantic.Field(default_factory=DaggerConfig)
 
     # ------------------------------------------------------------------
-    # Cross-section validators
+    # Cross-section validators (launch-time only — see validate_launchable)
     # ------------------------------------------------------------------
-
-    @pydantic.model_validator(mode="after")
-    def _check_bootstrap_opponent(self) -> "RunConfig":
-        """A checkpoint-path bootstrap opponent requires ``device='cpu'``."""
-        if self.opponent.bootstrap_opponent not in ("none", "random"):
-            if self.misc.device != "cpu":
-                raise ValueError(
-                    "a bootstrap checkpoint requires device='cpu' (mp_collect only)"
-                )
-        return self
-
-    @pydantic.model_validator(mode="after")
-    def _check_dagger_config(self) -> "RunConfig":
-        """DAgger expert constraints (mirrors ``_check_bootstrap_opponent``)."""
-        expert = self.dagger_expert_checkpoint
-        if expert is not None:
-            if self.misc.device != "cpu":
-                raise ValueError(
-                    "a DAgger expert checkpoint requires device='cpu' (mp_collect only)"
-                )
-            if self.dagger.clone_iters < 1:
-                raise ValueError(
-                    "dagger.clone_iters must be >= 1 when an expert_checkpoint is set"
-                )
-        if self.dagger.clone_iters > 0:
-            if self.opponent.bootstrap_opponent != "none":
-                raise ValueError(
-                    "dagger.clone_iters > 0 requires opponent.bootstrap_opponent = 'none' "
-                    "(bootstrap and DAgger clone phases are incompatible: both seats must "
-                    "be the student for DAgger's on-policy labeling to work)"
-                )
-        return self
 
     @pydantic.model_validator(mode="after")
     def _check_architecture(self) -> "RunConfig":
         """Verify the topology descriptor assembles without error."""
         _ = self.arch
-        return self
-
-    @pydantic.model_validator(mode="after")
-    def _check_setup_schedule(self) -> "RunConfig":
-        """``(0, 0)`` is the 'train from start' sentinel and is always valid.
-        For any other non-zero config the recording window must be non-empty:
-        ``train_iter`` must strictly exceed ``record_start_iter``."""
-        setup = self.training.setup
-        if setup.train_iter > 0 and setup.train_iter <= setup.record_start_iter:
-            raise ValueError(
-                "training.setup.train_iter must exceed record_start_iter "
-                f"(got {setup.train_iter} <= {setup.record_start_iter})"
-            )
-        return self
-
-    @pydantic.model_validator(mode="after")
-    def _check_target_iterations(self) -> "RunConfig":
-        """target_iterations must not exceed max_iterations when both are nonzero."""
-        run = self.run
-        if run.target_iterations > 0 and run.max_iterations > 0:
-            if run.target_iterations > run.max_iterations:
-                raise ValueError(
-                    "run.target_iterations must be ≤ max_iterations when both are > 0 "
-                    f"(got {run.target_iterations} > {run.max_iterations})"
-                )
         return self
 
     # ------------------------------------------------------------------
@@ -463,10 +428,13 @@ class RunConfig(pydantic.BaseModel):
 
     @property
     def dagger_expert_checkpoint(self) -> str | None:
-        """The checkpoint path to load as the DAgger expert, or ``None`` when
-        DAgger is disabled (``expert_checkpoint`` is ``"none"`` or ``"random"``)."""
-        value = self.dagger.expert_checkpoint
-        return None if value in ("none", "random") else value
+        """The checkpoint path to load as the DAgger expert, or ``None``.
+
+        Clone always targets the bootstrap opponent — there is no separate
+        expert-checkpoint field; ``dagger.expert_checkpoint`` is retained for
+        old-file loading but ignored here. Clone is only possible when a
+        checkpoint bootstrap opponent is configured (never "clone random")."""
+        return self.bootstrap_opponent_checkpoint
 
     def dagger_active_at(self, iteration: int) -> bool:
         """Whether DAgger expert labeling is active for ``iteration``.
@@ -550,6 +518,20 @@ class RunConfig(pydantic.BaseModel):
             hand_embed_dim=main.hand_embed_dim,
             tray_set_embedding=main.tray_set_embedding,
             encoder_final_activation=main.encoder_final_activation,
+            card_activation=main.card_activation,
+            card_dropout=main.card_dropout,
+            card_layernorm=main.card_layernorm,
+            hand_activation=main.hand_activation,
+            hand_dropout=main.hand_dropout,
+            hand_layernorm=main.hand_layernorm,
+            trunk_activation=main.trunk_activation,
+            trunk_dropout=main.trunk_dropout,
+            trunk_layernorm=main.trunk_layernorm,
+            choice_activation=main.choice_activation,
+            choice_dropout=main.choice_dropout,
+            choice_layernorm=main.choice_layernorm,
+            value_activation=main.value_activation,
+            head_activation=main.head_activation,
         )
 
     @property
@@ -587,7 +569,7 @@ class RunConfig(pydantic.BaseModel):
             (
                 arch.card_encoder_layers,
                 arch.card_embed_dim,
-                arch.layernorm,
+                arch.card_layernorm_resolved,
                 arch.use_distinct_hand_model,
                 arch.hand_encoder_layers,
                 arch.hand_embed_width,
@@ -641,6 +623,49 @@ class RunConfig(pydantic.BaseModel):
     def family_order(self) -> tuple[str, ...]:
         """Synced family-head order (delegates to ``architecture.family_order``)."""
         return self.architecture.family_order
+
+
+# ---------------------------------------------------------------------------
+# Launch-time validation (cross-field constraints)
+# ---------------------------------------------------------------------------
+
+
+def validate_launchable(cfg: RunConfig) -> list[str]:
+    """Return a list of human-readable problems that would prevent a clean run start.
+
+    These are the cross-field constraints previously enforced as ``@model_validator``
+    methods on ``RunConfig``. Moving them here lets the configurator commit in-progress
+    edits without false rejections while still catching misconfigurations before a
+    multi-hour training session begins.  An empty list means the config is launchable.
+    """
+    problems: list[str] = []
+
+    # A checkpoint-path bootstrap opponent requires device='cpu'.
+    if cfg.opponent.bootstrap_opponent not in ("none", "random"):
+        if cfg.misc.device != "cpu":
+            problems.append(
+                "a bootstrap checkpoint requires device='cpu' (mp_collect only)"
+            )
+
+    # Setup schedule: (0, 0) is always valid; otherwise train_iter must exceed
+    # record_start_iter so the recording window is non-empty.
+    setup = cfg.training.setup
+    if setup.train_iter > 0 and setup.train_iter <= setup.record_start_iter:
+        problems.append(
+            f"training.setup.train_iter must exceed record_start_iter "
+            f"(got {setup.train_iter} <= {setup.record_start_iter})"
+        )
+
+    # target_iterations must not exceed max_iterations when both are nonzero.
+    run = cfg.run
+    if run.target_iterations > 0 and run.max_iterations > 0:
+        if run.target_iterations > run.max_iterations:
+            problems.append(
+                f"run.target_iterations must be ≤ max_iterations when both are > 0 "
+                f"(got {run.target_iterations} > {run.max_iterations})"
+            )
+
+    return problems
 
 
 # ---------------------------------------------------------------------------

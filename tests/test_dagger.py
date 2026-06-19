@@ -30,7 +30,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from wingspan import model  # noqa: E402
 from wingspan.training import collect, config, learner, loop_resume  # noqa: E402
-from wingspan.training.configure import fields  # noqa: E402
 
 # Small net dims — keep worker spawn and inference cheap.
 _SMALL_LAYERS = (32, 32)
@@ -97,25 +96,41 @@ def test_dagger_defaults_disabled() -> None:
     assert cfg.dagger_active_at(99) is False
 
 
-def test_dagger_expert_checkpoint_property_none_sentinel() -> None:
-    """Both 'none' and 'random' map to None on the computed property."""
-    cfg_none = config.RunConfig(
-        dagger=config.DaggerConfig(expert_checkpoint="none", clone_iters=0)
+def test_dagger_expert_checkpoint_derives_from_bootstrap() -> None:
+    """dagger_expert_checkpoint is now derived from bootstrap_opponent_checkpoint.
+
+    Setting dagger.expert_checkpoint is ignored; the bootstrap_opponent field is
+    authoritative. 'none' and 'random' both map to None.
+    """
+    cfg_no_bootstrap = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        opponent=config.OpponentConfig(bootstrap_opponent="none"),
     )
-    assert cfg_none.dagger_expert_checkpoint is None
+    assert cfg_no_bootstrap.dagger_expert_checkpoint is None
 
     cfg_random = config.RunConfig(
-        dagger=config.DaggerConfig(expert_checkpoint="random", clone_iters=0)
+        misc=config.MiscConfig(device="cpu"),
+        opponent=config.OpponentConfig(bootstrap_opponent="random"),
     )
     assert cfg_random.dagger_expert_checkpoint is None
 
+    cfg_checkpoint = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        opponent=config.OpponentConfig(bootstrap_opponent="some/archive/last.pt"),
+    )
+    assert cfg_checkpoint.dagger_expert_checkpoint == "some/archive/last.pt"
+
 
 def test_dagger_active_at_truth_table() -> None:
-    """dagger_active_at is True iff expert is set and iteration < clone_iters."""
+    """dagger_active_at is True iff a checkpoint bootstrap is set AND iteration < clone_iters.
+
+    After Workstream C the expert is derived from bootstrap_opponent_checkpoint, so
+    cloning is only active when bootstrap_opponent is a checkpoint path.
+    """
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
-        opponent=config.OpponentConfig(bootstrap_opponent="none"),
-        dagger=config.DaggerConfig(expert_checkpoint="some/path.pt", clone_iters=5),
+        opponent=config.OpponentConfig(bootstrap_opponent="some/path.pt"),
+        dagger=config.DaggerConfig(clone_iters=5),
     )
     assert cfg.dagger_active_at(0) is True
     assert cfg.dagger_active_at(4) is True
@@ -123,44 +138,56 @@ def test_dagger_active_at_truth_table() -> None:
     assert cfg.dagger_active_at(100) is False
 
 
-def test_dagger_config_rejects_expert_on_cuda() -> None:
-    with pytest.raises(Exception, match="requires device='cpu'"):
-        config.RunConfig(
-            misc=config.MiscConfig(device="cuda"),
-            opponent=config.OpponentConfig(bootstrap_opponent="none"),
-            dagger=config.DaggerConfig(expert_checkpoint="some/path.pt", clone_iters=3),
-        )
+def test_clone_plus_bootstrap_validates() -> None:
+    """clone_iters > 0 with a checkpoint bootstrap_opponent is now VALID (original bug fix).
+
+    Prior to Workstream C/E this combination raised a ValidationError because
+    the expert_checkpoint and bootstrap_opponent were cross-validated. The check
+    moved to validate_launchable so in-progress edits can commit freely.
+    """
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        opponent=config.OpponentConfig(bootstrap_opponent="some/checkpoint.pt"),
+        dagger=config.DaggerConfig(clone_iters=5),
+    )
+    assert cfg.dagger_active_at(0) is True
+    assert cfg.dagger_active_at(5) is False
 
 
-def test_dagger_config_rejects_clone_iters_zero_with_expert() -> None:
-    """An expert set with clone_iters=0 is a silent no-op — the validator rejects it."""
-    with pytest.raises(Exception, match="clone_iters must be >= 1"):
-        config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
-            opponent=config.OpponentConfig(bootstrap_opponent="none"),
-            dagger=config.DaggerConfig(expert_checkpoint="some/path.pt", clone_iters=0),
-        )
+def test_clone_iters_with_random_bootstrap_is_inactive() -> None:
+    """clone_iters > 0 with bootstrap_opponent='random' validates but DAgger is inactive.
 
-
-def test_dagger_config_rejects_clone_iters_with_bootstrap() -> None:
-    """clone_iters > 0 with a non-'none' bootstrap_opponent is invalid."""
-    with pytest.raises(Exception, match="bootstrap_opponent.*none"):
-        config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
-            opponent=config.OpponentConfig(bootstrap_opponent="random"),
-            dagger=config.DaggerConfig(expert_checkpoint="none", clone_iters=3),
-        )
-
-
-def test_dagger_config_allows_clone_iters_zero_bootstrap_any() -> None:
-    """clone_iters=0 never conflicts with bootstrap (DAgger is inactive)."""
+    There is no expert derived from random bootstrap — the bootstrap simply
+    graduates the student versus the random agent. clone_iters is silently
+    ignored in this case.
+    """
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         opponent=config.OpponentConfig(bootstrap_opponent="random"),
-        dagger=config.DaggerConfig(expert_checkpoint="none", clone_iters=0),
+        dagger=config.DaggerConfig(clone_iters=5),
     )
     assert cfg.dagger_expert_checkpoint is None
     assert cfg.dagger_active_at(0) is False
+
+
+def test_validate_launchable_flags_checkpoint_on_cuda() -> None:
+    """validate_launchable catches the bootstrap-checkpoint-on-cuda combo.
+
+    This check was a model_validator (hard rejection) before Workstream E. Now
+    it surfaces as a launch-time warning so in-progress edits are not blocked.
+    """
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cuda"),
+        opponent=config.OpponentConfig(bootstrap_opponent="some/path.pt"),
+    )
+    problems = config.validate_launchable(cfg)
+    assert any("cpu" in problem for problem in problems)
+
+
+def test_validate_launchable_clean_config_is_ok() -> None:
+    """A well-formed config returns an empty problem list."""
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    assert config.validate_launchable(cfg) == []
 
 
 # ---------------------------------------------------------------------------
@@ -292,17 +319,20 @@ def test_validate_dagger_expert_raises_on_missing_file(
     tmp_path: pathlib.Path,
 ) -> None:
     """``validate_dagger_expert`` propagates the ``FileNotFoundError`` from
-    ``loaders.load_policy_net`` when the checkpoint path does not exist."""
+    ``loaders.load_policy_net`` when the bootstrap checkpoint path does not exist.
+
+    After Workstream C, the expert is derived from bootstrap_opponent_checkpoint,
+    so the check fires when bootstrap_opponent is a path that doesn't exist.
+    """
 
     class _FakeLoop:
         config = config.RunConfig(
             misc=config.MiscConfig(device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(tmp_path)),
-            opponent=config.OpponentConfig(bootstrap_opponent="none"),
-            dagger=config.DaggerConfig(
-                expert_checkpoint=str(tmp_path / "nonexistent.pt"),
-                clone_iters=3,
+            opponent=config.OpponentConfig(
+                bootstrap_opponent=str(tmp_path / "nonexistent.pt")
             ),
+            dagger=config.DaggerConfig(clone_iters=3),
         )
 
     with pytest.raises(FileNotFoundError):
@@ -310,13 +340,13 @@ def test_validate_dagger_expert_raises_on_missing_file(
 
 
 def test_validate_dagger_expert_noop_when_none(tmp_path: pathlib.Path) -> None:
-    """``validate_dagger_expert`` is a no-op when expert_checkpoint is 'none'."""
+    """``validate_dagger_expert`` is a no-op when bootstrap_opponent is 'none'."""
 
     class _FakeLoop:
         config = config.RunConfig(
             misc=config.MiscConfig(device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(tmp_path)),
-            dagger=config.DaggerConfig(expert_checkpoint="none", clone_iters=0),
+            opponent=config.OpponentConfig(bootstrap_opponent="none"),
         )
 
     loop_resume.validate_dagger_expert(_FakeLoop())  # type: ignore[arg-type]
@@ -325,7 +355,7 @@ def test_validate_dagger_expert_noop_when_none(tmp_path: pathlib.Path) -> None:
 def test_validate_dagger_expert_succeeds_on_valid_checkpoint(
     tmp_path: pathlib.Path,
 ) -> None:
-    """``validate_dagger_expert`` does not raise when the checkpoint is readable."""
+    """``validate_dagger_expert`` does not raise when the bootstrap checkpoint is readable."""
     cfg = _small_cfg(tmp_path)
     net = _small_net(cfg)
     ckpt_path = tmp_path / "expert.pt"
@@ -334,77 +364,11 @@ def test_validate_dagger_expert_succeeds_on_valid_checkpoint(
     expert_cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
-        opponent=config.OpponentConfig(bootstrap_opponent="none"),
-        dagger=config.DaggerConfig(
-            expert_checkpoint=str(ckpt_path),
-            clone_iters=5,
-        ),
+        opponent=config.OpponentConfig(bootstrap_opponent=str(ckpt_path)),
+        dagger=config.DaggerConfig(clone_iters=5),
     )
 
     class _FakeLoop:
         config = expert_cfg
 
     loop_resume.validate_dagger_expert(_FakeLoop())  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# 8. BootstrapField parse / format round-trip for the DAgger expert field
-
-
-_DAGGER_FIELD_SPEC = fields.BootstrapField(
-    attr="dagger_expert_checkpoint",
-    label="dagger expert",
-    section=fields.ConfigSection.EVAL,
-    group="dagger",
-    help="DAgger expert checkpoint.",
-)
-
-
-def test_dagger_field_formats_none_sentinel() -> None:
-    cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
-        dagger=config.DaggerConfig(expert_checkpoint="none", clone_iters=0),
-    )
-    assert fields.format_value(cfg, _DAGGER_FIELD_SPEC) == "none"
-
-
-def test_dagger_field_formats_path_as_last_two_parts() -> None:
-    cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
-        opponent=config.OpponentConfig(bootstrap_opponent="none"),
-        dagger=config.DaggerConfig(
-            expert_checkpoint="some/archive/run_iter500/last.pt",
-            clone_iters=5,
-        ),
-    )
-    formatted = fields.format_value(cfg, _DAGGER_FIELD_SPEC)
-    assert formatted == "run_iter500/last.pt"
-
-
-def test_dagger_field_commit_roundtrip(tmp_path: pathlib.Path) -> None:
-    """Committing a path string stores it in dagger.expert_checkpoint."""
-    cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
-        run=config.RunSettings(checkpoint_dir=str(tmp_path)),
-        opponent=config.OpponentConfig(bootstrap_opponent="none"),
-        dagger=config.DaggerConfig(clone_iters=5),
-    )
-    new_cfg, error = fields.commit(cfg, _DAGGER_FIELD_SPEC, "path/to/expert.pt.gz")
-    assert error is None
-    assert new_cfg.dagger.expert_checkpoint == "path/to/expert.pt.gz"
-
-
-def test_dagger_field_commit_none_string(tmp_path: pathlib.Path) -> None:
-    """Committing 'none' disables the expert."""
-    cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
-        run=config.RunSettings(checkpoint_dir=str(tmp_path)),
-        opponent=config.OpponentConfig(bootstrap_opponent="none"),
-        dagger=config.DaggerConfig(
-            expert_checkpoint="some/path.pt",
-            clone_iters=5,
-        ),
-    )
-    new_cfg, error = fields.commit(cfg, _DAGGER_FIELD_SPEC, "none")
-    assert error is None
-    assert new_cfg.dagger.expert_checkpoint == "none"

@@ -9,19 +9,25 @@ for rendering and a cross-platform raw-key reader for input; no curses.
 **`__init__.py`**
 
 **`fields.py`** — The field specification system:
-- `FieldSpec` — abstract base with `attr`, `label`, `section`, `help`, and
-  optional `group`, `visible_when`, `impact`.
+- `FieldSpec` — abstract base with `attr`, `label`, `group_path: tuple[str, ...]`,
+  `help`, and optional `visible_when`, `impact`, `unit`. The `group_path` encodes
+  the display hierarchy at up to three levels, e.g.
+  `("TRAINING", "REWARD MODEL")` or `("COLLECTION", "BOOTSTRAP", "RANDOM SETUP")`.
+  Order of display is the order specs appear in `FIELD_SPECS`.
 - Concrete subclasses: `IntField`, `OptionalIntField`, `FloatField`,
-  `ChoiceField`, `TextField`, `PathField`, `LayersField`,
-  `OptionalPathField` (nullable filesystem-path field; displays `none_label`
-  when `None`, parses back to `None` on empty or `"none"` input; used for
-  `bootstrap_opponent_checkpoint` in the EVAL/bootstrap group).
+  `OptionalFloatField` (float with `None`=inherit, `fallback_attr` for nudge),
+  `ChoiceField`, `OptionalChoiceField` (choice with `None`=inherit, cycles
+  None → choices[0] → … → None), `TextField`, `PathField`, `LayersField`,
+  `OptionalPathField`, `BootstrapField`.
 - `FIELD_SPECS: list[FieldSpec]` — ordered list of all editable fields shown
-  in the configurator. Includes `bootstrap_opponent_checkpoint`
-  (`OptionalPathField`, group `"bootstrap"`, visible only when
-  `initial_vs_random=True`, `ChangeImpact.REGIME`), and the OPTIM-section reward
-  controls `reward_mode` (`ChoiceField` over `RewardMode`) and `reward_discount`
-  (`FloatField`, visible only when `reward_mode == decision_delta`), both REGIME.
+  in the configurator. Locked-in fields (`use_distinct_hand_model`,
+  `tray_set_embedding`, `setup_use_actor_critic`, offline-fit fields,
+  `dagger_expert_checkpoint`) are absent; per-block activation/dropout/layernorm
+  overrides (14 fields) and `reward_basis` are present.
+- Five top-level sections: `RUN SETTINGS`, `COLLECTION`, `EVALUATION`,
+  `TRAINING`, `MODEL ARCHITECTURE`. CLONING visible when bootstrap_opponent is a
+  checkpoint path; RANDOM SETUP when bootstrap=="random" and use_setup_model;
+  PPO fields when policy_loss==PPO; GAE fields in delta/GAE modes.
 - `read_field(cfg, spec) -> FieldValue`, `format_value(cfg, spec) -> str`,
   `commit(cfg, spec, raw) -> (TrainConfig, str | None)`,
   `nudge(cfg, spec, direction) -> (TrainConfig, str | None)`.
