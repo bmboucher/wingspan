@@ -55,3 +55,13 @@ def bonus_index(bonus_card: schema.BonusCard) -> int:
     """Stable dense index of ``bonus_card`` in the core-set catalog, used for
     the bonus-card identity one-hot."""
     return _bonus_index_by_id()[bonus_card.id]
+
+
+def birds_ordered() -> tuple[schema.Bird, ...]:
+    """All core-set birds in stable index order (position == :func:`bird_index`)."""
+    return _canonical_cards()[0]
+
+
+def bonus_cards_ordered() -> tuple[schema.BonusCard, ...]:
+    """All core-set bonus cards in stable index order (position == :func:`bonus_index`)."""
+    return _canonical_cards()[1]

@@ -148,6 +148,7 @@ class EncodedSubField(pydantic.BaseModel):
     active_index: int | None = None
     raw_value: float | None = None
     raw_values: list[float] | None = None
+    decoded_label: str | None = None
 
 
 class EncodedStripe(pydantic.BaseModel):
@@ -1135,9 +1136,15 @@ function renderStripes(stripes) {
 
 function renderSubField(field) {
   let val = '';
-  if (field.active_index != null) val = 'index ' + field.active_index;
-  else if (field.raw_value != null) val = field.raw_value.toFixed(4);
-  else if (field.raw_values && field.raw_values.length) val = field.raw_values.map(v => v.toFixed(4)).join(', ');
+  if (field.decoded_label != null) {
+    val = field.decoded_label;
+  } else if (field.active_index != null) {
+    val = 'index ' + field.active_index;
+  } else if (field.raw_value != null) {
+    val = Number.isInteger(field.raw_value) ? String(field.raw_value) : field.raw_value.toFixed(4);
+  } else if (field.raw_values && field.raw_values.length) {
+    val = field.raw_values.map(v => Number.isInteger(v) ? String(v) : v.toFixed(4)).join(', ');
+  }
   const notes = field.notes ? '<span class="enc-notes">' + esc(field.notes) + '</span>' : '';
   return '<tr>'
     + '<td class="enc-name">' + esc(field.name) + '</td>'

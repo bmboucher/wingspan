@@ -154,11 +154,10 @@ def build_decision_item(
 
     # Extract state stripes once (shared across all options for this decision).
     state_stripes: list[game_log_html.EncodedStripe] | None = None
-    if annotation.state_vec is not None and annotation.card_embed_dim is not None:
+    if annotation.state_vec is not None:
         state_stripes = encode_viewer.extract_state_stripes(
             annotation.state_vec,
             include_setup=annotation.include_setup or False,
-            card_embed_dim=annotation.card_embed_dim,
         )
 
     options: list[game_log_html.DecisionOption] = []
@@ -167,15 +166,10 @@ def build_decision_item(
 
         # Extract per-option choice stripes from the annotation's choice matrix.
         choice_stripes: list[game_log_html.EncodedStripe] | None = None
-        if (
-            annotation.choice_feats is not None
-            and annotation.card_embed_dim is not None
-            and idx < len(annotation.choice_feats)
-        ):
+        if annotation.choice_feats is not None and idx < len(annotation.choice_feats):
             choice_stripes = encode_viewer.extract_choice_stripes(
                 annotation.choice_feats[idx],
                 include_setup=annotation.include_setup or False,
-                card_embed_dim=annotation.card_embed_dim,
             )
 
         options.append(

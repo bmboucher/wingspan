@@ -23,6 +23,8 @@ Submodules:
 from wingspan.cards.parse import matchers, pink_matchers
 from wingspan.cards.parse.catalog import (
     bird_index,
+    birds_ordered,
+    bonus_cards_ordered,
     bonus_index,
     n_birds,
     n_bonus_cards,
@@ -48,6 +50,8 @@ __all__ = [
     "HABITAT_TAGS",
     "NEST_TAGS",
     "bird_index",
+    "birds_ordered",
+    "bonus_cards_ordered",
     "bonus_categories_for_bird",
     "bonus_index",
     "goal_category",

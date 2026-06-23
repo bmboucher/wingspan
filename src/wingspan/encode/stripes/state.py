@@ -7,6 +7,10 @@
 every stripe in the state trunk's input vector in offset order, with sizes from
 the ``layout`` constants and a post-embedding rewrite applied so the totals
 match the trunk's first-``Linear`` input width.
+
+``raw_state_stripe_layout`` returns the same layout without the post-embedding
+rewrite — sizes and offsets match the flat vector that ``encode_state`` produces
+(integer-index stripes at their raw widths, not ``card_embed_dim``).
 """
 
 from __future__ import annotations
@@ -16,6 +20,20 @@ from wingspan.encode import layout
 from wingspan.encode.stripes import descriptors, embed_rules
 
 _DEFAULT_CARD_EMBED_DIM = architecture.ModelArchitecture().card_embed_dim
+
+
+def raw_state_stripe_layout(
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+) -> descriptors.VectorLayout:
+    """Build the raw (pre-embedding) stripe registry for the state trunk's input vector.
+
+    Like :func:`state_stripe_layout` but returns the encoder's *raw* output widths:
+    card-index stripes appear as ``integer-index`` vectors (one slot per position)
+    and the hand multi-hot appears at its full ``HAND_MULTIHOT_DIM`` width — the
+    sizes and offsets the ``encode_state`` output actually has, not the post-embedding
+    trunk view.  Use this when indexing into the vector that
+    :meth:`~wingspan.model.PolicyValueNet.encode_state` returns directly."""
+    return _build_raw_state_stripes(spec)
 
 
 def state_stripe_layout(
@@ -42,6 +60,39 @@ def state_stripe_layout(
     encoding-order position.) Only the trailing decision-type one-hot's width
     depends on ``spec``.
     """
+    raw = _build_raw_state_stripes(spec)
+    return embed_rules.embed_layout(
+        raw,
+        embed_rules.state_embed_rules(
+            card_embed_dim,
+            use_distinct_hand_model=use_distinct_hand_model,
+            hand_embed_dim=hand_embed_dim,
+            tray_set_embedding=tray_set_embedding,
+        ),
+        layout.trunk_input_dim(
+            raw.total_size,
+            card_embed_dim,
+            use_distinct_hand_model=use_distinct_hand_model,
+            hand_embed_dim=hand_embed_dim,
+            tray_set_embedding=tray_set_embedding,
+        ),
+    )
+
+
+###### PRIVATE #######
+
+#### State stripe builder ####
+
+
+def _build_raw_state_stripes(
+    spec: layout.EncodingSpec,
+) -> descriptors.VectorLayout:
+    """Build all state stripes for ``spec`` without post-embedding rewrite.
+
+    Called by both :func:`state_stripe_layout` (which then applies
+    ``embed_rules``) and :func:`raw_state_stripe_layout` (which returns the raw
+    view directly).  The returned layout's offsets and sizes match the flat
+    vector that ``encode_state`` produces."""
     from wingspan.encode import state_encode
 
     total = state_encode.state_size(spec)
@@ -478,26 +529,8 @@ def state_stripe_layout(
         f"stripe offsets sum to {off} but state_size(spec) returns {total} — "
         "layout.py and stripes.py are out of sync"
     )
-    raw = descriptors.VectorLayout(total_size=total, stripes=tuple(stripes))
-    return embed_rules.embed_layout(
-        raw,
-        embed_rules.state_embed_rules(
-            card_embed_dim,
-            use_distinct_hand_model=use_distinct_hand_model,
-            hand_embed_dim=hand_embed_dim,
-            tray_set_embedding=tray_set_embedding,
-        ),
-        layout.trunk_input_dim(
-            total,
-            card_embed_dim,
-            use_distinct_hand_model=use_distinct_hand_model,
-            hand_embed_dim=hand_embed_dim,
-            tray_set_embedding=tray_set_embedding,
-        ),
-    )
+    return descriptors.VectorLayout(total_size=total, stripes=tuple(stripes))
 
-
-###### PRIVATE #######
 
 #### State sub-field builders ####
 

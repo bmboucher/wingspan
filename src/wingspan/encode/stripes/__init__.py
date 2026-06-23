@@ -16,7 +16,7 @@ Sub-modules:
 - ``descriptors``   — :class:`StripeSpec`, :class:`SubFieldDescriptor`,
                       :class:`StripeDescriptor`, :class:`VectorLayout` models
 - ``embed_rules``   — post-embedding rewrite logic shared by state and choice
-- ``state``         — :func:`state_stripe_layout` and its sub-field builders
+- ``state``         — :func:`state_stripe_layout`, :func:`raw_state_stripe_layout`, and sub-field builders
 - ``choice``        — :func:`choice_stripe_layout` and its sub-field builders
 - ``card_feature``  — :func:`card_feature_stripe_layout` and
                       :func:`hand_encoder_input_stripe_layout`
@@ -38,7 +38,7 @@ from wingspan.encode.stripes.descriptors import (
     SubFieldDescriptor,
     VectorLayout,
 )
-from wingspan.encode.stripes.state import state_stripe_layout
+from wingspan.encode.stripes.state import raw_state_stripe_layout, state_stripe_layout
 
 __all__ = [
     "StripeSpec",
@@ -46,6 +46,7 @@ __all__ = [
     "StripeDescriptor",
     "VectorLayout",
     "state_stripe_layout",
+    "raw_state_stripe_layout",
     "choice_stripe_layout",
     "raw_choice_stripe_layout",
     "card_feature_stripe_layout",
