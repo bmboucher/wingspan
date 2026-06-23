@@ -108,15 +108,62 @@ def test_html_nav_has_no_section_tabs_and_script_is_inline():
     assert "data-params-block" in html
 
 
+def test_svg_board_attention_absent_by_default():
+    html = _report_html(use_setup_model=True)
+    assert "BOARD ATTENTION" not in html
+    assert 'data-params-block="board attn"' not in html
+    # data-panel count must still be exactly 5 (no attention panel added).
+    assert html.count("data-panel=") == len(_PANEL_IDS)
+
+
+def test_svg_board_attention_present_when_enabled():
+    html = _report_html_with_attention()
+    assert "BOARD ATTENTION" in html
+    assert 'data-params-block="board attn"' in html
+    assert "id='params-block-board attn'" in html
+    assert f"×{encode.N_BOARD_INDEX_SLOTS}" in html
+    # panel=None on the attention unit — must NOT add a 6th data-panel.
+    assert html.count("data-panel=") == len(_PANEL_IDS)
+
+
+def test_svg_per_block_activation_label():
+    html = _report_html_with_trunk_gelu()
+    # The resolved trunk activation (gelu) must appear as a row label in the SVG.
+    assert ">gelu<" in html
+
+
 ###### PRIVATE #######
 
 
 def _report_html(use_setup_model: bool) -> str:
     """Generate the model-summary HTML for a baseline net with setup on/off."""
+    return _report_html_for_arch(architecture.ModelArchitecture(), use_setup_model)
+
+
+def _report_html_with_attention() -> str:
+    """Generate the model-summary HTML with board self-attention enabled."""
+    return _report_html_for_arch(
+        architecture.ModelArchitecture(use_board_attention=True), use_setup_model=True
+    )
+
+
+def _report_html_with_trunk_gelu() -> str:
+    """Generate the model-summary HTML with a gelu trunk activation override."""
+    return _report_html_for_arch(
+        architecture.ModelArchitecture(
+            trunk_activation=architecture.ActivationName.GELU
+        ),
+        use_setup_model=True,
+    )
+
+
+def _report_html_for_arch(
+    arch: architecture.ModelArchitecture, use_setup_model: bool
+) -> str:
+    """Generate the model-summary HTML for an arbitrary ModelArchitecture."""
     spec = encode.spec_for(use_setup_model)
     state_dim = encode.state_size(spec)
     choice_dim = encode.choice_feature_dim(spec)
-    arch = architecture.ModelArchitecture()
     family_order = tuple(
         family.value
         for family in decisions.active_decision_families(spec.include_setup)
@@ -136,6 +183,7 @@ def _report_html(use_setup_model: bool) -> str:
         ),
         num_families=len(family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
+        slot_scalar_dim=encode.SLOT_SCALAR_DIM,
     )
     return report.generate_html_report(
         encode_stripes.state_stripe_layout(spec, arch.card_embed_dim),

@@ -78,6 +78,7 @@ _ACCENT_SETUP = "#14b8a6"
 _ACCENT_VALUE = "#10b981"
 _ACCENT_DECISION = "#f97316"
 _ACCENT_DECISION_BADGE_BG = "#fde8d8"
+_ACCENT_ATTN = "#f59e0b"
 
 _FONT_MONO = "'Courier New',monospace"
 _FONT_SANS = "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
@@ -128,6 +129,14 @@ _LANE_HAND = 16
 _LANE_CARD_SETUP = 32
 _LANE_CARD_CHOICE = 48
 _LANE_TRUNK_DECISION = 24
+
+# Lanes relative to the top of the attention band (used when use_board_attention=True).
+# Hand→trunk elbow runs below the attention block; tray-3 runs in the col0/col1 gutter.
+_LANE_ATTN_HAND_TRUNK = 16
+_LANE_ATTN_TRAY = 40
+
+# Gutter x for the tray-3 connector when routing around the col-0 attention block.
+_X_ATTN_TRAY_GUTTER = 315
 
 _X_CARD_TRUNK = -40
 _X_CARD_CHOICE_SRC = 10
@@ -195,6 +204,11 @@ def build_arch_svg(
     for unit, top_y, unit_h in placed:
         parts.append(_draw_unit(unit, top_y, unit_h))
 
+    # Attention row sits between row1 and row2 (only when on).
+    if units.attention is not None:
+        assert geom.attn_row_y is not None and geom.attn_row_h is not None
+        parts.append(_draw_unit(units.attention, geom.attn_row_y, geom.attn_row_h))
+
     # The top-row training note: the shared encoders learn only from in-game
     # decisions; the setup net consumes them as frozen, synced copies. Gated on
     # the distinct hand model — without it the setup net trains its own
@@ -204,9 +218,14 @@ def build_arch_svg(
 
     # Connectors: all bodies first, then all labels, so the white label halos
     # mask any line they cross.
-    conns = _band1_connectors(geom, arch, use_setup_model) + _band2_connectors(
-        geom, arch
-    )
+    if units.attention is not None:
+        conns = _band1_connectors_attn(geom, arch, use_setup_model) + _band2_connectors(
+            geom, arch
+        )
+    else:
+        conns = _band1_connectors(geom, arch, use_setup_model) + _band2_connectors(
+            geom, arch
+        )
     rendered = [_conn_svg(conn) for conn in conns]
     parts.extend(body for body, _ in rendered)
     parts.extend(label for _, label in rendered if label)
@@ -267,7 +286,7 @@ class _Unit(pydantic.BaseModel):
 
 
 class _Units(pydantic.BaseModel):
-    """The seven diagram blocks, named by role."""
+    """The eight diagram blocks, named by role (attention is None when off)."""
 
     card: _Unit
     hand: _Unit
@@ -276,6 +295,7 @@ class _Units(pydantic.BaseModel):
     setup: _Unit
     value: _Unit
     decision: _Unit
+    attention: _Unit | None = None
 
 
 class _Conn(pydantic.BaseModel):
@@ -312,6 +332,10 @@ class _Geom(pydantic.BaseModel):
     band2_y: int
     total_y: int
     svg_h: int
+    # Present only when use_board_attention=True; None otherwise.
+    attn_row_y: int | None = None
+    attn_row_h: int | None = None
+    band_attn_y: int | None = None
 
 
 #### Unit assembly ####
@@ -326,6 +350,7 @@ def _build_units(
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> _Units:
+    attn_block = param_report.board_attention
     return _Units(
         card=_card_unit(arch, param_report),
         hand=_hand_unit(arch, param_report),
@@ -334,6 +359,7 @@ def _build_units(
         setup=_build_setup_unit(setup_param, setup_arch, use_setup_model),
         value=_value_unit(arch, param_report),
         decision=_decision_unit(arch, param_report, family_order),
+        attention=_attention_unit(arch, attn_block) if attn_block is not None else None,
     )
 
 
@@ -347,7 +373,9 @@ def _card_unit(
         accent=_ACCENT_CARD,
         title="SINGLE-CARD ENCODER · per-card MLP",
         rows=_op_rows(
-            block.layers, arch.activation.value, is_trunk=arch.encoder_final_activation
+            block.layers,
+            arch.card_activation_resolved.value,
+            is_trunk=arch.encoder_final_activation,
         ),
         sigma_text=_count_text(block.total),
         in_label="card features",
@@ -387,7 +415,9 @@ def _hand_unit(
         title="MULTI-CARD ENCODER · card-set MLP",
         subtitle="" if distinct else "setup net only · main net mean-pools",
         rows=_op_rows(
-            layers, arch.activation.value, is_trunk=arch.encoder_final_activation
+            layers,
+            arch.hand_activation_resolved.value,
+            is_trunk=arch.encoder_final_activation,
         ),
         sigma_text=_count_text(total),
         in_label="card set + summary",
@@ -414,7 +444,9 @@ def _trunk_unit(
         x=_SVG_COL_X[0],
         accent=_ACCENT_TRUNK,
         title="STATE ENCODER",
-        rows=_op_rows(block.layers, arch.activation.value, is_trunk=True),
+        rows=_op_rows(
+            block.layers, arch.trunk_activation_resolved.value, is_trunk=True
+        ),
         sigma_text=_count_text(block.total),
         in_label="state input",
         in_count=in_dim,
@@ -429,6 +461,41 @@ def _trunk_unit(
     )
 
 
+def _attention_unit(
+    arch: architecture.ModelArchitecture, block: architecture.BlockParam
+) -> _Unit:
+    """Board self-attention block: two single-head MultiheadAttention modules,
+    one per seat's 15 board slots, drawn in col 0 between the encoder row and
+    the consumer row."""
+    token_width = arch.card_embed_dim + encode.SLOT_SCALAR_DIM
+    return _Unit(
+        x=_SVG_COL_X[0],
+        accent=_ACCENT_ATTN,
+        title="BOARD ATTENTION · per-seat self-attn",
+        rows=(
+            _OpRow(kind=_OpKind.LINEAR, label="self-attention ×2 boards", params=None),
+            _OpRow(
+                kind=_OpKind.LINEAR,
+                label=f"{encode.SLOTS_PER_BOARD} tokens · {token_width}-wide",
+                params=None,
+            ),
+        ),
+        sigma_text=_count_text(block.total),
+        in_label="board tokens",
+        in_count=encode.N_BOARD_INDEX_SLOTS,
+        out_label="attended tokens",
+        out_count=encode.N_BOARD_INDEX_SLOTS,
+        tooltip=(
+            f"Board Self-Attention · {_count_text(block.total)} params · "
+            f"two single-head nn.MultiheadAttention modules, one per seat · "
+            f"{encode.SLOTS_PER_BOARD} board-slot tokens × {token_width}-wide · "
+            f"attended tokens re-folded into state input (trunk width unchanged)"
+        ),
+        panel=None,
+        params_key=block.label.lower(),
+    )
+
+
 def _choice_unit(
     arch: architecture.ModelArchitecture, param_report: architecture.ParamReport
 ) -> _Unit:
@@ -439,7 +506,9 @@ def _choice_unit(
         accent=_ACCENT_CHOICE,
         title="CHOICE ENCODER",
         rows=_op_rows(
-            block.layers, arch.activation.value, is_trunk=arch.encoder_final_activation
+            block.layers,
+            arch.choice_activation_resolved.value,
+            is_trunk=arch.encoder_final_activation,
         ),
         sigma_text=_count_text(block.total),
         in_label="choice input",
@@ -572,7 +641,9 @@ def _value_unit(
         x=_SVG_COL_X[0],
         accent=_ACCENT_VALUE,
         title="VALUE HEAD",
-        rows=_op_rows(block.layers, arch.activation.value, is_trunk=False),
+        rows=_op_rows(
+            block.layers, arch.value_activation_resolved.value, is_trunk=False
+        ),
         sigma_text=_count_text(block.total),
         in_label="state embedding",
         in_count=block.layers[0].in_features,
@@ -595,7 +666,9 @@ def _decision_unit(
     mn = arch.trunk_embed_width + arch.choice_embed_width
     num_families = len(family_order)
     if scorer.layers:
-        rows = _op_rows(scorer.layers, arch.activation.value, is_trunk=False)
+        rows = _op_rows(
+            scorer.layers, arch.head_activation_resolved.value, is_trunk=False
+        )
         per_head = (
             scorer.total // scorer.multiplier if scorer.multiplier > 1 else scorer.total
         )
@@ -713,8 +786,12 @@ def _setup_col_h(unit: _Unit) -> int:
 
 def _resolve_geometry(units: _Units) -> _Geom:
     """Stack the three block rows and two connector bands top to bottom; every
-    block in a visual row stretches to the row's tallest unit."""
-    row1_h = max(_unit_h(len(units.card.rows)), _unit_h(len(units.hand.rows)))
+    block in a visual row stretches to the row's tallest unit.
+
+    When board attention is on an extra row is inserted between the encoder row
+    and the consumer row, with its own connector bands above and below it.
+    """
+    row1_h_base = max(_unit_h(len(units.card.rows)), _unit_h(len(units.hand.rows)))
     row2_h = max(
         _unit_h(len(units.trunk.rows)),
         _unit_h(len(units.choice.rows)),
@@ -722,8 +799,23 @@ def _resolve_geometry(units: _Units) -> _Geom:
     )
     row3_h = max(_unit_h(len(units.value.rows)), _unit_h(len(units.decision.rows)))
     row1_y = _SVG_TOP
-    band1_y = row1_y + row1_h
-    row2_y = band1_y + _SVG_BAND_H
+
+    if units.attention is not None:
+        # Guard: attention block contributes to row1_h in case it ever exceeds card/hand.
+        attn_row_h = _unit_h(len(units.attention.rows))
+        row1_h = row1_h_base
+        band1_y = row1_y + row1_h
+        attn_row_y = band1_y + _SVG_BAND_H
+        band_attn_y = attn_row_y + attn_row_h
+        row2_y = band_attn_y + _SVG_BAND_H
+    else:
+        row1_h = row1_h_base
+        band1_y = row1_y + row1_h
+        row2_y = band1_y + _SVG_BAND_H
+        attn_row_h = None
+        attn_row_y = None
+        band_attn_y = None
+
     band2_y = row2_y + row2_h
     row3_y = band2_y + _SVG_BAND_H
     total_y = row3_y + row3_h + _SVG_TOTAL_GAP
@@ -738,6 +830,9 @@ def _resolve_geometry(units: _Units) -> _Geom:
         band2_y=band2_y,
         total_y=total_y,
         svg_h=total_y + _SVG_BOTTOM,
+        attn_row_y=attn_row_y,
+        attn_row_h=attn_row_h,
+        band_attn_y=band_attn_y,
     )
 
 
@@ -813,6 +908,119 @@ def _band1_connectors(
                 label="×2 · own hand + tray set" if tray_set else "×1 · own hand",
             )
         )
+    return conns
+
+
+def _band1_connectors_attn(
+    geom: _Geom, arch: architecture.ModelArchitecture, use_setup_model: bool
+) -> list[_Conn]:
+    """Encoder fan-out when board attention is on.
+
+    The board path (30 card-index slots) goes CARD → ATTENTION → STATE as two
+    straight verticals in col 0.  The three column-clearing fan-outs (card→choice,
+    card→setup, hand→setup) are identical to the off-path version.  Hand→trunk is
+    re-routed to the band_attn level so its horizontal elbow clears the attention
+    block.  The 3 tray slots still land in STATE directly via a gutter elbow.
+    """
+    assert geom.attn_row_y is not None
+    assert geom.band_attn_y is not None
+
+    card_cx, hand_cx, setup_cx = _SVG_COL_CX
+    trunk_cx, choice_cx = card_cx, hand_cx
+    num_choice_copies = encode.CHOICE_BOARD_IDX_SLOTS + 1
+
+    # Three column-clearing fan-outs — unchanged from the off-path variant.
+    conns: list[_Conn] = [
+        _Conn(
+            src_x=card_cx + _X_CARD_CHOICE_SRC,
+            src_y=geom.band1_y,
+            dst_x=choice_cx + _X_CARD_CHOICE_DST,
+            dst_y=geom.row2_y,
+            lane_y=geom.band1_y + _LANE_CARD_CHOICE,
+            copies=num_choice_copies,
+            label=(
+                f"×{num_choice_copies} · {encode.CHOICE_BOARD_IDX_SLOTS} board"
+                f" + 1 candidate"
+            ),
+            label_dx=13,
+        ),
+        _Conn(
+            src_x=card_cx + _X_CARD_SETUP_SRC,
+            src_y=geom.band1_y,
+            dst_x=setup_cx + _X_CARD_SETUP_DST,
+            dst_y=geom.row2_y,
+            lane_y=geom.band1_y + _LANE_CARD_SETUP,
+            copies=state.TRAY_SIZE,
+            label=f"×{state.TRAY_SIZE} · tray",
+            dashed=not use_setup_model,
+        ),
+        _Conn(
+            src_x=hand_cx + _X_HAND_SETUP_SRC,
+            src_y=geom.band1_y,
+            dst_x=setup_cx,
+            dst_y=geom.row2_y,
+            lane_y=geom.band1_y + _LANE_HAND,
+            copies=2,
+            label="×2 · kept + tray set",
+            dashed=not use_setup_model,
+        ),
+    ]
+
+    # Board path: CARD → ATTENTION (straight vertical, col 0).
+    conns.append(
+        _Conn(
+            src_x=card_cx + _X_CARD_TRUNK,
+            src_y=geom.band1_y,
+            dst_x=card_cx + _X_CARD_TRUNK,
+            dst_y=geom.attn_row_y,
+            copies=encode.N_BOARD_INDEX_SLOTS,
+            label=f"×{encode.N_BOARD_INDEX_SLOTS}",
+            label2=f"2×{encode.SLOTS_PER_BOARD} board slots",
+            label_left=True,
+        )
+    )
+
+    # Board path: ATTENTION → STATE (straight vertical, col 0).
+    conns.append(
+        _Conn(
+            src_x=trunk_cx + _X_CARD_TRUNK,
+            src_y=geom.band_attn_y,
+            dst_x=trunk_cx + _X_CARD_TRUNK,
+            dst_y=geom.row2_y,
+            copies=encode.N_BOARD_INDEX_SLOTS,
+            label=f"×{encode.N_BOARD_INDEX_SLOTS} attended",
+            label_left=True,
+        )
+    )
+
+    # Tray-3: 3 card-index slots bypass attention → STATE via gutter elbow.
+    conns.append(
+        _Conn(
+            src_x=_X_ATTN_TRAY_GUTTER,
+            src_y=geom.band1_y,
+            dst_x=trunk_cx + _X_HAND_TRUNK_DST,
+            dst_y=geom.row2_y,
+            lane_y=geom.band_attn_y + _LANE_ATTN_TRAY,
+            copies=state.TRAY_SIZE,
+            label=f"×{state.TRAY_SIZE} tray",
+        )
+    )
+
+    # Hand → STATE re-routed to the band_attn level.
+    if arch.use_distinct_hand_model:
+        tray_set = arch.tray_set_embedding
+        conns.append(
+            _Conn(
+                src_x=hand_cx + _X_HAND_TRUNK_SRC,
+                src_y=geom.band1_y,
+                dst_x=trunk_cx + _X_HAND_TRUNK_DST,
+                dst_y=geom.row2_y,
+                lane_y=geom.band_attn_y + _LANE_ATTN_HAND_TRUNK,
+                copies=2 if tray_set else 1,
+                label="×2 · own hand + tray set" if tray_set else "×1 · own hand",
+            )
+        )
+
     return conns
 
 
@@ -1240,6 +1448,11 @@ def _svg_root(
         f"Value Head and {num_families} Decision Heads, {total} params total; "
         f"separate Setup Model ({status}, {setup_total} params)"
     )
+    if arch.use_board_attention:
+        aria += (
+            f"; board self-attention over each seat's {encode.SLOTS_PER_BOARD} "
+            f"board slots before the State Encoder"
+        )
     marker = (
         '<defs><marker id="arr" viewBox="0 0 10 10" refX="8.5" refY="5" '
         'markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">'

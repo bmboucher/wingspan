@@ -88,10 +88,18 @@ draws, food gains, power activations, birdfeeder resets). `humanize_forced(label
 → rewrites `display_label()` patterns (deck, tray slot, board target) to
 human-friendly text.
 
-**`svg.py`** — SVG architecture-diagram builder. `build_arch_svg(arch:
-ModelArchitecture) -> str` renders the trunk / choice-encoder / scorer-head /
-value-head topology as an SVG string, embedded by `html.py`. Widths are drawn
-proportional to the hidden-layer sizes.
+**`svg.py`** — SVG architecture-diagram builder.
+`build_arch_svg(arch, param_report, family_order, *, setup_param, setup_arch, use_setup_model) -> str`
+renders the full network topology as a self-contained SVG string embedded by `html.py`.
+Three visual rows (encoders / consumers / heads) with `_SVG_BAND_H`-px connector bands between
+them hold the seven permanent blocks (SINGLE-CARD ENCODER, MULTI-CARD ENCODER, STATE ENCODER,
+CHOICE ENCODER, SETUP MODEL, VALUE HEAD, DECISION HEAD) and, when `arch.use_board_attention` is
+True, an additional **BOARD ATTENTION** row inserted between the encoder row and consumer row —
+drawn in col 0, with the board-slot path routing CARD→ATTENTION→STATE as straight verticals.
+Each block's activation rows use the resolved per-block activation (e.g. `trunk_activation_resolved`)
+rather than the global fallback. The diagram doubles as the report's navigation: input boxes carry
+`data-panel` attributes and parameter counts carry `data-params-block` attributes (the attention
+block uses `panel=None` — it has no vector-layout panel).
 
 **`inspect_cli.py`** — `main_inspect(args)`: the `wingspan inspect` CLI handler.
 Accepts a run directory or `.pt` path; loads the descriptor via
