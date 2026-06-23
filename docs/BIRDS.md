@@ -219,8 +219,12 @@ printed points, eggs laid on them, and bonus/goal eligibility.
   `gained_food_count=1` (own die) and `opp_gained_food_count=1` (opponent's die).
   Declining skips the whole power.
 - **Subsequent choices (on accept), in order:**
-  1. The active player gets a `misc_rare` decision choosing which player gains
-     first (in a 2-player game: me or the opponent).
+  1. **Order pick (gated on `distinct_faces() == 2`).** When the birdfeeder shows
+     exactly two distinct faces the active player gets a `misc_rare` decision
+     choosing which player gains first. In all other cases (>2 or ≤1 face) going
+     first is strictly optimal — with >2 faces neither player can reset and we
+     want maximum selection; with ≤1 face either player could reset and we want
+     first pick — so the active player auto-starts with no model call.
   2. In that order, each player — using *their own* agent — goes through the reset
      check and then a `gain_food` pick of one die from the feeder. Going first
      matters when the feeder holds contested faces.

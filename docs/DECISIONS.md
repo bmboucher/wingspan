@@ -239,8 +239,10 @@ across every trigger:
   birdfeeder" (menu limited to whichever of the two named faces is showing);
 - each-player feeder gains: the Anna's / Ruby-throated Hummingbird power
   (every seat, in the chosen order, picks its own die — so the opponent
-  answers this too), and "the player(s) with the fewest forest birds gains a
-  die" (auto-skipped entirely when activating would only feed the opponent);
+  answers this too; the order pick itself is only asked when the feeder shows
+  exactly 2 distinct faces — with >2 or ≤1 faces the active player auto-starts),
+  and "the player(s) with the fewest forest birds gains a die" (auto-skipped
+  entirely when activating would only feed the opponent);
 - the pink predator reaction: when an opponent's predator hunt succeeds, the
   reacting player's pink bird pulls a die of their choice from the feeder;
 - supply picks: choosing which wild food to take from the supply, e.g. the
@@ -540,7 +542,8 @@ share this head so none starves:
   eligible neighbours in the activated row;
 - *who gains food first* (`BirdPowerPickGainOrderDecision`): the Anna's /
   Ruby-throated Hummingbird "each player gains a die, starting with the player
-  of your choice" order pick.
+  of your choice" order pick — only presented when the birdfeeder shows exactly
+  2 distinct faces; the active player auto-starts otherwise.
 
 **What the choice rows carry.** Three disjoint shapes:
 

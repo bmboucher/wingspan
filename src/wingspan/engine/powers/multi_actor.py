@@ -50,6 +50,14 @@ def _h_each_player_gains_die_choose_order(
             engine.log(f"  {bird.name}: [{player.name}] skipped activation")
             return
 
+    # Going first is strictly best unless the feeder shows exactly two faces.
+    # With >2 faces neither seat can reset, so maximize our own selection by
+    # going first; with <=1 face either seat could reset, so grab first pick.
+    # Only the exactly-two-faces case is a genuine situational tradeoff worth
+    # asking the model: going first guarantees one visible face, going second
+    # leaves the reset available to us. Offering a single candidate in the other
+    # cases lets Engine.ask auto-resolve it (no model call, no recorded step).
+    starters = st.players if st.birdfeeder.distinct_faces() == 2 else [player]
     start_ch = engine.ask(
         agent,
         decisions.BirdPowerPickGainOrderDecision(
@@ -59,7 +67,7 @@ def _h_each_player_gains_die_choose_order(
                 decisions.PlayerIdChoice(
                     label=f"{candidate.name} (P{candidate.id})", player_id=candidate.id
                 )
-                for candidate in st.players
+                for candidate in starters
             ],
         ),
     )
