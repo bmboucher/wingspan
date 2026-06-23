@@ -215,11 +215,16 @@ def record_setup_decision(
             capture.kept_bonus_name = choice.bonus_card.name
         if choice.kept_foods:
             capture.combined_food_labels = [food.value for food in choice.kept_foods]
+        names = ", ".join(bird.name for bird in choice.kept_cards) or "no birds"
+        keep_text = f"Keeps {names}"
         if annotation is not None:
             item = build_decision_item(engine, decision, choice, annotation)
-            names = ", ".join(bird.name for bird in choice.kept_cards) or "no birds"
-            item.text = f"Keeps {names}"
-            capture.keep_item = item
+            item.text = keep_text
+        else:
+            item = game_log_html.LogItem(
+                kind="forced", player_id=decision.player_id, text=keep_text, forced=True
+            )
+        capture.keep_item = item
         return
 
     # FoodChoice under SpendFoodDecision: player discards one food token.
@@ -228,10 +233,18 @@ def record_setup_decision(
     ):
         food_value = choice.food.value
         capture.food_spent.append(food_value)
+        spend_text = f"Discards {food_value}"
         if annotation is not None:
             item = build_decision_item(engine, decision, choice, annotation)
-            item.text = f"Discards {food_value}"
-            capture.food_items.append(item)
+            item.text = spend_text
+        else:
+            item = game_log_html.LogItem(
+                kind="forced",
+                player_id=decision.player_id,
+                text=spend_text,
+                forced=True,
+            )
+        capture.food_items.append(item)
         return
 
     # FoodChoice under GainFoodDecision: player gains one food token.
@@ -240,18 +253,31 @@ def record_setup_decision(
     ):
         food_value = choice.food.value
         capture.food_gained.append(food_value)
+        gain_text = f"Gains {food_value}"
         if annotation is not None:
             item = build_decision_item(engine, decision, choice, annotation)
-            item.text = f"Gains {food_value}"
-            capture.food_items.append(item)
+            item.text = gain_text
+        else:
+            item = game_log_html.LogItem(
+                kind="forced", player_id=decision.player_id, text=gain_text, forced=True
+            )
+        capture.food_items.append(item)
         return
 
     # BonusCardChoice: deferred-bonus path; player picks which bonus to keep.
     if isinstance(choice, decisions.BonusCardChoice):
         capture.kept_bonus_name = choice.bonus_card.name
+        bonus_text = capture.kept_bonus_name or "Bonus card"
         if annotation is not None:
             item = build_decision_item(engine, decision, choice, annotation)
-            capture.bonus_item = item
+        else:
+            item = game_log_html.LogItem(
+                kind="forced",
+                player_id=decision.player_id,
+                text=bonus_text,
+                forced=True,
+            )
+        capture.bonus_item = item
         return
 
 
