@@ -3,9 +3,8 @@
 """Setup-model helpers for ``TrainingLoop``.
 
 Free functions whose first argument is a ``TrainingLoop`` instance manage the
-separate setup-model lifecycle: phase determination, offline fit, on-policy
-update, net construction, embedder sync, resume, architecture match, store
-reset, and checkpoint save.
+separate setup-model lifecycle: actor-critic update, net construction, embedder
+sync, resume, architecture match, and checkpoint save.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from wingspan.training import (
 from wingspan.training import config as training_config
 from wingspan.training import (
     loop_checkpoint,
-    loop_metrics,
     metrics,
     runstate,
     setup_learner,
@@ -35,122 +33,34 @@ if typing.TYPE_CHECKING:
     from wingspan.training import loop
 
 
-def setup_phase_for(
-    training_loop: "loop.TrainingLoop", iteration: int
-) -> collect.SetupPhase:
-    """The setup regime for a (lifetime) iteration.
+def update_setup(
+    training_loop: "loop.TrainingLoop",
+    records: list[collect.GameRecord],
+) -> metrics.SetupUpdateStats:
+    """Run one actor-critic pass over this iteration's setup samples.
 
-    Random + unrecorded below ``setup_record_start_iter``, random + recorded
-    up to ``setup_train_iter``, then model-driven.  A pure function of the
-    iteration + thresholds, so it recomputes correctly on resume.
-    """
-    if iteration < training_loop.config.training.setup.record_start_iter:
-        return collect.SetupPhase.RANDOM_NO_RECORD
-    if iteration < training_loop.config.training.setup.train_iter:
-        return collect.SetupPhase.RANDOM_RECORD
-    return collect.SetupPhase.MODEL_DRIVEN
-
-
-def run_offline_setup_fit(training_loop: "loop.TrainingLoop") -> None:
-    """The one-time offline fit at ``setup_train_iter``.
-
-    Regresses the setup net onto every recorded sample, then marks the fit
-    done so a resume past the threshold never refits.  A no-op (still marked
-    done) if nothing was recorded.
+    Returns a :class:`~metrics.SetupUpdateStats` with the loss and margin stats
+    for the dashboard. Returns an empty stats object when there are no samples.
     """
     assert training_loop._setup_net is not None
     assert training_loop._setup_optimizer is not None
-    assert training_loop._setup_store is not None
-    count = training_loop._setup_store.count()
-    if count == 0:
-        training_loop._setup_fit_done = True
-        with training_loop.lock:
-            training_loop.state.push_event(
-                runstate.EventKind.ALARM,
-                "SETUP offline fit skipped — no recorded samples",
-            )
-        return
-    with training_loop.lock:
-        training_loop.state.push_event(
-            runstate.EventKind.INFO,
-            f"SETUP offline fit starting · {count:,} rows",
-        )
-    stats = setup_learner.offline_fit(
+    samples = [sample for record in records for sample in record.setup_samples]
+    stats = setup_learner.actor_critic_update(
         training_loop._setup_net,
         training_loop._setup_optimizer,
-        training_loop._setup_store,
+        samples,
         training_loop.config,
         training_loop.device,
     )
-    training_loop._setup_fit_done = True
     with training_loop.lock:
+        training_loop.state.push_event(
+            runstate.EventKind.INFO,
+            f"SETUP AC {stats.loss:.4f} · pred "
+            f"{stats.pred_margin_mean:+.1f} vs real "
+            f"{stats.realized_margin_mean:+.1f} ({stats.n_samples} samples)",
+        )
         training_loop.state.last_setup = stats
         training_loop.state.record_setup_trained(stats.n_samples)
-        training_loop.state.push_event(
-            runstate.EventKind.BEST,
-            f"SETUP fit {stats.n_samples:,} rows · MSE {stats.loss:.4f} · "
-            f"pred {stats.pred_margin_mean:+.1f} vs real "
-            f"{stats.realized_margin_mean:+.1f}",
-        )
-
-
-def update_setup(
-    training_loop: "loop.TrainingLoop",
-    setup_phase: collect.SetupPhase,
-    records: list[collect.GameRecord],
-) -> metrics.SetupUpdateStats | None:
-    """Fold this iteration's setup samples into the store (record phase) or run
-    one on-policy MSE step on them (model-driven phase).
-
-    Returns ``None`` in the unrecorded random phase.
-    """
-    assert training_loop._setup_store is not None
-    samples = [sample for record in records for sample in record.setup_samples]
-    if setup_phase is collect.SetupPhase.RANDOM_RECORD:
-        training_loop._setup_store.append(samples)
-        stats = metrics.SetupUpdateStats(
-            loss=0.0,
-            pred_margin_mean=0.0,
-            realized_margin_mean=loop_metrics.mean_setup_margin(samples),
-            n_samples=len(samples),
-            n_epochs=0,
-        )
-    elif setup_phase is collect.SetupPhase.MODEL_DRIVEN:
-        assert training_loop._setup_net is not None
-        assert training_loop._setup_optimizer is not None
-        # Route to the actor-critic update when the policy head is enabled,
-        # otherwise use the plain MSE regression on the value head.
-        if training_loop.config.architecture.setup.use_actor_critic:
-            stats = setup_learner.actor_critic_update(
-                training_loop._setup_net,
-                training_loop._setup_optimizer,
-                samples,
-                training_loop.config,
-                training_loop.device,
-            )
-            label = "SETUP AC"
-        else:
-            stats = setup_learner.online_update(
-                training_loop._setup_net,
-                training_loop._setup_optimizer,
-                samples,
-                training_loop.config,
-                training_loop.device,
-            )
-            label = "SETUP MSE"
-        with training_loop.lock:
-            training_loop.state.push_event(
-                runstate.EventKind.INFO,
-                f"{label} {stats.loss:.4f} · pred "
-                f"{stats.pred_margin_mean:+.1f} vs real "
-                f"{stats.realized_margin_mean:+.1f} ({stats.n_samples} samples)",
-            )
-    else:
-        return None
-    with training_loop.lock:
-        training_loop.state.last_setup = stats
-        if setup_phase is collect.SetupPhase.MODEL_DRIVEN:
-            training_loop.state.record_setup_trained(stats.n_samples)
     return stats
 
 
@@ -248,11 +158,9 @@ def maybe_resume_setup(training_loop: "loop.TrainingLoop") -> None:
         return
     for group in training_loop._setup_optimizer.param_groups:
         group["lr"] = training_loop.config.training.setup.lr
-    training_loop._setup_fit_done = bool(payload.get("setup_fit_done", False))
     training_loop.state.push_event(
         runstate.EventKind.INFO,
-        f"resumed {artifacts.SETUP_CKPT} · offline-fit "
-        f"{'done' if training_loop._setup_fit_done else 'pending'}",
+        f"resumed {artifacts.SETUP_CKPT}",
     )
 
 
@@ -296,15 +204,8 @@ def setup_architecture_matches(
     return saved.setup_architecture_key == training_loop.config.setup_architecture_key
 
 
-def reset_setup_store(training_loop: "loop.TrainingLoop") -> None:
-    """Truncate the recorded setup samples.
-
-    Called whenever the setup net starts fresh against an existing history,
-    whose rows' feature layout can no longer be trusted to match what the net
-    consumes.
-    """
-    if training_loop._setup_store is not None:
-        training_loop._setup_store.clear()
+def reset_setup_store(_training_loop: "loop.TrainingLoop") -> None:
+    """No-op: the offline JSONL store was removed; kept as a call-site stub."""
 
 
 def save_setup_checkpoint(training_loop: "loop.TrainingLoop") -> None:
@@ -320,7 +221,6 @@ def save_setup_checkpoint(training_loop: "loop.TrainingLoop") -> None:
         "setup_encoding": training_loop.config.setup_encoding.model_dump(),
         "setup_model": training_loop._setup_net.state_dict(),
         "setup_optimizer": training_loop._setup_optimizer.state_dict(),
-        "setup_fit_done": training_loop._setup_fit_done,
         "git_sha": loop_checkpoint.git_sha(),
         # The run's era, matching every other artifact the run writes.
         "version": training_loop.config.encoding_version,

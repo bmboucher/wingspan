@@ -79,18 +79,15 @@ def marker_columns(
 def setup_transition_iterations(
     history: list[metrics.IterationMetrics],
 ) -> list[int]:
-    """Iterations where the setup model first entered RANDOM_RECORD (recording
-    turned on) or MODEL_DRIVEN (training started). Returns at most two values
-    in iteration order; returns an empty list when the setup model was never
+    """Iterations where the setup model first entered MODEL_DRIVEN training.
+
+    Returns a list of at most one element (the first iteration where
+    ``setup_phase == "MODEL_DRIVEN"``); empty when the setup model was never
     enabled."""
-    transitions: list[int] = []
-    seen: set[str] = set()
     for item in history:
-        phase = item.setup_phase
-        if phase in ("RANDOM_RECORD", "MODEL_DRIVEN") and phase not in seen:
-            transitions.append(item.iteration)
-            seen.add(phase)
-    return transitions
+        if item.setup_phase == "MODEL_DRIVEN":
+            return [item.iteration]
+    return []
 
 
 def winrate_ewma_points(

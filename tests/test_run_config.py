@@ -43,8 +43,6 @@ def test_flat_fields_group_into_their_sections():
         "trunk_layers": (32, 32),
         "card_embed_dim": 8,
         "setup_lr": 5e-4,
-        "setup_record_start_iter": 100,
-        "setup_train_iter": 200,
         "bootstrap_opponent": "random",
         "eval_ewma_alpha": 0.4,
     }
@@ -57,8 +55,6 @@ def test_flat_fields_group_into_their_sections():
     assert cfg.architecture.main.trunk_layers == (32, 32)
     assert cfg.architecture.main.card_embed_dim == 8
     assert cfg.training.setup.lr == 5e-4
-    assert cfg.training.setup.record_start_iter == 100
-    assert cfg.training.setup.train_iter == 200
     assert cfg.opponent.bootstrap_opponent == "random"
     assert cfg.opponent.eval_ewma_alpha == 0.4
 
@@ -192,19 +188,6 @@ def test_validate_launchable_random_bootstrap_on_cuda_ok():
             opponent=config.OpponentConfig(bootstrap_opponent=bootstrap),
         )
         assert config.validate_launchable(cfg) == []
-
-
-def test_validate_launchable_setup_schedule_bad_order_flagged():
-    """train_iter ≤ record_start_iter is flagged."""
-    cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
-        architecture=config.ArchitectureConfig(use_setup_model=True),
-        training=config.TrainingConfig(
-            setup=config.SetupTrainingConfig(train_iter=100, record_start_iter=200)
-        ),
-    )
-    problems = config.validate_launchable(cfg)
-    assert any("record_start_iter" in problem for problem in problems)
 
 
 def test_validate_launchable_target_exceeds_max_flagged():

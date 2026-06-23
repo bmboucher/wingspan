@@ -106,7 +106,14 @@ def test_eval_matches_sequential_vs_random(tmp_path: pathlib.Path) -> None:
     cfg = _small_config(tmp_path)
     net = _small_net(cfg)
     sequential = evaluate.evaluate_vs_opponent(
-        net, None, torch.device("cpu"), n_pairs=4, seed=123, opponent_generation=0
+        net,
+        None,
+        torch.device("cpu"),
+        n_pairs=4,
+        seed=123,
+        opponent_generation=0,
+        split_setup_bonus=cfg.split_setup_bonus_active,
+        split_setup_food=cfg.split_setup_food_active,
     )
     collector = mp_collect.ProcessCollector(cfg, num_workers=2)
     try:
@@ -129,7 +136,14 @@ def test_eval_matches_sequential_vs_frozen_opponent(tmp_path: pathlib.Path) -> N
     net = _small_net(cfg)
     opponent = _small_net(cfg)
     sequential = evaluate.evaluate_vs_opponent(
-        net, opponent, torch.device("cpu"), n_pairs=4, seed=7, opponent_generation=1
+        net,
+        opponent,
+        torch.device("cpu"),
+        n_pairs=4,
+        seed=7,
+        opponent_generation=1,
+        split_setup_bonus=cfg.split_setup_bonus_active,
+        split_setup_food=cfg.split_setup_food_active,
     )
     collector = mp_collect.ProcessCollector(cfg, num_workers=2)
     try:

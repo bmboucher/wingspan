@@ -158,10 +158,6 @@ def reset_history_logs_if_fresh(training_loop: "loop.TrainingLoop") -> None:
         stale_session.unlink(missing_ok=True)
     for stale_session in training_loop._ckpt_dir.glob(artifacts.PROCESS_GLOB):
         stale_session.unlink(missing_ok=True)
-    # The setup-sample log is append-only history too — clear it on a fresh
-    # run so a new run's offline fit never reads a prior run's samples.
-    if training_loop._setup_store is not None:
-        training_loop._setup_store.clear()
 
 
 def write_run_metadata(training_loop: "loop.TrainingLoop") -> None:

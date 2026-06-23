@@ -1,28 +1,20 @@
-"""The setup model's training updates: offline fit + on-policy MSE or actor-critic.
+"""The setup model's actor-critic training update.
 
-Three update functions are exposed:
+:func:`actor_critic_update` runs one on-policy REINFORCE + value-MSE + entropy
+pass over a single iteration's freshly collected samples. Each sample carries
+``chosen_idx`` and ``all_candidates`` so the learner can compute a REINFORCE
+gradient. Computes:
 
-* :func:`offline_fit` — the one-time pass at ``setup_train_iter`` over every
-  recorded ``(features, margin)`` sample from the record window (``setup_offline_epochs``
-  epochs, shuffled minibatches). Always targets the **value head** via MSE,
-  regardless of actor-critic mode. Warm-starts the net from the random-setup data.
-* :func:`online_update` — one MSE epoch over a single iteration's freshly
-  collected samples, used in the non-actor-critic MODEL_DRIVEN phase.
-* :func:`actor_critic_update` — one on-policy REINFORCE + value-MSE + entropy
-  pass over a single iteration's freshly collected samples. Requires that each
-  sample carries ``chosen_idx`` and ``all_candidates`` (populated when
-  ``setup_use_actor_critic=True``). Computes:
+.. code-block:: text
 
-  .. code-block:: text
+    loss = pg_coef * (−log_softmax(policy_logits)[chosen_idx] * advantage)
+         + value_coef * MSE(value_pred[chosen_idx], margin/score_norm)
+         − entropy_coef * H(softmax(policy_logits))
 
-      loss = pg_coef * (−log_softmax(policy_logits)[chosen_idx] * advantage)
-           + value_coef * MSE(value_pred[chosen_idx], margin/score_norm)
-           − entropy_coef * H(softmax(policy_logits))
+where ``advantage = margin/score_norm − value_pred[chosen_idx].detach()``.
 
-  where ``advantage = margin/score_norm − value_pred[chosen_idx].detach()``.
-
-All three return a :class:`SetupUpdateStats` whose margin readouts are in points
-so the dashboard can compare predicted against realized margin directly.
+Returns a :class:`SetupUpdateStats` whose margin readouts are in points so the
+dashboard can compare predicted against realized margin directly.
 """
 
 from __future__ import annotations
@@ -34,51 +26,6 @@ from torch import optim
 
 from wingspan.setup_model import record
 from wingspan.training import config, metrics, setup_net
-
-# Cap on the rows forwarded once at the end of a fit purely to report a mean
-# predicted margin — keeps the summary forward bounded when the offline window
-# holds hundreds of thousands of samples.
-_SUMMARY_SAMPLE_CAP = 4096
-
-
-def offline_fit(
-    net: setup_net.SetupNet,
-    optimizer: optim.Optimizer,
-    store: record.SetupDataStore,
-    cfg: config.RunConfig,
-    device: torch.device,
-) -> metrics.SetupUpdateStats:
-    """Fit the setup net to every recorded sample (the one-time pass at
-    ``setup_train_iter``). Materializes the whole window in memory — a one-time
-    cost; the window can be shortened via ``setup_record_start_iter`` if it grows
-    too large."""
-    features, margins = _materialize(store, net)
-    if features.shape[0] == 0:
-        return _empty_stats()
-    return _fit(
-        net,
-        optimizer,
-        features,
-        margins,
-        cfg,
-        device,
-        epochs=cfg.training.setup.offline_epochs,
-    )
-
-
-def online_update(
-    net: setup_net.SetupNet,
-    optimizer: optim.Optimizer,
-    samples: list[record.SetupSample],
-    cfg: config.RunConfig,
-    device: torch.device,
-) -> metrics.SetupUpdateStats:
-    """One MSE epoch over this iteration's freshly collected setup samples."""
-    if not samples:
-        return _empty_stats()
-    features = np.stack([sample.features.astype(np.float32) for sample in samples])
-    margins = np.array([sample.margin for sample in samples], dtype=np.float32)
-    return _fit(net, optimizer, features, margins, cfg, device, epochs=1)
 
 
 def actor_critic_update(
@@ -160,86 +107,6 @@ def actor_critic_update(
 
 
 ###### PRIVATE #######
-
-
-def _materialize(
-    store: record.SetupDataStore, net: setup_net.SetupNet
-) -> tuple[np.ndarray, np.ndarray]:
-    """Load every stored sample into a ``(N, feature_dim)`` feature matrix and an
-    ``(N,)`` margin vector."""
-    feature_dim = net.encoding.total_dim
-    feats: list[np.ndarray] = []
-    margins: list[float] = []
-    for sample in store.iter_samples(expected_dim=feature_dim):
-        feats.append(sample.features.astype(np.float32))
-        margins.append(sample.margin)
-    if not feats:
-        empty = np.zeros((0, feature_dim), dtype=np.float32)
-        return empty, np.zeros((0,), dtype=np.float32)
-    return np.stack(feats), np.array(margins, dtype=np.float32)
-
-
-def _fit(
-    net: setup_net.SetupNet,
-    optimizer: optim.Optimizer,
-    features: np.ndarray,
-    margins: np.ndarray,
-    cfg: config.RunConfig,
-    device: torch.device,
-    *,
-    epochs: int,
-) -> metrics.SetupUpdateStats:
-    """Run ``epochs`` shuffled-minibatch MSE passes of ``net(features)`` against
-    ``margins / score_norm`` and return the averaged stats."""
-    n_samples = features.shape[0]
-    targets = margins / cfg.training.score_norm
-    generator = np.random.default_rng(cfg.misc.seed)
-    batch_size = cfg.training.setup.offline_batch_size
-
-    net.train()
-    total_loss = 0.0
-    n_batches = 0
-    for _ in range(epochs):
-        order = generator.permutation(n_samples)
-        for start in range(0, n_samples, batch_size):
-            idx = order[start : start + batch_size]
-            feats_t = torch.tensor(features[idx], dtype=torch.float32, device=device)
-            target_t = torch.tensor(targets[idx], dtype=torch.float32, device=device)
-            pred = net(feats_t)
-            loss = F.mse_loss(pred, target_t)
-            optimizer.zero_grad()
-            loss.backward()  # pyright: ignore[reportUnknownMemberType]
-            torch.nn.utils.clip_grad_norm_(
-                net.parameters(), max_norm=cfg.training.grad_clip
-            )
-            optimizer.step()
-            total_loss += float(loss.detach())
-            n_batches += 1
-    net.eval()
-
-    pred_margin_mean = _mean_predicted_margin(net, features, cfg, device)
-    return metrics.SetupUpdateStats(
-        loss=total_loss / max(n_batches, 1),
-        pred_margin_mean=pred_margin_mean,
-        realized_margin_mean=float(margins.mean()),
-        n_samples=n_samples,
-        n_epochs=epochs,
-    )
-
-
-def _mean_predicted_margin(
-    net: setup_net.SetupNet,
-    features: np.ndarray,
-    cfg: config.RunConfig,
-    device: torch.device,
-) -> float:
-    """Mean predicted margin (in points) over a capped subsample of ``features``,
-    for the dashboard's predicted-vs-realized readout."""
-    sample = features[:_SUMMARY_SAMPLE_CAP]
-    with torch.no_grad():
-        feats_t = torch.tensor(sample, dtype=torch.float32, device=device)
-        pred = net(feats_t).cpu().numpy()
-    return float(pred.mean()) * cfg.training.score_norm
 
 
 def _ac_group_loss(

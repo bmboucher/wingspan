@@ -45,11 +45,8 @@ GAMES_SUBDIR = "games"  # immutable per-game-log chunks, grouped by session
 
 # Setup-model artifacts (only written when ``RunConfig.architecture.use_setup_model``):
 # the setup net's resumable checkpoint, its weight-compatibility descriptor, and the
-# append-only log of (setup features, realized margin) samples the one-time
-# offline fit reads back. They sit beside the main-net artifacts above.
-SETUP_CKPT = "setup.pt"  # setup net + optimizer + offline-fit-done flag
+SETUP_CKPT = "setup.pt"  # setup net + optimizer state
 SETUP_CONFIG_JSON = "setup_config.json"  # setup-net shape descriptor (legacy ≤0.4)
-SETUP_DATA_LOG = "setup_data.jsonl"  # one (features, margin) sample per line
 
 # The subfolder under ``checkpoint_dir`` where a finished run's artifacts are
 # moved when the configurator archives it before a fresh run.

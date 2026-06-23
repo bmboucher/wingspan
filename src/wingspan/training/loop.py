@@ -32,10 +32,8 @@ import typing
 import torch
 from torch import optim
 
-from wingspan import model, setup_model
+from wingspan import model
 from wingspan.training import (
-    artifacts,
-    collect,
     config,
     learner,
     loop_checkpoint,
@@ -110,21 +108,11 @@ class TrainingLoop:
         # Process-parallel CPU collector, created on first collect and reused
         # across iterations (None until then, and unused on non-CPU devices).
         self._collector: mp_collect.ProcessCollector | None = None
-        # Setup model: a separate value-regression net trained on a different
-        # schedule (built only when enabled). Its optimizer, on-disk sample store,
-        # and one-time-offline-fit flag live alongside the main net's.
+        # Setup model: a separate net trained actor-critic alongside the main net.
         self._setup_net: setup_net.SetupNet | None = None
         self._setup_optimizer: optim.Optimizer | None = None
-        self._setup_store: setup_model.SetupDataStore | None = None
-        # Pre-mark the offline fit done when there is no warmup schedule
-        # (setup_train_iter == 0 means MODEL_DRIVEN from iteration 0 — no
-        # offline fit window was ever recorded, so the one-time fit is skipped).
-        self._setup_fit_done = cfg.training.setup.train_iter == 0
         if cfg.architecture.use_setup_model:
             self._setup_net, self._setup_optimizer = loop_setup.build_setup_net(self)
-            self._setup_store = setup_model.SetupDataStore(
-                self._ckpt_dir / artifacts.SETUP_DATA_LOG
-            )
         # Iteration the loop starts numbering from (advanced past a resumed
         # checkpoint). Set last so resume can mutate net / optimizer / state.
         self._start_iteration = 0
@@ -259,22 +247,10 @@ class TrainingLoop:
             self.state.game_in_iter = 0
             self.state.iter_start_monotonic = time.monotonic()
 
-        # Setup-model schedule: which regime this iteration runs under (None when
-        # the feature is off). The one-time offline fit happens before this
-        # iteration's collection so the net is trained before it drives selection.
-        setup_phase = (
-            loop_setup.setup_phase_for(self, iteration)
-            if self.config.architecture.use_setup_model
-            else None
-        )
-        if setup_phase is not None:
+        setup_enabled = self.config.architecture.use_setup_model
+        if setup_enabled:
             with self.lock:
-                self.state.setup_phase = setup_phase.name
-            if (
-                setup_phase is collect.SetupPhase.MODEL_DRIVEN
-                and not self._setup_fit_done
-            ):
-                loop_setup.run_offline_setup_fit(self)
+                self.state.setup_phase = "MODEL_DRIVEN"
 
         # DAgger clone phase: pure imitation for the first clone_iters iterations.
         # Clone always targets the bootstrap opponent checkpoint — dagger_expert_checkpoint
@@ -286,7 +262,7 @@ class TrainingLoop:
 
         collect_start = time.monotonic()
         records = loop_collect.collect_games(
-            self, iteration, setup_phase, dagger_active=imitation_phase
+            self, iteration, setup_enabled, dagger_active=imitation_phase
         )
         collect_seconds = time.monotonic() - collect_start
         if not records:
@@ -324,13 +300,7 @@ class TrainingLoop:
         # and the worker weights always carry this iteration's representations.
         loop_setup.sync_setup_embedders(self)
 
-        # Setup-model update: record this iteration's samples (random-record
-        # phase) or run one on-policy MSE step (model-driven phase).
-        setup_stats = (
-            loop_setup.update_setup(self, setup_phase, records)
-            if setup_phase is not None
-            else None
-        )
+        setup_stats = loop_setup.update_setup(self, records) if setup_enabled else None
 
         eval_result, eval_seconds = loop_eval.maybe_evaluate(self, iteration)
 
@@ -351,7 +321,7 @@ class TrainingLoop:
             update_seconds,
             eval_seconds,
             win_rate,
-            setup_phase,
+            setup_enabled,
             setup_stats,
             imitation_phase=imitation_phase,
         )

@@ -21,8 +21,8 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   `OptionalPathField`, `BootstrapField`.
 - `FIELD_SPECS: list[FieldSpec]` — ordered list of all editable fields shown
   in the configurator. Locked-in fields (`use_distinct_hand_model`,
-  `tray_set_embedding`, `setup_use_actor_critic`, offline-fit fields,
-  `dagger_expert_checkpoint`) are absent; per-block activation/dropout/layernorm
+  `tray_set_embedding`, `dagger_expert_checkpoint`) are absent; per-block
+  activation/dropout/layernorm
   overrides (14 fields) and `reward_basis` are present.
 - Five top-level sections: `RUN SETTINGS`, `COLLECTION`, `EVALUATION`,
   `TRAINING`, `MODEL ARCHITECTURE`. CLONING visible when bootstrap_opponent is a

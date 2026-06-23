@@ -29,7 +29,7 @@ top-level computed properties so call sites don't churn.
   `reward_discount` (REGIME), PPO/GAE knobs (all REGIME): `policy_loss`
   (`"reinforce"` | `"ppo"`), `ppo_clip_eps` (0.2), `ppo_reuse_epochs` (4),
   `gae_lambda` (0.95), and `setup: SetupTrainingConfig` (setup-net `lr`,
-  schedule `record_start_iter` / `train_iter`, offline-fit + actor-critic knobs).
+  candidate-generation `hand_combos`/`food_sets`, actor-critic loss weights).
 - `opponent: OpponentConfig` — `bootstrap_opponent` (`"none"` | `"random"` |
   ckpt path; a path is CPU-only), `random_phase_win_rate`,
   `opponent_reset_win_rate`, `opponent_max_iterations`, `eval_ewma_alpha`.
@@ -211,12 +211,12 @@ dispatches to one of two paths based on `cfg.training.policy_loss` and
   `decision_delta`, `_decision_delta_returns` discounts per-decision
   `margin_before` deltas by γ^Δt into each step's return.
 
-**`setup_net.py`** — `SetupNet(arch: SetupArchitecture, input_dim)`: the setup
-model's MLP value-regressor. Single scalar output (predicted final score).
+**`setup_net.py`** — `SetupNet(arch: SetupArchitecture, ...)`: the setup
+model's MLP. Always actor-critic: value head predicts score margin; policy head
+outputs per-candidate logits for REINFORCE selection.
 
-**`setup_learner.py`** — `SetupLearner(net, optimizer)`:
-`offline_fit(store, epochs)` and `online_update(samples)` (MSE on recent
-on-policy samples).
+**`setup_learner.py`** — `actor_critic_update(net, optimizer, samples, config, device)`:
+one REINFORCE + value-regression step over this iteration's `SetupSample` list.
 
 ## Evaluation + metrics
 

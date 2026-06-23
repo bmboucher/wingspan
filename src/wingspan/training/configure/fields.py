@@ -505,13 +505,8 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "setup_lr": ("training", "setup", "lr"),
     "setup_policy_temperature": ("training", "setup", "policy_temperature"),
     "setup_policy_greedy": ("training", "setup", "policy_greedy"),
-    "setup_record_start_iter": ("training", "setup", "record_start_iter"),
-    "setup_train_iter": ("training", "setup", "train_iter"),
     "setup_hand_combos": ("training", "setup", "hand_combos"),
     "setup_food_sets": ("training", "setup", "food_sets"),
-    "setup_tuples_per_batch": ("training", "setup", "tuples_per_batch"),
-    "setup_offline_epochs": ("training", "setup", "offline_epochs"),
-    "setup_offline_batch_size": ("training", "setup", "offline_batch_size"),
     "setup_pg_coef": ("training", "setup", "pg_coef"),
     "setup_value_coef": ("training", "setup", "value_coef"),
     "setup_entropy_coef": ("training", "setup", "entropy_coef"),
@@ -581,27 +576,38 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "setup_hidden_layers": ("architecture", "setup", "hidden_layers"),
     "setup_activation": ("architecture", "setup", "activation"),
     "setup_dropout": ("architecture", "setup", "dropout"),
-    "setup_use_actor_critic": ("architecture", "setup", "use_actor_critic"),
     # dagger section
     "dagger_expert_checkpoint": ("dagger", "expert_checkpoint"),
     "clone_iters": ("dagger", "clone_iters"),
 }
 
 
+# Attrs whose UI value is the logical inverse of the stored config field.
+# "includes bonus" = True in the UI means split_setup_bonus = False in config
+# (i.e. the setup net handles bonus — not deferred to the in-game head).
+_INVERTED_ATTRS: frozenset[str] = frozenset({"split_setup_bonus", "split_setup_food"})
+
+
 def _read_nested(cfg: config.RunConfig, attr: str) -> object:
     """Read the value of ``attr`` from ``cfg`` by navigating the nested path in
-    ``_ATTR_PATH``. Raises ``KeyError`` for unknown attrs (a programming error)."""
+    ``_ATTR_PATH``. Raises ``KeyError`` for unknown attrs (a programming error).
+    Inverted attrs (see ``_INVERTED_ATTRS``) are negated before returning."""
     path = _ATTR_PATH[attr]
     obj: object = cfg
     for key in path:
         obj = getattr(obj, key)
+    if attr in _INVERTED_ATTRS:
+        return not obj
     return obj
 
 
 def _inject_nested(data: dict[str, object], attr: str, value: object) -> None:
     """Write ``value`` into the nested ``data`` dict at the location described by
     ``_ATTR_PATH[attr]``. ``data`` is the result of ``RunConfig.model_dump()``
-    and is mutated in place."""
+    and is mutated in place. Inverted attrs (see ``_INVERTED_ATTRS``) are
+    negated before writing."""
+    if attr in _INVERTED_ATTRS:
+        value = not value
     path = _ATTR_PATH[attr]
     node: dict[str, object] = data  # type: ignore[assignment]
     for key in path[:-1]:
@@ -768,18 +774,6 @@ FIELD_SPECS: list[FieldSpec] = [
         ),
         help="Random generator: food keeps sampled per kept hand (softmax-biased "
         "toward food that pays for more hand/tray birds).",
-    ),
-    IntField(
-        attr="setup_tuples_per_batch",
-        label="tuples / batch",
-        group_path=("COLLECTION", "BOOTSTRAP", "RANDOM SETUP"),
-        step=1,
-        visible_when=lambda cfg: (
-            cfg.opponent.bootstrap_opponent == "random"
-            and cfg.architecture.use_setup_model
-        ),
-        help="Random generator: joint setups sampled per batch = games sharing one "
-        "deal (should divide games/iter).",
     ),
     # -----------------------------------------------------------------------
     # EVALUATION
@@ -1443,29 +1437,7 @@ FIELD_SPECS: list[FieldSpec] = [
         step=1e-4,
         scientific=True,
         visible_when=_use_setup,
-        help="Adam step size for the setup net's MSE updates (its own optimizer).",
-    ),
-    IntField(
-        attr="setup_record_start_iter",
-        label="record start @",
-        group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
-        unit="iters",
-        step=100,
-        impact=ChangeImpact.REGIME,
-        visible_when=_use_setup,
-        help="Iteration at which to start recording (setup, margin) samples — "
-        "below it setups are random and unrecorded (skips early bad data).",
-    ),
-    IntField(
-        attr="setup_train_iter",
-        label="train @",
-        group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
-        unit="iters",
-        step=100,
-        impact=ChangeImpact.REGIME,
-        visible_when=_use_setup,
-        help="Iteration at which the setup net switches to on-policy training. "
-        "Must exceed record start.",
+        help="Adam step size for the setup net's actor-critic updates (its own optimizer).",
     ),
     FloatField(
         attr="setup_pg_coef",

@@ -25,7 +25,6 @@ pass. Which one the training loop uses is decided per device in
 
 from __future__ import annotations
 
-import enum
 import functools
 import random
 import typing
@@ -51,10 +50,6 @@ _SETUP_RNG_SALT = 0xC2B2AE35
 # main-net sampling stream so a game's dice/draw rerolls and its policy sampling
 # draw from independent sequences off the same continuation seed.
 _CONTINUATION_SALT = 0x27D4EB2F
-# Offset that separates a batch's shared deal seed from the per-game seeds within
-# the same iteration (game seeds occupy ``base + [0, games_per_iter)``; batch deal
-# seeds occupy ``base + OFFSET + [0, n_batches)`` — disjoint, same iteration stride).
-_BATCH_SEED_OFFSET = 5000
 
 
 class GameRecord(pydantic.BaseModel):
@@ -86,75 +81,34 @@ class GameRecord(pydantic.BaseModel):
         return (round(self.breakdowns[0].total), round(self.breakdowns[1].total))
 
 
-class SetupPhase(enum.IntEnum):
-    """Which setup regime a game is collected under (a pure function of the
-    lifetime iteration vs the configured thresholds; computed by the loop)."""
-
-    RANDOM_NO_RECORD = 0  # iter < record_start: random setups, not recorded
-    RANDOM_RECORD = 1  # record_start <= iter < train: random setups, recorded
-    MODEL_DRIVEN = 2  # iter >= train: the setup net chooses + records on-policy
-
-    @property
-    def records(self) -> bool:
-        """Whether games in this phase contribute setup-model training samples."""
-        return self is not SetupPhase.RANDOM_NO_RECORD
-
-
 class SetupGameSpec(pydantic.BaseModel):
     """How one game's setups are decided — the picklable per-game directive the
     loop computes and the collectors (sequential or process-parallel) act on.
 
-    ``deal_seed`` produces the deal (shared across a batch in the random phases so
-    its games compare different keeps over one deal); ``continuation_seed`` reseeds
-    the post-setup game so those games still diverge. ``tuple_index`` picks this
-    game's joint setup out of the batch's generated set (random phases only)."""
+    ``deal_seed`` produces the deal; ``continuation_seed`` reseeds the post-setup
+    game so the deal and continuation are independently reproducible."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    phase: SetupPhase
     deal_seed: int
     continuation_seed: int
-    tuple_index: int
     iteration: int
 
 
-def build_setup_specs(
-    cfg: config.RunConfig, iteration: int, phase: SetupPhase
-) -> list[SetupGameSpec]:
+def build_setup_specs(cfg: config.RunConfig, iteration: int) -> list[SetupGameSpec]:
     """One :class:`SetupGameSpec` per game this iteration.
 
-    In the random phases, games are grouped into shared-deal batches of
-    ``setup_tuples_per_batch``: the games of a batch share a deal seed (so they
-    explore that deal's keeps) but keep distinct continuation seeds. In the
-    model-driven phase each game deals independently and the setup net chooses per
-    seat, so deal and continuation seeds coincide."""
+    Each game deals independently and the setup net chooses per seat, so deal
+    and continuation seeds coincide."""
     base = cfg.misc.seed * 1_000_000 + iteration * 10_000
-    tuples_per_batch = cfg.training.setup.tuples_per_batch
-    specs: list[SetupGameSpec] = []
-    for game_idx in range(cfg.run.games_per_iter):
-        game_seed = base + game_idx
-        if phase is SetupPhase.MODEL_DRIVEN:
-            specs.append(
-                SetupGameSpec(
-                    phase=phase,
-                    deal_seed=game_seed,
-                    continuation_seed=game_seed,
-                    tuple_index=0,
-                    iteration=iteration,
-                )
-            )
-        else:
-            batch_seed = base + _BATCH_SEED_OFFSET + game_idx // tuples_per_batch
-            specs.append(
-                SetupGameSpec(
-                    phase=phase,
-                    deal_seed=batch_seed,
-                    continuation_seed=game_seed,
-                    tuple_index=game_idx % tuples_per_batch,
-                    iteration=iteration,
-                )
-            )
-    return specs
+    return [
+        SetupGameSpec(
+            deal_seed=base + game_idx,
+            continuation_seed=base + game_idx,
+            iteration=iteration,
+        )
+        for game_idx in range(cfg.run.games_per_iter)
+    ]
 
 
 def play_game(
@@ -216,30 +170,22 @@ def play_game_with_setup(
     split_setup_bonus: bool = False,
     split_setup_food: bool = False,
     setup_greedy: bool = False,
-    use_actor_critic: bool = False,
     expert_net: model.PolicyValueNet | None = None,
 ) -> GameRecord:
     """Play one game whose setups are chosen externally (the setup-model path).
 
     The in-game decisions are still recorded for the main net exactly as in
     :func:`play_game`; the setup phase is bypassed (no ``SetupDecision`` is ever
-    asked) and resolved by the random generator or the setup net per ``spec``.
-    Per net-controlled seat (seat 0 always; seat 1 too in self-play) a
-    ``SetupSample`` is recorded in the recording / model-driven phases, with its
-    realized margin filled in once the game's scores are known.
+    asked) and resolved by the setup net per ``spec``. Per net-controlled seat
+    (seat 0 always; seat 1 too in self-play) a ``SetupSample`` is recorded with
+    ``chosen_idx`` and ``all_candidates`` filled in for actor-critic training.
 
     ``split_setup_bonus`` defers each net seat's bonus pick out of the setup keep
     (its candidate carries ``bonus_card=None``) to the engine's in-game
-    ``CHOOSE_BONUS`` head; a random-opponent seat keeps its generator-chosen
-    bonus. The deferred pick is then a recorded in-game step like any other.
+    ``CHOOSE_BONUS`` head; a random-opponent seat keeps its generator-chosen bonus.
 
     ``split_setup_food`` defers each net seat's food pick to sequential in-game
-    GAIN_FOOD/SPEND_FOOD decisions after the card-keep is applied; a
-    random-opponent seat likewise has its food resolved by the engine.
-
-    ``use_actor_critic`` enables actor-critic collection: selection uses the
-    policy head's logits, and each recorded ``SetupSample`` carries ``chosen_idx``
-    and ``all_candidates`` so the learner can compute a REINFORCE gradient."""
+    GAIN_FOOD/SPEND_FOOD decisions after the card-keep is applied."""
     eng = new_engine(spec.deal_seed)
     main_rng = random.Random(spec.continuation_seed)
     recorded: list[training_steps.Step] = []
@@ -270,12 +216,10 @@ def play_game_with_setup(
         chooser_engine: engine.Engine,
         dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
     ) -> list[setup_model.SetupCandidate]:
-        # Shared context: tray / birdfeeder / round goals — no per-seat bonus
-        # cards here; those are attached per-seat inside _choose_setups and in
-        # the recording branch below.
+        # Shared context: tray / birdfeeder / round goals — per-seat bonus cards
+        # are attached inside _choose_setups and in the recording branch below.
         base_context = setup_model.SetupContext.from_state(chooser_engine.state)
         keep_results = _choose_setups(
-            spec,
             dealt,
             base_context,
             setup_enc=setup_enc,
@@ -288,24 +232,21 @@ def play_game_with_setup(
             defer_bonus=split_setup_bonus,
             defer_food=split_setup_food,
             setup_greedy=setup_greedy,
-            use_actor_critic=use_actor_critic,
         )
-        if spec.phase.records:
-            for seat in net_seats:
-                result = keep_results[seat]
-                _, seat_dealt_bonus = dealt[seat]
-                seat_context = base_context.model_copy(
-                    update={"dealt_bonus_cards": tuple(seat_dealt_bonus)}
-                )
-                chosen_features = setup_model.encode_setup_candidate(
-                    result.candidate, seat_context, setup_enc
-                )
-                pending_setups.append(
-                    (seat, chosen_features, result.chosen_idx, result.all_candidates)
-                )
-        # Shared deal, independent continuation: reseed the post-setup game (and
-        # reshuffle the undealt deck) so a batch's games — which share ``deal_seed``
-        # and thus the deal — still diverge through the rest of play.
+        for seat in net_seats:
+            result = keep_results[seat]
+            _, seat_dealt_bonus = dealt[seat]
+            seat_context = base_context.model_copy(
+                update={"dealt_bonus_cards": tuple(seat_dealt_bonus)}
+            )
+            chosen_features = setup_model.encode_setup_candidate(
+                result.candidate, seat_context, setup_enc
+            )
+            pending_setups.append(
+                (seat, chosen_features, result.chosen_idx, result.all_candidates)
+            )
+        # Reseed the post-setup game (and reshuffle the undealt deck) so deal
+        # and continuation are independently reproducible.
         chooser_engine.state.rng = random.Random(
             spec.continuation_seed ^ _CONTINUATION_SALT
         )
@@ -479,19 +420,17 @@ def _recording_agent(
 
 class _KeepResult(typing.NamedTuple):
     """The result of choosing one seat's setup: the chosen candidate plus
-    optional actor-critic data (populated only when ``use_actor_critic=True``
-    and the phase is MODEL_DRIVEN for a net-controlled seat)."""
+    actor-critic data for net-controlled seats."""
 
     candidate: setup_model.SetupCandidate
-    # Index into all_candidates that was selected; None outside actor-critic mode.
+    # Index into all_candidates that was selected; None for random-opponent seats.
     chosen_idx: int | None
-    # Full (K, feature_dim) matrix of every candidate's features; None outside
-    # actor-critic mode. Compressed to float16 by _compact before IPC.
+    # Full (K, feature_dim) matrix of every candidate's features; None for random
+    # opponent seats. Compressed to float16 by _compact before IPC.
     all_candidates: np.ndarray | None
 
 
 def _choose_setups(
-    spec: SetupGameSpec,
     dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
     context: setup_model.SetupContext,
     *,
@@ -505,44 +444,22 @@ def _choose_setups(
     defer_bonus: bool = False,
     defer_food: bool = False,
     setup_greedy: bool = False,
-    use_actor_critic: bool = False,
 ) -> list[_KeepResult]:
     """Decide both seats' setups for one game.
 
-    Random phases draw a joint setup from the generator (the batch's ``deal_seed``
-    seeds it, so a batch's games share the generated set and ``tuple_index`` picks
-    this game's); the model-driven phase scores each net seat's 504 candidates
-    with the setup net and samples (softmax over predicted margins or policy
-    logits), while any random-opponent seat keeps a food-aware random keep.
+    The setup net scores each net seat's candidates with policy-head logits
+    (actor-critic selection); any random-opponent seat draws a food-aware random
+    keep from the generator.
 
-    ``defer_bonus`` (the ``split_setup_bonus`` regime) removes the bonus from each
-    net seat's keep so the engine's in-game ``CHOOSE_BONUS`` head picks it instead:
-    the random generator still produces full 3-tuples (its tuple/games-per-batch
-    counts are unchanged) but a net seat's chosen candidate is bonus-stripped here,
-    and the model-driven path scores bonus-free candidates directly. A
-    random-opponent seat is never touched, so it keeps its generator-chosen bonus.
+    ``defer_bonus`` removes the bonus from each net seat's keep so the engine's
+    in-game ``CHOOSE_BONUS`` head picks it instead. A random-opponent seat keeps
+    its generator-chosen bonus.
 
-    ``defer_food`` (the ``split_setup_food`` regime) analogously strips food from
-    net seat candidates (``kept_foods=()``). The generator already produces food-
-    free candidates when ``split_food`` is set; the strip here covers the MODEL_DRIVEN
-    path's enumerated candidates and the RANDOM path's net-seat candidates.
+    ``defer_food`` analogously strips food from net seat candidates (``kept_foods=()``)
+    and defers their food pick to sequential in-game decisions.
 
-    When ``use_actor_critic=True`` and the phase is MODEL_DRIVEN, net-seat results
-    carry ``chosen_idx`` and ``all_candidates`` so the learner can compute a
-    REINFORCE gradient at training time."""
-    if spec.phase is not SetupPhase.MODEL_DRIVEN:
-        joint = generator.generate(setup_rng, (dealt[0], dealt[1]), context)
-        chosen = joint[spec.tuple_index % len(joint)]
-        results: list[_KeepResult] = []
-        for seat, candidate in enumerate((chosen[0], chosen[1])):
-            if seat in net_seats:
-                if defer_bonus:
-                    candidate = _strip_bonus(candidate)
-                if defer_food:
-                    candidate = _strip_food(candidate)
-            results.append(_KeepResult(candidate, None, None))
-        return results
-
+    Net-seat results always carry ``chosen_idx`` and ``all_candidates`` so the
+    learner can compute a REINFORCE gradient at training time."""
     assert setup_policy_net is not None, "model-driven setup needs a setup net"
     keeps: list[_KeepResult] = []
     for seat in (0, 1):
@@ -566,21 +483,11 @@ def _choose_setups(
                 ]
             )
 
-            # Use policy logits for selection when actor-critic is enabled,
-            # otherwise fall back to predicted value margins.
-            if use_actor_critic:
-                scores = _setup_policy_logits(setup_policy_net, device, features)
-            else:
-                scores = _setup_predict(setup_policy_net, device, features)
+            # Selection uses policy-head logits for actor-critic training.
+            scores = _setup_policy_logits(setup_policy_net, device, features)
             sample_rng = None if setup_greedy else setup_rng
             index = setup_model.select_by_margins(scores, setup_temperature, sample_rng)
-            keeps.append(
-                _KeepResult(
-                    candidates[index],
-                    index if use_actor_critic else None,
-                    features if use_actor_critic else None,
-                )
-            )
+            keeps.append(_KeepResult(candidates[index], index, features))
         else:
             keeps.append(
                 _KeepResult(
@@ -592,34 +499,6 @@ def _choose_setups(
                 )
             )
     return keeps
-
-
-def _strip_bonus(
-    candidate: setup_model.SetupCandidate,
-) -> setup_model.SetupCandidate:
-    """A copy of ``candidate`` with its bonus pick dropped (``bonus_card=None``),
-    so the engine defers it to the in-game ``CHOOSE_BONUS`` head. ``SetupCandidate``
-    is frozen, so this returns a new instance."""
-    return candidate.model_copy(update={"bonus_card": None})
-
-
-def _strip_food(
-    candidate: setup_model.SetupCandidate,
-) -> setup_model.SetupCandidate:
-    """A copy of ``candidate`` with food deferred (``kept_foods=()``), so the
-    engine resolves food via in-game GAIN_FOOD/SPEND_FOOD decisions instead.
-    ``SetupCandidate`` is frozen, so this returns a new instance."""
-    return candidate.model_copy(update={"kept_foods": ()})
-
-
-def _setup_predict(
-    setup_policy_net: setup_net.SetupNet, device: torch.device, features: np.ndarray
-) -> np.ndarray:
-    """Forward a candidate feature matrix ``(K, feature_dim)`` through the setup
-    net and return the ``(K,)`` predicted margins (value head)."""
-    with torch.no_grad():
-        feats_t = torch.tensor(features, dtype=torch.float32, device=device)
-        return setup_policy_net(feats_t).cpu().numpy()
 
 
 def _setup_policy_logits(

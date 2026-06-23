@@ -101,7 +101,6 @@ class _WorkerArch(pydantic.BaseModel):
     setup_encoding: setup_model.SetupEncoding = setup_model.SetupEncoding()
     setup_hand_combos: int = 1
     setup_food_sets: int = 1
-    setup_tuples_per_batch: int = 1
     setup_temperature: float = 1.0
     setup_greedy: bool = False
     # Whether the opening bonus pick is deferred to the in-game ``CHOOSE_BONUS``
@@ -111,10 +110,6 @@ class _WorkerArch(pydantic.BaseModel):
     # Whether the opening food pick is deferred to sequential in-game food
     # decisions (the ``split_setup_food`` regime); applied in both paths.
     split_setup_food: bool = False
-    # Whether the actor-critic setup training mode is enabled; when True the
-    # worker uses policy-head logits for candidate selection and records
-    # all_candidates + chosen_idx in each SetupSample.
-    setup_use_actor_critic: bool = False
     # Path to a .pt.gz checkpoint to load as the bootstrap opponent (the
     # ``initial_vs_random`` phase opponent). ``None`` = random agent.
     # Static for the run — set once when the pool is spawned.
@@ -197,16 +192,10 @@ class ProcessCollector:
             setup_encoding=cfg.setup_encoding,
             setup_hand_combos=cfg.training.setup.hand_combos,
             setup_food_sets=cfg.training.setup.food_sets,
-            setup_tuples_per_batch=cfg.training.setup.tuples_per_batch,
             setup_temperature=cfg.training.setup.policy_temperature,
             setup_greedy=cfg.training.setup.policy_greedy,
             split_setup_bonus=cfg.split_setup_bonus_active,
             split_setup_food=cfg.split_setup_food_active,
-            setup_use_actor_critic=(
-                cfg.architecture.setup.use_actor_critic
-                if cfg.architecture.use_setup_model
-                else False
-            ),
             bootstrap_opponent_checkpoint=cfg.bootstrap_opponent_checkpoint,
             dagger_expert_checkpoint=cfg.dagger_expert_checkpoint,
         )
@@ -299,10 +288,7 @@ class ProcessCollector:
         pool = self._ensure_pool()
         self._weights_version += 1
         self._broadcast_weights(net)
-        model_driven = any(
-            spec.phase is collect.SetupPhase.MODEL_DRIVEN for spec in specs
-        )
-        if model_driven and setup_policy_net is not None:
+        if setup_policy_net is not None:
             self._setup_weights_version += 1
             self._broadcast_setup_weights(setup_policy_net)
         tasks = [
@@ -474,7 +460,6 @@ _worker_setup_version: int = -1
 _worker_generator: setup_model.RandomSetupGenerator | None = None
 _worker_setup_temperature: float = 1.0
 _worker_setup_greedy: bool = False
-_worker_setup_use_actor_critic: bool = False
 
 
 def _build_worker_net(arch: _WorkerArch) -> model.PolicyValueNet:
@@ -497,7 +482,7 @@ def _worker_init(arch: _WorkerArch) -> None:
     over them."""
     global _worker_arch, _worker_net, _worker_device, _worker_weights_version
     global _worker_setup_net, _worker_setup_version, _worker_generator
-    global _worker_setup_temperature, _worker_setup_greedy, _worker_setup_use_actor_critic
+    global _worker_setup_temperature, _worker_setup_greedy
     torch.set_num_threads(1)
     _worker_arch = arch
     _worker_device = torch.device("cpu")
@@ -518,11 +503,9 @@ def _worker_init(arch: _WorkerArch) -> None:
         _worker_setup_version = -1
         _worker_setup_temperature = arch.setup_temperature
         _worker_setup_greedy = arch.setup_greedy
-        _worker_setup_use_actor_critic = arch.setup_use_actor_critic
         _worker_generator = setup_model.RandomSetupGenerator(
             hand_combos=arch.setup_hand_combos,
             food_sets=arch.setup_food_sets,
-            tuples_per_batch=arch.setup_tuples_per_batch,
             split_food=arch.split_setup_food,
         )
     # This process inherits no logging handlers — the dashboard configures file
@@ -623,16 +606,14 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
     assert arch is not None, "worker arch not initialized"
     _maybe_reload_weights(net, device, task.weights_path, task.weights_version)
 
-    setup_policy_net: setup_net.SetupNet | None = None
-    if task.spec.phase is collect.SetupPhase.MODEL_DRIVEN:
-        setup_policy_net = _worker_setup_net
-        assert setup_policy_net is not None, "worker setup net not initialized"
-        _maybe_reload_setup_weights(
-            setup_policy_net,
-            device,
-            task.setup_weights_path,
-            task.setup_weights_version,
-        )
+    setup_policy_net = _worker_setup_net
+    assert setup_policy_net is not None, "worker setup net not initialized"
+    _maybe_reload_setup_weights(
+        setup_policy_net,
+        device,
+        task.setup_weights_path,
+        task.setup_weights_version,
+    )
     opponent: engine.Agent | None = None
     if task.vs_random:
         opponent = _bootstrap_opponent_agent(arch, seed=task.spec.continuation_seed)
@@ -653,7 +634,6 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             split_setup_bonus=arch.split_setup_bonus,
             split_setup_food=arch.split_setup_food,
             setup_greedy=_worker_setup_greedy,
-            use_actor_critic=_worker_setup_use_actor_critic,
             expert_net=expert_net,
         )
     )

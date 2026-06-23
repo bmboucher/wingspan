@@ -193,9 +193,6 @@ class SetupNetArchitecture(pydantic.BaseModel):
     ] = (128, 64)
     activation: architecture.ActivationName = architecture.ActivationName.RELU
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
-    # Locked to True: new runs always use actor-critic for the setup net.
-    # Old checkpoints carry their own value (False = value-only) and still load.
-    use_actor_critic: bool = True
 
 
 class ArchitectureConfig(pydantic.BaseModel):
@@ -214,8 +211,8 @@ class ArchitectureConfig(pydantic.BaseModel):
 
     # Encoding-shape toggles (also affect main-net ``architecture_key``).
     use_setup_model: bool = True
-    split_setup_bonus: bool = False
-    split_setup_food: bool = False
+    split_setup_bonus: bool = True
+    split_setup_food: bool = True
 
     # Era-synced descriptor (derived, not freely editable).
     encoding_version: str = version.MODEL_VERSION
@@ -286,17 +283,10 @@ class SetupTrainingConfig(pydantic.BaseModel):
     lr: typing.Annotated[float, pydantic.Field(gt=0.0)] = 1e-3
     policy_temperature: typing.Annotated[float, pydantic.Field(gt=0.0)] = 0.5
     policy_greedy: bool = False
-    # (0, 0) = train from start; otherwise recording window must be non-empty.
-    record_start_iter: typing.Annotated[int, pydantic.Field(ge=0)] = 0
-    train_iter: typing.Annotated[int, pydantic.Field(ge=0)] = 0
-    # Random-generation knobs (per batch).
+    # Candidate-generation knobs (for random-opponent seat and sampling).
     hand_combos: typing.Annotated[int, pydantic.Field(ge=1)] = 10
     food_sets: typing.Annotated[int, pydantic.Field(ge=1)] = 3
-    tuples_per_batch: typing.Annotated[int, pydantic.Field(ge=1)] = 16
-    # One-time offline fit epochs and minibatch size.
-    offline_epochs: typing.Annotated[int, pydantic.Field(ge=1)] = 20
-    offline_batch_size: typing.Annotated[int, pydantic.Field(ge=1)] = 256
-    # Actor-critic loss weights (ignored when use_actor_critic is False).
+    # Actor-critic loss weights.
     pg_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 1.0
     value_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.5
     entropy_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.01
@@ -547,7 +537,7 @@ class RunConfig(pydantic.BaseModel):
             hidden_layers=setup.hidden_layers,
             activation=setup.activation,
             dropout=setup.dropout,
-            use_policy_head=setup.use_actor_critic,
+            use_policy_head=True,
         )
 
     @property
@@ -651,15 +641,6 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
             problems.append(
                 "a bootstrap checkpoint requires device='cpu' (mp_collect only)"
             )
-
-    # Setup schedule: (0, 0) is always valid; otherwise train_iter must exceed
-    # record_start_iter so the recording window is non-empty.
-    setup = cfg.training.setup
-    if setup.train_iter > 0 and setup.train_iter <= setup.record_start_iter:
-        problems.append(
-            f"training.setup.train_iter must exceed record_start_iter "
-            f"(got {setup.train_iter} <= {setup.record_start_iter})"
-        )
 
     # target_iterations must not exceed max_iterations when both are nonzero.
     run = cfg.run
@@ -821,7 +802,6 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "setup_hidden_layers": "hidden_layers",
         "setup_activation": "activation",
         "setup_dropout": "dropout",
-        "setup_use_actor_critic": "use_actor_critic",
     }
     arch_direct_keys = {
         "use_setup_model",
@@ -869,13 +849,8 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "setup_lr": "lr",
         "setup_policy_temperature": "policy_temperature",
         "setup_policy_greedy": "policy_greedy",
-        "setup_record_start_iter": "record_start_iter",
-        "setup_train_iter": "train_iter",
         "setup_hand_combos": "hand_combos",
         "setup_food_sets": "food_sets",
-        "setup_tuples_per_batch": "tuples_per_batch",
-        "setup_offline_epochs": "offline_epochs",
-        "setup_offline_batch_size": "offline_batch_size",
         "setup_pg_coef": "pg_coef",
         "setup_value_coef": "value_coef",
         "setup_entropy_coef": "entropy_coef",

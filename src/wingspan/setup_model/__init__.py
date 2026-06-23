@@ -36,7 +36,7 @@ from wingspan.setup_model.encode import (
     encode_setup_candidate,
 )
 from wingspan.setup_model.generate import JointSetup, RandomSetupGenerator, SeatDeal
-from wingspan.setup_model.record import SetupDataStore, SetupSample
+from wingspan.setup_model.record import SetupSample
 from wingspan.setup_model.stripes import (
     setup_readout_stripe_layout,
     setup_stripe_layout,
@@ -51,7 +51,6 @@ __all__ = [
     "SetupArchitecture",
     "SetupCandidate",
     "SetupContext",
-    "SetupDataStore",
     "SetupEncoding",
     "SetupSample",
     "SetupShapeKey",

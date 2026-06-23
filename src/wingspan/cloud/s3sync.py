@@ -43,7 +43,6 @@ _CHECKPOINT_SET: tuple[str, ...] = (
     artifacts.OPPONENT_CKPT,
     artifacts.SETUP_CKPT,
     artifacts.METRICS_LOG,
-    artifacts.SETUP_DATA_LOG,
     artifacts.MODEL_CONFIG_JSON,
     artifacts.SETUP_CONFIG_JSON,
 )

@@ -81,13 +81,9 @@ _SCROLL_MORE_DOWN = "  ▼ more"
 
 # Which selected field lights up a whole BOX (gold border + title).
 _BOX_FOCUS_ATTRS: dict[str, set[str]] = {
-    "setup": {"setup_hidden_layers", "use_setup_model", "setup_use_actor_critic"},
-    "setup_value": {"setup_hidden_layers", "use_setup_model", "setup_use_actor_critic"},
-    "setup_policy": {
-        "setup_hidden_layers",
-        "use_setup_model",
-        "setup_use_actor_critic",
-    },
+    "setup": {"setup_hidden_layers", "use_setup_model"},
+    "setup_value": {"setup_hidden_layers", "use_setup_model"},
+    "setup_policy": {"setup_hidden_layers", "use_setup_model"},
     "embed": {"card_embed_dim", "card_encoder_layers"},
     "trunk": {"trunk_layers"},
     "choice": {"choice_layers"},
@@ -225,15 +221,12 @@ def _diagram_rows(
         rows.extend(block_rows)
 
     if cfg.architecture.use_setup_model:
-        if cfg.architecture.setup.use_actor_critic:
-            add("setup", _setup_input_box(view, content_w))
-            block_start["setup_value"] = len(rows)
-            block_start["setup_policy"] = len(rows)
-            rows.extend(_fanout_rows(content_w, left_center, right_center))
-            add("setup_value", _setup_heads_region(view, content_w))
-            block_start["setup_policy"] = block_start["setup_value"]
-        else:
-            add("setup", _setup_box(view, content_w))
+        add("setup", _setup_input_box(view, content_w))
+        block_start["setup_value"] = len(rows)
+        block_start["setup_policy"] = len(rows)
+        rows.extend(_fanout_rows(content_w, left_center, right_center))
+        add("setup_value", _setup_heads_region(view, content_w))
+        block_start["setup_policy"] = block_start["setup_value"]
     else:
         add("setup", [_setup_off_line()])
     rows.append(_blank())
@@ -298,9 +291,7 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
         chain = _chain(
             _setup_readout_in(cfg), (*cfg.architecture.setup.hidden_layers, 1)
         )
-        setup_chain = (
-            f"V:{chain} P:{chain}" if cfg.architecture.setup.use_actor_critic else chain
-        )
+        setup_chain = f"V:{chain} P:{chain}"
     else:
         setup_chain = "off"
     rows = [
@@ -350,43 +341,6 @@ def _chain(in_dim: int, widths: tuple[int, ...]) -> str:
 
 
 #### Full-width boxes (setup, card encoder) ####
-
-
-def _setup_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
-    """The separate setup net — an unconnected readout MLP value-regressor over the
-    setup-candidate features (``setup_encoding.total_dim → setup_hidden_layers → 1``).
-    """
-    cfg = view.working
-    block = _setup_block(view)
-    entries = _block_op_entries(
-        view,
-        (*cfg.architecture.setup.hidden_layers, 1),
-        _BlockKind.READOUT,
-        block.layers,
-        _SETUP_OP_FIELDS,
-        activation=str(cfg.architecture.setup.activation),
-        dropout=cfg.architecture.setup.dropout,
-        layernorm=False,
-    )
-    caption = [
-        (
-            f"in {_setup_readout_in(cfg)} "
-            f"(from {cfg.setup_encoding.total_dim}-dim raw candidate)",
-            theme.TEXT_DIM2,
-        )
-    ]
-    return _model_block(
-        view,
-        section="setup",
-        title="SETUP MODEL · keep",
-        in_caption=caption,
-        entries=entries,
-        sigma_total=block.total,
-        out_caption=None,
-        width=content_w,
-        tap=False,
-        dashed=False,
-    )
 
 
 def _setup_off_line() -> text.Text:
@@ -1259,7 +1213,6 @@ class _StaticSetup(pydantic.BaseModel):
     hidden_layers: architecture.Widths
     activation: architecture.ActivationName
     dropout: float
-    use_actor_critic: bool = False
 
 
 class _StaticArchitecture(pydantic.BaseModel):
@@ -1333,9 +1286,13 @@ def render_static(
     from ``setup_arch`` / ``setup_encoding`` (defaults when ``None``). ``width``
     is the box interior column budget (default 48).
     """
-    resolved_setup_arch = (
+    _base_setup_arch = (
         setup_arch if setup_arch is not None else setup_model.SetupArchitecture()
     )
+    # Always render the dual-head (actor-critic) topology — the setup net is
+    # unconditionally AC; a compat fixture with use_policy_head=False would
+    # produce an empty block.layers[n_layers:] and crash _setup_policy_column.
+    resolved_setup_arch = _base_setup_arch.model_copy(update={"use_policy_head": True})
     resolved_setup_encoding = (
         setup_encoding if setup_encoding is not None else setup_model.SetupEncoding()
     )
@@ -1364,7 +1321,6 @@ def render_static(
                 hidden_layers=resolved_setup_arch.hidden_layers,
                 activation=resolved_setup_arch.activation,
                 dropout=resolved_setup_arch.dropout,
-                use_actor_critic=resolved_setup_arch.use_policy_head,
             ),
             use_setup_model=use_setup_model,
         ),

@@ -7,7 +7,8 @@
       64
     ],
     "activation": "relu",
-    "dropout": 0.0
+    "dropout": 0.0,
+    "use_policy_head": false
   },
   "main_arch": {
     "trunk_layers": [

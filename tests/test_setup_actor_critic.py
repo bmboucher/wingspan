@@ -86,13 +86,6 @@ def _make_config() -> config.TrainConfig:
         architecture=config.ArchitectureConfig(
             setup=config.SetupNetArchitecture(
                 hidden_layers=(16, 8),
-                use_actor_critic=True,
-            ),
-        ),
-        training=config.TrainingConfig(
-            setup=config.SetupTrainingConfig(
-                record_start_iter=0,
-                train_iter=1,
             ),
         ),
     )
@@ -244,73 +237,12 @@ def test_play_game_with_setup_ac_data_in_model_driven():
         architecture=config.ArchitectureConfig(
             setup=config.SetupNetArchitecture(
                 hidden_layers=(16, 8),
-                use_actor_critic=True,
-            )
-        ),
-        training=config.TrainingConfig(
-            setup=config.SetupTrainingConfig(
-                record_start_iter=0,
-                train_iter=1,
-            )
-        ),
-    )
-    main_net_cfg = net_cfg  # reuse for building nets
-    device = torch.device("cpu")
-
-    # Build a tiny setup net with the policy head.
-    net = setup_net.SetupNet(arch=net_cfg.setup_arch)
-
-    main_net = model_core.PolicyValueNet(
-        state_dim=main_net_cfg.state_dim,
-        choice_dim=main_net_cfg.choice_dim,
-        arch=main_net_cfg.arch,
-        spec=main_net_cfg.encoding_spec,
-    )
-
-    generator = sm.RandomSetupGenerator(hand_combos=2, food_sets=1, tuples_per_batch=2)
-    spec = collect.SetupGameSpec(
-        phase=collect.SetupPhase.MODEL_DRIVEN,
-        deal_seed=42,
-        continuation_seed=42,
-        tuple_index=0,
-        iteration=2001,
-    )
-
-    game_record = collect.play_game_with_setup(
-        main_net,
-        device,
-        spec,
-        generator,
-        net,
-        setup_temperature=1.0,
-        use_actor_critic=True,
-    )
-
-    assert len(game_record.setup_samples) == 2  # both seats in self-play
-    for sample in game_record.setup_samples:
-        assert sample.chosen_idx is not None
-        assert sample.all_candidates is not None
-        assert sample.all_candidates.shape[0] > 0
-        assert sample.all_candidates.shape[1] == sm.SETUP_FEATURE_DIM
-
-
-def test_play_game_with_setup_no_ac_data_without_flag():
-    """use_actor_critic=False (default) → SetupSamples have chosen_idx=None."""
-    from wingspan import setup_model as sm
-
-    net_cfg = config.RunConfig(
-        architecture=config.ArchitectureConfig(
-            setup=config.SetupNetArchitecture(use_actor_critic=False)
-        ),
-        training=config.TrainingConfig(
-            setup=config.SetupTrainingConfig(
-                record_start_iter=0,
-                train_iter=1,
             )
         ),
     )
     device = torch.device("cpu")
 
+    # The setup net always trains actor-critic.
     net = setup_net.SetupNet(arch=net_cfg.setup_arch)
 
     main_net = model_core.PolicyValueNet(
@@ -320,12 +252,10 @@ def test_play_game_with_setup_no_ac_data_without_flag():
         spec=net_cfg.encoding_spec,
     )
 
-    generator = sm.RandomSetupGenerator(hand_combos=2, food_sets=1, tuples_per_batch=2)
+    generator = sm.RandomSetupGenerator(hand_combos=2, food_sets=1)
     spec = collect.SetupGameSpec(
-        phase=collect.SetupPhase.MODEL_DRIVEN,
-        deal_seed=7,
-        continuation_seed=7,
-        tuple_index=0,
+        deal_seed=42,
+        continuation_seed=42,
         iteration=2001,
     )
 
@@ -336,9 +266,11 @@ def test_play_game_with_setup_no_ac_data_without_flag():
         generator,
         net,
         setup_temperature=1.0,
-        use_actor_critic=False,
     )
 
+    assert len(game_record.setup_samples) == 2  # both seats in self-play
     for sample in game_record.setup_samples:
-        assert sample.chosen_idx is None
-        assert sample.all_candidates is None
+        assert sample.chosen_idx is not None
+        assert sample.all_candidates is not None
+        assert sample.all_candidates.shape[0] > 0
+        assert sample.all_candidates.shape[1] == sm.SETUP_FEATURE_DIM

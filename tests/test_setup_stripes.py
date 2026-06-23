@@ -44,20 +44,20 @@ def test_html_report_documents_active_setup_model():
     html = _report_html(use_setup_model=True)
     assert "id='setup'" in html
     assert "Setup Vector" in html
-    assert "SETUP MODEL" in html
+    assert "SETUP INPUT" in html
+    assert "SETUP VALUE" in html
     assert str(setup_model.SETUP_FEATURE_DIM) in html
     assert "(separate)" in html
     assert "not active this run" not in html
-    assert "off this run" not in html
 
 
 def test_html_report_documents_inactive_setup_model():
     html = _report_html(use_setup_model=False)
     assert "id='setup'" in html
     assert "Setup Vector" in html
-    assert "SETUP MODEL" in html
+    assert "SETUP INPUT" in html
+    assert "SETUP VALUE" in html
     assert "not active this run" in html
-    assert "off this run" in html
 
 
 def test_html_report_arch_svg_content():
@@ -87,7 +87,7 @@ def test_html_report_arch_svg_content():
 def test_html_report_arch_svg_setup_off():
     html = _report_html(use_setup_model=False)
     assert "MULTI-CARD ENCODER" in html
-    assert "SETUP MODEL" in html
+    assert "SETUP INPUT" in html
 
 
 ###### PRIVATE #######

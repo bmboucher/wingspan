@@ -75,7 +75,7 @@ def build_iteration_metrics(
     update_seconds: float,
     eval_seconds: float,
     win_rate: float | None,
-    setup_phase: collect.SetupPhase | None,
+    setup_enabled: bool,
     setup_stats: metrics.SetupUpdateStats | None,
     imitation_phase: bool = False,
 ) -> metrics.IterationMetrics:
@@ -141,7 +141,7 @@ def build_iteration_metrics(
         games_per_sec=n_games / collect_seconds if collect_seconds > 0 else 0.0,
         eval=eval_result,
         collection_win_rate=win_rate,
-        setup_phase=setup_phase.name if setup_phase is not None else None,
+        setup_phase="MODEL_DRIVEN" if setup_enabled else None,
         setup_loss=setup_stats.loss if setup_stats is not None else None,
         setup_pred_margin_mean=(
             setup_stats.pred_margin_mean if setup_stats is not None else None

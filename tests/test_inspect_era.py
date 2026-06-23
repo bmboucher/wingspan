@@ -36,7 +36,7 @@ pytest.importorskip("torch")
 from wingspan import architecture, encode, setup_model, version
 from wingspan.compat import v0_0
 from wingspan.reporting import inspect_cli
-from wingspan.training import artifacts, config, runmeta
+from wingspan.training import artifacts, config, runmeta, setup_runmeta
 from wingspan.training.configure import arch_diagram
 
 V0_0_FIXTURE_DIR = pathlib.Path(__file__).parent / "data" / "compat" / "v0.0"
@@ -104,7 +104,7 @@ def test_render_static_draws_the_setup_box():
     """With the separate setup model active, the static diagram includes its
     box — a run trained with ``use_setup_model`` shows its full topology."""
     plain = _render_plain(_baseline_descriptor(), use_setup_model=True)
-    assert "SETUP MODEL" in plain
+    assert "SETUP INPUT" in plain
 
 
 def test_render_static_shows_the_frozen_era_widths():
@@ -137,11 +137,18 @@ def test_run_start_html_matches_the_descriptor_rebuild(tmp_path: pathlib.Path):
         run=config.RunSettings(run_name="html-parity"),
     )
     runmeta.write_model_config(str(tmp_path), cfg)
+    setup_runmeta.write_setup_config(str(tmp_path), cfg)
     original = runmeta.write_model_summary_html(str(tmp_path), cfg).read_text(
         encoding="utf-8"
     )
     descriptor = runmeta.read_model_config(str(tmp_path))
-    assert runmeta.build_model_summary_html(descriptor, cfg.setup_arch) == original
+    setup_cfg = setup_runmeta.read_setup_config(str(tmp_path))
+    assert (
+        runmeta.build_model_summary_html(
+            descriptor, setup_cfg.setup_arch, setup_cfg.setup_encoding
+        )
+        == original
+    )
 
 
 def test_run_start_inspect_json_matches_the_descriptor_rebuild(
@@ -203,17 +210,12 @@ def test_inspect_html_reproduces_the_run_start_report(
     """``wingspan inspect --html`` into a run directory regenerates the exact
     ``model_summary.html`` the run wrote at startup — same builder, same
     descriptor — instead of clobbering it with a live-encoder view."""
-    # Explicitly disable use_actor_critic so cfg.setup_arch.use_policy_head matches
-    # SetupArchitecture() default (False) — inspect --html has no setup config to read
-    # from and falls back to SetupArchitecture(), which still defaults use_policy_head=False.
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(run_name="html-regen"),
-        architecture=config.ArchitectureConfig(
-            setup=config.SetupNetArchitecture(use_actor_critic=False),
-        ),
     )
     runmeta.write_model_config(str(tmp_path), cfg)
+    setup_runmeta.write_setup_config(str(tmp_path), cfg)
     original = runmeta.write_model_summary_html(str(tmp_path), cfg).read_text(
         encoding="utf-8"
     )

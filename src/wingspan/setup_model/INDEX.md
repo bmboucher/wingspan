@@ -1,9 +1,10 @@
-# setup_model — Setup model (value-regression bandit)
+# setup_model — Setup model (actor-critic bandit)
 
 Separately-trained model that scores initial bird-keep candidates at the start of
-each game. Trained offline on random-setup samples before the main policy training
-begins; updated online via MSE during self-play. Has its own architecture
-descriptor, encoder, and training records so the main policy net's checkpoint
+each game. Trained actor-critic alongside the main policy net: the value head
+predicts the expected score margin for each setup; the policy head outputs
+per-candidate logits used for REINFORCE selection. Has its own architecture
+descriptor, encoder, and training sample type; the main policy net's checkpoint
 format is not coupled to it.
 
 ## Modules
@@ -11,9 +12,9 @@ format is not coupled to it.
 **`__init__.py`**
 
 **`architecture.py`** — `SetupArchitecture(hidden_layers, activation, dropout,
-layernorm)` — frozen topology descriptor for the setup MLP, analogous to
-`ModelArchitecture` for the policy net. `shape_key(arch) -> tuple` — the
-checkpoint-invalidating subset of fields. `SetupEncoding` — the config-carried
+layernorm, use_policy_head=True)` — frozen topology descriptor for the setup MLP,
+analogous to `ModelArchitecture` for the policy net. `shape_key(arch) -> tuple` —
+the checkpoint-invalidating subset of fields. `SetupEncoding` — the config-carried
 encoding descriptor; `include_turn1_playable: bool = False` (v0.6+) appends a
 180-dim turn-1-playability multi-hot to the feature vector when enabled; old
 setup configs deserialize with the flag absent → `False` → old `total_dim`
@@ -41,13 +42,15 @@ multi-hot of birds payable from `kept_foods` on turn 1. Output width matches
 vector; analogous to `encode.stripes` for the main encoder.
 
 **`generate.py`** — `RandomSetupGenerator(hand_combos, food_sets,
-tuples_per_batch, *, split_food=False)` — generates batches of random-setup
-candidates for a game deal. `split_food=True` skips biased food sampling
-entirely and emits `kept_foods=()` on every candidate (the engine resolves
-food via deferred in-game GAIN_FOOD / SPEND_FOOD decisions). `generate_one`
-returns one `SetupBatch` for a single game deal.
+tuples_per_batch=16, *, split_food=False)` — generates random-setup candidates
+for a game deal. `split_food=True` skips biased food sampling entirely and emits
+`kept_foods=()` on every candidate (the engine resolves food via deferred in-game
+GAIN_FOOD / SPEND_FOOD decisions). `generate_one` returns one `SetupBatch` for a
+single game deal. `tuples_per_batch` defaults to 16 and is unused at runtime (was
+used by the removed batch-deal random-phase path).
 
-**`record.py`** — `SetupRecord(candidate, final_score)` — the setup training
-sample. `SetupStore(path)` — an append-only on-disk store (JSONL) of
-`SetupRecord`s; supports `append(record)`, `load_all() -> list[SetupRecord]`,
-and `size() -> int`.
+**`record.py`** — `SetupSample(features, margin, iteration, chosen_idx,
+all_candidates)` — one actor-critic training sample. `features` is the encoded
+feature vector for the chosen setup; `margin` is the seat's end-of-game score
+margin; `chosen_idx` and `all_candidates` carry the data for REINFORCE gradient
+computation over all candidates.

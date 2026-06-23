@@ -52,7 +52,7 @@ class RandomSetupGenerator:
         self,
         hand_combos: int,
         food_sets: int,
-        tuples_per_batch: int,
+        tuples_per_batch: int = 16,
         split_food: bool = False,
     ):
         self.hand_combos = hand_combos

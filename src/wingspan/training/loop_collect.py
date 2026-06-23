@@ -33,7 +33,7 @@ _SEQ_SETUP_OPPONENT_SALT = 0x85EBCA6B
 def collect_games(
     training_loop: "loop.TrainingLoop",
     iteration: int,
-    setup_phase: collect.SetupPhase | None,
+    setup_enabled: bool,
     dagger_active: bool = False,
 ) -> list[collect.GameRecord]:
     """Play ``games_per_iter`` games with batched inference, updating the
@@ -43,9 +43,8 @@ def collect_games(
     runs under ``training_loop.lock`` so the shared state stays consistent.
     In the bootstrap phase the games are net-vs-random rather than self-play.
 
-    When the setup model is enabled (``setup_phase`` is not None), setups are
-    chosen externally via the setup-aware collection path instead of by the
-    in-game policy.
+    When the setup model is enabled (``setup_enabled``), setups are chosen by
+    the setup net via the setup-aware collection path.
 
     ``dagger_active`` signals the DAgger clone phase: each decision is labeled
     with the frozen expert's soft policy distribution.  Only supported on CPU
@@ -54,10 +53,8 @@ def collect_games(
     vs_random = (
         training_loop.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT
     )
-    if setup_phase is not None:
-        return collect_with_setup(
-            training_loop, iteration, setup_phase, vs_random, dagger_active
-        )
+    if setup_enabled:
+        return collect_with_setup(training_loop, iteration, vs_random, dagger_active)
     seeds = [
         training_loop.config.misc.seed * 1_000_000 + iteration * 10_000 + game_idx
         for game_idx in range(training_loop.config.run.games_per_iter)
@@ -80,17 +77,16 @@ def collect_games(
 def collect_with_setup(
     training_loop: "loop.TrainingLoop",
     iteration: int,
-    setup_phase: collect.SetupPhase,
     vs_random: bool,
     dagger_active: bool = False,
 ) -> list[collect.GameRecord]:
-    """Collect games whose setups are chosen by the random generator / setup net.
+    """Collect games whose setups are chosen by the setup net.
 
     CPU fans across the worker pool (as ordinary collection does); the non-CPU
     path runs the games sequentially in-process (the batched CUDA collector
     does not implement the setup path — training is CPU-anyway).
     """
-    specs = collect.build_setup_specs(training_loop.config, iteration, setup_phase)
+    specs = collect.build_setup_specs(training_loop.config, iteration)
     if training_loop.device.type == "cpu":
         return ensure_collector(training_loop).collect_games_with_setup(
             training_loop.net,
@@ -114,7 +110,6 @@ def collect_with_setup_sequential(
     generator = setup_model.RandomSetupGenerator(
         hand_combos=training_loop.config.training.setup.hand_combos,
         food_sets=training_loop.config.training.setup.food_sets,
-        tuples_per_batch=training_loop.config.training.setup.tuples_per_batch,
         split_food=training_loop.config.split_setup_food_active,
     )
     records: list[collect.GameRecord] = []
@@ -128,23 +123,17 @@ def collect_with_setup_sequential(
             if vs_random
             else None
         )
-        setup_policy_net = (
-            training_loop._setup_net
-            if spec.phase is collect.SetupPhase.MODEL_DRIVEN
-            else None
-        )
         record = collect.play_game_with_setup(
             training_loop.net,
             training_loop.device,
             spec,
             generator,
-            setup_policy_net,
+            training_loop._setup_net,
             training_loop.config.training.setup.policy_temperature,
             opponent,
             split_setup_bonus=training_loop.config.split_setup_bonus_active,
             split_setup_food=training_loop.config.split_setup_food_active,
             setup_greedy=training_loop.config.training.setup.policy_greedy,
-            use_actor_critic=training_loop.config.architecture.setup.use_actor_critic,
         )
         records.append(record)
         record_collected_game(training_loop, record)

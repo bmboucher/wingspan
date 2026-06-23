@@ -724,13 +724,12 @@ def test_arch_diagram_all_blocks_present():
 
 
 def test_arch_diagram_setup_box_toggles():
-    # With use_actor_critic=True (new default), the setup box title is "SETUP INPUT".
-    # With use_actor_critic=False, it reverts to "SETUP MODEL".
-    on_ac = _box_diagram(_arch_state())  # use_setup_model=True, use_actor_critic=True
+    # With use_setup_model=True the setup box always shows "SETUP INPUT" (always AC).
+    on_ac = _box_diagram(_arch_state())
     assert "SETUP INPUT" in on_ac
     assert "SETUP MODEL" not in on_ac
 
-    # use_setup_model=False shows the "off" placeholder regardless of actor-critic.
+    # use_setup_model=False shows the "off" placeholder.
     off = _box_diagram(_arch_state(use_setup_model=False))
     assert "SETUP INPUT" not in off
     assert "SETUP MODEL" not in off
@@ -1558,11 +1557,8 @@ def test_locked_out_fields_absent_from_specs():
     locked_out = {
         "use_distinct_hand_model",
         "tray_set_embedding",
-        "setup_use_actor_critic",
         "setup_policy_temperature",
         "setup_policy_greedy",
-        "setup_offline_epochs",
-        "setup_offline_batch_size",
         "dagger_expert_checkpoint",
     }
     spec_attrs = {spec.attr for spec in fields.FIELD_SPECS}
@@ -1809,11 +1805,12 @@ def test_rehydration_per_block_none_inherits_global():
     assert per_block.arch.card_activation_resolved == global_act  # unchanged
 
 
-def test_default_flips_tray_set_embedding_and_actor_critic():
-    """Locked-in defaults: tray_set_embedding=False, use_actor_critic=True for new runs."""
+def test_default_flips_tray_set_embedding():
+    """Locked-in default: tray_set_embedding=False for new runs."""
     cfg = config.RunConfig()
     assert cfg.architecture.main.tray_set_embedding is False
-    assert cfg.architecture.setup.use_actor_critic is True
+    # The setup net always trains actor-critic (use_policy_head=True by default).
+    assert cfg.setup_arch.use_policy_head is True
 
 
 def test_modal_keeps_options_on_short_terminal():

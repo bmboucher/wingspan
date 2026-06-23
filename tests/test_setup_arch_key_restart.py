@@ -12,7 +12,6 @@ resume.
 
 from __future__ import annotations
 
-import json
 import os
 import pathlib
 import sys
@@ -23,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 torch = pytest.importorskip("torch")
 
-from wingspan import setup_model, version  # noqa: E402
+from wingspan import version  # noqa: E402
 from wingspan.training import (  # noqa: E402
     artifacts,
     config,
@@ -74,12 +73,6 @@ def test_key_changes_with_embedder_shapes(tmp_path: pathlib.Path):
     )
 
 
-def _write_store_row(path: pathlib.Path, width: int) -> None:
-    row = {"features": [0.0] * width, "margin": 1.0, "iteration": 1}
-    with open(path, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row) + "\n")
-
-
 def _write_main_checkpoint(tmp_path: pathlib.Path, cfg: config.TrainConfig) -> None:
     """A loadable ``last.pt`` so the main net genuinely resumes (the setup gate
     must act independently of the main resume)."""
@@ -95,82 +88,65 @@ def _write_main_checkpoint(tmp_path: pathlib.Path, cfg: config.TrainConfig) -> N
     torch.save(payload, tmp_path / artifacts.LAST_CKPT)
 
 
-def test_stale_feature_dim_starts_setup_fresh_and_clears_store(
+def test_stale_feature_dim_starts_setup_fresh(
     tmp_path: pathlib.Path,
 ):
-    # Use the legacy warmup schedule so the fresh setup net requires an
-    # offline fit (setup_train_iter > 0 → _setup_fit_done starts False).
-    cfg = _cfg(tmp_path, resume=True, setup_record_start_iter=100, setup_train_iter=200)
+    """A setup.pt recorded under an old feature-dim layout triggers a fresh start."""
+    cfg = _cfg(tmp_path, resume=True)
     _write_main_checkpoint(tmp_path, cfg)
-    # A setup checkpoint recorded under the old 477-wide layout: the saved
-    # config validates to the *current* key (both sides recompute from current
-    # code), so only the persisted feature dim can expose the stale layout.
+    # A setup checkpoint with the old 477-wide feature dim.
     stale_payload: dict[str, object] = {
         "setup_config": cfg.model_dump(),
         "setup_feature_dim": _OLD_FEATURE_DIM,
         "setup_model": {},
         "setup_optimizer": {},
-        "setup_fit_done": True,
     }
     torch.save(stale_payload, tmp_path / artifacts.SETUP_CKPT)
-    store_path = tmp_path / artifacts.SETUP_DATA_LOG
-    _write_store_row(store_path, _OLD_FEATURE_DIM)
 
     training = loop.TrainingLoop(cfg)
 
-    # Main net resumed; setup net started fresh with the stale store cleared.
+    # Main net resumed; setup net started fresh.
     assert training.state.total_games == 12
-    assert training._setup_fit_done is False
-    assert training._setup_store is not None
-    assert training._setup_store.count() == 0
     assert training._setup_net is not None
+    feature_dim = training.config.setup_encoding.total_dim
     with torch.no_grad():
-        out = training._setup_net(torch.zeros(1, setup_model.SETUP_FEATURE_DIM))
+        out = training._setup_net(torch.zeros(1, feature_dim))
     assert out.shape == (1,)
 
 
 def test_incompatible_weights_fall_back_fresh(tmp_path: pathlib.Path):
     """Belt-and-suspenders: a payload that passes the key check but whose
-    weights cannot load (foreign state dict) rebuilds the setup net fresh and
-    clears the store rather than crashing."""
-    # Legacy warmup schedule: fresh restart requires an offline fit.
-    cfg = _cfg(tmp_path, resume=True, setup_record_start_iter=100, setup_train_iter=200)
+    weights cannot load (foreign state dict) rebuilds the setup net fresh."""
+    cfg = _cfg(tmp_path, resume=True)
     _write_main_checkpoint(tmp_path, cfg)
     bad_payload: dict[str, object] = {
         "setup_config": cfg.model_dump(),
-        "setup_feature_dim": setup_model.SETUP_FEATURE_DIM,
+        "setup_feature_dim": cfg.setup_encoding.total_dim,
         "setup_model": {"mlp.0.weight": torch.zeros(1, 1)},
         "setup_optimizer": {},
-        "setup_fit_done": True,
     }
     torch.save(bad_payload, tmp_path / artifacts.SETUP_CKPT)
-    store_path = tmp_path / artifacts.SETUP_DATA_LOG
-    _write_store_row(store_path, setup_model.SETUP_FEATURE_DIM)
 
     training = loop.TrainingLoop(cfg)
 
-    assert training._setup_fit_done is False
-    assert training._setup_store is not None
-    assert training._setup_store.count() == 0
     assert training._setup_net is not None
+    feature_dim = training.config.setup_encoding.total_dim
     with torch.no_grad():
-        out = training._setup_net(torch.zeros(1, setup_model.SETUP_FEATURE_DIM))
+        out = training._setup_net(torch.zeros(1, feature_dim))
     assert out.shape == (1,)
 
 
 def test_matching_setup_checkpoint_still_resumes(tmp_path: pathlib.Path):
     """The happy path keeps working: a setup.pt saved by the current layout
-    resumes (readout weights, fit flag) instead of being discarded. The frozen
-    embedder copies are re-synced from the resumed main net right after, so the
-    resume assertion pins the readout MLP — the part that actually persists."""
+    resumes (readout weights) instead of being discarded. The frozen embedder
+    copies are re-synced from the resumed main net right after, so the resume
+    assertion pins the readout MLP — the part that actually persists."""
     cfg = _cfg(tmp_path, resume=True)
     source = loop.TrainingLoop(cfg)
-    source._setup_fit_done = True
     loop_setup.save_setup_checkpoint(source)
     _write_main_checkpoint(tmp_path, cfg)
 
     resumed = loop.TrainingLoop(cfg)
-    assert resumed._setup_fit_done is True
     assert resumed._setup_net is not None and source._setup_net is not None
     source_mlp = source._setup_net.mlp.state_dict()
     for name, tensor in resumed._setup_net.mlp.state_dict().items():

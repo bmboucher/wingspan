@@ -8,13 +8,9 @@ are active: deferred axes are removed rather than zeroed.
 :class:`SetupArchitecture` is the small, torch-free analogue of
 :class:`wingspan.architecture.ModelArchitecture` for the separately-trained setup
 model: the readout MLP that scores one setup candidate at a time. The setup model
-supports two training modes:
-
-* **Value-only** (``use_policy_head=False``, default): a single scalar output
-  trained with MSE regression against realized score margin.
-* **Actor-critic** (``use_policy_head=True``): two scalar outputs — a value head
-  (MSE critic) and a policy head (REINFORCE actor); candidate selection at
-  collection time uses policy-head logits.
+always trains actor-critic: two scalar outputs — a value head (MSE critic) and a
+policy head (REINFORCE actor); candidate selection at collection time uses
+policy-head logits.
 
 The network's card-embedding blocks are *not* described here — they are frozen
 copies of the main net's shared embedders, so their shapes come from the main
@@ -157,10 +153,9 @@ class SetupArchitecture(pydantic.BaseModel):
     )
     activation: architecture.ActivationName = architecture.ActivationName.RELU
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
-    # When True the net has two scalar readout MLPs (value head + policy head)
-    # of identical shape, enabling actor-critic training. Included in the shape
-    # key because it adds a second set of Linear layers to the network.
-    use_policy_head: bool = False
+    # Always True: the setup net always trains actor-critic (value + policy heads).
+    # Included in the shape key because it doubles the readout Linear layers.
+    use_policy_head: bool = True
 
     @property
     def shape_key(self) -> SetupShapeKey:

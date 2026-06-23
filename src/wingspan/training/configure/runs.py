@@ -39,7 +39,6 @@ _SWEEP_BEFORE_LAST = (
     # missing ones are dropped by the presence filter in ``_archive_sources``.
     artifacts.SETUP_CKPT,
     artifacts.SETUP_CONFIG_JSON,
-    artifacts.SETUP_DATA_LOG,
 )
 _MAX_LABEL_SUFFIX = 1000  # give up de-duplicating a label dir after this many
 

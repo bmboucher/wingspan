@@ -139,7 +139,9 @@ def _write_html_report(
     else:
         out_path = pathlib.Path(artifacts.MODEL_SUMMARY_HTML)
 
-    html_content = runmeta.build_model_summary_html(info.descriptor, info.setup_arch)
+    html_content = runmeta.build_model_summary_html(
+        info.descriptor, info.setup_arch, info.setup_encoding
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_content, encoding="utf-8")
     console.print(f"[bold green]HTML report written →[/bold green] {out_path}")
@@ -167,7 +169,7 @@ def _utf8_stdout() -> io.TextIOWrapper:
 
 class _ArchInfo:
     """The resolved run descriptor for one introspection run, plus the setup-net
-    topology — the one datum not on the descriptor (it lives in
+    topology and encoding — data not on the descriptor (lives in
     ``setup_config.json``). Every table, width, and count is derived from
     ``descriptor`` through the era-routed ``runmeta`` seam."""
 
@@ -175,9 +177,11 @@ class _ArchInfo:
         self,
         descriptor: runmeta.ModelConfig,
         setup_arch: setup_model.SetupArchitecture | None = None,
+        setup_encoding: setup_model.SetupEncoding | None = None,
     ):
         self.descriptor = descriptor
         self.setup_arch = setup_arch or setup_model.SetupArchitecture()
+        self.setup_encoding = setup_encoding
 
     @property
     def run_name(self) -> str:
@@ -224,18 +228,26 @@ def _load_arch_info(checkpoint_dir: str | None) -> _ArchInfo:
                 version=version.MODEL_VERSION,
             )
         )
+    setup_arch, setup_encoding = _load_setup_info(checkpoint_dir)
     return _ArchInfo(
         descriptor=runmeta.read_model_config(checkpoint_dir),
-        setup_arch=_load_setup_arch(checkpoint_dir),
+        setup_arch=setup_arch,
+        setup_encoding=setup_encoding,
     )
 
 
-def _load_setup_arch(checkpoint_dir: str) -> setup_model.SetupArchitecture:
-    """The run's setup-net topology from ``setup_config.json``, or the default."""
+def _load_setup_info(
+    checkpoint_dir: str,
+) -> tuple[setup_model.SetupArchitecture, setup_model.SetupEncoding | None]:
+    """The run's setup-net topology and encoding from ``setup_config.json``.
+
+    Returns ``(default_arch, None)`` when no ``setup_config.json`` is present
+    so callers fall back to ``SetupEncoding()`` (the legacy 308-dim default)."""
     try:
-        return setup_runmeta.read_setup_config(checkpoint_dir).setup_arch
+        cfg = setup_runmeta.read_setup_config(checkpoint_dir)
+        return cfg.setup_arch, cfg.setup_encoding
     except FileNotFoundError:
-        return setup_model.SetupArchitecture()
+        return setup_model.SetupArchitecture(), None
 
 
 #### Vector layout sections ####
