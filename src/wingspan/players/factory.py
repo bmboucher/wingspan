@@ -237,6 +237,10 @@ def _handle_main_decision[C: decisions.Choice](
                 probs=probs.tolist(),
                 scores=logits.tolist(),
                 chosen_idx=chosen_idx,
+                state_vec=state_vec.tolist(),
+                choice_feats=choice_feats.tolist(),
+                include_setup=net.include_setup,
+                card_embed_dim=net.card_embed_dim,
             )
         )
     chosen = decision.choices[chosen_idx]

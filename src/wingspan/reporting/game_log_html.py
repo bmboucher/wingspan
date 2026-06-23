@@ -131,17 +131,52 @@ class RoundGoalInfo(pydantic.BaseModel):
     p1_count: int = 0
 
 
+class EncodedSubField(pydantic.BaseModel):
+    """One named element or block within a non-zero feature stripe, for the
+    encoding-viewer modal.
+
+    Exactly one of ``active_index``, ``raw_value``, or ``raw_values`` is set,
+    depending on the sub-field's encoding: ``"one-hot"`` uses ``active_index``
+    (the argmax position); size-1 scalars use ``raw_value``; multi-element
+    blocks use ``raw_values`` (non-zero positions only)."""
+
+    name: str
+    description: str
+    encoding: str
+    value_range: str
+    notes: str | None = None
+    active_index: int | None = None
+    raw_value: float | None = None
+    raw_values: list[float] | None = None
+
+
+class EncodedStripe(pydantic.BaseModel):
+    """One non-zero stripe from the state or choice vector, for the
+    encoding-viewer modal.
+
+    ``sub_fields`` holds only the non-zero elements (or the whole stripe when
+    it carries no named sub-fields). Empty stripes (all-zero) are never
+    included in the parent list."""
+
+    name: str
+    description: str
+    sub_fields: list[EncodedSubField]
+
+
 class DecisionOption(pydantic.BaseModel):
     """One offered option within a decision box in the decision log.
 
     ``prob`` is the policy's softmax probability (``None`` when unavailable);
     ``score`` is the raw logit used for ranking (``None`` for the setup-net
-    value-only mode); ``selected`` marks the option that was actually played."""
+    value-only mode); ``selected`` marks the option that was actually played.
+    ``choice_stripes`` carries the non-zero choice-vector stripes for the
+    encoding-viewer modal (``None`` when no model backed this seat)."""
 
     label: str
     prob: float | None = None
     score: float | None = None
     selected: bool = False
+    choice_stripes: list[EncodedStripe] | None = None
 
 
 class LogItem(pydantic.BaseModel):
@@ -151,7 +186,9 @@ class LogItem(pydantic.BaseModel):
     with option bars; ``"forced"`` renders as a non-collapsible outcome box;
     ``"note"`` renders as a muted standalone notification; ``"group"`` renders
     as a collapsible parent whose body is its ``children`` items (no option bars
-    at the top level)."""
+    at the top level).  ``state_stripes`` carries the non-zero state-vector
+    stripes for the encoding-viewer modal (shared across all options in one
+    decision; ``None`` for non-decision items or when no model backed this seat)."""
 
     kind: typing.Literal["decision", "forced", "note", "group"]
     player_id: int | None
@@ -159,6 +196,7 @@ class LogItem(pydantic.BaseModel):
     options: list[DecisionOption] = []
     forced: bool = False
     children: list[LogItem] = []
+    state_stripes: list[EncodedStripe] | None = None
 
 
 class PhaseRecord(pydantic.BaseModel):
@@ -311,6 +349,20 @@ _DOCUMENT = """\
     <div id="chart-body">
       <svg id="chart-svg-top"></svg>
       <svg id="chart-svg-bottom"></svg>
+    </div>
+  </div>
+</div>
+<div id="enc-modal" role="dialog" aria-modal="true" aria-label="Feature encoding">
+  <div id="enc-dialog">
+    <div id="enc-header">
+      <span id="enc-opt-label"></span>
+      <button id="enc-close" title="Close (Esc)">&#x2715;</button>
+    </div>
+    <div id="enc-body">
+      <h3 class="enc-section-title">Game State</h3>
+      <div id="enc-state"></div>
+      <h3 class="enc-section-title">This Choice</h3>
+      <div id="enc-choice"></div>
     </div>
   </div>
 </div>
@@ -630,11 +682,62 @@ main {
 .chart-hit { fill: transparent; cursor: pointer; }
 .chart-hit:hover { fill: rgba(255,255,255,.1); }
 .chart-legend { font: 10px/1.4 sans-serif; fill: #94a3b8; }
+
+/* === Encoding viewer modal === */
+#enc-modal {
+  display: none; position: fixed; inset: 0; z-index: 300;
+  background: rgba(0,0,0,.6); align-items: center; justify-content: center;
+}
+#enc-modal.open { display: flex; }
+#enc-dialog {
+  background: #0f172a; border-radius: 10px; padding: 0;
+  width: min(700px, 95vw); max-height: 90vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,.6);
+}
+#enc-header {
+  display: flex; align-items: center; padding: 10px 16px;
+  border-bottom: 1px solid #1e293b; flex-shrink: 0; gap: 8px;
+}
+#enc-opt-label { color: #a7f3d0; font-weight: 700; font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#enc-close {
+  background: none; border: none; color: #94a3b8; font-size: 18px;
+  cursor: pointer; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+}
+#enc-close:hover { background: #1e293b; color: #e2e8f0; }
+#enc-body { padding: 10px 16px 16px; overflow-y: auto; flex: 1; }
+.enc-section-title {
+  font-size: 12px; font-weight: 700; color: #94a3b8;
+  text-transform: uppercase; letter-spacing: 1px; margin: 10px 0 5px;
+}
+.enc-section-title:first-child { margin-top: 2px; }
+.enc-none { color: #475569; font-size: 12px; font-style: italic; padding: 4px 0; }
+.enc-stripe {
+  margin-bottom: 6px; border: 1px solid #1e293b; border-radius: 5px; overflow: hidden;
+}
+.enc-stripe > summary {
+  padding: 5px 9px; font-size: 11px; font-weight: 600; color: #e2e8f0;
+  background: #1e293b; cursor: pointer; list-style: none; user-select: none;
+}
+.enc-stripe > summary::-webkit-details-marker { display: none; }
+.enc-stripe > summary:hover { background: #334155; }
+.enc-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.enc-table td { padding: 3px 8px; border-bottom: 1px solid #0f172a; vertical-align: top; }
+.enc-table tr:last-child td { border-bottom: none; }
+.enc-name { color: #93c5fd; font-family: 'Fira Code', Consolas, monospace; white-space: nowrap; width: 1px; }
+.enc-desc { color: #94a3b8; }
+.enc-notes { color: #475569; font-size: 9px; display: block; }
+.enc-val { color: #4ade80; font-family: 'Fira Code', Consolas, monospace; white-space: nowrap; width: 1px; text-align: right; padding-right: 12px; }
+.enc-range { color: #475569; white-space: nowrap; width: 1px; }
+.di-opt { cursor: pointer; }
+.di-opt:hover { background: rgba(255,255,255,.05); }
 """
 
 _SCRIPT = r"""
 'use strict';
 const DATA = JSON.parse(document.getElementById('game-log-data').textContent);
+// Registry of encoding data for the viewer modal; populated during renderLogItem.
+const _encData = [];
 const HAB_CLASS = {'Forest':'hab-forest','Grassland':'hab-grassland','Wetland':'hab-wetland'};
 const FOOD_EMOJI = {
   invertebrate: '\u{1F41B}', seed: '\u{1F33E}', fish: '\u{1F41F}',
@@ -972,7 +1075,9 @@ function renderLogItem(item) {
     const rawScore = o.score != null ? o.score : null;
     const scoreText = rawScore != null ? (rawScore >= 0 ? '+' : '') + rawScore.toFixed(1) : '';
     const selCls = o.selected ? ' selected' : '';
-    return '<div class="di-opt' + selCls + '">'
+    const encIdx = _encData.length;
+    _encData.push({label: o.label, stateStripes: item.state_stripes || null, choiceStripes: o.choice_stripes || null});
+    return '<div class="di-opt' + selCls + '" onclick="openEncModal(' + encIdx + ')" title="Click to inspect encoding">'
       + '<span class="di-opt-label">' + applyFoodEmoji(esc(o.label)) + '</span>'
       + '<span class="di-opt-right">'
       +   '<span class="di-bar"><span class="di-bar-fill" style="width:' + barWidth + '%"></span></span>'
@@ -995,6 +1100,57 @@ function renderLog(phase) {
   }
   log.innerHTML = items.map(renderLogItem).join('');
 }
+
+// ---- Encoding viewer modal ----
+
+function openEncModal(idx) {
+  const data = _encData[idx];
+  if (!data) return;
+  document.getElementById('enc-opt-label').textContent = data.label;
+  document.getElementById('enc-state').innerHTML =
+    data.stateStripes && data.stateStripes.length
+      ? renderStripes(data.stateStripes)
+      : '<p class="enc-none">No encoding data for this decision.</p>';
+  document.getElementById('enc-choice').innerHTML =
+    data.choiceStripes && data.choiceStripes.length
+      ? renderStripes(data.choiceStripes)
+      : '<p class="enc-none">No encoding data for this option.</p>';
+  document.getElementById('enc-modal').classList.add('open');
+}
+
+function closeEncModal() {
+  document.getElementById('enc-modal').classList.remove('open');
+}
+
+function renderStripes(stripes) {
+  return stripes.map(s =>
+    '<details class="enc-stripe" open>'
+    + '<summary><b>' + esc(s.name) + '</b> — ' + esc(s.description) + '</summary>'
+    + '<table class="enc-table">'
+    + (s.sub_fields || []).map(renderSubField).join('')
+    + '</table>'
+    + '</details>'
+  ).join('');
+}
+
+function renderSubField(field) {
+  let val = '';
+  if (field.active_index != null) val = 'index ' + field.active_index;
+  else if (field.raw_value != null) val = field.raw_value.toFixed(4);
+  else if (field.raw_values && field.raw_values.length) val = field.raw_values.map(v => v.toFixed(4)).join(', ');
+  const notes = field.notes ? '<span class="enc-notes">' + esc(field.notes) + '</span>' : '';
+  return '<tr>'
+    + '<td class="enc-name">' + esc(field.name) + '</td>'
+    + '<td class="enc-desc">' + esc(field.description) + notes + '</td>'
+    + '<td class="enc-val">' + esc(val) + '</td>'
+    + '<td class="enc-range">' + esc(field.value_range) + '</td>'
+    + '</tr>';
+}
+
+document.getElementById('enc-close').addEventListener('click', closeEncModal);
+document.getElementById('enc-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('enc-modal')) closeEncModal();
+});
 
 function hasRound(delta) {
   let idx = phaseIdx + delta;
@@ -1044,7 +1200,7 @@ document.querySelectorAll('#view-toggle button').forEach(btn => {
 document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') step(-1);
   else if (e.key === 'ArrowRight') step(1);
-  else if (e.key === 'Escape') closeChart();
+  else if (e.key === 'Escape') { closeChart(); closeEncModal(); }
 });
 // Start on the first non-game_start phase so the empty pre-deal board is skipped.
 if (DATA.phases.length && DATA.phases[0].kind === 'game_start') {

@@ -70,6 +70,15 @@ coordinates for value/target lines, reusing `timestamps.discounted_future_return
 Imported lazily by the `GameLogHtml` instrumentation handler so its `engine`
 dependency stays off the import-time path.
 
+**`encode_viewer.py`** — extracts non-zero stripe summaries from raw encoder vectors for
+the HTML encoding-viewer modal. `extract_state_stripes(vector, include_setup, card_embed_dim)`
+and `extract_choice_stripes(choice_vec, include_setup, card_embed_dim)` each call the
+appropriate `stripes.{state,choice}_stripe_layout(spec, card_embed_dim)` to get the
+canonical `VectorLayout`, then walk its stripes, skip all-zero and `encoding=="complex"`
+stripes, and build a list of `EncodedStripe` records (each holding only non-zero
+`EncodedSubField` entries). Called lazily from `game_log_capture.build_decision_item`
+to avoid the `engine` ↔ `reporting` import cycle.
+
 **`humanize.py`** — leaf humanizer module with no engine or torch imports.
 `humanize_choice(choice, gs, player_id)` → concise option label per Choice
 subclass. `humanize_outcome(decision, choice, gs)` → third-person summary for

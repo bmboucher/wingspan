@@ -22,11 +22,21 @@ class PolicyAnnotation(pydantic.BaseModel):
     ``probs`` is the softmax distribution over the offered choices (same order
     as ``decision.choices``); ``scores`` is the raw logits when available (main
     net) or ``None`` (setup-net value-only mode); ``chosen_idx`` is the index
-    of the option that was actually played."""
+    of the option that was actually played.
+
+    ``state_vec`` and ``choice_feats`` carry the raw encoder outputs for the
+    encoding-viewer modal; they are present only for main-net decisions (the
+    setup path leaves them ``None``). ``include_setup`` and ``card_embed_dim``
+    are the two values needed to reconstruct the correct :class:`VectorLayout`
+    from the stripe registry."""
 
     probs: list[float]
     scores: list[float] | None = None
     chosen_idx: int
+    state_vec: list[float] | None = None
+    choice_feats: list[list[float]] | None = None
+    include_setup: bool | None = None
+    card_embed_dim: int | None = None
 
 
 class DecisionProbe:

@@ -133,7 +133,14 @@ def build_decision_item(
     Selects up to ``_MAX_DECISION_OPTIONS`` options by probability (always
     including the chosen option even if it falls outside the top N) and builds
     a ``DecisionOption`` for each using the humanizer.  The ``text`` field
-    holds the humanized outcome summary shown in the collapsed header."""
+    holds the humanized outcome summary shown in the collapsed header.
+
+    When the annotation carries raw encoder vectors (main-net decisions only),
+    extracts non-zero state stripes (shared across all options) and per-option
+    choice stripes via :mod:`wingspan.reporting.encode_viewer` for the
+    encoding-viewer modal."""
+    from wingspan.reporting import encode_viewer
+
     gs = engine.state
     n_choices = len(decision.choices)
     ranked = sorted(
@@ -145,9 +152,32 @@ def build_decision_item(
     if annotation.chosen_idx not in shown_indices:
         shown_indices = shown_indices[:-1] + [annotation.chosen_idx]
 
+    # Extract state stripes once (shared across all options for this decision).
+    state_stripes: list[game_log_html.EncodedStripe] | None = None
+    if annotation.state_vec is not None and annotation.card_embed_dim is not None:
+        state_stripes = encode_viewer.extract_state_stripes(
+            annotation.state_vec,
+            include_setup=annotation.include_setup or False,
+            card_embed_dim=annotation.card_embed_dim,
+        )
+
     options: list[game_log_html.DecisionOption] = []
     for idx in shown_indices:
         idx_choice = decision.choices[idx]
+
+        # Extract per-option choice stripes from the annotation's choice matrix.
+        choice_stripes: list[game_log_html.EncodedStripe] | None = None
+        if (
+            annotation.choice_feats is not None
+            and annotation.card_embed_dim is not None
+            and idx < len(annotation.choice_feats)
+        ):
+            choice_stripes = encode_viewer.extract_choice_stripes(
+                annotation.choice_feats[idx],
+                include_setup=annotation.include_setup or False,
+                card_embed_dim=annotation.card_embed_dim,
+            )
+
         options.append(
             game_log_html.DecisionOption(
                 label=humanize.humanize_choice(
@@ -156,6 +186,7 @@ def build_decision_item(
                 prob=annotation.probs[idx],
                 score=annotation.scores[idx] if annotation.scores is not None else None,
                 selected=(idx == annotation.chosen_idx),
+                choice_stripes=choice_stripes,
             )
         )
 
@@ -164,6 +195,7 @@ def build_decision_item(
         player_id=decision.player_id,
         text=humanize.humanize_outcome(decision, choice, gs),
         options=options,
+        state_stripes=state_stripes,
     )
 
 
