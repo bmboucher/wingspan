@@ -239,6 +239,15 @@ def record_setup_decision(
         capture.kept_card_names = {bird.name for bird in choice.kept_cards}
         if choice.bonus_card is not None:
             capture.kept_bonus_name = choice.bonus_card.name
+            # In combined regime the bonus is baked into SetupChoice; there is no
+            # follow-up BonusCardChoice, so we set the bonus_item here as a forced
+            # entry.  The deferred-bonus regime sets it via the BonusCardChoice branch.
+            capture.bonus_item = game_log_html.LogItem(
+                kind="forced",
+                player_id=decision.player_id,
+                text=choice.bonus_card.name,
+                forced=True,
+            )
         if choice.kept_foods:
             capture.combined_food_labels = [food.value for food in choice.kept_foods]
         names = ", ".join(bird.name for bird in choice.kept_cards) or "no birds"
@@ -341,18 +350,20 @@ def finalize_setup_phase(
     else:
         kept_food_labels = capture.food_gained
 
-    # Build the food group node when there is food to report: either individual
-    # food decisions to expand (split-food regime) or a combined-regime label
-    # baked into the SetupChoice.  In the combined regime food_items is empty so
-    # the group has no children but still surfaces the kept-food summary.
+    # Build the food group node when there is food to report.  Use "group" (a
+    # collapsible toggle with per-decision children) only when individual food
+    # decisions exist (split-food regime).  In combined regime food_items is
+    # empty — use "forced" so the summary renders as a plain, non-collapsible
+    # line rather than an empty clickable toggle.
     food_group: game_log_html.LogItem | None = None
     if capture.food_items or kept_food_labels:
         kept_label = ", ".join(kept_food_labels) if kept_food_labels else "no food"
         food_group = game_log_html.LogItem(
-            kind="group",
+            kind="group" if capture.food_items else "forced",
             player_id=phase.active_player_id,
             text=f"Keeps {kept_label}",
             children=list(capture.food_items),
+            forced=not bool(capture.food_items),
         )
 
     # Assemble the phase log: [keep-choice, food-group, bonus-choice] (skipping None).
