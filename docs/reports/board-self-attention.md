@@ -1,5 +1,11 @@
 # Board Self-Attention Feasibility
 
+**Status: Board-only pass implemented.** `use_board_attention: bool = False` is now
+a configurable field in `ModelArchitecture` (REGIME — no `MODEL_VERSION` bump, no
+compat shim; see corrected classification below). Enable it in the configurator
+under MODEL ARCHITECTURE ▸ STATE TRUNK. The below analysis stands; sections marked
+✓DONE are reflected in the live code.
+
 **Question:** Would a self-attention layer over the 15 board slots improve the
 model — and can the same mechanism be extended to the hand and tray as input
 tokens?
@@ -367,36 +373,35 @@ flat slot block is replaced by a pooled summary.
 
 ---
 
-## FRESH classification and ShapeKey implications
+## ✓DONE REGIME classification and ShapeKey implications
 
-Self-attention changes `trunk_input_dim` in all integration options (the slot path
-feeds a different number of dims into the trunk). This is a **FRESH change**
-by the definition in `docs/VERSIONING.md`: it changes tensor shapes, so old
-checkpoints cannot be loaded against the new architecture.
+*Correction from original draft: the initial analysis classified this as FRESH
+(requiring a `MODEL_VERSION` bump, compat shim, and LFS fixture set). That was
+an over-classification. The correct classification is **REGIME** — see rationale
+below.*
 
-`ShapeKey` is defined at `src/wingspan/architecture.py:40–56`. The current tuple
-is **15 elements** long; the fields that would need to be added for board attention:
+The **residual in-place** integration (Option B) keeps `trunk_input_dim` unchanged:
+the two board continuous stripes (270 dims) are excised from the continuous prefix
+and re-folded into the flattened attended tokens (15×(E+9) per board = 270 dims each),
+so the total width fed to the trunk's first Linear is identical with attention on or
+off. `encode.trunk_input_dim` is not modified.
 
-| New field | Why it must join ShapeKey |
-|-----------|--------------------------|
-| `use_board_attention: bool = False` | False-path must produce the same trunk input dim as today so a False checkpoint loads; True-path changes trunk input dim |
-| `board_attn_heads: int = 1` | changes the internal projection shapes (only when the embed_dim is split unevenly; harmless to include for clarity) |
-| `board_attn_dim: int \| None = None` | if added as a projection bottleneck, changes the attention weight shapes |
+Because the encoding is byte-identical (same `encode_state` / `encode_choices` output
+regardless of the flag), `use_board_attention` is **config-carried** — it lives in
+`model_config.json`, defaults `False`, and old artifacts rehydrate to `False` and
+run identically. No encoding change → no FRESH classification. Per
+`docs/VERSIONING.md` (lines 394–406), config-carried topology flags are REGIME even
+when they change architecture shapes, because they travel with the artifact.
+
+`ShapeKey` is defined at `src/wingspan/architecture.py:40–56`. The tuple is now
+**16 elements** (added `bool  # use_board_attention`), purely so a `True`-run
+refuses to resume `False`-weights and vice-versa — handled gracefully by the
+`architecture_key` gate (mismatch → fresh run, no crash). This is the same
+mechanism every other topology knob uses; none of them triggered a version bump.
 
 A unified hand/tray variant would add at least one more flag (e.g.
 `card_attention_scope`) plus the hand cap `H_max` and the location-stripe width to
-the shape signature.
-
-With `use_board_attention=False` (the default) the trunk receives the same
-per-slot board embedding it does today. Old checkpoints simply have the field
-absent from their saved `model_config.json`; Pydantic assigns the default `False`,
-and `shape_key` resolves to the same value as the current model's key — so old
-checkpoints are **not broken by the addition** as long as `use_board_attention=False`
-preserves the current tensor shapes exactly.
-
-Enabling `use_board_attention=True` requires a `MODEL_VERSION` bump (currently
-`0.6`; see `docs/VERSIONING.md`), a new compat shim in `wingspan.compat`, and a new
-LFS fixture set — the standard FRESH path.
+the shape signature — still REGIME for the same reason.
 
 ---
 
@@ -434,38 +439,21 @@ right bottleneck to address now.**
 - The unified hand/tray variant additionally crosses the POV-separation line the
   current encoder maintains; it is the more speculative, later experiment.
 
-### Verdict
+### ✓DONE Verdict / Experiment
 
-**Defer until Phase 1 (baseline established), then try board-only attention as a
-single-flag experiment first.** The board-only implementation is contained (one new
-`ModelArchitecture` field + a dozen lines in `_embed_state`), so it can be turned on
-without touching the rest of the codebase. The Phase 0 checkpoint serves as the
-control. The location-tagged hand/tray unification is the **second** experiment,
-attempted only if board attention shows signal — it is a larger shape change and
-relaxes the encoder's POV separation, so it should not be the first thing tried.
+**Board-only attention is implemented.** Toggle `use_board_attention` in the
+configurator under MODEL ARCHITECTURE ▸ STATE TRUNK. No version bump is needed
+(REGIME classification; see above).
 
-### Minimal experiment sketch (board-only)
-
-1. Add `use_board_attention: bool = False` to `ModelArchitecture` and to
-   `shape_key` (`src/wingspan/architecture.py:40–56`).
-2. In `_embed_state` (`core.py:507–607`), before flattening: if
-   `use_board_attention`, reshape the own-board slice of `slot_emb` to
-   `[B, 15, card_embed_dim]`, gather the matching 9 mutable scalars out of the
-   `board_me` continuous stripe to get `[B, 15, 73]`, build a `key_padding_mask`
-   for empty slots, apply `nn.MultiheadAttention`, pool (or flatten), then
-   substitute back into the concat. (The mutable scalars and the embedded slot
-   vectors live in *different* parts of the flat vector today — the scalars in the
-   continuous prefix, the embeddings reconstructed from the index block — so the
-   token build gathers from both.)
-3. Train two runs from the same random seed: one with `use_board_attention=False`
-   (baseline) and one with `use_board_attention=True` (experiment). Hold all other
-   hyperparameters fixed.
-4. Compare: win rate vs. random after 500K games, win rate in self-play eval, and
+**Experiment protocol:**
+1. Train two runs from the same random seed: `use_board_attention=False` (baseline)
+   and `use_board_attention=True` (experiment). Hold all other hyperparameters fixed.
+2. Compare: win rate vs. random after 500 K games, win rate in self-play eval, and
    sample efficiency (games to 55% win rate).
-5. If the attended model reaches the baseline win rate with fewer games, or
-   surpasses it, the inductive bias is paying off and the FRESH version bump is
-   warranted — and the unified hand/tray variant becomes worth its larger cost.
+3. If the attended model reaches the baseline win rate with fewer games, or surpasses
+   it, the inductive bias is paying off — and the unified hand/tray variant becomes
+   worth its larger cost.
 
-The experiment requires a `MODEL_VERSION` bump + compat shim only for the
-`use_board_attention=True` run; the control run loads existing checkpoints without
-a shim.
+The location-tagged hand/tray unification remains a **second** experiment, attempted
+only if board attention shows signal. It relaxes the encoder's POV separation and is
+a larger change; it should not be the first thing tried.

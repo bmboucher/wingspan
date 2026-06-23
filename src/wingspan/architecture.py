@@ -53,6 +53,7 @@ type ShapeKey = tuple[
     tuple[int, ...],  # hand_encoder_layers
     int,  # hand_embed_width (the *resolved* N, so None == explicit-equal)
     bool,  # tray_set_embedding
+    bool,  # use_board_attention
 ]
 
 
@@ -133,6 +134,13 @@ class ModelArchitecture(pydantic.BaseModel):
     # those lack the key in their saved model_config.json, so Pydantic assigns
     # this default and inference runs without the final relu, unchanged.
     encoder_final_activation: bool = False
+    # When True, each player's 15 board slots are attended over as tokens
+    # (card_embed_dim + 9 scalars wide) before the state trunk, using two
+    # independent nn.MultiheadAttention modules (one per seat). Config-carried
+    # (lives in model_config.json), default False → old artifacts rehydrate
+    # identically with no compat shim. Joins ShapeKey so a True run won't try
+    # to resume False weights (handled by the architecture_key gate, REGIME).
+    use_board_attention: bool = False
 
     # Per-block activation/dropout/layernorm overrides — None = inherit the global
     # field above. Old checkpoints that predate these fields rehydrate to None→global
@@ -324,6 +332,7 @@ class ModelArchitecture(pydantic.BaseModel):
             self.hand_encoder_layers,
             self.hand_embed_width,
             self.tray_set_embedding,
+            self.use_board_attention,
         )
 
 
@@ -377,17 +386,21 @@ class ParamReport(pydantic.BaseModel):
     # Present only when ``ModelArchitecture.use_distinct_hand_model`` is active;
     # ``None`` in the default (mean-pool) configuration.
     hand: BlockParam | None = None
+    # Present only when ``ModelArchitecture.use_board_attention`` is active;
+    # ``None`` in the default (no-attention) configuration.
+    board_attention: BlockParam | None = None
 
     @property
     def blocks(self) -> tuple[BlockParam, ...]:
-        """The network blocks in flow order: embed, hand (if active), trunk, choice,
-        scorer, value."""
-        base = (self.embed, self.trunk, self.choice, self.scorer, self.value)
-        return (
-            (self.embed, self.hand, self.trunk, self.choice, self.scorer, self.value)
-            if self.hand is not None
-            else base
-        )
+        """The network blocks in flow order: embed, hand (if active),
+        board_attention (if active), trunk, choice, scorer, value."""
+        result: list[BlockParam] = [self.embed]
+        if self.hand is not None:
+            result.append(self.hand)
+        if self.board_attention is not None:
+            result.append(self.board_attention)
+        result.extend([self.trunk, self.choice, self.scorer, self.value])
+        return tuple(result)
 
     @property
     def total(self) -> int:
@@ -403,6 +416,7 @@ def count_parameters(
     choice_in: int,
     num_families: int,
     hand_feat_in: int = 0,
+    slot_scalar_dim: int = 9,
 ) -> ParamReport:
     """Analytic per-block parameter accounting for the network ``arch`` describes.
 
@@ -414,7 +428,9 @@ def count_parameters(
     ``encode.{trunk,choice}_input_dim``) are passed in to keep this module free of
     the encoder / torch. When ``arch.use_distinct_hand_model`` is active,
     ``hand_feat_in`` (``encode.HAND_ENCODER_INPUT_DIM``) must also be supplied so
-    the HAND block's parameter count is correct.
+    the HAND block's parameter count is correct. ``slot_scalar_dim`` (default 9)
+    is the mutable-scalar count per board slot, passed explicitly so this function
+    stays encode-free.
     """
     # The trunk ends at width M and the choice encoder at width N; the scorer
     # heads read the M+N concat and the value head reads the trunk's M alone,
@@ -436,6 +452,20 @@ def count_parameters(
                 arch,
                 layernorm=arch.hand_layernorm_resolved,
             ),
+        )
+
+    # Build the optional BOARD ATTENTION block. Each nn.MultiheadAttention with
+    # embed_dim=W has: in_proj_weight[3W,W] + in_proj_bias[3W] + out_proj[W,W]
+    # + out_proj.bias[W] = 4W² + 4W params. Two modules (own + opp) → 8W² + 8W.
+    board_attn_block: BlockParam | None = None
+    if arch.use_board_attention:
+        token_width = arch.card_embed_dim + slot_scalar_dim
+        attn_params = 4 * token_width * token_width + 4 * token_width
+        board_attn_block = BlockParam(
+            label="BOARD ATTN",
+            layers=(),
+            multiplier=1,
+            extra=2 * attn_params,  # own board + opp board
         )
 
     return ParamReport(
@@ -471,6 +501,7 @@ def count_parameters(
             label="VALUE", layers=readout_layers(trunk_m, arch.value_layers)
         ),
         hand=hand_block,
+        board_attention=board_attn_block,
     )
 
 

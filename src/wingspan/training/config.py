@@ -157,6 +157,10 @@ class MainNetArchitecture(pydantic.BaseModel):
     # carry their own value and continue working).
     tray_set_embedding: bool = False
 
+    # When True, each player's 15 board slots are attended over as tokens before
+    # the trunk. Config-carried; default False so old checkpoints load unchanged.
+    use_board_attention: bool = False
+
     # When enabled, card/hand/choice encoders apply a final activation after
     # their last layer. Saved so old checkpoints keep their original behaviour.
     encoder_final_activation: bool = True
@@ -517,6 +521,7 @@ class RunConfig(pydantic.BaseModel):
             hand_encoder_layers=main.hand_encoder_layers,
             hand_embed_dim=main.hand_embed_dim,
             tray_set_embedding=main.tray_set_embedding,
+            use_board_attention=main.use_board_attention,
             encoder_final_activation=main.encoder_final_activation,
             card_activation=main.card_activation,
             card_dropout=main.card_dropout,
@@ -809,6 +814,7 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "hand_encoder_layers",
         "hand_embed_dim",
         "tray_set_embedding",
+        "use_board_attention",
         "encoder_final_activation",
     }
     setup_arch_keys = {

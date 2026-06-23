@@ -99,6 +99,9 @@ class PolicyValueNet(nn.Module):
     card_features: torch.Tensor
     card_pad_mask: torch.Tensor
     card_summary_matrix: torch.Tensor
+    # Optional attention modules, registered only when use_board_attention is on.
+    board_attn_me: nn.MultiheadAttention
+    board_attn_opp: nn.MultiheadAttention
 
     def __init__(
         self,
@@ -142,6 +145,7 @@ class PolicyValueNet(nn.Module):
         # submodules named in the method's docstring.
         self._build_card_encoder(arch)
         self._build_hand_encoder(arch)
+        self._build_board_attention(arch)
         self._build_trunk(state_dim, arch)
         self._build_choice_encoder(choice_dim, arch)
         self._build_scorers(arch, num_families)
@@ -365,6 +369,25 @@ class PolicyValueNet(nn.Module):
                 persistent=False,
             )
 
+    def _build_board_attention(self, arch: architecture.ModelArchitecture) -> None:
+        """Register ``board_attn_me`` and ``board_attn_opp`` (conditional).
+
+        When ``use_board_attention`` is on, two independent
+        ``nn.MultiheadAttention`` modules are registered — one for the active
+        player's board, one for the opponent's — each operating over 15 token
+        slots of width ``card_embed_dim + SLOT_SCALAR_DIM``. Single-head only for
+        this first pass (73 = prime for the default 64+9 token width; multi-head
+        would require a projection)."""
+        if not arch.use_board_attention:
+            return
+        token_dim = arch.card_embed_dim + encode.SLOT_SCALAR_DIM
+        self.board_attn_me = nn.MultiheadAttention(
+            embed_dim=token_dim, num_heads=1, batch_first=True
+        )
+        self.board_attn_opp = nn.MultiheadAttention(
+            embed_dim=token_dim, num_heads=1, batch_first=True
+        )
+
     def _build_trunk(
         self, state_dim: int, arch: architecture.ModelArchitecture
     ) -> None:
@@ -518,8 +541,15 @@ class PolicyValueNet(nn.Module):
         so the trunk's continuous feed is correspondingly narrower. Each extra
         playability multi-hot block is embedded through the same encoder (or
         mean-pooled) and appended after the hand embedding. When
-        ``tray_set_embedding`` is also on, one tray-*set* embedding is appended."""
+        ``tray_set_embedding`` is also on, one tray-*set* embedding is appended.
+
+        When ``use_board_attention`` is on the work is delegated to
+        :meth:`_embed_state_board_attention` which runs self-attention over each
+        player's 15 board slots before flattening — the total width is identical
+        to the non-attention path, so ``trunk_input_dim`` is unchanged."""
         offsets = self._state_embed_offsets()
+        if self.arch.use_board_attention:
+            return self._embed_state_board_attention(state, card_table, offsets)
         off_index = offsets.card_index
         off_hand = offsets.hand_multihot
         off_decision = offsets.decision_type
@@ -606,6 +636,156 @@ class PolicyValueNet(nn.Module):
             [continuous, slot_emb, tray_set_emb, hand_emb, *extra_embs], dim=-1
         )
 
+    def _embed_state_board_attention(
+        self,
+        state: torch.Tensor,
+        card_table: torch.Tensor,
+        offsets: StateEmbedOffsets,
+    ) -> torch.Tensor:
+        """Board-attention branch of ``_embed_state``.
+
+        Constructs 15-token sequences for each player's board
+        (token = card_embed ⊕ 9 mutable scalars), applies masked self-attention
+        with a residual, then concatenates the flattened outputs in place of
+        the standard per-slot card lookups + board-stripe continuous dims. The
+        total output width is identical to the non-attention path — the two
+        board continuous stripes (270 dims) are excised from ``continuous`` and
+        re-folded into the flattened tokens (15×(E+9) each = 270 dims in total
+        per board), keeping ``trunk_input_dim`` unchanged."""
+        off_index = offsets.card_index
+        off_hand = offsets.hand_multihot
+        off_decision = offsets.decision_type
+
+        # Card-index block: [B, 33] — own 0..14, opp 15..29, tray 30..32.
+        card_idx = (
+            state[:, off_index:off_hand].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
+        )
+
+        # Per-slot card table lookups — [B, 33, E], NOT flattened yet.
+        slot_emb_all = card_table[card_idx]
+        own_card_emb = slot_emb_all[:, : encode.SLOTS_PER_BOARD]
+        opp_card_emb = slot_emb_all[
+            :, encode.SLOTS_PER_BOARD : encode.N_BOARD_INDEX_SLOTS
+        ]
+        tray_flat = slot_emb_all[:, encode.N_BOARD_INDEX_SLOTS :].reshape(
+            state.shape[0], -1
+        )
+
+        # Mutable board scalars [B, 15, 9] for each player.
+        off_bme = encode.OFF_BOARD_ME
+        off_bopp = encode.OFF_BOARD_OPP
+        board_end = off_bopp + encode.BOARD_CONT_STRIPE_DIM
+        own_scalars = state[
+            :, off_bme : off_bme + encode.BOARD_CONT_STRIPE_DIM
+        ].reshape(state.shape[0], encode.SLOTS_PER_BOARD, encode.SLOT_SCALAR_DIM)
+        opp_scalars = state[
+            :, off_bopp : off_bopp + encode.BOARD_CONT_STRIPE_DIM
+        ].reshape(state.shape[0], encode.SLOTS_PER_BOARD, encode.SLOT_SCALAR_DIM)
+
+        # Tokens = [card_embed ⊕ scalars]: [B, 15, E+9].
+        own_tokens = torch.cat([own_card_emb, own_scalars], dim=-1)
+        opp_tokens = torch.cat([opp_card_emb, opp_scalars], dim=-1)
+
+        # Empty-slot masks: True = padding slot (card_idx == 0).
+        own_empty = card_idx[:, : encode.SLOTS_PER_BOARD] == 0
+        opp_empty = (
+            card_idx[:, encode.SLOTS_PER_BOARD : encode.N_BOARD_INDEX_SLOTS] == 0
+        )
+
+        # Apply attention and residual; flatten to [B, 15*(E+9)].
+        own_flat = _apply_board_attention(self.board_attn_me, own_tokens, own_empty)
+        opp_flat = _apply_board_attention(self.board_attn_opp, opp_tokens, opp_empty)
+
+        # Build continuous prefix with board stripes excised (they rode inside
+        # the attention tokens). Boards are adjacent in the layout so one
+        # contiguous slice covers both.
+        hand_span = state[:, off_hand:off_decision]
+        n_total = hand_span.shape[-1] // encode.HAND_MULTIHOT_DIM
+        hand_multihot = hand_span[:, : encode.HAND_MULTIHOT_DIM]
+        extra_multihots = [
+            hand_span[
+                :, (k * encode.HAND_MULTIHOT_DIM) : ((k + 1) * encode.HAND_MULTIHOT_DIM)
+            ]
+            for k in range(1, n_total)
+        ]
+
+        if self.arch.use_distinct_hand_model:
+            hand_sum_off = offsets.hand_summary
+            hand_sum_end = hand_sum_off + encode.HAND_SUMMARY_DIM
+            # Excise board_me + board_opp and hand_summary from the prefix.
+            continuous = torch.cat(
+                [
+                    state[:, :off_bme],
+                    state[:, board_end:hand_sum_off],
+                    state[:, hand_sum_end:off_index],
+                    state[:, off_decision:],
+                ],
+                dim=-1,
+            )
+            hand_summary = state[:, hand_sum_off:hand_sum_end]
+            hand_emb = hand_model.embed_card_set(
+                self.hand_encoder, hand_multihot, hand_summary
+            )
+            extra_embs = [
+                hand_model.embed_card_set(
+                    self.hand_encoder,
+                    mh,
+                    hand_model.set_summary_from_multihot(
+                        mh, self.card_summary_matrix[1:]
+                    ),
+                )
+                for mh in extra_multihots
+            ]
+        else:
+            # Excise board_me + board_opp from the prefix only.
+            continuous = torch.cat(
+                [
+                    state[:, :off_bme],
+                    state[:, board_end:off_index],
+                    state[:, off_decision:],
+                ],
+                dim=-1,
+            )
+            hand_sum = hand_multihot @ card_table[1:]
+            hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
+            hand_emb = hand_sum / hand_count
+            extra_embs: list[torch.Tensor] = []
+            for mh in extra_multihots:
+                mh_sum = mh @ card_table[1:]
+                mh_count = mh.sum(dim=-1, keepdim=True).clamp(min=1.0)
+                extra_embs.append(mh_sum / mh_count)
+
+        # Tray: identical to the standard path (tray_flat already computed).
+        if not self.arch.tray_set_embedding:
+            return torch.cat(
+                [continuous, own_flat, opp_flat, tray_flat, hand_emb, *extra_embs],
+                dim=-1,
+            )
+
+        # Tray-set embedding through the shared hand encoder.
+        tray_idx = card_idx[:, encode.N_BOARD_INDEX_SLOTS :]
+        tray_multihot = hand_model.multihot_from_indices(
+            tray_idx, encode.HAND_MULTIHOT_DIM
+        )
+        tray_summary = hand_model.set_summary_from_indices(
+            tray_idx, self.card_summary_matrix
+        )
+        tray_set_emb = hand_model.embed_card_set(
+            self.hand_encoder, tray_multihot, tray_summary
+        )
+        return torch.cat(
+            [
+                continuous,
+                own_flat,
+                opp_flat,
+                tray_flat,
+                tray_set_emb,
+                hand_emb,
+                *extra_embs,
+            ],
+            dim=-1,
+        )
+
     def _embed_choices(
         self, choices: torch.Tensor, card_table: torch.Tensor
     ) -> torch.Tensor:
@@ -676,3 +856,41 @@ class PolicyValueNet(nn.Module):
                 [choices[..., :off_board], choices[..., end_bird:]], dim=-1
             )
             return torch.cat([rest, cand_emb, board_emb], dim=-1)
+
+
+###### MODULE-LEVEL HELPERS ######
+
+
+def _apply_board_attention(
+    attn: nn.MultiheadAttention,
+    tokens: torch.Tensor,
+    empty: torch.Tensor,
+) -> torch.Tensor:
+    """Masked self-attention with residual over one player's 15 board slots.
+
+    Args:
+        attn:   the ``nn.MultiheadAttention`` module for this player's board.
+        tokens: ``(B, 15, E+9)`` — one token per slot (card embed ⊕ scalars).
+                Empty slots have zero-vector tokens (``card_pad_mask`` + zero scalars).
+        empty:  ``(B, 15)`` bool, True = empty slot (card_idx == 0).
+
+    Returns:
+        ``(B, 15*(E+9))`` — attended+residual tokens, flattened.
+
+    The NaN guard: when ALL 15 slots in a row are empty (common at game start),
+    ``key_padding_mask=empty`` would make every key masked, causing ``softmax``
+    over ``-inf`` → NaN.  We clone the mask and unmask slot 0 as a dummy key for
+    those rows. Because the dummy token is a zero vector the attention output for
+    those rows is ≈ 0; the subsequent ``masked_fill`` and the zero token ensure
+    the residual is exactly 0 for every empty slot either way."""
+    # Guard: unmask slot 0 as dummy key for fully-empty boards.
+    safe = empty.clone()
+    safe[empty.all(1), 0] = False
+
+    out, _ = attn(tokens, tokens, tokens, key_padding_mask=safe, need_weights=False)
+
+    # Zero contributions from empty query slots (they attended the dummy key).
+    out = out.masked_fill(empty.unsqueeze(-1), 0.0)
+
+    # Residual: empty rows → 0 + 0 = 0; filled rows → token + context.
+    return (tokens + out).reshape(tokens.shape[0], -1)

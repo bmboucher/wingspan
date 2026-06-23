@@ -560,6 +560,7 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "use_distinct_hand_model": ("architecture", "main", "use_distinct_hand_model"),
     "hand_encoder_layers": ("architecture", "main", "hand_encoder_layers"),
     "hand_embed_dim": ("architecture", "main", "hand_embed_dim"),
+    "use_board_attention": ("architecture", "main", "use_board_attention"),
     "encoder_final_activation": ("architecture", "main", "encoder_final_activation"),
     # architecture.main per-block overrides
     "card_activation": ("architecture", "main", "card_activation"),
@@ -1109,6 +1110,19 @@ FIELD_SPECS: list[FieldSpec] = [
         choices=["True", "False"],
         impact=ChangeImpact.FRESH,
         help="State trunk LayerNorm (None = inherit global). Fresh run when changed.",
+    ),
+    ChoiceField(
+        attr="use_board_attention",
+        label="board attention",
+        group_path=("MODEL ARCHITECTURE", "STATE TRUNK"),
+        choices=["True", "False"],
+        impact=ChangeImpact.FRESH,
+        help="When True, each player's 15 board slots are attended over as tokens "
+        "(card_embed ⊕ 9 mutable scalars) before the trunk, using two independent "
+        "MultiheadAttention modules (own board + opponent board). Single-head for "
+        "this first pass. Config-carried REGIME topology — but forces a fresh run "
+        "(architecture_key changes) since weights differ with attention on vs off. "
+        "Default False; old checkpoints load unchanged.",
     ),
     # MODEL ARCHITECTURE ▸ CHOICE ENCODER
     LayersField(

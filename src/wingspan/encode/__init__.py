@@ -19,6 +19,7 @@ re-exported from ``layout`` / ``state_encode``.
 
 from wingspan.encode.choice_encode import encode_choices
 from wingspan.encode.layout import (
+    BOARD_CONT_STRIPE_DIM,
     CARD_FEATURE_DIM,
     CHOICE_BECOMES_PLAYABLE_DIM,
     CHOICE_BECOMES_PLAYABLE_OFFSET,
@@ -43,10 +44,14 @@ from wingspan.encode.layout import (
     N_BOARD_INDEX_SLOTS,
     N_CARD_INDEX_SLOTS,
     N_HAND_PLAYABLE_MULTIHOTS,
+    OFF_BOARD_ME,
+    OFF_BOARD_OPP,
     OFF_CARD_INDEX,
     OFF_DECISION_TYPE,
     OFF_HAND_MULTIHOT,
     RUNAWAY_CHOICE_THRESHOLD,
+    SLOT_SCALAR_DIM,
+    SLOTS_PER_BOARD,
     SOFT_CHOICE_WARN_THRESHOLD,
     EncodingSpec,
     choice_feature_dim,
@@ -66,6 +71,7 @@ from wingspan.encode.state_encode import (
 )
 
 __all__ = [
+    "BOARD_CONT_STRIPE_DIM",
     "CARD_FEATURE_DIM",
     "CHOICE_BECOMES_PLAYABLE_DIM",
     "CHOICE_BECOMES_PLAYABLE_OFFSET",
@@ -91,10 +97,14 @@ __all__ = [
     "N_BOARD_INDEX_SLOTS",
     "N_CARD_INDEX_SLOTS",
     "N_HAND_PLAYABLE_MULTIHOTS",
+    "OFF_BOARD_ME",
+    "OFF_BOARD_OPP",
     "OFF_CARD_INDEX",
     "OFF_DECISION_TYPE",
     "OFF_HAND_MULTIHOT",
     "RUNAWAY_CHOICE_THRESHOLD",
+    "SLOT_SCALAR_DIM",
+    "SLOTS_PER_BOARD",
     "SOFT_CHOICE_WARN_THRESHOLD",
     "card_feature_matrix",
     "card_summary_matrix",

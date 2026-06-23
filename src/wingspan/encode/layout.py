@@ -449,6 +449,14 @@ _SLOT_MUT_DIM = _SLOT_MUT_ACTIVATIONS + 1
 _SLOT_CONT_DIM = _SLOT_MUT_DIM
 _BOARD_CONT_STRIPE_DIM = _SLOTS_PER_BOARD * _SLOT_CONT_DIM
 
+# Public aliases consumed by the board self-attention path (model/core.py). These
+# are live-encoding constants only — a future FRESH change that shifts board-stripe
+# offsets must freeze them in the era seam (StateEmbedOffsets), per the
+# 2026-06-14 lesson in VERSIONING.md.
+SLOTS_PER_BOARD: int = _SLOTS_PER_BOARD  # 15 — slots on one player's board
+SLOT_SCALAR_DIM: int = _SLOT_MUT_DIM  # 9 — mutable scalars per board slot
+BOARD_CONT_STRIPE_DIM: int = _BOARD_CONT_STRIPE_DIM  # 135 — 15 × 9
+
 # The public face-up tray carries no continuous block at all: a tray bird has no
 # mutable per-slot state, and its static attributes ride the shared card table via
 # the card-index block. The stripe is therefore empty.
@@ -515,6 +523,13 @@ _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
 STATE_CONT_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
     _STATE_CONT_STRIPE_SPECS
 )
+
+# Offsets of the two 135-dim per-board continuous stripes within the state vector.
+# Used by the board self-attention path (model/core.py) to slice the mutable
+# scalars for each player's 15 slots. Live-encoding only — same era-seam caveat
+# as SLOTS_PER_BOARD / SLOT_SCALAR_DIM above.
+OFF_BOARD_ME: int = STATE_CONT_LAYOUT.offset_of("board_me")
+OFF_BOARD_OPP: int = STATE_CONT_LAYOUT.offset_of("board_opp")
 
 # Offset of the 10-dim hand-summary stripe within the state vector (= within the
 # continuous prefix, since it precedes the card-index block). Used by the model's
