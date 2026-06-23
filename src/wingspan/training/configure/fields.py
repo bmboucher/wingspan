@@ -607,7 +607,8 @@ def _inject_nested(data: dict[str, object], attr: str, value: object) -> None:
     and is mutated in place. Inverted attrs (see ``_INVERTED_ATTRS``) are
     negated before writing."""
     if attr in _INVERTED_ATTRS:
-        value = not value
+        bool_val = value if isinstance(value, bool) else str(value) == "True"
+        value = not bool_val
     path = _ATTR_PATH[attr]
     node: dict[str, object] = data  # type: ignore[assignment]
     for key in path[:-1]:
