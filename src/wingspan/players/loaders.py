@@ -134,10 +134,17 @@ def load_setup_net(
     Returns ``None`` — degrading to random setup picks — only when the setup
     artifacts are absent (the run trained without a setup model). Artifacts that
     exist but fail to load raise: a present-but-broken ``setup.pt`` is an error,
-    not something to silently paper over."""
+    not something to silently paper over.
+
+    The descriptor is resolvable from either the legacy ``setup_config.json``
+    (≤0.4 runs) or the unified ``run_config_<stamp>.json`` (≥0.5 runs); both
+    are accepted here so ``wingspan play`` works correctly with current runs."""
     ckpt_path = checkpoint_dir / artifacts.SETUP_CKPT
-    config_path = checkpoint_dir / artifacts.SETUP_CONFIG_JSON
-    if not ckpt_path.exists() or not config_path.exists():
+    has_config = bool(
+        (checkpoint_dir / artifacts.SETUP_CONFIG_JSON).exists()
+        or list(checkpoint_dir.glob(artifacts.RUN_CONFIG_GLOB))
+    )
+    if not ckpt_path.exists() or not has_config:
         return None
     descriptor = setup_runmeta.read_setup_config(str(checkpoint_dir))
     payload = typing.cast(

@@ -341,9 +341,12 @@ def finalize_setup_phase(
     else:
         kept_food_labels = capture.food_gained
 
-    # Build the food group node (only when there were food decisions to record).
+    # Build the food group node when there is food to report: either individual
+    # food decisions to expand (split-food regime) or a combined-regime label
+    # baked into the SetupChoice.  In the combined regime food_items is empty so
+    # the group has no children but still surfaces the kept-food summary.
     food_group: game_log_html.LogItem | None = None
-    if capture.food_items:
+    if capture.food_items or kept_food_labels:
         kept_label = ", ".join(kept_food_labels) if kept_food_labels else "no food"
         food_group = game_log_html.LogItem(
             kind="group",
