@@ -350,6 +350,7 @@ _DOCUMENT = """\
     <div id="chart-body">
       <svg id="chart-svg-top"></svg>
       <svg id="chart-svg-bottom"></svg>
+      <svg id="chart-svg-third"></svg>
     </div>
   </div>
 </div>
@@ -666,7 +667,7 @@ main {
   padding: 12px 16px 16px; overflow-y: auto; flex: 1;
   display: flex; flex-direction: column; gap: 10px;
 }
-#chart-svg-top, #chart-svg-bottom {
+#chart-svg-top, #chart-svg-bottom, #chart-svg-third {
   width: 100%; height: 200px; display: block;
   background: #111827; border-radius: 6px;
 }
@@ -680,6 +681,8 @@ main {
 .chart-line-value-p1 { fill: none; stroke: #22d3ee; stroke-width: 2; }
 .chart-line-target  { fill: none; stroke: #facc15; stroke-width: 1.5; stroke-dasharray: 5,3; }
 .chart-line-target-p1 { fill: none; stroke: #fb923c; stroke-width: 1.5; stroke-dasharray: 5,3; }
+.chart-line-adv-p0 { fill: none; stroke: #a78bfa; stroke-width: 2; }
+.chart-line-adv-p1 { fill: none; stroke: #f472b6; stroke-width: 2; }
 .chart-hit { fill: transparent; cursor: pointer; }
 .chart-hit:hover { fill: rgba(255,255,255,.1); }
 .chart-legend { font: 10px/1.4 sans-serif; fill: #94a3b8; }
@@ -1363,9 +1366,8 @@ function renderChart() {
     {cls: 'chart-line-p1', label: 'P1 score (VP)'},
   ]);
 
-  // --- Bottom panel: P0-relative future return (critic prediction vs target) ---
+  // --- Bottom panel: P0-relative future return (critic prediction vs target only) ---
   const bottomSvg = document.getElementById('chart-svg-bottom');
-  const realized = tl.map(p => [p.timestamp, p.score_p0 - p.score_p1]);
   const valueP0 = tl.filter(p => p.player_id === 0 && p.value_return_p0 !== null)
                     .map(p => [p.timestamp, p.value_return_p0]);
   const valueP1 = tl.filter(p => p.player_id === 1 && p.value_return_p0 !== null)
@@ -1376,28 +1378,54 @@ function renderChart() {
                      .map(p => [p.timestamp, p.target_return_p0]);
 
   const allMargins = [
-    ...realized.map(([, v]) => v),
     ...valueP0.map(([, v]) => v),
     ...valueP1.map(([, v]) => v),
     ...targetP0.map(([, v]) => v),
     ...targetP1.map(([, v]) => v),
   ];
-  const mMin = Math.min(...allMargins) - 2;
-  const mMax = Math.max(...allMargins) + 2;
+  const mMin = allMargins.length ? Math.min(...allMargins) - 2 : -2;
+  const mMax = allMargins.length ? Math.max(...allMargins) + 2 :  2;
   const mRange = mMax - mMin || 1;
 
-  const marginLines = [{data: realized, cls: 'chart-line-realized'}];
-  if (valueP0.length) marginLines.push({data: valueP0, cls: 'chart-line-value'});
-  if (valueP1.length) marginLines.push({data: valueP1, cls: 'chart-line-value-p1'});
+  const marginLines = [];
+  if (valueP0.length)  marginLines.push({data: valueP0,  cls: 'chart-line-value'});
+  if (valueP1.length)  marginLines.push({data: valueP1,  cls: 'chart-line-value-p1'});
   if (targetP0.length) marginLines.push({data: targetP0, cls: 'chart-line-target'});
   if (targetP1.length) marginLines.push({data: targetP1, cls: 'chart-line-target-p1'});
 
-  const marginLabels = [{cls: 'chart-line-realized', label: 'Realized P0−P1 (VP)'}];
-  if (valueP0.length) marginLabels.push({cls: 'chart-line-value', label: 'P0 critic return'});
-  if (valueP1.length) marginLabels.push({cls: 'chart-line-value-p1', label: 'P1 critic return'});
-  if (targetP0.length) marginLabels.push({cls: 'chart-line-target',    label: 'P0 target'});
-  if (targetP1.length) marginLabels.push({cls: 'chart-line-target-p1', label: 'P1 target'});
+  const marginLabels = [];
+  if (valueP0.length)  marginLabels.push({cls: 'chart-line-value',      label: 'P0 critic return'});
+  if (valueP1.length)  marginLabels.push({cls: 'chart-line-value-p1',   label: 'P1 critic return'});
+  if (targetP0.length) marginLabels.push({cls: 'chart-line-target',     label: 'P0 target'});
+  if (targetP1.length) marginLabels.push({cls: 'chart-line-target-p1',  label: 'P1 target'});
 
   renderPanel(bottomSvg, tl, tMin, tRange, mMin, mRange, marginLines, 0, marginLabels);
+
+  // --- Third panel: realized P0−P1 margin vs per-move advantage (target − critic) ---
+  const thirdSvg = document.getElementById('chart-svg-third');
+  const realized = tl.map(p => [p.timestamp, p.score_p0 - p.score_p1]);
+  const hasAdv = p => p.value_return_p0 !== null && p.target_return_p0 !== null;
+  const advP0 = tl.filter(p => p.player_id === 0 && hasAdv(p))
+                  .map(p => [p.timestamp, p.target_return_p0 - p.value_return_p0]);
+  const advP1 = tl.filter(p => p.player_id === 1 && hasAdv(p))
+                  .map(p => [p.timestamp, p.target_return_p0 - p.value_return_p0]);
+
+  const allAdv = [
+    ...realized.map(([, v]) => v),
+    ...advP0.map(([, v]) => v),
+    ...advP1.map(([, v]) => v),
+  ];
+  const aMin = Math.min(...allAdv) - 2;
+  const aMax = Math.max(...allAdv) + 2;
+  const aRange = aMax - aMin || 1;
+
+  const advLines  = [{data: realized, cls: 'chart-line-realized'}];
+  const advLabels = [{cls: 'chart-line-realized', label: 'Realized P0−P1 (VP)'}];
+  if (advP0.length) { advLines.push({data: advP0, cls: 'chart-line-adv-p0'});
+                      advLabels.push({cls: 'chart-line-adv-p0', label: 'P0 advantage'}); }
+  if (advP1.length) { advLines.push({data: advP1, cls: 'chart-line-adv-p1'});
+                      advLabels.push({cls: 'chart-line-adv-p1', label: 'P1 advantage'}); }
+
+  renderPanel(thirdSvg, tl, tMin, tRange, aMin, aRange, advLines, 0, advLabels);
 }
 """
