@@ -23,6 +23,8 @@ assemble the report).
 from __future__ import annotations
 
 import collections
+import functools
+import re
 import typing
 
 import pydantic
@@ -47,6 +49,16 @@ _HABITAT_LABELS: dict[cards.Habitat, str] = {
     cards.Habitat.GRASSLAND: "Grassland",
     cards.Habitat.WETLAND: "Wetland",
 }
+
+# Matches a FoodPool.format() string like "1seed", "1fish+1rodent", "1wild".
+_FOOD_PAYMENT_LABEL_RE = re.compile(r"^\d+[a-z]+(\+\d+[a-z]+)*$")
+
+
+@functools.cache
+def _birds_by_name() -> dict[str, cards.Bird]:
+    """Name→Bird map for the full card table, cached per process."""
+    birds, _, _ = cards.load_all()
+    return {bird.name: bird for bird in birds}
 
 
 def capture_setup_phase(
@@ -188,7 +200,7 @@ def build_decision_item(
         options.append(
             game_log_html.DecisionOption(
                 label=humanize.humanize_choice(
-                    idx_choice, gs, player_id=decision.player_id
+                    idx_choice, gs, player_id=decision.player_id, decision=decision
                 ),
                 prob=annotation.probs[idx],
                 score=annotation.scores[idx] if annotation.scores is not None else None,
@@ -197,12 +209,28 @@ def build_decision_item(
             )
         )
 
+    # Tag a semantic category for the grouping/merge post-passes.
+    category: game_log_html.LogItemCategory | None = None
+    if isinstance(decision, decisions.PlayBirdDecision):
+        category = game_log_html.LogItemCategory.PLAY_BIRD
+    elif isinstance(decision, decisions.RemoveEggDecision):
+        category = game_log_html.LogItemCategory.PAY_EGG
+    elif isinstance(decision, decisions.PayBirdFoodDecision):
+        category = game_log_html.LogItemCategory.PAY_FOOD
+    elif (
+        isinstance(decision, decisions.DrawCardsPickSourceDecision)
+        and isinstance(choice, decisions.DrawSourceChoice)
+        and choice.source == "deck"
+    ):
+        category = game_log_html.LogItemCategory.DRAW_DECK
+
     return game_log_html.LogItem(
         kind="decision",
         player_id=decision.player_id,
         text=humanize.humanize_outcome(decision, choice, gs),
         options=options,
         state_stripes=state_stripes,
+        category=category,
     )
 
 
@@ -258,7 +286,7 @@ def record_setup_decision(
             capture.bonus_item = game_log_html.LogItem(
                 kind="forced",
                 player_id=decision.player_id,
-                text=choice.bonus_card.name,
+                text=f"Keeps bonus card {choice.bonus_card.name}",
                 forced=True,
             )
         if choice.kept_foods:
@@ -315,10 +343,14 @@ def record_setup_decision(
     # BonusCardChoice: deferred-bonus path; player picks which bonus to keep.
     if isinstance(choice, decisions.BonusCardChoice):
         capture.kept_bonus_name = choice.bonus_card.name
-        bonus_text = capture.kept_bonus_name or "Bonus card"
         if annotation is not None:
             item = build_decision_item(engine, decision, choice, annotation)
         else:
+            bonus_text = (
+                f"Keeps bonus card {capture.kept_bonus_name}"
+                if capture.kept_bonus_name
+                else "Keeps bonus card"
+            )
             item = game_log_html.LogItem(
                 kind="forced",
                 player_id=decision.player_id,
@@ -778,12 +810,16 @@ def _segment_log_items(
     ``"note"`` item processed through the humanizer.
 
     A turn segment opens with the verbose board/hand/score summary; the whole
-    prefix up to the first blank line is dropped (the panel already shows it)."""
+    prefix up to the first blank line is dropped (the panel already shows it).
+
+    After the flat list is built, two post-passes run:
+    ``_merge_draw_deck`` folds deck-draw outcomes into their decision header, and
+    ``_group_play_bird`` nests egg/food payments under the play-bird decision."""
     body = segment[1:]  # skip the === header line
     if is_turn:
         body = _drop_summary_block(body)
 
-    result: list[game_log_html.LogItem] = []
+    flat: list[game_log_html.LogItem] = []
     body_iter = iter(body)
 
     for entry in body_iter:
@@ -792,7 +828,7 @@ def _segment_log_items(
         if _is_decision_start(text):
             # Consume the structured decision item for this AI decision.
             if phase_decision_items:
-                result.append(phase_decision_items.popleft())
+                flat.append(phase_decision_items.popleft())
             # Skip the distribution block (option lines + chose: line).
             for skip_entry in body_iter:
                 if "chose:" in display.strip_ansi(skip_entry.text):
@@ -800,29 +836,34 @@ def _segment_log_items(
 
         elif "skipping decision, only 1 choice: " in text:
             # Engine logged a forced single-option decision.
-            label = text.split("only 1 choice: ", 1)[-1]
-            result.append(
+            label = text.split("only 1 choice: ", 1)[-1].strip()
+            forced_category = _categorize_forced_label(label)
+            flat.append(
                 game_log_html.LogItem(
                     kind="forced",
                     player_id=entry.player_id,
                     text=humanize.humanize_forced(label),
                     forced=True,
+                    category=forced_category,
                 )
             )
 
         else:
-            # Regular notification: humanize and show as a note.
+            # Regular notification: classify, humanize, and show as a note.
+            note_category, power_color = _classify_note_raw(text)
             cleaned = humanize.humanize_note(text)
             if cleaned:
-                result.append(
+                flat.append(
                     game_log_html.LogItem(
                         kind="note",
                         player_id=entry.player_id,
                         text=cleaned,
+                        category=note_category,
+                        power_color=power_color,
                     )
                 )
 
-    return result
+    return _group_play_bird(_merge_draw_deck(flat))
 
 
 def _drop_summary_block(body: list[state.LogEntry]) -> list[state.LogEntry]:
@@ -841,3 +882,205 @@ def _is_decision_start(text: str) -> bool:
     ``[P0] SomeDecision | N choices | head:...``; they start with ``[`` and
     contain the word ``Decision``."""
     return text.startswith("[") and "Decision" in text
+
+
+#### Note/forced classification for grouping passes ####
+
+
+def _classify_note_raw(
+    raw_text: str,
+) -> tuple[game_log_html.LogItemCategory | None, str | None]:
+    """Classify a raw (pre-humanization) log line as a category + power_color.
+
+    Returns ``(category, power_color)`` where ``power_color`` is set for brown
+    power-activation notes so the renderer can apply the matching CSS class."""
+
+    # Play-bird outcome note: "plays X into habitat (paid ...)"
+    if re.match(r"plays .+ into \w+\s*\(paid .+\)", raw_text, re.IGNORECASE):
+        return game_log_html.LogItemCategory.PLAY_BIRD_NOTE, None
+
+    # Deck-draw outcome note: "drew from deck: X"
+    if re.match(r"drew from deck: .+", raw_text):
+        return game_log_html.LogItemCategory.DRAW_DECK_NOTE, None
+
+    # Brown power activation: "@ Bird - "text""
+    bird_power_match = re.match(r'@ (.+?) - "(.+)"', raw_text)
+    if bird_power_match:
+        bird_name = bird_power_match.group(1)
+        bird = _birds_by_name().get(bird_name)
+        power_color = bird.power.color.value if bird is not None else None
+        return game_log_html.LogItemCategory.POWER_ACTIVATION, power_color
+
+    return None, None
+
+
+def _categorize_forced_label(
+    label: str,
+) -> game_log_html.LogItemCategory | None:
+    """Map a forced choice's raw display_label() string to a LogItemCategory."""
+
+    # DrawSourceChoice deck
+    if label == "deck":
+        return game_log_html.LogItemCategory.DRAW_DECK
+
+    # DrawSourceChoice tray — not a grouped category
+    if re.match(r"tray\[\d+\]=", label):
+        return None
+
+    # BoardTargetChoice: "BirdName@habitat[slot]" — egg cost or lay target
+    if re.match(r".+@\w+\[\d+\]", label):
+        return game_log_html.LogItemCategory.PAY_EGG
+
+    # FoodPaymentChoice: "1seed", "1fish+1rodent", etc.
+    if _FOOD_PAYMENT_LABEL_RE.match(label):
+        return game_log_html.LogItemCategory.PAY_FOOD
+
+    return None
+
+
+#### Grouping / merge post-passes ####
+
+
+def _merge_draw_deck(
+    items: list[game_log_html.LogItem],
+) -> list[game_log_html.LogItem]:
+    """Fold a DRAW_DECK decision header together with its trailing outcome note.
+
+    When a 'Draws from the deck' decision/forced item is immediately followed by
+    a 'Draws {card} from the deck' note, the card name is folded into the
+    decision header and the note is dropped.  Option labels are unchanged."""
+    merged: list[game_log_html.LogItem] = []
+    skip_next = False
+    for index, item in enumerate(items):
+        if skip_next:
+            skip_next = False
+            continue
+        if (
+            item.category == game_log_html.LogItemCategory.DRAW_DECK
+            and index + 1 < len(items)
+            and items[index + 1].category
+            == game_log_html.LogItemCategory.DRAW_DECK_NOTE
+        ):
+            # Fold: update the header text with the drawn-card outcome.
+            merged.append(item.model_copy(update={"text": items[index + 1].text}))
+            skip_next = True
+        else:
+            merged.append(item)
+    return merged
+
+
+_PAY_KINDS: frozenset[game_log_html.LogItemCategory] = frozenset(
+    [game_log_html.LogItemCategory.PAY_EGG, game_log_html.LogItemCategory.PAY_FOOD]
+)
+
+# Matches "Plays {bird} in {habitat}" to extract the bird name.
+_PLAY_BIRD_TEXT_RE = re.compile(r"Plays (.+) in (Forest|Grassland|Wetland)$")
+
+# Matches "Remove 1 egg from {bird}" to extract the bird name for child relabeling.
+_REMOVE_EGG_TEXT_RE = re.compile(r"Remove 1 egg from (.+)$")
+
+# Matches "{bird} ({habitat})" — the forced board-target format from humanize_forced.
+_BOARD_TARGET_TEXT_RE = re.compile(r"(.+?) \((Forest|Grassland|Wetland)\)$")
+
+
+def _group_play_bird(
+    items: list[game_log_html.LogItem],
+) -> list[game_log_html.LogItem]:
+    """Group each PLAY_BIRD item with its contiguous PAY_EGG/PAY_FOOD children.
+
+    For each PLAY_BIRD item:
+    1. Collect the immediately following PAY_EGG and PAY_FOOD items as children.
+    2. Relabel absorbed PAY_EGG children to "Pays egg from {bird}".
+    3. Drop the trailing PLAY_BIRD_NOTE (the engine's redundant "plays X into Y" line).
+    4. Build a ``kind="group"`` parent item with "Plays X in Y" as the header.
+    5. If the played bird has a white power, synthesize a colored note after the group.
+
+    Standalone PLAY_BIRD_NOTE items (not preceded by a PLAY_BIRD decision) are
+    also dropped — they duplicate the group header."""
+    result: list[game_log_html.LogItem] = []
+    idx = 0
+    bird_map = _birds_by_name()
+
+    while idx < len(items):
+        item = items[idx]
+
+        if item.category == game_log_html.LogItemCategory.PLAY_BIRD_NOTE:
+            # Standalone note (not grouped) — drop it; the group header covers it.
+            idx += 1
+            continue
+
+        if item.category != game_log_html.LogItemCategory.PLAY_BIRD:
+            result.append(item)
+            idx += 1
+            continue
+
+        # Collect contiguous PAY_EGG/PAY_FOOD items as children.
+        children: list[game_log_html.LogItem] = [item]
+        idx += 1
+        while idx < len(items) and items[idx].category in _PAY_KINDS:
+            child = items[idx]
+            # Re-label PAY_EGG child to payment-focused language.
+            if child.category == game_log_html.LogItemCategory.PAY_EGG:
+                bird_name = _extract_egg_bird_name(child.text)
+                if bird_name:
+                    child = child.model_copy(
+                        update={"text": f"Pays egg from {bird_name}"}
+                    )
+            children.append(child)
+            idx += 1
+
+        # Drop the trailing PLAY_BIRD_NOTE if present.
+        if (
+            idx < len(items)
+            and items[idx].category == game_log_html.LogItemCategory.PLAY_BIRD_NOTE
+        ):
+            idx += 1
+
+        # Build the group item.
+        play_text = item.text  # "Plays X in Y"
+        result.append(
+            game_log_html.LogItem(
+                kind="group",
+                player_id=item.player_id,
+                text=play_text,
+                children=children,
+            )
+        )
+
+        # Synthesize a white-power box if the bird has a white on-play power.
+        bird_match = _PLAY_BIRD_TEXT_RE.match(play_text)
+        if bird_match:
+            bird_name = bird_match.group(1)
+            bird = bird_map.get(bird_name)
+            if (
+                bird is not None
+                and bird.power.color.value == "white"
+                and bird.plain_power_text
+            ):
+                result.append(
+                    game_log_html.LogItem(
+                        kind="note",
+                        player_id=item.player_id,
+                        text=f"{bird_name}: {bird.plain_power_text}",
+                        power_color="white",
+                        category=game_log_html.LogItemCategory.POWER_ACTIVATION,
+                    )
+                )
+
+    return result
+
+
+def _extract_egg_bird_name(text: str) -> str | None:
+    """Extract the bird name from a PAY_EGG item's text for child relabeling."""
+
+    # Decision item: "Remove 1 egg from {bird}"
+    match = _REMOVE_EGG_TEXT_RE.match(text)
+    if match:
+        return match.group(1)
+
+    # Forced item (from humanize_forced): "{bird} ({habitat})"
+    match = _BOARD_TARGET_TEXT_RE.match(text)
+    if match:
+        return match.group(1)
+
+    return None

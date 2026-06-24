@@ -34,16 +34,27 @@ _FOOD_VALUES: frozenset[str] = frozenset(food.value for food in cards.ALL_FOODS)
 # Strips a leading "[Name] " player-name tag from a log line.
 _PLAYER_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s*")
 
+# Label for the birdfeeder's choice die (seed/invertebrate combo face).
+_CHOICE_DIE_LABEL = "seed/invertebrate"
+
+# Matches a row-count log line from any of the three main-action handlers.
+_ROW_HAS_RE = re.compile(
+    r"(gain food|lay eggs|draw cards): row has \d+ birds?",
+    re.IGNORECASE,
+)
+
 
 def humanize_choice(
     choice: decisions.Choice,
     gs: state.GameState,
     player_id: int | None = None,
+    decision: decisions.Decision[typing.Any] | None = None,
 ) -> str:
     """A concise human label for one offered option.
 
     ``player_id`` is used to resolve ``BoardTargetChoice`` board lookups — pass
-    ``decision.player_id`` when available."""
+    ``decision.player_id`` when available.  ``decision`` is used to supply
+    symmetric skip labels for ``AcceptExchangeDecision``."""
     if isinstance(choice, decisions.DrawSourceChoice):
         if choice.source == "tray" and choice.bird is not None:
             return f"{choice.bird.name} (tray)"
@@ -52,6 +63,9 @@ def humanize_choice(
         hab = _HABITAT_LABELS.get(choice.habitat, choice.habitat.value)
         return f"{choice.bird.name} → {hab}"
     if isinstance(choice, decisions.FoodChoice):
+        # Item 7: choice-die gains show both possible foods.
+        if choice.from_choice_die:
+            return f"{choice.food.value} (from {_CHOICE_DIE_LABEL})"
         return choice.food.value  # renderer applies emoji
     if isinstance(choice, decisions.FoodPaymentChoice):
         return choice.payment.format()
@@ -71,6 +85,13 @@ def humanize_choice(
     if isinstance(choice, decisions.PlayerIdChoice):
         return f"P{choice.player_id}"
     if isinstance(choice, decisions.SkipChoice):
+        # Item 10: mirror the accept label so decline is as descriptive as accept.
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            pay_choices = [
+                c for c in decision.choices if isinstance(c, decisions.PayCostChoice)
+            ]
+            if pay_choices:
+                return f"Decline ({pay_choices[0].label})"
         return "Decline"
     if isinstance(choice, decisions.MainActionChoice):
         return _MAIN_ACTION_LABELS.get(choice.action, choice.action.value)
@@ -109,14 +130,35 @@ def humanize_outcome(
             return f"Draws {choice.bird.name} from the tray"
         return "Draws from the deck"
     if isinstance(choice, decisions.FoodChoice):
+        # Item 7: choice-die header names the die.
+        if choice.from_choice_die:
+            return f"Gains {choice.food.value} (choice die)"
         if isinstance(decision, decisions.SpendFoodDecision):
             return f"Discards {choice.food.value}"
         return f"Gains {choice.food.value}"
     if isinstance(choice, decisions.SkipChoice):
+        # Item 10: mirror accept label so decline reads symmetrically.
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            pay_choices = [
+                c for c in decision.choices if isinstance(c, decisions.PayCostChoice)
+            ]
+            if pay_choices:
+                return f"Declines: {pay_choices[0].label}"
         return "Declines"
     if isinstance(choice, decisions.BonusCardChoice):
-        return f"Keeps {choice.bonus_card.name}"
+        # Item 4: include "bonus card" in the label.
+        return f"Keeps bonus card {choice.bonus_card.name}"
     if isinstance(choice, decisions.BirdChoice):
+        # Item 8: discard vs pass depending on decision type and prompt.
+        if isinstance(
+            decision,
+            (
+                decisions.DiscardBirdForFoodDecision,
+                decisions.BirdPowerDiscardFromHandDecision,
+            ),
+        ):
+            verb = "Passes" if "pass" in decision.prompt.lower() else "Discards"
+            return f"{verb} {choice.bird.name}"
         return f"Picks {choice.bird.name}"
     if isinstance(choice, decisions.SetupChoice):
         names = [bird.name for bird in choice.kept_cards] or ["no birds"]
@@ -129,7 +171,14 @@ def humanize_outcome(
         if 0 <= player_id < len(gs.players):
             row = gs.players[player_id].board[choice.habitat]
             if choice.slot < len(row):
-                return f"Targets {row[choice.slot].bird.name}"
+                bird_name = row[choice.slot].bird.name
+                # Item 6: egg-cost removal gets a clearer header than "Targets".
+                if isinstance(decision, decisions.RemoveEggDecision):
+                    return f"Remove 1 egg from {bird_name}"
+                return f"Targets {bird_name}"
+        # Fallback: slot not found on the board.
+        if isinstance(decision, decisions.RemoveEggDecision):
+            return f"Remove 1 egg from {hab} slot {choice.slot + 1}"
         return f"Targets {hab}"
     if isinstance(choice, decisions.HabitatChoice):
         return _HABITAT_LABELS.get(choice.habitat, choice.habitat.value)
@@ -153,7 +202,9 @@ def humanize_note(text: str) -> str:
     """Humanize a notification log line for the HTML decision panel.
 
     Strips the player-name prefix (``[Name] ``), applies pattern rewrites for
-    common engine notifications, and sentence-cases anything unrecognized."""
+    common engine notifications, and sentence-cases anything unrecognized.
+    Returns ``""`` for lines that are better omitted (row-count summaries,
+    conversion echoes)."""
 
     # Strip leading [Name] prefix and whitespace.
     stripped = _PLAYER_PREFIX_RE.sub("", text).strip()
@@ -166,19 +217,9 @@ def humanize_note(text: str) -> str:
         hab_label = hab_raw[:1].upper() + hab_raw[1:]
         return f"Plays {bird_name} in {hab_label}"
 
-    # Egg lay: "lay eggs: row has N birds, lay M eggs"
-    match = re.match(r"lay eggs: row has \d+ birds?, lay (\d+) eggs?", stripped)
-    if match:
-        count = match.group(1)
-        plural = "eggs" if count != "1" else "egg"
-        return f"Lays {count} {plural}"
-
-    # Draw cards count: "draw cards: row has N birds, draw N cards"
-    match = re.match(r"draw cards: row has \d+ birds?, draw (\d+) cards?", stripped)
-    if match:
-        count = match.group(1)
-        plural = "cards" if count != "1" else "card"
-        return f"Draws {count} {plural}"
+    # Item 1: row-count lines — all three dropped (decisions already show outcome).
+    if _ROW_HAS_RE.match(stripped):
+        return ""
 
     # Drew specific card from deck: "drew from deck: Card Name"
     match = re.match(r"drew from deck: (.+)", stripped)
@@ -198,7 +239,7 @@ def humanize_note(text: str) -> str:
     # No-op power: "@ Bird - no brown power"
     match = re.match(r"@ (.+?) - no brown power", stripped)
     if match:
-        return f"{match.group(1)}: no power"
+        return f"{match.group(1)}: no brown power"
 
     # Birdfeeder events
     stripped_lower = stripped.lower()
@@ -209,15 +250,9 @@ def humanize_note(text: str) -> str:
     if "resets the birdfeeder" in stripped_lower:
         return "Birdfeeder reset"
 
-    # Conversions
-    match = re.match(r"convert: discard (.+?) for \+1 food", stripped)
-    if match:
-        return f"Converted {match.group(1)} for food"
-    match = re.match(r"convert: spend (.+?) for \+1 egg", stripped)
-    if match:
-        return f"Converted {match.group(1)} for egg"
-    if re.match(r"convert: discard 1 egg for \+1 card", stripped):
-        return "Converted egg for card"
+    # Item 9: conversion echoes — dropped, AcceptExchangeDecision "Accepts: …" already covers them.
+    if re.match(r"convert: ", stripped):
+        return ""
 
     # Extra play decisions
     if "declines the extra play" in stripped:

@@ -23,6 +23,7 @@ Public API: :func:`render_game_log_html` (report -> HTML string) and
 
 from __future__ import annotations
 
+import enum
 import pathlib
 import typing
 
@@ -33,6 +34,22 @@ from wingspan.reporting import game_log_csv
 # Number of board columns per habitat row — the viewer always draws this many
 # cells so the board reads as a fixed 3x5 grid (empty slots shown hollow).
 BOARD_COLUMNS = 5
+
+
+class LogItemCategory(enum.StrEnum):
+    """Semantic category tag used by game_log_capture grouping/merge passes.
+
+    Not serialised into the HTML payload (excluded from model dump) — it exists
+    only to drive the ``_merge_draw_deck`` and ``_group_play_bird`` post-passes
+    inside ``game_log_capture``."""
+
+    PLAY_BIRD = "play_bird"
+    PAY_EGG = "pay_egg"
+    PAY_FOOD = "pay_food"
+    PLAY_BIRD_NOTE = "play_bird_note"
+    POWER_ACTIVATION = "power_activation"
+    DRAW_DECK = "draw_deck"
+    DRAW_DECK_NOTE = "draw_deck_note"
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +206,12 @@ class LogItem(pydantic.BaseModel):
     as a collapsible parent whose body is its ``children`` items (no option bars
     at the top level).  ``state_stripes`` carries the non-zero state-vector
     stripes for the encoding-viewer modal (shared across all options in one
-    decision; ``None`` for non-decision items or when no model backed this seat)."""
+    decision; ``None`` for non-decision items or when no model backed this seat).
+
+    ``category`` is a build-time grouping tag used by the capture post-passes;
+    it is excluded from JSON serialisation.  ``power_color`` is a render-time
+    string (e.g. ``"brown"``, ``"white"``) that drives the CSS class on ``note``
+    items to display a colored power-activation box."""
 
     kind: typing.Literal["decision", "forced", "note", "group"]
     player_id: int | None
@@ -198,6 +220,8 @@ class LogItem(pydantic.BaseModel):
     forced: bool = False
     children: list[LogItem] = []
     state_stripes: list[EncodedStripe] | None = None
+    category: LogItemCategory | None = pydantic.Field(default=None, exclude=True)
+    power_color: str | None = None
 
 
 class PhaseRecord(pydantic.BaseModel):
@@ -634,6 +658,9 @@ main {
 }
 .note.p0 { border-left-color: #3b82f6; }
 .note.p1 { border-left-color: #ef4444; }
+.note.pw-white { background: #f8fafc; color: #1e293b; border-color: #cbd5e1; border-left-color: #94a3b8; }
+.note.pw-brown { background: #5c3d1e; color: #fde8c6; border-color: #7a5230; border-left-color: #92612a; }
+.note.pw-pink  { background: #4a1942; color: #f9d4f3; border-color: #6b2a5e; border-left-color: #9c3d8e; }
 
 /* === Timeline modal === */
 #chart-modal {
@@ -1058,7 +1085,8 @@ function renderLogItem(item) {
   const headerText = tag + applyFoodEmoji(esc(item.text));
 
   if (item.kind === 'note') {
-    return '<div class="note ' + seat + '">' + headerText + '</div>';
+    const pwCls = item.power_color ? ' pw-' + esc(item.power_color) : '';
+    return '<div class="note ' + seat + pwCls + '">' + headerText + '</div>';
   }
   if (item.kind === 'forced') {
     return '<div class="di forced ' + seat + '">' + headerText + '</div>';

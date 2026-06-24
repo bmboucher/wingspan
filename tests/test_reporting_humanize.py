@@ -91,12 +91,29 @@ def test_humanize_outcome_draw_source_deck():
 
 
 def test_humanize_outcome_skip():
+    # Without a PayCostChoice sibling, SkipChoice still returns "Declines".
     gs = _empty_gs()
     choice = decisions.SkipChoice(label="skip")
     decision = decisions.AcceptExchangeDecision(
         player_id=0, prompt="", choices=[choice]
     )
     assert humanize.humanize_outcome(decision, choice, gs) == "Declines"
+
+
+def test_humanize_outcome_skip_with_pay_cost():
+    # Item 10: when a PayCostChoice sibling exists, Declines mirrors the label.
+    gs = _empty_gs()
+    skip = decisions.SkipChoice(label="skip")
+    pay = decisions.PayCostChoice(
+        label="discard egg for card", paid_egg_count=1, gained_card_count=1
+    )
+    decision = decisions.AcceptExchangeDecision(
+        player_id=0, prompt="", choices=[pay, skip]
+    )
+    assert (
+        humanize.humanize_outcome(decision, skip, gs)
+        == "Declines: discard egg for card"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -116,18 +133,19 @@ def test_humanize_note_play_bird():
 
 
 def test_humanize_note_lay_eggs():
+    # Item 1: row-count lines are dropped entirely.
     result = humanize.humanize_note("[P0] lay eggs: row has 3 birds, lay 2 eggs")
-    assert result == "Lays 2 eggs"
+    assert result == ""
 
 
 def test_humanize_note_lay_eggs_singular():
     result = humanize.humanize_note("[P1] lay eggs: row has 1 bird, lay 1 egg")
-    assert result == "Lays 1 egg"
+    assert result == ""
 
 
 def test_humanize_note_draw_cards():
     result = humanize.humanize_note("[P0] draw cards: row has 4 birds, draw 2 cards")
-    assert result == "Draws 2 cards"
+    assert result == ""
 
 
 def test_humanize_note_drew_from_deck():
@@ -358,6 +376,7 @@ def test_humanize_outcome_food():
 
 
 def test_humanize_outcome_bonus_card():
+    # Item 4: "bonus card" is included in the outcome label.
     gs = _empty_gs()
     choice = decisions.BonusCardChoice(
         label="ethologist", bonus_card=_stub_bonus("Ethologist")
@@ -366,13 +385,34 @@ def test_humanize_outcome_bonus_card():
         player_id=0, prompt="", choices=[choice]
     )
     result = humanize.humanize_outcome(decision, choice, gs)
-    assert "Ethologist" in result
+    assert result == "Keeps bonus card Ethologist"
 
 
-def test_humanize_outcome_bird_choice():
+def test_humanize_outcome_bird_choice_discard():
+    # Item 8: DiscardBirdForFoodDecision → "Discards" (not "Picks").
     gs = _empty_gs()
     choice = decisions.BirdChoice(label="mallard", bird=_stub_bird("Mallard"))
     decision = decisions.DiscardBirdForFoodDecision(
+        player_id=0, prompt="", choices=[choice]
+    )
+    assert humanize.humanize_outcome(decision, choice, gs) == "Discards Mallard"
+
+
+def test_humanize_outcome_bird_choice_pass():
+    # Item 8: BirdPowerDiscardFromHandDecision with "pass" in prompt → "Passes".
+    gs = _empty_gs()
+    choice = decisions.BirdChoice(label="mallard", bird=_stub_bird("Mallard"))
+    decision = decisions.BirdPowerDiscardFromHandDecision(
+        player_id=0, prompt="pass a card to opponent", choices=[choice]
+    )
+    assert humanize.humanize_outcome(decision, choice, gs) == "Passes Mallard"
+
+
+def test_humanize_outcome_bird_choice_other():
+    # Non-discard BirdChoice decisions still return "Picks".
+    gs = _empty_gs()
+    choice = decisions.BirdChoice(label="mallard", bird=_stub_bird("Mallard"))
+    decision = decisions.BirdPowerTuckFromHandDecision(
         player_id=0, prompt="", choices=[choice]
     )
     assert humanize.humanize_outcome(decision, choice, gs) == "Picks Mallard"
@@ -464,7 +504,7 @@ def test_humanize_outcome_played_bird():
 def test_humanize_note_no_brown_power():
     result = humanize.humanize_note("[P0] @ American Robin - no brown power")
     assert "American Robin" in result
-    assert "no power" in result
+    assert "no brown power" in result
 
 
 def test_humanize_note_birdfeeder_reset():
@@ -473,18 +513,19 @@ def test_humanize_note_birdfeeder_reset():
 
 
 def test_humanize_note_convert_discard_for_food():
+    # Item 9: conversion echoes are dropped.
     result = humanize.humanize_note("convert: discard seed for +1 food")
-    assert "seed" in result.lower() or "food" in result.lower()
+    assert result == ""
 
 
 def test_humanize_note_convert_spend_for_egg():
     result = humanize.humanize_note("convert: spend fish for +1 egg")
-    assert "fish" in result.lower() or "egg" in result.lower()
+    assert result == ""
 
 
 def test_humanize_note_convert_egg_for_card():
     result = humanize.humanize_note("convert: discard 1 egg for +1 card")
-    assert "card" in result.lower() or "egg" in result.lower()
+    assert result == ""
 
 
 def test_humanize_note_declines_extra_play():
@@ -500,6 +541,107 @@ def test_humanize_note_takes_extra_play():
 def test_humanize_note_no_playable_bird():
     result = humanize.humanize_note("[P0] has no playable bird — wasted action")
     assert "bird" in result.lower() or "wasted" in result.lower()
+
+
+def test_humanize_note_gain_food_row_count_dropped():
+    # Item 1: gain-food row-count line is dropped.
+    result = humanize.humanize_note("[P0] gain food: row has 2 birds, gain 2 food")
+    assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# humanize_outcome — Item 6 (RemoveEggDecision header)
+
+
+def test_humanize_outcome_remove_egg_with_board():
+    # Item 6: RemoveEggDecision + BoardTargetChoice → "Remove 1 egg from {bird}".
+    gs = _empty_gs()
+    player = gs.players[0]
+    # Find a habitat with a bird on the board for a full test.
+    found = False
+    for hab in [cards.Habitat.FOREST, cards.Habitat.GRASSLAND, cards.Habitat.WETLAND]:
+        row = player.board[hab]
+        if row:
+            choice = decisions.BoardTargetChoice(label="slot", habitat=hab, slot=0)
+            decision = decisions.RemoveEggDecision(
+                player_id=0, prompt="", choices=[choice]
+            )
+            result = humanize.humanize_outcome(decision, choice, gs)
+            assert result == f"Remove 1 egg from {row[0].bird.name}"
+            found = True
+            break
+    if not found:
+        # Empty board: falls back gracefully.
+        choice = decisions.BoardTargetChoice(
+            label="slot", habitat=cards.Habitat.FOREST, slot=0
+        )
+        decision = decisions.RemoveEggDecision(player_id=0, prompt="", choices=[choice])
+        result = humanize.humanize_outcome(decision, choice, gs)
+        assert "Remove 1 egg" in result
+
+
+def test_humanize_outcome_board_target_non_remove_egg():
+    # Non-RemoveEggDecision BoardTargetChoice still uses "Targets".
+    gs = _empty_gs()
+    for hab in [cards.Habitat.FOREST, cards.Habitat.GRASSLAND, cards.Habitat.WETLAND]:
+        row = gs.players[0].board[hab]
+        if row:
+            choice = decisions.BoardTargetChoice(label="slot", habitat=hab, slot=0)
+            decision = decisions.LayEggDecision(
+                player_id=0, prompt="", choices=[choice]
+            )
+            result = humanize.humanize_outcome(decision, choice, gs)
+            assert result.startswith("Targets")
+            break
+
+
+# ---------------------------------------------------------------------------
+# humanize_choice / humanize_outcome — Item 7 (choice die)
+
+
+def test_humanize_choice_food_from_choice_die():
+    # Item 7: choice-die food gains display the die pair.
+    gs = _empty_gs()
+    choice = decisions.FoodChoice(
+        label="seed", food=cards.Food.SEED, from_choice_die=True
+    )
+    result = humanize.humanize_choice(choice, gs)
+    assert result == "seed (from seed/invertebrate)"
+
+
+def test_humanize_outcome_food_choice_die():
+    gs = _empty_gs()
+    choice = decisions.FoodChoice(
+        label="seed", food=cards.Food.SEED, from_choice_die=True
+    )
+    decision = decisions.GainFoodDecision(player_id=0, prompt="", choices=[choice])
+    result = humanize.humanize_outcome(decision, choice, gs)
+    assert result == "Gains seed (choice die)"
+
+
+# ---------------------------------------------------------------------------
+# humanize_choice — Item 10 (symmetric decline)
+
+
+def test_humanize_choice_skip_with_accept_exchange():
+    # Item 10: SkipChoice under AcceptExchangeDecision mirrors the PayCostChoice label.
+    gs = _empty_gs()
+    skip = decisions.SkipChoice(label="skip")
+    pay = decisions.PayCostChoice(
+        label="discard egg for card", paid_egg_count=1, gained_card_count=1
+    )
+    decision = decisions.AcceptExchangeDecision(
+        player_id=0, prompt="", choices=[pay, skip]
+    )
+    result = humanize.humanize_choice(skip, gs, decision=decision)
+    assert result == "Decline (discard egg for card)"
+
+
+def test_humanize_choice_skip_no_decision():
+    # Without decision context, SkipChoice still returns "Decline".
+    gs = _empty_gs()
+    choice = decisions.SkipChoice(label="skip")
+    assert humanize.humanize_choice(choice, gs) == "Decline"
 
 
 # ---------------------------------------------------------------------------
