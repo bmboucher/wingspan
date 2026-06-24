@@ -176,7 +176,7 @@ def _handle_setup_decision[C: decisions.Choice](
         )
         return chosen
     setup_decision = typing.cast(decisions.SetupDecision, decision)
-    scores, probs = _compute_setup_scores_and_probs(
+    scores, probs, vecs = _compute_setup_scores_and_probs(
         setup_net, setup_decision, eng, device
     )
     _log_distribution(eng, decision, probs, greedy, scores=scores)
@@ -191,6 +191,8 @@ def _handle_setup_decision[C: decisions.Choice](
                 probs=probs.tolist(),
                 scores=scores.tolist(),
                 chosen_idx=chosen_idx,
+                setup_feats=vecs.tolist(),
+                setup_encoding=setup_net.encoding,
             )
         )
     chosen = decision.choices[chosen_idx]
@@ -305,12 +307,13 @@ def _compute_setup_scores_and_probs(
     decision: decisions.SetupDecision,
     eng: engine.Engine,
     device: torch.device,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Score every choice in ``decision`` through the setup net.
 
-    Returns ``(scores, probs)`` where ``scores`` is the raw per-choice score
-    vector — policy logits in actor-critic mode, value margins in value-only
-    mode — and ``probs`` is the softmax distribution, both aligned to
+    Returns ``(scores, probs, vecs)`` where ``scores`` is the raw per-choice
+    score vector — policy logits in actor-critic mode, value margins in
+    value-only mode — ``probs`` is the softmax distribution, and ``vecs`` is
+    the ``(N, D)`` matrix of raw candidate feature vectors, all aligned to
     ``decision.choices``."""
     context = setup_model.SetupContext.from_state(eng.state, decision.dealt_bonus)
 
@@ -339,4 +342,4 @@ def _compute_setup_scores_and_probs(
 
     shifted = scores - scores.max()
     weights = np.exp(shifted)
-    return scores, weights / weights.sum()
+    return scores, weights / weights.sum(), vecs

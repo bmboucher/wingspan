@@ -260,6 +260,28 @@ def setup_stripe_layout(
     )
     off += setup_encode._GOAL_AFFINITY_DIM
 
+    if encoding.include_turn1_playable:
+        stripes.append(
+            encode_stripes.StripeDescriptor(
+                name="turn1_playable",
+                description=(
+                    f"Birds playable on turn 1 given the candidate's kept food and "
+                    f"habitat, as a multi-hot over all {arch_module._KEPT_CARDS_DIM} "
+                    "core-set birds."
+                ),
+                offset=off,
+                size=arch_module._KEPT_CARDS_DIM,
+                encoding="multi-hot",
+                value_range="{0, 1}",
+                notes=(
+                    "Indexed by cards.bird_index(). Embedded in-net as one extra card "
+                    "set through the frozen copy of the main net's multi-card set "
+                    "encoder, sharing the hand_embed_width output."
+                ),
+            )
+        )
+        off += arch_module._KEPT_CARDS_DIM
+
     assert off == encoding.total_dim, (
         f"stripe offsets sum to {off} but encoding.total_dim is "
         f"{encoding.total_dim} — setup_model architecture.py and stripes.py "

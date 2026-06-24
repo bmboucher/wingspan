@@ -21,7 +21,7 @@ import re
 
 import numpy as np
 
-from wingspan import cards, decisions
+from wingspan import cards, decisions, setup_model
 from wingspan.encode import layout, stripes
 from wingspan.reporting import game_log_html
 
@@ -33,7 +33,7 @@ _NORM_PATTERN = re.compile(r"÷\s*(\d+(?:\.\d+)?)")
 
 # Stripe names that carry bird integer indices (value = bird_index + 1, 0 = empty slot).
 _BIRD_INDEX_STRIPES: frozenset[str] = frozenset(
-    {"card_idx_board", "card_idx_tray", "bird_id", "board_idx"}
+    {"card_idx_board", "card_idx_tray", "bird_id", "board_idx", "tray"}
 )
 
 # Stripe names that carry 180-dim bird multi-hot vectors.
@@ -44,17 +44,26 @@ _BIRD_MULTIHOT_STRIPES: frozenset[str] = frozenset(
         "hand_playable_eggs_me",
         "becomes_playable",
         "kept_multihot",
+        "kept_cards",
+        "turn1_playable",
     }
 )
 
 # Stripe names that carry 26-dim bonus-card multi-hot vectors.
-_BONUS_MULTIHOT_STRIPES: frozenset[str] = frozenset({"bonus_progress_held"})
+_BONUS_MULTIHOT_STRIPES: frozenset[str] = frozenset(
+    {"bonus_progress_held", "bonus_cards"}
+)
 
 # Stripe names that carry one-hot bonus-card indices.
-_BONUS_ONEHOT_STRIPES: frozenset[str] = frozenset({"bonus_id"})
+_BONUS_ONEHOT_STRIPES: frozenset[str] = frozenset({"bonus_id", "kept_bonus"})
 
 # Stripe names that carry one-hot decision-type indices.
 _DECISION_TYPE_STRIPES: frozenset[str] = frozenset({"decision_type"})
+
+# Setup stripe names shared across all candidates (deal context, not candidate-specific).
+_SETUP_CONTEXT_STRIPES: frozenset[str] = frozenset(
+    {"tray", "birdfeeder", "round_goals", "bonus_cards"}
+)
 
 
 def extract_state_stripes(
@@ -86,6 +95,41 @@ def extract_choice_stripes(
     return _extract_nonzero_stripes(
         np.array(choice_vec, dtype=np.float32), vector_layout, include_setup
     )
+
+
+def extract_setup_context_stripes(
+    vector: list[float],
+    encoding: setup_model.SetupEncoding,
+) -> list[game_log_html.EncodedStripe]:
+    """Return non-zero stripe summaries for the shared deal-context portion of a
+    setup candidate vector.
+
+    The deal context (tray, birdfeeder, round goals, and bonus-cards when
+    split_bonus is active) is identical across all 504 candidates; this function
+    decodes it from the first candidate's vector for the 'Game State' panel.
+    Stripes not in :data:`_SETUP_CONTEXT_STRIPES` are excluded."""
+    vector_layout = setup_model.setup_stripe_layout(encoding)
+    all_stripes = _extract_nonzero_stripes(
+        np.array(vector, dtype=np.float32), vector_layout, include_setup=True
+    )
+    return [s for s in all_stripes if s.name in _SETUP_CONTEXT_STRIPES]
+
+
+def extract_setup_candidate_stripes(
+    vector: list[float],
+    encoding: setup_model.SetupEncoding,
+) -> list[game_log_html.EncodedStripe]:
+    """Return non-zero stripe summaries for the per-candidate portion of a setup
+    candidate vector.
+
+    Includes kept cards, foods, bonus, and the pricing blocks (kept_bonus_value,
+    goal_affinity) — everything that varies across candidates. Stripes in
+    :data:`_SETUP_CONTEXT_STRIPES` are excluded."""
+    vector_layout = setup_model.setup_stripe_layout(encoding)
+    all_stripes = _extract_nonzero_stripes(
+        np.array(vector, dtype=np.float32), vector_layout, include_setup=True
+    )
+    return [s for s in all_stripes if s.name not in _SETUP_CONTEXT_STRIPES]
 
 
 ###### PRIVATE #######

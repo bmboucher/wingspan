@@ -39,6 +39,11 @@ value *and* a `PolicyAnnotation` (probs, scores, chosen_idx) from the AI agent t
 the instrumentation handler across the agent↔handler decoupling. `record(value)`
 stores the critic output; `record_policy(annotation)` stores the distribution;
 `take()` returns and clears both as `(float|None, PolicyAnnotation|None)`.
+`PolicyAnnotation` carries two parallel encoding groups: main-net decisions populate
+`state_vec` / `choice_feats` / `include_setup` / `card_embed_dim`; setup-net
+decisions instead populate `setup_feats` (one raw candidate vector per choice, aligned
+to `decision.choices`) and `setup_encoding` (the `SetupEncoding` describing their
+layout). The other group's fields are left `None`.
 
 **`factory.py`** — `build_agent(spec, device, rng, greedy) -> (Agent, TrainConfig|None)`:
 the top-level factory. Maps each `PlayerSpec.kind` to the appropriate agent

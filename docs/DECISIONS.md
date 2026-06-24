@@ -712,6 +712,17 @@ the gate is `split_setup_food_active = split_setup_food and use_setup_model`):
   `split_setup_food` is active, `setup_food_sets` is ignored (random setup
   generation emits `kept_foods = ()` directly without food sampling).
 
+**Inspecting the setup encoding in `wingspan play --html`.**  When
+`use_setup_model = True`, clicking a keep option in the HTML game log opens the
+encoding-viewer modal with the setup net's input vector decoded into two panels:
+"Game State" shows the shared deal context (tray birds, birdfeeder counts) and
+"This Choice" shows the per-candidate blocks (kept cards, foods, bonus, pricing).
+This mirrors the main-net modal's state/choice split.  `complex`-encoded stripes
+(round goals) are hidden, identical to the main-net view.  The raw vectors are
+captured in `players.decision_probe.PolicyAnnotation.setup_feats` and decoded by
+`reporting.encode_viewer.extract_setup_{context,candidate}_stripes` using
+`setup_model.setup_stripe_layout(encoding)`.
+
 ---
 
 ## 3. Maintaining this document

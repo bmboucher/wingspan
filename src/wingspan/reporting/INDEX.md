@@ -71,12 +71,14 @@ Imported lazily by the `GameLogHtml` instrumentation handler so its `engine`
 dependency stays off the import-time path.
 
 **`encode_viewer.py`** — extracts non-zero stripe summaries from raw encoder vectors for
-the HTML encoding-viewer modal. `extract_state_stripes(vector, include_setup, card_embed_dim)`
-and `extract_choice_stripes(choice_vec, include_setup, card_embed_dim)` each call the
-appropriate `stripes.{state,choice}_stripe_layout(spec, card_embed_dim)` to get the
-canonical `VectorLayout`, then walk its stripes, skip all-zero and `encoding=="complex"`
-stripes, and build a list of `EncodedStripe` records (each holding only non-zero
-`EncodedSubField` entries). Called lazily from `game_log_capture.build_decision_item`
+the HTML encoding-viewer modal. `extract_state_stripes(vector, include_setup)` and
+`extract_choice_stripes(choice_vec, include_setup)` decode main-net vectors using the
+appropriate `stripes.{state,choice}_stripe_layout(spec)` layout. For setup decisions,
+`extract_setup_context_stripes(vector, encoding)` and `extract_setup_candidate_stripes(vector,
+encoding)` decode a raw setup candidate vector using `setup_model.setup_stripe_layout(encoding)`,
+partitioned at `_SETUP_CONTEXT_STRIPES`: context stripes (tray, birdfeeder) go to the state
+panel; per-candidate stripes (kept cards, bonus, pricing) go to the choice panel. All functions
+skip all-zero and `encoding=="complex"` stripes. Called lazily from `game_log_capture.build_decision_item`
 to avoid the `engine` ↔ `reporting` import cycle.
 
 **`humanize.py`** — leaf humanizer module with no engine or torch imports.

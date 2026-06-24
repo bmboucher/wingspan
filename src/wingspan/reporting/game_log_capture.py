@@ -135,10 +135,10 @@ def build_decision_item(
     a ``DecisionOption`` for each using the humanizer.  The ``text`` field
     holds the humanized outcome summary shown in the collapsed header.
 
-    When the annotation carries raw encoder vectors (main-net decisions only),
-    extracts non-zero state stripes (shared across all options) and per-option
-    choice stripes via :mod:`wingspan.reporting.encode_viewer` for the
-    encoding-viewer modal."""
+    When the annotation carries raw encoder vectors (main-net decisions) or
+    setup-net candidate vectors, extracts non-zero stripe summaries for the
+    encoding-viewer modal.  For setup decisions, deal context (tray, birdfeeder)
+    goes in the state panel and per-candidate blocks in the choice panel."""
     from wingspan.reporting import encode_viewer
 
     gs = engine.state
@@ -153,8 +153,15 @@ def build_decision_item(
         shown_indices = shown_indices[:-1] + [annotation.chosen_idx]
 
     # Extract state stripes once (shared across all options for this decision).
+    # Setup path: decode the deal context from the first candidate's vector.
+    # Main-net path: decode the full encode_state vector.
     state_stripes: list[game_log_html.EncodedStripe] | None = None
-    if annotation.state_vec is not None:
+    if annotation.setup_feats is not None and annotation.setup_encoding is not None:
+        if annotation.setup_feats:
+            state_stripes = encode_viewer.extract_setup_context_stripes(
+                annotation.setup_feats[0], annotation.setup_encoding
+            )
+    elif annotation.state_vec is not None:
         state_stripes = encode_viewer.extract_state_stripes(
             annotation.state_vec,
             include_setup=annotation.include_setup or False,
@@ -164,9 +171,15 @@ def build_decision_item(
     for idx in shown_indices:
         idx_choice = decision.choices[idx]
 
-        # Extract per-option choice stripes from the annotation's choice matrix.
+        # Extract per-option choice stripes. Setup path: per-candidate blocks.
+        # Main-net path: one row from the encode_choices matrix.
         choice_stripes: list[game_log_html.EncodedStripe] | None = None
-        if annotation.choice_feats is not None and idx < len(annotation.choice_feats):
+        if annotation.setup_feats is not None and annotation.setup_encoding is not None:
+            if idx < len(annotation.setup_feats):
+                choice_stripes = encode_viewer.extract_setup_candidate_stripes(
+                    annotation.setup_feats[idx], annotation.setup_encoding
+                )
+        elif annotation.choice_feats is not None and idx < len(annotation.choice_feats):
             choice_stripes = encode_viewer.extract_choice_stripes(
                 annotation.choice_feats[idx],
                 include_setup=annotation.include_setup or False,

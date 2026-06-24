@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import pydantic
 
+from wingspan.setup_model import architecture as setup_arch
+
 
 class PolicyAnnotation(pydantic.BaseModel):
     """The policy-head output for one genuine decision.
@@ -24,11 +26,11 @@ class PolicyAnnotation(pydantic.BaseModel):
     net) or ``None`` (setup-net value-only mode); ``chosen_idx`` is the index
     of the option that was actually played.
 
-    ``state_vec`` and ``choice_feats`` carry the raw encoder outputs for the
-    encoding-viewer modal; they are present only for main-net decisions (the
-    setup path leaves them ``None``). ``include_setup`` and ``card_embed_dim``
-    are the two values needed to reconstruct the correct :class:`VectorLayout`
-    from the stripe registry."""
+    Main-net decisions populate ``state_vec``, ``choice_feats``,
+    ``include_setup``, and ``card_embed_dim`` for the encoding-viewer modal;
+    setup-net decisions instead populate ``setup_feats`` (one raw candidate
+    vector per choice) and ``setup_encoding`` (the :class:`SetupEncoding` that
+    describes their layout). The other group's fields are left ``None``."""
 
     probs: list[float]
     scores: list[float] | None = None
@@ -37,6 +39,8 @@ class PolicyAnnotation(pydantic.BaseModel):
     choice_feats: list[list[float]] | None = None
     include_setup: bool | None = None
     card_embed_dim: int | None = None
+    setup_feats: list[list[float]] | None = None
+    setup_encoding: setup_arch.SetupEncoding | None = None
 
 
 class DecisionProbe:
