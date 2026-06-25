@@ -555,6 +555,7 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "use_distinct_hand_model": ("architecture", "main", "use_distinct_hand_model"),
     "hand_encoder_layers": ("architecture", "main", "hand_encoder_layers"),
     "hand_embed_dim": ("architecture", "main", "hand_embed_dim"),
+    "hand_pooling": ("architecture", "main", "hand_pooling"),
     "use_board_attention": ("architecture", "main", "use_board_attention"),
     "encoder_final_activation": ("architecture", "main", "encoder_final_activation"),
     # architecture.main per-block overrides
@@ -1022,53 +1023,18 @@ FIELD_SPECS: list[FieldSpec] = [
         impact=ChangeImpact.FRESH,
         help="Card encoder LayerNorm (None = inherit global). Fresh run when changed.",
     ),
-    # MODEL ARCHITECTURE ▸ HAND ENCODER
-    OptionalIntField(
-        attr="hand_embed_dim",
-        label="dimension",
-        group_path=("MODEL ARCHITECTURE", "HAND ENCODER"),
-        unit="units",
-        step=16,
-        none_label="= card embed",
-        fallback_attr="card_embed_dim",
+    # MODEL ARCHITECTURE ▸ HAND POOLING
+    ChoiceField(
+        attr="hand_pooling",
+        label="hand pooling",
+        group_path=("MODEL ARCHITECTURE", "HAND POOLING"),
+        choices=["concat_max_sum", "max", "sum", "mean"],
         impact=ChangeImpact.FRESH,
-        help="Output width N of the hand encoder. Type 'none' to track card embed "
-        "dim (M). Fresh run.",
-    ),
-    LayersField(
-        attr="hand_encoder_layers",
-        label="layers",
-        group_path=("MODEL ARCHITECTURE", "HAND ENCODER"),
-        unit="units",
-        min_len=0,
-        impact=ChangeImpact.FRESH,
-        help="Hand encoder MLP hidden widths. Output width is the hand embed dim "
-        "above. Empty = a single linear projection. Fresh run.",
-    ),
-    OptionalChoiceField(
-        attr="hand_activation",
-        label="activation",
-        group_path=("MODEL ARCHITECTURE", "HAND ENCODER"),
-        choices=_ACT_CHOICES,
-        impact=ChangeImpact.REGIME,
-        help="Hand encoder activation (None = inherit global). Resumable.",
-    ),
-    OptionalFloatField(
-        attr="hand_dropout",
-        label="dropout",
-        group_path=("MODEL ARCHITECTURE", "HAND ENCODER"),
-        step=0.05,
-        fallback_attr="dropout",
-        impact=ChangeImpact.REGIME,
-        help="Hand encoder dropout (None = inherit global). Resumable.",
-    ),
-    OptionalChoiceField(
-        attr="hand_layernorm",
-        label="layernorm",
-        group_path=("MODEL ARCHITECTURE", "HAND ENCODER"),
-        choices=["True", "False"],
-        impact=ChangeImpact.FRESH,
-        help="Hand encoder LayerNorm (None = inherit global). Fresh run when changed.",
+        help="Permutation-invariant pooling mode for the hand set embedding. "
+        "Replaces the retired dedicated hand encoder (use_distinct_hand_model=False). "
+        "concat_max_sum (default): [max|sum|count] (2M+1 wide); max: [max|count] "
+        "(M+1); sum: M; mean: M (reproduces old mean-pool). Forces a fresh run "
+        "(architecture_key changes). Old distinct-encoder checkpoints are unaffected.",
     ),
     # MODEL ARCHITECTURE ▸ STATE TRUNK
     LayersField(

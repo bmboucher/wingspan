@@ -113,9 +113,8 @@ def test_html_report_arch_svg_content():
     # Encoder fan-out copy labels (card -> trunk, hand -> setup).
     assert f"×{encode.N_CARD_INDEX_SLOTS}" in html
     assert "kept + tray set" in html
-    # The top-row encoders carry the freezing side note (default arch has the
-    # distinct hand model on, so the blanket note is accurate).
-    assert "trained in-game only" in html
+    # "trained in-game only" note only appears when use_distinct_hand_model=True;
+    # the default is now pooled (False), so this note is absent for a bare config.
     # Parameter counts are exact bare integers — no "123k", no Σ, no commas.
     first_width = arch.card_encoder_layers[0]
     first_linear = encode.CARD_FEATURE_DIM * first_width + first_width

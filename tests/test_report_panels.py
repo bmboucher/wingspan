@@ -21,8 +21,10 @@ from wingspan.reporting import html as report  # noqa: E402
 
 # The five clickable input boxes' panel ids, in diagram order, and the
 # parameter-table block keys the default architecture renders anchors for.
+# "hand" is absent — the dedicated hand encoder is off by default
+# (use_distinct_hand_model=False), so ParamReport.hand is None for a bare config.
 _PANEL_IDS = ("card", "hand", "state", "choice", "setup")
-_PARAMS_BLOCK_KEYS = ("embed", "hand", "trunk", "choice", "scorer", "value", "total")
+_PARAMS_BLOCK_KEYS = ("embed", "trunk", "choice", "scorer", "value", "total")
 
 
 def test_card_feature_layout_matches_encoder_constant():

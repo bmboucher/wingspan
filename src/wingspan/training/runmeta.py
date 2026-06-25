@@ -298,6 +298,7 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
             arch.card_embed_dim,
             use_distinct_hand_model=arch.use_distinct_hand_model,
             hand_embed_dim=arch.hand_embed_dim,
+            pooled_hand_width=arch.pooled_hand_width,
             tray_set_embedding=arch.tray_set_embedding,
             n_playable_multihots=n_playable,
         ),
@@ -334,6 +335,7 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
         arch.card_embed_dim,
         use_distinct_hand_model=arch.use_distinct_hand_model,
         hand_embed_dim=arch.hand_embed_dim,
+        pooled_hand_width=arch.pooled_hand_width,
         tray_set_embedding=arch.tray_set_embedding,
     )
 

@@ -1102,6 +1102,7 @@ def _trunk_in(cfg: config.RunConfig) -> int:
         cfg.architecture.main.card_embed_dim,
         use_distinct_hand_model=cfg.architecture.main.use_distinct_hand_model,
         hand_embed_dim=cfg.architecture.main.hand_embed_dim,
+        pooled_hand_width=cfg.arch.pooled_hand_width,
         tray_set_embedding=cfg.architecture.main.tray_set_embedding,
         n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
     )

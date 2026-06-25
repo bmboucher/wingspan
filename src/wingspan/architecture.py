@@ -54,6 +54,7 @@ type ShapeKey = tuple[
     int,  # hand_embed_width (the *resolved* N, so None == explicit-equal)
     bool,  # tray_set_embedding
     bool,  # use_board_attention
+    HandPooling | None,  # hand_pooling (None when use_distinct_hand_model)
 ]
 
 
@@ -65,6 +66,32 @@ class ActivationName(enum.StrEnum):
     TANH = "tanh"
     SILU = "silu"
     LEAKY_RELU = "leaky_relu"
+
+
+class HandPooling(enum.StrEnum):
+    """Permutation-invariant set-pooling mode for the hand embedding.
+
+    Only meaningful when ``ModelArchitecture.use_distinct_hand_model`` is
+    ``False``; inert (and silently carried) when the dedicated hand encoder is
+    active. ``M = card_embed_dim`` throughout.
+
+    - ``MEAN``: mean of selected card vectors (``M`` wide) — identical to the
+      pre-pooling legacy behaviour; no count appended.
+    - ``SUM``: sum of selected card vectors (``M`` wide); no count appended.
+    - ``MAX``: element-wise max of selected card vectors, then a count scalar
+      appended (``M+1`` wide).
+    - ``CONCAT_MAX_SUM``: ``[max | sum | count]`` (``2M+1`` wide) — recommended
+      default; max captures "best available per axis", sum captures multiplicity.
+    """
+
+    MEAN = "mean"
+    SUM = "sum"
+    MAX = "max"
+    CONCAT_MAX_SUM = "concat_max_sum"
+
+
+# Extra count-scalar dimension appended to pooling modes that include a max.
+_HAND_POOL_COUNT_DIM = 1
 
 
 class ModelArchitecture(pydantic.BaseModel):
@@ -100,15 +127,23 @@ class ModelArchitecture(pydantic.BaseModel):
     # instead of the shared ``head_layers``; ``head_layers_for(i)`` resolves this.
     # ``None`` (the default) = all families share ``head_layers`` (uniform mode).
     per_family_head_layers: tuple[Widths, ...] | None = None
-    # When True a dedicated hand encoder MLP replaces the mean-pool hand embedding:
+    # When True a dedicated hand encoder MLP replaces the pooled hand embedding:
     # it takes [180-dim multi-hot ⊕ 10-dim hand summary] = 190 dims as input and
-    # outputs a ``card_embed_dim``-wide hand vector. The 10 hand-summary dims are
+    # outputs a ``hand_embed_width``-wide hand vector. The 10 hand-summary dims are
     # redirected from the trunk's continuous input into this encoder, so the trunk
-    # sees a correspondingly narrower continuous block. Defaults to True — the
-    # multi-card encoder is the default hand path. The mean-pool branch remains
-    # for ``False`` configs, and old checkpoints still load because their saved
-    # configs carry their own value.
-    use_distinct_hand_model: bool = True
+    # sees a correspondingly narrower continuous block. Defaults to False for new
+    # runs — the pooled path (``hand_pooling``) is the recommended default. The
+    # dedicated encoder is retained for back-compat; old checkpoints carry their
+    # own value and load identically.
+    use_distinct_hand_model: bool = False
+    # Pooling mode for the hand set embedding (only meaningful when
+    # ``use_distinct_hand_model`` is False). The hand multi-hot is pooled over the
+    # shared card-encoder outputs (``card_table[1:]``) according to this mode; see
+    # ``HandPooling`` for the per-mode output widths. Inert for old checkpoints
+    # that carry ``use_distinct_hand_model=True``. Default = CONCAT_MAX_SUM
+    # (recommended for new runs: max captures "best available per axis", sum
+    # captures multiplicity, count disambiguates empty-hand).
+    hand_pooling: HandPooling = HandPooling.CONCAT_MAX_SUM
     # Hidden widths of the hand encoder MLP (same shape convention as
     # ``card_encoder_layers``). Output is always ``hand_embed_width`` (the model
     # appends it), so this lists hidden layers only. Defaults mirror
@@ -189,6 +224,22 @@ class ModelArchitecture(pydantic.BaseModel):
             if self.hand_embed_dim is not None
             else self.card_embed_dim
         )
+
+    @property
+    def pooled_hand_width(self) -> int:
+        """Output width of one pooled card-set embedding (``M = card_embed_dim``).
+
+        MEAN / SUM → ``M``; MAX → ``M + 1`` (appends a count scalar); CONCAT_MAX_SUM
+        → ``2M + 1`` (max ⊕ sum ⊕ count). Only meaningful when
+        ``use_distinct_hand_model`` is ``False``; callers should prefer
+        ``hand_embed_width`` for the distinct-encoder path."""
+        m = self.card_embed_dim
+        if self.hand_pooling in (HandPooling.MEAN, HandPooling.SUM):
+            return m
+        if self.hand_pooling == HandPooling.MAX:
+            return m + _HAND_POOL_COUNT_DIM
+        # CONCAT_MAX_SUM
+        return 2 * m + _HAND_POOL_COUNT_DIM
 
     @property
     def choice_embed_width(self) -> int:
@@ -333,6 +384,10 @@ class ModelArchitecture(pydantic.BaseModel):
             self.hand_embed_width,
             self.tray_set_embedding,
             self.use_board_attention,
+            # None when distinct (pooling inert) so old distinct artifacts'
+            # keys are unaffected; the pooling mode only appears in the key
+            # for the pooled path, where it determines the trunk input width.
+            None if self.use_distinct_hand_model else self.hand_pooling,
         )
 
 

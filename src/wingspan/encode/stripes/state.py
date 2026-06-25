@@ -42,6 +42,7 @@ def state_stripe_layout(
     *,
     use_distinct_hand_model: bool = False,
     hand_embed_dim: int | None = None,
+    pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
 ) -> descriptors.VectorLayout:
     """Build the stripe registry for the state trunk's input vector.
@@ -49,9 +50,9 @@ def state_stripe_layout(
     Lists every stripe in offset order with sizes from the ``layout`` constants.
     The card-index block and hand multi-hot are shown at their *post-embedding*
     width — each board / tray slot index as one ``card_embed_dim`` vector, the
-    hand as one embedding (mean-pooled at ``card_embed_dim``, or the dedicated
-    hand encoder's resolved ``hand_embed_dim`` under
-    ``use_distinct_hand_model``, which also folds the 10-dim hand-summary stripe
+    hand as one embedding (pooled at ``pooled_hand_width`` when
+    ``use_distinct_hand_model`` is False, or the dedicated hand encoder's resolved
+    ``hand_embed_dim`` otherwise, which also folds the 10-dim hand-summary stripe
     into the encoder's input) — so the breakdown sums to the trunk's
     first-``Linear`` input (``layout.trunk_input_dim``): what the network
     actually sees, not the raw encoder output. ``tray_set_embedding`` widens the
@@ -67,6 +68,7 @@ def state_stripe_layout(
             card_embed_dim,
             use_distinct_hand_model=use_distinct_hand_model,
             hand_embed_dim=hand_embed_dim,
+            pooled_hand_width=pooled_hand_width,
             tray_set_embedding=tray_set_embedding,
         ),
         layout.trunk_input_dim(
@@ -74,6 +76,7 @@ def state_stripe_layout(
             card_embed_dim,
             use_distinct_hand_model=use_distinct_hand_model,
             hand_embed_dim=hand_embed_dim,
+            pooled_hand_width=pooled_hand_width,
             tray_set_embedding=tray_set_embedding,
         ),
     )

@@ -20,7 +20,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from wingspan import encode
+from wingspan import architecture, encode
 
 
 def multihot_from_indices(indices: torch.Tensor, n_birds: int) -> torch.Tensor:
@@ -74,3 +74,57 @@ def embed_card_set(
     ``[multi-hot ⊕ summary]`` concat — the exact input shape the encoder sees for
     the hand itself (``encode.HAND_ENCODER_INPUT_DIM``)."""
     return hand_encoder(torch.cat([multihot, summary], dim=-1))
+
+
+def pool_card_set(
+    multihot: torch.Tensor,
+    card_rows: torch.Tensor,
+    pooling: architecture.HandPooling,
+) -> torch.Tensor:
+    """Permutation-invariant pooling of a card set through the shared card table.
+
+    ``multihot`` is ``[B, 180]`` (any selected card is ``1``); ``card_rows``
+    is ``card_table[1:]`` — the ``[180, M]`` block that skips the padding row.
+    Returns a ``[B, W]`` tensor where ``W`` depends on ``pooling`` mode:
+    ``MEAN`` and ``SUM`` → ``M``; ``MAX`` → ``M+1`` (max ⊕ count);
+    ``CONCAT_MAX_SUM`` → ``2M+1`` (max ⊕ sum ⊕ count).
+
+    The masked max maps an empty hand to ``0`` on all axes (not ``-inf``),
+    so the pooled vector is always well-defined."""
+    count = multihot.sum(dim=-1, keepdim=True)  # [B, 1]
+
+    if pooling == architecture.HandPooling.MEAN:
+        weighted_sum = multihot @ card_rows  # [B, M]
+        return weighted_sum / count.clamp(min=1.0)
+
+    if pooling == architecture.HandPooling.SUM:
+        return multihot @ card_rows  # [B, M]
+
+    # MAX and CONCAT_MAX_SUM both need an element-wise masked max.
+    max_pool = _masked_max(multihot, card_rows, count)  # [B, M]
+
+    if pooling == architecture.HandPooling.MAX:
+        return torch.cat([max_pool, count], dim=-1)  # [B, M+1]
+
+    # CONCAT_MAX_SUM
+    weighted_sum = multihot @ card_rows  # [B, M]
+    return torch.cat([max_pool, weighted_sum, count], dim=-1)  # [B, 2M+1]
+
+
+def _masked_max(
+    multihot: torch.Tensor, card_rows: torch.Tensor, count: torch.Tensor
+) -> torch.Tensor:
+    """Element-wise max of the selected cards' vectors; empty hand → ``0``.
+
+    Expands ``multihot`` to ``[B, 180, M]``, masks unselected rows to ``-inf``,
+    takes the max over the card axis, then zeros out the result for empty sets."""
+    mask = multihot.bool()  # [B, 180]
+    finfo = torch.finfo(card_rows.dtype)
+    # [B, 180, M]: broadcast card_rows and mask unselected cards to -inf.
+    expanded = card_rows.unsqueeze(0).expand(multihot.shape[0], -1, -1)
+    masked = torch.where(
+        mask.unsqueeze(-1), expanded, torch.full_like(expanded, finfo.min)
+    )
+    max_vals = masked.max(dim=1).values  # [B, M]
+    # Empty hand: every entry is -inf after masking; reset to 0.
+    return torch.where(count > 0, max_vals, torch.zeros_like(max_vals))

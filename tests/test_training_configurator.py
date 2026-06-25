@@ -690,6 +690,7 @@ def _param_report_for(cfg: config.TrainConfig) -> architecture.ParamReport:
             main.card_embed_dim,
             use_distinct_hand_model=main.use_distinct_hand_model,
             hand_embed_dim=main.hand_embed_dim,
+            pooled_hand_width=cfg.arch.pooled_hand_width,
             tray_set_embedding=main.tray_set_embedding,
             n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
         ),
@@ -1567,14 +1568,17 @@ def test_locked_out_fields_absent_from_specs():
 
 
 def test_per_block_override_fields_present():
-    """All 14 per-block override fields are present in FIELD_SPECS."""
+    """Per-block override fields for active blocks are present in FIELD_SPECS.
+
+    The hand encoder per-block fields (hand_activation / hand_dropout /
+    hand_layernorm) are intentionally absent from the new-run UI — the
+    dedicated hand encoder is retired for new runs (use_distinct_hand_model
+    defaults to False). They remain on the model for old-artifact compat but
+    are no longer editable in the configurator."""
     expected_per_block = {
         "card_activation",
         "card_dropout",
         "card_layernorm",
-        "hand_activation",
-        "hand_dropout",
-        "hand_layernorm",
         "trunk_activation",
         "trunk_dropout",
         "trunk_layernorm",
@@ -1590,10 +1594,13 @@ def test_per_block_override_fields_present():
 
 
 def test_per_block_override_fields_are_optional_choice_or_float():
-    """Activation/layernorm overrides are OptionalChoiceField; dropout overrides are OptionalFloatField."""
+    """Activation/layernorm overrides are OptionalChoiceField; dropout overrides are OptionalFloatField.
+
+    Note: hand_{activation,dropout,layernorm} are excluded — the dedicated hand
+    encoder is retired for new runs and its per-block override fields are no
+    longer registered in the configurator UI."""
     for attr in (
         "card_activation",
-        "hand_activation",
         "trunk_activation",
         "choice_activation",
         "value_activation",
@@ -1602,12 +1609,11 @@ def test_per_block_override_fields_are_optional_choice_or_float():
         assert isinstance(fields.spec_for(attr), fields.OptionalChoiceField), attr
     for attr in (
         "card_layernorm",
-        "hand_layernorm",
         "trunk_layernorm",
         "choice_layernorm",
     ):
         assert isinstance(fields.spec_for(attr), fields.OptionalChoiceField), attr
-    for attr in ("card_dropout", "hand_dropout", "trunk_dropout", "choice_dropout"):
+    for attr in ("card_dropout", "trunk_dropout", "choice_dropout"):
         assert isinstance(fields.spec_for(attr), fields.OptionalFloatField), attr
 
 

@@ -61,6 +61,20 @@ override `_build_card_encoder` to delegate to `_install_v06_card_encoder_main`.
 Fixture set: `tests/data/compat/v0.7/` — to be captured after a short 0.7 training run,
 same pattern as prior eras.
 
+**REGIME change: configurable hand pooling; `use_distinct_hand_model` default flipped** —
+`HandPooling(StrEnum)` added to `architecture.py`; `hand_pooling: HandPooling =
+HandPooling.CONCAT_MAX_SUM` field added to `ModelArchitecture`;
+`use_distinct_hand_model` default changed `True → False` (new runs use the pooled path).
+The five dedicated-hand-encoder configurator fields (`hand_embed_dim`,
+`hand_encoder_layers`, `hand_activation`, `hand_dropout`, `hand_layernorm`) are removed
+from the new-run UI but retained on the model for old-artifact back-compat; a single
+`hand_pooling` ChoiceField replaces them. `HandPooling | None` appended to `ShapeKey`
+(valued `None` for distinct-encoder runs so their key is unchanged). Pooling is entirely
+network-internal (`model._embed_state`); raw `encode_state` and stripe offsets are
+unchanged. Old distinct-encoder checkpoints carry `use_distinct_hand_model=True` → pooling
+inert → identical rehydration. **No `MODEL_VERSION` bump, no compat shim.**
+Mirrors the `use_board_attention` / `tray_set_embedding` REGIME precedents.
+
 ### v0.6 — playability-aware hand copies (superseded by v0.7)
 
 **FRESH change** — added two playability-filtered hand multi-hots to the state vector

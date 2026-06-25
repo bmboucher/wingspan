@@ -577,6 +577,7 @@ def trunk_input_dim(
     *,
     use_distinct_hand_model: bool = False,
     hand_embed_dim: int | None = None,
+    pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
     n_playable_multihots: int = 0,
 ) -> int:
@@ -584,9 +585,11 @@ def trunk_input_dim(
     the card-index block and the hand multi-hot replaced by their shared-embedding
     lookups — one ``card_embed_dim`` vector per index slot, plus one hand embedding.
 
-    When ``use_distinct_hand_model`` is ``False`` (default) the hand embedding is a
-    mean-pool of the held cards' shared card vectors (``card_embed_dim`` wide), and
-    the 10-dim hand-summary stripe in the continuous prefix reaches the trunk as-is.
+    When ``use_distinct_hand_model`` is ``False`` (default) the hand multi-hot is
+    pooled over the shared card vectors. The output width is ``pooled_hand_width``
+    (from ``architecture.ModelArchitecture.pooled_hand_width``); when ``None``,
+    defaults to ``card_embed_dim`` (MEAN mode / legacy back-compat). The 10-dim
+    hand-summary stripe in the continuous prefix passes through unchanged.
 
     When ``True`` a dedicated hand encoder produces the hand embedding from the
     multi-hot concatenated with the hand-summary; the 10-dim hand-summary stripe is
@@ -603,16 +606,17 @@ def trunk_input_dim(
     ``n_playable_multihots`` counts the extra hand-playability multi-hot blocks that
     follow the hand multi-hot in the state vector (``N_HAND_PLAYABLE_MULTIHOTS`` in
     live encoding, 0 for pre-0.6 compat shims). Each is removed from the flat
-    state and re-embedded through the same hand encoder (or mean-pooled), adding
-    one ``hand_embed_dim``-wide vector per block.
+    state and re-embedded through the same path, adding one set-embedding-wide
+    vector per block.
 
     This is the single source of truth for the post-embedding width (used by both
     ``model.PolicyValueNet`` and the configurator's parameter accounting)."""
-    hand_width = (
-        (hand_embed_dim if hand_embed_dim is not None else card_embed_dim)
-        if use_distinct_hand_model
-        else card_embed_dim
-    )
+    if use_distinct_hand_model:
+        hand_width = hand_embed_dim if hand_embed_dim is not None else card_embed_dim
+    else:
+        hand_width = (
+            pooled_hand_width if pooled_hand_width is not None else card_embed_dim
+        )
     base = (
         state_dim
         - N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings

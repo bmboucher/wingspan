@@ -20,7 +20,7 @@ behaviour and affordances.
 The diagram is data-driven: layer shapes come from the
 :class:`wingspan.architecture.ParamReport` (with the hand encoder's shapes
 recomputed via :func:`wingspan.architecture.body_layers` when the main net
-mean-pools the hand instead), copy counts come from the ``wingspan.encode``
+pools the hand through the card table instead), copy counts come from the ``wingspan.encode``
 layout constants, and the separate setup net is drawn from its
 :class:`~wingspan.architecture.BlockParam` — so the picture stays correct for
 any configuration.
@@ -44,7 +44,7 @@ from wingspan import architecture, encode, setup_model, state
 # ``data-params-block`` key equal to ``BlockParam.label.lower()`` (the anchor
 # suffix of the parameter table's per-block rows), or ``PARAMS_BLOCK_TOTAL``
 # for counts with no block rows of their own (the grand total, the separate
-# setup net, the mean-pooled hand encoder).
+# setup net, the pooled-hand path).
 
 PANEL_CARD = "card"
 PANEL_HAND = "hand"
@@ -173,7 +173,7 @@ def build_arch_svg(
     net's).  It is drawn even when ``use_setup_model`` is False: dashed, with
     an "off" subtitle, so the diagram always shows what the setup net would
     look like.  The hand encoder is likewise always drawn — dashed when the
-    main net mean-pools the hand through the card table instead.
+    main net pools the hand through the card table instead.
     """
     # Assemble the seven blocks, then resolve the row layout from row counts.
     units = _build_units(
@@ -408,12 +408,14 @@ def _hand_unit(
         f"embeds a card set (own hand / setup keep / tray)"
     )
     if not distinct:
-        tooltip += " · setup net only — the main net mean-pools the hand through the card table"
+        tooltip += (
+            " · setup net only — the main net pools the hand through the card table"
+        )
     return _Unit(
         x=_SVG_COL_X[1],
         accent=_ACCENT_HAND,
         title="MULTI-CARD ENCODER · card-set MLP",
-        subtitle="" if distinct else "setup net only · main net mean-pools",
+        subtitle="" if distinct else "setup net only · main net pools hand",
         rows=_op_rows(
             layers,
             arch.hand_activation_resolved.value,

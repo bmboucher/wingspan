@@ -60,8 +60,10 @@ def test_key_changes_with_embedder_shapes(tmp_path: pathlib.Path):
         _cfg(tmp_path, card_encoder_layers=(64,)).setup_architecture_key
         != base.setup_architecture_key
     )
-    meanpool = _cfg(tmp_path, use_distinct_hand_model=False, tray_set_embedding=False)
-    assert meanpool.setup_architecture_key != base.setup_architecture_key
+    # Default is now pooled (use_distinct_hand_model=False); flipping to distinct
+    # must change the setup key since the setup net's embedder path differs.
+    distinct = _cfg(tmp_path, use_distinct_hand_model=True, tray_set_embedding=False)
+    assert distinct.setup_architecture_key != base.setup_architecture_key
     assert (
         _cfg(tmp_path, hand_embed_dim=32).setup_architecture_key
         != base.setup_architecture_key

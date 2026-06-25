@@ -149,10 +149,14 @@ class MainNetArchitecture(pydantic.BaseModel):
     card_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] = 64
     card_encoder_layers: architecture.Widths = (128,)
 
-    # Distinct hand-encoder MLP replacing mean-pool hand embedding. Fresh run.
-    use_distinct_hand_model: bool = True
+    # Dedicated hand-encoder MLP path (retained for old-artifact back-compat;
+    # new runs use the pooled path instead). Default False = pooled path.
+    use_distinct_hand_model: bool = False
     hand_encoder_layers: architecture.Widths = (128,)
     hand_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] | None = None
+    # Pooling mode for the hand set embedding (only meaningful when
+    # use_distinct_hand_model is False). Fresh run when changed (architecture_key).
+    hand_pooling: architecture.HandPooling = architecture.HandPooling.CONCAT_MAX_SUM
     # Locked to False: new runs never embed the tray as a set (old checkpoints
     # carry their own value and continue working).
     tray_set_embedding: bool = False
@@ -510,6 +514,7 @@ class RunConfig(pydantic.BaseModel):
             use_distinct_hand_model=main.use_distinct_hand_model,
             hand_encoder_layers=main.hand_encoder_layers,
             hand_embed_dim=main.hand_embed_dim,
+            hand_pooling=main.hand_pooling,
             tray_set_embedding=main.tray_set_embedding,
             use_board_attention=main.use_board_attention,
             encoder_final_activation=main.encoder_final_activation,
@@ -795,6 +800,7 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "use_distinct_hand_model",
         "hand_encoder_layers",
         "hand_embed_dim",
+        "hand_pooling",
         "tray_set_embedding",
         "use_board_attention",
         "encoder_final_activation",

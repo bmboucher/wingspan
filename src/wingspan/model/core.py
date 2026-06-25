@@ -414,6 +414,7 @@ class PolicyValueNet(nn.Module):
             arch.card_embed_dim,
             use_distinct_hand_model=arch.use_distinct_hand_model,
             hand_embed_dim=arch.hand_embed_dim,
+            pooled_hand_width=arch.pooled_hand_width,
             tray_set_embedding=arch.tray_set_embedding,
             n_playable_multihots=n_extra,
         )
@@ -609,16 +610,15 @@ class PolicyValueNet(nn.Module):
             continuous = torch.cat(
                 [state[:, :off_index], state[:, off_decision:]], dim=-1
             )
-            # Hand multi-hot -> mean of held cards' vectors (rows 1.. skip padding).
-            hand_sum = hand_multihot @ card_table[1:]
-            hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
-            hand_emb = hand_sum / hand_count
-            # Extra multi-hots: mean-pool through card table (same as the hand).
-            extra_embs: list[torch.Tensor] = []
-            for mh in extra_multihots:
-                mh_sum = mh @ card_table[1:]
-                mh_count = mh.sum(dim=-1, keepdim=True).clamp(min=1.0)
-                extra_embs.append(mh_sum / mh_count)
+            # Pool hand multi-hot through shared card table rows (skip padding row).
+            hand_emb = hand_model.pool_card_set(
+                hand_multihot, card_table[1:], self.arch.hand_pooling
+            )
+            # Extra multi-hots: same pooling mode as the hand.
+            extra_embs: list[torch.Tensor] = [
+                hand_model.pool_card_set(mh, card_table[1:], self.arch.hand_pooling)
+                for mh in extra_multihots
+            ]
 
         if not self.arch.tray_set_embedding:
             return torch.cat([continuous, slot_emb, hand_emb, *extra_embs], dim=-1)
@@ -750,14 +750,14 @@ class PolicyValueNet(nn.Module):
                 ],
                 dim=-1,
             )
-            hand_sum = hand_multihot @ card_table[1:]
-            hand_count = hand_multihot.sum(dim=-1, keepdim=True).clamp(min=1.0)
-            hand_emb = hand_sum / hand_count
-            extra_embs: list[torch.Tensor] = []
-            for mh in extra_multihots:
-                mh_sum = mh @ card_table[1:]
-                mh_count = mh.sum(dim=-1, keepdim=True).clamp(min=1.0)
-                extra_embs.append(mh_sum / mh_count)
+            # Pool hand multi-hot through shared card table rows (skip padding row).
+            hand_emb = hand_model.pool_card_set(
+                hand_multihot, card_table[1:], self.arch.hand_pooling
+            )
+            extra_embs: list[torch.Tensor] = [
+                hand_model.pool_card_set(mh, card_table[1:], self.arch.hand_pooling)
+                for mh in extra_multihots
+            ]
 
         # Tray: identical to the standard path (tray_flat already computed).
         if not self.arch.tray_set_embedding:

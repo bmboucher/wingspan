@@ -72,17 +72,19 @@ def state_embed_rules(
     *,
     use_distinct_hand_model: bool = False,
     hand_embed_dim: int | None = None,
+    pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
 ) -> dict[str, _EmbedRule]:
     """The card-index / hand stripes of the state vector, at embedded width."""
     n_board = layout.N_BOARD_INDEX_SLOTS
     tray = state.TRAY_SIZE
     hand = layout.HAND_MULTIHOT_DIM
-    hand_width = (
-        (hand_embed_dim if hand_embed_dim is not None else card_embed_dim)
-        if use_distinct_hand_model
-        else card_embed_dim
-    )
+    if use_distinct_hand_model:
+        hand_width = hand_embed_dim if hand_embed_dim is not None else card_embed_dim
+    else:
+        hand_width = (
+            pooled_hand_width if pooled_hand_width is not None else card_embed_dim
+        )
     rules = {
         "card_idx_board": _EmbedRule(
             new_size=n_board * card_embed_dim,
@@ -104,11 +106,11 @@ def state_embed_rules(
             ),
         ),
         "hand_multihot": _EmbedRule(
-            new_size=card_embed_dim,
-            encoding="card-embedding (mean-pooled)",
+            new_size=hand_width,
+            encoding="card-embedding (pooled)",
             value_range="learned",
             notes=(
-                f"My hand -> one {card_embed_dim}-dim embedding, mean-pooled over the "
+                f"My hand -> one {hand_width}-dim embedding, pooled over the "
                 f"held cards' shared card vectors. Raw encoding is a {hand}-wide "
                 "multi-hot over all core birds."
             ),

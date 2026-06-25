@@ -44,10 +44,14 @@ setup net so they produce byte-identical stacks from the same width list:
 - `build_body(in_dim, hidden_widths, activation, dropout, layernorm) -> nn.Sequential`
 - `build_readout(in_dim, out_dim) -> nn.Linear`
 
-**`hand_model.py`** — Stateless multi-card set-embedder helpers for the optional
-hand/tray/setup-kept-set encoders:
-- `encode_set(card_indices, card_table, embed_dim) -> Tensor` — mean-pools a
-  variable-length set of card embeddings into a fixed-width vector.
-- Used by `core.py` when `arch.use_distinct_hand_model` is `True` to encode
-  the player's hand, the tray, and the setup kept-set as separate inputs to
-  the trunk rather than as part of the flat state vector.
+**`hand_model.py`** — Stateless multi-card set-embedder helpers used by both the
+main net and the setup net:
+- `pool_card_set(multihot, card_rows, pooling) -> Tensor` — permutation-invariant
+  pooling of a card set over the shared card table. `pooling` selects the mode
+  (`MEAN`/`SUM`/`MAX`/`CONCAT_MAX_SUM`); output width is `M`, `M`, `M+1`, or `2M+1`.
+  Used by `core.py` when `arch.use_distinct_hand_model` is `False` (new-run default).
+- `embed_card_set(hand_encoder, multihot, summary) -> Tensor` — applies the dedicated
+  hand encoder MLP to `[multi-hot ⊕ 10-dim summary]`. Used when
+  `arch.use_distinct_hand_model` is `True` (retained for old-artifact back-compat).
+- `set_summary_from_multihot`, `set_summary_from_indices`, `multihot_from_indices` —
+  in-model derivation helpers for tray and setup-kept-set paths.
