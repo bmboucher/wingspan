@@ -13,6 +13,14 @@
   PPO uses the clipped surrogate ``−min(ratio·A, clip(ratio,1±ε)·A)``; REINFORCE
   with GAE uses ``−(logp·A)``. Both share the length-bucketed forward pass.
 
+Both paths also have a **gradient-accumulation** variant, activated when
+``cfg.training.update_minibatch_steps > 0``.  The batch is split into
+sequential minibatches of that many flattened steps; gradients are accumulated
+across them and the optimizer takes **one step per epoch** — reproducing
+today's gradient up to float summation order while capping peak memory at the
+minibatch size (``docs/TRAINING.md §3.3``).  The default (``0``) leaves the
+existing paths byte-identical.
+
 Common to both paths:
 
 * **Length-bucketing (TRAINING.md §4.2a):** steps grouped into option-count
@@ -83,11 +91,27 @@ def update(
     """
     ppo = cfg.training.policy_loss is config.PolicyLoss.PPO
     gae = cfg.training.reward_mode is config.RewardMode.GAE
-    if imitation_phase or (not ppo and not gae):
+    minibatch_steps = cfg.training.update_minibatch_steps
+    single_pass = imitation_phase or (not ppo and not gae)
+    if minibatch_steps > 0:
+        if single_pass:
+            return _update_single_pass_minibatched(
+                net, optimizer, records, cfg, device, imitation_phase, minibatch_steps
+            )
+        return _update_reuse_minibatched(
+            net,
+            optimizer,
+            records,
+            cfg,
+            device,
+            ppo=ppo,
+            minibatch_steps=minibatch_steps,
+        )
+    if single_pass:
         return _update_single_pass(
             net, optimizer, records, cfg, device, imitation_phase
         )
-    return _update_reuse(net, optimizer, records, cfg, device, ppo=ppo, gae=gae)
+    return _update_reuse(net, optimizer, records, cfg, device, ppo=ppo)
 
 
 ###### PRIVATE #######
@@ -212,7 +236,6 @@ def _update_reuse(
     cfg: config.RunConfig,
     device: torch.device,
     ppo: bool,
-    gae: bool,
 ) -> UpdateStats:
     """PPO / GAE update with fixed advantages and optional epoch reuse.
 
@@ -547,6 +570,352 @@ def _winner_bonus(winner: int, end_game_bonus: float) -> float:
     if winner == 1:
         return -end_game_bonus
     return 0.0
+
+
+#### Minibatch helpers ####
+
+
+def _minibatch_chunks(total: int, chunk_size: int) -> list[list[int]]:
+    """Partition ``range(total)`` into sequential chunks of at most ``chunk_size``."""
+    return [
+        list(range(start, min(start + chunk_size, total)))
+        for start in range(0, total, chunk_size)
+    ]
+
+
+def _bucketize_indices(
+    flat_steps: list[steps.Step],
+    indices: list[int],
+) -> list[list[int]]:
+    """Group a subset of global step indices into option-count buckets.
+
+    Like ``_bucketize`` but operates on a pre-specified subset; the returned
+    inner lists hold the same global indices and can be passed directly to
+    ``_forward_bucket``."""
+    by_edge: dict[int, list[int]] = {}
+    for global_idx in indices:
+        edge = _bucket_edge(flat_steps[global_idx].choices.shape[0])
+        by_edge.setdefault(edge, []).append(global_idx)
+    return [by_edge[edge] for edge in sorted(by_edge)]
+
+
+#### Minibatch update paths ####
+
+
+def _update_single_pass_minibatched(
+    net: model.PolicyValueNet,
+    optimizer: optim.Optimizer,
+    records: list[collect.GameRecord],
+    cfg: config.RunConfig,
+    device: torch.device,
+    imitation_phase: bool,
+    minibatch_steps: int,
+) -> UpdateStats:
+    """Gradient-accumulation variant of ``_update_single_pass``.
+
+    Splits the flattened batch into minibatches of ``minibatch_steps`` steps,
+    accumulates gradients across them, and takes one ``optimizer.step()``.
+    Reproduces the full-batch gradient up to float summation order.
+    """
+    flat_steps, returns = _flatten(records, cfg)
+    if not flat_steps:
+        return UpdateStats(
+            loss=0.0,
+            policy_loss=0.0,
+            value_loss=0.0,
+            entropy=0.0,
+            grad_norm=0.0,
+            advantage_mean=0.0,
+            advantage_std=0.0,
+            imitation_loss=0.0,
+            n_steps=0,
+        )
+
+    N = len(flat_steps)
+
+    # Pre-compute global advantage normalization before the grad loop.
+    if imitation_phase:
+        # No advantages; count expert-labeled steps for the CE denominator.
+        K_expert_total = float(
+            sum(1.0 for step in flat_steps if step.expert_probs is not None)
+        )
+        adv_mean = adv_std = 0.0
+        # Sentinel tensors — never indexed in imitation mode.
+        norm_adv_flat = torch.empty(0, device=device)
+        returns_t_pre = torch.empty(0, device=device)
+    else:
+        # No-grad prepass: build advantages in BUCKET ORDER, reproducing the
+        # exact same float operations as _update_single_pass so mean/std are
+        # bitwise identical to the full-batch path.  Scatter to flat order so
+        # the grad loop can index by global step index.
+        adv_parts_pre: list[torch.Tensor] = []
+        bucket_global_order: list[int] = []
+        with torch.no_grad():
+            for bucket in _bucketize(flat_steps):
+                _, value_b, _, _, _ = _forward_bucket(net, device, flat_steps, bucket)
+                ret_b = torch.tensor(
+                    [returns[i] for i in bucket], dtype=torch.float32, device=device
+                )
+                adv_parts_pre.append(ret_b - value_b)
+                bucket_global_order.extend(bucket)
+        adv_t = torch.cat(
+            adv_parts_pre
+        )  # bucket order — same as `advantage` in full-batch
+        adv_mean = float(adv_t.mean().item())
+        adv_std = float(adv_t.std().item())
+        norm_adv_bucket = (adv_t - adv_t.mean()) / (adv_t.std() + _ADV_STD_EPS)
+        # Scatter normalized advantages and flat-order returns for the grad loop.
+        norm_adv_flat = torch.empty(N, dtype=torch.float32, device=device)
+        for pos, global_idx in enumerate(bucket_global_order):
+            norm_adv_flat[global_idx] = norm_adv_bucket[pos]
+        returns_t_pre = torch.tensor(returns, dtype=torch.float32, device=device)
+        K_expert_total = 0.0
+
+    # Gradient accumulation: forward each minibatch, backward, repeat.
+    optimizer.zero_grad()
+    acc_loss = acc_ploss = acc_vloss = acc_ent = acc_imit = 0.0
+
+    for mb_indices in _minibatch_chunks(N, minibatch_steps):
+        mb_size = len(mb_indices)
+
+        chosen_logps: list[torch.Tensor] = []
+        values_mb: list[torch.Tensor] = []
+        entropies: list[torch.Tensor] = []
+        imit_ces: list[torch.Tensor] = []
+        has_experts: list[torch.Tensor] = []
+        adv_parts: list[torch.Tensor] = []
+        return_parts: list[torch.Tensor] = []
+
+        for bucket in _bucketize_indices(flat_steps, mb_indices):
+            logp_b, value_b, entropy_b, imit_ce_b, has_expert_b = _forward_bucket(
+                net, device, flat_steps, bucket
+            )
+            chosen_logps.append(logp_b)
+            values_mb.append(value_b)
+            entropies.append(entropy_b)
+            imit_ces.append(imit_ce_b)
+            has_experts.append(has_expert_b)
+            if not imitation_phase:
+                # Index pre-computed tensors by global step index — avoids
+                # Python-float round-trips and keeps ordering consistent with
+                # the forward tensors above.
+                bucket_t = torch.tensor(bucket, dtype=torch.long, device=device)
+                adv_parts.append(norm_adv_flat[bucket_t])
+                return_parts.append(returns_t_pre[bucket_t])
+
+        logp_mb = torch.cat(chosen_logps)
+        value_mb = torch.cat(values_mb)
+        entropy_mb = torch.cat(entropies)
+        imit_ce_mb = torch.cat(imit_ces)
+        has_expert_mb = torch.cat(has_experts)
+
+        if imitation_phase:
+            return_mb = torch.tensor(
+                [returns[i] for i in mb_indices], dtype=torch.float32, device=device
+            )
+            value_loss_mb = F.mse_loss(value_mb, return_mb)
+            # Scale CE sum by 1/K_expert_total (global denominator) so the
+            # accumulated backward sums to the full-batch imitation loss.
+            imit_loss_mb = (imit_ce_mb * has_expert_mb).sum() / max(K_expert_total, 1.0)
+            mb_loss = (
+                imit_loss_mb + (mb_size / N) * cfg.training.value_coef * value_loss_mb
+            )
+            policy_loss_mb = torch.zeros(1, device=device)
+            entropy_t_mb = torch.zeros(1, device=device)
+        else:
+            norm_adv_mb = torch.cat(adv_parts)
+            return_mb = torch.cat(return_parts)
+            value_loss_mb = F.mse_loss(value_mb, return_mb)
+            policy_loss_mb = -(logp_mb * norm_adv_mb).mean()
+            entropy_t_mb = entropy_mb.mean()
+            mb_loss = (mb_size / N) * (
+                policy_loss_mb
+                + cfg.training.value_coef * value_loss_mb
+                - cfg.training.entropy_coef * entropy_t_mb
+            )
+
+        mb_loss.backward()  # pyright: ignore[reportUnknownMemberType]
+
+        # Accumulate weighted stats for the final report.
+        weight = mb_size / N
+        acc_vloss += weight * float(value_loss_mb.detach())
+        if imitation_phase:
+            acc_imit += float((imit_ce_mb * has_expert_mb).sum().detach()) / max(
+                K_expert_total, 1.0
+            )
+        else:
+            acc_ploss += weight * float(policy_loss_mb.detach())
+            acc_ent += weight * float(entropy_t_mb.detach())
+        acc_loss += float(mb_loss.detach())
+
+    grad_norm = torch.nn.utils.clip_grad_norm_(
+        net.parameters(), max_norm=cfg.training.grad_clip
+    )
+    optimizer.step()
+
+    return UpdateStats(
+        loss=acc_loss,
+        policy_loss=acc_ploss,
+        value_loss=acc_vloss,
+        entropy=acc_ent,
+        grad_norm=float(grad_norm),
+        advantage_mean=adv_mean,
+        advantage_std=adv_std,
+        imitation_loss=acc_imit,
+        n_steps=N,
+    )
+
+
+def _update_reuse_minibatched(
+    net: model.PolicyValueNet,
+    optimizer: optim.Optimizer,
+    records: list[collect.GameRecord],
+    cfg: config.RunConfig,
+    device: torch.device,
+    ppo: bool,
+    minibatch_steps: int,
+) -> UpdateStats:
+    """Gradient-accumulation variant of ``_update_reuse`` for PPO / GAE.
+
+    Splits each epoch's batch into minibatches of ``minibatch_steps`` steps,
+    accumulates gradients, and takes one ``optimizer.step()`` per epoch —
+    preserving today's per-epoch step count and reproducing the full-batch
+    gradient up to float summation order.
+    """
+    flat_steps, advantages, value_targets = _flatten_with_advantages(records, cfg)
+    if not flat_steps:
+        return UpdateStats(
+            loss=0.0,
+            policy_loss=0.0,
+            value_loss=0.0,
+            entropy=0.0,
+            grad_norm=0.0,
+            advantage_mean=0.0,
+            advantage_std=0.0,
+            n_steps=0,
+        )
+
+    N = len(flat_steps)
+    adv_arr = np.array(advantages, dtype=np.float32)
+    adv_mean = float(adv_arr.mean())
+    adv_std = float(adv_arr.std())
+    norm_adv = ((adv_arr - adv_mean) / (adv_std + _ADV_STD_EPS)).tolist()
+
+    old_logp_list = [step.behavior_logp for step in flat_steps]
+    n_epochs = cfg.training.ppo_reuse_epochs if ppo else 1
+    eps = cfg.training.ppo_clip_eps
+    chunks = _minibatch_chunks(N, minibatch_steps)
+
+    last_loss = last_ploss = last_vloss = last_ent = last_gnorm = 0.0
+    last_clip = last_kl = 0.0
+
+    for _ in range(n_epochs):
+        optimizer.zero_grad()
+        acc_loss_e = acc_ploss_e = acc_vloss_e = acc_ent_e = 0.0
+        acc_clip_e = acc_kl_e = 0.0
+
+        for mb_indices in chunks:
+            mb_size = len(mb_indices)
+
+            chosen_logps_e: list[torch.Tensor] = []
+            values_e: list[torch.Tensor] = []
+            entropies_e: list[torch.Tensor] = []
+            adv_parts: list[torch.Tensor] = []
+            vt_parts: list[torch.Tensor] = []
+            old_logp_parts: list[torch.Tensor] = []
+
+            for bucket in _bucketize_indices(flat_steps, mb_indices):
+                logp_b, value_b, entropy_b, _, _ = _forward_bucket(
+                    net, device, flat_steps, bucket
+                )
+                chosen_logps_e.append(logp_b)
+                values_e.append(value_b)
+                entropies_e.append(entropy_b)
+                adv_parts.append(
+                    torch.tensor(
+                        [norm_adv[i] for i in bucket],
+                        dtype=torch.float32,
+                        device=device,
+                    )
+                )
+                vt_parts.append(
+                    torch.tensor(
+                        [value_targets[i] for i in bucket],
+                        dtype=torch.float32,
+                        device=device,
+                    )
+                )
+                if ppo:
+                    old_logp_parts.append(
+                        torch.tensor(
+                            [old_logp_list[i] for i in bucket],
+                            dtype=torch.float32,
+                            device=device,
+                        )
+                    )
+
+            logp_mb = torch.cat(chosen_logps_e)
+            value_mb = torch.cat(values_e)
+            entropy_t_mb = torch.cat(entropies_e).mean()
+            adv_mb = torch.cat(adv_parts)
+            vt_mb = torch.cat(vt_parts)
+            value_loss_mb = F.mse_loss(value_mb, vt_mb)
+
+            if ppo:
+                old_logp_mb = torch.cat(old_logp_parts)
+                ratio = (logp_mb - old_logp_mb).exp()
+                surr1 = ratio * adv_mb
+                surr2 = ratio.clamp(1.0 - eps, 1.0 + eps) * adv_mb
+                policy_loss_mb = -torch.min(surr1, surr2).mean()
+                acc_clip_e += (mb_size / N) * float(
+                    ((ratio - 1.0).abs() > eps).float().mean().detach()
+                )
+                acc_kl_e += (mb_size / N) * float(
+                    (old_logp_mb - logp_mb).mean().detach()
+                )
+            else:
+                policy_loss_mb = -(logp_mb * adv_mb).mean()
+
+            mb_loss = (mb_size / N) * (
+                policy_loss_mb
+                + cfg.training.value_coef * value_loss_mb
+                - cfg.training.entropy_coef * entropy_t_mb
+            )
+
+            mb_loss.backward()  # pyright: ignore[reportUnknownMemberType]
+
+            # Accumulate weighted stats for the final report.
+            weight = mb_size / N
+            acc_ploss_e += weight * float(policy_loss_mb.detach())
+            acc_vloss_e += weight * float(value_loss_mb.detach())
+            acc_ent_e += weight * float(entropy_t_mb.detach())
+            acc_loss_e += float(mb_loss.detach())
+
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            net.parameters(), max_norm=cfg.training.grad_clip
+        )
+        optimizer.step()
+
+        last_loss = acc_loss_e
+        last_ploss = acc_ploss_e
+        last_vloss = acc_vloss_e
+        last_ent = acc_ent_e
+        last_gnorm = float(grad_norm)
+        last_clip = acc_clip_e
+        last_kl = acc_kl_e
+
+    return UpdateStats(
+        loss=last_loss,
+        policy_loss=last_ploss,
+        value_loss=last_vloss,
+        entropy=last_ent,
+        grad_norm=last_gnorm,
+        advantage_mean=adv_mean,
+        advantage_std=adv_std,
+        n_steps=N,
+        clip_fraction=last_clip,
+        approx_kl=last_kl,
+    )
 
 
 def _bucketize(flat_steps: list[steps.Step]) -> list[list[int]]:

@@ -315,6 +315,13 @@ class TrainingConfig(pydantic.BaseModel):
     ppo_clip_eps: typing.Annotated[float, pydantic.Field(gt=0.0)] = 0.2
     ppo_reuse_epochs: typing.Annotated[int, pydantic.Field(ge=1)] = 4
     gae_lambda: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 0.95
+    # Gradient-accumulation minibatch size — REGIME (training-only, no
+    # MODEL_VERSION bump).  0 = whole batch in one backward (today's default,
+    # byte-identical behaviour).  > 0 = split the flattened batch into chunks
+    # of this many steps, accumulate gradients, then take one optimizer.step()
+    # per epoch.  Caps peak memory at the minibatch size regardless of
+    # games_per_iter.  Recommended ≈ 4096 for large-batch runs.
+    update_minibatch_steps: typing.Annotated[int, pydantic.Field(ge=0)] = 0
 
 
 class OpponentConfig(pydantic.BaseModel):

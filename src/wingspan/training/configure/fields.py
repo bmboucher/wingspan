@@ -501,6 +501,7 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "ppo_clip_eps": ("training", "ppo_clip_eps"),
     "ppo_reuse_epochs": ("training", "ppo_reuse_epochs"),
     "gae_lambda": ("training", "gae_lambda"),
+    "update_minibatch_steps": ("training", "update_minibatch_steps"),
     # training.setup section
     "setup_lr": ("training", "setup", "lr"),
     "setup_policy_temperature": ("training", "setup", "policy_temperature"),
@@ -872,6 +873,18 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Number of full-batch gradient passes over each collected batch. "
         "More epochs extract more learning per collection round at the cost of "
         "policy lag (mitigated by the PPO clip). PPO mode only.",
+    ),
+    IntField(
+        attr="update_minibatch_steps",
+        label="update minibatch",
+        group_path=("TRAINING",),
+        step=512,
+        impact=ChangeImpact.REGIME,
+        help="Gradient-accumulation minibatch size (0 = whole batch, today's "
+        "default).  > 0 splits the flattened batch into chunks of this many "
+        "steps and accumulates gradients before each optimizer.step(), capping "
+        "peak RAM at the minibatch size.  Recommended ≈ 4096 for "
+        "large-games_per_iter runs.",
     ),
     FloatField(
         attr="lr",

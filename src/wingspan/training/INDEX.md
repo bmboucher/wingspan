@@ -206,6 +206,14 @@ dispatches to one of two paths based on `cfg.training.policy_loss` and
   passes. PPO uses the clipped surrogate `−min(ratio·A, clip(ratio,1±ε)·A)`;
   REINFORCE+GAE uses `−(logp·A)`. Returns `UpdateStats` with `clip_fraction` and
   `approx_kl` from the final epoch.
+- **Gradient-accumulation minibatched variants** (`_update_single_pass_minibatched`,
+  `_update_reuse_minibatched`): activated when `cfg.training.update_minibatch_steps > 0`.
+  Each path splits the flattened batch into sequential chunks of `update_minibatch_steps`
+  steps, accumulates gradients across them, and calls `optimizer.step()` once per epoch
+  — reproducing the full-batch gradient up to float summation order while capping peak
+  memory at the minibatch size. The single-pass variant does a no-grad pre-pass
+  (`_prepass_values`) to capture V(s) for global advantage normalization before the
+  grad loop. Helpers: `_minibatch_chunks(total, chunk_size)`, `_bucketize_indices(steps, indices)`.
 - `_flatten` pairs each step with its MC return per `cfg.reward_mode`:
   `_terminal_margin_returns` broadcasts the end-of-game margin; for
   `decision_delta`, `_decision_delta_returns` discounts per-decision
