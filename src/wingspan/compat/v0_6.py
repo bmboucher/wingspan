@@ -23,8 +23,9 @@ keeps them loadable:
 * :func:`_install_v06_card_encoder_setup` does the same for
   :class:`~wingspan.training.setup_net.SetupNet` instances.
 * :class:`PolicyValueNetV06` overrides :meth:`_build_card_encoder` to keep the
-  224-wide input for 0.6 artifacts. State and choice encoding are identical to
-  the live era.
+  224-wide input for 0.6 artifacts, and also overrides :meth:`encode_choices`
+  to restore the v0.7 eggs-included ``becomes_playable`` food semantics (v0.6
+  artifacts predate the 0.8 food-encoding fix, exactly as 0.7 artifacts do).
 * :class:`SetupNetV06` does the same for the separately-trained setup net.
 * :func:`uses_v0_6_card_feature_encoding` identifies which artifact versions need
   this shim (0.2 through 0.6, i.e. post-v0.1-card-feature-reshape, pre-0.7).
@@ -38,7 +39,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from wingspan import architecture, cards, encode, version
+from wingspan import architecture, cards, decisions, encode, state, version
 from wingspan.encode import layout
 from wingspan.model import core, mlp
 from wingspan.training import setup_net as setup_net_module
@@ -161,8 +162,12 @@ class PolicyValueNetV06(core.PolicyValueNet):
 
     The card encoder's first linear was trained against 224-wide input rows;
     this subclass overrides :meth:`_build_card_encoder` to keep that width and
-    register the frozen v0.6 feature table. State and choice encoding are
-    identical to the live era (state/choice vector widths are unchanged in 0.7).
+    register the frozen v0.6 feature table. State encoding is identical to the
+    live era (state/choice vector widths are unchanged in 0.7 or 0.8).
+
+    :meth:`encode_choices` is also overridden to restore the v0.7 eggs-included
+    ``becomes_playable`` food semantics: v0.6 artifacts predate the 0.8
+    food-encoding fix and must compute the same bits as v0.7 checkpoints.
 
     Constructed by the version-routing loaders (``PolicyValueNet.from_model_config``,
     ``players.loaders.load_policy_net``) — never by the training pipeline.
@@ -172,6 +177,17 @@ class PolicyValueNetV06(core.PolicyValueNet):
         """Register ``card_encoder`` at the frozen 224-wide input and
         ``card_features`` from the v0.6 feature table."""
         _install_v06_card_encoder_main(self, arch)
+
+    def encode_choices(
+        self,
+        decision: decisions.Decision[decisions.Choice],
+        game_state: state.GameState,
+    ) -> np.ndarray:
+        """Featurize all choices with eggs-included food ``becomes_playable``
+        (v0.7 semantics), alongside the frozen 224-wide card encoder geometry."""
+        import wingspan.compat.v0_7 as v0_7_module  # local: avoids import cycle
+
+        return v0_7_module.encode_choices_v07(decision, game_state, self.spec)
 
 
 class SetupNetV06(setup_net_module.SetupNet):

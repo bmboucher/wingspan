@@ -33,8 +33,21 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "0.7"
+MODEL_VERSION = "0.8"
 """The current artifact-compatibility version (the only place it is defined).
+
+0.8 changes the ``becomes_playable`` multi-hot stripe on **food-gain** choice
+rows so that the egg-cost gate is dropped from the food-affordability check:
+a hand bird is now flagged as "becomes playable" whenever gaining the offered
+food makes its food cost payable AND it has any open slot, regardless of the
+egg cost. The egg-gain path (``LAY_EGGS``, egg exchanges) is unchanged. This is
+a code-carried FRESH change — no tensor widths change, but the value of
+``becomes_playable`` bits on food-gain rows differs, so the change is
+era-gated. Pre-0.8 artifacts load and play through ``wingspan.compat.v0_7``
+(``PolicyValueNetV07``, which calls ``encode_choices`` with
+``food_playable_ignores_eggs=False``). Pre-0.7 artifacts that also use the v0.6
+card-feature shim (``PolicyValueNetV06``) now additionally carry the v0.7
+eggs-included food encoding via a delegating ``encode_choices`` override.
 
 0.7 adds an ``or_cost`` flag to the per-card attribute vector, growing
 ``CARD_FEATURE_DIM`` by 1 (224 → 225). The flag is 1.0 for birds that cost

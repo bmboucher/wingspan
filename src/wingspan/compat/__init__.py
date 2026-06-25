@@ -17,21 +17,34 @@ never config flags — and the whole package is deleted wholesale at a MAJOR bum
 * ``v0_4`` — the pre-0.6 state + choice geometry (no hand-playability multi-hot
   stripes in state; no ``becomes_playable`` stripe in choices; 795-dim state).
 * ``v0_6`` — the pre-0.7 card-feature geometry (224-wide card encoder input;
-  no ``or_cost`` flag in the per-card attribute vector).
+  no ``or_cost`` flag in the per-card attribute vector; also restores v0.7
+  eggs-included food ``becomes_playable`` semantics via a delegating
+  ``encode_choices`` override).
+* ``v0_7`` — the pre-0.8 eggs-included food ``becomes_playable`` semantics
+  (food-gain rows gate on both food AND eggs; 0.8 drops the egg-cost gate).
 
 :func:`encoding_dims_for_era` is the package-level dims router: given an
 artifact version it returns the raw state/choice vector widths that era's
 encoders produce, so an era-pinned ``TrainConfig`` (training resume across a
 FRESH change — see ``docs/VERSIONING.md``) derives the dims its checkpoints
-actually carry instead of the live ones. The v0.7 card-feature change does not
-affect state/choice vector widths, so no new branch is needed here for v0.6
-artifacts.
+actually carry instead of the live ones. Neither the v0.7 card-feature change
+nor the v0.8 food-encoding change affects state/choice vector widths, so no
+new branch is needed here for v0.6 or v0.7 artifacts.
 """
 
 from wingspan import encode
-from wingspan.compat import v0_0, v0_1, v0_2, v0_3, v0_4, v0_6
+from wingspan.compat import v0_0, v0_1, v0_2, v0_3, v0_4, v0_6, v0_7
 
-__all__ = ["encoding_dims_for_era", "v0_0", "v0_1", "v0_2", "v0_3", "v0_4", "v0_6"]
+__all__ = [
+    "encoding_dims_for_era",
+    "v0_0",
+    "v0_1",
+    "v0_2",
+    "v0_3",
+    "v0_4",
+    "v0_6",
+    "v0_7",
+]
 
 
 def encoding_dims_for_era(

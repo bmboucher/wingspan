@@ -13,6 +13,7 @@ import logging
 import typing
 
 import numpy as np
+import pydantic
 
 from wingspan import cards, decisions, state
 from wingspan.encode import layout
@@ -27,12 +28,26 @@ _WARNED_WIDE: set[str] = set()
 _WARNED_RUNAWAY: set[str] = set()
 
 
+class _HandPlayabilityBaselines(pydantic.BaseModel):
+    """Per-decision playability baselines threaded to the choice featurizers.
+
+    Holds the two baseline sets used by ``becomes_playable`` fillers so each
+    path uses the right exclusion set: ``playable_now`` for egg-gain transitions
+    (unchanged semantics); ``food_affordable`` for food-gain transitions (open
+    slot + food-affordable, eggs ignored when ``food_ignores_eggs`` is True)."""
+
+    playable_now: list[cards.Bird]
+    food_affordable: list[cards.Bird]
+    food_ignores_eggs: bool
+
+
 def encode_choices(
     decision: layout._AnyDecision,
     state: state.GameState,
     spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
     *,
     has_becomes_playable: bool = True,
+    food_playable_ignores_eggs: bool = True,
 ) -> np.ndarray:
     """Featurize every choice in ``decision``.
 
@@ -45,7 +60,14 @@ def encode_choices(
     ``has_becomes_playable`` selects whether the ``becomes_playable`` 180-dim
     stripe is included in each row. Set to ``False`` for pre-0.6 compat shims
     whose choice vectors lack the stripe; defaults to ``True`` for live encoding.
-    """
+
+    ``food_playable_ignores_eggs`` controls the baseline for food-gain transitions
+    in the ``becomes_playable`` stripe. When ``True`` (default, v0.8+), the food
+    baseline is ``playable_now ∪ playable_if_eggs`` and ``_bird_playable`` is
+    called with ``ignore_eggs=True``, so a bird that is food-affordable but
+    egg-blocked is still flagged when the food gain meets its cost. Set to
+    ``False`` for the v0.7 compat shim to restore the original eggs-included
+    semantics."""
     n_choices = len(decision.choices)
     decision_name = type(decision).__name__
     assert n_choices > 0, f"empty Decision: {decision_name}"
@@ -89,7 +111,7 @@ def encode_choices(
             layout.SOFT_CHOICE_WARN_THRESHOLD,
             decision.player_id,
         )
-    # Compute the deciding player's already-playable set once; used by the
+    # Build the hand-playability baselines once per decision; used by the
     # becomes_playable fillers so each row tests only not-yet-playable birds.
     # Skip the playability computation when has_becomes_playable is False (compat
     # shim path) to avoid the engine import and the classification cost entirely.
@@ -97,9 +119,23 @@ def encode_choices(
         from wingspan.engine import playability as _playability
 
         player = state.players[decision.player_id]
-        playable_now, _ = _playability.classify_hand_playability(player)
+        playable_now, playable_if_eggs = _playability.classify_hand_playability(player)
+        food_affordable = (
+            playable_now + playable_if_eggs
+            if food_playable_ignores_eggs
+            else playable_now
+        )
+        baselines = _HandPlayabilityBaselines(
+            playable_now=playable_now,
+            food_affordable=food_affordable,
+            food_ignores_eggs=food_playable_ignores_eggs,
+        )
     else:
-        playable_now = []
+        baselines = _HandPlayabilityBaselines(
+            playable_now=[],
+            food_affordable=[],
+            food_ignores_eggs=food_playable_ignores_eggs,
+        )
 
     # Row width depends on whether the becomes_playable stripe is included.
     row_dim = (
@@ -110,7 +146,7 @@ def encode_choices(
     feats = np.zeros((n_choices, row_dim), dtype=np.float32)
     for i, choice in enumerate(decision.choices):
         _featurize_choice(
-            feats[i], decision, choice, state, playable_now, has_becomes_playable
+            feats[i], decision, choice, state, baselines, has_becomes_playable
         )
     return feats
 
@@ -125,7 +161,7 @@ def _featurize_choice(
     decision: layout._AnyDecision,
     choice: decisions.Choice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     """Fill the pre-zeroed choice-feature row ``feat`` for one (decision, choice)
@@ -137,7 +173,7 @@ def _featurize_choice(
     ``type[Choice]`` for the dispatch lookup. ``has_becomes_playable`` is
     threaded to featurizers that fill the ``becomes_playable`` stripe."""
     _CHOICE_FEATURIZERS.get(type(choice), _featurize_default)(
-        feat, decision, choice, state, playable_now, has_becomes_playable
+        feat, decision, choice, state, baselines, has_becomes_playable
     )
 
 
@@ -146,7 +182,7 @@ def _featurize_default(
     decision: layout._AnyDecision,
     choice: decisions.Choice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
@@ -157,7 +193,7 @@ def _featurize_skip(
     decision: layout._AnyDecision,
     choice: decisions.SkipChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
@@ -169,7 +205,7 @@ def _featurize_reset_birdfeeder(
     decision: layout._AnyDecision,
     choice: decisions.ResetBirdfeederChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # The "yes, reroll" affirmative. Carries no data, so only the special-kind
@@ -183,7 +219,7 @@ def _featurize_tuck_activate(
     decision: layout._AnyDecision,
     choice: decisions.TuckActivateChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # The "yes, tuck" commit token — analogous to PayCostChoice but simpler:
@@ -201,7 +237,7 @@ def _featurize_pay_cost(
     decision: layout._AnyDecision,
     choice: decisions.PayCostChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # The 'accept the offered exchange' branch is distinct from skip — the network
@@ -259,7 +295,10 @@ def _featurize_pay_cost(
         seen_ids: set[int] = set()
         if choice.gained_food_count > 0:
             feeder_newly = _playability.newly_playable_after_feeder_food(
-                player, state.birdfeeder, already_playable=playable_now
+                player,
+                state.birdfeeder,
+                already_playable=baselines.food_affordable,
+                ignore_eggs=baselines.food_ignores_eggs,
             )
             for bird in feeder_newly:
                 if id(bird) not in seen_ids:
@@ -267,7 +306,7 @@ def _featurize_pay_cost(
                     seen_ids.add(id(bird))
         if choice.gained_egg_count > 0:
             egg_newly = _playability.newly_playable_after_egg(
-                player, choice.gained_egg_count, already_playable=playable_now
+                player, choice.gained_egg_count, already_playable=baselines.playable_now
             )
             for bird in egg_newly:
                 if id(bird) not in seen_ids:
@@ -282,7 +321,7 @@ def _featurize_main_action(
     decision: layout._AnyDecision,
     choice: decisions.MainActionChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # A one-hot over the four main actions — never an index-as-scalar (the four
@@ -312,7 +351,10 @@ def _featurize_main_action(
             from wingspan.engine import playability as _playability
 
             newly = _playability.newly_playable_after_feeder_food(
-                player, state.birdfeeder, already_playable=playable_now
+                player,
+                state.birdfeeder,
+                already_playable=baselines.food_affordable,
+                ignore_eggs=baselines.food_ignores_eggs,
             )
             _fill_becomes_playable(feat, newly)
         elif choice.action == decisions.MainAction.LAY_EGGS:
@@ -320,7 +362,7 @@ def _featurize_main_action(
 
             n_eggs = player.board.lay_eggs_count()
             newly = _playability.newly_playable_after_egg(
-                player, n_eggs, already_playable=playable_now
+                player, n_eggs, already_playable=baselines.playable_now
             )
             _fill_becomes_playable(feat, newly)
 
@@ -330,7 +372,7 @@ def _featurize_bird(
     decision: layout._AnyDecision,
     choice: decisions.BirdChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # A candidate bird from a hand / drawn pile (keep, tuck, or discard picks).
@@ -348,7 +390,7 @@ def _featurize_play_bird(
     decision: layout._AnyDecision,
     choice: decisions.PlayBirdChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # A play candidate from ``PlayBirdDecision``: the bird-index column carries
@@ -374,7 +416,7 @@ def _featurize_food_payment(
     decision: layout._AnyDecision,
     choice: decisions.FoodPaymentChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # A complete payment multiset for a committed bird play (PayBirdFoodDecision).
@@ -398,7 +440,7 @@ def _featurize_played_bird(
     decision: layout._AnyDecision,
     choice: decisions.PlayedBirdChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # A bird already in play, by reference (move-bird / repeat-power, MISC_RARE).
@@ -415,7 +457,7 @@ def _featurize_habitat(
     decision: layout._AnyDecision,
     choice: decisions.HabitatChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # A habitat pick is always a move-bird destination
@@ -454,7 +496,7 @@ def _featurize_food(
     decision: layout._AnyDecision,
     choice: decisions.FoodChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     feat[layout._OFF_KIND + layout._KIND_FOOD] = 1.0
@@ -464,7 +506,10 @@ def _featurize_food(
 
         player = state.players[decision.player_id]
         newly = _playability.newly_playable_after_food(
-            player, choice.food, already_playable=playable_now
+            player,
+            choice.food,
+            already_playable=baselines.food_affordable,
+            ignore_eggs=baselines.food_ignores_eggs,
         )
         _fill_becomes_playable(feat, newly)
 
@@ -474,7 +519,7 @@ def _featurize_board_target(
     decision: layout._AnyDecision,
     choice: decisions.BoardTargetChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # A board-slot target: fill the whole 15-slot board block from the deciding
@@ -514,7 +559,7 @@ def _featurize_bonus_card(
     decision: layout._AnyDecision,
     choice: decisions.BonusCardChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # Identity via the bonus one-hot stripe (a learned per-bonus embedding),
@@ -535,7 +580,7 @@ def _featurize_draw_source(
     decision: layout._AnyDecision,
     choice: decisions.DrawSourceChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     tray_bird: cards.Bird | None = None
@@ -562,7 +607,7 @@ def _featurize_player_id(
     decision: layout._AnyDecision,
     choice: decisions.PlayerIdChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     # Flag whether this player option is the deciding player ("self") so the
@@ -579,7 +624,7 @@ def _featurize_setup(
     decision: layout._AnyDecision,
     choice: decisions.SetupChoice,
     state: state.GameState,
-    playable_now: list[cards.Bird],
+    baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
     """Featurize a single combined setup pick.

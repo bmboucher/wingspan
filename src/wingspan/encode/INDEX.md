@@ -35,13 +35,14 @@ cached food, birdfeeder, all-4 round goals, player hand + two playability multi-
 number, one-hot action cube counts, decision-type one-hot. Also exports per-aspect
 summary helpers used by the dashboard inspector.
 
-**`choice_encode.py`** — `encode_choices(gs, decision, spec, *, has_becomes_playable=True) -> np.ndarray`
+**`choice_encode.py`** — `encode_choices(gs, decision, spec, *, has_becomes_playable=True, food_playable_ignores_eggs=True) -> np.ndarray`
 (shape `[n_choices, choice_dim]`). One row per offered choice; each row is the
 concatenation of the decision-type one-hot, the choice featurizer output, and
 the per-stripe filler outputs. The `becomes_playable` 180-dim stripe (v0.6) is
 filled on gain-bearing rows and omitted when `has_becomes_playable=False` (for
-pre-0.6 compat shims). Per-`Choice` featurizer functions are registered via
-`@featurizes(ChoiceClass)` and kept close to the stripe definitions in `stripes/`.
+pre-0.6 compat shims). `food_playable_ignores_eggs=True` (default, v0.8+) uses
+the eggs-agnostic food baseline and `ignore_eggs=True` in `_bird_playable`; set
+to `False` for the v0.7 compat shim to restore eggs-included semantics.
 
 ## Subpackage
 

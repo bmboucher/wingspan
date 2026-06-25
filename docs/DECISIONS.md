@@ -102,7 +102,7 @@ frozen-era `PolicyValueNetV00`. The live stripes, in offset order:
 | `bonus_delta` | 3 | how this choice moves the decider's **held** bonus cards (static categories *and* the dynamic egg / hand-size / habitat-spread cards): affected-card count + summed stepped-VP and linear-VP marginals (signed) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; draw-source deck row, accept rows and the DRAW_CARDS main action (net hand change) |
 | `goal_delta` | 8 | how this choice moves each of the 4 round goals: per goal slot, count delta + marginal placement-VP swing (signed; **zero once that round is scored** — payouts freeze) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; lay/remove commitment rows (accept trades, LAY_EGGS main action — capacity-capped optimistic bound) |
 | `bonus_value` | 5 | what this **offered bonus card** is worth to the decider: board qualifying count, the stepped and linear VP that count pays, and qualifying-bird counts in hand (kept subset at setup) and tray | bonus picks; setup keeps carrying a bonus |
-| `becomes_playable` | 180 | hand birds that transition from not-playable to playable as a direct result of the food or eggs this choice grants. Exact on `FoodChoice` (`GainFoodDecision`); optimistic best-case on `PayCostChoice` skip_optional and on `GAIN_FOOD`/`LAY_EGGS` `MainActionChoice` rows. Zero on `BoardTargetChoice` (`LayEggDecision`) and all non-gain rows. Embedded through the shared card table (same as `hand_multihot`). | gain-bearing rows: food picks, accept-exchange rows with `gained_food_count > 0` or `gained_egg_count > 0`, `GAIN_FOOD` and `LAY_EGGS` main-action rows |
+| `becomes_playable` | 180 | hand birds that transition from not-playable to playable as a direct result of the food or eggs this choice grants. **Food-gain path (v0.8+):** baseline is `playable_now ∪ playable_if_eggs`; `_bird_playable` is called with `ignore_eggs=True` — open slot + food-affordable is enough, egg cost is not checked. **Egg-gain path:** unchanged — baseline is `playable_now`, full `_bird_playable`. Exact on `FoodChoice` (`GainFoodDecision`); optimistic best-case on `PayCostChoice` skip_optional and on `GAIN_FOOD`/`LAY_EGGS` `MainActionChoice` rows. Zero on `BoardTargetChoice` (`LayEggDecision`) and all non-gain rows. Embedded through the shared card table (same as `hand_multihot`). | gain-bearing rows: food picks, accept-exchange rows with `gained_food_count > 0` or `gained_egg_count > 0`, `GAIN_FOOD` and `LAY_EGGS` main-action rows |
 | `setup_agg` | 4 | kept-subset aggregates: Σpoints, Σfood-cost, Σegg-limit, kept count | setup keeps only (`include_setup`) |
 | `kept_multihot` | 180 | multi-hot of the specific kept birds, summed through the shared card table (the kept set is unordered — the single-candidate `bird_id` column stays zero on setup rows) | setup keeps only (`include_setup`) |
 
@@ -275,6 +275,15 @@ decider who is frequently the non-active player (each-player powers, pink
 reaction) — made uniform by the POV state encoding. All picks at this head
 are mandatory; the yes/no for optional effects resolves upstream in
 SKIP_OPTIONAL.
+
+**`becomes_playable` semantics on food-gain rows (v0.8+).** The baseline
+excludes `playable_now ∪ playable_if_eggs` (birds already food-affordable with
+an open slot, regardless of eggs). The check itself uses `ignore_eggs=True` —
+a bird lights up when gaining the offered food meets its food cost AND an open
+slot exists; the egg cost is not considered. This means a forest-only bird
+costing [seed] lights up on a [seed] gain and stays dark on a [fish] gain, even
+when the player has no eggs for the forest slot. The egg-gain path (`LAY_EGGS`,
+egg-bearing exchanges) keeps the original full `_bird_playable` predicate.
 
 ### 2.5 `SPEND_FOOD` — which food to part with
 

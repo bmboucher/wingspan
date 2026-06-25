@@ -29,19 +29,25 @@ def _bird_playable(
     *,
     extra_food: state.FoodPool | None = None,
     extra_eggs: int = 0,
+    ignore_eggs: bool = False,
 ) -> bool:
     """Whether ``player`` could play ``bird`` given optional counterfactual resources.
 
     Returns True when:
     * ``any_payment_exists`` for player's food (+ extra_food) against bird's cost, AND
-    * at least one habitat in bird.habitats has an open slot AND
+    * at least one habitat in bird.habitats has an open slot AND either
+      ``ignore_eggs`` is True (egg cost not checked) or
       ``total_eggs + extra_eggs >= next_egg_cost`` for that habitat.
 
     ``extra_food`` is never mutated. ``extra_eggs`` is added to ``player.total_eggs``
-    for the check (counterfactual "what if I had N more eggs")."""
+    for the check (counterfactual "what if I had N more eggs"). ``ignore_eggs`` drops
+    the egg-cost gate entirely — used on the food-gain path where eggs are irrelevant
+    to whether gaining the food makes the bird's cost payable."""
     food = player.food if extra_food is None else _pool_add(player.food, extra_food)
     if not helpers.any_payment_exists(food, bird.food_cost):
         return False
+    if ignore_eggs:
+        return any(player.can_play_in(habitat) for habitat in bird.habitats)
     total_eggs = player.total_eggs + extra_eggs
     for habitat in bird.habitats:
         if player.can_play_in(habitat) and total_eggs >= player.board.next_egg_cost(
@@ -105,19 +111,23 @@ def newly_playable_after_food(
     food: cards.Food,
     *,
     already_playable: list[cards.Bird],
+    ignore_eggs: bool = True,
 ) -> list[cards.Bird]:
     """Hand birds not in ``already_playable`` that become playable after gaining one
     unit of ``food``.
 
     Builds a counterfactual food pool with +1 of ``food`` (never mutates
-    ``player.food``) and tests each not-yet-playable hand bird."""
+    ``player.food``) and tests each not-yet-playable hand bird. ``ignore_eggs``
+    defaults to ``True`` so the food-gain path signals food-driven transitions
+    without the egg-cost gate masking the signal (a bird that needs food AND eggs
+    should still light up when the food requirement is newly met)."""
     already_set = set(id(bird) for bird in already_playable)
     extra = _single_food_pool(food)
     return [
         bird
         for bird in player.hand
         if id(bird) not in already_set
-        and _bird_playable(player, bird, extra_food=extra)
+        and _bird_playable(player, bird, extra_food=extra, ignore_eggs=ignore_eggs)
     ]
 
 
@@ -155,13 +165,16 @@ def newly_playable_after_feeder_food(
     birdfeeder: state.Birdfeeder,
     *,
     already_playable: list[cards.Bird],
+    ignore_eggs: bool = True,
 ) -> list[cards.Bird]:
     """The optimistic union of ``newly_playable_after_food`` over all foods currently
     gainable from the birdfeeder.
 
     Used for main-action ``GAIN_FOOD`` rows and ``PayCostChoice`` exchanges that
     give food from the feeder — the exact die is not yet committed, so we
-    advertise the best possible outcome."""
+    advertise the best possible outcome. ``ignore_eggs`` is forwarded to
+    ``_bird_playable`` with the same semantics as in :func:`newly_playable_after_food`.
+    """
     feeder_foods = gainable_feeder_foods(birdfeeder)
     if not feeder_foods:
         return []
@@ -173,7 +186,7 @@ def newly_playable_after_feeder_food(
         extra = _single_food_pool(food)
         for bird in candidates:
             if id(bird) not in seen_ids and _bird_playable(
-                player, bird, extra_food=extra
+                player, bird, extra_food=extra, ignore_eggs=ignore_eggs
             ):
                 newly.append(bird)
                 seen_ids.add(id(bird))

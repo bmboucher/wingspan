@@ -33,7 +33,36 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v0.7 — OR-cost flag in card features (current)
+### v0.8 — Food-gain `becomes_playable` ignores eggs (current)
+
+**FRESH change (code-carried)** — changed the `becomes_playable` computation on
+**food-gain** choice rows so the egg-cost gate is no longer applied. A hand bird
+is now flagged as "becomes playable" when gaining the offered food meets its food
+cost AND an open habitat slot exists, regardless of whether the egg cost is also
+met. The egg-gain path (`LAY_EGGS`, egg exchanges) is unchanged.
+
+No tensor widths change (state dim, choice dim, and `CARD_FEATURE_DIM` are all
+the same). This is a **code-carried** FRESH change: the same vector slot changes
+its computed value, making inference on a 0.7 checkpoint diverge if it ran under
+live 0.8 code without a shim.
+
+Shim: `wingspan.compat.v0_7` — covers **exactly v0.7 artifacts**.
+`PolicyValueNetV07` overrides `encode_choices` to call `encode_choices_v07`,
+which passes `food_playable_ignores_eggs=False` to restore the eggs-included
+semantics. `uses_v0_7_becomes_playable_encoding(v)` predicate is True iff
+`(major, minor) == (0, 7)`.
+
+`PolicyValueNetV06` (covering v0.2–v0.6 artifacts) also gains an `encode_choices`
+override that delegates to `encode_choices_v07` — v0.6 artifacts predate the 0.8
+fix exactly as 0.7 artifacts do, so they must compute the same eggs-included bits.
+
+`encoding_dims_for_era` is unchanged: the 0.8 change does not affect `state_dim`
+or `choice_dim`, so era-pinned v0.7 training resumes against the live
+state/choice dims.
+
+Fixture set: `tests/data/compat/v0.8/` — deferred per existing pattern.
+
+### v0.7 — OR-cost flag in card features (superseded by v0.8)
 
 **FRESH change** — added a 1-dim `or_cost` flag to the per-card attribute vector,
 growing `CARD_FEATURE_DIM` by 1 (224 → 225). State and choice vector widths are unchanged.

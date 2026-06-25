@@ -162,8 +162,10 @@ class PolicyValueNet(nn.Module):
         790-dim state geometry, one-hot round + cubes); 0.4–0.5 →
         ``v0_4.PolicyValueNetV04`` (frozen 795-dim state + no becomes_playable
         choice stripe); 0.6 → ``v0_6.PolicyValueNetV06`` (frozen 224-wide card
-        encoder, pre-or_cost); current era → the live class. Used by every
-        construction seam that must honor an artifact's era."""
+        encoder, pre-or_cost, eggs-included food encoding); 0.7 →
+        ``v0_7.PolicyValueNetV07`` (eggs-included food ``becomes_playable``);
+        current era → the live class. Used by every construction seam that must
+        honor an artifact's era."""
         from wingspan.compat import (  # local: compat subclasses this net
             v0_0,
             v0_1,
@@ -171,6 +173,7 @@ class PolicyValueNet(nn.Module):
             v0_3,
             v0_4,
             v0_6,
+            v0_7,
         )
 
         if v0_0.uses_v0_0_choice_encoding(artifact_version):
@@ -185,6 +188,8 @@ class PolicyValueNet(nn.Module):
             return v0_4.PolicyValueNetV04
         if v0_6.uses_v0_6_card_feature_encoding(artifact_version):
             return v0_6.PolicyValueNetV06
+        if v0_7.uses_v0_7_becomes_playable_encoding(artifact_version):
+            return v0_7.PolicyValueNetV07
         return PolicyValueNet
 
     @classmethod

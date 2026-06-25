@@ -92,3 +92,22 @@ row +180.
 - `encode_choices_v04` / `choice_feature_dim_v04` — frozen narrower choice rows.
 - Import-time `_assert_live_layout_contract` pins N_HAND_PLAYABLE_MULTIHOTS==2,
   stripe ordering, and the −360/−180 deltas.
+
+**`v0_6.py`** — Pre-0.7 card-feature shim (224-wide card encoder; no `or_cost` flag;
+also restores v0.7 eggs-included food `becomes_playable` semantics; covers 0.2–0.6).
+- `uses_v0_6_card_feature_encoding(v) -> bool` — True when `(0,2) ≤ (major,minor) < (0,7)`.
+- `PolicyValueNetV06` — overrides `_build_card_encoder` (frozen 224-wide MLP) and
+  `encode_choices` (delegates to `v0_7.encode_choices_v07` for eggs-included food encoding).
+- `card_feature_matrix_v06()` — rebuilds the `[181, 224]` feature table without `or_cost`.
+- `_install_v06_card_encoder_main` / `_install_v06_card_encoder_setup` — wire the frozen
+  encoder into a `PolicyValueNet` or `SetupNet` instance.
+- `SetupNetV06` — overrides `_build_card_encoder` for the setup net.
+- Import-time `_assert_live_layout_contract` pins `_OR_COST_FLAG_DIM==1`, stripe offset,
+  and bird catalog size.
+
+**`v0_7.py`** — Pre-0.8 food `becomes_playable` shim (eggs-included food-gain path; covers
+exactly 0.7).
+- `uses_v0_7_becomes_playable_encoding(v) -> bool` — True iff `(major, minor) == (0, 7)`.
+- `encode_choices_v07(decision, game_state, spec)` — calls live `encode_choices` with
+  `food_playable_ignores_eggs=False` to restore eggs-included semantics.
+- `PolicyValueNetV07` — overrides `encode_choices` to delegate to `encode_choices_v07`.

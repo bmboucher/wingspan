@@ -107,6 +107,109 @@ def test_classify_hand_playability_unaffordable_excluded():
 
 
 # ---------------------------------------------------------------------------
+# _bird_playable: ignore_eggs semantics
+
+
+def _make_egg_blocked_scenario(
+    birds_list: list[cards.Bird], player: state.Player
+) -> cards.Bird | None:
+    """Set up an egg-blocked scenario and return the target bird, or None if
+    the catalog doesn't contain what we need.
+
+    Sets up: one bird placed in the FOREST (0 eggs, so slot 2 costs 1 egg the
+    player doesn't have), player food zeroed, player hand set to the returned
+    target. The target is a FOREST-only bird whose cost is exactly 1 SEED (not
+    payable by FISH), making it the ideal probe for ignore_eggs behavior."""
+    seed_idx = cards.food_index(cards.Food.SEED)
+    fish_idx = cards.food_index(cards.Food.FISH)
+
+    # Place one bird in the forest (eggs=0 by default) so next_egg_cost(FOREST)=1.
+    forest_occupant = next(
+        (bird for bird in birds_list if cards.Habitat.FOREST in bird.habitats), None
+    )
+    if forest_occupant is None:
+        return None
+    player.board[cards.Habitat.FOREST].append(state.PlayedBird(bird=forest_occupant))
+
+    # Find a FOREST-only target bird that needs exactly 1 SEED (not FISH).
+    target = next(
+        (
+            bird
+            for bird in birds_list
+            if (
+                bird.habitats == (cards.Habitat.FOREST,)
+                and bird.food_cost.counts[seed_idx] == 1
+                and bird.food_cost.counts[fish_idx] == 0
+                and bird.food_cost.total == 1
+            )
+        ),
+        None,
+    )
+    return target
+
+
+def test_newly_playable_after_food_ignore_eggs_flags_food_affordable_bird():
+    """With ``ignore_eggs=True`` (default), a SEED-only forest bird is flagged when
+    gaining SEED even though the egg cost for the second forest slot is not met."""
+    eng, birds_list, *_ = engine.Engine.create(seed=50)
+    player = eng.state.players[0]
+    target = _make_egg_blocked_scenario(birds_list, player)
+    if target is None:
+        pytest.skip("no suitable forest-only SEED bird in this catalog seed")
+
+    player.food = state.FoodPool(counts=[0] * cards.N_FOODS)
+    player.hand = [target]
+    playable_now, playable_if_eggs = playability.classify_hand_playability(player)
+    already = playable_now + playable_if_eggs
+
+    newly = playability.newly_playable_after_food(
+        player, cards.Food.SEED, already_playable=already, ignore_eggs=True
+    )
+    assert (
+        target in newly
+    ), "SEED should unlock the egg-blocked SEED bird (ignore_eggs=True)"
+
+
+def test_newly_playable_after_food_with_eggs_does_not_flag_egg_blocked():
+    """With ``ignore_eggs=False``, the same egg-blocked bird is NOT flagged by SEED."""
+    eng, birds_list, *_ = engine.Engine.create(seed=50)
+    player = eng.state.players[0]
+    target = _make_egg_blocked_scenario(birds_list, player)
+    if target is None:
+        pytest.skip("no suitable forest-only SEED bird in this catalog seed")
+
+    player.food = state.FoodPool(counts=[0] * cards.N_FOODS)
+    player.hand = [target]
+    already: list[cards.Bird] = []
+
+    newly = playability.newly_playable_after_food(
+        player, cards.Food.SEED, already_playable=already, ignore_eggs=False
+    )
+    assert (
+        target not in newly
+    ), "SEED should NOT unlock egg-blocked bird when ignore_eggs=False"
+
+
+def test_newly_playable_after_food_non_matching_food_not_flagged():
+    """A FISH gain does not flag a SEED-only bird even with ignore_eggs=True."""
+    eng, birds_list, *_ = engine.Engine.create(seed=50)
+    player = eng.state.players[0]
+    target = _make_egg_blocked_scenario(birds_list, player)
+    if target is None:
+        pytest.skip("no suitable forest-only SEED bird in this catalog seed")
+
+    player.food = state.FoodPool(counts=[0] * cards.N_FOODS)
+    player.hand = [target]
+    playable_now, playable_if_eggs = playability.classify_hand_playability(player)
+    already = playable_now + playable_if_eggs
+
+    newly = playability.newly_playable_after_food(
+        player, cards.Food.FISH, already_playable=already, ignore_eggs=True
+    )
+    assert target not in newly, "FISH should not flag a SEED-only bird"
+
+
+# ---------------------------------------------------------------------------
 # newly_playable_after_food
 
 
