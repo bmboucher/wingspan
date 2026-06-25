@@ -26,7 +26,8 @@ class GettingBetterChart:
     dim-red baseline marks the 50% level.  FINAL SCORE / MARGIN is a dual-axis
     chart: the EWMA final score on a color-coded left axis and the EWMA eval
     margin on a color-coded right axis, each scaled to its own visible range,
-    over a sliding 2000-iteration window pinned to a round left edge. When the
+    over a growing window (rounded to 50 iterations) until 2000 iterations are
+    reached, then a fixed 2000-wide sliding window pinned to a round right edge. When the
     panel is too narrow the inset drops to a one-line strip beneath the charts.
     The win-rate sawtooths back down each time the reference opponent is advanced
     (it then climbs again vs a stronger self)."""
@@ -51,7 +52,7 @@ class GettingBetterChart:
         beacon_color = theme.BEACON_B if self.frame % 2 else theme.BEACON_A
         # The convergence charts read the full on-disk history (beyond the
         # in-memory cap) so WIN RATE can span the whole run and FINAL SCORE /
-        # MARGIN can show a 2000-iteration window; before the first row is
+        # MARGIN can show the full two-phase window; before the first row is
         # flushed (or in tests with no run on disk) we fall back to the live
         # in-memory history.
         full_history = metrics_log.read_iteration_history(

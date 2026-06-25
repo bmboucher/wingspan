@@ -119,8 +119,8 @@ def _state(tmp_path: pathlib.Path) -> runstate.RunState:
 # Pure series + window math
 
 
-def test_score_margin_window_pins_right_edge_to_window_pin():
-    # Right edge = ceil(2345 / 250) * 250 = 2500; window is (500, 2500).
+def test_score_margin_window_sliding_phase():
+    # Sliding phase (>= 2000 iterations): right = ceil(latest/250)*250, width = 2000.
     it_lo, it_hi = convergence.score_margin_window([_iter(0, 50.0), _iter(2345, 60.0)])
     assert it_hi == 2500 and it_lo == 500
     assert it_hi - it_lo == convergence.SCORE_MARGIN_WINDOW == 2000
@@ -129,11 +129,27 @@ def test_score_margin_window_pins_right_edge_to_window_pin():
         [_iter(0, 50.0), _iter(2001, 60.0)]
     )
     assert bump_lo == 250 and bump_hi == 2250
-    # A short run still starts at 0.
+
+
+def test_score_margin_window_growing_phase():
+    # Growing phase (< 2000 iterations): left pinned at 0, right = ceil(latest/50)*50.
     short_lo, short_hi = convergence.score_margin_window(
         [_iter(0, 50.0), _iter(50, 60.0)]
     )
-    assert short_lo == 0 and short_hi == 2000
+    assert short_lo == 0 and short_hi == 50
+    # iter 1234 → ceil(1234/50)*50 = 1250
+    mid_lo, mid_hi = convergence.score_margin_window(
+        [_iter(0, 50.0), _iter(1234, 60.0)]
+    )
+    assert mid_lo == 0 and mid_hi == 1250
+    # Boundary: iter 2000 → both phases agree on (0, 2000).
+    boundary_lo, boundary_hi = convergence.score_margin_window(
+        [_iter(0, 50.0), _iter(2000, 60.0)]
+    )
+    assert boundary_lo == 0 and boundary_hi == 2000
+    # Empty history → minimum window.
+    empty_lo, empty_hi = convergence.score_margin_window([])
+    assert empty_lo == 0 and empty_hi == convergence.EARLY_WINDOW_PIN
 
 
 def test_full_range_spans_whole_history():

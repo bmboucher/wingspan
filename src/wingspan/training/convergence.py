@@ -7,9 +7,11 @@ over a list of :class:`wingspan.training.metrics.IterationMetrics`.
 
 * WIN RATE spans the whole run (:func:`full_range`) and draws a single EWMA
   series (:func:`winrate_ewma_points`) that resets at each opponent advance.
-* FINAL SCORE / MARGIN shows a sliding window pinned to a round left edge
-  (:func:`score_margin_window`) with one EWMA series per axis
-  (:func:`score_ewma_points`, :func:`margin_ewma_points`).
+* FINAL SCORE / MARGIN uses a two-phase window (:func:`score_margin_window`):
+  before 2000 iterations the right edge grows with the data (rounded to 50);
+  from 2000 on it becomes a fixed 2000-wide sliding window pinned to a round
+  right edge.  One EWMA series per axis (:func:`score_ewma_points`,
+  :func:`margin_ewma_points`).
 * Challenger upgrades become vertical markers (:func:`marker_columns`).
 """
 
@@ -19,12 +21,15 @@ import math
 
 from wingspan.training import metrics
 
-# The FINAL SCORE / MARGIN chart shows the most recent ``SCORE_MARGIN_WINDOW``
-# iterations.  The right edge is pinned to the smallest multiple of
-# ``WINDOW_PIN`` that is >= the latest iteration (and >= SCORE_MARGIN_WINDOW),
-# so the axis steps in 250-iteration jumps and the window always contains the
-# latest data point.
+# The FINAL SCORE / MARGIN chart uses a two-phase window:
+#   - Growing phase (< SCORE_MARGIN_WINDOW iterations): left edge pinned at 0,
+#     right edge = ceil(latest / EARLY_WINDOW_PIN) * EARLY_WINDOW_PIN, so the
+#     axis expands in 50-iteration steps as data arrives.
+#   - Sliding phase (>= SCORE_MARGIN_WINDOW iterations): fixed SCORE_MARGIN_WINDOW-
+#     wide window; right edge = ceil(latest / WINDOW_PIN) * WINDOW_PIN, stepping
+#     in 250-iteration jumps.  Both phases are continuous at the boundary.
 SCORE_MARGIN_WINDOW = 2000
+EARLY_WINDOW_PIN = 50
 WINDOW_PIN = 250
 
 # When the win-rate / margin EWMA crosses into a new challenger regime, the chart
@@ -47,16 +52,30 @@ def full_range(history: list[metrics.IterationMetrics]) -> tuple[int, int]:
 
 
 def score_margin_window(history: list[metrics.IterationMetrics]) -> tuple[int, int]:
-    """The FINAL SCORE / MARGIN chart's ``(it_lo, it_hi)`` window: the most recent
-    ``SCORE_MARGIN_WINDOW`` iterations.  The right edge is the smallest multiple of
-    ``WINDOW_PIN`` that is >= the latest iteration (and >= SCORE_MARGIN_WINDOW), so
-    the window always contains the latest data point and steps in round jumps rather
-    than scrolling every iteration."""
+    """The FINAL SCORE / MARGIN chart's ``(it_lo, it_hi)`` window.
+
+    Two phases, continuous at the boundary (iteration == SCORE_MARGIN_WINDOW):
+
+    * **Growing phase** (latest iteration < ``SCORE_MARGIN_WINDOW``): left edge
+      fixed at 0; right edge = ``ceil(latest / EARLY_WINDOW_PIN) *
+      EARLY_WINDOW_PIN``, so the axis expands in 50-iteration steps as data
+      arrives instead of showing a mostly-empty 2000-wide window.
+    * **Sliding phase** (latest iteration >= ``SCORE_MARGIN_WINDOW``): the most
+      recent ``SCORE_MARGIN_WINDOW`` iterations; right edge rounded up to the
+      nearest ``WINDOW_PIN`` so the window steps in 250-iteration jumps.
+    """
     if not history:
-        return (0, SCORE_MARGIN_WINDOW)
+        return (0, EARLY_WINDOW_PIN)
     it_hi_data = history[-1].iteration
-    min_hi = max(SCORE_MARGIN_WINDOW, it_hi_data)
-    it_hi = math.ceil(min_hi / WINDOW_PIN) * WINDOW_PIN
+    if it_hi_data < SCORE_MARGIN_WINDOW:
+        # Growing phase: left pinned at 0, right grows to track latest data.
+        it_hi = max(
+            EARLY_WINDOW_PIN,
+            math.ceil(it_hi_data / EARLY_WINDOW_PIN) * EARLY_WINDOW_PIN,
+        )
+        return (0, it_hi)
+    # Sliding phase: fixed-width window, right edge rounded to a round step.
+    it_hi = math.ceil(it_hi_data / WINDOW_PIN) * WINDOW_PIN
     return (it_hi - SCORE_MARGIN_WINDOW, it_hi)
 
 
