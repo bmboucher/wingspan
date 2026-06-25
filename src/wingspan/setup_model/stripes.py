@@ -282,6 +282,32 @@ def setup_stripe_layout(
         )
         off += arch_module._KEPT_CARDS_DIM
 
+    if encoding.include_playable_kept_cards:
+        stripes.append(
+            encode_stripes.StripeDescriptor(
+                name="playable_kept_cards",
+                description=(
+                    f"Kept birds for which some keepable food set would allow "
+                    f"turn-1 play, as a multi-hot over all "
+                    f"{arch_module._KEPT_CARDS_DIM} core-set birds."
+                ),
+                offset=off,
+                size=arch_module._KEPT_CARDS_DIM,
+                encoding="multi-hot",
+                value_range="{0, 1}",
+                notes=(
+                    "Food-agnostic: a bird is set iff some (5−bird_count)-subset "
+                    "of the 5 food types pays its printed cost. Unlike turn1_playable "
+                    "this does not require a concrete kept_foods tuple, so it is "
+                    "non-trivial in the split_setup_food=True regime. "
+                    "Indexed by cards.bird_index(). Embedded in-net as one extra "
+                    "card set through the frozen copy of the main net's multi-card "
+                    "set encoder."
+                ),
+            )
+        )
+        off += arch_module._KEPT_CARDS_DIM
+
     assert off == encoding.total_dim, (
         f"stripe offsets sum to {off} but encoding.total_dim is "
         f"{encoding.total_dim} — setup_model architecture.py and stripes.py "
@@ -325,7 +351,12 @@ def setup_readout_stripe_layout(
             hand_embed_width if hand_embed_width != card_embed_dim else None
         ),
     )
-    expected = arch_module.setup_readout_input_dim(encoding.total_dim, main_arch)
+    expected = arch_module.setup_readout_input_dim(
+        encoding.total_dim,
+        main_arch,
+        include_turn1_playable=encoding.include_turn1_playable,
+        include_playable_kept_cards=encoding.include_playable_kept_cards,
+    )
     return embed_rules.embed_layout(
         raw,
         embed_rules.setup_embed_rules(card_embed_dim, hand_embed_width),

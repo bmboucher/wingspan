@@ -166,6 +166,15 @@ def setup_embed_rules(
     """
     tray = state.TRAY_SIZE
     kept_dim = layout.HAND_MULTIHOT_DIM
+    _card_set_rule = _EmbedRule(
+        new_size=hand_embed_width,
+        encoding="card-set-embedding (hand encoder)",
+        value_range="learned",
+        notes=(
+            f"180-dim multi-hot -> one {hand_embed_width}-dim set embedding via the "
+            "frozen copy of the main net's hand encoder."
+        ),
+    )
     return {
         "kept_cards": _EmbedRule(
             new_size=hand_embed_width,
@@ -189,6 +198,11 @@ def setup_embed_rules(
                 f"Raw encoding stores {tray} integer indices."
             ),
         ),
+        # Appended card-set multi-hots: each 180-dim stripe is embedded as one
+        # N-dim set vector.  Rules are looked up by name so they only fire when
+        # the stripe is present (embed_layout skips names not in the layout).
+        "turn1_playable": _card_set_rule,
+        "playable_kept_cards": _card_set_rule,
     }
 
 

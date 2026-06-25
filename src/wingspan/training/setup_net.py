@@ -120,6 +120,7 @@ class SetupNet(nn.Module):
             encoding.total_dim,
             main_arch,
             include_turn1_playable=encoding.include_turn1_playable,
+            include_playable_kept_cards=encoding.include_playable_kept_cards,
         )
         self.mlp = mlp.build_readout(
             readout_in,
@@ -233,8 +234,9 @@ class SetupNet(nn.Module):
 
         Replaces the kept-cards multi-hot with one set embedding, and the tray
         index columns with per-slot card-table rows plus a tray-set embedding.
-        When ``include_turn1_playable`` is active in the encoding, the trailing
-        180-dim multi-hot is embedded as one additional set vector.
+        When ``include_turn1_playable`` and/or ``include_playable_kept_cards`` are
+        active, each trailing 180-dim multi-hot is embedded as one additional set
+        vector (in that order).
         Used by both ``forward`` and ``policy_and_value`` so the embedding is
         computed once regardless of how many heads are read."""
         card_table = self._card_table_for_pass()  # (181, M)
@@ -248,7 +250,9 @@ class SetupNet(nn.Module):
             .long()
             .clamp_(0, encode.HAND_MULTIHOT_DIM)
         )
-        feeder_goals = features[..., enc.off_feeder :]
+        # The feeder/goals passthrough ends at the first appended multi-hot stripe.
+        feeder_end_abs = enc.off_turn1_playable
+        feeder_goals_rest = features[..., enc.off_feeder : feeder_end_abs]
 
         # Kept set -> one N-dim embedding (summary derived from the multi-hot).
         kept_summary = hand_model.set_summary_from_multihot(
@@ -270,34 +274,32 @@ class SetupNet(nn.Module):
             self.hand_encoder, tray_multihot, tray_summary
         )
 
-        if enc.include_turn1_playable:
-            # The turn1_playable multi-hot is appended at the end of the vector.
-            # Slice it from feeder_goals and embed as a third card set.
-            feeder_end = enc.off_turn1_playable - enc.off_feeder
-            feeder_goals_rest = feeder_goals[..., :feeder_end]
-            turn1_mh = feeder_goals[..., feeder_end:]
-            turn1_summary = hand_model.set_summary_from_multihot(
-                turn1_mh, self.card_summary_matrix[1:]
+        # Embed any appended 180-dim card-set multi-hots (turn1_playable, then
+        # playable_kept_cards), each as one extra N-dim set embedding.
+        appended: list[torch.Tensor] = []
+        for stripe_off in self._appended_multihot_offsets():
+            mh = features[..., stripe_off : stripe_off + enc.kept_cards_dim]
+            summary = hand_model.set_summary_from_multihot(
+                mh, self.card_summary_matrix[1:]
             )
-            turn1_emb = hand_model.embed_card_set(
-                self.hand_encoder, turn1_mh, turn1_summary
-            )
-            return torch.cat(
-                [
-                    kept_emb,
-                    passthrough,
-                    tray_set_emb,
-                    tray_slot_emb,
-                    feeder_goals_rest,
-                    turn1_emb,
-                ],
-                dim=-1,
-            )
+            appended.append(hand_model.embed_card_set(self.hand_encoder, mh, summary))
 
         return torch.cat(
-            [kept_emb, passthrough, tray_set_emb, tray_slot_emb, feeder_goals],
+            [kept_emb, passthrough, tray_set_emb, tray_slot_emb, feeder_goals_rest]
+            + appended,
             dim=-1,
         )
+
+    def _appended_multihot_offsets(self) -> list[int]:
+        """Absolute feature-vector offsets of each appended 180-dim card-set
+        multi-hot stripe, in encoding order."""
+        enc = self.encoding
+        offsets: list[int] = []
+        if enc.include_turn1_playable:
+            offsets.append(enc.off_turn1_playable)
+        if enc.include_playable_kept_cards:
+            offsets.append(enc.off_playable_kept_cards)
+        return offsets
 
     def _card_table_for_pass(self) -> torch.Tensor:
         """The card table for one forward pass: recomputed per call in training

@@ -359,3 +359,117 @@ def test_setup_turn1_playable_empty_inputs():
     """Empty kept_cards always returns an empty list."""
     playable = playability.setup_turn1_playable((), (cards.Food.FISH,))
     assert playable == []
+
+
+# ---------------------------------------------------------------------------
+# setup_playable_kept_cards
+
+
+def _make_bird(template: cards.Bird, cost: cards.BirdCost) -> cards.Bird:
+    """Return a copy of ``template`` with its food_cost replaced by ``cost``."""
+    return template.model_copy(update={"food_cost": cost})
+
+
+def _base_bird() -> cards.Bird:
+    """Any real bird to use as a template for minting test birds."""
+    all_birds, *_ = cards.load_all()
+    return all_birds[0]
+
+
+def test_playable_kept_empty():
+    """Empty kept_cards returns an empty list."""
+    result = playability.setup_playable_kept_cards(())
+    assert result == []
+
+
+def test_playable_kept_example1_inv_seed_fruit():
+    """Example 1: 1 inv+seed+fruit bird is playable (keep inv+seed+fruit+any 4th)."""
+    template = _base_bird()
+    bird = _make_bird(
+        template,
+        cards.BirdCost.from_specific(
+            {cards.Food.INVERTEBRATE: 1, cards.Food.SEED: 1, cards.Food.FRUIT: 1}
+        ),
+    )
+    result = playability.setup_playable_kept_cards((bird,))
+    assert bird in result
+
+
+def test_playable_kept_example2_inv_seed_seed():
+    """Example 2: 1 inv+seed+seed bird is playable (2nd seed paid 2-for-1 from spare token).
+
+    Budget K = 5 − 1 = 4.  inv+seed+seed needs inv + seed + 2 wild-for-seed = 4 total.
+    Exactly meets the budget, so the bird is playable."""
+    template = _base_bird()
+    bird = _make_bird(
+        template,
+        cards.BirdCost.from_specific({cards.Food.INVERTEBRATE: 1, cards.Food.SEED: 2}),
+    )
+    result = playability.setup_playable_kept_cards((bird,))
+    assert bird in result
+
+
+def test_playable_kept_example3_two_birds_all_playable():
+    """Example 3: inv+seed+fruit bird and 1-fish bird kept; both playable (K=3)."""
+    template = _base_bird()
+    isf_bird = _make_bird(
+        template,
+        cards.BirdCost.from_specific(
+            {cards.Food.INVERTEBRATE: 1, cards.Food.SEED: 1, cards.Food.FRUIT: 1}
+        ),
+    )
+    fish_bird = _make_bird(
+        template,
+        cards.BirdCost.from_specific({cards.Food.FISH: 1}),
+    )
+    result = playability.setup_playable_kept_cards((isf_bird, fish_bird))
+    assert isf_bird in result
+    assert fish_bird in result
+
+
+def test_playable_kept_example4_two_birds_only_fish_playable():
+    """Example 4: inv+seed+seed and 1-fish kept; only fish playable.
+
+    K = 5 − 2 = 3 distinct tokens.  inv+seed+seed needs minimum 4 distinct-token
+    slots (inv + seed + 2 wild sub), which exceeds 3 → not playable.
+    fish needs 1 → playable."""
+    template = _base_bird()
+    iss_bird = _make_bird(
+        template,
+        cards.BirdCost.from_specific({cards.Food.INVERTEBRATE: 1, cards.Food.SEED: 2}),
+    )
+    fish_bird = _make_bird(
+        template,
+        cards.BirdCost.from_specific({cards.Food.FISH: 1}),
+    )
+    result = playability.setup_playable_kept_cards((iss_bird, fish_bird))
+    assert iss_bird not in result
+    assert fish_bird in result
+
+
+def test_playable_kept_free_bird_at_zero_budget():
+    """A free-cost bird is playable even at K=0 (all 5 bird slots filled).
+
+    K = 5 − 5 = 0 means only the empty food-keep subset is enumerated.
+    The empty pool can still pay a zero-cost bird."""
+    template = _base_bird()
+    free_bird = _make_bird(template, cards.BirdCost.from_specific({}))
+    # 5 birds kept → budget K=0
+    result = playability.setup_playable_kept_cards((free_bird,) * 5)
+    assert free_bird in result
+
+
+def test_playable_kept_result_is_subset_of_kept():
+    """Every bird returned by setup_playable_kept_cards is in the input tuple."""
+    all_birds, *_ = cards.load_all()
+    kept = tuple(all_birds[:3])
+    result = playability.setup_playable_kept_cards(kept)
+    assert all(bird in kept for bird in result)
+
+
+def test_playable_kept_wild_cost_bird():
+    """A 1-wild-cost bird is playable (any single food token satisfies it)."""
+    template = _base_bird()
+    wild_bird = _make_bird(template, cards.BirdCost.from_specific({}, wild=1))
+    result = playability.setup_playable_kept_cards((wild_bird,))
+    assert wild_bird in result

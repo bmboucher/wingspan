@@ -14,6 +14,8 @@ the same pattern ``choice_encode`` uses for ``scoring``.
 
 from __future__ import annotations
 
+import itertools
+
 from wingspan import cards, state
 from wingspan.engine import helpers
 
@@ -180,6 +182,37 @@ def newly_playable_after_feeder_food(
 
 # ---------------------------------------------------------------------------
 # Setup turn-1 predicates
+
+
+def setup_playable_kept_cards(
+    kept_cards: tuple[cards.Bird, ...],
+) -> list[cards.Bird]:
+    """Birds in ``kept_cards`` for which some keepable food set would pay their cost.
+
+    At setup a player keeps ``(5 − bird_count)`` *distinct* food tokens — one of
+    each of up to 5 types.  A kept bird is playable iff some
+    ``(5 − bird_count)``-subset of the 5 food types pays its printed cost (food
+    only, no habitat or egg check — the first bird in any habitat costs 0 eggs).
+
+    Unlike :func:`setup_turn1_playable` this predicate is food-agnostic: it
+    enumerates the ≤10 possible distinct-token keeps rather than requiring a
+    concrete ``kept_foods`` tuple.  This makes it useful in the
+    ``split_setup_food=True`` training regime where the food choice is deferred
+    and ``candidate.kept_foods`` is empty.
+    """
+    keep_count = len(cards.ALL_FOODS) - len(kept_cards)
+    if keep_count < 0:
+        return []
+    # Build one FoodPool per distinct-token keep (C(5, keep_count) ≤ 10).
+    food_pools = [
+        _foods_to_pool(combo)
+        for combo in itertools.combinations(cards.ALL_FOODS, keep_count)
+    ]
+    return [
+        bird
+        for bird in kept_cards
+        if any(helpers.any_payment_exists(pool, bird.food_cost) for pool in food_pools)
+    ]
 
 
 def setup_turn1_playable(

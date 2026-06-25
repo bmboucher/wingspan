@@ -35,6 +35,10 @@ configuration. The always-present blocks are, in order:
 5. a six-vector of birdfeeder die-face counts (the five foods + the choice die)
 6. four one-hots — the four rounds' end-of-round goals (context)
 7. per round goal, how many kept cards would advance its category if played
+8. turn-1-playable multi-hot (only when ``include_turn1_playable``) — kept cards
+   playable on turn 1 given concrete ``kept_foods``
+9. playable-kept-cards multi-hot (only when ``include_playable_kept_cards``) —
+   kept cards for which *some* keepable food set would allow turn-1 play
 
 One player technically sees what the other kept at the start of the game; the
 encoder ignores that (the context is each player's own view of the shared deal).
@@ -226,7 +230,7 @@ def encode_setup_candidate(
             affinity / layout._GOAL_COUNT_SCALE
         )
 
-    # 9. Turn-1 playability multi-hot (only when include_turn1_playable): which
+    # 8. Turn-1 playability multi-hot (only when include_turn1_playable): which
     # kept cards could be played on turn 1 given the kept foods.
     if encoding.include_turn1_playable:
         from wingspan.engine import playability as _playability
@@ -236,6 +240,15 @@ def encode_setup_candidate(
         )
         for bird in playable:
             vec[encoding.off_turn1_playable + cards.bird_index(bird)] = 1.0
+
+    # 9. Food-agnostic playability multi-hot (only when include_playable_kept_cards):
+    # which kept cards could be played given *some* keepable food set.
+    if encoding.include_playable_kept_cards:
+        from wingspan.engine import playability as _playability
+
+        playable_kept = _playability.setup_playable_kept_cards(candidate.kept_cards)
+        for bird in playable_kept:
+            vec[encoding.off_playable_kept_cards + cards.bird_index(bird)] = 1.0
 
     return vec
 

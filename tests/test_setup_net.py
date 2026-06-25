@@ -48,3 +48,33 @@ def test_old_descriptor_without_main_arch_still_parses():
         ' "setup_arch": {"hidden_layers": [64]}}'
     )
     assert descriptor.main_arch == architecture.ModelArchitecture()
+
+
+def test_forward_shape_with_playable_kept_cards():
+    """A net built with include_playable_kept_cards=True accepts the larger vector."""
+    encoding = setup_model.SetupEncoding(include_playable_kept_cards=True)
+    arch = setup_model.SetupArchitecture(hidden_layers=(32, 16))
+    net = setup_net.SetupNet(encoding=encoding, arch=arch)
+    batch = torch.zeros((5, encoding.total_dim), dtype=torch.float32)
+    out = net(batch)
+    assert out.shape == (5,)
+
+
+def test_policy_and_value_with_playable_kept_cards():
+    """Both heads return the right shapes when playable_kept_cards stripe is active."""
+    encoding = setup_model.SetupEncoding(include_playable_kept_cards=True)
+    arch = setup_model.SetupArchitecture(hidden_layers=(32,), use_policy_head=True)
+    net = setup_net.SetupNet(encoding=encoding, arch=arch)
+    batch = torch.zeros((4, encoding.total_dim), dtype=torch.float32)
+    policy_logits, value_preds = net.policy_and_value(batch)
+    assert policy_logits.shape == (4,)
+    assert value_preds.shape == (4,)
+
+
+def test_state_dict_syncs_with_playable_kept_cards():
+    """Two nets with the same encoding load each other's state dict without errors."""
+    encoding = setup_model.SetupEncoding(include_playable_kept_cards=True)
+    arch = setup_model.SetupArchitecture(hidden_layers=(32,))
+    net = setup_net.SetupNet(encoding=encoding, arch=arch)
+    twin = setup_net.SetupNet(encoding=encoding, arch=arch)
+    twin.load_state_dict(net.state_dict())

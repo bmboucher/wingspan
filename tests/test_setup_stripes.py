@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from wingspan import architecture, decisions, encode, setup_model, version  # noqa: E402
 from wingspan.encode import stripes as encode_stripes  # noqa: E402
 from wingspan.reporting import html as report  # noqa: E402
+from wingspan.setup_model import architecture as arch_module  # noqa: E402
 
 
 def test_layout_total_matches_feature_dim():
@@ -30,6 +31,47 @@ def test_stripe_offsets_are_contiguous():
         assert stripe.offset == expected_offset
         expected_offset += stripe.size
     assert expected_offset == layout.total_size
+
+
+def test_playable_kept_cards_stripe_layout_with_flag_on():
+    """With include_playable_kept_cards=True the layout stays contiguous and sums correctly."""
+    encoding = arch_module.SetupEncoding(include_playable_kept_cards=True)
+    layout = setup_model.setup_stripe_layout(encoding)
+    assert layout.total_size == encoding.total_dim
+    assert sum(stripe.size for stripe in layout.stripes) == layout.total_size
+    # The playable_kept_cards stripe must be present.
+    stripe_names = [stripe.name for stripe in layout.stripes]
+    assert "playable_kept_cards" in stripe_names
+
+
+def test_playable_kept_cards_readout_stripe_layout_sums_correctly():
+    """setup_readout_stripe_layout sums to setup_readout_input_dim with flag on."""
+    encoding = arch_module.SetupEncoding(include_playable_kept_cards=True)
+    from wingspan.setup_model import stripes as setup_stripes
+
+    main_arch = architecture.ModelArchitecture()
+    layout = setup_stripes.setup_readout_stripe_layout(
+        encoding,
+        card_embed_dim=main_arch.card_embed_dim,
+        hand_embed_width=main_arch.hand_embed_width,
+    )
+    expected = arch_module.setup_readout_input_dim(
+        encoding.total_dim,
+        main_arch,
+        include_playable_kept_cards=True,
+    )
+    assert layout.total_size == expected
+    assert sum(stripe.size for stripe in layout.stripes) == expected
+
+
+def test_split_food_plus_playable_kept_cards_layout():
+    """Combine split_food=True + include_playable_kept_cards=True — layout stays consistent."""
+    encoding = arch_module.SetupEncoding(
+        split_food=True, include_playable_kept_cards=True
+    )
+    layout = setup_model.setup_stripe_layout(encoding)
+    assert layout.total_size == encoding.total_dim
+    assert sum(stripe.size for stripe in layout.stripes) == layout.total_size
 
 
 def test_sub_fields_stay_within_their_stripe():

@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, encode, state  # noqa: E402
+from wingspan.setup_model import architecture as arch_module  # noqa: E402
 from wingspan.setup_model import candidates  # noqa: E402
 from wingspan.setup_model import encode as setup_encode  # noqa: E402
 
@@ -124,3 +125,53 @@ def test_round_goal_one_hots_are_per_round():
         # Each round's stripe is a single one-hot at the goal's category index.
         assert stripe.sum() == 1.0
         assert stripe[encode.GOAL_CATEGORIES.index(category)] == 1.0
+
+
+def test_playable_kept_cards_stripe_not_present_by_default():
+    """The default encoding (flag off) does not grow the vector size."""
+    encoding = arch_module.SetupEncoding()
+    assert not encoding.include_playable_kept_cards
+    assert encoding.total_dim == setup_encode.SETUP_FEATURE_DIM
+
+
+def test_playable_kept_cards_stripe_grows_vector():
+    """Enabling the flag adds exactly 180 dims to total_dim."""
+    enc_off = arch_module.SetupEncoding(include_playable_kept_cards=False)
+    enc_on = arch_module.SetupEncoding(include_playable_kept_cards=True)
+    assert enc_on.total_dim == enc_off.total_dim + cards.n_birds()
+
+
+def test_playable_kept_cards_stripe_marks_playable_birds():
+    """With the flag on, the stripe is set for payable kept birds and clear for others.
+
+    We mint an exact-cost fish bird (1 FISH) and a too-expensive bird (3 RODENT)
+    and keep both.  With K=3 spare tokens, the fish bird is payable but the rodent
+    bird is not (needs 3 of the same type, which costs 3 distinct tokens via the
+    2-for-1 substitution rule — actually 1+2+2=5, let's use 4 rodent cost instead).
+    """
+    # Use two distinct template birds so bird_index returns different indices.
+    dealt_cards, _dealt_bonus, context = _deal(7)
+    fish_bird = dealt_cards[0].model_copy(
+        update={"food_cost": cards.BirdCost.from_specific({cards.Food.FISH: 1})}
+    )
+    # 3-rodent cost: min payment = 1 rodent + 2*(2-for-1) = 5 tokens > K=3, not payable.
+    expensive_bird = dealt_cards[1].model_copy(
+        update={"food_cost": cards.BirdCost.from_specific({cards.Food.RODENT: 3})}
+    )
+    encoding = arch_module.SetupEncoding(include_playable_kept_cards=True)
+    candidate = candidates.SetupCandidate(
+        kept_cards=(fish_bird, expensive_bird),
+        kept_foods=(),
+        bonus_card=None,
+    )
+    vec = setup_encode.encode_setup_candidate(candidate, context, encoding)
+
+    assert vec.shape == (encoding.total_dim,)
+    off = encoding.off_playable_kept_cards
+    fish_idx = cards.bird_index(fish_bird)
+    expensive_idx = cards.bird_index(expensive_bird)
+    assert fish_idx != expensive_idx, "templates must be different birds"
+    assert vec[off + fish_idx] == 1.0, "fish bird should be marked playable"
+    assert (
+        vec[off + expensive_idx] == 0.0
+    ), "3-rodent bird should not be marked playable"

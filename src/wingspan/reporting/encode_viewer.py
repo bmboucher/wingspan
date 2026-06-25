@@ -46,6 +46,7 @@ _BIRD_MULTIHOT_STRIPES: frozenset[str] = frozenset(
         "kept_multihot",
         "kept_cards",
         "turn1_playable",
+        "playable_kept_cards",
     }
 )
 

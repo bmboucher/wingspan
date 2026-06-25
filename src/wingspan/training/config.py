@@ -546,6 +546,7 @@ class RunConfig(pydantic.BaseModel):
         return setup_model.SetupEncoding(
             split_food=self.split_setup_food_active,
             split_bonus=self.split_setup_bonus_active,
+            include_playable_kept_cards=True,
         )
 
     @property
