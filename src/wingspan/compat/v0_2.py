@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from wingspan import decisions, encode, state, version
+from wingspan import architecture, decisions, encode, state, version
 from wingspan.encode import layout, state_encode
 from wingspan.encode.stripes import descriptors as stripe_descriptors
 from wingspan.model import core
@@ -211,8 +211,9 @@ class PolicyValueNetV02(core.PolicyValueNet):
     and feed the frozen v0.2 state vector. The choice encoder also uses pre-0.6
     geometry: :meth:`_choice_embed_offsets` returns ``becomes_playable=None`` so
     the encoder width matches the checkpoint (the ``becomes_playable`` stripe was
-    added in v0.6, after these checkpoints). The card encoder is identical to the
-    live era. Constructed by the version-routing loaders
+    added in v0.6, after these checkpoints). The card encoder uses pre-0.7
+    geometry: :meth:`_build_card_encoder` pins the card encoder input at 224
+    dims (the ``or_cost`` flag was added in v0.7). Constructed by the version-routing loaders
     (``PolicyValueNet.from_model_config``, ``players.loaders.load_policy_net``)
     — never by the training pipeline.
     """
@@ -261,6 +262,16 @@ class PolicyValueNetV02(core.PolicyValueNet):
                 layout.CHOICE_KEPT_MULTIHOT_OFFSET if self.include_setup else None
             ),
         )
+
+    def _build_card_encoder(self, arch: architecture.ModelArchitecture) -> None:
+        """Register ``card_encoder`` at the frozen 224-wide input (pre-0.7 geometry).
+
+        v0.7 grew ``CARD_FEATURE_DIM`` by 1 (224 → 225); without this override
+        the live builder would create a 225-wide first linear that cannot load
+        this checkpoint's 224-wide weights."""
+        import wingspan.compat.v0_6 as v0_6_module  # local: avoids import cycle
+
+        v0_6_module._install_v06_card_encoder_main(self, arch)
 
 
 def state_stripe_layout_v02(

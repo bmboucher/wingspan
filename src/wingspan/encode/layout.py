@@ -393,6 +393,7 @@ _BONUS_NAME_TO_INDEX: dict[str, int] = {
 # ``_bird_attr_vector`` for the meaning of each stripe.
 _FOOD_COST_VEC_DIM = cards.N_FOODS + 1  # 5 specific foods + wild
 _BONUS_CATS_DIM = len(_KEPT_BONUS_NAMES)  # 7 curated categories (was 26)
+_OR_COST_FLAG_DIM = 1  # 1 if the bird's food cost is an OR choice, 0 for AND
 _ATTR_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="points", size=1),
     _stripe_descriptors.StripeSpec(name="food_cost", size=_FOOD_COST_VEC_DIM),
@@ -407,6 +408,7 @@ _ATTR_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="caches_food", size=1),
     _stripe_descriptors.StripeSpec(name="bonus_cats", size=_BONUS_CATS_DIM),
     _stripe_descriptors.StripeSpec(name="power_ex", size=_EXCHANGE_DIM),
+    _stripe_descriptors.StripeSpec(name="or_cost", size=_OR_COST_FLAG_DIM),
 ]
 CARD_ATTR_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
     _ATTR_STRIPE_SPECS
@@ -424,14 +426,15 @@ _OFF_ATTR_PLAYS_BIRD = CARD_ATTR_LAYOUT.offset_of("plays_bird")
 _OFF_ATTR_CACHES_FOOD = CARD_ATTR_LAYOUT.offset_of("caches_food")
 _OFF_ATTR_BONUS_CATS = CARD_ATTR_LAYOUT.offset_of("bonus_cats")
 _OFF_ATTR_POWER_EX = CARD_ATTR_LAYOUT.offset_of("power_ex")
-_BIRD_ATTR_DIM = CARD_ATTR_LAYOUT.total_size  # 44 (was 49)
+_OFF_ATTR_OR_COST = CARD_ATTR_LAYOUT.offset_of("or_cost")
+_BIRD_ATTR_DIM = CARD_ATTR_LAYOUT.total_size  # 45 (was 44)
 
 # The model's card encoder consumes, per card, this attribute vector concatenated
 # with the card's identity one-hot, and outputs the shared ``[181, D]`` card table
 # that every board / tray / hand / choice slot looks up. Defined here beside the
 # attribute layout it builds on, so the encoder-input builder
 # (``state_encode.card_feature_matrix``) and the model read one constant.
-CARD_FEATURE_DIM = _BIRD_ATTR_DIM + _BIRD_ID_DIM  # 44 + 180 = 224 (was 229)
+CARD_FEATURE_DIM = _BIRD_ATTR_DIM + _BIRD_ID_DIM  # 45 + 180 = 225 (was 224)
 
 # Per-board-slot continuous block: mutable per-slot state only, with NO identity
 # and NO attribute vector. The bird's identity is emitted separately as an integer

@@ -246,6 +246,16 @@ def _card_attr_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
             f"plays_to_gain, cache_to_gain]. Normalized ÷ "
             f"{int(layout._EXCHANGE_SCALE)}. Zero for UNIMPLEMENTED powers.",
         ),
+        (
+            "or_cost",
+            layout._OFF_ATTR_OR_COST,
+            layout._OR_COST_FLAG_DIM,
+            "scalar",
+            "{0, 1}",
+            "Whether the bird's food cost is an OR choice.",
+            "1.0 when the bird can pay 1 accepted food OR 2 non-accepted foods "
+            "(2-for-1 substitution); 0.0 for standard AND costs.",
+        ),
     ]
     return tuple(
         descriptors.SubFieldDescriptor(

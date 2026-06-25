@@ -46,7 +46,7 @@ import typing
 
 import numpy as np
 
-from wingspan import decisions, state, version
+from wingspan import architecture, decisions, state, version
 from wingspan.encode import choice_encode, layout, state_encode
 from wingspan.model import core
 
@@ -200,9 +200,10 @@ class PolicyValueNetV04(core.PolicyValueNet):
     The state trunk was trained against 795-dim inputs (no hand-playability
     multi-hots); the choice encoder was trained without the ``becomes_playable``
     stripe. This subclass overrides :meth:`encode_state` and :meth:`encode_choices`
-    to keep those widths, and :meth:`_state_embed_offsets` /
+    to keep those widths, :meth:`_state_embed_offsets` /
     :meth:`_choice_embed_offsets` to slice the narrower vectors at the correct
-    frozen offsets.
+    frozen offsets, and :meth:`_build_card_encoder` to pin the card encoder
+    input at 224 dims (the ``or_cost`` flag was added in v0.7).
 
     Constructed by the version-routing loaders (``PolicyValueNet.from_model_config``,
     ``players.loaders.load_policy_net``) — never by the training pipeline.
@@ -246,6 +247,16 @@ class PolicyValueNetV04(core.PolicyValueNet):
             becomes_playable=None,  # not present in pre-0.6 choice rows
             kept_multihot=None,  # None when include_setup is False (same as live)
         )
+
+    def _build_card_encoder(self, arch: architecture.ModelArchitecture) -> None:
+        """Register ``card_encoder`` at the frozen 224-wide input (pre-0.7 geometry).
+
+        v0.7 grew ``CARD_FEATURE_DIM`` by 1 (224 → 225); without this override
+        the live builder would create a 225-wide first linear that cannot load
+        this checkpoint's 224-wide weights."""
+        import wingspan.compat.v0_6 as v0_6_module  # local: avoids import cycle
+
+        v0_6_module._install_v06_card_encoder_main(self, arch)
 
 
 ###### PRIVATE #######

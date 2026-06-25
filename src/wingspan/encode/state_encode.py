@@ -242,7 +242,8 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
     caches-food flag (1 when any power effect caches food); 7-wide multi-hot of
     curated bonus categories; 13-dim power-exchange vector (what the bird's
     ability does in resource terms — same slot semantics as the choice exchange
-    stripe, normalized by ``layout._EXCHANGE_SCALE``)."""
+    stripe, normalized by ``layout._EXCHANGE_SCALE``); or-cost flag (1 when the
+    bird's food cost is an OR choice — pay 1 accepted or 2 non-accepted)."""
     vec = np.zeros(layout._BIRD_ATTR_DIM, dtype=np.float32)
 
     # Victory points and the printed food cost (6-vector: 5 specific, then wild).
@@ -292,6 +293,10 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
     vec[
         layout._OFF_ATTR_POWER_EX : layout._OFF_ATTR_POWER_EX + layout._EXCHANGE_DIM
     ] = _bird_power_exchange_vector(bird)
+
+    # OR-cost flag: 1.0 when the bird's food cost is an OR choice (pay 1
+    # accepted food OR 2 non-accepted), 0.0 for standard AND costs.
+    vec[layout._OFF_ATTR_OR_COST] = 1.0 if bird.food_cost.is_or_cost else 0.0
 
     return vec
 

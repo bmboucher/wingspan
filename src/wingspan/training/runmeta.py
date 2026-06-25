@@ -263,13 +263,21 @@ def build_model_summary_html(
 def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
     """The per-layer / per-block parameter accounting for ``descriptor``'s net,
     era-routed so totals match the actual checkpoint."""
-    from wingspan.compat import v0_1, v0_4  # local: compat imports the model package
+    from wingspan.compat import (  # local: compat imports the model package
+        v0_1,
+        v0_4,
+        v0_6,
+    )
 
     arch = descriptor.architecture
     card_feat_in = (
         v0_1.CARD_FEATURE_DIM_V01
         if v0_1.uses_v0_1_card_feature_encoding(descriptor.version)
-        else encode.CARD_FEATURE_DIM
+        else (
+            v0_6.CARD_FEATURE_DIM_V06
+            if v0_6.uses_v0_6_card_feature_encoding(descriptor.version)
+            else encode.CARD_FEATURE_DIM
+        )
     )
     # Pre-0.6 artifacts (0.0–0.5) have 0 playability multi-hots; v0.6+ have
     # N_HAND_PLAYABLE_MULTIHOTS.  The playability stripes were added in 0.6, so

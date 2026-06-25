@@ -125,11 +125,11 @@ def test_policy_net_loads_state_dict(
 
 def test_setup_net_loads_state_dict(setup_payload: dict[str, typing.Any]):
     descriptor = setup_runmeta.read_setup_config(str(FIXTURE_DIR))
-    # v0.2 artifacts have a 224-wide card encoder (same as current) — no card-
-    # feature shim needed; only the state encoding changed in 0.3.
-    from wingspan.training import setup_net as setup_net_module
+    # v0.2 artifacts have a 224-wide card encoder; the live SetupNet uses
+    # 225-wide (v0.7 added the or_cost flag), so the v0.6 shim is needed here.
+    from wingspan.compat import v0_6
 
-    net = setup_net_module.SetupNet.from_setup_config(descriptor)
+    net = v0_6.SetupNetV06.from_setup_config(descriptor)
     net.load_state_dict(
         typing.cast("dict[str, torch.Tensor]", setup_payload["setup_model"])
     )

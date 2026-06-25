@@ -70,9 +70,21 @@ def build_setup_net(
     """A fresh setup net and its optimizer over the *trainable* parameters only.
 
     The frozen embedder copies are shaped by the main architecture; they are
-    synced from the main net and never stepped by this optimizer.
+    synced from the main net and never stepped by this optimizer.  The card
+    encoder class is era-routed so an era-pinned resume builds the same 224-wide
+    card encoder the main net uses, enabling ``sync_setup_embedders`` to copy
+    weights without a shape mismatch.
     """
-    net = setup_net.SetupNet(
+    from wingspan.compat import v0_6 as v0_6_module  # local: avoids import cycle
+
+    net_class: type[setup_net.SetupNet] = (
+        v0_6_module.SetupNetV06
+        if v0_6_module.uses_v0_6_card_feature_encoding(
+            training_loop.config.encoding_version
+        )
+        else setup_net.SetupNet
+    )
+    net = net_class(
         encoding=training_loop.config.setup_encoding,
         arch=training_loop.config.setup_arch,
         main_arch=training_loop.config.arch,

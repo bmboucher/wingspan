@@ -22,7 +22,7 @@ Every file here **carries an explicit `version: "0.2"`**, exercising the
 stamped-version load path. The v0.2 era is notable for:
 - `state_dim = 771` (pre-v0.3 scalar misc encoding: round ÷ 3, cubes ÷ 8)
 - `choice_dim = 215` (same as v0.3)
-- `CARD_FEATURE_DIM = 224` (v0.2 live card features — no card-encoder shim needed)
+- `CARD_FEATURE_DIM = 224` (v0.2 card features — uses the `v0_6` card-encoder shim since v0.7 grew it to 225)
 - Main net reconstructs as `compat.v0_2.PolicyValueNetV02` (overrides
   `encode_state` to produce the frozen 771-dim vector)
 

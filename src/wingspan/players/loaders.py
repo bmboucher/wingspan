@@ -27,7 +27,7 @@ import typing
 import torch
 
 from wingspan import compat, decisions, encode, model, version
-from wingspan.compat import v0_1
+from wingspan.compat import v0_1, v0_6
 from wingspan.training import artifacts, config, runmeta
 from wingspan.training import setup_net as setup_net_module
 from wingspan.training import setup_runmeta
@@ -157,11 +157,13 @@ def load_setup_net(
         artifact_version,
         what=f"setup checkpoint at {ckpt_path}",
     )
-    # Pre-0.2 setup nets have a 229-wide card encoder; route to the frozen shim.
+    # Route pre-0.2 (229-wide) and v0.2–v0.6 (224-wide) setup nets to frozen shims.
     if v0_1.uses_v0_1_card_feature_encoding(artifact_version):
         net_instance: setup_net_module.SetupNet = v0_1.SetupNetV01.from_setup_config(
             descriptor
         )
+    elif v0_6.uses_v0_6_card_feature_encoding(artifact_version):
+        net_instance = v0_6.SetupNetV06.from_setup_config(descriptor)
     else:
         net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
     net_instance.load_state_dict(payload["setup_model"])

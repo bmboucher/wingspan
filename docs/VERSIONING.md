@@ -33,7 +33,35 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v0.6 — playability-aware hand copies (current)
+### v0.7 — OR-cost flag in card features (current)
+
+**FRESH change** — added a 1-dim `or_cost` flag to the per-card attribute vector,
+growing `CARD_FEATURE_DIM` by 1 (224 → 225). State and choice vector widths are unchanged.
+
+The flag is `1.0` for the 31 core-set birds whose printed food cost is an OR choice
+("pay 1 invertebrate OR 1 seed") and `0.0` for birds whose cost is AND ("pay 1
+invertebrate AND 1 seed"). The `or_cost` stripe is appended last in `CARD_ATTR_LAYOUT`
+so the earlier attribute block (dims 0..43) is identical between v0.6 and v0.7,
+simplifying the compat shim.
+
+The card parsing fix that introduced `BirdCost.is_or_cost` landed in the preceding
+commit (OR-cost payment logic and display); this FRESH change closes the remaining gap
+by surfacing the flag to the model.
+
+Shim: `wingspan.compat.v0_6` — covers **v0.2 through v0.6 artifacts** (all eras with
+the 224-wide card encoder). `PolicyValueNetV06` and `SetupNetV06` override
+`_build_card_encoder` to build the 224-wide MLP input and register the pre-0.7 feature
+table (via `card_feature_matrix_v06()`). Earlier shims (v0_2, v0_3, v0_4) also
+override `_build_card_encoder` to delegate to `_install_v06_card_encoder_main`.
+`uses_v0_6_card_feature_encoding(v)` predicate covers `(0,2) <= (major,minor) < (0,7)`.
+
+`encoding_dims_for_era` is unchanged: the 0.7 change does not affect `state_dim` or
+`choice_dim`, so era-pinned v0.6 training resumes against the live state/choice dims.
+
+Fixture set: `tests/data/compat/v0.7/` — to be captured after a short 0.7 training run,
+same pattern as prior eras.
+
+### v0.6 — playability-aware hand copies (superseded by v0.7)
 
 **FRESH change** — added two playability-filtered hand multi-hots to the state vector
 and a `becomes_playable` multi-hot to every choice row, growing the state by 360 dims

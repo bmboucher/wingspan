@@ -87,7 +87,7 @@ def test_setup_config_carries_the_explicit_version():
 
 def test_v0_1_net_uses_compat_shim(loaded_net: model.PolicyValueNet):
     """A 0.1 descriptor reconstructs as PolicyValueNetV01 (frozen 229-wide card
-    encoder) — not the live net (which has a 224-wide card encoder since 0.2).
+    encoder) — not the live net (which has a 225-wide card encoder since 0.7).
     The frozen choice_dim from the descriptor is preserved (v0.6 added the
     becomes_playable stripe to the live choice row, but v0.1 predates it)."""
     assert not isinstance(loaded_net, v0_0.PolicyValueNetV00)
