@@ -26,6 +26,7 @@ import pydantic
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import agents, cards, engine, state
+from wingspan.cards.parse import catalog
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import events as instrumentation_events
 from wingspan.reporting import game_log_capture, game_log_html
@@ -522,6 +523,41 @@ def test_finalize_setup_phase_assembles_all_three_nodes():
     assert phase.log_items[0] is keep_item
     assert phase.log_items[1].kind == "group"
     assert phase.log_items[2] is bonus_item
+
+
+#### Capture — _bird_cell_info food-cost slots ####
+
+
+def _food_cost_slots(bird: cards.Bird) -> list[str]:
+    """The food_cost_slots a captured cell carries for ``bird`` (in hand/tray)."""
+    cell = game_log_capture._bird_cell_info(bird)  # type: ignore[attr-defined]
+    assert cell is not None
+    return cell.food_cost_slots
+
+
+def test_or_cost_slots_list_only_accepted_foods():
+    """Every OR-cost bird renders its accepted foods only — never all five.
+
+    Regression: the slot builder forced one slot per food whenever is_or_cost
+    was set, ignoring the accepted-food mask, so every OR-cost bird rendered as
+    invertebrate/seed/fish/fruit/rodent regardless of its real cost.
+    """
+    or_birds = [bird for bird in catalog.birds_ordered() if bird.food_cost.is_or_cost]
+    assert or_birds, "the core set contains OR-cost birds"
+    for bird in or_birds:
+        accepted = [
+            food.value
+            for food, count in zip(cards.ALL_FOODS, bird.food_cost.specific)
+            if count
+        ]
+        assert _food_cost_slots(bird) == accepted
+
+
+def test_mallard_or_cost_slots_are_invertebrate_and_seed():
+    """The reported example: Mallard accepts invertebrate or seed only."""
+    mallard = next(bird for bird in catalog.birds_ordered() if bird.name == "Mallard")
+    assert mallard.food_cost.is_or_cost
+    assert _food_cost_slots(mallard) == ["invertebrate", "seed"]
 
 
 #### Capture — _merge_secondary_setup_segments ####

@@ -641,7 +641,12 @@ def _bird_cell_info(
     # AND-cost birds: each food type repeated by its count (existing behavior).
     slots: list[str] = []
     for food, specific_count in zip(cards.ALL_FOODS, bird.food_cost.specific):
-        repeat = 1 if bird.food_cost.is_or_cost else specific_count
+        if bird.food_cost.is_or_cost:
+            # Mask semantics: a non-zero slot means the food is accepted; emit
+            # it once. Zero slots are not accepted and must not be shown.
+            repeat = 1 if specific_count else 0
+        else:
+            repeat = specific_count
         slots.extend([food.value] * repeat)
     slots.extend(["wild"] * bird.food_cost.wild)
 
