@@ -66,6 +66,7 @@ class BirdCellInfo(pydantic.BaseModel):
     habitats: str
     food_cost: str
     food_cost_slots: list[str] = []
+    food_cost_is_or: bool = False
     egg_limit: int
     eggs: int
     tucked: int
@@ -798,9 +799,11 @@ function cubeGlyphs(n, total) {
   return html;
 }
 
-function foodCostHtml(slots) {
+function foodCostHtml(slots, isOr) {
   if (!slots || !slots.length) return 'free';
-  return slots.map(f => FOOD_EMOJI[f] || esc(f)).join('');
+  const emojis = slots.map(f => FOOD_EMOJI[f] || esc(f));
+  if (isOr) return '(' + emojis.join('/') + ')';
+  return emojis.join('');
 }
 
 function habIconsHtml(habitats) {
@@ -837,7 +840,7 @@ function cardCellHtml(bird) {
   const pwCls = 'pw-' + esc(bird.power_color || 'none');
   const selCls = bird.selected ? ' selected' : '';
   const eggs = eggGlyphs(bird.eggs, bird.egg_limit);
-  const cost = foodCostHtml(bird.food_cost_slots);
+  const cost = foodCostHtml(bird.food_cost_slots, bird.food_cost_is_or);
   const habSq = habSquaresHtml(bird.habitats);
   const status = cardStatusText(bird);
   return '<div class="card-cell ' + pwCls + selCls + '">'

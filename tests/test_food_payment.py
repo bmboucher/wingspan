@@ -1,10 +1,15 @@
 """Tests for the food-payment helpers (cost_meets / enumerate_payments).
 
-Covers the three Wingspan payment rules these helpers implement:
+Covers the Wingspan payment rules these helpers implement:
 
+**AND-cost birds:**
 * a specific food slot is satisfied 1-for-1 by a matching food,
 * a specific food slot can be substituted by 2 of any other food (2-for-1),
 * a wild slot takes 1 food of any type.
+
+**OR-cost birds (is_or_cost=True):**
+* counts is an accepted-food mask; pay exactly 1 token of any accepted type,
+* or pay exactly 2 tokens of non-accepted food(s) as a 2-for-1 substitution.
 
 Both helpers are strict: ``cost_meets`` only accepts an *exact* payment
 (no over- or under-pay), and ``enumerate_payments`` only returns payments
@@ -205,3 +210,189 @@ def test_enumerate_payments_all_results_satisfy_cost_meets():
     assert payments, "expected at least one legal payment"
     for pay in payments:
         assert helpers.cost_meets(cost, pay), pay.as_dict()
+
+
+# =============================================================================
+# OR-cost birds
+# =============================================================================
+
+
+def _or_cost(accepted: dict[cards.Food, int]) -> cards.BirdCost:
+    """Build an OR-cost from an accepted-food mask."""
+    return cards.BirdCost.from_specific(accepted, is_or_cost=True)
+
+
+# --- cost_meets: OR costs -------------------------------------------------
+
+
+def test_or_cost_meets_direct_listed() -> None:
+    """Paying 1 accepted food is valid."""
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert helpers.cost_meets(cost, _pool({INV: 1}))
+
+
+def test_or_cost_meets_other_listed() -> None:
+    """Either accepted food satisfies the cost."""
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert helpers.cost_meets(cost, _pool({SEED: 1}))
+
+
+def test_or_cost_meets_rejects_unlisted_single() -> None:
+    """1 non-accepted food does not pay an OR cost."""
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert not helpers.cost_meets(cost, _pool({FISH: 1}))
+
+
+def test_or_cost_meets_sub_two_same_unlisted() -> None:
+    """2-for-1: 2 of the same non-accepted food is a valid substitution."""
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert helpers.cost_meets(cost, _pool({FISH: 2}))
+
+
+def test_or_cost_meets_sub_two_mixed_unlisted() -> None:
+    """2-for-1: 1 each of two different non-accepted foods is valid."""
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert helpers.cost_meets(cost, _pool({FISH: 1, FRUIT: 1}))
+
+
+def test_or_cost_meets_rejects_overpay_listed_plus_any() -> None:
+    """1 listed + 1 anything is overpay — rejected."""
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert not helpers.cost_meets(cost, _pool({INV: 1, FISH: 1}))
+    assert not helpers.cost_meets(cost, _pool({INV: 1, SEED: 1}))
+
+
+def test_or_cost_meets_rejects_empty_supply() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert not helpers.cost_meets(cost, _pool())
+
+
+def test_or_cost_meets_three_accepted_types() -> None:
+    """Any single accepted type from a wider OR mask is valid."""
+    cost = _or_cost({INV: 1, SEED: 1, FRUIT: 1})
+    assert helpers.cost_meets(cost, _pool({INV: 1}))
+    assert helpers.cost_meets(cost, _pool({SEED: 1}))
+    assert helpers.cost_meets(cost, _pool({FRUIT: 1}))
+
+
+# --- enumerate_payments: OR costs ----------------------------------------
+
+
+def test_or_cost_pay_one_listed() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    payments = helpers.enumerate_payments(_pool({INV: 1}), cost)
+    assert _payment_multisets(payments) == {frozenset({(INV, 1)})}
+
+
+def test_or_cost_pay_other_listed() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    payments = helpers.enumerate_payments(_pool({SEED: 1}), cost)
+    assert _payment_multisets(payments) == {frozenset({(SEED, 1)})}
+
+
+def test_or_cost_cannot_pay_unlisted_single() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    payments = helpers.enumerate_payments(_pool({FISH: 1}), cost)
+    assert payments == []
+
+
+def test_or_cost_sub_two_same_unlisted() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    payments = helpers.enumerate_payments(_pool({FISH: 2}), cost)
+    assert _payment_multisets(payments) == {frozenset({(FISH, 2)})}
+
+
+def test_or_cost_sub_two_mixed_unlisted() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    payments = helpers.enumerate_payments(_pool({FISH: 1, FRUIT: 1}), cost)
+    assert _payment_multisets(payments) == {frozenset({(FISH, 1), (FRUIT, 1)})}
+
+
+def test_or_cost_empty_supply_gives_no_options() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert helpers.enumerate_payments(_pool(), cost) == []
+
+
+def test_or_cost_direct_options_all_accepted_types() -> None:
+    """With 1 of each accepted type available, each appears as an option."""
+    cost = _or_cost({INV: 1, SEED: 1, FRUIT: 1})
+    payments = helpers.enumerate_payments(_pool({INV: 1, SEED: 1, FRUIT: 1}), cost)
+    direct = {frozenset({(INV, 1)}), frozenset({(SEED, 1)}), frozenset({(FRUIT, 1)})}
+    assert direct.issubset(_payment_multisets(payments))
+
+
+def test_or_cost_ample_supply_many_options() -> None:
+    """With plenty of all food types: 3 direct options + substitution combos."""
+    cost = _or_cost({INV: 1, SEED: 1})
+    pool = _pool({INV: 2, SEED: 2, FISH: 2, FRUIT: 2, RODENT: 2})
+    payments = helpers.enumerate_payments(pool, cost)
+    multisets = _payment_multisets(payments)
+    # Direct matches.
+    assert frozenset({(INV, 1)}) in multisets
+    assert frozenset({(SEED, 1)}) in multisets
+    # 2-for-1 substitutions with non-accepted foods.
+    assert frozenset({(FISH, 2)}) in multisets
+    assert frozenset({(FRUIT, 2)}) in multisets
+    assert frozenset({(RODENT, 2)}) in multisets
+    assert frozenset({(FISH, 1), (FRUIT, 1)}) in multisets
+
+
+# --- any_payment_exists: OR costs ----------------------------------------
+
+
+def test_or_cost_any_payment_exists_listed() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert helpers.any_payment_exists(_pool({INV: 1}), cost)
+
+
+def test_or_cost_any_payment_exists_unlisted_single() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert not helpers.any_payment_exists(_pool({FISH: 1}), cost)
+
+
+def test_or_cost_any_payment_exists_unlisted_pair() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert helpers.any_payment_exists(_pool({FISH: 2}), cost)
+
+
+def test_or_cost_any_payment_exists_mixed_pair() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert helpers.any_payment_exists(_pool({FISH: 1, FRUIT: 1}), cost)
+
+
+def test_or_cost_any_payment_exists_empty() -> None:
+    cost = _or_cost({INV: 1, SEED: 1})
+    assert not helpers.any_payment_exists(_pool(), cost)
+
+
+# --- OR vs AND with same counts differ -----------------------------------
+
+
+def test_or_vs_and_same_counts_differ() -> None:
+    """Same counts vector but different is_or_cost produces different payment sets."""
+    and_cost = _cost({INV: 1, SEED: 1})
+    or_cost = _or_cost({INV: 1, SEED: 1})
+    pool = _pool({INV: 1, SEED: 1})
+
+    and_payments = _payment_multisets(helpers.enumerate_payments(pool, and_cost))
+    or_payments = _payment_multisets(helpers.enumerate_payments(pool, or_cost))
+
+    # AND cost requires both: {INV:1, SEED:1}.
+    assert frozenset({(INV, 1), (SEED, 1)}) in and_payments
+    # OR cost: pay either one.
+    assert frozenset({(INV, 1)}) in or_payments
+    assert frozenset({(SEED, 1)}) in or_payments
+    # They are not the same set.
+    assert and_payments != or_payments
+
+
+# --- invariant: all OR enumerated payments pass cost_meets ---------------
+
+
+def test_or_cost_all_results_satisfy_cost_meets() -> None:
+    cost = _or_cost({INV: 1, SEED: 1, FRUIT: 1})
+    pool = _pool({INV: 2, SEED: 2, FISH: 2, FRUIT: 2, RODENT: 2})
+    payments = helpers.enumerate_payments(pool, cost)
+    assert payments, "expected at least one legal payment"
+    for payment in payments:
+        assert helpers.cost_meets(cost, payment), payment.as_dict()

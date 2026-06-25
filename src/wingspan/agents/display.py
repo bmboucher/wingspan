@@ -100,7 +100,10 @@ def format_cost(cost: cards.BirdCost) -> str:
     higher counts keep the prefix (``2seed``). The trailing ``*`` denotes wild
     slots (any food).
 
-    Examples: ``seed``, ``invertebrate+fish``, ``2*``, ``free``.
+    OR-cost birds use ``/`` as the separator; AND-cost birds use ``+``.
+
+    Examples: ``seed``, ``invertebrate+fish``, ``invertebrate/seed``,
+    ``2*``, ``free``.
     """
     parts: list[str] = [
         _count_food(count, food)
@@ -109,7 +112,10 @@ def format_cost(cost: cards.BirdCost) -> str:
     ]
     if cost.wild:
         parts.append("*" if cost.wild == 1 else f"{cost.wild}*")
-    return "+".join(parts) if parts else "free"
+    if not parts:
+        return "free"
+    sep = "/" if cost.is_or_cost else "+"
+    return sep.join(parts)
 
 
 def _count_food(count: int, food: cards.Food) -> str:

@@ -162,11 +162,23 @@ class BirdCost(pydantic.BaseModel):
     Stored as a 6-tuple aligned to :data:`ALL_FOODS` plus a final wild slot:
     ``counts[food_index(f)]`` for each specific food, and ``counts[-1]`` for
     the wild count. Frozen / hashable so it can sit on the immutable
-    :class:`Bird` card model."""
+    :class:`Bird` card model.
+
+    **Two interpretations of ``counts``:**
+
+    * ``is_or_cost=False`` (AND cost): each non-zero slot must be paid in full.
+      A bird costing 2 invertebrate + 1 seed has ``counts=(2,1,0,0,0,0)``.
+    * ``is_or_cost=True`` (OR cost): ``counts`` is an *accepted-food mask* —
+      every non-zero slot means "this food type is accepted". The player pays
+      exactly 1 token of any accepted type (or 2 of any non-accepted type as a
+      2-for-1 substitution). All OR-cost birds in the core set have
+      ``effective_total == 1``.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     counts: tuple[int, int, int, int, int, int] = (0, 0, 0, 0, 0, 0)
+    is_or_cost: bool = False
 
     @property
     def specific(self) -> tuple[int, int, int, int, int]:
@@ -183,6 +195,11 @@ class BirdCost(pydantic.BaseModel):
         """Total printed food cost (specific + wild)."""
         return sum(self.counts)
 
+    @property
+    def effective_total(self) -> int:
+        """Actual food tokens required: 1 for OR costs, ``total`` for AND costs."""
+        return 1 if self.is_or_cost else self.total
+
     def specific_of(self, food: Food) -> int:
         """Specific-food count for ``food``."""
         return self.counts[food_index(food)]
@@ -191,12 +208,17 @@ class BirdCost(pydantic.BaseModel):
         return self.total == 0
 
     @classmethod
-    def from_specific(cls, specific: dict[Food, int], wild: int = 0) -> "BirdCost":
+    def from_specific(
+        cls, specific: dict[Food, int], wild: int = 0, is_or_cost: bool = False
+    ) -> "BirdCost":
         """Build a cost from a sparse ``{food: count}`` dict + wild count."""
         vec = [0] * N_FOODS
         for food, count in specific.items():
             vec[food_index(food)] = count
-        return cls(counts=(vec[0], vec[1], vec[2], vec[3], vec[4], wild))
+        return cls(
+            counts=(vec[0], vec[1], vec[2], vec[3], vec[4], wild),
+            is_or_cost=is_or_cost,
+        )
 
 
 # ---------------------------------------------------------------------------

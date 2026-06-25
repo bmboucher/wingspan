@@ -635,11 +635,14 @@ def _bird_cell_info(
     if bird is None:
         return None
 
-    # Build food cost as a slot list for emoji rendering: specific foods
-    # repeated by count, then wild slots.
+    # Build food cost as a slot list for emoji rendering.
+    # OR-cost birds: each accepted food type appears once (the renderer
+    # wraps them in parentheses joined by "/").
+    # AND-cost birds: each food type repeated by its count (existing behavior).
     slots: list[str] = []
     for food, specific_count in zip(cards.ALL_FOODS, bird.food_cost.specific):
-        slots.extend([food.value] * specific_count)
+        repeat = 1 if bird.food_cost.is_or_cost else specific_count
+        slots.extend([food.value] * repeat)
     slots.extend(["wild"] * bird.food_cost.wild)
 
     return game_log_html.BirdCellInfo(
@@ -650,6 +653,7 @@ def _bird_cell_info(
         habitats="/".join(habitat.value for habitat in bird.habitats),
         food_cost=display.format_cost(bird.food_cost),
         food_cost_slots=slots,
+        food_cost_is_or=bird.food_cost.is_or_cost,
         egg_limit=bird.egg_limit,
         eggs=played.eggs if played is not None else 0,
         tucked=played.tucked_cards if played is not None else 0,

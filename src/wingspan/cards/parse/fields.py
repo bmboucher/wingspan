@@ -47,7 +47,15 @@ def parse_habitats(record: schema.BirdRecord) -> list[schema.Habitat]:
 
 
 def parse_food_cost(record: schema.BirdRecord) -> schema.BirdCost:
-    """Return the :class:`schema.BirdCost` printed on a bird record."""
+    """Return the :class:`schema.BirdCost` printed on a bird record.
+
+    OR-cost birds (marked with ``"/ (food cost)": "/"`` in the source data)
+    have multiple food columns set to 1.0, but the player only pays **one**
+    food from the accepted set.  The ``is_or_cost`` flag on the returned
+    :class:`schema.BirdCost` signals this to the payment logic."""
+    extras = record.model_extra or {}
+    is_or_cost = extras.get("/ (food cost)") == "/"
+
     vec: list[int] = [0] * schema.N_FOODS
     for amount, food in [
         (record.invertebrate, schema.Food.INVERTEBRATE),
@@ -60,7 +68,10 @@ def parse_food_cost(record: schema.BirdRecord) -> schema.BirdCost:
             vec[schema.food_index(food)] = int(amount)
     wild = record.wild_food
     wild_n = int(wild) if wild is not None and wild > 0 else 0
-    return schema.BirdCost(counts=(vec[0], vec[1], vec[2], vec[3], vec[4], wild_n))
+    return schema.BirdCost(
+        counts=(vec[0], vec[1], vec[2], vec[3], vec[4], wild_n),
+        is_or_cost=is_or_cost,
+    )
 
 
 def parse_nest(raw: str | None) -> schema.NestType:
