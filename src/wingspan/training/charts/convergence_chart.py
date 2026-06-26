@@ -17,20 +17,20 @@ from wingspan.training.charts import braille, geometry, insets, text_helpers
 class GettingBetterChart:
     """The single "TRAINING IMPROVEMENT" panel body: the left-docked EVAL inset
     (the cinematic hero win-rate plus its last/EWMA readouts) followed by two
-    side-by-side line charts on their own axes. WIN RATE spans the whole run (no
-    sliding window, read from ``metrics.jsonl``) with the yellow opponent-advance
-    threshold line and a vertical marker at each challenger upgrade — a single
-    EWMA series.  The y-axis top is always 100%; the floor is set dynamically
-    from the global minimum EWMA value (floored to a 5% step) so the scale uses
-    the available vertical space.  Segments below 50% are drawn in red; a solid
+    side-by-side line charts on their own axes.  Both charts share the same
+    x-axis window logic: a growing window (rounded to 50 iterations) until 2000
+    iterations are reached, then a fixed 2000-wide sliding window pinned to a
+    round right edge.  WIN RATE shows the EWMA win-rate over that window with the
+    opponent-advance threshold line and a vertical marker at each challenger
+    upgrade; the y-axis ceiling is ``max(graduation_threshold,
+    opponent_advance_threshold)`` and the floor is derived from the global minimum
+    EWMA (floored to a 5% step).  Segments below 50% are drawn in red; a solid
     dim-red baseline marks the 50% level.  FINAL SCORE / MARGIN is a dual-axis
     chart: the EWMA final score on a color-coded left axis and the EWMA eval
-    margin on a color-coded right axis, each scaled to its own visible range,
-    over a growing window (rounded to 50 iterations) until 2000 iterations are
-    reached, then a fixed 2000-wide sliding window pinned to a round right edge. When the
-    panel is too narrow the inset drops to a one-line strip beneath the charts.
-    The win-rate sawtooths back down each time the reference opponent is advanced
-    (it then climbs again vs a stronger self)."""
+    margin on a color-coded right axis, each scaled to its own visible range.
+    When the panel is too narrow the inset drops to a one-line strip beneath the
+    charts.  The win-rate sawtooths back down each time the reference opponent is
+    advanced (it then climbs again vs a stronger self)."""
 
     def __init__(self, state: runstate.RunState, frame: int):
         self.state = state
@@ -132,22 +132,28 @@ def _winrate_block(
 ) -> list[text.Text]:
     """The win-rate plot block (title + plot grid + x-axis), exactly
     ``geometry.TITLE_ROWS + rows + geometry.AXIS_ROWS`` lines tall. Plots the
-    EWMA win-rate series over the whole run with dynamic y-axis scaling: the
-    ceiling is ``max(graduation_threshold, opponent_advance_threshold)`` (win
-    rates can't meaningfully exceed either) and the floor is derived from the
-    minimum EWMA value seen (rounded to a stable 5% step). Segments above 50%
-    are drawn in green; segments below 50% are drawn in red. A solid dim-red
-    horizontal line marks the 50% level when it falls within the chart range."""
+    EWMA win-rate series over the same sliding window as the FINAL SCORE /
+    MARGIN chart: a growing window (rounded to 50 iterations) until 2000
+    iterations, then a fixed 2000-wide window pinned to a round right edge.
+    Dynamic y-axis scaling: the ceiling is
+    ``max(graduation_threshold, opponent_advance_threshold)`` (win rates can't
+    meaningfully exceed either) and the floor is derived from the global minimum
+    EWMA value (rounded to a stable 5% step, computed over the whole run so the
+    floor only ever moves down). Segments above 50% are drawn in green; segments
+    below 50% are drawn in red. A solid dim-red horizontal line marks the 50%
+    level when it falls within the chart range."""
     plot_cols = max(1, width - geometry.GUTTER_W)
-    it_lo, it_hi = convergence.full_range(history)
-    ewma = convergence.winrate_ewma_points(
+    it_lo, it_hi = convergence.score_margin_window(history)
+    ewma_all = convergence.winrate_ewma_points(
         history, state.config.opponent.eval_ewma_alpha
     )
+    ewma = [pt for pt in ewma_all if pt[0] >= it_lo]
 
-    # Dynamic floor/ceiling: floor from global min in history; ceiling from the
-    # max of the graduation and opponent-advance thresholds.  Series 0 = red
-    # (below 50%, higher canvas priority), series 1 = green (above 50%).
-    v_lo = _winrate_v_lo(ewma)
+    # Dynamic floor/ceiling: floor from global min across the *whole run* so the
+    # axis can only move down, never jump upward; ceiling from the max of the
+    # graduation and opponent-advance thresholds.  Series 0 = red (below 50%,
+    # higher canvas priority), series 1 = green (above 50%).
+    v_lo = _winrate_v_lo(ewma_all)
     v_hi = _winrate_v_hi(state)
 
     canvas = braille.BrailleCanvas(plot_cols, rows, 2)

@@ -5,13 +5,12 @@ rich rendering) so the windowing and EWMA logic stays free of any drawing
 dependency and can be unit-tested directly. Everything here is a pure function
 over a list of :class:`wingspan.training.metrics.IterationMetrics`.
 
-* WIN RATE spans the whole run (:func:`full_range`) and draws a single EWMA
-  series (:func:`winrate_ewma_points`) that resets at each opponent advance.
-* FINAL SCORE / MARGIN uses a two-phase window (:func:`score_margin_window`):
-  before 2000 iterations the right edge grows with the data (rounded to 50);
-  from 2000 on it becomes a fixed 2000-wide sliding window pinned to a round
-  right edge.  One EWMA series per axis (:func:`score_ewma_points`,
-  :func:`margin_ewma_points`).
+* Both charts share :func:`score_margin_window`: before 2000 iterations the
+  right edge grows with the data (rounded to 50); from 2000 on it becomes a
+  fixed 2000-wide sliding window pinned to a round right edge.
+* WIN RATE draws a single EWMA series (:func:`winrate_ewma_points`) that
+  resets at each opponent advance.  FINAL SCORE / MARGIN draws one EWMA series
+  per axis (:func:`score_ewma_points`, :func:`margin_ewma_points`).
 * Challenger upgrades become vertical markers (:func:`marker_columns`).
 """
 
@@ -39,16 +38,6 @@ WINDOW_PIN = 250
 # rather than sloping across the eval-gap to the first new-challenger point.
 _WIN_RATE_RESET_PCT = 50.0
 _MARGIN_RESET = 0.0
-
-
-def full_range(history: list[metrics.IterationMetrics]) -> tuple[int, int]:
-    """The ``(it_lo, it_hi)`` range spanning the *whole* history — the WIN RATE
-    chart's x-axis, which shows the entire run rather than a sliding window."""
-    if not history:
-        return (0, 1)
-    it_lo = history[0].iteration
-    it_hi = history[-1].iteration
-    return (it_lo, it_hi if it_hi > it_lo else it_lo + 1)
 
 
 def score_margin_window(history: list[metrics.IterationMetrics]) -> tuple[int, int]:

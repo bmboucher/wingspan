@@ -152,12 +152,6 @@ def test_score_margin_window_growing_phase():
     assert empty_lo == 0 and empty_hi == convergence.EARLY_WINDOW_PIN
 
 
-def test_full_range_spans_whole_history():
-    assert convergence.full_range(
-        [_iter(0, 50.0, win=0.5), _iter(900, 60.0, win=0.9)]
-    ) == (0, 900)
-
-
 def test_marker_columns_maps_change_iterations():
     cols = 50
     columns = convergence.marker_columns([0, 50, 100], 0, 100, cols)
