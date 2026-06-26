@@ -1,6 +1,6 @@
 {
-  "saved_with_version": "0.9",
-  "saved_at": "2026-06-25T00:00:00",
+  "saved_with_version": "1.0",
+  "saved_at": "2026-06-26T10:31:01",
   "settings": {
     "architecture": {
       "main": {
@@ -14,9 +14,10 @@
         ],
         "head_layers": [
           64,
-          32
+          64
         ],
         "value_layers": [
+          64,
           64
         ],
         "head_layers_mode": "uniform",
@@ -61,12 +62,10 @@
         ],
         "between_activation": "relu",
         "final_activation": "none",
-        "dropout": 0.02,
+        "dropout": 0.0,
         "layernorm": false,
         "card_embed_dim": 64,
-        "card_encoder_layers": [
-          128
-        ],
+        "card_encoder_layers": [],
         "use_distinct_hand_model": false,
         "hand_encoder_layers": [
           128
@@ -75,8 +74,8 @@
         "hand_pooling": "concat_max_sum",
         "tray_set_embedding": false,
         "use_board_attention": true,
-        "card_between_activation": "tanh",
-        "card_final_activation": "tanh",
+        "card_between_activation": "none",
+        "card_final_activation": "none",
         "card_dropout": null,
         "card_layernorm": null,
         "hand_between_activation": null,
@@ -85,11 +84,11 @@
         "hand_layernorm": null,
         "trunk_between_activation": null,
         "trunk_final_activation": null,
-        "trunk_dropout": null,
+        "trunk_dropout": 0.05,
         "trunk_layernorm": null,
         "choice_between_activation": null,
-        "choice_final_activation": "relu",
-        "choice_dropout": null,
+        "choice_final_activation": null,
+        "choice_dropout": 0.05,
         "choice_layernorm": null,
         "value_between_activation": null,
         "value_final_activation": null,
@@ -110,19 +109,19 @@
       "split_setup_food": true
     },
     "run": {
-      "games_per_iter": 256,
+      "games_per_iter": 250,
       "max_iterations": 0,
       "target_iterations": 4000,
       "target_eval_games": 10000,
       "eval_every": 5,
       "eval_games": 500,
-      "history_len": 256
+      "history_len": 250
     },
     "training": {
       "lr": 0.0003,
       "value_coef": 0.5,
       "entropy_coef": 0.05,
-      "grad_clip": 5.0,
+      "grad_clip": 1.0,
       "score_norm": 50.0,
       "reward_mode": "gae",
       "reward_basis": "margin",
@@ -146,7 +145,7 @@
     },
     "opponent": {
       "bootstrap_opponent": "random",
-      "random_phase_win_rate": 0.65,
+      "random_phase_win_rate": 0.6,
       "opponent_reset_win_rate": 0.7,
       "opponent_max_iterations": 0,
       "eval_ewma_alpha": 0.7
