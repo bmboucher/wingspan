@@ -65,6 +65,7 @@ _SVG_TEXT_TITLE = "#1e293b"
 _SVG_TEXT_DIM = "#64748b"
 _SVG_LINEAR_COLOR = "#3b82f6"
 _SVG_ACT_COLOR = "#22c55e"
+_SVG_DROPOUT_COLOR = "#f59e0b"
 _SVG_IO_FILL = "#eef2ff"
 _SVG_IO_STROKE = "#c7d2fe"
 _SVG_IO_TEXT = "#4338ca"
@@ -241,15 +242,16 @@ def build_arch_svg(
 
 
 class _OpKind(enum.StrEnum):
-    """The two mini-row styles inside a block."""
+    """The three mini-row styles inside a block."""
 
     LINEAR = "linear"
     ACT = "act"
+    DROPOUT = "dropout"
 
 
 class _OpRow(pydantic.BaseModel):
-    """One mini-row inside a block: a Linear (with its parameter count) or an
-    activation."""
+    """One mini-row inside a block: a Linear (with its parameter count), an
+    activation, or a dropout layer."""
 
     kind: _OpKind
     label: str
@@ -376,6 +378,7 @@ def _card_unit(
             block.layers,
             arch.card_activation_resolved.value,
             is_trunk=arch.encoder_final_activation,
+            dropout=arch.card_dropout_resolved,
         ),
         sigma_text=_count_text(block.total),
         in_label="card features",
@@ -392,48 +395,72 @@ def _card_unit(
     )
 
 
+def _hand_pool_rows(arch: architecture.ModelArchitecture) -> tuple[_OpRow, ...]:
+    """Descriptive rows for the hand-pooling path (no learnable layers)."""
+    desc = {
+        architecture.HandPooling.CONCAT_MAX_SUM: "max ⊕ sum ⊕ count",
+        architecture.HandPooling.MAX: "elem-wise max + count",
+        architecture.HandPooling.SUM: "sum over card table",
+        architecture.HandPooling.MEAN: "mean over card table",
+    }[arch.hand_pooling]
+    return (
+        _OpRow(kind=_OpKind.ACT, label="card-table lookup"),
+        _OpRow(kind=_OpKind.ACT, label=f"pool: {desc}"),
+    )
+
+
 def _hand_unit(
     arch: architecture.ModelArchitecture, param_report: architecture.ParamReport
 ) -> _Unit:
-    layers = _hand_layers(arch, param_report)
     distinct = param_report.hand is not None
-    total = (
-        param_report.hand.total
-        if param_report.hand is not None
-        else sum(layer.params for layer in layers)
-    )
-    tooltip = (
-        f"Multi-Card Encoder · {_count_text(total)} params · "
-        f"{layers[0].in_features} → {arch.hand_embed_width} · "
-        f"embeds a card set (own hand / setup keep / tray)"
-    )
-    if not distinct:
-        tooltip += (
-            " · setup net only — the main net pools the hand through the card table"
+
+    # When the main net uses a distinct hand model (MLP), draw it as a learned block.
+    if distinct:
+        layers = _hand_layers(arch, param_report)
+        total = param_report.hand.total  # type: ignore[union-attr]
+        return _Unit(
+            x=_SVG_COL_X[1],
+            accent=_ACCENT_HAND,
+            title="MULTI-CARD ENCODER · card-set MLP",
+            rows=_op_rows(
+                layers,
+                arch.hand_activation_resolved.value,
+                is_trunk=arch.encoder_final_activation,
+                dropout=arch.hand_dropout_resolved,
+            ),
+            sigma_text=_count_text(total),
+            in_label="card set + summary",
+            in_count=layers[0].in_features,
+            out_label="set embedding",
+            out_count=arch.hand_embed_width,
+            tooltip=(
+                f"Multi-Card Encoder · {_count_text(total)} params · "
+                f"{layers[0].in_features} → {arch.hand_embed_width} · "
+                f"embeds a card set (own hand / setup keep / tray)"
+            ),
+            panel=PANEL_HAND,
+            params_key=param_report.hand.label.lower(),  # type: ignore[union-attr]
         )
+
+    # Default path: main net pools via the shared card table (no extra params).
+    out_count = arch.pooled_hand_width
     return _Unit(
         x=_SVG_COL_X[1],
         accent=_ACCENT_HAND,
-        title="MULTI-CARD ENCODER · card-set MLP",
-        subtitle="" if distinct else "setup net only · main net pools hand",
-        rows=_op_rows(
-            layers,
-            arch.hand_activation_resolved.value,
-            is_trunk=arch.encoder_final_activation,
+        title="HAND POOLING · via card table",
+        rows=_hand_pool_rows(arch),
+        sigma_text="0 params",
+        in_label="hand multi-hot",
+        in_count=encode.HAND_MULTIHOT_DIM,
+        out_label="pooled hand",
+        out_count=out_count,
+        tooltip=(
+            f"Hand Pooling · 0 params · {encode.HAND_MULTIHOT_DIM} → {out_count} · "
+            f"pools hand / playable / egg-blocked multi-hots through the shared card table · "
+            f"mode: {arch.hand_pooling.value}"
         ),
-        sigma_text=_count_text(total),
-        in_label="card set + summary",
-        in_count=layers[0].in_features,
-        out_label="set embedding",
-        out_count=arch.hand_embed_width,
-        tooltip=tooltip,
-        dashed=not distinct,
         panel=PANEL_HAND,
-        params_key=(
-            param_report.hand.label.lower()
-            if param_report.hand is not None
-            else PARAMS_BLOCK_TOTAL
-        ),
+        params_key=PARAMS_BLOCK_TOTAL,
     )
 
 
@@ -447,7 +474,10 @@ def _trunk_unit(
         accent=_ACCENT_TRUNK,
         title="STATE ENCODER",
         rows=_op_rows(
-            block.layers, arch.trunk_activation_resolved.value, is_trunk=True
+            block.layers,
+            arch.trunk_activation_resolved.value,
+            is_trunk=True,
+            dropout=arch.trunk_dropout_resolved,
         ),
         sigma_text=_count_text(block.total),
         in_label="state input",
@@ -511,6 +541,7 @@ def _choice_unit(
             block.layers,
             arch.choice_activation_resolved.value,
             is_trunk=arch.encoder_final_activation,
+            dropout=arch.choice_dropout_resolved,
         ),
         sigma_text=_count_text(block.total),
         in_label="choice input",
@@ -538,7 +569,12 @@ def _setup_unit(
         accent=_ACCENT_SETUP,
         title="SETUP MODEL · keep",
         subtitle="" if use_setup_model else "off this run — keep scored in-game",
-        rows=_op_rows(setup_param.layers, setup_arch.activation.value, is_trunk=False),
+        rows=_op_rows(
+            setup_param.layers,
+            setup_arch.activation.value,
+            is_trunk=False,
+            dropout=setup_arch.dropout,
+        ),
         sigma_text=_count_text(setup_param.total),
         in_label="setup input",
         in_count=in_dim,
@@ -584,7 +620,12 @@ def _build_setup_unit(
         x=_SVG_COL_X[2],
         accent=_ACCENT_SETUP,
         title="SETUP VALUE",
-        rows=_op_rows(value_layers, setup_arch.activation.value, is_trunk=False),
+        rows=_op_rows(
+            value_layers,
+            setup_arch.activation.value,
+            is_trunk=False,
+            dropout=setup_arch.dropout,
+        ),
         sigma_text=_count_text(value_params),
         in_label="setup input",
         in_count=in_dim,
@@ -601,7 +642,12 @@ def _build_setup_unit(
         x=_SVG_COL_X[2] + _DUAL_SUB_W + _DUAL_SUB_GAP,
         accent=_ACCENT_SETUP,
         title="SETUP POLICY",
-        rows=_op_rows(policy_layers, setup_arch.activation.value, is_trunk=False),
+        rows=_op_rows(
+            policy_layers,
+            setup_arch.activation.value,
+            is_trunk=False,
+            dropout=setup_arch.dropout,
+        ),
         sigma_text=_count_text(policy_params),
         in_label="setup input",
         in_count=in_dim,
@@ -704,15 +750,22 @@ def _decision_unit(
     )
 
 
+def _fmt_dropout(dropout: float) -> str:
+    """Format a dropout rate the same way the configurator terminal diagram does."""
+    return f"{dropout:g}".lstrip("0")
+
+
 def _op_rows(
     layers: tuple[architecture.LayerParam, ...],
     activation: str,
     *,
     is_trunk: bool,
+    dropout: float = 0.0,
 ) -> tuple[_OpRow, ...]:
     """The mini-rows for a block: one Linear row per layer, with the activation
     rows the builders interleave (trunk: after every layer; other blocks: after
-    every non-final layer)."""
+    every non-final layer).  When ``dropout > 0``, an amber Dropout row follows
+    each activation, matching the configurator terminal diagram."""
     rows: list[_OpRow] = []
     for idx, layer in enumerate(layers):
         rows.append(
@@ -724,6 +777,12 @@ def _op_rows(
         )
         if _has_act_after(is_trunk, is_final=(idx == len(layers) - 1)):
             rows.append(_OpRow(kind=_OpKind.ACT, label=activation))
+            if dropout > 0.0:
+                rows.append(
+                    _OpRow(
+                        kind=_OpKind.DROPOUT, label=f"Dropout {_fmt_dropout(dropout)}"
+                    )
+                )
     return tuple(rows)
 
 
@@ -1328,7 +1387,11 @@ def _draw_op_rows(
     parts: list[str] = []
     for idx, row in enumerate(rows):
         ry = rows_y0 + idx * _SVG_ROW_STRIDE
-        color = _SVG_LINEAR_COLOR if row.kind is _OpKind.LINEAR else _SVG_ACT_COLOR
+        color = (
+            _SVG_LINEAR_COLOR
+            if row.kind is _OpKind.LINEAR
+            else _SVG_DROPOUT_COLOR if row.kind is _OpKind.DROPOUT else _SVG_ACT_COLOR
+        )
         parts.append(
             f'<rect x="{row_x}" y="{ry}" width="{row_w}" height="{_SVG_ROW_H}" '
             f'rx="{_SVG_RX_ROW}" fill="{color}" fill-opacity="0.06" '
