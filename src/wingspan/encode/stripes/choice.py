@@ -23,6 +23,8 @@ _DEFAULT_CARD_EMBED_DIM = architecture.ModelArchitecture().card_embed_dim
 def choice_stripe_layout(
     spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
     card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
+    *,
+    has_becomes_playable: bool = True,
 ) -> descriptors.VectorLayout:
     """Build the stripe registry for the per-choice encoder's input vector.
 
@@ -33,20 +35,27 @@ def choice_stripe_layout(
     breakdown sums to the choice encoder's first-``Linear`` input
     (``layout.choice_input_dim``), what the network actually sees. The trailing
     ``setup_agg`` / ``kept_multihot`` stripes are present only when
-    ``spec.include_setup``.
+    ``spec.include_setup``.  ``has_becomes_playable`` controls whether the
+    ``becomes_playable`` stripe is included; pass ``False`` for pre-0.6 artifacts
+    that predate that stripe.
     """
-    raw = raw_choice_stripe_layout(spec)
+    raw = raw_choice_stripe_layout(spec, has_becomes_playable=has_becomes_playable)
     return embed_rules.embed_layout(
         raw,
         embed_rules.choice_embed_rules(card_embed_dim),
         layout.choice_input_dim(
-            raw.total_size, card_embed_dim, include_setup=spec.include_setup
+            raw.total_size,
+            card_embed_dim,
+            include_setup=spec.include_setup,
+            has_becomes_playable=has_becomes_playable,
         ),
     )
 
 
 def raw_choice_stripe_layout(
     spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+    *,
+    has_becomes_playable: bool = True,
 ) -> descriptors.VectorLayout:
     """Build the *raw* (pre-embedding) stripe registry for the choice vector.
 
@@ -55,8 +64,12 @@ def raw_choice_stripe_layout(
     rewritten to their embedded widths. :func:`choice_stripe_layout` applies
     that rewrite; the compat layout shims (``wingspan.compat``) instead reuse
     the era-shared stripes of this raw registry at their frozen offsets.
+    ``has_becomes_playable`` controls whether the ``becomes_playable`` stripe is
+    included; pass ``False`` for pre-0.6 artifacts that predate that stripe.
     """
     total = layout.choice_feature_dim(spec)
+    if not has_becomes_playable:
+        total -= layout.CHOICE_BECOMES_PLAYABLE_DIM
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
 
     stripes: list[descriptors.StripeDescriptor] = []
@@ -316,27 +329,28 @@ def raw_choice_stripe_layout(
     end = layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_DIM
 
     # ---- becomes_playable (v0.6+: 180-dim multi-hot in the base spec) ----
-    stripes.append(
-        descriptors.StripeDescriptor(
-            name="becomes_playable",
-            description=(
-                "Multi-hot of hand birds that would become playable as a consequence "
-                "of accepting this choice (e.g. gaining the food or eggs that unlock "
-                "a bird from hand). Zero when the choice has no such effect."
-            ),
-            offset=layout.CHOICE_BECOMES_PLAYABLE_OFFSET,
-            size=layout.CHOICE_BECOMES_PLAYABLE_DIM,
-            encoding="multi-hot",
-            value_range="{0, 1}",
-            notes=(
-                f"Indexed by stable bird order from cards.bird_index() "
-                f"({layout.CHOICE_BECOMES_PLAYABLE_DIM} dims). Filled for "
-                "FoodChoice (GainFoodDecision context), MainActionChoice (GAIN_FOOD / "
-                "LAY_EGGS), and PayCostChoice rows that include a food or egg gain."
-            ),
+    if has_becomes_playable:
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name="becomes_playable",
+                description=(
+                    "Multi-hot of hand birds that would become playable as a consequence "
+                    "of accepting this choice (e.g. gaining the food or eggs that unlock "
+                    "a bird from hand). Zero when the choice has no such effect."
+                ),
+                offset=layout.CHOICE_BECOMES_PLAYABLE_OFFSET,
+                size=layout.CHOICE_BECOMES_PLAYABLE_DIM,
+                encoding="multi-hot",
+                value_range="{0, 1}",
+                notes=(
+                    f"Indexed by stable bird order from cards.bird_index() "
+                    f"({layout.CHOICE_BECOMES_PLAYABLE_DIM} dims). Filled for "
+                    "FoodChoice (GainFoodDecision context), MainActionChoice (GAIN_FOOD / "
+                    "LAY_EGGS), and PayCostChoice rows that include a food or egg gain."
+                ),
+            )
         )
-    )
-    end += layout.CHOICE_BECOMES_PLAYABLE_DIM
+        end += layout.CHOICE_BECOMES_PLAYABLE_DIM
 
     # ---- setup stripes (trailing; present only when the main model carries setup) ----
     if spec.include_setup:

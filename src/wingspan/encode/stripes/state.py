@@ -44,6 +44,7 @@ def state_stripe_layout(
     hand_embed_dim: int | None = None,
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
+    n_playable_multihots: int = 0,
 ) -> descriptors.VectorLayout:
     """Build the stripe registry for the state trunk's input vector.
 
@@ -56,10 +57,13 @@ def state_stripe_layout(
     into the encoder's input) — so the breakdown sums to the trunk's
     first-``Linear`` input (``layout.trunk_input_dim``): what the network
     actually sees, not the raw encoder output. ``tray_set_embedding`` widens the
-    tray stripe by one derived set embedding (3·M + N). (The model concatenates
-    the embeddings after the continuous features; here they keep their
-    encoding-order position.) Only the trailing decision-type one-hot's width
-    depends on ``spec``.
+    tray stripe by one derived set embedding (3·M + N). ``n_playable_multihots``
+    is the number of extra playability multi-hot stripes (``hand_playable_me``,
+    ``hand_playable_eggs_me``) that follow ``hand_multihot`` in the v0.6+ state
+    vector; each is embedded at the same width as the hand embedding. (The model
+    concatenates the embeddings after the continuous features; here they keep
+    their encoding-order position.) Only the trailing decision-type one-hot's
+    width depends on ``spec``.
     """
     raw = _build_raw_state_stripes(spec)
     return embed_rules.embed_layout(
@@ -70,6 +74,7 @@ def state_stripe_layout(
             hand_embed_dim=hand_embed_dim,
             pooled_hand_width=pooled_hand_width,
             tray_set_embedding=tray_set_embedding,
+            n_playable_multihots=n_playable_multihots,
         ),
         layout.trunk_input_dim(
             raw.total_size,
@@ -78,6 +83,7 @@ def state_stripe_layout(
             hand_embed_dim=hand_embed_dim,
             pooled_hand_width=pooled_hand_width,
             tray_set_embedding=tray_set_embedding,
+            n_playable_multihots=n_playable_multihots,
         ),
     )
 

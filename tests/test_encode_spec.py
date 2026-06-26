@@ -16,7 +16,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from wingspan import architecture, decisions, encode, model  # noqa: E402
+from wingspan import architecture, decisions, encode, model, version  # noqa: E402
+from wingspan.compat import v0_4  # noqa: E402
 from wingspan.encode import layout, stripes  # noqa: E402
 from wingspan.training import config, runmeta  # noqa: E402
 
@@ -92,8 +93,11 @@ def test_family_index_is_stable_across_the_setup_axis():
 def test_stripe_layouts_sum_and_show_setup_only_when_included():
     card_embed_dim = 8
     for spec in (_INCLUDE, _EXCLUDE):
+        # Pre-0.6 compat path: n_playable=0, has_becomes_playable=False
         state_layout = stripes.state_stripe_layout(spec, card_embed_dim)
-        choice_layout = stripes.choice_stripe_layout(spec, card_embed_dim)
+        choice_layout = stripes.choice_stripe_layout(
+            spec, card_embed_dim, has_becomes_playable=False
+        )
         # The report shows the post-embedding network input, so the stripe sizes
         # sum to the trunk / choice-encoder first-Linear width, not the raw encoder
         # output width.
@@ -102,18 +106,56 @@ def test_stripe_layouts_sum_and_show_setup_only_when_included():
             == state_layout.total_size
             == encode.trunk_input_dim(encode.state_size(spec), card_embed_dim)
         )
+        # Pre-0.6 raw dim omits becomes_playable, so the formula is called with
+        # choice_feature_dim - CHOICE_BECOMES_PLAYABLE_DIM.
+        raw_pre06_dim = (
+            encode.choice_feature_dim(spec) - layout.CHOICE_BECOMES_PLAYABLE_DIM
+        )
         assert (
             sum(s.size for s in choice_layout.stripes)
             == choice_layout.total_size
+            == encode.choice_input_dim(
+                raw_pre06_dim,
+                card_embed_dim,
+                include_setup=spec.include_setup,
+                has_becomes_playable=False,
+            )
+        )
+        choice_names = {s.name for s in choice_layout.stripes}
+        assert ("setup_agg" in choice_names) == spec.include_setup
+        assert ("kept_multihot" in choice_names) == spec.include_setup
+        assert "becomes_playable" not in choice_names
+
+        # Live v0.6+ path: n_playable=N, has_becomes_playable=True
+        n_playable = encode.N_HAND_PLAYABLE_MULTIHOTS
+        state_layout_live = stripes.state_stripe_layout(
+            spec, card_embed_dim, n_playable_multihots=n_playable
+        )
+        choice_layout_live = stripes.choice_stripe_layout(spec, card_embed_dim)
+        assert (
+            sum(s.size for s in state_layout_live.stripes)
+            == state_layout_live.total_size
+            == encode.trunk_input_dim(
+                encode.state_size(spec), card_embed_dim, n_playable_multihots=n_playable
+            )
+        )
+        # Playable multi-hots must appear embedded at card_embed_dim, not 180
+        live_stripe_by_name = {s.name: s for s in state_layout_live.stripes}
+        assert live_stripe_by_name["hand_playable_me"].size == card_embed_dim
+        assert live_stripe_by_name["hand_playable_eggs_me"].size == card_embed_dim
+        assert (
+            sum(s.size for s in choice_layout_live.stripes)
+            == choice_layout_live.total_size
             == encode.choice_input_dim(
                 encode.choice_feature_dim(spec),
                 card_embed_dim,
                 include_setup=spec.include_setup,
             )
         )
-        choice_names = {s.name for s in choice_layout.stripes}
-        assert ("setup_agg" in choice_names) == spec.include_setup
-        assert ("kept_multihot" in choice_names) == spec.include_setup
+        choice_live_names = {s.name for s in choice_layout_live.stripes}
+        assert ("setup_agg" in choice_live_names) == spec.include_setup
+        assert ("kept_multihot" in choice_live_names) == spec.include_setup
+        assert "becomes_playable" in choice_live_names
 
 
 def test_model_builds_for_both_specs():
@@ -145,6 +187,62 @@ def test_from_model_config_round_trips_include_setup():
         assert net.include_setup is include
         assert net.choice_dim == encode.choice_feature_dim(spec)
         assert len(net.scorers) == len(decisions.active_decision_families(include))
+
+
+def _make_current_era_descriptor(*, include_setup: bool = False) -> runmeta.ModelConfig:
+    """Build a minimal ModelConfig at the current MODEL_VERSION for era-routing tests."""
+    spec = encode.EncodingSpec(include_setup=include_setup)
+    return runmeta.ModelConfig(
+        run_name="t",
+        state_dim=encode.state_size(spec),
+        choice_dim=encode.choice_feature_dim(spec),
+        family_order=tuple(
+            f.value for f in decisions.active_decision_families(include_setup)
+        ),
+        architecture=_SMALL,
+        include_setup=include_setup,
+        version=version.MODEL_VERSION,
+    )
+
+
+def test_state_layout_for_matches_param_report_trunk_in():
+    """state_layout_for().total_size equals trunk_input_dim() for current-era descriptors."""
+    for include_setup in (False, True):
+        descriptor = _make_current_era_descriptor(include_setup=include_setup)
+        state_layout = runmeta.state_layout_for(descriptor)
+        arch = descriptor.architecture
+
+        # Independent trunk_in using the same era-routing as param_report_for,
+        # passing all arch params so pooled_hand_width and other knobs match.
+        parsed_ver = version.parse_version(descriptor.version)
+        playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
+        n_playable = (
+            0
+            if (parsed_ver.major, parsed_ver.minor)
+            < (playability_ver.major, playability_ver.minor)
+            else encode.N_HAND_PLAYABLE_MULTIHOTS
+        )
+        expected_trunk_in = encode.trunk_input_dim(
+            descriptor.state_dim,
+            arch.card_embed_dim,
+            use_distinct_hand_model=arch.use_distinct_hand_model,
+            hand_embed_dim=arch.hand_embed_dim,
+            pooled_hand_width=arch.pooled_hand_width,
+            tray_set_embedding=arch.tray_set_embedding,
+            n_playable_multihots=n_playable,
+        )
+        assert state_layout.total_size == expected_trunk_in
+        assert sum(s.size for s in state_layout.stripes) == state_layout.total_size
+
+
+def test_choice_layout_for_matches_param_report_choice_in():
+    """choice_layout_for().total_size equals choice_input_dim_for() for current-era descriptors."""
+    for include_setup in (False, True):
+        descriptor = _make_current_era_descriptor(include_setup=include_setup)
+        choice_layout = runmeta.choice_layout_for(descriptor)
+        expected_choice_in = runmeta.choice_input_dim_for(descriptor)
+        assert choice_layout.total_size == expected_choice_in
+        assert sum(s.size for s in choice_layout.stripes) == choice_layout.total_size
 
 
 def test_config_syncs_dims_to_use_setup_model_and_is_fresh_on_toggle():

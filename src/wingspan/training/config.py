@@ -204,7 +204,7 @@ class MainNetArchitecture(pydantic.BaseModel):
         """Translate ≤0.8 ``activation`` + ``encoder_final_activation`` to the
         between/final scheme. Mirrors the same migration on ModelArchitecture."""
         if not isinstance(data, dict) or "activation" not in data:
-            return data
+            return typing.cast(object, data)
         raw = typing.cast("dict[str, typing.Any]", data)
 
         global_act: str = raw.pop("activation")
@@ -249,7 +249,7 @@ class SetupNetArchitecture(pydantic.BaseModel):
     def _migrate_legacy_activation_fields(cls, data: object) -> object:
         """Translate old ``activation`` field to ``between_activation``."""
         if not isinstance(data, dict) or "activation" not in data:
-            return data
+            return typing.cast(object, data)
         raw = typing.cast("dict[str, typing.Any]", data)
         old_act: str = raw.pop("activation")
         raw.setdefault("between_activation", old_act)

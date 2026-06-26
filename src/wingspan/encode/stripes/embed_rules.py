@@ -74,8 +74,16 @@ def state_embed_rules(
     hand_embed_dim: int | None = None,
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
+    n_playable_multihots: int = 0,
 ) -> dict[str, _EmbedRule]:
-    """The card-index / hand stripes of the state vector, at embedded width."""
+    """The card-index / hand stripes of the state vector, at embedded width.
+
+    ``n_playable_multihots`` is the count of extra playability multi-hot stripes
+    that follow ``hand_multihot`` in the v0.6+ state vector.  Each is embedded
+    through the same shared card embedder at the same output width as the hand
+    multi-hot (``hand_width``).  Pass ``N_HAND_PLAYABLE_MULTIHOTS`` for live-era
+    artifacts; 0 for pre-0.6 compat layouts that lack these stripes.
+    """
     n_board = layout.N_BOARD_INDEX_SLOTS
     tray = state.TRAY_SIZE
     hand = layout.HAND_MULTIHOT_DIM
@@ -151,6 +159,29 @@ def state_embed_rules(
                 "embedding from the hand encoder (multi-hot + summary derived "
                 f"in-model from the index columns). Raw encoding stores {tray} "
                 "indices."
+            ),
+        )
+    if n_playable_multihots >= 1:
+        rules["hand_playable_me"] = _EmbedRule(
+            new_size=hand_width,
+            encoding="card-embedding (playable set, pooled)",
+            value_range="learned",
+            notes=(
+                f"Hand birds currently playable (food+habitat+eggs) -> one "
+                f"{hand_width}-dim embedding, pooled over the birds' shared card "
+                f"vectors. Raw encoding is a {hand}-wide multi-hot over all core birds."
+            ),
+        )
+    if n_playable_multihots >= 2:
+        rules["hand_playable_eggs_me"] = _EmbedRule(
+            new_size=hand_width,
+            encoding="card-embedding (egg-blocked set, pooled)",
+            value_range="learned",
+            notes=(
+                f"Hand birds where food is affordable and a habitat slot is open, "
+                f"but the egg cost is not yet met -> one {hand_width}-dim embedding, "
+                f"pooled over the birds' shared card vectors. Raw encoding is a "
+                f"{hand}-wide multi-hot over all core birds."
             ),
         )
     return rules

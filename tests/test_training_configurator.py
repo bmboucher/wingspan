@@ -764,7 +764,9 @@ def test_arch_diagram_layernorm_appears():
 def test_arch_diagram_activation_label():
     assert "relu" in _box_diagram(_arch_state())
     assert "gelu" in _box_diagram(
-        _arch_state("between_activation", between_activation=architecture.ActivationName.GELU)
+        _arch_state(
+            "between_activation", between_activation=architecture.ActivationName.GELU
+        )
     )
 
 
@@ -1708,8 +1710,14 @@ def test_per_block_override_commit_roundtrip():
     assert error is None
     assert updated.architecture.main.trunk_between_activation == "gelu"
     # Global activations are unchanged.
-    assert updated.architecture.main.between_activation == cfg.architecture.main.between_activation
-    assert updated.architecture.main.final_activation == cfg.architecture.main.final_activation
+    assert (
+        updated.architecture.main.between_activation
+        == cfg.architecture.main.between_activation
+    )
+    assert (
+        updated.architecture.main.final_activation
+        == cfg.architecture.main.final_activation
+    )
 
 
 def test_cloning_group_visibility():
@@ -1832,7 +1840,10 @@ def test_rehydration_per_block_none_inherits_global():
             )
         ),
     )
-    assert per_block.arch.trunk_between_activation_resolved == architecture.ActivationName.GELU
+    assert (
+        per_block.arch.trunk_between_activation_resolved
+        == architecture.ActivationName.GELU
+    )
     assert per_block.arch.card_between_activation_resolved == global_act  # unchanged
 
 

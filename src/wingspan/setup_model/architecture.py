@@ -177,7 +177,7 @@ class SetupArchitecture(pydantic.BaseModel):
     def _migrate_legacy_activation_field(cls, data: object) -> object:
         """Translate old ``activation`` field to ``between_activation``."""
         if not isinstance(data, dict) or "activation" not in data:
-            return data
+            return typing.cast(object, data)
         raw = typing.cast("dict[str, typing.Any]", data)
         old_act: str = raw.pop("activation")
         raw.setdefault("between_activation", old_act)

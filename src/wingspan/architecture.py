@@ -217,7 +217,7 @@ class ModelArchitecture(pydantic.BaseModel):
         the between/final pair scheme. Runs before field validation so old on-disk
         configs are silently upgraded without requiring a compat shim (REGIME)."""
         if not isinstance(data, dict) or "activation" not in data:
-            return data
+            return typing.cast(object, data)
         raw = typing.cast("dict[str, typing.Any]", data)
 
         global_act: str = raw.pop("activation")

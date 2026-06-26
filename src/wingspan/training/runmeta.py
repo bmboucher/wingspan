@@ -310,7 +310,11 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
 
 def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
     """The post-embedding state stripe registry for ``descriptor``, era-routed."""
-    from wingspan.compat import v0_2, v0_3  # local: compat imports the model package
+    from wingspan.compat import (  # local: compat imports the model package
+        v0_2,
+        v0_3,
+        v0_4,
+    )
 
     arch = descriptor.architecture
     spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
@@ -330,6 +334,14 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
             hand_embed_dim=arch.hand_embed_dim,
             tray_set_embedding=arch.tray_set_embedding,
         )
+    parsed_ver = version.parse_version(descriptor.version)
+    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
+    n_playable = (
+        0
+        if (parsed_ver.major, parsed_ver.minor)
+        < (playability_ver.major, playability_ver.minor)
+        else encode.N_HAND_PLAYABLE_MULTIHOTS
+    )
     return encode_stripes.state_stripe_layout(
         spec,
         arch.card_embed_dim,
@@ -337,18 +349,25 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
         hand_embed_dim=arch.hand_embed_dim,
         pooled_hand_width=arch.pooled_hand_width,
         tray_set_embedding=arch.tray_set_embedding,
+        n_playable_multihots=n_playable,
     )
 
 
 def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
     """The post-embedding choice stripe registry for ``descriptor``, era-routed."""
-    from wingspan.compat import v0_0  # local: compat imports the model package
+    from wingspan.compat import v0_0, v0_4  # local: compat imports the model package
 
     spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
     if v0_0.uses_v0_0_choice_encoding(descriptor.version):
         return v0_0.choice_stripe_layout(spec, descriptor.architecture.card_embed_dim)
+    parsed_ver = version.parse_version(descriptor.version)
+    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
+    has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
+        playability_ver.major,
+        playability_ver.minor,
+    )
     return encode_stripes.choice_stripe_layout(
-        spec, descriptor.architecture.card_embed_dim
+        spec, descriptor.architecture.card_embed_dim, has_becomes_playable=has_becomes
     )
 
 
