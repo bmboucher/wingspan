@@ -23,9 +23,10 @@ never config flags — and the whole package is deleted wholesale at a MAJOR bum
 * ``v0_7`` — the pre-0.8 eggs-included food ``becomes_playable`` semantics
   (food-gain rows gate on both food AND eggs; 0.8 drops the egg-cost gate);
   also carries the 1155-dim pre-0.9 state geometry via delegating overrides.
-* ``v0_8`` — the pre-0.9 state geometry (1155-dim; compacted to 1119 in v0.9 by
-  shrinking board_summary, misc_scalars, removing hand_summary, and zeroing
-  scored round_goals slots).
+* ``v0_8`` — the pre-0.9 state geometry (1155-dim; compacted to 1119 in v0.9)
+  AND the pre-0.9 choice board geometry (``board_target`` 120 dims with
+  per-type cached food; ``board_idx`` 15-slot embedded block); the first
+  board-geometry change since 0.1, so all earlier shims route through v0_8.
 
 :func:`encoding_dims_for_era` is the package-level dims router: given an
 artifact version it returns the raw state/choice vector widths that era's
@@ -58,9 +59,10 @@ def encoding_dims_for_era(
     Routes each axis through the shim that froze it: pre-0.3 artifacts carry the
     771-dim misc-scalar state vector (``v0_2``), pre-0.4 carry the 790-dim one-hot
     state vector (``v0_3``), pre-0.6 carry the 795-dim no-playability state vector
-    and narrower pre-0.6 choice rows (``v0_4``), pre-0.9 carry the 1155-dim
-    compacted-away state vector (``v0_8``), and current-era artifacts get the
-    live widths. Pre-0.1 artifacts carry the reshaped-away choice geometry (``v0_0``).
+    and narrower pre-0.6 choice rows (``v0_4``), 0.6–0.8 carry the 1155-dim
+    pre-compaction state vector (``v0_8``), 0.1–0.8 carry the frozen board choice
+    geometry (``v0_8``), pre-0.1 carry the reshaped-away choice geometry (``v0_0``),
+    and current-era artifacts get the live widths.
     Raises ``ValueError`` for a malformed version string."""
     if v0_2.uses_v0_2_state_encoding(artifact_version):
         state_dim = v0_2.state_feature_dim_v02(spec)
@@ -77,10 +79,12 @@ def encoding_dims_for_era(
     if v0_0.uses_v0_0_choice_encoding(artifact_version):
         choice_dim = v0_0.choice_feature_dim(spec)
     elif _uses_pre_v06_choice_encoding(artifact_version):
-        # v0.1 through v0.5: same pre-0.6 choice format (no becomes_playable stripe).
-        # v0_4.uses_v0_4_encoding covers 0.4–0.5; the elif here catches 0.1–0.3
-        # which also predate the v0.6 becomes_playable addition.
-        choice_dim = v0_4.choice_feature_dim_v04(spec)
+        # v0.1 through v0.5: pre-0.6 choice format (no becomes_playable stripe)
+        # AND pre-0.9 board geometry (board_target 120, board_idx 15).
+        choice_dim = v0_8.choice_feature_dim_v08(spec, has_becomes_playable=False)
+    elif v0_8.uses_v0_8_choice_encoding(artifact_version):
+        # v0.6 through v0.8: has becomes_playable stripe but pre-0.9 board geometry.
+        choice_dim = v0_8.choice_feature_dim_v08(spec, has_becomes_playable=True)
     else:
         choice_dim = encode.choice_feature_dim(spec)
     return (state_dim, choice_dim)

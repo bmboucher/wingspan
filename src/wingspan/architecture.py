@@ -216,11 +216,13 @@ class ModelArchitecture(pydantic.BaseModel):
         """Translate ≤0.8 ``activation`` + ``encoder_final_activation`` fields to
         the between/final pair scheme. Runs before field validation so old on-disk
         configs are silently upgraded without requiring a compat shim (REGIME)."""
-        if not isinstance(data, dict) or "activation" not in data:
-            return typing.cast(object, data)
-        raw = typing.cast("dict[str, typing.Any]", data)
+        if not isinstance(data, dict):
+            return data
+        raw = typing.cast(dict[str, object], data)
+        if "activation" not in raw:
+            return raw
 
-        global_act: str = raw.pop("activation")
+        global_act = str(raw.pop("activation"))
         encoder_final: bool = bool(raw.pop("encoder_final_activation", False))
 
         # New globals: between=old global, final always NONE on migrated runs.
@@ -230,7 +232,8 @@ class ModelArchitecture(pydantic.BaseModel):
         # card/hand/choice encoders: between=old override (None = inherit),
         # final=resolved activation when encoder_final was True, else NONE.
         for block in ("card", "hand", "choice"):
-            old_act: str | None = raw.pop(f"{block}_activation", None)
+            enc_raw = raw.pop(f"{block}_activation", None)
+            old_act: str | None = str(enc_raw) if enc_raw is not None else None
             resolved = old_act if old_act is not None else global_act
             raw.setdefault(f"{block}_between_activation", old_act)
             raw.setdefault(
@@ -240,15 +243,16 @@ class ModelArchitecture(pydantic.BaseModel):
         # trunk: was always finalled; set final explicitly so the trunk-irregularity
         # resolver (which inherits ``between_activation``, not ``final_activation``)
         # doesn't accidentally change the computed value when between ≠ trunk_between.
-        old_trunk: str | None = raw.pop("trunk_activation", None)
+        trunk_raw = raw.pop("trunk_activation", None)
+        old_trunk: str | None = str(trunk_raw) if trunk_raw is not None else None
         resolved_trunk = old_trunk if old_trunk is not None else global_act
         raw.setdefault("trunk_between_activation", old_trunk)
         raw.setdefault("trunk_final_activation", resolved_trunk)
 
         # value/head readouts: no final activation in old system.
         for block in ("value", "head"):
-            old_act = raw.pop(f"{block}_activation", None)
-            raw.setdefault(f"{block}_between_activation", old_act)
+            vh_raw = raw.pop(f"{block}_activation", None)
+            raw.setdefault(f"{block}_between_activation", vh_raw)
             raw.setdefault(f"{block}_final_activation", "none")
 
         return raw

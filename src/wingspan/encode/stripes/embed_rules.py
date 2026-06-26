@@ -275,22 +275,13 @@ def setup_embed_rules(
 
 
 def choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
-    """The board-index / bird-index / kept-set stripes of the choice vector,
-    embedded. The ``kept_multihot`` rule only fires when the stripe is present
-    (``include_setup`` layouts) — ``embed_layout`` looks rules up by name."""
-    slots = layout.CHOICE_BOARD_IDX_SLOTS
+    """The bird-index / kept-set stripes of the choice vector, embedded.
+    The ``board_hab``/``board_col`` one-hots and ``board_target`` scalars pass
+    through unchanged (no rule). The ``kept_multihot`` rule only fires when the
+    stripe is present (``include_setup`` layouts) — ``embed_layout`` looks rules
+    up by name."""
     kept = layout.CHOICE_KEPT_MULTIHOT_DIM
     return {
-        "board_idx": _EmbedRule(
-            new_size=slots * card_embed_dim,
-            encoding="card-embedding",
-            value_range="learned",
-            notes=(
-                f"{slots} board slots -> one {card_embed_dim}-dim shared card embedding "
-                f"each ({slots}x{card_embed_dim}). Raw encoding stores {slots} integer "
-                "indices (bird_index + 1; 0 = empty)."
-            ),
-        ),
         "bird_id": _EmbedRule(
             new_size=card_embed_dim,
             encoding="card-embedding (candidate)",

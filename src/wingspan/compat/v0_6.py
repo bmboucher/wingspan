@@ -167,12 +167,39 @@ class PolicyValueNetV06(core.PolicyValueNet):
     ``v0_8`` module so no state-encoding logic is duplicated here.
 
     :meth:`encode_choices` is also overridden to restore the v0.7 eggs-included
-    ``becomes_playable`` food semantics: v0.6 artifacts predate the 0.8
-    food-encoding fix and must compute the same bits as v0.7 checkpoints.
+    ``becomes_playable`` food semantics (v0.6 artifacts predate the 0.8
+    food-encoding fix) and to produce v0.8 board geometry (pre-0.9).
+    :meth:`_embed_choices` and :meth:`_build_choice_encoder` are overridden to
+    handle the pre-0.9 board-bearing choice rows.
 
     Constructed by the version-routing loaders (``PolicyValueNet.from_model_config``,
     ``players.loaders.load_policy_net``) — never by the training pipeline.
     """
+
+    def __init__(
+        self,
+        *,
+        state_dim: int | None = None,
+        choice_dim: int | None = None,
+        num_families: int | None = None,
+        arch: architecture.ModelArchitecture | None = None,
+        spec: encode.EncodingSpec = encode.DEFAULT_SPEC,
+    ) -> None:
+        """Default ``choice_dim`` to the v0.8 row width (395) so loaders that
+        omit it get the correct size without an explicit argument."""
+        if choice_dim is None:
+            import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+            choice_dim = v0_8_module.choice_feature_dim_v08(
+                spec, has_becomes_playable=True
+            )
+        super().__init__(
+            state_dim=state_dim,
+            choice_dim=choice_dim,
+            num_families=num_families,
+            arch=arch,
+            spec=spec,
+        )
 
     def _build_card_encoder(self, arch: architecture.ModelArchitecture) -> None:
         """Register ``card_encoder`` at the frozen 224-wide input and
@@ -204,11 +231,50 @@ class PolicyValueNetV06(core.PolicyValueNet):
         decision: decisions.Decision[decisions.Choice],
         game_state: state.GameState,
     ) -> np.ndarray:
-        """Featurize all choices with eggs-included food ``becomes_playable``
-        (v0.7 semantics), alongside the frozen 224-wide card encoder geometry."""
-        import wingspan.compat.v0_7 as v0_7_module  # local: avoids import cycle
+        """Featurize all choices with eggs-included ``becomes_playable`` (v0.7
+        semantics) and v0.8 board geometry (board_target 120, board_idx 15)."""
+        import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
 
-        return v0_7_module.encode_choices_v07(decision, game_state, self.spec)
+        return v0_8_module.encode_choices_v08(
+            decision, game_state, self.spec, food_playable_ignores_eggs=False
+        )
+
+    def _build_choice_encoder(
+        self, choice_dim: int, arch: architecture.ModelArchitecture
+    ) -> None:
+        """Register ``choice_encoder`` at the v0.8 board-bearing input width."""
+        import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+        self.choice_encoder, _ = mlp.build_body(
+            v0_8_module.choice_input_dim_v08(
+                choice_dim, arch.card_embed_dim, include_setup=self.include_setup
+            ),
+            arch.choice_layers,
+            between_activation=arch.choice_between_activation_resolved,
+            final_activation=arch.choice_final_activation_resolved,
+            dropout=arch.dropout,
+            layernorm=arch.layernorm,
+        )
+
+    def _embed_choices(
+        self, choices: torch.Tensor, card_table: torch.Tensor
+    ) -> torch.Tensor:
+        """Delegate to the frozen v0.8 board-bearing ``_embed_choices``."""
+        import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+        return v0_8_module.embed_choices_v08(self, choices, card_table)
+
+    def _choice_embed_offsets(self) -> core.ChoiceEmbedOffsets:
+        """Frozen v0.8 slice offsets: bird_id at 172, becomes_playable at 215."""
+        import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+        return core.ChoiceEmbedOffsets(
+            bird_id=v0_8_module._OFF_BIRD_ID_V08,
+            becomes_playable=v0_8_module._OFF_BECOMES_PLAYABLE_V08,
+            kept_multihot=(
+                v0_8_module._OFF_KEPT_MULTIHOT_V08 if self.include_setup else None
+            ),
+        )
 
 
 class SetupNetV06(setup_net_module.SetupNet):

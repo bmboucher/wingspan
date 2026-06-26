@@ -203,32 +203,36 @@ class MainNetArchitecture(pydantic.BaseModel):
     def _migrate_legacy_activation_fields(cls, data: object) -> object:
         """Translate ≤0.8 ``activation`` + ``encoder_final_activation`` to the
         between/final scheme. Mirrors the same migration on ModelArchitecture."""
-        if not isinstance(data, dict) or "activation" not in data:
-            return typing.cast(object, data)
-        raw = typing.cast("dict[str, typing.Any]", data)
+        if not isinstance(data, dict):
+            return data
+        raw = typing.cast(dict[str, object], data)
+        if "activation" not in raw:
+            return raw
 
-        global_act: str = raw.pop("activation")
+        global_act = str(raw.pop("activation"))
         encoder_final: bool = bool(raw.pop("encoder_final_activation", False))
 
         raw.setdefault("between_activation", global_act)
         raw.setdefault("final_activation", "none")
 
         for block in ("card", "hand", "choice"):
-            old_act: str | None = raw.pop(f"{block}_activation", None)
+            enc_raw = raw.pop(f"{block}_activation", None)
+            old_act: str | None = str(enc_raw) if enc_raw is not None else None
             resolved = old_act if old_act is not None else global_act
             raw.setdefault(f"{block}_between_activation", old_act)
             raw.setdefault(
                 f"{block}_final_activation", resolved if encoder_final else "none"
             )
 
-        old_trunk: str | None = raw.pop("trunk_activation", None)
+        trunk_raw = raw.pop("trunk_activation", None)
+        old_trunk: str | None = str(trunk_raw) if trunk_raw is not None else None
         resolved_trunk = old_trunk if old_trunk is not None else global_act
         raw.setdefault("trunk_between_activation", old_trunk)
         raw.setdefault("trunk_final_activation", resolved_trunk)
 
         for block in ("value", "head"):
-            old_act = raw.pop(f"{block}_activation", None)
-            raw.setdefault(f"{block}_between_activation", old_act)
+            vh_raw = raw.pop(f"{block}_activation", None)
+            raw.setdefault(f"{block}_between_activation", vh_raw)
             raw.setdefault(f"{block}_final_activation", "none")
 
         return raw
@@ -248,10 +252,12 @@ class SetupNetArchitecture(pydantic.BaseModel):
     @classmethod
     def _migrate_legacy_activation_fields(cls, data: object) -> object:
         """Translate old ``activation`` field to ``between_activation``."""
-        if not isinstance(data, dict) or "activation" not in data:
-            return typing.cast(object, data)
-        raw = typing.cast("dict[str, typing.Any]", data)
-        old_act: str = raw.pop("activation")
+        if not isinstance(data, dict):
+            return data
+        raw = typing.cast(dict[str, object], data)
+        if "activation" not in raw:
+            return raw
+        old_act = str(raw.pop("activation"))
         raw.setdefault("between_activation", old_act)
         raw.setdefault("final_activation", "none")
         return raw

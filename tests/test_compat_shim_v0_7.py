@@ -181,10 +181,10 @@ def test_v06_encode_choices_matches_v07_shim():
 
         pytest.skip("no suitable forest-only SEED bird in catalog seed 50")
 
+    # Omit choice_dim so the __init__ default (v0.8 width, 395) kicks in.
     net = v0_6.PolicyValueNetV06(
         arch=_SMALL,
         state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
     )
     net_rows = net.encode_choices(decision, eng.state)  # type: ignore[arg-type]
     shim_rows = v0_7.encode_choices_v07(decision, eng.state)
@@ -196,7 +196,12 @@ def test_v06_encode_choices_matches_v07_shim():
 def test_live_and_shim_rows_differ_on_seed_row():
     """The live encoder and the shim produce different becomes_playable bits on
     the SEED row when the target bird is egg-blocked — this is the key regression
-    check for the shim."""
+    check for the shim.
+
+    Note: since v0.9 the live rows (328-wide) and shim rows (395-wide) differ
+    in width as well as content, so this assertion is now also trivially satisfied
+    by the width difference alone.
+    """
     eng, _, target, decision = _build_egg_blocked_eng()
     if target is None or decision is None:
         import pytest
@@ -222,10 +227,10 @@ def test_policy_value_net_v07_encode_choices_uses_shim():
 
         pytest.skip("no suitable forest-only SEED bird in catalog seed 50")
 
+    # Omit choice_dim so the __init__ default (v0.8 width, 395) kicks in.
     net = v0_7.PolicyValueNetV07(
         arch=_SMALL,
         state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
     )
     net_rows = net.encode_choices(decision, eng.state)  # type: ignore[arg-type]
     shim_rows = v0_7.encode_choices_v07(decision, eng.state)
@@ -235,10 +240,10 @@ def test_policy_value_net_v07_encode_choices_uses_shim():
 def test_policy_value_net_v07_forward_pass_finite():
     """A batch of synthetic inputs through ``PolicyValueNetV07`` produces finite
     logits and value."""
+    # Omit choice_dim so the __init__ default (v0.8 width, 395) kicks in.
     net = v0_7.PolicyValueNetV07(
         arch=_SMALL,
         state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
     )
     net.eval()
     batch_size, n_choices = 2, 4
@@ -260,10 +265,11 @@ def test_policy_value_net_v07_forward_pass_finite():
 
 def test_from_model_config_routes_0_7_to_v07():
     """A v0.7 descriptor reconstructs as ``PolicyValueNetV07``."""
+    v08_choice_dim = v0_8.choice_feature_dim_v08(has_becomes_playable=True)
     v07_config = runmeta.ModelConfig(
         run_name="routing-v07",
         state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
+        choice_dim=v08_choice_dim,
         family_order=("main_action",),
         architecture=_SMALL,
         include_setup=False,
@@ -273,12 +279,32 @@ def test_from_model_config_routes_0_7_to_v07():
     assert isinstance(net, v0_7.PolicyValueNetV07)
 
 
+def test_from_model_config_routes_0_8_to_v08():
+    """A v0.8 descriptor reconstructs as ``PolicyValueNetV08``."""
+    from wingspan.compat import v0_8 as v0_8_module
+
+    v08_choice_dim = v0_8_module.choice_feature_dim_v08(has_becomes_playable=True)
+    v08_config = runmeta.ModelConfig(
+        run_name="routing-v08",
+        state_dim=v0_8_module.state_feature_dim_v08(),
+        choice_dim=v08_choice_dim,
+        family_order=("main_action",),
+        architecture=_SMALL,
+        include_setup=False,
+        version="0.8",
+    )
+    net = model.PolicyValueNet.from_model_config(v08_config)
+    assert isinstance(net, v0_8_module.PolicyValueNetV08)
+    assert not isinstance(net, v0_7.PolicyValueNetV07)
+
+
 def test_from_model_config_routes_0_6_to_v06():
     """A v0.6 descriptor still reconstructs as ``PolicyValueNetV06`` (card shim)."""
+    v08_choice_dim = v0_8.choice_feature_dim_v08(has_becomes_playable=True)
     v06_config = runmeta.ModelConfig(
         run_name="routing-v06",
         state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
+        choice_dim=v08_choice_dim,
         family_order=("main_action",),
         architecture=_SMALL,
         include_setup=False,

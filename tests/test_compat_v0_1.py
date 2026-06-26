@@ -164,25 +164,27 @@ def test_param_report_matches_the_loaded_net(loaded_net: model.PolicyValueNet):
 def test_choice_layout_routes_to_the_live_registry():
     """``choice_layout_for`` on a 0.1 descriptor is the live stripe table —
     no resurrected habitat stripe — with a choice-encoder input width matching
-    the pre-0.6 format (no becomes_playable embedding).
+    the v0.8 frozen formula (board_idx embedded, no becomes_playable).
 
-    v0.6 added the becomes_playable stripe to the choice row; v0.1 artifacts
-    predate it.  ``choice_input_dim_for`` therefore uses
-    ``has_becomes_playable=False``, giving a different total than the live
-    default (which assumes becomes_playable is present)."""
+    v0.1 artifacts predate both the v0.6 becomes_playable stripe and the v0.9
+    board simplification. ``choice_input_dim_for`` routes through
+    ``v0_8.choice_input_dim_v08(has_becomes_playable=False)`` which includes the
+    15-slot board-index embedding that the live formula dropped in v0.9."""
+    from wingspan.compat import v0_8
+
     descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
     layout = runmeta.choice_layout_for(descriptor)
     names = [stripe.name for stripe in layout.stripes]
     assert "habitat" not in names
-    # The pre-0.6 encoder width omits the becomes_playable embedding.
-    expected_input = encode.choice_input_dim(
+    # The pre-0.9 encoder includes the board-index embedding (15 slots).
+    expected_input = v0_8.choice_input_dim_v08(
         descriptor.choice_dim,
         descriptor.architecture.card_embed_dim,
         include_setup=descriptor.include_setup,
         has_becomes_playable=False,
     )
     assert runmeta.choice_input_dim_for(descriptor) == expected_input
-    assert runmeta.choice_extra_for(descriptor) == encode.choice_passthrough_dim(
+    assert runmeta.choice_extra_for(descriptor) == v0_8.choice_passthrough_dim_v08(
         descriptor.choice_dim,
         include_setup=descriptor.include_setup,
         has_becomes_playable=False,

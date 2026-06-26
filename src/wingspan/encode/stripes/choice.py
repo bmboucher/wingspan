@@ -136,9 +136,10 @@ def raw_choice_stripe_layout(
             notes=(
                 f"{layout._SLOTS_PER_BOARD} board slots × {layout._BT_SLOT_SCALARS} "
                 "scalars each: lay_eggs[0], pay_eggs[1] (set on the targeted slot "
-                "for a lay-egg vs remove-egg decision), cached food per type[2:7] "
-                f"({food_names}, ÷6), tucked[7] (÷6). The occupying bird ids ride the "
-                "parallel board_idx block. Zero for non-board-target choices."
+                "for a lay-egg vs remove-egg decision), cached_total[2] (summed "
+                "cached food ÷6), tucked[3] (÷6). The targeted slot's occupant "
+                "rides bird_id; location rides board_hab/board_col. Zero for "
+                "non-board-target choices."
             ),
             sub_fields=_board_target_sub_fields(),
         )
@@ -195,23 +196,41 @@ def raw_choice_stripe_layout(
 
     stripes.append(
         descriptors.StripeDescriptor(
-            name="board_idx",
+            name="board_hab",
             description=(
-                "Bird indices for the deciding player's 15 board slots — the "
-                "board_target stripe's occupants, or a placement row's "
-                "landing-slot marker, looked up in the shared card table."
+                "One-hot habitat of the single board slot relevant to this choice "
+                "(landing slot for placements, targeted slot for lay/remove-egg, "
+                "current slot for move-bird)."
             ),
-            offset=layout._OFF_BOARD_IDX,
-            size=layout._BOARD_IDX_SLOTS,
-            encoding="integer-index",
-            value_range=f"int 0–{cards.n_birds()}",
+            offset=layout._OFF_BOARD_HAB,
+            size=layout._BOARD_HAB_DIM,
+            encoding="one-hot",
+            value_range="{0, 1}",
             notes=(
-                f"{layout._BOARD_IDX_SLOTS} integer indices (positional, ALL_HABITATS × "
-                "ROW_SLOTS). bird_index + 1; 0 = empty slot. Board-target rows fill "
-                "all occupants; placement rows (play-bird, its food payment, "
-                "move-bird destinations) mark only the slot the bird would occupy. "
-                "Zero for other choices."
+                f"{layout._BOARD_HAB_DIM} dims, indexed by cards.ALL_HABITATS order. "
+                "Zero for choices with no board-slot signal."
             ),
+            sub_fields=_board_hab_sub_fields(),
+        )
+    )
+
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="board_col",
+            description=(
+                "One-hot column (0–4) within the habitat row of the single board slot "
+                "relevant to this choice."
+            ),
+            offset=layout._OFF_BOARD_COL,
+            size=layout._BOARD_COL_DIM,
+            encoding="one-hot",
+            value_range="{0, 1}",
+            notes=(
+                f"{layout._BOARD_COL_DIM} dims, indexed by column within the habitat "
+                "row (0 = leftmost occupied slot). Zero for choices with no board-slot "
+                "signal."
+            ),
+            sub_fields=_board_col_sub_fields(),
         )
     )
 
@@ -219,8 +238,8 @@ def raw_choice_stripe_layout(
         descriptors.StripeDescriptor(
             name="bird_id",
             description=(
-                "The candidate bird's identity as a single integer index column, "
-                "looked up in the shared card table."
+                "The candidate or board-target occupant's bird index, looked up in "
+                "the shared card table."
             ),
             offset=layout._OFF_BIRD_ID,
             size=layout._CHOICE_BIRD_ID_DIM,
@@ -228,9 +247,11 @@ def raw_choice_stripe_layout(
             value_range=f"int 0–{cards.n_birds()}",
             notes=(
                 "bird_index + 1; 0 = no bird (the model zeroes the embedding so "
-                "non-bird rows contribute nothing). Same weights as the state "
-                "board/tray slots. A setup pick's kept *set* rides the trailing "
-                "kept_multihot stripe instead."
+                "non-bird rows contribute nothing). For board-target choices the "
+                "targeted slot's occupant rides this column; for placement rows the "
+                "candidate bird does. Same embedding weights as state board/tray "
+                "slots. A setup pick's kept *set* rides the trailing kept_multihot "
+                "stripe instead."
             ),
         )
     )
@@ -476,15 +497,14 @@ def _choice_payment_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
 
 
 def _board_target_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """The per-slot sub-fields for the board_target stripe (15 slots × 8 scalars)."""
-    food_names = [food.value for food in cards.ALL_FOODS]
+    """The per-slot sub-fields for the board_target stripe (15 slots × 4 scalars)."""
     slot_meta: list[tuple[str, str]] = [
         ("lay_eggs", "Set when this choice would lay an egg on this slot."),
         ("pay_eggs", "Set when this choice would remove (pay) an egg from this slot."),
-        *[
-            (f"cached_{food}", f"Cached {food} on the bird in this slot.")
-            for food in food_names
-        ],
+        (
+            "cached_total",
+            "Total cached food on the bird in this slot (all types summed).",
+        ),
         ("tucked", "Tucked cards under the bird in this slot."),
     ]
     sub_fields: list[descriptors.SubFieldDescriptor] = []
@@ -502,12 +522,42 @@ def _board_target_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
                         size=1,
                         encoding="scalar",
                         value_range="[0, ~1]",
-                        notes="Cached food / tucked normalized ÷ 6; flags {0, 1}.",
+                        notes="Cached total / tucked normalized ÷ 6; flags {0, 1}.",
                         group=group,
                     )
                 )
             slot_number += 1
     return tuple(sub_fields)
+
+
+def _board_hab_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """3 sub-fields for the board_hab one-hot stripe (habitat of the relevant slot)."""
+    return tuple(
+        descriptors.SubFieldDescriptor(
+            name=f"hab_{habitat.value}",
+            description=f"The relevant board slot is in the {habitat.value} row.",
+            relative_offset=idx,
+            size=1,
+            encoding="one-hot bit",
+            value_range="{0, 1}",
+        )
+        for idx, habitat in enumerate(cards.ALL_HABITATS)
+    )
+
+
+def _board_col_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """5 sub-fields for the board_col one-hot stripe (column of the relevant slot)."""
+    return tuple(
+        descriptors.SubFieldDescriptor(
+            name=f"col_{col}",
+            description=f"The relevant board slot is at column {col} in its habitat row.",
+            relative_offset=col,
+            size=1,
+            encoding="one-hot bit",
+            value_range="{0, 1}",
+        )
+        for col in range(state.ROW_SLOTS)
+    )
 
 
 def _main_action_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:

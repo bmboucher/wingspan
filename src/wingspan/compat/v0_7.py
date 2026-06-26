@@ -33,10 +33,12 @@ from __future__ import annotations
 import typing
 
 import numpy as np
+import torch
 
-from wingspan import decisions, state, version
-from wingspan.encode import choice_encode, layout
+from wingspan import architecture, decisions, state, version
+from wingspan.encode import layout
 from wingspan.model import core
+from wingspan.model import mlp as mlp_module
 
 FOOD_BECOMES_PLAYABLE_CHANGED_IN = "0.8"
 """The artifact version whose food ``becomes_playable`` semantics this module undoes."""
@@ -58,12 +60,16 @@ def encode_choices_v07(
     game_state: state.GameState,
     spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
 ) -> np.ndarray:
-    """Featurize all choices with eggs-included ``becomes_playable`` semantics.
+    """Featurize all choices with eggs-included ``becomes_playable`` semantics
+    and v0.8 board geometry (board_target 120 dims, board_idx 15 dims).
 
-    Delegates to the live ``choice_encode.encode_choices`` with
-    ``food_playable_ignores_eggs=False``, restoring the v0.7 behaviour where
-    the egg-cost gate is included in the food-gain path."""
-    return choice_encode.encode_choices(
+    Delegates to ``v0_8.encode_choices_v08`` with
+    ``food_playable_ignores_eggs=False``, restoring the eggs-included
+    ``becomes_playable`` bits a v0.7 checkpoint expects while also providing
+    the pre-0.9 board encoding those weights require."""
+    from wingspan.compat import v0_8  # local: avoids import cycle
+
+    return v0_8.encode_choices_v08(
         decision, game_state, spec, food_playable_ignores_eggs=False
     )
 
@@ -73,16 +79,48 @@ class PolicyValueNetV07(core.PolicyValueNet):
     ``becomes_playable`` food encoding, for checkpoints written before
     artifact version 0.8.
 
-    v0.9 compacted the state vector (1155→1119 dims), so this shim also
-    overrides :meth:`encode_state` and :meth:`_state_embed_offsets` to keep the
-    1155-dim pre-0.9 geometry — delegating to ``v0_8`` (which owns that frozen
-    vector). Only the ``becomes_playable`` food bits differ from v0.8:
-    :meth:`encode_choices` overrides to ``encode_choices_v07`` (eggs-included
-    food path).
+    v0.9 compacted the state vector (1155→1119 dims) and simplified the choice
+    board encoding (board_target 120→60, board_idx removed). This shim restores
+    both axes for v0.7 artifacts:
+
+    - :meth:`encode_choices` calls :func:`encode_choices_v07` (delegates to
+      ``v0_8.encode_choices_v08`` with ``food_playable_ignores_eggs=False``).
+    - :meth:`_embed_choices` delegates to the frozen v0.8 board-bearing embed.
+    - :meth:`_build_choice_encoder` uses the v0.8 board-bearing input width.
+    - :meth:`encode_state` / :meth:`_state_embed_offsets` delegate to ``v0_8``
+      for the 1155-dim pre-0.9 state geometry.
+
+    ``choice_dim`` defaults to the v0.8 row width (395); ``state_dim`` defaults
+    to the 1155-dim pre-compaction width.
 
     Constructed by the version-routing loaders (``PolicyValueNet.from_model_config``,
     ``players.loaders.load_policy_net``) — never by the training pipeline.
     """
+
+    def __init__(
+        self,
+        *,
+        state_dim: int | None = None,
+        choice_dim: int | None = None,
+        num_families: int | None = None,
+        arch: architecture.ModelArchitecture | None = None,
+        spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+    ) -> None:
+        from wingspan.compat import v0_8 as v08_module  # local: avoids cycle
+
+        if state_dim is None:
+            state_dim = v08_module.state_feature_dim_v08(spec)
+        if choice_dim is None:
+            choice_dim = v08_module.choice_feature_dim_v08(
+                spec, has_becomes_playable=True
+            )
+        super().__init__(
+            state_dim=state_dim,
+            choice_dim=choice_dim,
+            num_families=num_families,
+            arch=arch,
+            spec=spec,
+        )
 
     def encode_state(
         self,
@@ -105,5 +143,41 @@ class PolicyValueNetV07(core.PolicyValueNet):
         decision: decisions.Decision[decisions.Choice],
         game_state: state.GameState,
     ) -> np.ndarray:
-        """Featurize all choices with eggs-included food ``becomes_playable``."""
+        """Featurize all choices with eggs-included food ``becomes_playable``
+        and v0.8 board geometry (board_target 120, board_idx 15)."""
         return encode_choices_v07(decision, game_state, self.spec)
+
+    def _build_choice_encoder(
+        self, choice_dim: int, arch: architecture.ModelArchitecture
+    ) -> None:
+        """Register ``choice_encoder`` at the v0.8 board-bearing input width."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
+        self.choice_encoder, _ = mlp_module.build_body(
+            v0_8.choice_input_dim_v08(
+                choice_dim, arch.card_embed_dim, include_setup=self.include_setup
+            ),
+            arch.choice_layers,
+            between_activation=arch.choice_between_activation_resolved,
+            final_activation=arch.choice_final_activation_resolved,
+            dropout=arch.dropout,
+            layernorm=arch.layernorm,
+        )
+
+    def _embed_choices(
+        self, choices: torch.Tensor, card_table: torch.Tensor
+    ) -> torch.Tensor:
+        """Delegate to the frozen v0.8 board-bearing ``_embed_choices``."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
+        return v0_8.embed_choices_v08(self, choices, card_table)
+
+    def _choice_embed_offsets(self) -> core.ChoiceEmbedOffsets:
+        """Frozen v0.8 slice offsets: bird_id at 172, becomes_playable at 215."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
+        return core.ChoiceEmbedOffsets(
+            bird_id=v0_8._OFF_BIRD_ID_V08,
+            becomes_playable=v0_8._OFF_BECOMES_PLAYABLE_V08,
+            kept_multihot=v0_8._OFF_KEPT_MULTIHOT_V08 if self.include_setup else None,
+        )

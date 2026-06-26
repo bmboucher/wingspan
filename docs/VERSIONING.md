@@ -33,45 +33,49 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v0.9 — State-vector compaction (current)
+### v0.9 — Two simultaneous FRESH encoding changes (current)
 
-**FRESH change (code-carried)** — state vector width 1155 → 1119 (−36 dims):
+This release ships two geometry changes at once, both requiring a shim. Both are
+captured by `wingspan.compat.v0_8` and `PolicyValueNetV08`, which overrides all four
+encoding axes (state + choice, each × encode + embed).
+
+**(a) Choice board encoding compressed** — `choice_dim` 395 → 328 (setup-included: 579 → 512):
+
+- `board_target` compressed 120 → 60 dims. The 15-slot scalar block drops the
+  per-food-type cached breakdown (×5 food types) in favour of one `cached_total` scalar
+  per slot. Each slot now carries 4 scalars: `lay_eggs`, `pay_eggs`, `cached_total`, `tucked`.
+- `board_idx` removed (−15 dims); `board_hab` (3) + `board_col` (5) added (+8 dims total).
+  Instead of embedding all 15 board-slot occupants per candidate row (16 card-table
+  lookups), a habitat one-hot and a column one-hot mark the one slot relevant to this
+  choice. Per-candidate card-table lookups drop from 16 to 1.
+- `bird_id` now carries the targeted occupant on board-target rows (was zero pre-0.9).
+
+The `architecture_key` includes `choice_dim`, so old checkpoints are auto-refused at
+training resume. Shim choice-path: `wingspan.compat.v0_8` covers **v0.1–v0.8 artifacts**
+(first board-geometry change since v0.1 — all earlier shims are re-routed through
+`v0_8.encode_choices_v08` and `PolicyValueNetV08._embed_choices`). Pre-v0.6 eras pass
+`has_becomes_playable=False`. `encoding_dims_for_era` routes the choice axis for v0.1–v0.8
+through `v0_8.choice_feature_dim_v08(...)`.
+
+**(b) State-vector compaction** — state vector width 1155 → 1119 (−36 dims):
 
 - `misc_scalars` 4 → 2 dims: dropped `my_round_goal_pts` and `opp_round_goal_pts`
   (accumulated VP is redundant with the `round_goals` stripe standings).
-- `board_summary_me` / `board_summary_opp` 18 → 6 dims each (−12 per seat, −24
-  total): kept only `row_length` and `total_eggs` per habitat; removed `points`,
-  `tucked_cards`, `cached_food_total`, and `brown_count` (all duplicated by the
-  per-slot board stripes).
-- `hand_summary_me` stripe removed entirely (−10 dims): the 10-dim hand summary
-  (hand size, per-habitat counts, food-cost multi-hot) is now derived in-model
-  via `set_summary_from_multihot` on the hand multi-hot, rather than precomputed
-  in the encoder. The dedicated hand encoder (`use_distinct_hand_model`) is
-  unchanged at 190-wide input; it now derives the summary in-model instead of
-  reading it from the state.
-- `round_goals` slots for already-scored rounds are zeroed (value-only, width
-  unchanged). Once a round's goal is committed to `GameState.scored_goals` its
-  encoding is zeroed so the model doesn't see frozen historical signal.
+- `board_summary_me` / `board_summary_opp` 18 → 6 dims each (−24 total): kept only
+  `row_length` and `total_eggs` per habitat.
+- `hand_summary_me` stripe removed entirely (−10 dims): derived in-model now.
+- `round_goals` slots for already-scored rounds zeroed (width unchanged).
 
-Choice vectors and `CARD_FEATURE_DIM` are unchanged.
+Shim state-path: `wingspan.compat.v0_8` covers **exactly v0.8 artifacts** for the direct
+routing (v0.6 and v0.7 delegate their state overrides here). `PolicyValueNetV08` overrides
+`encode_state` and `_state_embed_offsets` for the 1155-dim geometry. `StateEmbedOffsets`
+gains `hand_summary_end: int`; non-zero signals the stripe is present in the frozen vector.
+`encoding_dims_for_era` updated: v0.6–v0.8 → `v0_8.state_feature_dim_v08(spec)`.
 
-Shim: `wingspan.compat.v0_8` — covers **exactly v0.8 artifacts** (v0.6 and v0.7
-delegate their `encode_state` / `_state_embed_offsets` overrides here, since state
-has been 1155-dim since v0.6). `PolicyValueNetV08` overrides `encode_state` to call
-`encode_state_v08` (with old-behavior flags) and `_state_embed_offsets` to return the
-frozen 1155-dim offsets (`card_index=562`, `hand_multihot=595`, `decision_type=1135`,
-`hand_summary=343..353` — all 36 columns right of the live v0.9 offsets).
+Fixture set: `tests/data/compat/v0.9/` — deferred per existing pattern (behavioral
+coverage via `test_compat_shim_v0_8.py`).
 
-`StateEmbedOffsets` gains a fifth field `hand_summary_end: int`; a non-zero value
-signals that the hand-summary stripe is physically present in the frozen vector and
-must be excised from the continuous prefix rather than derived in-model. The live v0.9
-net always returns `(0, 0)` for `(hand_summary, hand_summary_end)`.
-
-`encoding_dims_for_era` updated: `(0,6)–(0,8)` → `v0_8.state_feature_dim_v08(spec)`.
-
----
-
-### v0.8 — Food-gain `becomes_playable` ignores eggs
+### v0.8 — Food-gain `becomes_playable` ignores eggs (superseded by v0.9)
 
 **FRESH change (code-carried)** — changed the `becomes_playable` computation on
 **food-gain** choice rows so the egg-cost gate is no longer applied. A hand bird

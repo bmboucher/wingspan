@@ -31,7 +31,7 @@ from wingspan import (
     state,
     version,
 )
-from wingspan.compat import v0_0
+from wingspan.compat import v0_0, v0_8
 from wingspan.encode import layout
 from wingspan.training import runmeta
 
@@ -66,22 +66,26 @@ def _board_idx_block(row: np.ndarray) -> np.ndarray:
     return row[v0_0._OFF_BOARD_IDX : v0_0._OFF_BOARD_IDX + v0_0._BOARD_IDX_SLOTS]
 
 
-def _assert_shared_stripes_match(v00_row: np.ndarray, live_row: np.ndarray) -> None:
+def _assert_shared_stripes_match(v00_row: np.ndarray, v08_row: np.ndarray) -> None:
     """Every stripe both eras share must copy verbatim: kind + gain_food, the
-    pay_food..exchange run, and the bonus_id..bonus_value tail."""
+    pay_food..exchange run, and the bonus_id..bonus_value tail.
+
+    The source for comparison is a v0.8 row (``v0_8.encode_choices_v08``),
+    since v0.0's ``encode_choices`` now sources from v0.8 rows (not live rows).
+    We read the v0.8 side with frozen v0.8 offsets."""
     assert np.array_equal(
         v00_row[v0_0._OFF_KIND : v0_0._OFF_HAB],
-        live_row[layout._OFF_KIND : layout._OFF_PAY],
+        v08_row[layout._OFF_KIND : layout._OFF_PAY],
     )
     assert np.array_equal(
         v00_row[v0_0._OFF_PAY : v0_0._OFF_BOARD_IDX],
-        live_row[layout._OFF_PAY : layout._OFF_BOARD_IDX],
+        v08_row[layout._OFF_PAY : v0_8._OFF_BOARD_IDX_V08],
     )
-    # Stop before layout.CHOICE_BECOMES_PLAYABLE_OFFSET: the becomes_playable
+    # Stop before v0.8's CHOICE_BECOMES_PLAYABLE_OFFSET: the becomes_playable
     # stripe was added in v0.6 after bonus_value; it is not present in v0.0 rows.
     assert np.array_equal(
         v00_row[v0_0._OFF_BONUS_ID : v0_0._OFF_SETUP],
-        live_row[layout._OFF_BONUS_ID : layout.CHOICE_BECOMES_PLAYABLE_OFFSET],
+        v08_row[v0_8._OFF_BONUS_ID_V08 : v0_8._OFF_BECOMES_PLAYABLE_V08],
     )
 
 
@@ -131,7 +135,7 @@ def test_play_bird_rows_regenerate_the_v0_0_placement_stripes():
         ],
     )
     rows = v0_0.encode_choices(decision, eng.state)
-    live_rows = encode.encode_choices(decision, eng.state)
+    live_rows = v0_8.encode_choices_v08(decision, eng.state)
 
     assert rows.shape == (2, _FIXTURE_CHOICE_DIM)
     habitat_indices = list(cards.ALL_HABITATS)
@@ -157,7 +161,7 @@ def test_payment_rows_regenerate_the_committed_play_context():
         habitat=bird.habitats[0],
     )
     row = v0_0.encode_choices(decision, eng.state)[0]
-    live_row = encode.encode_choices(decision, eng.state)[0]
+    live_row = v0_8.encode_choices_v08(decision, eng.state)[0]
 
     habitat_indices = list(cards.ALL_HABITATS)
     assert _habitat_one_hot(row) == {habitat_indices.index(bird.habitats[0]): 1.0}
@@ -183,7 +187,7 @@ def test_move_rows_regenerate_destination_habitats():
         from_habitat=cards.Habitat.FOREST,
     )
     rows = v0_0.encode_choices(decision, eng.state)
-    live_rows = encode.encode_choices(decision, eng.state)
+    live_rows = v0_8.encode_choices_v08(decision, eng.state)
 
     habitat_indices = list(cards.ALL_HABITATS)
     for row, live_row, choice in zip(rows, live_rows, decision.choices):
@@ -210,12 +214,13 @@ def test_board_target_rows_keep_their_occupancy_indices():
         ],
     )
     row = v0_0.encode_choices(decision, eng.state)[0]
-    live_row = encode.encode_choices(decision, eng.state)[0]
+    live_row = v0_8.encode_choices_v08(decision, eng.state)[0]
 
     forest_slot = list(cards.ALL_HABITATS).index(cards.Habitat.FOREST) * state.ROW_SLOTS
     assert _board_idx_block(row)[forest_slot] == cards.bird_index(birds[0]) + 1
-    live_block = live_row[layout._OFF_BOARD_IDX : layout._OFF_BIRD_ID]
-    assert np.array_equal(_board_idx_block(row), live_block)
+    # Compare v0.0 board_idx block against the v0.8 source row's board_idx block.
+    v08_block = live_row[v0_8._OFF_BOARD_IDX_V08 : v0_8._OFF_BIRD_ID_V08]
+    assert np.array_equal(_board_idx_block(row), v08_block)
     assert _habitat_one_hot(row) == {}
     _assert_shared_stripes_match(row, live_row)
 

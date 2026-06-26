@@ -45,10 +45,11 @@ from __future__ import annotations
 import typing
 
 import numpy as np
+import torch
 
 from wingspan import architecture, decisions, state, version
-from wingspan.encode import choice_encode, layout, state_encode
-from wingspan.model import core
+from wingspan.encode import layout, state_encode
+from wingspan.model import core, mlp
 
 PLAYABILITY_STRIPES_ADDED_IN = "0.6"
 """The artifact version that added the playability multi-hot stripes this shim undoes."""
@@ -92,11 +93,10 @@ _V04_DECISION_TYPE_OFFSET = _V08_DECISION_TYPE - _PLAYABLE_STRIPE_DIM
 """Offset of the decision-type one-hot in the frozen 795-dim v0.4 vector."""
 
 # The choice vector's ``becomes_playable`` stripe (180 dims) was added at the end
-# of the base choice spec in v0.6; pre-0.6 choice rows lack it entirely.
-_V04_CHOICE_FEATURE_DIM_BASE = (
-    layout.choice_feature_dim() - layout.CHOICE_BECOMES_PLAYABLE_DIM
-)
-"""The pre-0.6 (base-spec, setup-excluded) choice row width."""
+# of the base choice spec in v0.6; pre-0.6 choice rows lack it. In addition,
+# pre-0.9 rows carry the board_target (120) and board_idx (15) geometry; see
+# v0_8.choice_feature_dim_v08(has_becomes_playable=False) for the frozen width.
+_V04_CHOICE_FEATURE_DIM_BASE_SENTINEL = True  # placeholder — see choice_feature_dim_v04
 
 
 def uses_v0_4_encoding(artifact_version: str) -> bool:
@@ -162,13 +162,14 @@ def encode_choices_v04(
     game_state: state.GameState,
     spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
 ) -> np.ndarray:
-    """Featurize all choices in ``decision`` without the ``becomes_playable`` stripe.
+    """Featurize all choices in ``decision`` in the pre-0.6 / pre-0.9 format.
 
-    Produces the pre-0.6 choice matrix that a v0.4/v0.5 checkpoint's choice
-    encoder expects: the base choice feature rows without the trailing 180-dim
-    ``becomes_playable`` multi-hot. Every other stripe is filled identically to
-    the live encoder."""
-    return choice_encode.encode_choices(
+    Produces the frozen v0.4/v0.5 choice matrix: board_target 120 dims (per-type
+    cached), board_idx 15 dims, no ``becomes_playable`` stripe. Routes through
+    ``v0_8.encode_choices_v08`` which rebuilds the pre-0.9 board geometry."""
+    from wingspan.compat import v0_8  # local: avoids import cycle
+
+    return v0_8.encode_choices_v08(
         decision, game_state, spec, has_becomes_playable=False
     )
 
@@ -210,11 +211,14 @@ def state_feature_dim_v04(spec: layout.EncodingSpec = layout.DEFAULT_SPEC) -> in
 
 
 def choice_feature_dim_v04(spec: layout.EncodingSpec = layout.DEFAULT_SPEC) -> int:
-    """The frozen v0.4/v0.5 choice-row width (without the ``becomes_playable`` stripe).
+    """The frozen v0.4/v0.5 choice-row width (no ``becomes_playable``, pre-0.9 board).
 
-    The live width minus ``CHOICE_BECOMES_PLAYABLE_DIM`` (180) — the size of
-    each row in :func:`encode_choices_v04`'s output."""
-    return layout.choice_feature_dim(spec) - layout.CHOICE_BECOMES_PLAYABLE_DIM
+    Delegates to ``v0_8.choice_feature_dim_v08(has_becomes_playable=False)`` which
+    accounts for both the missing becomes_playable stripe and the pre-0.9 wider
+    board encoding (board_target 120, board_idx 15)."""
+    from wingspan.compat import v0_8  # local: avoids import cycle
+
+    return v0_8.choice_feature_dim_v08(spec, has_becomes_playable=False)
 
 
 class PolicyValueNetV04(core.PolicyValueNet):
@@ -260,16 +264,45 @@ class PolicyValueNetV04(core.PolicyValueNet):
         return state_embed_offsets_v04()
 
     def _choice_embed_offsets(self) -> core.ChoiceEmbedOffsets:
-        """Slice the pre-0.6 choice vector with ``becomes_playable=None``.
+        """Slice the pre-0.6 / v0.8 choice vector: bird_id at frozen v0.8 offset,
+        ``becomes_playable=None`` (stripe absent), ``kept_multihot=None``."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
 
-        Without this override the choice encoder would try to embed a
-        ``becomes_playable`` multi-hot that isn't present, reading garbage data
-        from the padding zone beyond the actual choice row width."""
         return core.ChoiceEmbedOffsets(
-            board_idx=layout.CHOICE_BOARD_IDX_OFFSET,
-            bird_id=layout.CHOICE_BIRD_ID_OFFSET,
+            bird_id=v0_8._OFF_BIRD_ID_V08,
             becomes_playable=None,  # not present in pre-0.6 choice rows
-            kept_multihot=None,  # None when include_setup is False (same as live)
+            kept_multihot=None,  # None when include_setup is False
+        )
+
+    def _embed_choices(
+        self, choices: torch.Tensor, card_table: torch.Tensor
+    ) -> torch.Tensor:
+        """Delegate to the frozen v0.8 board-bearing ``_embed_choices``.
+
+        v0.4 rows carry ``board_idx`` (15 embedded board slots) at the v0.8
+        offsets; the live board-free ``_embed_choices`` cannot process them."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
+        return v0_8.embed_choices_v08(self, choices, card_table)
+
+    def _build_choice_encoder(
+        self, choice_dim: int, arch: architecture.ModelArchitecture
+    ) -> None:
+        """Register ``choice_encoder`` at the v0.8 board-bearing input width."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
+        self.choice_encoder, _ = mlp.build_body(
+            v0_8.choice_input_dim_v08(
+                choice_dim,
+                arch.card_embed_dim,
+                include_setup=self.include_setup,
+                has_becomes_playable=False,
+            ),
+            arch.choice_layers,
+            between_activation=arch.choice_between_activation_resolved,
+            final_activation=arch.choice_final_activation_resolved,
+            dropout=arch.dropout,
+            layernorm=arch.layernorm,
         )
 
     def _build_card_encoder(self, arch: architecture.ModelArchitecture) -> None:

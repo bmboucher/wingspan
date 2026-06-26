@@ -68,14 +68,20 @@ def _bonus_delta(row: np.ndarray) -> tuple[float, float, float]:
     )
 
 
-def _marked_board_slots(row: np.ndarray) -> dict[int, float]:
-    """The nonzero entries of the board-index block, keyed by positional slot."""
-    block = row[layout._OFF_BOARD_IDX : layout._OFF_BOARD_IDX + layout._BOARD_IDX_SLOTS]
-    return {slot: float(value) for slot, value in enumerate(block) if value != 0.0}
-
-
-def _board_slot_index(habitat: cards.Habitat, slot: int) -> int:
-    return list(cards.ALL_HABITATS).index(habitat) * state.ROW_SLOTS + slot
+def _board_location(row: np.ndarray) -> tuple[int | None, int | None]:
+    """Return (hab_idx, col_idx) indicated by the board_hab/board_col one-hots,
+    or (None, None) if either block is all-zero."""
+    hab_block = row[
+        layout._OFF_BOARD_HAB : layout._OFF_BOARD_HAB + layout._BOARD_HAB_DIM
+    ]
+    col_block = row[
+        layout._OFF_BOARD_COL : layout._OFF_BOARD_COL + layout._BOARD_COL_DIM
+    ]
+    hab_hits = [idx for idx, val in enumerate(hab_block) if val != 0.0]
+    col_hits = [idx for idx, val in enumerate(col_block) if val != 0.0]
+    hab_idx: int | None = hab_hits[0] if len(hab_hits) == 1 else None
+    col_idx: int | None = col_hits[0] if len(col_hits) == 1 else None
+    return hab_idx, col_idx
 
 
 def _move_rows(
@@ -125,19 +131,14 @@ def test_move_rows_price_bird_count_eggs_and_sets():
     for goal_idx in range(4):
         assert _goal_delta_slot(stay_row, goal_idx) == (0.0, 0.0)
 
-    # Each row marks exactly one board-index slot — the bird's landing slot.
+    # Each row marks exactly one board location — the bird's landing slot
+    # via the board_hab and board_col one-hots.
     # The mover sits at forest slot 1 (rightmost of [static, mover]); the
     # grassland and wetland rows each hold one bird, so it would land at slot 1.
-    mover_index = float(cards.bird_index(roomy) + 1)
-    assert _marked_board_slots(stay_row) == {
-        _board_slot_index(cards.Habitat.FOREST, 1): mover_index
-    }
-    assert _marked_board_slots(grass_row) == {
-        _board_slot_index(cards.Habitat.GRASSLAND, 1): mover_index
-    }
-    assert _marked_board_slots(wetland_row) == {
-        _board_slot_index(cards.Habitat.WETLAND, 1): mover_index
-    }
+    hab_indices = list(cards.ALL_HABITATS)
+    assert _board_location(stay_row) == (hab_indices.index(cards.Habitat.FOREST), 1)
+    assert _board_location(grass_row) == (hab_indices.index(cards.Habitat.GRASSLAND), 1)
+    assert _board_location(wetland_row) == (hab_indices.index(cards.Habitat.WETLAND), 1)
 
     # To wetland: forest loses a bird (-1) and 2 eggs (-2); wetland gains the
     # 2 eggs; the per-habitat egg minimum rises 0 -> 1 (a completed set).

@@ -908,7 +908,7 @@ def _band1_connectors(
     dst_y = geom.row2_y
     card_cx, hand_cx, setup_cx = _SVG_COL_CX  # col0=card/trunk, col1=hand/choice
     trunk_cx, choice_cx = card_cx, hand_cx
-    num_choice_copies = encode.CHOICE_BOARD_IDX_SLOTS + 1  # board slots + the candidate
+    num_choice_copies = 1  # one candidate embedding per choice (no board-idx block)
     conns = [
         _Conn(
             src_x=card_cx + _X_CARD_TRUNK,
@@ -927,10 +927,7 @@ def _band1_connectors(
             dst_y=dst_y,
             lane_y=src_y + _LANE_CARD_CHOICE,
             copies=num_choice_copies,
-            label=(
-                f"×{num_choice_copies} · {encode.CHOICE_BOARD_IDX_SLOTS} board"
-                f" + 1 candidate"
-            ),
+            label=f"×{num_choice_copies} candidate",
             label_dx=13,
         ),
         _Conn(
@@ -986,7 +983,7 @@ def _band1_connectors_attn(
 
     card_cx, hand_cx, setup_cx = _SVG_COL_CX
     trunk_cx, choice_cx = card_cx, hand_cx
-    num_choice_copies = encode.CHOICE_BOARD_IDX_SLOTS + 1
+    num_choice_copies = 1  # one candidate embedding per choice (no board-idx block)
 
     # Three column-clearing fan-outs — unchanged from the off-path variant.
     conns: list[_Conn] = [
@@ -997,10 +994,7 @@ def _band1_connectors_attn(
             dst_y=geom.row2_y,
             lane_y=geom.band1_y + _LANE_CARD_CHOICE,
             copies=num_choice_copies,
-            label=(
-                f"×{num_choice_copies} · {encode.CHOICE_BOARD_IDX_SLOTS} board"
-                f" + 1 candidate"
-            ),
+            label=f"×{num_choice_copies} candidate",
             label_dx=13,
         ),
         _Conn(
@@ -1505,7 +1499,7 @@ def _svg_root(
     aria = (
         f"PolicyValueNet architecture: Single-Card Encoder (output reused "
         f"×{encode.N_CARD_INDEX_SLOTS} in the state input, "
-        f"×{encode.CHOICE_BOARD_IDX_SLOTS + 1} per choice) and Multi-Card Encoder "
+        f"×1 per choice) and Multi-Card Encoder "
         f"feeding State Encoder (M={trunk_m}) and Choice Encoder (N={choice_n}), "
         f"merging into "
         f"Value Head and {num_families} Decision Heads, {total} params total; "

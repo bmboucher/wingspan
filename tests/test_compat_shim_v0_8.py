@@ -1,21 +1,34 @@
 # pyright: reportPrivateUsage=false
-# (tests verify shim output row-by-row against the live encoder — a deliberate
-# compat coupling matching test_compat_shim_v0_7.py and test_compat_shim_v0_4.py)
-"""Unit tests for the ``wingspan.compat.v0_8`` state-encoding shim.
+# (tests read the v0_8 module's package-private frozen offsets and dims to pin
+# the shim's block-copy contract; some tests also verify shim output row-by-row
+# against game-state-derived values, matching the style of test_compat_shim_v0_7.py)
+"""Unit tests for the ``wingspan.compat.v0_8`` combined state-and-choice shim.
 
-Pins the shim's geometry directly:
+Pins the shim's geometry directly across both FRESH changes introduced in v0.9:
 
-* The version predicate covers exactly 0.8 (not 0.7, not 0.9).
-* ``encode_state_v08`` produces the 1155-dim pre-0.9 vector with hand_summary
-  present (10 dims), 18-dim board_summary per seat, 4-dim misc_scalars, and
-  all round_goals slots filled regardless of scoring status.
-* The live v0.9 encoder produces the 1119-dim compacted vector: no hand_summary,
-  6-dim board_summary per seat, 2-dim misc_scalars, and scored rounds zeroed.
-* ``state_embed_offsets_v08`` returns the frozen offsets (card_index 562,
-  hand_multihot 595, decision_type 1135, hand_summary 343..353).
-* ``PolicyValueNetV08`` forward pass produces finite logits and value.
-* Version routing: 0.8 → ``PolicyValueNetV08``, 0.7 → ``PolicyValueNetV07``,
-  0.9 / live → ``PolicyValueNet``; V06/V07 also produce 1155-dim state.
+**Choice-encoding tests** (board_target 120 → 60, board_idx removed):
+
+* :func:`~wingspan.compat.v0_8.uses_v0_8_choice_encoding` covers exactly v0.1–v0.8
+  (not v0.0, not v0.9).
+* :func:`~wingspan.compat.v0_8.encode_choices_v08` produces a 395-dim row with
+  120-dim ``board_target`` (per-type cached food), a 15-slot ``board_idx`` block,
+  and ``bird_id`` zero on board-target rows (occupant encoding not present pre-0.9).
+* The live (v0.9) encoder produces 328-dim rows — different width and layout.
+
+**State-encoding tests** (1155 → 1119 compaction):
+
+* :func:`~wingspan.compat.v0_8.uses_pre_v09_state_encoding` covers exactly 0.8 (not
+  0.7, not 0.9); versions 0.6 and 0.7 are routed here via their own shims.
+* :func:`~wingspan.compat.v0_8.encode_state_v08` produces the 1155-dim pre-0.9
+  vector: ``hand_summary`` present (10 dims), 18-dim ``board_summary`` per seat,
+  4-dim ``misc_scalars``, all ``round_goals`` slots filled regardless of scoring.
+* :func:`~wingspan.compat.v0_8.state_embed_offsets_v08` returns the frozen offsets
+  (card_index 562, hand_multihot 595, decision_type 1135, hand_summary 343..353).
+
+**PolicyValueNetV08** covers both axes simultaneously so a single class handles any
+pre-0.9 artifact.  Version routing: 0.8 → ``PolicyValueNetV08``,
+0.7 → ``PolicyValueNetV07``, 0.9/live → ``PolicyValueNet``.
+V06/V07 also produce the 1155-dim state via delegation.
 """
 
 from __future__ import annotations
@@ -28,7 +41,16 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from wingspan import architecture, encode, engine, model, version
+from wingspan import (
+    architecture,
+    cards,
+    decisions,
+    encode,
+    engine,
+    model,
+    state,
+    version,
+)
 from wingspan.compat import v0_6, v0_7, v0_8
 from wingspan.encode import layout
 from wingspan.training import runmeta
@@ -41,6 +63,9 @@ _SMALL = architecture.ModelArchitecture(
     card_embed_dim=4,
 )
 
+_SPEC = encode.EncodingSpec()
+_V08_CHOICE_DIM = v0_8.choice_feature_dim_v08(has_becomes_playable=True)
+
 # Frozen v0.6–v0.8 state vector width under the default spec.
 _V08_STATE_DIM = 1155
 # Width change from v0.9 compaction.
@@ -48,7 +73,24 @@ _COMPACTION_DELTA = 36
 
 
 # ---------------------------------------------------------------------------
-# Version predicate
+# Version predicates
+
+
+def test_version_predicate_covers_0_1_through_0_8():
+    """``uses_v0_8_choice_encoding`` is True for v0.1 through v0.8."""
+    for ver in ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"):
+        assert v0_8.uses_v0_8_choice_encoding(ver), f"expected True for {ver}"
+
+
+def test_version_predicate_excludes_0_0():
+    """Pre-0.1 artifacts use the v0.0 shim, not this one."""
+    assert not v0_8.uses_v0_8_choice_encoding("0.0")
+
+
+def test_version_predicate_excludes_live():
+    """0.9+ artifacts use the live encoding."""
+    assert not v0_8.uses_v0_8_choice_encoding("0.9")
+    assert not v0_8.uses_v0_8_choice_encoding("1.0")
 
 
 def test_version_predicate_covers_0_8():
@@ -75,13 +117,87 @@ def test_version_predicate_excludes_pre_0_8():
 
 
 # ---------------------------------------------------------------------------
-# Frozen state dims
+# Frozen choice-dim formula
 
 
 def test_state_feature_dim_v08_is_1155():
     """The frozen pre-0.9 state width is exactly 1155 (live 1119 + 36)."""
     assert v0_8.state_feature_dim_v08() == _V08_STATE_DIM
     assert v0_8.state_feature_dim_v08() == encode.state_size() + _COMPACTION_DELTA
+
+
+# ---------------------------------------------------------------------------
+# Row geometry (encode_choices_v08)
+
+
+def test_encode_choices_v08_row_width():
+    """``encode_choices_v08`` rows are 395 dims wide (not the 328-dim live rows)."""
+    eng, birds, *_ = engine.Engine.create(seed=3)
+    bird = next(b for b in birds if b.habitats)
+    decision = decisions.PlayBirdDecision(
+        player_id=0,
+        prompt="play",
+        choices=[
+            decisions.PlayBirdChoice(label="x", bird=bird, habitat=bird.habitats[0])
+        ],
+    )
+    rows = v0_8.encode_choices_v08(decision, eng.state, _SPEC)
+    assert rows.shape == (1, _V08_CHOICE_DIM)
+    live_rows = encode.encode_choices(decision, eng.state)
+    assert live_rows.shape[1] == encode.choice_feature_dim()
+    assert live_rows.shape[1] != _V08_CHOICE_DIM
+
+
+def test_encode_choices_v08_board_target_is_120_dims():
+    """The ``board_target`` block in a v0.8 row is 120 dims (15 slots × 8 scalars),
+    not the 60-dim live block."""
+    eng, *_ = engine.Engine.create(seed=5)
+    eng.state.players[0].board[cards.Habitat.GRASSLAND] = [
+        state.PlayedBird(bird=engine.Engine.create(seed=0)[1][0])
+    ]
+    target = decisions.BoardTargetChoice(
+        label="x", habitat=cards.Habitat.GRASSLAND, slot=0
+    )
+    decision = decisions.LayEggDecision(player_id=0, prompt="lay", choices=[target])
+    row = v0_8.encode_choices_v08(decision, eng.state, _SPEC)[0]
+
+    # board_target sits at offset 18 in both v0.8 and live; width differs.
+    board_block = row[v0_8._OFF_BOARD_V08 : v0_8._OFF_MAIN_ACTION_V08]
+    assert board_block.shape == (v0_8._BOARD_TARGET_DIM_V08,)
+
+
+def test_encode_choices_v08_board_idx_is_15_slots():
+    """A board-target v0.8 row fills the 15-slot ``board_idx`` block with the
+    occupant's bird index, and ``bird_id`` at offset 172 is zero (pre-0.9)."""
+    eng, birds, *_ = engine.Engine.create(seed=7)
+    eng.state.players[0].board[cards.Habitat.FOREST] = [state.PlayedBird(bird=birds[0])]
+    target = decisions.BoardTargetChoice(
+        label="x", habitat=cards.Habitat.FOREST, slot=0
+    )
+    decision = decisions.LayEggDecision(player_id=0, prompt="lay", choices=[target])
+    row = v0_8.encode_choices_v08(decision, eng.state, _SPEC)[0]
+
+    forest_slot = list(cards.ALL_HABITATS).index(cards.Habitat.FOREST) * state.ROW_SLOTS
+    board_idx_block = row[v0_8._OFF_BOARD_IDX_V08 : v0_8._OFF_BIRD_ID_V08]
+    assert board_idx_block[forest_slot] == cards.bird_index(birds[0]) + 1
+    # bird_id is zero on board-target rows in v0.8 (occupant was in board_idx).
+    assert row[v0_8._OFF_BIRD_ID_V08] == 0.0
+
+
+def test_encode_choices_v08_bird_id_carries_candidate_on_placement_rows():
+    """On play-bird rows, ``bird_id`` at the v0.8 offset carries the candidate's
+    index (as in both v0.8 and live — only the offset differs)."""
+    eng, birds, *_ = engine.Engine.create(seed=3)
+    bird = next(b for b in birds if b.habitats)
+    decision = decisions.PlayBirdDecision(
+        player_id=0,
+        prompt="play",
+        choices=[
+            decisions.PlayBirdChoice(label="x", bird=bird, habitat=bird.habitats[0])
+        ],
+    )
+    row = v0_8.encode_choices_v08(decision, eng.state, _SPEC)[0]
+    assert row[v0_8._OFF_BIRD_ID_V08] == cards.bird_index(bird) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -210,13 +326,11 @@ def test_state_embed_offsets_live_has_no_hand_summary():
 # PolicyValueNetV08
 
 
-def test_policy_value_net_v08_state_dim():
-    """``PolicyValueNetV08`` built with the frozen 1155 state_dim carries that dim."""
-    net = v0_8.PolicyValueNetV08(
-        arch=_SMALL,
-        state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
-    )
+def test_policy_value_net_v08_default_choice_dim():
+    """``PolicyValueNetV08`` defaults to the v0.8 frozen dims (state 1155, choice 395)."""
+    net = v0_8.PolicyValueNetV08(arch=_SMALL)
+    assert net.choice_dim == _V08_CHOICE_DIM
+    assert net.choice_dim != encode.choice_feature_dim()
     assert net.state_dim == _V08_STATE_DIM
     assert net.state_dim != encode.state_size()
 
@@ -226,11 +340,7 @@ def test_policy_value_net_v08_encode_state_uses_frozen_encoder():
     import wingspan.decisions as decisions_module
 
     eng, *_ = engine.Engine.create(seed=11)
-    net = v0_8.PolicyValueNetV08(
-        arch=_SMALL,
-        state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
-    )
+    net = v0_8.PolicyValueNetV08(arch=_SMALL)
     decision: decisions_module.Decision[decisions_module.Choice] | None = None
     enc = net.encode_state(eng.state, decision)  # type: ignore[arg-type]
     assert enc.shape == (_V08_STATE_DIM,)
@@ -238,12 +348,8 @@ def test_policy_value_net_v08_encode_state_uses_frozen_encoder():
 
 
 def test_policy_value_net_v08_forward_pass_finite():
-    """A batch of synthetic 1155-dim state inputs produces finite logits and value."""
-    net = v0_8.PolicyValueNetV08(
-        arch=_SMALL,
-        state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
-    )
+    """A batch of frozen-dim inputs (state 1155, choice 395) produces finite logits and value."""
+    net = v0_8.PolicyValueNetV08(arch=_SMALL)
     net.eval()
     batch_size, n_choices = 2, 4
     state_vec = torch.zeros(batch_size, net.state_dim)
@@ -258,6 +364,24 @@ def test_policy_value_net_v08_forward_pass_finite():
     assert torch.isfinite(value).all()
 
 
+def test_policy_value_net_v08_encode_choices_matches_shim():
+    """``PolicyValueNetV08.encode_choices`` produces the same rows as
+    ``encode_choices_v08``."""
+    eng, birds, *_ = engine.Engine.create(seed=3)
+    bird = next(b for b in birds if b.habitats)
+    decision = decisions.PlayBirdDecision(
+        player_id=0,
+        prompt="play",
+        choices=[
+            decisions.PlayBirdChoice(label="x", bird=bird, habitat=bird.habitats[0])
+        ],
+    )
+    net = v0_8.PolicyValueNetV08(arch=_SMALL)
+    net_rows = net.encode_choices(decision, eng.state)  # type: ignore[arg-type]
+    shim_rows = v0_8.encode_choices_v08(decision, eng.state, _SPEC)
+    assert np.array_equal(net_rows, shim_rows)
+
+
 # ---------------------------------------------------------------------------
 # V06/V07 also produce 1155-dim state via delegation
 
@@ -267,11 +391,7 @@ def test_v06_encode_state_is_1155_dim():
     import wingspan.decisions as decisions_module
 
     eng, *_ = engine.Engine.create(seed=99)
-    net = v0_6.PolicyValueNetV06(
-        arch=_SMALL,
-        state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
-    )
+    net = v0_6.PolicyValueNetV06(arch=_SMALL)
     decision: decisions_module.Decision[decisions_module.Choice] | None = None
     enc = net.encode_state(eng.state, decision)  # type: ignore[arg-type]
     assert enc.shape == (_V08_STATE_DIM,)
@@ -282,11 +402,7 @@ def test_v07_encode_state_is_1155_dim():
     import wingspan.decisions as decisions_module
 
     eng, *_ = engine.Engine.create(seed=99)
-    net = v0_7.PolicyValueNetV07(
-        arch=_SMALL,
-        state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
-    )
+    net = v0_7.PolicyValueNetV07(arch=_SMALL)
     decision: decisions_module.Decision[decisions_module.Choice] | None = None
     enc = net.encode_state(eng.state, decision)  # type: ignore[arg-type]
     assert enc.shape == (_V08_STATE_DIM,)
@@ -297,11 +413,11 @@ def test_v07_encode_state_is_1155_dim():
 
 
 def test_from_model_config_routes_0_8_to_v08():
-    """A v0.8 descriptor reconstructs as ``PolicyValueNetV08``."""
+    """A v0.8 descriptor reconstructs as ``PolicyValueNetV08`` with frozen dims."""
     v08_config = runmeta.ModelConfig(
         run_name="routing-v08",
         state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
+        choice_dim=_V08_CHOICE_DIM,
         family_order=("main_action",),
         architecture=_SMALL,
         include_setup=False,
@@ -310,6 +426,7 @@ def test_from_model_config_routes_0_8_to_v08():
     net = model.PolicyValueNet.from_model_config(v08_config)
     assert isinstance(net, v0_8.PolicyValueNetV08)
     assert net.state_dim == _V08_STATE_DIM
+    assert net.choice_dim == _V08_CHOICE_DIM
 
 
 def test_from_model_config_routes_0_7_to_v07():
@@ -317,7 +434,7 @@ def test_from_model_config_routes_0_7_to_v07():
     v07_config = runmeta.ModelConfig(
         run_name="routing-v07",
         state_dim=v0_8.state_feature_dim_v08(),
-        choice_dim=encode.choice_feature_dim(),
+        choice_dim=_V08_CHOICE_DIM,
         family_order=("main_action",),
         architecture=_SMALL,
         include_setup=False,
@@ -328,8 +445,8 @@ def test_from_model_config_routes_0_7_to_v07():
     assert not isinstance(net, v0_8.PolicyValueNetV08)
 
 
-def test_from_model_config_routes_live_to_base():
-    """A current-version descriptor reconstructs as the live ``PolicyValueNet``."""
+def test_from_model_config_routes_live_to_base_net():
+    """A current-version (0.9+) descriptor reconstructs as the live ``PolicyValueNet``."""
     live_config = runmeta.ModelConfig(
         run_name="routing-live",
         state_dim=encode.state_size(),

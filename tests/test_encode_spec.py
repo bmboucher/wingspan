@@ -53,13 +53,17 @@ def test_choice_dim_differs_by_the_trailing_setup_stripes():
 
 
 def test_card_region_offsets_are_spec_invariant():
-    # The board-index block sits immediately before the candidate bird-index
-    # column, and both precede the trailing conditional setup stripes, so the
-    # model's slice offsets never move with the spec (the kept_multihot region
-    # is by construction the include_setup row's final columns).
+    # board_hab + board_col sit immediately before bird_id, and both precede
+    # the trailing conditional setup stripes, so the model's slice offsets
+    # never move with the spec (the kept_multihot region is by construction
+    # the include_setup row's final columns).
     assert (
-        encode.CHOICE_BOARD_IDX_OFFSET + encode.CHOICE_BOARD_IDX_SLOTS
+        encode.CHOICE_BOARD_COL_OFFSET + encode.CHOICE_BOARD_COL_DIM
         == encode.CHOICE_BIRD_ID_OFFSET
+    )
+    assert (
+        encode.CHOICE_BOARD_HAB_OFFSET + encode.CHOICE_BOARD_HAB_DIM
+        == encode.CHOICE_BOARD_COL_OFFSET
     )
     assert (
         encode.CHOICE_KEPT_MULTIHOT_OFFSET + encode.CHOICE_KEPT_MULTIHOT_DIM

@@ -651,7 +651,8 @@ def test_hand_summary_is_size_habitat_counts_and_food_multihot():
 
 def test_board_target_lay_vs_pay_flag_and_card_index():
     """A lay-egg board target sets lay_eggs on the slot; a remove-egg target
-    sets pay_eggs; both write the occupant into the board-index block."""
+    sets pay_eggs; both mark the target slot in board_hab/board_col and write
+    the occupant bird into the bird_id column."""
     eng, birds, *_ = engine.Engine.create(seed=5)
     eng.state.players[0].board[cards.Habitat.GRASSLAND] = [
         state.PlayedBird(bird=birds[0])
@@ -670,7 +671,16 @@ def test_board_target_lay_vs_pay_flag_and_card_index():
     assert lay_row[base + layout._BT_PAY_EGGS] == 0.0
     assert rem_row[base + layout._BT_PAY_EGGS] == 1.0
     assert rem_row[base + layout._BT_LAY_EGGS] == 0.0
-    assert lay_row[layout._OFF_BOARD_IDX + slot_index] == cards.bird_index(birds[0]) + 1
+    # Occupant lands in bird_id (not board_idx block — that's gone).
+    assert lay_row[layout._OFF_BIRD_ID] == cards.bird_index(birds[0]) + 1
+    # Target location marked in board_hab (GRASSLAND=0) and board_col (slot=0).
+    assert (
+        lay_row[
+            layout._OFF_BOARD_HAB + cards.ALL_HABITATS.index(cards.Habitat.GRASSLAND)
+        ]
+        == 1.0
+    )
+    assert lay_row[layout._OFF_BOARD_COL + 0] == 1.0
 
 
 # ---------------------------------------------------------------------------

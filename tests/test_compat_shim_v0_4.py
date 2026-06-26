@@ -103,16 +103,21 @@ def test_state_feature_dim_v04_gap_is_playability_stripes():
 # Frozen choice dims
 
 
-def test_choice_feature_dim_v04_is_180_narrower():
-    """The frozen pre-0.6 choice row is exactly 180 dims narrower than live."""
-    assert (
-        encode.choice_feature_dim() - v0_4.choice_feature_dim_v04()
-        == _BECOMES_PLAYABLE_DIM
+def test_choice_feature_dim_v04_is_narrower_than_live():
+    """The frozen pre-0.6 choice row is narrower than live by the missing
+    ``becomes_playable`` stripe (−180) and narrower board encoding (−67 net
+    board_idx savings vs board_hab/col addition), partially offset by the
+    pre-0.9 board_target being 60 dims wider (8 scalars/slot vs 4).
+
+    Net: live(328) − v04(215) = 113 = BOARD_DELTA(67) − becomes_playable(180) + 226 = 113.
+    Easier to pin as: v04_dim = live − becomes_playable_dim + board_delta."""
+    from wingspan.compat import v0_8
+
+    board_delta = v0_8._BOARD_DELTA
+    expected_v04_dim = (
+        encode.choice_feature_dim() + board_delta - layout.CHOICE_BECOMES_PLAYABLE_DIM
     )
-    assert (
-        encode.choice_feature_dim() - v0_4.choice_feature_dim_v04()
-        == layout.CHOICE_BECOMES_PLAYABLE_DIM
-    )
+    assert v0_4.choice_feature_dim_v04() == expected_v04_dim
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +218,14 @@ def test_encode_state_v04_hand_multihot_matches_live():
 # encode_choices_v04 output shape
 
 
-def test_encode_choices_v04_is_180_dims_narrower_per_row():
-    """Each choice row from ``encode_choices_v04`` is 180 dims narrower than live."""
+def test_encode_choices_v04_is_narrower_per_row():
+    """Each choice row from ``encode_choices_v04`` is narrower than live by
+    ``BECOMES_PLAYABLE_DIM − BOARD_DELTA`` (180 − 67 = 113 dims).
+
+    Pre-0.6 rows omit the becomes_playable stripe (−180) but carry the wider
+    pre-0.9 board geometry (+BOARD_DELTA = +67), so the net difference is 113."""
     import wingspan.decisions as decisions_module
+    from wingspan.compat import v0_8
 
     eng, *_ = engine.Engine.create(seed=9)
     decision = decisions_module.MainActionDecision(
@@ -230,7 +240,8 @@ def test_encode_choices_v04_is_180_dims_narrower_per_row():
     live_rows = encode.encode_choices(decision, eng.state)
     v04_rows = v0_4.encode_choices_v04(decision, eng.state)
     assert live_rows.shape[0] == v04_rows.shape[0]  # same number of choices
-    assert live_rows.shape[1] - v04_rows.shape[1] == _BECOMES_PLAYABLE_DIM
+    expected_diff = _BECOMES_PLAYABLE_DIM - v0_8._BOARD_DELTA
+    assert live_rows.shape[1] - v04_rows.shape[1] == expected_diff
 
 
 # ---------------------------------------------------------------------------

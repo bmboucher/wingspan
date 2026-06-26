@@ -406,7 +406,7 @@ def _featurize_play_bird(
     player = state.players[decision.player_id]
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
-    _fill_landing_slot(feat, player, choice.bird, choice.habitat)
+    _fill_landing_slot(feat, player, choice.habitat)
     _fill_bonus_delta(feat, player, choice.bird, play_habitat=choice.habitat)
     _fill_goal_delta(feat, decision.player_id, choice.bird, state)
 
@@ -430,9 +430,7 @@ def _featurize_food_payment(
     _fill_payment(feat, choice.payment)
     if isinstance(decision, decisions.PayBirdFoodDecision):
         _fill_bird_identity(feat, decision.bird)
-        _fill_landing_slot(
-            feat, state.players[decision.player_id], decision.bird, decision.habitat
-        )
+        _fill_landing_slot(feat, state.players[decision.player_id], decision.habitat)
 
 
 def _featurize_played_bird(
@@ -447,9 +445,14 @@ def _featurize_played_bird(
     # The candidate is identified by its bird-identity stripe (embedded); the
     # board block is filled for context with no add/take flag (this is not an egg
     # decision). The bird is on the deciding player's own board in the core set.
+    # board_hab/board_col mark the bird's current slot (new signal vs v0.8).
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.played_bird.bird)
-    _fill_board_slots(feat, state.players[decision.player_id], None, None, False, False)
+    player = state.players[decision.player_id]
+    _fill_board_slots(feat, player, None, None, False, False)
+    habitat, col = _find_played_bird_location(player, choice.played_bird)
+    if habitat is not None and col is not None:
+        _fill_board_location(feat, habitat, col)
 
 
 def _featurize_habitat(
@@ -476,9 +479,9 @@ def _featurize_habitat(
     moving_bird = decision.moving_bird
     if choice.habitat == decision.from_habitat:
         current_slot = len(player.board[choice.habitat]) - 1
-        _fill_board_index(feat, moving_bird.bird, choice.habitat, current_slot)
+        _fill_board_location(feat, choice.habitat, current_slot)
     else:
-        _fill_landing_slot(feat, player, moving_bird.bird, choice.habitat)
+        _fill_landing_slot(feat, player, choice.habitat)
     _fill_bird_identity(feat, moving_bird.bird)
     _fill_goal_delta_for_move(
         feat,
@@ -524,8 +527,8 @@ def _featurize_board_target(
 ) -> None:
     # A board-slot target: fill the whole 15-slot board block from the deciding
     # player's board and flag the targeted slot as laying an egg (lay-egg decision)
-    # or paying an egg (remove-egg decision). The occupying birds ride the parallel
-    # card-index block the model embeds.
+    # or paying an egg (remove-egg decision). The occupying bird of the targeted
+    # slot rides the bird_id column; board_hab/board_col mark its location.
     feat[layout._OFF_KIND + layout._KIND_BOARD_TARGET] = 1.0
     is_lay = isinstance(decision, decisions.LayEggDecision)
     is_pay = isinstance(decision, decisions.RemoveEggDecision)
@@ -538,13 +541,20 @@ def _featurize_board_target(
         is_lay,
         is_pay,
     )
+    _fill_board_location(feat, choice.habitat, choice.slot)
+
+    # The occupant of the targeted slot rides bird_id (so the model can look up
+    # the target bird's attributes without re-reading the full board block).
+    row = player.board[choice.habitat]
+    if 0 <= choice.slot < len(row):
+        _fill_bird_identity(feat, row[choice.slot].bird)
+
     # The egg event's consequences for this specific target: every egg
     # lay / removal in the engine lands on the deciding player's own board, so
     # the targeted slot fully determines the round-goal and bonus-card deltas
     # (habitat totals, nest totals, has-eggs crossings, the egg-set minimum,
     # and the egg-counting dynamic bonus thresholds).
     if is_lay or is_pay:
-        row = player.board[choice.habitat]
         if 0 <= choice.slot < len(row):  # the engine only offers occupied slots
             played_bird = row[choice.slot]
             delta_eggs = 1 if is_lay else -1
@@ -727,28 +737,13 @@ def _fill_becomes_playable(feat: np.ndarray, birds: list[cards.Bird]) -> None:
         feat[layout.CHOICE_BECOMES_PLAYABLE_OFFSET + cards.bird_index(bird)] = 1.0
 
 
-def _fill_board_index(
-    feat: np.ndarray, bird: cards.Bird, habitat: cards.Habitat, slot: int
-) -> None:
-    """Write ``bird``'s card index at one positional board slot of the
-    board-index block (``hab_idx * ROW_SLOTS + slot``, the same indexing as
-    ``_fill_board_slots``). The single marked slot is how placement rows carry
-    their resulting location; every other board-index column stays zero (the
-    full current board already rides the state vector)."""
-    for hab_idx, candidate in enumerate(cards.ALL_HABITATS):
-        if candidate == habitat:
-            slot_index = hab_idx * state.ROW_SLOTS + slot
-            feat[layout._OFF_BOARD_IDX + slot_index] = cards.bird_index(bird) + 1
-            break
-
-
 def _fill_landing_slot(
-    feat: np.ndarray, player: state.Player, bird: cards.Bird, habitat: cards.Habitat
+    feat: np.ndarray, player: state.Player, habitat: cards.Habitat
 ) -> None:
-    """Mark where ``bird`` would land if placed in ``habitat`` now: its card
-    index at the row's next free slot (rows fill left to right, and legality /
-    the engine's placement order guarantee the row isn't full)."""
-    _fill_board_index(feat, bird, habitat, len(player.board[habitat]))
+    """Mark the landing slot for a placement in ``habitat``: set board_hab and
+    board_col one-hots at the row's next free column (rows fill left to right,
+    and legality / the engine's placement order guarantee the row isn't full)."""
+    _fill_board_location(feat, habitat, len(player.board[habitat]))
 
 
 def _fill_bonus_identity(feat: np.ndarray, bonus_card: cards.BonusCard) -> None:
@@ -1104,12 +1099,11 @@ def _fill_board_slots(
     is_lay: bool,
     is_pay: bool,
 ) -> None:
-    """Fill the board_target stripe: per board slot, 8 scalars (lay_eggs,
-    pay_eggs, cached food x5 in ALL_FOODS order, tucked) plus a parallel
-    integer card index the model embeds. Slot order is positional
-    (ALL_HABITATS x ROW_SLOTS), matching the state board stripe and card-index
-    block. The targeted slot (``target_habitat``/``target_slot``) is flagged
-    lay or pay; empty slots and untargeted slots leave their flags zero."""
+    """Fill the board_target stripe: per board slot, 4 scalars (lay_eggs,
+    pay_eggs, cached_total, tucked). Slot order is positional (ALL_HABITATS x
+    ROW_SLOTS), matching the state board stripe. The targeted slot
+    (``target_habitat``/``target_slot``) is flagged lay or pay; empty slots
+    and untargeted slots leave their flags zero."""
     for hab_idx, habitat in enumerate(cards.ALL_HABITATS):
         row = player.board[habitat]
         for slot in range(state.ROW_SLOTS):
@@ -1127,11 +1121,35 @@ def _fill_board_slots(
             if slot >= len(row):
                 continue
             pb = row[slot]
-            for i, food in enumerate(cards.ALL_FOODS):
-                feat[scalar_base + layout._BT_CACHED + i] = (
-                    pb.cached_food[food] / layout._CACHED_FOOD_SCALE
-                )
+            feat[scalar_base + layout._BT_CACHED_TOTAL] = (
+                pb.cached_food.total() / layout._CACHED_FOOD_SCALE
+            )
             feat[scalar_base + layout._BT_TUCKED] = (
                 pb.tucked_cards / layout._TUCKED_SCALE
             )
-            feat[layout._OFF_BOARD_IDX + slot_index] = cards.bird_index(pb.bird) + 1
+
+
+def _fill_board_location(feat: np.ndarray, habitat: cards.Habitat, col: int) -> None:
+    """Set the board_hab and board_col one-hots for the single slot relevant to
+    this choice (the landing slot, targeted slot, or current slot of the bird)."""
+    for hab_idx, candidate in enumerate(cards.ALL_HABITATS):
+        if candidate == habitat:
+            feat[layout._OFF_BOARD_HAB + hab_idx] = 1.0
+            break
+    if 0 <= col < state.ROW_SLOTS:
+        feat[layout._OFF_BOARD_COL + col] = 1.0
+
+
+def _find_played_bird_location(
+    player: state.Player, played_bird: state.PlayedBird
+) -> tuple[cards.Habitat | None, int | None]:
+    """Find the habitat and column of ``played_bird`` on ``player``'s board.
+
+    Returns ``(habitat, slot_index)`` or ``(None, None)`` when not found (should
+    not occur in legal play — included for defensive correctness)."""
+    for habitat in cards.ALL_HABITATS:
+        row = player.board[habitat]
+        for slot, pb in enumerate(row):
+            if pb is played_bird:
+                return habitat, slot
+    return None, None

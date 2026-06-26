@@ -431,21 +431,27 @@ def test_misc_scalars_v03_one_hot_structure():
 
 def test_choice_layout_routes_to_the_live_registry():
     """``choice_layout_for`` on a 0.2 descriptor uses the live stripe table
-    (no habitat stripe) with the pre-0.6 choice-encoder input width (no
-    becomes_playable embedding)."""
+    (no habitat stripe) with the v0.8 frozen choice-encoder input width (board_idx
+    embedded, no becomes_playable).
+
+    v0.2 artifacts predate both the v0.6 becomes_playable stripe and the v0.9
+    board simplification. ``choice_input_dim_for`` routes through
+    ``v0_8.choice_input_dim_v08(has_becomes_playable=False)``."""
+    from wingspan.compat import v0_8
+
     descriptor = runmeta.read_model_config(str(FIXTURE_DIR))
     layout = runmeta.choice_layout_for(descriptor)
     names = [stripe.name for stripe in layout.stripes]
     assert "habitat" not in names
-    # The pre-0.6 encoder width omits the becomes_playable embedding.
-    expected_input = encode.choice_input_dim(
+    # The pre-0.9 encoder includes the board-index embedding (15 slots).
+    expected_input = v0_8.choice_input_dim_v08(
         descriptor.choice_dim,
         descriptor.architecture.card_embed_dim,
         include_setup=descriptor.include_setup,
         has_becomes_playable=False,
     )
     assert runmeta.choice_input_dim_for(descriptor) == expected_input
-    assert runmeta.choice_extra_for(descriptor) == encode.choice_passthrough_dim(
+    assert runmeta.choice_extra_for(descriptor) == v0_8.choice_passthrough_dim_v08(
         descriptor.choice_dim,
         include_setup=descriptor.include_setup,
         has_becomes_playable=False,

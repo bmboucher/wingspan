@@ -77,7 +77,6 @@ class ChoiceEmbedOffsets(typing.NamedTuple):
     ``becomes_playable`` is ``None`` for pre-0.6 eras (the stripe did not exist);
     ``kept_multihot`` is ``None`` when ``include_setup`` is ``False``."""
 
-    board_idx: int
     bird_id: int
     becomes_playable: int | None
     kept_multihot: int | None
@@ -171,8 +170,9 @@ class PolicyValueNet(nn.Module):
         choice stripe); 0.6 → ``v0_6.PolicyValueNetV06`` (frozen 224-wide card
         encoder, pre-or_cost, eggs-included food encoding); 0.7 →
         ``v0_7.PolicyValueNetV07`` (eggs-included food ``becomes_playable``);
-        current era → the live class. Used by every construction seam that must
-        honor an artifact's era."""
+        0.8 → ``v0_8.PolicyValueNetV08`` (frozen board_target 120 + board_idx 15
+        choice geometry, pre-0.9 collapse); current era → the live class. Used
+        by every construction seam that must honor an artifact's era."""
         from wingspan.compat import (  # local: compat subclasses this net
             v0_0,
             v0_1,
@@ -198,7 +198,7 @@ class PolicyValueNet(nn.Module):
             return v0_6.PolicyValueNetV06
         if v0_7.uses_v0_7_becomes_playable_encoding(artifact_version):
             return v0_7.PolicyValueNetV07
-        if v0_8.uses_pre_v09_state_encoding(artifact_version):
+        if v0_8.uses_v0_8_choice_encoding(artifact_version):
             return v0_8.PolicyValueNetV08
         return PolicyValueNet
 
@@ -550,7 +550,6 @@ class PolicyValueNet(nn.Module):
         Returns offsets for the live encoding. Compat subclasses override to return
         their era's frozen offsets (``becomes_playable=None`` for pre-0.6 eras)."""
         return ChoiceEmbedOffsets(
-            board_idx=encode.CHOICE_BOARD_IDX_OFFSET,
             bird_id=encode.CHOICE_BIRD_ID_OFFSET,
             becomes_playable=encode.CHOICE_BECOMES_PLAYABLE_OFFSET,
             kept_multihot=(
@@ -844,30 +843,24 @@ class PolicyValueNet(nn.Module):
         self, choices: torch.Tensor, card_table: torch.Tensor
     ) -> torch.Tensor:
         """Turn the per-choice features ``(B, K, choice_dim)`` into the choice
-        encoder's input by mapping the candidate's card regions through the
-        shared card table and concatenating them with the remaining features.
+        encoder's input by mapping the candidate's card index through the shared
+        card table and concatenating it with the remaining features.
 
-        The 15-slot board-index block sits immediately before the candidate
-        bird-index column; both become shared-embedding lookups. The
-        ``becomes_playable`` multi-hot (0.6+) and the trailing ``kept_multihot``
-        stripe (when ``include_setup``) are each summed through the card table
-        into one more embedding. Everything else passes through. Pre-0.6 compat
-        shims return ``becomes_playable=None`` from ``_choice_embed_offsets``
-        and take the legacy code path."""
+        The candidate bird-index column is replaced by a ``card_embed_dim``
+        embedding; the ``board_hab``/``board_col`` one-hots and all other scalars
+        pass through unchanged. The ``becomes_playable`` multi-hot (0.9+/0.6+)
+        and the trailing ``kept_multihot`` (when ``include_setup``) are each
+        summed through the card table into one more embedding. Pre-0.6 compat
+        shims return ``becomes_playable=None`` and take the legacy code path."""
         cho = self._choice_embed_offsets()
-        off_board = cho.board_idx
         off_bird = cho.bird_id
         end_bird = off_bird + encode.CHOICE_BIRD_ID_DIM
 
-        board_idx = (
-            choices[..., off_board:off_bird].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
-        )
         cand_idx = (
             choices[..., off_bird].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
         )  # (B, K)
         cand_mask = (cand_idx > 0).unsqueeze(-1).to(card_table.dtype)
         cand_emb = card_table[cand_idx] * cand_mask
-        board_emb = card_table[board_idx].reshape(*board_idx.shape[:-1], -1)
 
         off_becomes = cho.becomes_playable  # None for pre-0.6
         off_kept = cho.kept_multihot  # None when not include_setup
@@ -875,41 +868,35 @@ class PolicyValueNet(nn.Module):
         if off_becomes is not None and off_kept is not None:
             # 0.6+, include_setup: becomes_playable then setup_agg then kept_multihot.
             off_setup = off_becomes + encode.CHOICE_BECOMES_PLAYABLE_DIM
-            becomes_mh = choices[..., off_becomes:off_setup]
-            becomes_emb = becomes_mh @ card_table[1:]
-            kept_mh = choices[..., off_kept:]
-            kept_emb = kept_mh @ card_table[1:]
+            becomes_emb = choices[..., off_becomes:off_setup] @ card_table[1:]
+            kept_emb = choices[..., off_kept:] @ card_table[1:]
             rest = torch.cat(
                 [
-                    choices[..., :off_board],
+                    choices[..., :off_bird],
                     choices[..., end_bird:off_becomes],
                     choices[..., off_setup:off_kept],
                 ],
                 dim=-1,
             )
-            return torch.cat([rest, cand_emb, board_emb, becomes_emb, kept_emb], dim=-1)
+            return torch.cat([rest, cand_emb, becomes_emb, kept_emb], dim=-1)
         elif off_becomes is not None:
             # 0.6+, no setup: becomes_playable is the last stripe.
-            becomes_mh = choices[..., off_becomes:]
-            becomes_emb = becomes_mh @ card_table[1:]
+            becomes_emb = choices[..., off_becomes:] @ card_table[1:]
             rest = torch.cat(
-                [choices[..., :off_board], choices[..., end_bird:off_becomes]], dim=-1
+                [choices[..., :off_bird], choices[..., end_bird:off_becomes]], dim=-1
             )
-            return torch.cat([rest, cand_emb, board_emb, becomes_emb], dim=-1)
+            return torch.cat([rest, cand_emb, becomes_emb], dim=-1)
         elif off_kept is not None:
             # Pre-0.6, include_setup: no becomes_playable stripe.
-            kept_mh = choices[..., off_kept:]
-            kept_emb = kept_mh @ card_table[1:]
+            kept_emb = choices[..., off_kept:] @ card_table[1:]
             rest = torch.cat(
-                [choices[..., :off_board], choices[..., end_bird:off_kept]], dim=-1
+                [choices[..., :off_bird], choices[..., end_bird:off_kept]], dim=-1
             )
-            return torch.cat([rest, cand_emb, board_emb, kept_emb], dim=-1)
+            return torch.cat([rest, cand_emb, kept_emb], dim=-1)
         else:
             # Pre-0.6, no setup: simplest case.
-            rest = torch.cat(
-                [choices[..., :off_board], choices[..., end_bird:]], dim=-1
-            )
-            return torch.cat([rest, cand_emb, board_emb], dim=-1)
+            rest = torch.cat([choices[..., :off_bird], choices[..., end_bird:]], dim=-1)
+            return torch.cat([rest, cand_emb], dim=-1)
 
 
 ###### MODULE-LEVEL HELPERS ######

@@ -109,7 +109,8 @@ _SHARED_STRIPE_OFFSETS: dict[str, int] = {
     "kind": _OFF_KIND,
     "gain_food": _OFF_GAIN_FOOD,
     "pay_food": _OFF_PAY,
-    "board_target": _OFF_BOARD,
+    # board_target is NOT shared — its width changed in v0.9 (120→60); see
+    # _frozen_board_target_stripe() for the frozen descriptor.
     "main_action": _OFF_MAIN_ACTION,
     "special": _OFF_SPECIAL,
     "exchange": _OFF_EXCHANGE,
@@ -194,7 +195,9 @@ def encode_choices(
     copies of the live encoding; the reshaped stripes are regenerated from the
     decision itself.
     """
-    live_rows = encode.encode_choices(decision, game_state, spec)
+    from wingspan.compat import v0_8 as _v0_8  # local: avoids top-level circular import
+
+    live_rows = _v0_8.encode_choices_v08(decision, game_state, spec)
     rows = np.zeros((live_rows.shape[0], choice_feature_dim(spec)), dtype=np.float32)
     _copy_shared_blocks(rows, live_rows, spec)
     _rebuild_bird_identity(rows, live_rows, spec)
@@ -288,69 +291,89 @@ class PolicyValueNetV00(v0_1.PolicyValueNetV01):
 def _assert_live_layout_contract() -> None:
     """Import-time pins for the block-copy invariants the transform relies on.
 
-    The transform's input side reads the live offsets, so a future live-layout
-    reshape that breaks a contiguity or width assumption fails loudly here (and
-    in the compat fixture tests) instead of silently mis-slicing — extending
-    this shim is then that change's job."""
-    # kind + gain_food open the row in both eras; the live row goes straight to
+    Since v0.9 the input to the transform is a v0.8 row (from
+    ``v0_8.encode_choices_v08``), not a live row. These assertions verify the
+    v0.8 frozen-row structure (via ``v0_8`` constants) plus the few live-layout
+    values the transform still reads (kind/gain_food prefix offsets, setup/kept
+    dims used in ``_rebuild_bird_identity`` to match against the v0.0 row's own
+    stripe widths). A future change that breaks any of these assumptions fails
+    loudly here instead of silently mis-slicing."""
+    from wingspan.compat import v0_8 as v08_module  # local: avoids top-level cycle
+
+    # kind + gain_food open the row in both eras; the v0.8 row goes straight to
     # pay_food where v0.0 interposed the habitat stripe.
     assert layout._OFF_KIND == _OFF_KIND == 0
     assert layout._OFF_GAIN_FOOD == _OFF_GAIN_FOOD
     assert layout._OFF_PAY == _OFF_HAB
     # pay_food -> board_target -> main_action -> special -> exchange ->
-    # board_idx is one contiguous run of identical width in both eras.
-    assert layout._OFF_BOARD_IDX - layout._OFF_PAY == _OFF_BOARD_IDX - _OFF_PAY
-    assert layout._OFF_BIRD_ID - layout._OFF_BOARD_IDX == _BOARD_IDX_SLOTS
-    # The live candidate column is a single index directly before the bonus
-    # tail (bonus_id through bonus_value), one contiguous block of identical
-    # width in both eras. The becomes_playable stripe was added AFTER bonus_value
-    # in v0.6, growing _CHOICE_BASE_DIM by 180 — use CHOICE_BECOMES_PLAYABLE_OFFSET
-    # as the boundary so this assertion does not include the new stripe.
+    # board_idx is one contiguous run of identical width in v0.0 and v0.8.
+    assert v08_module._OFF_BOARD_IDX_V08 - layout._OFF_PAY == _OFF_BOARD_IDX - _OFF_PAY
+    assert (
+        v08_module._OFF_BIRD_ID_V08 - v08_module._OFF_BOARD_IDX_V08 == _BOARD_IDX_SLOTS
+    )
+    # The v0.8 candidate column is a single index directly before the bonus
+    # tail. bonus_id..bonus_value is a block of identical width in v0.0 and v0.8.
+    # becomes_playable was added in v0.6 AFTER bonus_value — stop there.
     assert layout._CHOICE_BIRD_ID_DIM == 1
-    assert layout._OFF_BONUS_ID == layout._OFF_BIRD_ID + 1
-    assert layout.CHOICE_BECOMES_PLAYABLE_OFFSET - layout._OFF_BONUS_ID == (
+    assert v08_module._OFF_BONUS_ID_V08 == v08_module._OFF_BIRD_ID_V08 + 1
+    assert v08_module._OFF_BECOMES_PLAYABLE_V08 - v08_module._OFF_BONUS_ID_V08 == (
         _CHOICE_BASE_DIM - _OFF_BONUS_ID
     )
-    # Trailing conditional stripes: setup_agg, then the kept multi-hot sized
-    # like the frozen bird stripe it maps back onto.
+    # Trailing conditional stripes: setup_agg then kept multi-hot. The kept
+    # multi-hot in v0.8 rows must be sized like the v0.0 bird stripe it maps onto.
     assert layout._SETUP_DIM == _SETUP_DIM
-    assert layout._OFF_KEPT_MULTIHOT == layout._OFF_SETUP + layout._SETUP_DIM
-    assert layout._KEPT_MULTIHOT_DIM == _BIRD_ID_DIM
+    assert (
+        v08_module._OFF_KEPT_MULTIHOT_V08
+        == v08_module._OFF_SETUP_V08 + layout._SETUP_DIM
+    )
+    assert v08_module._KEPT_MULTIHOT_DIM_V08 == _BIRD_ID_DIM
 
 
 def _copy_shared_blocks(
-    rows: np.ndarray, live_rows: np.ndarray, spec: encode.EncodingSpec
+    rows: np.ndarray, v08_rows: np.ndarray, spec: encode.EncodingSpec
 ) -> None:
-    """Copy every stripe whose contents are unchanged between the eras:
-    kind + gain_food, the pay_food..exchange run, the board-index block, the
-    bonus_id..bonus_value tail, and (``include_setup``) the setup_agg stripe."""
-    rows[:, _OFF_KIND:_OFF_HAB] = live_rows[:, layout._OFF_KIND : layout._OFF_PAY]
-    rows[:, _OFF_PAY:_OFF_BOARD_IDX] = live_rows[
-        :, layout._OFF_PAY : layout._OFF_BOARD_IDX
+    """Copy every stripe whose contents are unchanged between v0.0 and v0.8.
+
+    The source is a v0.8 row (395 dims); we read from frozen v0.8 offsets.
+    Stripes copied: kind + gain_food (prefix), pay_food..exchange run,
+    board-index block, bonus_id..bonus_value tail, and (``include_setup``) the
+    setup_agg stripe. The v0.0 ``becomes_playable`` stripe is absent, so we
+    stop before the frozen v0.8 becomes_playable position."""
+    from wingspan.compat import v0_8 as v08_module  # local: avoids top-level cycle
+
+    # kind + gain_food prefix: offsets 0..13 are identical across all eras.
+    rows[:, _OFF_KIND:_OFF_HAB] = v08_rows[:, layout._OFF_KIND : layout._OFF_PAY]
+    # pay_food..exchange run (13..157 in v0.8) then board-index block (157..172).
+    rows[:, _OFF_PAY:_OFF_BOARD_IDX] = v08_rows[
+        :, layout._OFF_PAY : v08_module._OFF_BOARD_IDX_V08
     ]
-    rows[:, _OFF_BOARD_IDX:_OFF_BIRD_ID] = live_rows[
-        :, layout._OFF_BOARD_IDX : layout._OFF_BIRD_ID
+    rows[:, _OFF_BOARD_IDX:_OFF_BIRD_ID] = v08_rows[
+        :, v08_module._OFF_BOARD_IDX_V08 : v08_module._OFF_BIRD_ID_V08
     ]
-    # Copy bonus_id through bonus_value; stop before the v0.6 becomes_playable
-    # stripe (layout.CHOICE_BECOMES_PLAYABLE_OFFSET) which the v0.0 row lacks.
-    rows[:, _OFF_BONUS_ID:_OFF_SETUP] = live_rows[
-        :, layout._OFF_BONUS_ID : layout.CHOICE_BECOMES_PLAYABLE_OFFSET
+    # Copy bonus_id through bonus_value; stop before the v0.8 becomes_playable
+    # stripe (v0.8 offset 215) which the v0.0 row also lacks.
+    rows[:, _OFF_BONUS_ID:_OFF_SETUP] = v08_rows[
+        :, v08_module._OFF_BONUS_ID_V08 : v08_module._OFF_BECOMES_PLAYABLE_V08
     ]
     if spec.include_setup:
-        rows[:, _OFF_SETUP : _OFF_SETUP + _SETUP_DIM] = live_rows[
-            :, layout._OFF_SETUP : layout._OFF_SETUP + layout._SETUP_DIM
+        rows[:, _OFF_SETUP : _OFF_SETUP + _SETUP_DIM] = v08_rows[
+            :, v08_module._OFF_SETUP_V08 : v08_module._OFF_SETUP_V08 + layout._SETUP_DIM
         ]
 
 
 def _rebuild_bird_identity(
-    rows: np.ndarray, live_rows: np.ndarray, spec: encode.EncodingSpec
+    rows: np.ndarray, v08_rows: np.ndarray, spec: encode.EncodingSpec
 ) -> None:
-    """Rebuild the v0.0 bird-identity stripe: the live single index column
-    scatters to its one-hot bit, and (``include_setup``) the live kept
-    multi-hot lands on the same stripe. The two sources are disjoint by
-    construction — a setup row's candidate column is zero, and a candidate
-    row's kept stripe is zero — so the addition never overlaps."""
-    candidate = live_rows[:, layout._OFF_BIRD_ID].astype(np.int64)
+    """Rebuild the v0.0 bird-identity stripe from a v0.8 source row.
+
+    The v0.8 single index column at ``_OFF_BIRD_ID_V08`` scatters to its one-hot
+    bit. (``include_setup``) the kept multi-hot at ``_OFF_KEPT_MULTIHOT_V08``
+    lands on the same stripe. The two sources are disjoint by construction —
+    a setup row's candidate column is zero, and a candidate row's kept stripe
+    is zero — so the addition never overlaps."""
+    from wingspan.compat import v0_8 as v08_module  # local: avoids top-level cycle
+
+    candidate = v08_rows[:, v08_module._OFF_BIRD_ID_V08].astype(np.int64)
     if int(candidate.max()) > _BIRD_ID_DIM:
         raise ValueError(
             "Choice candidate index outside the frozen v0.0 catalog "
@@ -360,10 +383,10 @@ def _rebuild_bird_identity(
     with_bird = np.nonzero(candidate)[0]
     rows[with_bird, _OFF_BIRD_ID + candidate[with_bird] - 1] = 1.0
     if spec.include_setup:
-        rows[:, _OFF_BIRD_ID:_OFF_BONUS_ID] += live_rows[
+        rows[:, _OFF_BIRD_ID:_OFF_BONUS_ID] += v08_rows[
             :,
-            layout._OFF_KEPT_MULTIHOT : layout._OFF_KEPT_MULTIHOT
-            + layout._KEPT_MULTIHOT_DIM,
+            v08_module._OFF_KEPT_MULTIHOT_V08 : v08_module._OFF_KEPT_MULTIHOT_V08
+            + v08_module._KEPT_MULTIHOT_DIM_V08,
         ]
 
 
@@ -418,7 +441,7 @@ def _raw_choice_stripes(spec: encode.EncodingSpec) -> descriptors.VectorLayout:
         shared_at("gain_food"),
         _habitat_stripe(),
         shared_at("pay_food"),
-        shared_at("board_target"),
+        _frozen_board_target_stripe(),
         shared_at("main_action"),
         shared_at("special"),
         shared_at("exchange"),
@@ -443,6 +466,60 @@ def _raw_choice_stripes(spec: encode.EncodingSpec) -> descriptors.VectorLayout:
     return descriptors.VectorLayout(
         total_size=choice_feature_dim(spec), stripes=tuple(assembled)
     )
+
+
+def _frozen_board_target_stripe() -> descriptors.StripeDescriptor:
+    """The v0.0/v0.8 board_target stripe: frozen 120-dim layout (8 scalars/slot).
+
+    The live board_target shrunk to 60 dims in v0.9 (cached-food collapsed to one
+    total per slot). v0.0 rows carry the original 8-scalar/slot format, so this
+    descriptor must not use the live registry entry."""
+    return descriptors.StripeDescriptor(
+        name="board_target",
+        description="Per-board-slot features for a board-target (lay/remove egg) choice.",
+        offset=_OFF_BOARD,
+        size=_BOARD_TARGET_DIM,  # 120 = 15 slots × 8 scalars
+        encoding="complex",
+        value_range="[0, ~1]",
+        notes=(
+            f"{_BOARD_IDX_SLOTS} board slots × 8 scalars each: lay_eggs[0], "
+            "pay_eggs[1], cached food per type[2..6] (÷6), tucked[7] (÷6). "
+            "Zero for non-board-target choices."
+        ),
+        sub_fields=_frozen_board_target_sub_fields(),
+    )
+
+
+def _frozen_board_target_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """8 sub-fields per slot for the frozen v0.8 board_target stripe."""
+    food_labels = [food.value for food in cards.ALL_FOODS]
+    slot_meta: list[tuple[str, str]] = [
+        ("lay_eggs", "Set when this choice lays an egg on this slot."),
+        ("pay_eggs", "Set when this choice removes an egg from this slot."),
+        *[(f"cached_{food}", f"Cached {food} count ÷6.") for food in food_labels],
+        ("tucked", "Tucked cards ÷6."),
+    ]
+    sub_fields: list[descriptors.SubFieldDescriptor] = []
+    slot_number = 0
+    for habitat in cards.ALL_HABITATS:
+        for col in range(5):  # frozen ROW_SLOTS=5
+            group = f"slot_{habitat.value}_{col}"
+            slot_base = slot_number * 8  # 8 scalars per slot (v0.8 format)
+            for dim_idx, (dim_name, dim_desc) in enumerate(slot_meta):
+                sub_fields.append(
+                    descriptors.SubFieldDescriptor(
+                        name=f"{habitat.value}_{col}.{dim_name}",
+                        description=dim_desc,
+                        relative_offset=slot_base + dim_idx,
+                        size=1,
+                        encoding="scalar",
+                        value_range="[0, ~1]",
+                        notes="",
+                        group=group,
+                    )
+                )
+            slot_number += 1
+    return tuple(sub_fields)
 
 
 def _habitat_stripe() -> descriptors.StripeDescriptor:

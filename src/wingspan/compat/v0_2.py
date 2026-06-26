@@ -47,11 +47,12 @@ Per the compatibility policy (``CLAUDE.md``), this shim lives until a MAJOR
 from __future__ import annotations
 
 import numpy as np
+import torch
 
-from wingspan import architecture, decisions, encode, state, version
+from wingspan import architecture, decisions, state, version
 from wingspan.encode import layout, state_encode
 from wingspan.encode.stripes import descriptors as stripe_descriptors
-from wingspan.model import core
+from wingspan.model import core, mlp
 
 MISC_SCALARS_CHANGED_IN = "0.3"
 """The artifact version whose misc-scalar reshape this module undoes."""
@@ -255,11 +256,19 @@ class PolicyValueNetV02(core.PolicyValueNet):
         decision: decisions.Decision[decisions.Choice],
         game_state: state.GameState,
     ) -> np.ndarray:
-        """Produce the pre-0.6 choice rows for ``decision`` — the live encoding
-        without the ``becomes_playable`` stripe (added in v0.6, absent from v0.2
-        checkpoints). The 215-dim format this net was trained on."""
-        return encode.encode_choices(
-            decision, game_state, self.spec, has_becomes_playable=False
+        """Produce the pre-0.6 / pre-0.9 choice rows for ``decision``.
+
+        Routes through v0.8's encoder with ``has_becomes_playable=False`` and
+        ``food_playable_ignores_eggs=False`` to reproduce the 215-dim format
+        (v0.8 board geometry, eggs-included semantics) these checkpoints expect."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
+        return v0_8.encode_choices_v08(
+            decision,
+            game_state,
+            self.spec,
+            has_becomes_playable=False,
+            food_playable_ignores_eggs=False,
         )
 
     def _state_embed_offsets(self) -> core.StateEmbedOffsets:
@@ -271,19 +280,49 @@ class PolicyValueNetV02(core.PolicyValueNet):
         return state_embed_offsets_v02()
 
     def _choice_embed_offsets(self) -> core.ChoiceEmbedOffsets:
-        """The frozen pre-0.6 choice embed offsets — no ``becomes_playable`` column.
+        """Frozen v0.8 choice embed offsets for pre-0.6 rows — no ``becomes_playable``.
 
-        The v0.2 choice row predates the ``becomes_playable`` stripe added in v0.6;
-        returning ``becomes_playable=None`` here keeps ``_build_choice_encoder``
-        from adding that embedding to the input width, matching the checkpoint's
-        actual first-linear shape."""
+        The v0.2 choice row predates the ``becomes_playable`` stripe added in v0.6
+        and uses v0.8 board geometry (pre-0.9). Returns frozen v0.8 offsets so
+        ``_embed_choices`` slices at the correct columns."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
         return core.ChoiceEmbedOffsets(
-            board_idx=layout.CHOICE_BOARD_IDX_OFFSET,
-            bird_id=layout.CHOICE_BIRD_ID_OFFSET,
-            becomes_playable=None,
-            kept_multihot=(
-                layout.CHOICE_KEPT_MULTIHOT_OFFSET if self.include_setup else None
+            bird_id=v0_8._OFF_BIRD_ID_V08,
+            becomes_playable=None,  # not present in pre-0.6 choice rows
+            kept_multihot=(v0_8._OFF_KEPT_MULTIHOT_V08 if self.include_setup else None),
+        )
+
+    def _embed_choices(
+        self, choices: torch.Tensor, card_table: torch.Tensor
+    ) -> torch.Tensor:
+        """Delegate to the frozen v0.8 board-bearing ``_embed_choices``.
+
+        v0.2 rows carry ``board_idx`` (15 embedded board slots) at the v0.8
+        offsets; the live board-free ``_embed_choices`` cannot process them."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
+        return v0_8.embed_choices_v08(self, choices, card_table)
+
+    def _build_choice_encoder(
+        self, choice_dim: int, arch: architecture.ModelArchitecture
+    ) -> None:
+        """Register ``choice_encoder`` at the v0.8 board-bearing input width
+        (no ``becomes_playable`` embedding — pre-0.6 rows omit that stripe)."""
+        from wingspan.compat import v0_8  # local: avoids import cycle
+
+        self.choice_encoder, _ = mlp.build_body(
+            v0_8.choice_input_dim_v08(
+                choice_dim,
+                arch.card_embed_dim,
+                include_setup=self.include_setup,
+                has_becomes_playable=False,
             ),
+            arch.choice_layers,
+            between_activation=arch.choice_between_activation_resolved,
+            final_activation=arch.choice_final_activation_resolved,
+            dropout=arch.dropout,
+            layernorm=arch.layernorm,
         )
 
     def _build_card_encoder(self, arch: architecture.ModelArchitecture) -> None:

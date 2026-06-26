@@ -384,15 +384,28 @@ def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
 def choice_input_dim_for(descriptor: ModelConfig) -> int:
     """The choice encoder's first-``Linear`` input width for ``descriptor``.
 
-    Era-routed: v0.0 artifacts use the v0.0 formula (no board-idx slots, 180-wide
-    bird one-hot); pre-0.6 artifacts use the live formula but with
-    ``has_becomes_playable=False`` (no becomes_playable stripe); v0.6+ use the
-    live formula with ``has_becomes_playable=True``."""
-    from wingspan.compat import v0_0, v0_4  # local: compat imports the model package
+    Era-routed: v0.0 artifacts use the v0.0 formula (180-wide bird one-hot +
+    board-idx embedding); v0.1–0.8 artifacts use the v0.8 board-bearing formula
+    (board_idx 15 embedded + single bird_id); pre-0.6 additionally pass
+    ``has_becomes_playable=False``. v0.9+ use the live formula (no board_idx)."""
+    from wingspan.compat import v0_0, v0_4, v0_8  # local: compat imports model package
 
     if v0_0.uses_v0_0_choice_encoding(descriptor.version):
         return v0_0.choice_input_dim(
             descriptor.choice_dim, descriptor.architecture.card_embed_dim
+        )
+    if v0_8.uses_v0_8_choice_encoding(descriptor.version):
+        parsed_ver = version.parse_version(descriptor.version)
+        playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
+        has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
+            playability_ver.major,
+            playability_ver.minor,
+        )
+        return v0_8.choice_input_dim_v08(
+            descriptor.choice_dim,
+            descriptor.architecture.card_embed_dim,
+            include_setup=descriptor.include_setup,
+            has_becomes_playable=has_becomes,
         )
     parsed_ver = version.parse_version(descriptor.version)
     playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
@@ -410,10 +423,22 @@ def choice_input_dim_for(descriptor: ModelConfig) -> int:
 
 def choice_extra_for(descriptor: ModelConfig) -> int:
     """The choice encoder's passthrough width for ``descriptor``, era-routed."""
-    from wingspan.compat import v0_0, v0_4  # local: compat imports the model package
+    from wingspan.compat import v0_0, v0_4, v0_8  # local: compat imports model package
 
     if v0_0.uses_v0_0_choice_encoding(descriptor.version):
         return v0_0.choice_passthrough_dim(descriptor.choice_dim)
+    if v0_8.uses_v0_8_choice_encoding(descriptor.version):
+        parsed_ver = version.parse_version(descriptor.version)
+        playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
+        has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
+            playability_ver.major,
+            playability_ver.minor,
+        )
+        return v0_8.choice_passthrough_dim_v08(
+            descriptor.choice_dim,
+            include_setup=descriptor.include_setup,
+            has_becomes_playable=has_becomes,
+        )
     parsed_ver = version.parse_version(descriptor.version)
     playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
     has_becomes = (parsed_ver.major, parsed_ver.minor) >= (

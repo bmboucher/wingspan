@@ -36,8 +36,12 @@ import pydantic
 MODEL_VERSION = "0.9"
 """The current artifact-compatibility version (the only place it is defined).
 
-0.9 compacts the state vector from 1155→1119 dims (default spec) by dropping
-three redundant stripes and zeroing scored-round goal slots:
+0.9 brings two simultaneous FRESH changes — both are required for the live
+encoding; pre-0.9 artifacts load and play through ``wingspan.compat.v0_8``
+(``PolicyValueNetV08``).
+
+(a) **State compaction 1155 → 1119 dims**: three redundant stripes removed or
+shrunk, and already-scored round goals zeroed:
 
 * ``misc_scalars`` 4→2 dims: dropped ``my_round_goal_pts`` and
   ``opp_round_goal_pts`` (the ``round_goals`` stripe captures standings fully).
@@ -47,11 +51,17 @@ three redundant stripes and zeroing scored-round goal slots:
 * ``hand_summary_me`` removed (10 dims): the distinct hand encoder now derives
   the 10-dim summary in-model from the hand multi-hot via
   ``set_summary_from_multihot``; the stripe is no longer in the state vector.
-* ``round_goals``: values only — already-scored rounds are zeroed so past
-  standings don't pollute future-decision features (width unchanged at 92 dims).
+* ``round_goals``: values only — already-scored rounds are zeroed (width
+  unchanged at 92 dims).
 
-Total: state_dim 1155→1119 (−36). Choice vectors are unchanged. Pre-0.9
-artifacts load and play through ``wingspan.compat.v0_8`` (``PolicyValueNetV08``).
+(b) **Choice board simplification (``choice_dim`` 395 → 328)**:
+``board_target`` compressed 120 → 60 dims (4 scalars/slot instead of 8 —
+drops per-type cached food in favour of ``cached_total``); ``board_idx``
+(15-slot embedded block) removed, replaced by ``board_hab`` (3-dim habitat
+one-hot) and ``board_col`` (5-dim column one-hot); ``bird_id`` now also
+carries the targeted occupant on board-target rows. Per-candidate card-table
+lookups drop from 16 to 1. This is the first board-geometry change since 0.1;
+all earlier shims (0.1–0.8) are re-routed through ``v0_8.encode_choices_v08``.
 
 0.8 changes the ``becomes_playable`` multi-hot stripe on **food-gain** choice
 rows so that the egg-cost gate is dropped from the food-affordability check:

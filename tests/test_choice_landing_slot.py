@@ -4,10 +4,10 @@
 """Tests for the landing-slot choice encoding and the candidate index column.
 
 Placement rows (play-bird, its food payment, move-bird destinations) carry the
-bird's exact resulting location as a single marked slot in the ``board_idx``
-block instead of a habitat one-hot; the candidate ``bird_id`` stripe is a
-single integer index column the model looks up (masked to zero when no bird);
-and a setup pick's kept set rides the trailing ``kept_multihot`` stripe, summed
+bird's exact resulting location as a habitat one-hot (``board_hab``) and a
+column one-hot (``board_col``); the candidate ``bird_id`` stripe is a single
+integer index column the model looks up (masked to zero when no bird); and a
+setup pick's kept set rides the trailing ``kept_multihot`` stripe, summed
 through the shared card table.
 """
 
@@ -33,19 +33,45 @@ _SMALL = architecture.ModelArchitecture(
 )
 
 
-def _marked_board_slots(row: np.ndarray) -> dict[int, float]:
-    """The nonzero entries of the board-index block, keyed by positional slot."""
-    block = row[layout._OFF_BOARD_IDX : layout._OFF_BOARD_IDX + layout._BOARD_IDX_SLOTS]
-    return {slot: float(value) for slot, value in enumerate(block) if value != 0.0}
+def _get_board_hab(row: np.ndarray) -> int | None:
+    """The marked habitat index (0-2) in the ``board_hab`` one-hot, or None."""
+    block = row[
+        layout.CHOICE_BOARD_HAB_OFFSET : layout.CHOICE_BOARD_HAB_OFFSET
+        + layout.CHOICE_BOARD_HAB_DIM
+    ]
+    for index, value in enumerate(block):
+        if value != 0.0:
+            return index
+    return None
 
 
-def _board_slot_index(habitat: cards.Habitat, slot: int) -> int:
-    return list(cards.ALL_HABITATS).index(habitat) * state.ROW_SLOTS + slot
+def _get_board_col(row: np.ndarray) -> int | None:
+    """The marked column index (0-4) in the ``board_col`` one-hot, or None."""
+    block = row[
+        layout.CHOICE_BOARD_COL_OFFSET : layout.CHOICE_BOARD_COL_OFFSET
+        + layout.CHOICE_BOARD_COL_DIM
+    ]
+    for index, value in enumerate(block):
+        if value != 0.0:
+            return index
+    return None
 
 
-def _zero_board_idx(row: np.ndarray) -> np.ndarray:
+def _board_hab_index(habitat: cards.Habitat) -> int:
+    return list(cards.ALL_HABITATS).index(habitat)
+
+
+def _zero_board_location(row: np.ndarray) -> np.ndarray:
+    """Return a copy of ``row`` with ``board_hab`` and ``board_col`` zeroed."""
     cleared = row.copy()
-    cleared[layout._OFF_BOARD_IDX : layout._OFF_BOARD_IDX + layout._BOARD_IDX_SLOTS] = 0
+    cleared[
+        layout.CHOICE_BOARD_HAB_OFFSET : layout.CHOICE_BOARD_HAB_OFFSET
+        + layout.CHOICE_BOARD_HAB_DIM
+    ] = 0
+    cleared[
+        layout.CHOICE_BOARD_COL_OFFSET : layout.CHOICE_BOARD_COL_OFFSET
+        + layout.CHOICE_BOARD_COL_DIM
+    ] = 0
     return cleared
 
 
@@ -55,11 +81,11 @@ def _zero_board_idx(row: np.ndarray) -> np.ndarray:
 
 def test_play_bird_rows_mark_the_landing_slot():
     """A bird playable in two habitats produces rows that differ exactly at the
-    landing slot — its index at the destination row's next free slot."""
+    landing slot — board_hab + board_col pointing at the destination."""
     eng, birds, *_ = engine.Engine.create(seed=3)
     bird = next(candidate for candidate in birds if len(candidate.habitats) >= 2)
     first_habitat, second_habitat = bird.habitats[0], bird.habitats[1]
-    # Occupy one slot of the first habitat so the two landing slots differ.
+    # Occupy one slot of the first habitat so the two landing columns differ.
     eng.state.players[0].board[first_habitat].append(state.PlayedBird(bird=birds[0]))
 
     decision = decisions.PlayBirdDecision(
@@ -75,14 +101,18 @@ def test_play_bird_rows_mark_the_landing_slot():
     bird_column = float(cards.bird_index(bird) + 1)
     assert first_row[layout._OFF_BIRD_ID] == bird_column
     assert second_row[layout._OFF_BIRD_ID] == bird_column
-    assert _marked_board_slots(first_row) == {
-        _board_slot_index(first_habitat, 1): bird_column
-    }
-    assert _marked_board_slots(second_row) == {
-        _board_slot_index(second_habitat, 0): bird_column
-    }
-    # The landing slot is the rows' only distinguishing feature.
-    assert np.array_equal(_zero_board_idx(first_row), _zero_board_idx(second_row))
+
+    # First habitat: column 1 (slot occupied by birds[0]).
+    assert _get_board_hab(first_row) == _board_hab_index(first_habitat)
+    assert _get_board_col(first_row) == 1
+    # Second habitat: column 0 (empty).
+    assert _get_board_hab(second_row) == _board_hab_index(second_habitat)
+    assert _get_board_col(second_row) == 0
+
+    # The landing location (board_hab + board_col) is the rows' only difference.
+    assert np.array_equal(
+        _zero_board_location(first_row), _zero_board_location(second_row)
+    )
 
 
 def test_payment_rows_carry_bird_and_landing_slot():
@@ -108,10 +138,11 @@ def test_payment_rows_carry_bird_and_landing_slot():
     rows = encode.encode_choices(decision, eng.state)
 
     bird_column = float(cards.bird_index(bird) + 1)
-    landing = {_board_slot_index(habitat, 0): bird_column}
+    expected_hab = _board_hab_index(habitat)
     for row in rows:
         assert row[layout._OFF_BIRD_ID] == bird_column
-        assert _marked_board_slots(row) == landing
+        assert _get_board_hab(row) == expected_hab
+        assert _get_board_col(row) == 0  # first slot (board is empty)
 
 
 def test_setup_rows_use_the_kept_multihot_stripe():
@@ -162,9 +193,9 @@ def test_model_candidate_embedding_is_a_masked_lookup():
     embedded = net._embed_choices(choices, card_table)
 
     assert embedded.shape[-1] == encode.choice_input_dim(net.choice_dim, embed_dim)
-    # ``_embed_choices`` concatenates [rest, cand_emb, board_emb, becomes_emb].
-    # ``rest`` is the passthrough slice (everything except board-idx, bird-id,
-    # and becomes_playable columns), so ``cand_emb`` starts at passthrough width.
+    # ``_embed_choices`` concatenates [rest, cand_emb, becomes_emb].
+    # ``rest`` is the passthrough slice (everything except bird-id and
+    # becomes_playable columns), so ``cand_emb`` starts at passthrough width.
     rest_width = encode.choice_passthrough_dim(net.choice_dim)
     candidate_slice = embedded[..., rest_width : rest_width + embed_dim]
     assert torch.all(candidate_slice[0, 0] == 0.0)
