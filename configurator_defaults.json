@@ -1,115 +1,161 @@
 {
-  "saved_with_version": "0.4",
-  "saved_at": "2026-06-14T09:31:26",
+  "saved_with_version": "0.8",
+  "saved_at": "2026-06-25T19:55:49",
   "settings": {
-    "games_per_iter": 1000,
-    "max_iterations": 0,
-    "target_iterations": 4000,
-    "target_eval_games": 0,
-    "lr": 0.0003,
-    "value_coef": 0.5,
-    "entropy_coef": 0.02,
-    "grad_clip": 5.0,
-    "score_norm": 50.0,
-    "reward_mode": "terminal_margin",
-    "reward_discount": 1.0,
-    "end_game_bonus": 0.0,
-    "eval_every": 10,
-    "eval_games": 500,
-    "eval_ewma_alpha": 0.3,
-    "opponent_reset_win_rate": 0.7,
-    "opponent_max_iterations": 0,
-    "bootstrap_opponent": "random",
-    "random_phase_win_rate": 0.9,
-    "produce_ewma_alpha": 0.2,
-    "seed": 0,
-    "trunk_layers": [
-      64
-    ],
-    "choice_layers": [
-      64
-    ],
-    "head_layers": [
-      64
-    ],
-    "value_layers": [
-      64
-    ],
-    "head_layers_mode": "uniform",
-    "head_layers_main_action": [
-      128
-    ],
-    "head_layers_draw_bird": [
-      128
-    ],
-    "head_layers_discard_bird": [
-      128
-    ],
-    "head_layers_gain_food": [
-      128
-    ],
-    "head_layers_spend_food": [
-      128
-    ],
-    "head_layers_lay_egg": [
-      128
-    ],
-    "head_layers_pay_egg": [
-      128
-    ],
-    "head_layers_skip_optional": [
-      128
-    ],
-    "head_layers_choose_bonus": [
-      128
-    ],
-    "head_layers_misc_rare": [
-      128
-    ],
-    "head_layers_play_bird": [
-      128
-    ],
-    "head_layers_reset_birdfeeder": [
-      128
-    ],
-    "head_layers_setup": [
-      128
-    ],
-    "activation": "relu",
-    "dropout": 0.0,
-    "layernorm": false,
-    "card_embed_dim": 64,
-    "card_encoder_layers": [
-      64
-    ],
-    "use_distinct_hand_model": true,
-    "hand_encoder_layers": [
-      64
-    ],
-    "hand_embed_dim": 32,
-    "tray_set_embedding": false,
-    "encoder_final_activation": true,
-    "use_setup_model": true,
-    "split_setup_bonus": true,
-    "split_setup_food": true,
-    "setup_hidden_layers": [
-      64,
-      64
-    ],
-    "setup_activation": "relu",
-    "setup_dropout": 0.0,
-    "setup_lr": 0.001,
-    "setup_policy_temperature": 0.5,
-    "setup_policy_greedy": false,
-    "setup_hand_combos": 10,
-    "setup_food_sets": 3,
-    "setup_pg_coef": 1.0,
-    "setup_value_coef": 0.5,
-    "setup_entropy_coef": 0.01,
-    "history_len": 2000,
-    "instrumentation": {
-      "handlers": {},
-      "events": {}
+    "architecture": {
+      "main": {
+        "trunk_layers": [
+          128,
+          128
+        ],
+        "choice_layers": [
+          128,
+          128
+        ],
+        "head_layers": [
+          64,
+          32
+        ],
+        "value_layers": [
+          64
+        ],
+        "head_layers_mode": "uniform",
+        "head_layers_main_action": [
+          128
+        ],
+        "head_layers_draw_bird": [
+          128
+        ],
+        "head_layers_discard_bird": [
+          128
+        ],
+        "head_layers_gain_food": [
+          128
+        ],
+        "head_layers_spend_food": [
+          128
+        ],
+        "head_layers_lay_egg": [
+          128
+        ],
+        "head_layers_pay_egg": [
+          128
+        ],
+        "head_layers_skip_optional": [
+          128
+        ],
+        "head_layers_choose_bonus": [
+          128
+        ],
+        "head_layers_misc_rare": [
+          128
+        ],
+        "head_layers_play_bird": [
+          128
+        ],
+        "head_layers_reset_birdfeeder": [
+          128
+        ],
+        "head_layers_setup": [
+          128
+        ],
+        "activation": "relu",
+        "dropout": 0.02,
+        "layernorm": false,
+        "card_embed_dim": 64,
+        "card_encoder_layers": [
+          128
+        ],
+        "use_distinct_hand_model": false,
+        "hand_encoder_layers": [
+          128
+        ],
+        "hand_embed_dim": null,
+        "hand_pooling": "concat_max_sum",
+        "tray_set_embedding": false,
+        "use_board_attention": true,
+        "encoder_final_activation": true,
+        "card_activation": "tanh",
+        "card_dropout": null,
+        "card_layernorm": null,
+        "hand_activation": null,
+        "hand_dropout": null,
+        "hand_layernorm": null,
+        "trunk_activation": null,
+        "trunk_dropout": null,
+        "trunk_layernorm": null,
+        "choice_activation": null,
+        "choice_dropout": null,
+        "choice_layernorm": null,
+        "value_activation": null,
+        "head_activation": null
+      },
+      "setup": {
+        "hidden_layers": [
+          128,
+          64
+        ],
+        "activation": "relu",
+        "dropout": 0.05
+      },
+      "use_setup_model": true,
+      "split_setup_bonus": true,
+      "split_setup_food": true
+    },
+    "run": {
+      "games_per_iter": 256,
+      "max_iterations": 0,
+      "target_iterations": 4000,
+      "target_eval_games": 10000,
+      "eval_every": 5,
+      "eval_games": 500,
+      "history_len": 256
+    },
+    "training": {
+      "lr": 0.0003,
+      "value_coef": 0.5,
+      "entropy_coef": 0.05,
+      "grad_clip": 5.0,
+      "score_norm": 50.0,
+      "reward_mode": "gae",
+      "reward_basis": "margin",
+      "reward_discount": 0.98,
+      "end_game_bonus": 0.0,
+      "setup": {
+        "lr": 0.001,
+        "policy_temperature": 0.5,
+        "policy_greedy": false,
+        "hand_combos": 10,
+        "food_sets": 3,
+        "pg_coef": 1.0,
+        "value_coef": 0.5,
+        "entropy_coef": 0.05
+      },
+      "policy_loss": "ppo",
+      "ppo_clip_eps": 0.2,
+      "ppo_reuse_epochs": 4,
+      "gae_lambda": 0.9,
+      "update_minibatch_steps": 2048
+    },
+    "opponent": {
+      "bootstrap_opponent": "random",
+      "random_phase_win_rate": 0.65,
+      "opponent_reset_win_rate": 0.7,
+      "opponent_max_iterations": 0,
+      "eval_ewma_alpha": 0.7
+    },
+    "engine": {},
+    "misc": {
+      "seed": 0,
+      "produce_ewma_alpha": 0.7,
+      "instrumentation": {
+        "handlers": {},
+        "events": {}
+      }
+    },
+    "dagger": {
+      "expert_checkpoint": "none",
+      "clone_iters": 0
     }
   }
 }
