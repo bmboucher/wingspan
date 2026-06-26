@@ -9,11 +9,24 @@ the weights.
 
 **`__init__.py`** — re-exports `generate_html_report`, `main_inspect`.
 
+**`card_view.py`** — shared presentation assets consumed by both `html.py` (Birds
+tab) and `game_log_html.py` (play HTML). Holds four canonical string constants:
+`CARD_CSS` (`.card-cell` + habitat/egg/power-color rules), `CARD_JS`
+(`cardCellHtml` + emoji helpers), `STRIPE_VIEWER_CSS` (`#enc-modal`/`.enc-*` rules),
+`STRIPE_VIEWER_JS` (`renderStripes`/`renderSubField`). Also contains
+`bird_cell_info(bird: cards.Bird) -> game_log_html.BirdCellInfo` — the static
+(no played-state) bird→cell converter used by both the game-log capture and the
+Birds tab payload builder. Lazy imports of `game_log_html` inside `bird_cell_info`
+(and a `TYPE_CHECKING` guard for the annotation) break the potential circular import.
+
 **`html.py`** — `generate_html_report(descriptor: ModelConfig, out_path: Path)`:
 produces a self-contained HTML file with a full model summary including:
 architecture diagram (via `svg.py`), vector layout table (state + choice stripes
-from `encode.stripes`), parameter count breakdown, and training config table.
-Also `build_model_summary_html(descriptor, report) -> str` — the pure string
+from `encode.stripes`), parameter count breakdown, training config table, and a
+**Birds tab** (Model ↔ Birds toggle in the header; responsive grid of all 180
+core cards; click any card to open an `#enc-modal` showing that bird's non-identity
+attribute encoding stripes with named, decoded values).  Also
+`build_model_summary_html(descriptor, report) -> str` — the pure string
 variant consumed by `training.runmeta`'s reporting seam.
 
 **`game_log_html.py`** — the HTML *game*-log viewer (vs `html.py`'s *model*
@@ -79,7 +92,11 @@ encoding)` decode a raw setup candidate vector using `setup_model.setup_stripe_l
 partitioned at `_SETUP_CONTEXT_STRIPES`: context stripes (tray, birdfeeder) go to the state
 panel; per-candidate stripes (kept cards, bonus, pricing) go to the choice panel. All functions
 skip all-zero and `encoding=="complex"` stripes. Called lazily from `game_log_capture.build_decision_item`
-to avoid the `engine` ↔ `reporting` import cycle.
+to avoid the `engine` ↔ `reporting` import cycle. `extract_card_attr_stripes(bird) ->
+list[game_log_html.EncodedStripe]` — decodes the non-identity attribute sub-fields from
+`state_encode.card_feature_matrix()` for a single bird, producing named decoded labels
+(habitats, food_cost, nest, color, bonus_categories, power_exchange, scalar fields); the
+`bird_identity` one-hot stripe is intentionally excluded.
 
 **`humanize.py`** — leaf humanizer module with no engine or torch imports.
 `humanize_choice(choice, gs, player_id)` → concise option label per Choice

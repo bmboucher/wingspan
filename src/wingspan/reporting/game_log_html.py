@@ -279,6 +279,19 @@ class GameLogReport(pydantic.BaseModel):
     timeline: list[TimelinePoint] = []
 
 
+class BirdCatalogEntry(pydantic.BaseModel):
+    """One bird in the model-summary Birds tab: its card display data and encoding stripes."""
+
+    card: BirdCellInfo
+    stripes: list[EncodedStripe]
+
+
+class BirdCatalog(pydantic.BaseModel):
+    """All birds in the core set, ordered for the model-summary Birds tab grid."""
+
+    birds: list[BirdCatalogEntry]
+
+
 # ---------------------------------------------------------------------------
 # Public API
 

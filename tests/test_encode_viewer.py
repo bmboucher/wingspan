@@ -273,3 +273,84 @@ def test_choice_bird_id_decoded():
         assert (
             bird.name in sub.decoded_label
         ), f"Expected '{bird.name}' in bird_id label: {sub.decoded_label}"
+
+
+# ---------------------------------------------------------------------------
+# extract_card_attr_stripes
+
+
+def test_extract_card_attr_stripes_returns_one_stripe():
+    """extract_card_attr_stripes returns exactly one stripe (bird_attrs) for any bird."""
+    bird = cards.birds_ordered()[0]
+    result = encode_viewer.extract_card_attr_stripes(bird)
+    assert len(result) == 1
+    assert result[0].name == "bird_attrs"
+
+
+def test_extract_card_attr_stripes_no_bird_identity():
+    """The bird_identity one-hot is never included in the returned stripes."""
+    for bird in cards.birds_ordered():
+        result = encode_viewer.extract_card_attr_stripes(bird)
+        names = [stripe.name for stripe in result]
+        assert "bird_identity" not in names, f"bird_identity found for {bird.name}"
+
+
+def test_extract_card_attr_stripes_habitats_decoded():
+    """The habitats sub-field has a decoded_label listing the bird's habitat names."""
+    # Find a bird with exactly two habitats.
+    two_hab = next(
+        bird for bird in cards.birds_ordered() if len(bird.habitats) == 2
+    )
+    result = encode_viewer.extract_card_attr_stripes(two_hab)
+    assert result
+    sub_fields = result[0].sub_fields
+    hab_fields = [sf for sf in sub_fields if sf.name == "habitats"]
+    assert hab_fields, "habitats sub-field missing"
+    decoded = hab_fields[0].decoded_label
+    assert decoded is not None
+    for habitat in two_hab.habitats:
+        assert habitat.value in decoded, f"Habitat {habitat.value} missing from label: {decoded}"
+
+
+def test_extract_card_attr_stripes_food_cost_decoded():
+    """The food_cost sub-field has a decoded_label like '1 seed, 2 fruit'."""
+    # Find a bird with a non-trivial AND food cost.
+    bird_with_food = next(
+        bird
+        for bird in cards.birds_ordered()
+        if not bird.food_cost.is_or_cost and sum(bird.food_cost.specific) >= 1
+    )
+    result = encode_viewer.extract_card_attr_stripes(bird_with_food)
+    assert result
+    sub_fields = result[0].sub_fields
+    food_fields = [sf for sf in sub_fields if sf.name == "food_cost"]
+    assert food_fields, f"food_cost missing for {bird_with_food.name}"
+    decoded = food_fields[0].decoded_label
+    assert decoded is not None, f"food_cost decoded_label is None for {bird_with_food.name}"
+
+
+def test_extract_card_attr_stripes_color_decoded():
+    """The color sub-field has a decoded_label matching the bird's power color name."""
+    # Find a brown bird.
+    brown_bird = next(
+        bird
+        for bird in cards.birds_ordered()
+        if bird.power.color == cards.PowerColor.BROWN
+    )
+    result = encode_viewer.extract_card_attr_stripes(brown_bird)
+    assert result
+    color_fields = [sf for sf in result[0].sub_fields if sf.name == "color"]
+    assert color_fields, "color sub-field missing for brown bird"
+    assert color_fields[0].decoded_label == "brown"
+
+
+def test_extract_card_attr_stripes_sub_fields_all_decoded():
+    """Every non-zero sub-field should have a non-None decoded_label."""
+    for bird in cards.birds_ordered():
+        result = encode_viewer.extract_card_attr_stripes(bird)
+        if not result:
+            continue
+        for sub in result[0].sub_fields:
+            assert sub.decoded_label is not None, (
+                f"decoded_label is None for sub-field '{sub.name}' on bird '{bird.name}'"
+            )

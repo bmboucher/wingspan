@@ -21,8 +21,9 @@ from __future__ import annotations
 import collections
 import html as html_lib
 
-from wingspan import architecture, setup_model
+from wingspan import architecture, cards, setup_model
 from wingspan.encode import stripes as encode_stripes
+from wingspan.reporting import card_view, encode_viewer, game_log_html
 from wingspan.reporting import svg as report_svg
 from wingspan.training.charts import text_helpers
 
@@ -123,6 +124,7 @@ details[open] > summary::before { transform: rotate(90deg); }
 .total-row > td { background: #1e293b; color: #f8fafc; font-weight: 700; }
 .arch-svg-wrap { background: #f1f5f9; border-radius: 8px; padding: 24px 20px; overflow-x: auto; }
 .click-hint { font-size: 12px; color: #64748b; margin: 10px 4px 0; }
+[hidden] { display: none; }
 .panel[hidden] { display: none; }
 .arch-click, .arch-paramclick { cursor: pointer; }
 .arch-click:hover rect { stroke: #818cf8; stroke-width: 2; }
@@ -131,6 +133,14 @@ details[open] > summary::before { transform: rotate(90deg); }
 .arch-paramclick.selected text { fill: #1e293b; text-decoration: underline; }
 @keyframes rowflash { from { background: #fde68a; } to { background: transparent; } }
 tr.flash > td { animation: rowflash 1.4s ease-out; }
+.nav-tabs { display: flex; gap: 0; margin-left: 12px; }
+.nav-tab {
+  background: none; border: none; color: #94a3b8; font-size: 13px;
+  padding: 4px 14px; cursor: pointer; border-radius: 4px; font-weight: 600;
+}
+.nav-tab.active { background: #334155; color: #f8fafc; }
+.nav-tab:hover:not(.active) { color: #e2e8f0; }
+.birds-grid { display: flex; flex-wrap: wrap; gap: 10px; padding: 20px 0; }
 """
 
 # ---------------------------------------------------------------------------
@@ -186,6 +196,79 @@ _SCRIPT = """\
       openPanel('params', target);
       flashParamsRow(paramsKey);
     }
+  });
+})();
+"""
+
+# Encoding-viewer modal for the Birds tab (single "Card Attributes" section).
+_ENC_MODAL_HTML = (
+    "<div id='enc-modal' role='dialog' aria-modal='true' aria-label='Card encoding'>"
+    "<div id='enc-dialog'>"
+    "<div id='enc-header'>"
+    "<span id='enc-opt-label'></span>"
+    "<button id='enc-close' title='Close (Esc)'>&#x2715;</button>"
+    "</div>"
+    "<div id='enc-body'>"
+    "<h3 class='enc-section-title'>Card Attributes</h3>"
+    "<div id='enc-card'></div>"
+    "</div>"
+    "</div>"
+    "</div>"
+)
+
+# Tab switching + birds grid + encoding modal bootstrap.
+_BIRDS_JS = """\
+(function () {
+  'use strict';
+  var _modelSection = document.getElementById('tab-model');
+  var _birdsSection = document.getElementById('tab-birds');
+
+  // Tab switching.
+  document.querySelectorAll('.nav-tab').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.nav-tab').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var which = btn.getAttribute('data-tab');
+      _modelSection.hidden = (which !== 'model');
+      _birdsSection.hidden = (which !== 'birds');
+    });
+  });
+
+  // Build the birds grid from embedded JSON.
+  var _catalog = JSON.parse(document.getElementById('birds-data').textContent);
+  var _grid = document.getElementById('birds-grid');
+  if (_grid && _catalog.birds) {
+    _catalog.birds.forEach(function (entry) {
+      var wrap = document.createElement('div');
+      wrap.innerHTML = cardCellHtml(entry.card);
+      var cell = wrap.firstChild;
+      cell.style.cursor = 'pointer';
+      cell.addEventListener('click', function () { _openBirdModal(entry); });
+      _grid.appendChild(cell);
+    });
+  }
+
+  // Encoding modal for bird cards.
+  var _encModal = document.getElementById('enc-modal');
+  var _encCard = document.getElementById('enc-card');
+  var _encLabel = document.getElementById('enc-opt-label');
+  var _encClose = document.getElementById('enc-close');
+
+  function _openBirdModal(entry) {
+    _encLabel.textContent = entry.card.name;
+    _encCard.innerHTML = (entry.stripes && entry.stripes.length)
+      ? renderStripes(entry.stripes)
+      : '<p class="enc-none">No non-identity attributes encoded.</p>';
+    _encModal.classList.add('open');
+  }
+
+  if (_encClose) _encClose.addEventListener('click', function () { _encModal.classList.remove('open'); });
+  if (_encModal) _encModal.addEventListener('click', function (e) {
+    if (e.target === _encModal) _encModal.classList.remove('open');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && _encModal && _encModal.classList.contains('open'))
+      _encModal.classList.remove('open');
   });
 })();
 """
@@ -294,11 +377,13 @@ def generate_html_report(
             _params_section(param_report),
         ]
     )
+    birds_catalog = _birds_payload()
     return _wrap(
         title=f"Model Summary — {html_lib.escape(run_name)}",
         run_name=run_name,
         model_version=model_version,
         body=body,
+        birds_catalog=birds_catalog,
     )
 
 
@@ -307,30 +392,63 @@ def generate_html_report(
 #### HTML shell ####
 
 
-def _wrap(*, title: str, run_name: str, model_version: str, body: str) -> str:
+def _wrap(
+    *,
+    title: str,
+    run_name: str,
+    model_version: str,
+    body: str,
+    birds_catalog: game_log_html.BirdCatalog,
+) -> str:
+    """Assemble the full HTML document: nav + tab sections + modal + scripts."""
     nav = _nav(run_name, model_version)
+    birds_json = birds_catalog.model_dump_json().replace("<", "\\u003c")
+    all_css = (
+        _CSS
+        + "\n"
+        + card_view.CARD_CSS
+        + "\n"
+        + card_view.STRIPE_VIEWER_CSS
+    )
+    all_script = (
+        card_view.CARD_JS
+        + "\n"
+        + card_view.STRIPE_VIEWER_JS
+        + "\n"
+        + _SCRIPT
+        + "\n"
+        + _BIRDS_JS
+    )
     return (
         f"<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
         f"<meta charset='utf-8'>\n"
         f"<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
         f"<title>{title}</title>\n"
-        f"<style>\n{_CSS}\n</style>\n"
+        f"<style>\n{all_css}\n</style>\n"
         f"</head>\n<body>\n"
         f"{nav}\n"
-        f"<div class='container'>\n{body}\n</div>\n"
-        f"<script>\n{_SCRIPT}\n</script>\n"
+        f"<div id='tab-model'><div class='container'>\n{body}\n</div></div>\n"
+        f"<div id='tab-birds' hidden><div class='container'>"
+        f"<div class='birds-grid' id='birds-grid'></div>"
+        f"</div></div>\n"
+        f"{_ENC_MODAL_HTML}\n"
+        f"<script type='application/json' id='birds-data'>{birds_json}</script>\n"
+        f"<script>\n{all_script}\n</script>\n"
         f"</body>\n</html>\n"
     )
 
 
 def _nav(run_name: str, model_version: str) -> str:
-    """The slim header bar: brand + run name + artifact version (the diagram is
-    the navigation)."""
+    """The slim header bar: brand + run name + artifact version + Model/Birds tab buttons."""
     return (
         f"<nav>"
         f"<span class='nav-brand'>Wingspan</span>"
         f"<span class='nav-run'>{html_lib.escape(run_name)}</span>"
         f"<span class='nav-run'>v{html_lib.escape(model_version)}</span>"
+        f"<div class='nav-tabs'>"
+        f"<button class='nav-tab active' data-tab='model'>Model</button>"
+        f"<button class='nav-tab' data-tab='birds'>Birds</button>"
+        f"</div>"
         f"</nav>"
     )
 
@@ -759,3 +877,24 @@ def _params_block_key(label: str) -> str:
     ``BlockParam.label``, matching what ``report_svg`` attaches to the diagram's
     parameter counts."""
     return label.lower()
+
+
+#### Birds tab ####
+
+
+def _birds_payload() -> game_log_html.BirdCatalog:
+    """Build the BirdCatalog payload for the Birds tab grid.
+
+    Loops over all 180 core birds in canonical order, pairing each bird's static
+    card display info with its non-identity attribute stripes.  Called once at
+    report generation time; the result is serialized to embedded JSON.  Does not
+    touch the engine or PyTorch — purely card metadata + numpy."""
+    return game_log_html.BirdCatalog(
+        birds=[
+            game_log_html.BirdCatalogEntry(
+                card=card_view.bird_cell_info(bird),
+                stripes=encode_viewer.extract_card_attr_stripes(bird),
+            )
+            for bird in cards.birds_ordered()
+        ]
+    )

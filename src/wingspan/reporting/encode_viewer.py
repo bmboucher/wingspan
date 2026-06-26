@@ -1,3 +1,6 @@
+# pyright: reportPrivateUsage=false
+# (reads the shared, package-private layout constants — same intra-package
+# coupling convention as card_feature.py and state_encode.py)
 """Extract non-zero stripe summaries from raw encoder vectors for HTML display.
 
 Given a flat state vector or per-choice vector, walks the corresponding
@@ -22,7 +25,7 @@ import re
 import numpy as np
 
 from wingspan import cards, decisions, setup_model
-from wingspan.encode import layout, stripes
+from wingspan.encode import layout, state_encode, stripes
 from wingspan.reporting import game_log_html
 
 # Values whose absolute magnitude is below this threshold are treated as zero.
@@ -64,6 +67,11 @@ _DECISION_TYPE_STRIPES: frozenset[str] = frozenset({"decision_type"})
 # Setup stripe names shared across all candidates (deal context, not candidate-specific).
 _SETUP_CONTEXT_STRIPES: frozenset[str] = frozenset(
     {"tray", "birdfeeder", "round_goals", "bonus_cards"}
+)
+
+# Bird-attribute sub-field names that are boolean (scalar 0 or 1, no divisor).
+_BIRD_ATTR_BOOL_FIELDS: frozenset[str] = frozenset(
+    {"flocking", "predator", "plays_another_bird", "caches_food", "or_cost"}
 )
 
 
@@ -131,6 +139,37 @@ def extract_setup_candidate_stripes(
         np.array(vector, dtype=np.float32), vector_layout, include_setup=True
     )
     return [s for s in all_stripes if s.name not in _SETUP_CONTEXT_STRIPES]
+
+
+def extract_card_attr_stripes(bird: cards.Bird) -> list[game_log_html.EncodedStripe]:
+    """Return the non-zero bird-attribute sub-fields for ``bird``'s feature vector.
+
+    Reads the bird's row from :func:`~wingspan.encode.state_encode.card_feature_matrix`,
+    walks the ``bird_attrs`` sub-fields from ``card_feature_stripe_layout``, and
+    decodes each non-zero sub-field to a human-readable ``decoded_label``.  The
+    trailing ``bird_identity`` one-hot (stripe 1) is always set and carries no
+    information worth showing in the viewer, so it is intentionally excluded."""
+    feat_matrix = state_encode.card_feature_matrix()
+    bird_row = feat_matrix[cards.bird_index(bird) + 1]
+
+    # bird_attrs is stripe 0; bird_identity (stripe 1) is intentionally skipped.
+    attrs_stripe = stripes.card_feature_stripe_layout().stripes[0]
+    bird_attrs_slice = bird_row[attrs_stripe.offset : attrs_stripe.offset + attrs_stripe.size]
+
+    sub_fields = [
+        encoded_sub
+        for sub_field in (attrs_stripe.sub_fields or ())
+        if (encoded_sub := _build_bird_attr_sub_field(sub_field, bird_attrs_slice)) is not None
+    ]
+    if not sub_fields:
+        return []
+    return [
+        game_log_html.EncodedStripe(
+            name=attrs_stripe.name,
+            description=attrs_stripe.description,
+            sub_fields=sub_fields,
+        )
+    ]
 
 
 ###### PRIVATE #######
@@ -478,3 +517,132 @@ def _decode_bonus_multihot_stripe(
             decoded_label=", ".join(parts),
         )
     ]
+
+
+#### Bird-attribute stripe decoder ####
+
+
+def _build_bird_attr_sub_field(
+    sub_field: stripes.SubFieldDescriptor,
+    attrs_slice: np.ndarray,
+) -> game_log_html.EncodedSubField | None:
+    """Build one named EncodedSubField from a bird_attrs sub-field, or None if zero.
+
+    Uses domain-specific decode logic per field name: multi-hot → active names,
+    vector → count-per-slot labels, one-hot → name at argmax, boolean → 'yes',
+    normalized scalar → denormalized integer.  Returns None when the sub-field
+    slice is entirely within ``_ZERO_THRESHOLD`` of zero."""
+    sub_slice = attrs_slice[
+        sub_field.relative_offset : sub_field.relative_offset + sub_field.size
+    ]
+    if np.all(np.abs(sub_slice) < _ZERO_THRESHOLD):
+        return None
+
+    name = sub_field.name
+    enc = sub_field.encoding or "scalar"
+    vr = sub_field.value_range
+
+    # Boolean flags: indicate the property is set.
+    if name in _BIRD_ATTR_BOOL_FIELDS:
+        return game_log_html.EncodedSubField(
+            name=name, description=sub_field.description, encoding=enc,
+            value_range=vr, notes=sub_field.notes,
+            raw_value=float(sub_slice[0]), decoded_label="yes",
+        )
+
+    # Color: one-hot over the 4 power colors → name at argmax.
+    if name == "color":
+        active_idx = int(np.argmax(sub_slice))
+        color_label = (
+            layout._COLORS[active_idx].value
+            if active_idx < len(layout._COLORS)
+            else str(active_idx)
+        )
+        return game_log_html.EncodedSubField(
+            name=name, description=sub_field.description, encoding=enc,
+            value_range=vr, notes=sub_field.notes,
+            active_index=active_idx, decoded_label=color_label,
+        )
+
+    # food_cost: 6-element vector, normalized ÷ 3 → count per food type.
+    if name == "food_cost":
+        scale = _denorm_scale(sub_field.notes) or 1.0
+        food_labels = tuple(food.value for food in cards.ALL_FOODS) + ("wild",)
+        parts = [
+            f"{round(float(sub_slice[pos]) * scale)} {food_labels[pos]}"
+            for pos in range(len(sub_slice))
+            if abs(float(sub_slice[pos])) >= _ZERO_THRESHOLD and pos < len(food_labels)
+        ]
+        return game_log_html.EncodedSubField(
+            name=name, description=sub_field.description, encoding=enc,
+            value_range=vr, notes=sub_field.notes,
+            decoded_label=", ".join(parts) if parts else None,
+        )
+
+    # nest: multi-hot over 4 concrete nest types; all four set = STAR wildcard.
+    if name == "nest":
+        active = np.where(np.abs(sub_slice) >= _ZERO_THRESHOLD)[0]
+        if len(active) == len(layout._NEST_BASE_TYPES):
+            decoded = "star (wildcard)"
+        else:
+            nest_labels = [nest_type.value for nest_type in layout._NEST_BASE_TYPES]
+            decoded = ", ".join(
+                nest_labels[int(idx)] for idx in active if int(idx) < len(nest_labels)
+            )
+        return game_log_html.EncodedSubField(
+            name=name, description=sub_field.description, encoding=enc,
+            value_range=vr, notes=sub_field.notes,
+            decoded_label=decoded or None,
+        )
+
+    # habitats: multi-hot over the 3 habitat types.
+    if name == "habitats":
+        active = np.where(np.abs(sub_slice) >= _ZERO_THRESHOLD)[0]
+        hab_labels = [hab.value for hab in cards.ALL_HABITATS]
+        decoded = ", ".join(
+            hab_labels[int(idx)] for idx in active if int(idx) < len(hab_labels)
+        )
+        return game_log_html.EncodedSubField(
+            name=name, description=sub_field.description, encoding=enc,
+            value_range=vr, notes=sub_field.notes,
+            decoded_label=decoded or None,
+        )
+
+    # bonus_categories: multi-hot over 7 curated bonus-card categories.
+    if name == "bonus_categories":
+        active = np.where(np.abs(sub_slice) >= _ZERO_THRESHOLD)[0]
+        cat_names = layout._KEPT_BONUS_NAMES
+        decoded = ", ".join(
+            cat_names[int(idx)] if int(idx) < len(cat_names) else f"cat_{idx}"
+            for idx in active
+        )
+        return game_log_html.EncodedSubField(
+            name=name, description=sub_field.description, encoding=enc,
+            value_range=vr, notes=sub_field.notes,
+            decoded_label=decoded or None,
+        )
+
+    # power_exchange: 13-element vector, normalized ÷ 3 → count per exchange slot.
+    if name == "power_exchange":
+        scale = _denorm_scale(sub_field.notes) or 1.0
+        slot_names = layout._EXCHANGE_SLOT_NAMES
+        parts = [
+            f"{slot_names[pos]} ×{round(float(sub_slice[pos]) * scale)}"
+            for pos in range(len(sub_slice))
+            if abs(float(sub_slice[pos])) >= _ZERO_THRESHOLD and pos < len(slot_names)
+        ]
+        return game_log_html.EncodedSubField(
+            name=name, description=sub_field.description, encoding=enc,
+            value_range=vr, notes=sub_field.notes,
+            decoded_label=", ".join(parts) if parts else None,
+        )
+
+    # Fallback: normalized scalar (points, wingspan, egg_limit).
+    scale = _denorm_scale(sub_field.notes)
+    raw_val = float(sub_slice[0])
+    return game_log_html.EncodedSubField(
+        name=name, description=sub_field.description, encoding=enc,
+        value_range=vr, notes=sub_field.notes,
+        raw_value=raw_val,
+        decoded_label=str(round(raw_val * scale)) if scale is not None else None,
+    )

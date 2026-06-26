@@ -33,7 +33,7 @@ from wingspan import cards, decisions, state
 from wingspan.agents import display
 from wingspan.engine import scoring
 from wingspan.players import decision_probe
-from wingspan.reporting import game_log_html, humanize
+from wingspan.reporting import card_view, game_log_html, humanize
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -634,37 +634,15 @@ def _bird_cell_info(
     """Flatten a bird (and, when on the board, its per-game state) to a cell."""
     if bird is None:
         return None
-
-    # Build food cost as a slot list for emoji rendering.
-    # OR-cost birds: each accepted food type appears once (the renderer
-    # wraps them in parentheses joined by "/").
-    # AND-cost birds: each food type repeated by its count (existing behavior).
-    slots: list[str] = []
-    for food, specific_count in zip(cards.ALL_FOODS, bird.food_cost.specific):
-        if bird.food_cost.is_or_cost:
-            # Mask semantics: a non-zero slot means the food is accepted; emit
-            # it once. Zero slots are not accepted and must not be shown.
-            repeat = 1 if specific_count else 0
-        else:
-            repeat = specific_count
-        slots.extend([food.value] * repeat)
-    slots.extend(["wild"] * bird.food_cost.wild)
-
-    return game_log_html.BirdCellInfo(
-        name=bird.name,
-        vp=bird.points,
-        nest=bird.nest.value,
-        wingspan_cm=bird.wingspan_cm,
-        habitats="/".join(habitat.value for habitat in bird.habitats),
-        food_cost=display.format_cost(bird.food_cost),
-        food_cost_slots=slots,
-        food_cost_is_or=bird.food_cost.is_or_cost,
-        egg_limit=bird.egg_limit,
-        eggs=played.eggs if played is not None else 0,
-        tucked=played.tucked_cards if played is not None else 0,
-        cached=played.cached_food.total() if played is not None else 0,
-        power_color=bird.power.color.value,
-        power_text=bird.plain_power_text,
+    cell = card_view.bird_cell_info(bird)
+    if played is None:
+        return cell
+    return cell.model_copy(
+        update={
+            "eggs": played.eggs,
+            "tucked": played.tucked_cards,
+            "cached": played.cached_food.total(),
+        }
     )
 
 

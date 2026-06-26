@@ -134,6 +134,63 @@ def test_svg_per_block_activation_label():
     assert ">gelu<" in html
 
 
+def test_birds_tab_nav_button_present():
+    """The Birds tab button is in the nav and the Model tab is active by default."""
+    html = _report_html(use_setup_model=True)
+    assert "data-tab='birds'" in html
+    assert "data-tab='model'" in html
+
+
+def test_birds_tab_section_exists_and_starts_hidden():
+    """A #tab-birds section exists and starts hidden; #tab-model is visible."""
+    html = _report_html(use_setup_model=True)
+    assert "id='tab-birds'" in html
+    assert "id='tab-model'" in html
+    # The birds section must carry the hidden attribute.
+    assert "id='tab-birds' hidden" in html
+
+
+def test_birds_tab_enc_modal_present():
+    """The #enc-modal is rendered for the Birds tab encoding viewer."""
+    html = _report_html(use_setup_model=True)
+    assert "id='enc-modal'" in html
+    assert "id='enc-card'" in html
+    assert "id='enc-close'" in html
+
+
+def test_birds_tab_payload_contains_180_birds():
+    """The birds-data JSON payload has exactly 180 entries (core set)."""
+    import json
+    html = _report_html(use_setup_model=True)
+    start = html.find("id='birds-data'>") + len("id='birds-data'>")
+    end = html.find("</script>", start)
+    catalog = json.loads(html[start:end])
+    assert len(catalog["birds"]) == 180
+
+
+def test_birds_tab_payload_no_bird_identity_stripe():
+    """No bird in the Birds tab payload has a 'bird_identity' stripe."""
+    import json
+    html = _report_html(use_setup_model=True)
+    start = html.find("id='birds-data'>") + len("id='birds-data'>")
+    end = html.find("</script>", start)
+    catalog = json.loads(html[start:end])
+    for entry in catalog["birds"]:
+        stripe_names = [s["name"] for s in entry["stripes"]]
+        assert "bird_identity" not in stripe_names
+
+
+def test_birds_tab_payload_all_birds_have_card_name():
+    """Every entry in the birds-data payload has a non-empty card name."""
+    import json
+    html = _report_html(use_setup_model=True)
+    start = html.find("id='birds-data'>") + len("id='birds-data'>")
+    end = html.find("</script>", start)
+    catalog = json.loads(html[start:end])
+    for entry in catalog["birds"]:
+        assert entry["card"]["name"], "Bird entry has empty name"
+
+
 ###### PRIVATE #######
 
 

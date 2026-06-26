@@ -313,6 +313,25 @@ _EXCHANGE_PLAYS_TO_GAIN = 11
 # choice_dim — old checkpoints are refused cleanly with no architecture.py edits.
 _EXCHANGE_CACHE_TO_GAIN = 12
 
+# Stable human-readable labels for the 13 exchange-stripe slots, in index order.
+# Used by the encoding viewer (encode_viewer.py) to decode power_exchange sub-fields
+# and by card_feature.py's stripe notes string.
+_EXCHANGE_SLOT_NAMES: tuple[str, ...] = (
+    "cards_to_discard",
+    "food_to_pay",
+    "eggs_to_pay",
+    "food_to_gain",
+    "eggs_to_gain",
+    "cards_to_draw",
+    "cards_to_tuck",
+    "opp_food_to_gain",
+    "opp_eggs_to_gain",
+    "opp_cards_to_draw",
+    "opp_cards_to_tuck",
+    "plays_to_gain",
+    "cache_to_gain",
+)
+
 # Within-BONUS_DELTA indices: a candidate bird's contribution to the deciding
 # player's HELD bonus cards (filled for play / keep-bird / tray draw-source
 # candidates — see ``choice_encode._fill_bonus_delta``). The marginal values
