@@ -132,21 +132,23 @@ def _winrate_block(
 ) -> list[text.Text]:
     """The win-rate plot block (title + plot grid + x-axis), exactly
     ``geometry.TITLE_ROWS + rows + geometry.AXIS_ROWS`` lines tall. Plots the
-    EWMA win-rate series over the whole run with dynamic y-axis scaling: the top
-    is always 100% and the floor is derived from the minimum EWMA value seen
-    (rounded to a stable 5% step). Segments above 50% are drawn in green;
-    segments below 50% are drawn in red. A solid dim-red horizontal line marks
-    the 50% level when it falls within the chart range."""
+    EWMA win-rate series over the whole run with dynamic y-axis scaling: the
+    ceiling is ``max(graduation_threshold, opponent_advance_threshold)`` (win
+    rates can't meaningfully exceed either) and the floor is derived from the
+    minimum EWMA value seen (rounded to a stable 5% step). Segments above 50%
+    are drawn in green; segments below 50% are drawn in red. A solid dim-red
+    horizontal line marks the 50% level when it falls within the chart range."""
     plot_cols = max(1, width - geometry.GUTTER_W)
     it_lo, it_hi = convergence.full_range(history)
     ewma = convergence.winrate_ewma_points(
         history, state.config.opponent.eval_ewma_alpha
     )
 
-    # Dynamic floor derived from the global minimum in history; series 0 = red
+    # Dynamic floor/ceiling: floor from global min in history; ceiling from the
+    # max of the graduation and opponent-advance thresholds.  Series 0 = red
     # (below 50%, higher canvas priority), series 1 = green (above 50%).
     v_lo = _winrate_v_lo(ewma)
-    v_hi = 100.0
+    v_hi = _winrate_v_hi(state)
 
     canvas = braille.BrailleCanvas(plot_cols, rows, 2)
     _draw_series_split(
@@ -182,7 +184,7 @@ def _winrate_block(
     grid = _render_plot_grid(
         canvas,
         {0: theme.WIN_BELOW_50, 1: theme.WIN_COLOR},
-        _winrate_label_rows(rows, v_lo),
+        _winrate_label_rows(rows, v_lo, v_hi),
         beacon,
         beacon_color,
         target_row,
@@ -567,18 +569,33 @@ def _winrate_v_lo(ewma: list[tuple[int, float]]) -> float:
     return max(0.0, floor5 - 5.0)
 
 
-def _winrate_label_rows(rows: int, v_lo: float) -> dict[int, str]:
+def _winrate_v_hi(state: runstate.RunState) -> float:
+    """Dynamic y-axis ceiling for the win-rate chart.
+
+    Caps at max(graduation threshold, opponent-advance threshold) — win rates
+    won't meaningfully exceed either, since clearing one resets the opponent.
+    """
+    return (
+        max(
+            state.config.opponent.random_phase_win_rate,
+            state.config.opponent.opponent_reset_win_rate,
+        )
+        * 100.0
+    )
+
+
+def _winrate_label_rows(rows: int, v_lo: float, v_hi: float) -> dict[int, str]:
     """Map plot-row index -> percent gutter label for the win-rate axis.
 
     Places ``geometry.WIN_RATE_TICK_COUNT`` ticks at equidistant row positions
-    that never move, with label values recomputed from the current ``v_lo`` so
-    the scale adapts without the tick marks jumping around.
+    that never move, with label values recomputed from the current ``v_lo`` and
+    ``v_hi`` so the scale adapts without the tick marks jumping around.
     """
     tick_count = geometry.WIN_RATE_TICK_COUNT
     labels: dict[int, str] = {}
     for k in range(tick_count):
         row = round(k * (rows - 1) / (tick_count - 1))
-        val = 100.0 - k * (100.0 - v_lo) / (tick_count - 1)
+        val = v_hi - k * (v_hi - v_lo) / (tick_count - 1)
         labels[row] = f"{round(val)}%"
     return labels
 
