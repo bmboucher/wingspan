@@ -71,12 +71,23 @@ def state_embed_rules(
     card_embed_dim: int,
     *,
     use_distinct_hand_model: bool = False,
+    use_board_attention: bool = False,
     hand_embed_dim: int | None = None,
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
     n_playable_multihots: int = 0,
 ) -> dict[str, _EmbedRule]:
     """The card-index / hand stripes of the state vector, at embedded width.
+
+    When ``use_board_attention`` is ``True`` the raw per-slot board and board-index
+    stripes are folded into attention-output blocks:
+
+    * ``board_me`` / ``board_opp`` each expand to ``BOARD_SLOTS × (card_embed_dim +
+      SLOT_SCALAR_DIM)`` — one concat-of-card-embed-and-scalars vector per slot.
+    * ``card_idx_board`` is removed (``new_size=0``): the per-slot card lookup
+      is already included in the attention-output blocks above.
+
+    The total is unchanged, so the ``embed_layout`` consistency check still holds.
 
     ``n_playable_multihots`` is the count of extra playability multi-hot stripes
     that follow ``hand_multihot`` in the v0.6+ state vector.  Each is embedded
@@ -125,28 +136,52 @@ def state_embed_rules(
         ),
     }
     if use_distinct_hand_model:
-        # The dedicated hand encoder consumes [multi-hot ⊕ hand summary]: the
-        # hand stripe becomes the encoder's N-wide output and the 10-dim
-        # hand-summary stripe folds into its input (dropped from the trunk view).
+        # The dedicated hand encoder consumes [multi-hot ⊕ derived hand summary]:
+        # the hand stripe becomes the encoder's N-wide output. In v0.9+ the
+        # hand-summary stripe is absent from the live state (derived in-model);
+        # in pre-0.9 frozen vectors it was physically present and redirected into
+        # the encoder (handled in _embed_state via the hand_summary_end offset).
         rules["hand_multihot"] = _EmbedRule(
             new_size=hand_width,
             encoding="card-set-embedding (hand encoder)",
             value_range="learned",
             notes=(
                 f"My hand -> one {hand_width}-dim set embedding from the dedicated "
-                f"hand encoder over [multi-hot ({hand}) ⊕ the redirected 10-dim "
-                "hand summary]. Raw encoding is the multi-hot plus the (separate) "
-                "hand_summary_me stripe."
+                f"hand encoder over [multi-hot ({hand}) ⊕ 10-dim hand summary "
+                "derived in-model from the multi-hot via set_summary_from_multihot]. "
+                "Raw encoding is the multi-hot only (hand summary removed in v0.9)."
             ),
         )
-        rules["hand_summary_me"] = _EmbedRule(
+    if use_board_attention:
+        slots_per_seat = layout.N_BOARD_INDEX_SLOTS // 2
+        slot_scalar_dim = layout.SLOT_SCALAR_DIM  # 9 scalars per slot
+        attn_width = slots_per_seat * (card_embed_dim + slot_scalar_dim)
+        rules["board_me"] = _EmbedRule(
+            new_size=attn_width,
+            encoding="board-attention output",
+            value_range="learned",
+            notes=(
+                f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim})-dim "
+                "concat (card embedding + per-slot scalars) each, shaped for the "
+                "board-attention transformer."
+            ),
+        )
+        rules["board_opp"] = _EmbedRule(
+            new_size=attn_width,
+            encoding="board-attention output",
+            value_range="learned",
+            notes=(
+                f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim})-dim "
+                "concat (card embedding + per-slot scalars) each, shaped for the "
+                "board-attention transformer."
+            ),
+        )
+        # card_idx_board is folded into the attention blocks above.
+        rules["card_idx_board"] = _EmbedRule(
             new_size=0,
             encoding="folded",
             value_range="-",
-            notes=(
-                "Redirected into the hand encoder's input (see hand_multihot); "
-                "no longer a direct trunk input."
-            ),
+            notes="Folded into board_me / board_opp attention-output blocks.",
         )
     if tray_set_embedding:
         rules["card_idx_tray"] = _EmbedRule(

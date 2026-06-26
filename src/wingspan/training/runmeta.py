@@ -290,6 +290,14 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
         < (playability_ver.major, playability_ver.minor)
         else encode.N_HAND_PLAYABLE_MULTIHOTS
     )
+    # Pre-0.9 artifacts carry the 10-dim hand_summary stripe in the state vector;
+    # the distinct-hand path excises it from the continuous feed (trunk_in is 10
+    # narrower than state_dim would otherwise suggest).
+    compaction_ver = version.parse_version("0.9")
+    hand_summary_in_state = arch.use_distinct_hand_model and (
+        parsed_ver.major,
+        parsed_ver.minor,
+    ) < (compaction_ver.major, compaction_ver.minor)
     return architecture.count_parameters(
         arch,
         card_feat_in=card_feat_in,
@@ -297,6 +305,7 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
             descriptor.state_dim,
             arch.card_embed_dim,
             use_distinct_hand_model=arch.use_distinct_hand_model,
+            hand_summary_in_state=hand_summary_in_state,
             hand_embed_dim=arch.hand_embed_dim,
             pooled_hand_width=arch.pooled_hand_width,
             tray_set_embedding=arch.tray_set_embedding,
@@ -346,6 +355,7 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
         spec,
         arch.card_embed_dim,
         use_distinct_hand_model=arch.use_distinct_hand_model,
+        use_board_attention=arch.use_board_attention,
         hand_embed_dim=arch.hand_embed_dim,
         pooled_hand_width=arch.pooled_hand_width,
         tray_set_embedding=arch.tray_set_embedding,

@@ -44,16 +44,16 @@ def encode_state(
         _board_slots_continuous(
             opp
         ),  # layout._BOARD_CONT_STRIPE_DIM — opponent (public)
-        _summary_board(me),  # 18 — kept aggregate
-        _summary_board(opp),  # 18 — kept aggregate
-        _summary_hand(me),  # 10
+        _summary_board(me),  # N_HABITATS*2 — row_length + total_eggs per habitat
+        _summary_board(opp),  # N_HABITATS*2 — row_length + total_eggs per habitat
+        # hand_summary_me removed in v0.9 — derived in-model from hand_multihot
         _bonus_progress(
             me
         ),  # 4 * layout._BONUS_ID_DIM — held + count + stepped + linear
         _opp_bonus_count(opp),  # 1 — opponent bonus-card count (hidden identity)
         np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32),
         _summary_birdfeeder(state),  # 7 (5 food faces + choice dice + reset flag)
-        _summary_misc_scalars(state, me, opp),  # 4 (goal pts ×2, tray size, deck size)
+        _summary_misc_scalars(state, me, opp),  # 2 (tray size, deck size)
         _round_goals_all_rounds(state, me),  # layout._ROUND_GOALS_STRIPE_DIM
         _card_index_block(me, opp, state),  # layout.N_CARD_INDEX_SLOTS — board+tray ids
         _hand_identity(me),  # layout.HAND_MULTIHOT_DIM — multi-hot of my hand
@@ -87,30 +87,48 @@ def _summary_food(player: state.Player) -> np.ndarray:
     )
 
 
-def _summary_board(player: state.Player) -> np.ndarray:
+def _summary_board(player: state.Player, *, full_stats: bool = False) -> np.ndarray:
+    """Per-habitat board summary for ``player``.
+
+    Default (v0.9+): 2 scalars per habitat — ``row_length`` and ``total_eggs``
+    (``N_HABITATS * 2`` = 6 dims). When ``full_stats=True`` (pre-0.9 shims):
+    all 6 scalars per habitat (18 dims)."""
     parts: list[np.ndarray] = []
     for habitat in cards.ALL_HABITATS:
         row = player.board[habitat]
-        parts.append(
-            np.array(
-                [
-                    len(row) / layout._ROW_SLOTS_SCALE,
-                    sum(pb.eggs for pb in row) / layout._EGG_COUNT_SCALE,
-                    sum(pb.bird.points for pb in row)
-                    / (layout._POINTS_SCALE * layout._ROW_SLOTS_SCALE),
-                    sum(pb.tucked_cards for pb in row) / layout._TUCKED_SCALE,
-                    sum(pb.cached_food.total() for pb in row)
-                    / layout._CACHED_FOOD_SCALE,
-                    sum(1 for pb in row if pb.bird.color == cards.PowerColor.BROWN)
-                    / layout._ROW_SLOTS_SCALE,
-                ],
-                dtype=np.float32,
+        if full_stats:
+            parts.append(
+                np.array(
+                    [
+                        len(row) / layout._ROW_SLOTS_SCALE,
+                        sum(pb.eggs for pb in row) / layout._EGG_COUNT_SCALE,
+                        sum(pb.bird.points for pb in row)
+                        / (layout._POINTS_SCALE * layout._ROW_SLOTS_SCALE),
+                        sum(pb.tucked_cards for pb in row) / layout._TUCKED_SCALE,
+                        sum(pb.cached_food.total() for pb in row)
+                        / layout._CACHED_FOOD_SCALE,
+                        sum(1 for pb in row if pb.bird.color == cards.PowerColor.BROWN)
+                        / layout._ROW_SLOTS_SCALE,
+                    ],
+                    dtype=np.float32,
+                )
             )
-        )
+        else:
+            parts.append(
+                np.array(
+                    [
+                        len(row) / layout._ROW_SLOTS_SCALE,
+                        sum(pb.eggs for pb in row) / layout._EGG_COUNT_SCALE,
+                    ],
+                    dtype=np.float32,
+                )
+            )
     return np.concatenate(parts)
 
 
-def _summary_hand(player: state.Player) -> np.ndarray:
+def _summary_hand(  # pyright: ignore[reportUnusedFunction]
+    player: state.Player,
+) -> np.ndarray:
     """Compact hand summary (10 dims): hand size, per-habitat bird counts, and a
     food+wild multi-hot.
 
@@ -402,21 +420,24 @@ def _card_index_block(
 
 
 def _round_goals_all_rounds(
-    game_state: state.GameState, me: state.Player
+    game_state: state.GameState, me: state.Player, *, zero_passed_rounds: bool = True
 ) -> np.ndarray:
-    """All four round-goal slots from ``me``'s POV: each = the goal's category
-    one-hot plus ``me``'s count, the opponent's count, and the placement VP ``me``
-    would earn if that round scored now. Encoding every round (not just the
-    current one) lets the model plan toward later-round goals it is already
-    accumulating progress on. Already-scored rounds read the frozen
-    at-scoring standings (``GameState.scored_goals``) — their stripes never
-    move again, however the boards evolve."""
+    """All four round-goal slots from ``me``'s POV.
+
+    Each slot = goal category one-hot + my count + opponent count + placement VP.
+    When ``zero_passed_rounds=True`` (default, v0.9+), slots for already-scored
+    rounds stay all-zero (noise suppression). When ``False`` (pre-0.9 shims),
+    all rounds are filled (the historical behavior)."""
     from wingspan.engine import scoring
 
     vec = np.zeros(layout._ROUND_GOALS_STRIPE_DIM, dtype=np.float32)
     for round_idx in range(layout._NUM_ROUNDS):
         if round_idx >= len(game_state.round_goals):
             break
+        # Skip scored rounds in v0.9+: their counts/VP are frozen history, not
+        # useful signal for future decisions.
+        if zero_passed_rounds and round_idx < len(game_state.scored_goals):
+            continue
         base = round_idx * layout._ROUND_GOAL_SLOT_DIM
         goal = game_state.round_goals[round_idx]
         if goal.category in layout._GOAL_CATEGORIES:
@@ -477,19 +498,31 @@ def _summary_turn_state(game_state: state.GameState, me: state.Player) -> np.nda
 
 
 def _summary_misc_scalars(
-    game_state: state.GameState, me: state.Player, opp: state.Player
+    game_state: state.GameState,
+    me: state.Player,
+    opp: state.Player,
+    *,
+    include_goal_pts: bool = False,
 ) -> np.ndarray:
-    """4 dims: my round-goal VP, opponent round-goal VP, tray size, deck size."""
-    return np.array(
-        [
-            me.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
-            opp.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
-            sum(1 for bird in game_state.tray if bird is not None)
-            / layout._TRAY_SIZE_SCALE,
-            len(game_state.bird_deck) / layout._DECK_SIZE_SCALE,
-        ],
-        dtype=np.float32,
+    """Miscellaneous scalars stripe.
+
+    Default (v0.9+): 2 dims — tray size, deck size. When ``include_goal_pts=True``
+    (pre-0.9 shims): 4 dims — my round-goal VP, opponent VP, tray, deck."""
+    tray_size = (
+        sum(1 for bird in game_state.tray if bird is not None) / layout._TRAY_SIZE_SCALE
     )
+    deck_size = len(game_state.bird_deck) / layout._DECK_SIZE_SCALE
+    if include_goal_pts:
+        return np.array(
+            [
+                me.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
+                opp.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
+                tray_size,
+                deck_size,
+            ],
+            dtype=np.float32,
+        )
+    return np.array([tray_size, deck_size], dtype=np.float32)
 
 
 def _encode_decision_type(

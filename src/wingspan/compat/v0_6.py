@@ -161,8 +161,10 @@ class PolicyValueNetV06(core.PolicyValueNet):
 
     The card encoder's first linear was trained against 224-wide input rows;
     this subclass overrides :meth:`_build_card_encoder` to keep that width and
-    register the frozen v0.6 feature table. State encoding is identical to the
-    live era (state/choice vector widths are unchanged in 0.7 or 0.8).
+    register the frozen v0.6 feature table. State encoding uses the 1155-dim
+    pre-0.9 geometry (same as v0.8 — state has been 1155-dim since v0.6):
+    :meth:`encode_state` and :meth:`_state_embed_offsets` delegate to the
+    ``v0_8`` module so no state-encoding logic is duplicated here.
 
     :meth:`encode_choices` is also overridden to restore the v0.7 eggs-included
     ``becomes_playable`` food semantics: v0.6 artifacts predate the 0.8
@@ -176,6 +178,26 @@ class PolicyValueNetV06(core.PolicyValueNet):
         """Register ``card_encoder`` at the frozen 224-wide input and
         ``card_features`` from the v0.6 feature table."""
         _install_v06_card_encoder_main(self, arch)
+
+    def encode_state(
+        self,
+        game_state: state.GameState,
+        decision: decisions.Decision[decisions.Choice],
+    ) -> np.ndarray:
+        """Featurize ``game_state`` with the 1155-dim pre-0.9 state geometry.
+
+        Delegates to ``v0_8.encode_state_v08``: state has been 1155-dim since
+        v0.6 (the playability-stripe bump) and the v0.8 shim reconstructs that
+        exact vector."""
+        import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+        return v0_8_module.encode_state_v08(game_state, decision, self.spec)
+
+    def _state_embed_offsets(self) -> core.StateEmbedOffsets:
+        """Frozen slice offsets for the 1155-dim pre-0.9 state vector."""
+        import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+        return v0_8_module.state_embed_offsets_v08()
 
     def encode_choices(
         self,

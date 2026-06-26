@@ -33,7 +33,45 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v0.8 — Food-gain `becomes_playable` ignores eggs (current)
+### v0.9 — State-vector compaction (current)
+
+**FRESH change (code-carried)** — state vector width 1155 → 1119 (−36 dims):
+
+- `misc_scalars` 4 → 2 dims: dropped `my_round_goal_pts` and `opp_round_goal_pts`
+  (accumulated VP is redundant with the `round_goals` stripe standings).
+- `board_summary_me` / `board_summary_opp` 18 → 6 dims each (−12 per seat, −24
+  total): kept only `row_length` and `total_eggs` per habitat; removed `points`,
+  `tucked_cards`, `cached_food_total`, and `brown_count` (all duplicated by the
+  per-slot board stripes).
+- `hand_summary_me` stripe removed entirely (−10 dims): the 10-dim hand summary
+  (hand size, per-habitat counts, food-cost multi-hot) is now derived in-model
+  via `set_summary_from_multihot` on the hand multi-hot, rather than precomputed
+  in the encoder. The dedicated hand encoder (`use_distinct_hand_model`) is
+  unchanged at 190-wide input; it now derives the summary in-model instead of
+  reading it from the state.
+- `round_goals` slots for already-scored rounds are zeroed (value-only, width
+  unchanged). Once a round's goal is committed to `GameState.scored_goals` its
+  encoding is zeroed so the model doesn't see frozen historical signal.
+
+Choice vectors and `CARD_FEATURE_DIM` are unchanged.
+
+Shim: `wingspan.compat.v0_8` — covers **exactly v0.8 artifacts** (v0.6 and v0.7
+delegate their `encode_state` / `_state_embed_offsets` overrides here, since state
+has been 1155-dim since v0.6). `PolicyValueNetV08` overrides `encode_state` to call
+`encode_state_v08` (with old-behavior flags) and `_state_embed_offsets` to return the
+frozen 1155-dim offsets (`card_index=562`, `hand_multihot=595`, `decision_type=1135`,
+`hand_summary=343..353` — all 36 columns right of the live v0.9 offsets).
+
+`StateEmbedOffsets` gains a fifth field `hand_summary_end: int`; a non-zero value
+signals that the hand-summary stripe is physically present in the frozen vector and
+must be excised from the continuous prefix rather than derived in-model. The live v0.9
+net always returns `(0, 0)` for `(hand_summary, hand_summary_end)`.
+
+`encoding_dims_for_era` updated: `(0,6)–(0,8)` → `v0_8.state_feature_dim_v08(spec)`.
+
+---
+
+### v0.8 — Food-gain `becomes_playable` ignores eggs
 
 **FRESH change (code-carried)** — changed the `becomes_playable` computation on
 **food-gain** choice rows so the egg-cost gate is no longer applied. A hand bird

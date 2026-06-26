@@ -64,19 +64,31 @@ _N_FROZEN_PLAYABLE = 0  # pre-0.6 artifacts have 0 playability multihots
 _PLAYABLE_STRIPE_DIM = layout.N_HAND_PLAYABLE_MULTIHOTS * layout.HAND_MULTIHOT_DIM
 """Total dims added to the state vector by the playability stripes (360 in v0.6)."""
 
-# The hand_multihot offset in v0.4/v0.5: same as the live layout's value because
+# Frozen v0.6–v0.8 base offsets.  v0.9 removed 36 dims from the continuous
+# prefix (before the card-index block), shifting card_index, hand_multihot, and
+# decision_type left by 36.  These literals capture the pre-0.9 positions so
+# the v0.4 offset formulas remain correct under v0.9 and beyond.
+_V08_CARD_INDEX = 562
+"""Frozen offset of the card-index block in the 1155-dim v0.6–v0.8 state vector."""
+
+_V08_HAND_MULTIHOT = 595
+"""Frozen offset of the hand multi-hot in the 1155-dim v0.6–v0.8 state vector."""
+
+_V08_DECISION_TYPE = 1135
+"""Frozen offset of the decision-type one-hot in the 1155-dim v0.6–v0.8 state vector."""
+
+# The hand_multihot offset in v0.4/v0.5: same as the v0.8 (pre-0.9) value because
 # both playability stripes are AFTER hand_multihot. No delta needed here — only
 # the stripes that come AFTER the insertion point differ.
-_V04_HAND_MULTIHOT_OFFSET = layout.OFF_HAND_MULTIHOT
-"""Offset of ``hand_multihot`` in the frozen 795-dim v0.4 vector (unchanged from live)."""
+_V04_HAND_MULTIHOT_OFFSET = _V08_HAND_MULTIHOT
+"""Offset of ``hand_multihot`` in the frozen 795-dim v0.4 vector (unchanged from v0.8)."""
 
 # The decision-type stripe begins right after hand_multihot in v0.4 (no
-# intervening playability stripes), but at OFF_DECISION_TYPE in v0.6 (which
-# is OFF_HAND_MULTIHOT + (1 + N_HAND_PLAYABLE_MULTIHOTS) * HAND_MULTIHOT_DIM +
-# decision_type_dim). Since the playability stripes sit between hand_multihot
-# and the decision-type one-hot, the v0.4 decision-type starts earlier by
-# exactly _PLAYABLE_STRIPE_DIM.
-_V04_DECISION_TYPE_OFFSET = layout.OFF_DECISION_TYPE - _PLAYABLE_STRIPE_DIM
+# intervening playability stripes), but at _V08_DECISION_TYPE in v0.8 (which
+# is after the two 180-dim playability stripes inserted in v0.6). Since those
+# stripes sit between hand_multihot and decision_type, the v0.4 decision-type
+# starts earlier by exactly _PLAYABLE_STRIPE_DIM.
+_V04_DECISION_TYPE_OFFSET = _V08_DECISION_TYPE - _PLAYABLE_STRIPE_DIM
 """Offset of the decision-type one-hot in the frozen 795-dim v0.4 vector."""
 
 # The choice vector's ``becomes_playable`` stripe (180 dims) was added at the end
@@ -105,31 +117,38 @@ def encode_state_v04(
 ) -> np.ndarray:
     """Produce the complete 795-dim v0.4/v0.5 state vector.
 
-    Identical to the live ``encode_state`` except that the two hand-playability
-    stripes (``hand_playable_me`` and ``hand_playable_eggs_me``) are omitted,
-    keeping ``state_dim`` at 795.  Everything else (turn_state, board, hand
-    multihot, round goals, decision-type) uses the live encoders unchanged."""
+    Identical to the v0.8 state (``encode_state_v08``) except that the two
+    hand-playability stripes are omitted, keeping ``state_dim`` at 795. Uses
+    old-behavior flags for all v0.9-compacted sub-builders:
+
+    * ``_summary_board(..., full_stats=True)`` — 18 dims per seat.
+    * ``_summary_misc_scalars(..., include_goal_pts=True)`` — 4 dims.
+    * ``_round_goals_all_rounds(..., zero_passed_rounds=False)`` — all rounds."""
     pov = decision.player_id if decision is not None else game_state.current_player
     me = game_state.players[pov]
     opp = game_state.players[1 - pov] if len(game_state.players) > 1 else me
 
-    # Collect stripes in the same order as encode_state, but omit the two
-    # playability multi-hots that were added in v0.6.
+    # Collect stripes in the v0.8 order, omitting the two playability multi-hots
+    # that were added in v0.6, and passing old-behavior flags for v0.9 changes.
     parts: list[np.ndarray] = [
         state_encode._summary_turn_state(game_state, me),
         state_encode._summary_food(me),
         state_encode._summary_food(opp),
         state_encode._board_slots_continuous(me),
         state_encode._board_slots_continuous(opp),
-        state_encode._summary_board(me),
-        state_encode._summary_board(opp),
-        state_encode._summary_hand(me),
+        state_encode._summary_board(me, full_stats=True),  # 18 dims (old behavior)
+        state_encode._summary_board(opp, full_stats=True),  # 18 dims (old behavior)
+        state_encode._summary_hand(me),  # 10 dims (still in pre-v0.9)
         state_encode._bonus_progress(me),
         state_encode._opp_bonus_count(opp),
         np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32),
         state_encode._summary_birdfeeder(game_state),
-        state_encode._summary_misc_scalars(game_state, me, opp),
-        state_encode._round_goals_all_rounds(game_state, me),
+        state_encode._summary_misc_scalars(
+            game_state, me, opp, include_goal_pts=True  # 4 dims (old behavior)
+        ),
+        state_encode._round_goals_all_rounds(
+            game_state, me, zero_passed_rounds=False  # fill all rounds (old behavior)
+        ),
         state_encode._card_index_block(me, opp, game_state),
         state_encode._hand_identity(me),
         # hand_playable_me and hand_playable_eggs_me are intentionally OMITTED
@@ -158,31 +177,36 @@ def state_embed_offsets_v04() -> core.StateEmbedOffsets:
     """The frozen slice offsets ``_embed_state`` uses for the 795-dim v0.4/v0.5
     state vector.
 
-    The ``hand_multihot`` offset is unchanged (the playability stripes sit
-    AFTER it, so its offset is not shifted). The ``decision_type`` offset is
-    shifted back by ``_PLAYABLE_STRIPE_DIM`` (360 dims) because those stripes
-    were inserted before the decision-type one-hot. The ``card_index`` and
-    ``hand_summary`` offsets are also unchanged (both precede the insertion point).
+    ``hand_multihot`` is unchanged from the v0.8 position (playability stripes
+    sit AFTER it). ``decision_type`` is shifted back by ``_PLAYABLE_STRIPE_DIM``
+    (360 dims). ``card_index`` and ``hand_summary`` precede the playability
+    insertion point and are frozen at their v0.8 positions. Non-zero
+    ``hand_summary_end`` tells ``_embed_state`` the stripe is physically present
+    in this frozen vector and must be read from state rather than derived in-model.
 
     ``PolicyValueNetV04`` overrides ``_state_embed_offsets`` with this, so an
     old checkpoint's state vector is sliced at the columns it was written with."""
     return core.StateEmbedOffsets(
-        card_index=layout.OFF_CARD_INDEX,
+        card_index=_V08_CARD_INDEX,
         hand_multihot=_V04_HAND_MULTIHOT_OFFSET,
         decision_type=_V04_DECISION_TYPE_OFFSET,
         hand_summary=layout.HAND_SUMMARY_OFFSET,
+        hand_summary_end=layout.HAND_SUMMARY_OFFSET + layout.HAND_SUMMARY_DIM,
     )
 
 
 def state_feature_dim_v04(spec: layout.EncodingSpec = layout.DEFAULT_SPEC) -> int:
     """The frozen v0.4/v0.5 state-vector width (795 under the default spec).
 
-    The live width minus ``_PLAYABLE_STRIPE_DIM`` (360) — the size of
-    :func:`encode_state_v04`'s output and the ``state_dim`` every pre-0.6 net
-    was built with. The era-dims router (``compat.encoding_dims_for_era``) uses
-    this so an era-pinned ``TrainConfig`` derives the dims its checkpoints
-    actually carry."""
-    return layout.state_feature_dim(spec) - _PLAYABLE_STRIPE_DIM
+    Delegates to the frozen v0.8 base (1155 dims) minus ``_PLAYABLE_STRIPE_DIM``
+    (360) — the size of :func:`encode_state_v04`'s output. Using the live width
+    directly would give the wrong answer after v0.9 (which shrank the live dim
+    by 36, so ``live - 360 = 759 ≠ 795``). The era-dims router
+    (``compat.encoding_dims_for_era``) uses this so an era-pinned
+    ``TrainConfig`` derives the dims its checkpoints actually carry."""
+    import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+    return v0_8_module.state_feature_dim_v08(spec) - _PLAYABLE_STRIPE_DIM
 
 
 def choice_feature_dim_v04(spec: layout.EncodingSpec = layout.DEFAULT_SPEC) -> int:

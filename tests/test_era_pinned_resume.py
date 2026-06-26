@@ -168,7 +168,7 @@ def test_era_pinned_config_derives_frozen_dims(tmp_path: pathlib.Path):
 
 
 def test_unknown_or_future_eras_are_rejected(tmp_path: pathlib.Path):
-    for bad in ("0.9", "1.0", "garbage"):
+    for bad in ("1.0", "garbage"):
         with pytest.raises(ValueError):
             _cfg(tmp_path, encoding_version=bad)
 

@@ -73,15 +73,32 @@ class PolicyValueNetV07(core.PolicyValueNet):
     ``becomes_playable`` food encoding, for checkpoints written before
     artifact version 0.8.
 
-    State encoding, card features, and all tensor shapes are identical to the
-    live era — only the computed values of ``becomes_playable`` bits on
-    food-gain rows differ. This subclass overrides :meth:`encode_choices` to
-    call :func:`encode_choices_v07` (eggs-included food path) so inference
-    drives the net with the same encoding its weights were trained against.
+    v0.9 compacted the state vector (1155→1119 dims), so this shim also
+    overrides :meth:`encode_state` and :meth:`_state_embed_offsets` to keep the
+    1155-dim pre-0.9 geometry — delegating to ``v0_8`` (which owns that frozen
+    vector). Only the ``becomes_playable`` food bits differ from v0.8:
+    :meth:`encode_choices` overrides to ``encode_choices_v07`` (eggs-included
+    food path).
 
     Constructed by the version-routing loaders (``PolicyValueNet.from_model_config``,
     ``players.loaders.load_policy_net``) — never by the training pipeline.
     """
+
+    def encode_state(
+        self,
+        game_state: state.GameState,
+        decision: decisions.Decision[decisions.Choice],
+    ) -> np.ndarray:
+        """Featurize ``game_state`` with the 1155-dim pre-0.9 state geometry."""
+        import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+        return v0_8_module.encode_state_v08(game_state, decision, self.spec)
+
+    def _state_embed_offsets(self) -> core.StateEmbedOffsets:
+        """Frozen slice offsets for the 1155-dim pre-0.9 state vector."""
+        import wingspan.compat.v0_8 as v0_8_module  # local: avoids import cycle
+
+        return v0_8_module.state_embed_offsets_v08()
 
     def encode_choices(
         self,

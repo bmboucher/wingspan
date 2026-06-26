@@ -35,7 +35,7 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import decisions, encode, engine, model, version  # noqa: E402
-from wingspan.compat import v0_1, v0_2  # noqa: E402
+from wingspan.compat import v0_1, v0_2, v0_8  # noqa: E402
 from wingspan.encode import state_encode  # noqa: E402
 from wingspan.training import collect, runmeta, setup_runmeta  # noqa: E402
 
@@ -173,15 +173,19 @@ def test_state_embed_offsets_are_frozen_to_v02(loaded_net: model.PolicyValueNet)
     Because slice widths coincide, slicing live would corrupt silently."""
     frozen = loaded_net._state_embed_offsets()
     assert frozen == v0_2.state_embed_offsets_v02()
+    # Offsets are expressed relative to the FROZEN v0.8 base (not the live v0.9
+    # offsets, which shifted left by 36 after the v0.9 compaction).
+    v08 = v0_8.state_embed_offsets_v08()
+    hand_multihot_v02 = v08.hand_multihot + v0_2._MISC_DIM_DELTA
+    hand_summary_off = encode.HAND_SUMMARY_OFFSET + v0_2._HAND_SUMMARY_DIM_DELTA
     assert frozen == model.StateEmbedOffsets(
-        card_index=encode.OFF_CARD_INDEX + v0_2._MISC_DIM_DELTA,
-        hand_multihot=encode.OFF_HAND_MULTIHOT + v0_2._MISC_DIM_DELTA,
+        card_index=v08.card_index + v0_2._MISC_DIM_DELTA,
+        hand_multihot=hand_multihot_v02,
         # decision_type is derived from hand_multihot so the stripes are contiguous
         # in the v0.2 vector (no playability stripes between them).
-        decision_type=encode.OFF_HAND_MULTIHOT
-        + v0_2._MISC_DIM_DELTA
-        + encode.HAND_MULTIHOT_DIM,
-        hand_summary=encode.HAND_SUMMARY_OFFSET + v0_2._HAND_SUMMARY_DIM_DELTA,
+        decision_type=hand_multihot_v02 + encode.HAND_MULTIHOT_DIM,
+        hand_summary=hand_summary_off,
+        hand_summary_end=hand_summary_off + encode.HAND_SUMMARY_DIM,
     )
     # card_index → hand_multihot → decision_type must remain contiguous.
     assert frozen.card_index + encode.N_CARD_INDEX_SLOTS == frozen.hand_multihot
@@ -358,9 +362,10 @@ def test_misc_scalars_scalar_structure():
     pov = 0
     me = eng.state.players[pov]
     opp = eng.state.players[1 - pov]
-    vec = state_encode._summary_misc_scalars(eng.state, me, opp)
+    # v0.8 shim format (include_goal_pts=True) returns 4 dims matching the pre-v0.9 layout.
+    vec = state_encode._summary_misc_scalars(eng.state, me, opp, include_goal_pts=True)
 
-    # v0.4 misc_scalars is exactly 4 dims
+    # v0.4/v0.8 misc_scalars is exactly 4 dims
     assert len(vec) == 4, f"Expected 4 dims, got {len(vec)}"
 
     # All values are normalized scalars in [0, ~1.5] range (not one-hots)

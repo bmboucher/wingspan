@@ -33,8 +33,25 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "0.8"
+MODEL_VERSION = "0.9"
 """The current artifact-compatibility version (the only place it is defined).
+
+0.9 compacts the state vector from 1155→1119 dims (default spec) by dropping
+three redundant stripes and zeroing scored-round goal slots:
+
+* ``misc_scalars`` 4→2 dims: dropped ``my_round_goal_pts`` and
+  ``opp_round_goal_pts`` (the ``round_goals`` stripe captures standings fully).
+* ``board_summary_me`` / ``board_summary_opp`` 18→6 dims each: kept only
+  ``row_length`` + ``total_eggs`` per habitat (per-slot board state and card
+  table make the rest redundant).
+* ``hand_summary_me`` removed (10 dims): the distinct hand encoder now derives
+  the 10-dim summary in-model from the hand multi-hot via
+  ``set_summary_from_multihot``; the stripe is no longer in the state vector.
+* ``round_goals``: values only — already-scored rounds are zeroed so past
+  standings don't pollute future-decision features (width unchanged at 92 dims).
+
+Total: state_dim 1155→1119 (−36). Choice vectors are unchanged. Pre-0.9
+artifacts load and play through ``wingspan.compat.v0_8`` (``PolicyValueNetV08``).
 
 0.8 changes the ``becomes_playable`` multi-hot stripe on **food-gain** choice
 rows so that the egg-cost gate is dropped from the food-affordability check:

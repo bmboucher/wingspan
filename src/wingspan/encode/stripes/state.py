@@ -41,6 +41,7 @@ def state_stripe_layout(
     card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
     *,
     use_distinct_hand_model: bool = False,
+    use_board_attention: bool = False,
     hand_embed_dim: int | None = None,
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
@@ -53,16 +54,17 @@ def state_stripe_layout(
     width — each board / tray slot index as one ``card_embed_dim`` vector, the
     hand as one embedding (pooled at ``pooled_hand_width`` when
     ``use_distinct_hand_model`` is False, or the dedicated hand encoder's resolved
-    ``hand_embed_dim`` otherwise, which also folds the 10-dim hand-summary stripe
-    into the encoder's input) — so the breakdown sums to the trunk's
+    ``hand_embed_dim`` otherwise) — so the breakdown sums to the trunk's
     first-``Linear`` input (``layout.trunk_input_dim``): what the network
     actually sees, not the raw encoder output. ``tray_set_embedding`` widens the
-    tray stripe by one derived set embedding (3·M + N). ``n_playable_multihots``
-    is the number of extra playability multi-hot stripes (``hand_playable_me``,
-    ``hand_playable_eggs_me``) that follow ``hand_multihot`` in the v0.6+ state
-    vector; each is embedded at the same width as the hand embedding. (The model
-    concatenates the embeddings after the continuous features; here they keep
-    their encoding-order position.) Only the trailing decision-type one-hot's
+    tray stripe by one derived set embedding (3·M + N). When ``use_board_attention``
+    is True, ``board_me`` / ``board_opp`` each show as their attention-output width
+    and ``card_idx_board`` is folded into them (see :func:`~embed_rules.state_embed_rules`).
+    ``n_playable_multihots`` is the number of extra playability multi-hot stripes
+    (``hand_playable_me``, ``hand_playable_eggs_me``) that follow ``hand_multihot``
+    in the v0.6+ state vector; each is embedded at the same width as the hand
+    embedding. (The model concatenates the embeddings after the continuous features;
+    here they keep their encoding-order position.) Only the trailing decision-type one-hot's
     width depends on ``spec``.
     """
     raw = _build_raw_state_stripes(spec)
@@ -71,6 +73,7 @@ def state_stripe_layout(
         embed_rules.state_embed_rules(
             card_embed_dim,
             use_distinct_hand_model=use_distinct_hand_model,
+            use_board_attention=use_board_attention,
             hand_embed_dim=hand_embed_dim,
             pooled_hand_width=pooled_hand_width,
             tray_set_embedding=tray_set_embedding,
@@ -207,19 +210,21 @@ def _build_raw_state_stripes(
     )
     off += board_dim
 
-    # ---- board summary (aggregate per-habitat stats) ----
+    # ---- board summary (aggregate per-habitat stats, compacted in v0.9) ----
     _board_summary_notes = (
-        f"3 habitats ({habitat_names}) × 6 stats: "
-        "row_length (filled slots), total_eggs, total_points, "
-        "total_tucked, total_cached_food, brown_bird_count. "
-        "All normalized to approx [0, 1]."
+        f"3 habitats ({habitat_names}) × 2 stats: "
+        "row_length (filled slots ÷ 5), total_eggs (÷ 6). "
+        "Compacted in v0.9 from 6→2 stats per habitat (points/tucked/cached/brown "
+        "dropped — redundant with the per-slot continuous stripe and card table)."
     )
-    _board_summary_size = state.N_HABITATS * 6  # 3 × 6 = 18
+    _board_summary_size = (
+        state.N_HABITATS * layout._BOARD_SUMMARY_FIELDS_PER_HABITAT
+    )  # 3 × 2 = 6
 
     stripes.append(
         descriptors.StripeDescriptor(
             name="board_summary_me",
-            description="Aggregate per-habitat row statistics for my board.",
+            description="Aggregate per-habitat row statistics for my board (row_length, total_eggs).",
             offset=off,
             size=_board_summary_size,
             encoding="vector",
@@ -233,7 +238,7 @@ def _build_raw_state_stripes(
     stripes.append(
         descriptors.StripeDescriptor(
             name="board_summary_opp",
-            description="Aggregate per-habitat row statistics for the opponent's board.",
+            description="Aggregate per-habitat row statistics for the opponent's board (row_length, total_eggs).",
             offset=off,
             size=_board_summary_size,
             encoding="vector",
@@ -244,25 +249,9 @@ def _build_raw_state_stripes(
     )
     off += _board_summary_size
 
-    # ---- hand summary ----
-    stripes.append(
-        descriptors.StripeDescriptor(
-            name="hand_summary_me",
-            description="Compact summary of my current hand.",
-            offset=off,
-            size=10,
-            encoding="vector",
-            value_range="[0, ~1]",
-            notes=(
-                "10 values: hand_size[0] (÷10), per-habitat bird counts[1:4] "
-                f"({habitat_names}; a bird counted once per habitat it lives in, "
-                "÷10), then a food+wild multi-hot[4:10] — 1.0 if any hand bird has "
-                f"that token in its food cost ({food_names}, wild)."
-            ),
-            sub_fields=descriptors.hand_summary_sub_fields(),
-        )
-    )
-    off += 10
+    # hand_summary_me removed in v0.9: the distinct hand encoder now derives the
+    # 10-dim summary in-model from the hand multi-hot via set_summary_from_multihot.
+    # Pre-0.9 artifacts see this stripe via the v0_8 compat shim.
 
     # ---- bonus progress (POV player only; opponent identity hidden) ----
     bonus_dim = layout._BONUS_ID_DIM  # 26 bonus cards
@@ -370,20 +359,20 @@ def _build_raw_state_stripes(
     )
     off += 7
 
-    # ---- miscellaneous scalars ----
-    misc_dim = 4  # goal pts ×2 + tray size + deck size
+    # ---- miscellaneous scalars (compacted in v0.9) ----
+    misc_dim = 2  # tray size + deck size (goal pts removed in v0.9)
     stripes.append(
         descriptors.StripeDescriptor(
             name="misc_scalars",
-            description="Miscellaneous game state (scores, deck).",
+            description="Miscellaneous game state scalars (tray size, deck size).",
             offset=off,
             size=misc_dim,
             encoding="vector",
             value_range="[0, ~1]",
             notes=(
-                "4 scalars: my_round_goal_pts (÷10), opp_round_goal_pts (÷10), "
-                "tray_size (÷3), deck_size (÷100). "
-                "Round and cube info moved to the leading turn_state stripe."
+                "2 scalars (v0.9+): tray_size (÷3), deck_size (÷100). "
+                "my_round_goal_pts and opp_round_goal_pts removed in v0.9 — "
+                "goal standings are fully captured by the round_goals stripe."
             ),
             sub_fields=_misc_scalars_sub_fields(),
         )
@@ -405,7 +394,9 @@ def _build_raw_state_stripes(
                 f"4 rounds × {goal_slot} values. Per round: "
                 f"category_one_hot[0:{layout.MAX_GOAL_CATEGORIES}] ({layout.MAX_GOAL_CATEGORIES} dims), "
                 "my_count (normalized ÷ 5), opp_count (normalized ÷ 5), "
-                "placement_vp (normalized ÷ 10)."
+                "placement_vp (normalized ÷ 10). "
+                "Scored (passed) rounds are zeroed in v0.9+ — their counts/VP are "
+                "frozen history no longer relevant to future decisions."
             ),
             sub_fields=_round_goals_sub_fields(),
         )

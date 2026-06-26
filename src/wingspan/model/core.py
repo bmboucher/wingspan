@@ -55,12 +55,19 @@ class StateEmbedOffsets(typing.NamedTuple):
     between them moves only a subset. Every offset ``_embed_state`` reads lives
     here — not as a bare ``encode.*`` constant — so a shim freezes all of them at
     once and a new stripe cannot silently desync one (see ``docs/VERSIONING.md``
-    and ``compat/INDEX.md``)."""
+    and ``compat/INDEX.md``).
+
+    ``hand_summary`` / ``hand_summary_end`` together describe the hand-summary slice
+    in the state vector. In live v0.9+ encoding the stripe is absent and both are 0
+    (the model derives the summary in-model from the multi-hot). In pre-0.9 shims
+    both are set to the frozen position so ``_embed_state`` reads the stripe from the
+    frozen vector and passes it to the hand encoder (the historical path)."""
 
     card_index: int
     hand_multihot: int
     decision_type: int
     hand_summary: int
+    hand_summary_end: int
 
 
 class ChoiceEmbedOffsets(typing.NamedTuple):
@@ -174,6 +181,7 @@ class PolicyValueNet(nn.Module):
             v0_4,
             v0_6,
             v0_7,
+            v0_8,
         )
 
         if v0_0.uses_v0_0_choice_encoding(artifact_version):
@@ -190,6 +198,8 @@ class PolicyValueNet(nn.Module):
             return v0_6.PolicyValueNetV06
         if v0_7.uses_v0_7_becomes_playable_encoding(artifact_version):
             return v0_7.PolicyValueNetV07
+        if v0_8.uses_pre_v09_state_encoding(artifact_version):
+            return v0_8.PolicyValueNetV08
         return PolicyValueNet
 
     @classmethod
@@ -414,10 +424,16 @@ class PolicyValueNet(nn.Module):
         n_extra = (
             offsets.decision_type - offsets.hand_multihot
         ) // encode.HAND_MULTIHOT_DIM - 1
+        # In pre-0.9 frozen state vectors the hand-summary stripe is physically
+        # present (hand_summary_end > hand_summary) and must be subtracted from the
+        # continuous feed when building the trunk. In live v0.9+ it is derived
+        # in-model so both fields are 0 and no subtraction is needed.
+        hand_summary_in_state = offsets.hand_summary_end > offsets.hand_summary
         trunk_in_dim = encode.trunk_input_dim(
             state_dim,
             arch.card_embed_dim,
             use_distinct_hand_model=arch.use_distinct_hand_model,
+            hand_summary_in_state=hand_summary_in_state,
             hand_embed_dim=arch.hand_embed_dim,
             pooled_hand_width=arch.pooled_hand_width,
             tray_set_embedding=arch.tray_set_embedding,
@@ -508,21 +524,24 @@ class PolicyValueNet(nn.Module):
     def _state_embed_offsets(self) -> StateEmbedOffsets:
         """The column offsets :meth:`_embed_state` splits the flat state vector on
         — the card-index block, hand multi-hot, decision-type tail, and the
-        hand-summary stripe (used when ``use_distinct_hand_model`` is on).
+        hand-summary slice (used when ``use_distinct_hand_model`` is on).
 
-        The live net reads them from the current ``encode.layout`` chain. Era
-        compat nets carry their own frozen-geometry state vector (e.g. the
-        790-dim pre-0.4 vector), so they override this to return the offsets
-        that vector was written with — never the live ones. Slicing an old
-        vector at live offsets is silent corruption: the widths can coincide
-        (no crash) while the columns read are wrong, so this seam — *every*
-        offset, not just ``encode_state`` — must move with the era (see
-        ``docs/VERSIONING.md`` and ``compat/INDEX.md``)."""
+        The live net reads them from the current ``encode.layout`` chain. In
+        v0.9+ the hand-summary stripe is absent from the live vector, so
+        ``hand_summary`` and ``hand_summary_end`` are both 0 (a sentinel meaning
+        "derive in-model"). Era compat nets carry their own frozen-geometry state
+        vector, so they override this to return the offsets that vector was
+        written with — never the live ones. Slicing an old vector at live offsets
+        is silent corruption: the widths can coincide (no crash) while the columns
+        read are wrong, so this seam — *every* offset, not just ``encode_state`` —
+        must move with the era (see ``docs/VERSIONING.md`` and
+        ``compat/INDEX.md``)."""
         return StateEmbedOffsets(
             card_index=encode.OFF_CARD_INDEX,
             hand_multihot=encode.OFF_HAND_MULTIHOT,
             decision_type=encode.OFF_DECISION_TYPE,
-            hand_summary=encode.HAND_SUMMARY_OFFSET,
+            hand_summary=0,  # removed in v0.9; derived in-model
+            hand_summary_end=0,
         )
 
     def _choice_embed_offsets(self) -> ChoiceEmbedOffsets:
@@ -585,20 +604,28 @@ class PolicyValueNet(nn.Module):
         ]
 
         if self.arch.use_distinct_hand_model:
-            # Strip the 10-dim hand summary from the continuous prefix and feed
-            # it together with the multi-hot into the dedicated hand encoder.
             hand_sum_off = offsets.hand_summary
-            hand_sum_end = hand_sum_off + encode.HAND_SUMMARY_DIM
+            hand_sum_end = offsets.hand_summary_end
             prefix = state[:, :off_index]
-            continuous = torch.cat(
-                [
-                    prefix[:, :hand_sum_off],
-                    prefix[:, hand_sum_end:],
-                    state[:, off_decision:],
-                ],
-                dim=-1,
-            )
-            hand_summary = state[:, hand_sum_off:hand_sum_end]
+            if hand_sum_end > hand_sum_off:
+                # Pre-0.9 frozen vector: stripe is physically present — excise it
+                # from the continuous prefix and read it for the hand encoder.
+                continuous = torch.cat(
+                    [
+                        prefix[:, :hand_sum_off],
+                        prefix[:, hand_sum_end:],
+                        state[:, off_decision:],
+                    ],
+                    dim=-1,
+                )
+                hand_summary = state[:, hand_sum_off:hand_sum_end]
+            else:
+                # Live v0.9+: stripe not in vector — continuous prefix is unchanged
+                # and the summary is derived in-model from the hand multi-hot.
+                continuous = torch.cat([prefix, state[:, off_decision:]], dim=-1)
+                hand_summary = hand_model.set_summary_from_multihot(
+                    hand_multihot, self.card_summary_matrix[1:]
+                )
             hand_emb = hand_model.embed_card_set(
                 self.hand_encoder, hand_multihot, hand_summary
             )
@@ -722,18 +749,34 @@ class PolicyValueNet(nn.Module):
 
         if self.arch.use_distinct_hand_model:
             hand_sum_off = offsets.hand_summary
-            hand_sum_end = hand_sum_off + encode.HAND_SUMMARY_DIM
-            # Excise board_me + board_opp and hand_summary from the prefix.
-            continuous = torch.cat(
-                [
-                    state[:, :off_bme],
-                    state[:, board_end:hand_sum_off],
-                    state[:, hand_sum_end:off_index],
-                    state[:, off_decision:],
-                ],
-                dim=-1,
-            )
-            hand_summary = state[:, hand_sum_off:hand_sum_end]
+            hand_sum_end = offsets.hand_summary_end
+            if hand_sum_end > hand_sum_off:
+                # Pre-0.9 frozen vector: excise board_me + board_opp AND
+                # hand_summary from the prefix; read summary from state.
+                continuous = torch.cat(
+                    [
+                        state[:, :off_bme],
+                        state[:, board_end:hand_sum_off],
+                        state[:, hand_sum_end:off_index],
+                        state[:, off_decision:],
+                    ],
+                    dim=-1,
+                )
+                hand_summary = state[:, hand_sum_off:hand_sum_end]
+            else:
+                # Live v0.9+: excise only board_me + board_opp; derive summary
+                # in-model from the hand multi-hot.
+                continuous = torch.cat(
+                    [
+                        state[:, :off_bme],
+                        state[:, board_end:off_index],
+                        state[:, off_decision:],
+                    ],
+                    dim=-1,
+                )
+                hand_summary = hand_model.set_summary_from_multihot(
+                    hand_multihot, self.card_summary_matrix[1:]
+                )
             hand_emb = hand_model.embed_card_set(
                 self.hand_encoder, hand_multihot, hand_summary
             )

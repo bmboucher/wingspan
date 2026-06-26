@@ -110,4 +110,28 @@ exactly 0.7).
 - `uses_v0_7_becomes_playable_encoding(v) -> bool` — True iff `(major, minor) == (0, 7)`.
 - `encode_choices_v07(decision, game_state, spec)` — calls live `encode_choices` with
   `food_playable_ignores_eggs=False` to restore eggs-included semantics.
-- `PolicyValueNetV07` — overrides `encode_choices` to delegate to `encode_choices_v07`.
+- `PolicyValueNetV07` — overrides `encode_choices` to delegate to `encode_choices_v07`;
+  also overrides `encode_state` and `_state_embed_offsets` to delegate to `v0_8` (v0.6–v0.8
+  share the same 1155-dim state).
+
+**`v0_8.py`** — Pre-0.9 state-compaction shim (1155 → 1119 dims; covers exactly 0.8; v0.6–v0.7
+delegate their state overrides here).
+- `uses_pre_v09_state_encoding(v) -> bool` — True iff `(major, minor) == (0, 8)`.
+- `encode_state_v08(game_state, decision, spec)` — reproduces the 1155-dim pre-0.9 vector by
+  calling live sub-builders with old-behavior flags (`full_stats=True`,
+  `include_goal_pts=True`, `zero_passed_rounds=False`) and re-inserting the removed
+  `hand_summary_me` stripe in its historical position.
+- `state_embed_offsets_v08()` — the frozen `StateEmbedOffsets` for the 1155-dim vector:
+  `card_index=562`, `hand_multihot=595`, `decision_type=1135`, `hand_summary=343`,
+  `hand_summary_end=353` (all 36 columns right of the live v0.9 offsets).
+- `state_feature_dim_v08(spec)` — frozen 1155-dim width (default spec).
+- `PolicyValueNetV08` — overrides `encode_state` and `_state_embed_offsets` to drive the
+  net with its frozen 1155-dim geometry; choice encoding is identical to live.
+- Import-time `_assert_live_layout_contract` pins `HAND_SUMMARY_OFFSET==343`,
+  `HAND_SUMMARY_DIM==10`, and `_V08_CARD_INDEX == live OFF_CARD_INDEX + 36`.
+
+**`__init__.py` dims router** — `encoding_dims_for_era(artifact_version, spec)` routes:
+`(0,6)–(0,8)` → `v0_8.state_feature_dim_v08(spec)` (1155-dim pre-compaction state);
+`(0,3)–(0,5)` → `v0_4.state_feature_dim_v04(spec)` (795-dim, pre-playability);
+`(0,0)–(0,2)` → `v0_2.state_feature_dim_v02(spec)` (771-dim pre-v0.3 misc);
+choice dim is similarly era-routed.

@@ -29,11 +29,15 @@ stripe offsets. Key exports:
 
 **`state_encode.py`** — `encode_state(gs: GameState, spec) -> np.ndarray` and
 `state_size(spec) -> int`. Encodes the full perceived game state into a 1-D
-float vector (1155 dims as of v0.6): per-habitat board slots, tray, per-type
-cached food, birdfeeder, all-4 round goals, player hand + two playability multi-hots
-(`hand_playable_me`, `hand_playable_eggs_me`) via the hand encoder, one-hot round
-number, one-hot action cube counts, decision-type one-hot. Also exports per-aspect
-summary helpers used by the dashboard inspector.
+float vector (1119 dims as of v0.9; was 1155 in v0.6–v0.8): per-habitat board
+slots, tray, per-type cached food, birdfeeder, round goals (scored rounds zeroed),
+player hand + two playability multi-hots (`hand_playable_me`, `hand_playable_eggs_me`)
+via the hand encoder, one-hot round number, one-hot action cube counts, decision-type
+one-hot. The `hand_summary_me` stripe (10 dims) was removed in v0.9 — derived in-model
+via `set_summary_from_multihot`; `board_summary_me/opp` compacted from 18→6 dims (only
+`row_length` + `total_eggs` per habitat); `misc_scalars` compacted from 4→2 dims (dropped
+round-goal VP scalars). Also exports per-aspect summary helpers (with `include_goal_pts`,
+`full_stats`, `zero_passed_rounds` flags) used by the v0.8 compat shim and the dashboard.
 
 **`choice_encode.py`** — `encode_choices(gs, decision, spec, *, has_becomes_playable=True, food_playable_ignores_eggs=True) -> np.ndarray`
 (shape `[n_choices, choice_dim]`). One row per offered choice; each row is the

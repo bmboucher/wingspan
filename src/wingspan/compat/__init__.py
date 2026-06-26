@@ -18,22 +18,24 @@ never config flags — and the whole package is deleted wholesale at a MAJOR bum
   stripes in state; no ``becomes_playable`` stripe in choices; 795-dim state).
 * ``v0_6`` — the pre-0.7 card-feature geometry (224-wide card encoder input;
   no ``or_cost`` flag in the per-card attribute vector; also restores v0.7
-  eggs-included food ``becomes_playable`` semantics via a delegating
-  ``encode_choices`` override).
+  eggs-included food ``becomes_playable`` semantics and the 1155-dim pre-0.9
+  state geometry via delegating overrides).
 * ``v0_7`` — the pre-0.8 eggs-included food ``becomes_playable`` semantics
-  (food-gain rows gate on both food AND eggs; 0.8 drops the egg-cost gate).
+  (food-gain rows gate on both food AND eggs; 0.8 drops the egg-cost gate);
+  also carries the 1155-dim pre-0.9 state geometry via delegating overrides.
+* ``v0_8`` — the pre-0.9 state geometry (1155-dim; compacted to 1119 in v0.9 by
+  shrinking board_summary, misc_scalars, removing hand_summary, and zeroing
+  scored round_goals slots).
 
 :func:`encoding_dims_for_era` is the package-level dims router: given an
 artifact version it returns the raw state/choice vector widths that era's
 encoders produce, so an era-pinned ``TrainConfig`` (training resume across a
 FRESH change — see ``docs/VERSIONING.md``) derives the dims its checkpoints
-actually carry instead of the live ones. Neither the v0.7 card-feature change
-nor the v0.8 food-encoding change affects state/choice vector widths, so no
-new branch is needed here for v0.6 or v0.7 artifacts.
+actually carry instead of the live ones.
 """
 
 from wingspan import encode
-from wingspan.compat import v0_0, v0_1, v0_2, v0_3, v0_4, v0_6, v0_7
+from wingspan.compat import v0_0, v0_1, v0_2, v0_3, v0_4, v0_6, v0_7, v0_8
 
 __all__ = [
     "encoding_dims_for_era",
@@ -44,6 +46,7 @@ __all__ = [
     "v0_4",
     "v0_6",
     "v0_7",
+    "v0_8",
 ]
 
 
@@ -53,11 +56,11 @@ def encoding_dims_for_era(
     """The raw ``(state_dim, choice_dim)`` an era's encoders produce under ``spec``.
 
     Routes each axis through the shim that froze it: pre-0.3 artifacts carry the
-    771-dim misc-scalar state vector (``v0_2``), pre-0.4 artifacts carry the
-    790-dim one-hot state vector (``v0_3``), pre-0.6 artifacts carry the 795-dim
-    no-playability state vector and the narrower pre-0.6 choice rows (``v0_4``),
-    and pre-0.1 artifacts carry the reshaped-away choice geometry (``v0_0``).
-    Current-era artifacts get the live widths.
+    771-dim misc-scalar state vector (``v0_2``), pre-0.4 carry the 790-dim one-hot
+    state vector (``v0_3``), pre-0.6 carry the 795-dim no-playability state vector
+    and narrower pre-0.6 choice rows (``v0_4``), pre-0.9 carry the 1155-dim
+    compacted-away state vector (``v0_8``), and current-era artifacts get the
+    live widths. Pre-0.1 artifacts carry the reshaped-away choice geometry (``v0_0``).
     Raises ``ValueError`` for a malformed version string."""
     if v0_2.uses_v0_2_state_encoding(artifact_version):
         state_dim = v0_2.state_feature_dim_v02(spec)
@@ -65,6 +68,10 @@ def encoding_dims_for_era(
         state_dim = v0_3.state_feature_dim_v03(spec)
     elif v0_4.uses_v0_4_encoding(artifact_version):
         state_dim = v0_4.state_feature_dim_v04(spec)
+    elif _uses_1155_dim_state(artifact_version):
+        # Covers 0.6/0.7/0.8 — all share the 1155-dim state geometry that v0.9
+        # compacted. The earlier branches already handle ≤ 0.5.
+        state_dim = v0_8.state_feature_dim_v08(spec)
     else:
         state_dim = encode.state_size(spec)
     if v0_0.uses_v0_0_choice_encoding(artifact_version):
@@ -77,6 +84,26 @@ def encoding_dims_for_era(
     else:
         choice_dim = encode.choice_feature_dim(spec)
     return (state_dim, choice_dim)
+
+
+def _uses_1155_dim_state(artifact_version: str) -> bool:
+    """True for artifact versions 0.6–0.8 that use the 1155-dim pre-0.9 state vector.
+
+    State has been 1155-dim since the v0.6 playability-stripe bump; v0.9 compacted
+    it to 1119. Versions ≤ 0.5 are caught earlier in the routing chain."""
+    from wingspan import version  # local: avoids top-level import of version
+
+    parsed = version.parse_version(artifact_version)
+    v09 = version.parse_version("0.9")
+    v06 = version.parse_version("0.6")
+    return (
+        (v06.major, v06.minor)
+        <= (parsed.major, parsed.minor)
+        < (
+            v09.major,
+            v09.minor,
+        )
+    )
 
 
 def _uses_pre_v06_choice_encoding(artifact_version: str) -> bool:

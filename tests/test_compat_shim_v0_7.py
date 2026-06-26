@@ -38,7 +38,7 @@ from wingspan import (
     state,
     version,
 )
-from wingspan.compat import v0_6, v0_7
+from wingspan.compat import v0_6, v0_7, v0_8
 from wingspan.encode import layout
 from wingspan.training import runmeta
 
@@ -183,7 +183,7 @@ def test_v06_encode_choices_matches_v07_shim():
 
     net = v0_6.PolicyValueNetV06(
         arch=_SMALL,
-        state_dim=encode.state_size(),
+        state_dim=v0_8.state_feature_dim_v08(),
         choice_dim=encode.choice_feature_dim(),
     )
     net_rows = net.encode_choices(decision, eng.state)  # type: ignore[arg-type]
@@ -224,7 +224,7 @@ def test_policy_value_net_v07_encode_choices_uses_shim():
 
     net = v0_7.PolicyValueNetV07(
         arch=_SMALL,
-        state_dim=encode.state_size(),
+        state_dim=v0_8.state_feature_dim_v08(),
         choice_dim=encode.choice_feature_dim(),
     )
     net_rows = net.encode_choices(decision, eng.state)  # type: ignore[arg-type]
@@ -237,7 +237,7 @@ def test_policy_value_net_v07_forward_pass_finite():
     logits and value."""
     net = v0_7.PolicyValueNetV07(
         arch=_SMALL,
-        state_dim=encode.state_size(),
+        state_dim=v0_8.state_feature_dim_v08(),
         choice_dim=encode.choice_feature_dim(),
     )
     net.eval()
@@ -262,7 +262,7 @@ def test_from_model_config_routes_0_7_to_v07():
     """A v0.7 descriptor reconstructs as ``PolicyValueNetV07``."""
     v07_config = runmeta.ModelConfig(
         run_name="routing-v07",
-        state_dim=encode.state_size(),
+        state_dim=v0_8.state_feature_dim_v08(),
         choice_dim=encode.choice_feature_dim(),
         family_order=("main_action",),
         architecture=_SMALL,
@@ -277,7 +277,7 @@ def test_from_model_config_routes_0_6_to_v06():
     """A v0.6 descriptor still reconstructs as ``PolicyValueNetV06`` (card shim)."""
     v06_config = runmeta.ModelConfig(
         run_name="routing-v06",
-        state_dim=encode.state_size(),
+        state_dim=v0_8.state_feature_dim_v08(),
         choice_dim=encode.choice_feature_dim(),
         family_order=("main_action",),
         architecture=_SMALL,

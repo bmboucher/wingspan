@@ -495,6 +495,11 @@ in the state vector: ``hand_playable_me`` (playable right now) and
 ``hand_playable_eggs_me`` (egg-blocked but food/slot ready). Pre-0.6 artifacts
 have 0 extra stripes; the compat shim freezes the offsets at the old values."""
 
+# Per-habitat fields retained in the v0.9 compacted board-summary (row_length +
+# total_eggs). Pre-0.9 shims used 6 fields; this constant keeps the live width
+# explicit and avoids a magic 2 in the stripe spec below.
+_BOARD_SUMMARY_FIELDS_PER_HABITAT = 2
+
 _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(
         name="turn_state",
@@ -504,16 +509,24 @@ _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="food_opp", size=cards.N_FOODS),
     _stripe_descriptors.StripeSpec(name="board_me", size=_BOARD_CONT_STRIPE_DIM),
     _stripe_descriptors.StripeSpec(name="board_opp", size=_BOARD_CONT_STRIPE_DIM),
-    _stripe_descriptors.StripeSpec(name="board_summary_me", size=state.N_HABITATS * 6),
-    _stripe_descriptors.StripeSpec(name="board_summary_opp", size=state.N_HABITATS * 6),
-    _stripe_descriptors.StripeSpec(name="hand_summary_me", size=HAND_SUMMARY_DIM),
+    _stripe_descriptors.StripeSpec(
+        name="board_summary_me",
+        size=state.N_HABITATS * _BOARD_SUMMARY_FIELDS_PER_HABITAT,
+    ),
+    _stripe_descriptors.StripeSpec(
+        name="board_summary_opp",
+        size=state.N_HABITATS * _BOARD_SUMMARY_FIELDS_PER_HABITAT,
+    ),
+    # hand_summary_me removed in v0.9: derived in-model from hand_multihot via
+    # set_summary_from_multihot (same mechanism as playability + tray-set stripes).
+    # Pre-0.9 artifacts load via compat/v0_8.py which restores the stripe.
     _stripe_descriptors.StripeSpec(name="bonus_progress", size=4 * _BONUS_ID_DIM),
     _stripe_descriptors.StripeSpec(name="opp_bonus_count", size=1),
     _stripe_descriptors.StripeSpec(name="opp_hand_size", size=1),
     _stripe_descriptors.StripeSpec(name="birdfeeder", size=7),
     _stripe_descriptors.StripeSpec(
         name="misc_scalars",
-        size=4,  # goal pts ×2 + tray size + deck size
+        size=2,  # tray size + deck size (goal pts removed in v0.9)
     ),
     _stripe_descriptors.StripeSpec(name="round_goals", size=_ROUND_GOALS_STRIPE_DIM),
     _stripe_descriptors.StripeSpec(name="card_idx_block", size=N_CARD_INDEX_SLOTS),
@@ -534,11 +547,12 @@ STATE_CONT_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
 OFF_BOARD_ME: int = STATE_CONT_LAYOUT.offset_of("board_me")
 OFF_BOARD_OPP: int = STATE_CONT_LAYOUT.offset_of("board_opp")
 
-# Offset of the 10-dim hand-summary stripe within the state vector (= within the
-# continuous prefix, since it precedes the card-index block). Used by the model's
-# ``_embed_state`` when ``use_distinct_hand_model`` is active to split the 10 dims
-# away from the continuous trunk feed and redirect them into the hand encoder.
-HAND_SUMMARY_OFFSET: int = STATE_CONT_LAYOUT.offset_of("hand_summary_me")
+# Frozen: the byte offset of the hand-summary stripe in the *pre-0.9* state vector
+# (= 343 = sum of all stripes before it in the v0.8 layout).  The stripe was
+# removed from the live layout in v0.9 (the model derives it in-model from the
+# hand multi-hot); pre-0.9 compat shims still need this constant to slice the
+# frozen 1155-dim vector at the correct column.
+HAND_SUMMARY_OFFSET: int = 343
 
 # The raw input width of the hand encoder: multi-hot identity + summary stats.
 HAND_ENCODER_INPUT_DIM = HAND_MULTIHOT_DIM + HAND_SUMMARY_DIM
@@ -576,6 +590,7 @@ def trunk_input_dim(
     card_embed_dim: int,
     *,
     use_distinct_hand_model: bool = False,
+    hand_summary_in_state: bool = False,
     hand_embed_dim: int | None = None,
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
@@ -588,20 +603,20 @@ def trunk_input_dim(
     When ``use_distinct_hand_model`` is ``False`` (default) the hand multi-hot is
     pooled over the shared card vectors. The output width is ``pooled_hand_width``
     (from ``architecture.ModelArchitecture.pooled_hand_width``); when ``None``,
-    defaults to ``card_embed_dim`` (MEAN mode / legacy back-compat). The 10-dim
-    hand-summary stripe in the continuous prefix passes through unchanged.
+    defaults to ``card_embed_dim`` (MEAN mode / legacy back-compat).
 
-    When ``True`` a dedicated hand encoder produces the hand embedding from the
-    multi-hot concatenated with the hand-summary; the 10-dim hand-summary stripe is
-    redirected into that encoder instead of passing through to the trunk, so the
-    trunk's continuous input is ``HAND_SUMMARY_DIM`` narrower. The encoder's output
-    width is ``hand_embed_dim`` (``None`` = match ``card_embed_dim``, mirroring
-    ``architecture.ModelArchitecture.hand_embed_width``).
+    When ``True`` a dedicated hand encoder produces the hand embedding. In the live
+    v0.9+ encoding the hand-summary stripe is *not* present in the state vector
+    (it is derived in-model); in pre-0.9 frozen vectors it is present and must be
+    excised from the continuous block. Set ``hand_summary_in_state=True`` when the
+    state vector carries the 10-dim stripe so that this function correctly subtracts
+    it from the continuous feed. ``PolicyValueNet._build_trunk`` derives this flag
+    from ``StateEmbedOffsets.hand_summary_end > hand_summary`` so it is always
+    era-correct without requiring an explicit override.
 
     ``tray_set_embedding`` (which requires the distinct hand encoder) appends one
     more ``hand_embed_dim``-wide vector: the tray *set* embedded through the same
-    hand encoder, derived in-model from the three tray index columns — the tray's
-    per-slot card-table lookups are unchanged, giving 3·M + N tray dims in total.
+    hand encoder, derived in-model from the three tray index columns.
 
     ``n_playable_multihots`` counts the extra hand-playability multi-hot blocks that
     follow the hand multi-hot in the state vector (``N_HAND_PLAYABLE_MULTIHOTS`` in
@@ -627,7 +642,9 @@ def trunk_input_dim(
         + hand_width
         + n_playable_multihots * hand_width  # each embedded as a card set
     )
-    if use_distinct_hand_model:
+    if use_distinct_hand_model and hand_summary_in_state:
+        # Stripe is present in the (pre-0.9) state vector and redirected into the
+        # hand encoder's input; subtract it from the continuous feed.
         base -= HAND_SUMMARY_DIM
     if tray_set_embedding:
         base += hand_width

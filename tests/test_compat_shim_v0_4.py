@@ -27,7 +27,7 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import architecture, encode, engine, model, version
-from wingspan.compat import v0_4
+from wingspan.compat import v0_4, v0_8
 from wingspan.encode import layout
 from wingspan.training import runmeta
 
@@ -76,19 +76,27 @@ def test_version_predicate_excludes_pre_0_4():
 
 
 def test_state_feature_dim_v04_is_795():
-    """The frozen v0.4/v0.5 state width is exactly 795 (live 1155 minus 360).
+    """The frozen v0.4/v0.5 state width is exactly 795 (v0.8 base 1155 minus 360).
 
     The 360-dim gap is exactly N_HAND_PLAYABLE_MULTIHOTS * HAND_MULTIHOT_DIM:
-    the two new playability multi-hot stripes added in 0.6.
+    the two new playability multi-hot stripes added in 0.6. Comparing against
+    the frozen v0.8 base (1155) rather than the live v0.9 dim (1119), since the
+    v0.9 compaction widened the gap to 324 which is no longer the playability delta.
     """
     assert v0_4.state_feature_dim_v04() == _V04_STATE_DIM
-    assert encode.state_size() - v0_4.state_feature_dim_v04() == _PLAYABLE_STRIPE_DIM
+    assert (
+        v0_8.state_feature_dim_v08() - v0_4.state_feature_dim_v04()
+        == _PLAYABLE_STRIPE_DIM
+    )
 
 
 def test_state_feature_dim_v04_gap_is_playability_stripes():
-    """The live → frozen state dim gap equals N_HAND_PLAYABLE_MULTIHOTS * HAND_MULTIHOT_DIM."""
+    """The v0.8 → frozen v0.4 state dim gap equals N_HAND_PLAYABLE_MULTIHOTS * HAND_MULTIHOT_DIM.
+
+    Uses the frozen v0.8 base (1155-dim) rather than the live dim (1119 after
+    the v0.9 compaction), so the gap still reflects exactly the playability stripes."""
     expected_delta = layout.N_HAND_PLAYABLE_MULTIHOTS * layout.HAND_MULTIHOT_DIM
-    assert encode.state_size() - v0_4.state_feature_dim_v04() == expected_delta
+    assert v0_8.state_feature_dim_v08() - v0_4.state_feature_dim_v04() == expected_delta
 
 
 # ---------------------------------------------------------------------------
@@ -111,31 +119,40 @@ def test_choice_feature_dim_v04_is_180_narrower():
 # Embed offsets
 
 
-def test_state_embed_offsets_v04_hand_multihot_unchanged():
-    """The ``hand_multihot`` offset is identical between the v0.4 and live vectors.
+def test_state_embed_offsets_v04_hand_multihot_unchanged_relative_to_v08():
+    """The ``hand_multihot`` offset is the same in the v0.4 and v0.8 frozen vectors.
 
-    The playability stripes sit AFTER hand_multihot (they were inserted between
-    hand_multihot and the decision-type tail), so hand_multihot's position is
-    the same in both era vectors."""
+    The playability stripes sit AFTER hand_multihot (inserted between hand_multihot
+    and the decision-type tail), so hand_multihot's position is the same in both
+    the v0.4 and v0.8 frozen vectors. After v0.9, the live offset shifted left by
+    36, so comparisons must use the frozen v0.8 value (595) not the live one."""
     offsets = v0_4.state_embed_offsets_v04()
-    assert offsets.hand_multihot == encode.OFF_HAND_MULTIHOT
+    assert offsets.hand_multihot == v0_8.state_embed_offsets_v08().hand_multihot
 
 
-def test_state_embed_offsets_v04_decision_type_shifted_360():
-    """The ``decision_type`` offset is 360 less in the v0.4 frozen vector.
+def test_state_embed_offsets_v04_decision_type_shifted_360_from_v08():
+    """The ``decision_type`` offset is 360 less in the v0.4 frozen vector than in v0.8.
 
-    In the live vector two 180-dim playability stripes sit between hand_multihot
+    In the v0.8 vector two 180-dim playability stripes sit between hand_multihot
     and the decision-type one-hot; in the v0.4 vector they are absent, so the
     decision-type one-hot starts 360 columns earlier."""
     offsets = v0_4.state_embed_offsets_v04()
-    assert offsets.decision_type == encode.OFF_DECISION_TYPE - _PLAYABLE_STRIPE_DIM
+    assert (
+        offsets.decision_type
+        == v0_8.state_embed_offsets_v08().decision_type - _PLAYABLE_STRIPE_DIM
+    )
 
 
-def test_state_embed_offsets_v04_card_index_and_hand_summary_unchanged():
-    """card_index and hand_summary are before the insertion point — unchanged."""
+def test_state_embed_offsets_v04_card_index_and_hand_summary_match_v08():
+    """card_index and hand_summary are before the playability insertion point.
+
+    Their positions in the v0.4 frozen vector are the same as in the v0.8 frozen
+    vector (the playability stripes come after card_index). After v0.9 the live
+    offsets shifted left by 36, so comparisons must use the frozen v0.8 values."""
     offsets = v0_4.state_embed_offsets_v04()
-    assert offsets.card_index == encode.OFF_CARD_INDEX
-    assert offsets.hand_summary == encode.HAND_SUMMARY_OFFSET
+    v08 = v0_8.state_embed_offsets_v08()
+    assert offsets.card_index == v08.card_index
+    assert offsets.hand_summary == encode.HAND_SUMMARY_OFFSET  # frozen literal 343
 
 
 def test_state_embed_offsets_v04_hand_multihot_and_decision_type_contiguous():
@@ -157,18 +174,26 @@ def test_encode_state_v04_output_is_795_dims():
     assert vec.dtype == np.float32
 
 
-def test_encode_state_v04_is_360_dims_narrower_than_live():
-    """v0.4 state vector is exactly 360 dims narrower than the live one."""
+def test_encode_state_v04_is_360_dims_narrower_than_v08():
+    """v0.4 state vector is exactly 360 dims narrower than the v0.8 frozen one.
+
+    Uses the frozen v0.8 base (1155-dim) rather than the live v0.9 dim (1119-dim),
+    because the 360-dim gap reflects only the v0.6 playability stripes (2 × 180).
+    The v0.9 compaction widened the gap vs live to 324, which is no longer the
+    playability delta — comparing against v0.8 keeps the assertion meaningful."""
     eng, *_ = engine.Engine.create(seed=7)
     v04_vec = v0_4.encode_state_v04(eng.state)
-    live_vec = encode.encode_state(eng.state)
-    assert len(live_vec) - len(v04_vec) == _PLAYABLE_STRIPE_DIM
+    v08_vec = v0_8.encode_state_v08(eng.state)
+    assert len(v08_vec) - len(v04_vec) == _PLAYABLE_STRIPE_DIM
 
 
 def test_encode_state_v04_hand_multihot_matches_live():
-    """The hand multi-hot bytes at the frozen offset equal the live encoder's
-    hand multi-hot — the playability stripes are AFTER hand_multihot, so
-    everything up through hand_multihot is byte-identical between the two."""
+    """The hand multi-hot bytes in v0.4 and live vectors encode the same bits.
+
+    The playability stripes are AFTER hand_multihot in both eras, so the hand
+    multi-hot data is the same — but its offset differs: the v0.4 frozen offset
+    is 595 (same as v0.8) while the live v0.9 offset is 559 (36 columns earlier
+    due to the compaction). Each vector must be sliced at its own era's offset."""
     eng, birds, *_ = engine.Engine.create(seed=3)
     # Give the first player a real hand so the multi-hot has 1-bits.
     eng.state.players[0].hand = birds[:3]
@@ -176,9 +201,12 @@ def test_encode_state_v04_hand_multihot_matches_live():
     v04_vec = v0_4.encode_state_v04(eng.state)
     live_vec = encode.encode_state(eng.state)
 
-    off = encode.OFF_HAND_MULTIHOT
+    v04_off = v0_4.state_embed_offsets_v04().hand_multihot  # 595 (frozen v0.8 offset)
+    live_off = encode.OFF_HAND_MULTIHOT  # 559 (live v0.9 offset)
     dim = layout.HAND_MULTIHOT_DIM
-    assert np.array_equal(v04_vec[off : off + dim], live_vec[off : off + dim])
+    assert np.array_equal(
+        v04_vec[v04_off : v04_off + dim], live_vec[live_off : live_off + dim]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -228,12 +256,13 @@ def test_policy_value_net_v04_choice_dim():
 
 
 def test_policy_value_net_v04_state_embed_offsets():
-    """The v0.4 net returns the frozen state embed offsets (decision_type shifted -360)."""
+    """The v0.4 net returns the frozen state embed offsets (decision_type shifted -360 vs v0.8)."""
     net = v0_4.PolicyValueNetV04(arch=_SMALL, state_dim=v0_4.state_feature_dim_v04())
     frozen = net._state_embed_offsets()
+    v08 = v0_8.state_embed_offsets_v08()
     assert frozen == v0_4.state_embed_offsets_v04()
-    assert frozen.decision_type == encode.OFF_DECISION_TYPE - _PLAYABLE_STRIPE_DIM
-    assert frozen.hand_multihot == encode.OFF_HAND_MULTIHOT  # unchanged
+    assert frozen.decision_type == v08.decision_type - _PLAYABLE_STRIPE_DIM
+    assert frozen.hand_multihot == v08.hand_multihot  # unchanged relative to v0.8
 
 
 def test_policy_value_net_v04_choice_embed_offsets_becomes_playable_none():
