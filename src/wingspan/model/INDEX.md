@@ -41,8 +41,8 @@ the main actor-critic network. Key structure:
 
 **`mlp.py`** — Shared MLP building blocks used by both the policy net and the
 setup net so they produce byte-identical stacks from the same width list:
-- `build_body(in_dim, hidden_widths, activation, dropout, layernorm) -> nn.Sequential`
-- `build_readout(in_dim, out_dim) -> nn.Linear`
+- `build_body(in_dim, widths, *, between_activation, final_activation, dropout, layernorm) -> (nn.Sequential, int)` — body MLP; skips activation when value is `ActivationName.NONE`
+- `build_readout(in_dim, widths, *, between_activation, final_activation, dropout) -> nn.Sequential` — readout MLP with optional final activation
 
 **`hand_model.py`** — Stateless multi-card set-embedder helpers used by both the
 main net and the setup net:

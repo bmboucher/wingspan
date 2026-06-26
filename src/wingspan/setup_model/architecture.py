@@ -151,6 +151,10 @@ class SetupArchitecture(pydantic.BaseModel):
     :data:`wingspan.architecture.Widths` and
     :class:`wingspan.architecture.ActivationName` so the configurator's layer /
     activation editors apply unchanged.
+
+    ``between_activation`` is applied after each hidden-layer ``Linear``;
+    ``final_activation`` (defaults to NONE) would be applied after the final
+    ``Linear(·, 1)`` — keep NONE for the standard bare-scalar readout.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -161,11 +165,24 @@ class SetupArchitecture(pydantic.BaseModel):
         128,
         64,
     )
-    activation: architecture.ActivationName = architecture.ActivationName.RELU
+    between_activation: architecture.ActivationName = architecture.ActivationName.RELU
+    final_activation: architecture.ActivationName = architecture.ActivationName.NONE
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
     # Always True: the setup net always trains actor-critic (value + policy heads).
     # Included in the shape key because it doubles the readout Linear layers.
     use_policy_head: bool = True
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_activation_field(cls, data: object) -> object:
+        """Translate old ``activation`` field to ``between_activation``."""
+        if not isinstance(data, dict) or "activation" not in data:
+            return data
+        raw = typing.cast("dict[str, typing.Any]", data)
+        old_act: str = raw.pop("activation")
+        raw.setdefault("between_activation", old_act)
+        raw.setdefault("final_activation", "none")
+        return raw
 
     @property
     def shape_key(self) -> SetupShapeKey:

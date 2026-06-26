@@ -99,10 +99,10 @@ class SetupNet(nn.Module):
         self.hand_encoder, _ = mlp.build_body(
             encode.HAND_ENCODER_INPUT_DIM,
             main_arch.hand_encoder_layers + (main_arch.hand_embed_width,),
-            activation=main_arch.activation,
-            dropout=main_arch.dropout,
-            layernorm=main_arch.layernorm,
-            final_activation=main_arch.encoder_final_activation,
+            between_activation=main_arch.hand_between_activation_resolved,
+            final_activation=main_arch.hand_final_activation_resolved,
+            dropout=main_arch.hand_dropout_resolved,
+            layernorm=main_arch.hand_layernorm_resolved,
         )
         if self._hand_encoder_frozen:
             self.hand_encoder.requires_grad_(False)
@@ -125,7 +125,8 @@ class SetupNet(nn.Module):
         self.mlp = mlp.build_readout(
             readout_in,
             arch.hidden_layers,
-            activation=arch.activation,
+            between_activation=arch.between_activation,
+            final_activation=arch.final_activation,
             dropout=arch.dropout,
         )
 
@@ -136,7 +137,8 @@ class SetupNet(nn.Module):
             mlp.build_readout(
                 readout_in,
                 arch.hidden_layers,
-                activation=arch.activation,
+                between_activation=arch.between_activation,
+                final_activation=arch.final_activation,
                 dropout=arch.dropout,
             )
             if arch.use_policy_head
@@ -152,10 +154,10 @@ class SetupNet(nn.Module):
         self.card_encoder, _ = mlp.build_body(
             encode.CARD_FEATURE_DIM,
             main_arch.card_encoder_layers + (main_arch.card_embed_dim,),
-            activation=main_arch.activation,
-            dropout=main_arch.dropout,
-            layernorm=main_arch.layernorm,
-            final_activation=main_arch.encoder_final_activation,
+            between_activation=main_arch.card_between_activation_resolved,
+            final_activation=main_arch.card_final_activation_resolved,
+            dropout=main_arch.card_dropout_resolved,
+            layernorm=main_arch.card_layernorm_resolved,
         )
         self.card_encoder.requires_grad_(False)
         self.register_buffer(

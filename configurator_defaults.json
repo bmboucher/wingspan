@@ -1,6 +1,6 @@
 {
-  "saved_with_version": "0.8",
-  "saved_at": "2026-06-25T19:55:49",
+  "saved_with_version": "0.9",
+  "saved_at": "2026-06-25T00:00:00",
   "settings": {
     "architecture": {
       "main": {
@@ -59,7 +59,8 @@
         "head_layers_setup": [
           128
         ],
-        "activation": "relu",
+        "between_activation": "relu",
+        "final_activation": "none",
         "dropout": 0.02,
         "layernorm": false,
         "card_embed_dim": 64,
@@ -74,28 +75,34 @@
         "hand_pooling": "concat_max_sum",
         "tray_set_embedding": false,
         "use_board_attention": true,
-        "encoder_final_activation": true,
-        "card_activation": "tanh",
+        "card_between_activation": "tanh",
+        "card_final_activation": "tanh",
         "card_dropout": null,
         "card_layernorm": null,
-        "hand_activation": null,
+        "hand_between_activation": null,
+        "hand_final_activation": "relu",
         "hand_dropout": null,
         "hand_layernorm": null,
-        "trunk_activation": null,
+        "trunk_between_activation": null,
+        "trunk_final_activation": null,
         "trunk_dropout": null,
         "trunk_layernorm": null,
-        "choice_activation": null,
+        "choice_between_activation": null,
+        "choice_final_activation": "relu",
         "choice_dropout": null,
         "choice_layernorm": null,
-        "value_activation": null,
-        "head_activation": null
+        "value_between_activation": null,
+        "value_final_activation": null,
+        "head_between_activation": null,
+        "head_final_activation": null
       },
       "setup": {
         "hidden_layers": [
           128,
           64
         ],
-        "activation": "relu",
+        "between_activation": "relu",
+        "final_activation": "none",
         "dropout": 0.05
       },
       "use_setup_model": true,

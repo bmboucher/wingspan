@@ -256,10 +256,10 @@ class PolicyValueNetV00(v0_1.PolicyValueNetV01):
         self.choice_encoder, _ = mlp.build_body(
             choice_input_dim(choice_dim, arch.card_embed_dim),
             arch.choice_layers,
-            activation=arch.activation,
+            between_activation=arch.choice_between_activation_resolved,
+            final_activation=arch.choice_final_activation_resolved,
             dropout=arch.dropout,
             layernorm=arch.layernorm,
-            final_activation=False,
         )
 
     def _embed_choices(

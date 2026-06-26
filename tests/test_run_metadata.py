@@ -91,7 +91,7 @@ def test_model_config_reconstitutes_net(tmp_path: pathlib.Path):
                 choice_layers=(64, 48),
                 head_layers=(32,),
                 value_layers=(16,),
-                activation=config.architecture.ActivationName.GELU,
+                between_activation=config.architecture.ActivationName.GELU,
                 dropout=0.1,
                 layernorm=True,
                 card_embed_dim=48,

@@ -189,6 +189,18 @@ shim.** The `ShapeKey` now includes 4 resolved per-block layernorm bools (replac
 the single `layernorm` bool at position 4); old artifacts produce an identical key
 because `None` → global for all four.
 
+#### Between/final activation split + NONE option (REGIME)
+
+Replaced the single `activation` global + `encoder_final_activation` bool with
+two globals (`between_activation`, `final_activation`) and extended each per-block
+`{block}_activation` field to a between/final pair. Added `ActivationName.NONE =
+"none"` to allow dropping an activation layer entirely. A `@model_validator(mode="before")`
+migrates old artifacts' `activation`/`encoder_final_activation`/`*_activation` keys
+to the new fields, producing byte-identical `nn.Sequential` stacks — **REGIME, no
+`MODEL_VERSION` bump, no compat shim.** The trunk's final resolver inherits
+`between_activation` (not `final_activation`) to preserve "trunk always activates
+its output layer." Precedent: the v0.5 per-block-override REGIME addition.
+
 #### Locked-in defaults flip (REGIME)
 
 `MainNetArchitecture.tray_set_embedding` default flipped `True → False`;

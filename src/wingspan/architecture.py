@@ -1,9 +1,9 @@
 """The network topology descriptor: the editable *shape* of ``PolicyValueNet``.
 
 :class:`ModelArchitecture` is the single, torch-free record of the network's
-configurable topology — the per-block hidden-layer widths plus the activation,
-dropout, LayerNorm, and shared card-embedding handles. It is the one vehicle
-that:
+configurable topology — the per-block hidden-layer widths plus the between/final
+activation, dropout, LayerNorm, and shared card-embedding handles. It is the one
+vehicle that:
 
 * the configurator edits (via the flat fields it mirrors on
   :class:`wingspan.training.config.TrainConfig`),
@@ -59,13 +59,15 @@ type ShapeKey = tuple[
 
 
 class ActivationName(enum.StrEnum):
-    """The activation functions selectable for every MLP block."""
+    """The activation functions selectable for every MLP block, plus NONE to
+    drop the activation layer entirely."""
 
     RELU = "relu"
     GELU = "gelu"
     TANH = "tanh"
     SILU = "silu"
     LEAKY_RELU = "leaky_relu"
+    NONE = "none"
 
 
 class HandPooling(enum.StrEnum):
@@ -102,6 +104,14 @@ class ModelArchitecture(pydantic.BaseModel):
     (``trunk_embed_width``) and the choice encoder ends at width ``N``
     (``choice_embed_width``); both are independent and their outputs are
     concatenated to ``M+N`` before the scorer heads.
+
+    Every MLP block has two activation slots: ``*_between_activation`` (applied
+    after each non-final layer) and ``*_final_activation`` (applied after the
+    last layer — ``NONE`` to skip it). Per-block ``None`` inherits the matching
+    global (``between_activation`` or ``final_activation``). The trunk is the
+    one exception: its ``*_final`` inherits ``between_activation`` (not
+    ``final_activation``) so it always activates its output even when the global
+    final defaults to ``NONE``.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -110,7 +120,8 @@ class ModelArchitecture(pydantic.BaseModel):
     choice_layers: typing.Annotated[Widths, pydantic.Field(min_length=1)] = (128, 128)
     head_layers: Widths = (128,)
     value_layers: Widths = ()
-    activation: ActivationName = ActivationName.RELU
+    between_activation: ActivationName = ActivationName.RELU
+    final_activation: ActivationName = ActivationName.NONE
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
     layernorm: bool = False
     card_embed_dim: typing.Annotated[int, pydantic.Field(ge=1)] = 64
@@ -163,12 +174,6 @@ class ModelArchitecture(pydantic.BaseModel):
     # Defaults to False for new runs (REGIME change from the old True default —
     # saved configs carry their own value, so existing checkpoints are unaffected).
     tray_set_embedding: bool = False
-    # When True, the card, hand, and choice encoders apply a final activation
-    # after their last layer, consistent with the trunk. Default False preserves
-    # the behaviour of checkpoints written before this field was introduced —
-    # those lack the key in their saved model_config.json, so Pydantic assigns
-    # this default and inference runs without the final relu, unchanged.
-    encoder_final_activation: bool = False
     # When True, each player's 15 board slots are attended over as tokens
     # (card_embed_dim + 9 scalars wide) before the state trunk, using two
     # independent nn.MultiheadAttention modules (one per seat). Config-carried
@@ -177,27 +182,76 @@ class ModelArchitecture(pydantic.BaseModel):
     # to resume False weights (handled by the architecture_key gate, REGIME).
     use_board_attention: bool = False
 
-    # Per-block activation/dropout/layernorm overrides — None = inherit the global
-    # field above. Old checkpoints that predate these fields rehydrate to None→global
-    # and compute identically (REGIME: no MODEL_VERSION bump, no compat shim).
-    # Body blocks (card / hand / trunk / choice) have all three knobs.
-    # Readout heads (value / scorer) have activation only — no dropout/LN on readouts.
-    card_activation: ActivationName | None = None
+    # Per-block between/final activation overrides plus dropout and LayerNorm
+    # toggles. ``None`` means "inherit the matching global". Body blocks
+    # (card/hand/trunk/choice) have all three knobs; readout blocks (value/head)
+    # have between/final only. Old checkpoints that predate these fields
+    # rehydrate via ``_migrate_legacy_activation_fields`` (REGIME).
+    card_between_activation: ActivationName | None = None
+    card_final_activation: ActivationName | None = None
     card_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
     card_layernorm: bool | None = None
-    hand_activation: ActivationName | None = None
+    hand_between_activation: ActivationName | None = None
+    hand_final_activation: ActivationName | None = None
     hand_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
     hand_layernorm: bool | None = None
-    trunk_activation: ActivationName | None = None
+    trunk_between_activation: ActivationName | None = None
+    trunk_final_activation: ActivationName | None = None
     trunk_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
     trunk_layernorm: bool | None = None
-    choice_activation: ActivationName | None = None
+    choice_between_activation: ActivationName | None = None
+    choice_final_activation: ActivationName | None = None
     choice_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = (
         None
     )
     choice_layernorm: bool | None = None
-    value_activation: ActivationName | None = None
-    head_activation: ActivationName | None = None
+    value_between_activation: ActivationName | None = None
+    value_final_activation: ActivationName | None = None
+    head_between_activation: ActivationName | None = None
+    head_final_activation: ActivationName | None = None
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_activation_fields(cls, data: object) -> object:
+        """Translate ≤0.8 ``activation`` + ``encoder_final_activation`` fields to
+        the between/final pair scheme. Runs before field validation so old on-disk
+        configs are silently upgraded without requiring a compat shim (REGIME)."""
+        if not isinstance(data, dict) or "activation" not in data:
+            return data
+        raw = typing.cast("dict[str, typing.Any]", data)
+
+        global_act: str = raw.pop("activation")
+        encoder_final: bool = bool(raw.pop("encoder_final_activation", False))
+
+        # New globals: between=old global, final always NONE on migrated runs.
+        raw.setdefault("between_activation", global_act)
+        raw.setdefault("final_activation", "none")
+
+        # card/hand/choice encoders: between=old override (None = inherit),
+        # final=resolved activation when encoder_final was True, else NONE.
+        for block in ("card", "hand", "choice"):
+            old_act: str | None = raw.pop(f"{block}_activation", None)
+            resolved = old_act if old_act is not None else global_act
+            raw.setdefault(f"{block}_between_activation", old_act)
+            raw.setdefault(
+                f"{block}_final_activation", resolved if encoder_final else "none"
+            )
+
+        # trunk: was always finalled; set final explicitly so the trunk-irregularity
+        # resolver (which inherits ``between_activation``, not ``final_activation``)
+        # doesn't accidentally change the computed value when between ≠ trunk_between.
+        old_trunk: str | None = raw.pop("trunk_activation", None)
+        resolved_trunk = old_trunk if old_trunk is not None else global_act
+        raw.setdefault("trunk_between_activation", old_trunk)
+        raw.setdefault("trunk_final_activation", resolved_trunk)
+
+        # value/head readouts: no final activation in old system.
+        for block in ("value", "head"):
+            old_act = raw.pop(f"{block}_activation", None)
+            raw.setdefault(f"{block}_between_activation", old_act)
+            raw.setdefault(f"{block}_final_activation", "none")
+
+        return raw
 
     @pydantic.model_validator(mode="after")
     def _check_tray_set_embedding(self) -> "ModelArchitecture":
@@ -256,17 +310,27 @@ class ModelArchitecture(pydantic.BaseModel):
             return self.per_family_head_layers[family_index]
         return self.head_layers
 
-    # Per-block resolved activation / dropout / layernorm.  Each returns the
-    # block-level override when set, otherwise falls back to the global field.
+    # Per-block resolved activations. Each ``*_between_*`` inherits the global
+    # ``between_activation``; each ``*_final_*`` inherits ``final_activation``
+    # EXCEPT trunk which inherits ``between_activation`` to preserve the
+    # historical "trunk always activates its last layer" behaviour.
+
+    @staticmethod
+    def _resolved(
+        override: ActivationName | None, fallback: ActivationName
+    ) -> ActivationName:
+        """Return ``override`` when set (non-None), else ``fallback``."""
+        return override if override is not None else fallback
 
     @property
-    def card_activation_resolved(self) -> ActivationName:
-        """Resolved activation for the card encoder."""
-        return (
-            self.card_activation
-            if self.card_activation is not None
-            else self.activation
-        )
+    def card_between_activation_resolved(self) -> ActivationName:
+        """Resolved between-layers activation for the card encoder."""
+        return self._resolved(self.card_between_activation, self.between_activation)
+
+    @property
+    def card_final_activation_resolved(self) -> ActivationName:
+        """Resolved final-layer activation for the card encoder."""
+        return self._resolved(self.card_final_activation, self.final_activation)
 
     @property
     def card_dropout_resolved(self) -> float:
@@ -281,13 +345,14 @@ class ModelArchitecture(pydantic.BaseModel):
         )
 
     @property
-    def hand_activation_resolved(self) -> ActivationName:
-        """Resolved activation for the hand encoder."""
-        return (
-            self.hand_activation
-            if self.hand_activation is not None
-            else self.activation
-        )
+    def hand_between_activation_resolved(self) -> ActivationName:
+        """Resolved between-layers activation for the hand encoder."""
+        return self._resolved(self.hand_between_activation, self.between_activation)
+
+    @property
+    def hand_final_activation_resolved(self) -> ActivationName:
+        """Resolved final-layer activation for the hand encoder."""
+        return self._resolved(self.hand_final_activation, self.final_activation)
 
     @property
     def hand_dropout_resolved(self) -> float:
@@ -302,13 +367,18 @@ class ModelArchitecture(pydantic.BaseModel):
         )
 
     @property
-    def trunk_activation_resolved(self) -> ActivationName:
-        """Resolved activation for the state trunk."""
-        return (
-            self.trunk_activation
-            if self.trunk_activation is not None
-            else self.activation
-        )
+    def trunk_between_activation_resolved(self) -> ActivationName:
+        """Resolved between-layers activation for the state trunk."""
+        return self._resolved(self.trunk_between_activation, self.between_activation)
+
+    @property
+    def trunk_final_activation_resolved(self) -> ActivationName:
+        """Resolved final-layer activation for the state trunk.
+
+        Unlike other blocks, the trunk's final layer inherits ``between_activation``
+        (not ``final_activation``) — preserving the historical "trunk always
+        activates its output layer" behaviour when ``final_activation`` is NONE."""
+        return self._resolved(self.trunk_final_activation, self.between_activation)
 
     @property
     def trunk_dropout_resolved(self) -> float:
@@ -323,13 +393,14 @@ class ModelArchitecture(pydantic.BaseModel):
         )
 
     @property
-    def choice_activation_resolved(self) -> ActivationName:
-        """Resolved activation for the choice encoder."""
-        return (
-            self.choice_activation
-            if self.choice_activation is not None
-            else self.activation
-        )
+    def choice_between_activation_resolved(self) -> ActivationName:
+        """Resolved between-layers activation for the choice encoder."""
+        return self._resolved(self.choice_between_activation, self.between_activation)
+
+    @property
+    def choice_final_activation_resolved(self) -> ActivationName:
+        """Resolved final-layer activation for the choice encoder."""
+        return self._resolved(self.choice_final_activation, self.final_activation)
 
     @property
     def choice_dropout_resolved(self) -> float:
@@ -346,22 +417,24 @@ class ModelArchitecture(pydantic.BaseModel):
         )
 
     @property
-    def value_activation_resolved(self) -> ActivationName:
-        """Resolved activation for the value (critic) head."""
-        return (
-            self.value_activation
-            if self.value_activation is not None
-            else self.activation
-        )
+    def value_between_activation_resolved(self) -> ActivationName:
+        """Resolved between-layers activation for the value head."""
+        return self._resolved(self.value_between_activation, self.between_activation)
 
     @property
-    def head_activation_resolved(self) -> ActivationName:
-        """Resolved activation for the scorer (actor) heads."""
-        return (
-            self.head_activation
-            if self.head_activation is not None
-            else self.activation
-        )
+    def value_final_activation_resolved(self) -> ActivationName:
+        """Resolved final-layer activation for the value head."""
+        return self._resolved(self.value_final_activation, self.final_activation)
+
+    @property
+    def head_between_activation_resolved(self) -> ActivationName:
+        """Resolved between-layers activation for the scorer heads."""
+        return self._resolved(self.head_between_activation, self.between_activation)
+
+    @property
+    def head_final_activation_resolved(self) -> ActivationName:
+        """Resolved final-layer activation for the scorer heads."""
+        return self._resolved(self.head_final_activation, self.final_activation)
 
     @property
     def shape_key(self) -> ShapeKey:

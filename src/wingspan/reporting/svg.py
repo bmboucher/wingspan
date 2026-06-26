@@ -376,8 +376,8 @@ def _card_unit(
         title="SINGLE-CARD ENCODER · per-card MLP",
         rows=_op_rows(
             block.layers,
-            arch.card_activation_resolved.value,
-            is_trunk=arch.encoder_final_activation,
+            between_activation=arch.card_between_activation_resolved.value,
+            final_activation=arch.card_final_activation_resolved.value,
             dropout=arch.card_dropout_resolved,
         ),
         sigma_text=_count_text(block.total),
@@ -424,8 +424,8 @@ def _hand_unit(
             title="MULTI-CARD ENCODER · card-set MLP",
             rows=_op_rows(
                 layers,
-                arch.hand_activation_resolved.value,
-                is_trunk=arch.encoder_final_activation,
+                between_activation=arch.hand_between_activation_resolved.value,
+                final_activation=arch.hand_final_activation_resolved.value,
                 dropout=arch.hand_dropout_resolved,
             ),
             sigma_text=_count_text(total),
@@ -475,8 +475,8 @@ def _trunk_unit(
         title="STATE ENCODER",
         rows=_op_rows(
             block.layers,
-            arch.trunk_activation_resolved.value,
-            is_trunk=True,
+            between_activation=arch.trunk_between_activation_resolved.value,
+            final_activation=arch.trunk_final_activation_resolved.value,
             dropout=arch.trunk_dropout_resolved,
         ),
         sigma_text=_count_text(block.total),
@@ -539,8 +539,8 @@ def _choice_unit(
         title="CHOICE ENCODER",
         rows=_op_rows(
             block.layers,
-            arch.choice_activation_resolved.value,
-            is_trunk=arch.encoder_final_activation,
+            between_activation=arch.choice_between_activation_resolved.value,
+            final_activation=arch.choice_final_activation_resolved.value,
             dropout=arch.choice_dropout_resolved,
         ),
         sigma_text=_count_text(block.total),
@@ -571,8 +571,8 @@ def _setup_unit(
         subtitle="" if use_setup_model else "off this run — keep scored in-game",
         rows=_op_rows(
             setup_param.layers,
-            setup_arch.activation.value,
-            is_trunk=False,
+            between_activation=setup_arch.between_activation.value,
+            final_activation=setup_arch.final_activation.value,
             dropout=setup_arch.dropout,
         ),
         sigma_text=_count_text(setup_param.total),
@@ -622,8 +622,8 @@ def _build_setup_unit(
         title="SETUP VALUE",
         rows=_op_rows(
             value_layers,
-            setup_arch.activation.value,
-            is_trunk=False,
+            between_activation=setup_arch.between_activation.value,
+            final_activation=setup_arch.final_activation.value,
             dropout=setup_arch.dropout,
         ),
         sigma_text=_count_text(value_params),
@@ -644,8 +644,8 @@ def _build_setup_unit(
         title="SETUP POLICY",
         rows=_op_rows(
             policy_layers,
-            setup_arch.activation.value,
-            is_trunk=False,
+            between_activation=setup_arch.between_activation.value,
+            final_activation=setup_arch.final_activation.value,
             dropout=setup_arch.dropout,
         ),
         sigma_text=_count_text(policy_params),
@@ -690,7 +690,9 @@ def _value_unit(
         accent=_ACCENT_VALUE,
         title="VALUE HEAD",
         rows=_op_rows(
-            block.layers, arch.value_activation_resolved.value, is_trunk=False
+            block.layers,
+            between_activation=arch.value_between_activation_resolved.value,
+            final_activation=arch.value_final_activation_resolved.value,
         ),
         sigma_text=_count_text(block.total),
         in_label="state embedding",
@@ -715,7 +717,9 @@ def _decision_unit(
     num_families = len(family_order)
     if scorer.layers:
         rows = _op_rows(
-            scorer.layers, arch.head_activation_resolved.value, is_trunk=False
+            scorer.layers,
+            between_activation=arch.head_between_activation_resolved.value,
+            final_activation=arch.head_final_activation_resolved.value,
         )
         per_head = (
             scorer.total // scorer.multiplier if scorer.multiplier > 1 else scorer.total
@@ -757,15 +761,16 @@ def _fmt_dropout(dropout: float) -> str:
 
 def _op_rows(
     layers: tuple[architecture.LayerParam, ...],
-    activation: str,
     *,
-    is_trunk: bool,
+    between_activation: str,
+    final_activation: str,
     dropout: float = 0.0,
 ) -> tuple[_OpRow, ...]:
     """The mini-rows for a block: one Linear row per layer, with the activation
-    rows the builders interleave (trunk: after every layer; other blocks: after
-    every non-final layer).  When ``dropout > 0``, an amber Dropout row follows
-    each activation, matching the configurator terminal diagram."""
+    rows the builders interleave. ``between_activation`` applies after every
+    non-final layer; ``final_activation`` applies after the last layer. Either
+    is skipped when its value is ``'none'``. When ``dropout > 0``, an amber
+    Dropout row follows each activation, matching the configurator terminal diagram."""
     rows: list[_OpRow] = []
     for idx, layer in enumerate(layers):
         rows.append(
@@ -775,8 +780,10 @@ def _op_rows(
                 params=layer.linear,
             )
         )
-        if _has_act_after(is_trunk, is_final=(idx == len(layers) - 1)):
-            rows.append(_OpRow(kind=_OpKind.ACT, label=activation))
+        is_final = idx == len(layers) - 1
+        act_label = final_activation if is_final else between_activation
+        if act_label != "none":
+            rows.append(_OpRow(kind=_OpKind.ACT, label=act_label))
             if dropout > 0.0:
                 rows.append(
                     _OpRow(
@@ -784,15 +791,6 @@ def _op_rows(
                     )
                 )
     return tuple(rows)
-
-
-def _has_act_after(is_trunk: bool, is_final: bool) -> bool:
-    """Mirror of ``mlp.build_body``: blocks with ``final_activation=True``
-    (the trunk always; the encoders when ``arch.encoder_final_activation``)
-    get an activation after every layer; other blocks only on non-final layers."""
-    if is_trunk:
-        return True
-    return not is_final
 
 
 def _hand_layers(

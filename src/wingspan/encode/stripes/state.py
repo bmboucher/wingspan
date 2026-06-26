@@ -459,7 +459,7 @@ def _build_raw_state_stripes(
             value_range="{0, 1}",
             notes=(
                 "Indexed by stable bird order from cards.bird_index(). "
-                "Pooled through the shared card table inside the model; mode set by ModelArchitecture.hand_pooling."
+                "Mean-pooled through the shared card embedding inside the model."
             ),
         )
     )

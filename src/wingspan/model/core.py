@@ -341,10 +341,10 @@ class PolicyValueNet(nn.Module):
         self.card_encoder, _ = mlp.build_body(
             encode.CARD_FEATURE_DIM,
             arch.card_encoder_layers + (arch.card_embed_dim,),
-            activation=arch.card_activation_resolved,
+            between_activation=arch.card_between_activation_resolved,
+            final_activation=arch.card_final_activation_resolved,
             dropout=arch.card_dropout_resolved,
             layernorm=arch.card_layernorm_resolved,
-            final_activation=arch.encoder_final_activation,
         )
         self.register_buffer(
             "card_features",
@@ -367,10 +367,10 @@ class PolicyValueNet(nn.Module):
             self.hand_encoder, _ = mlp.build_body(
                 encode.HAND_ENCODER_INPUT_DIM,
                 arch.hand_encoder_layers + (arch.hand_embed_width,),
-                activation=arch.hand_activation_resolved,
+                between_activation=arch.hand_between_activation_resolved,
+                final_activation=arch.hand_final_activation_resolved,
                 dropout=arch.hand_dropout_resolved,
                 layernorm=arch.hand_layernorm_resolved,
-                final_activation=arch.encoder_final_activation,
             )
             self.register_buffer(
                 "card_summary_matrix",
@@ -426,10 +426,10 @@ class PolicyValueNet(nn.Module):
         self.state_trunk, _ = mlp.build_body(
             trunk_in_dim,
             arch.trunk_layers,
-            activation=arch.trunk_activation_resolved,
+            between_activation=arch.trunk_between_activation_resolved,
+            final_activation=arch.trunk_final_activation_resolved,
             dropout=arch.trunk_dropout_resolved,
             layernorm=arch.trunk_layernorm_resolved,
-            final_activation=True,
         )
 
     def _build_choice_encoder(
@@ -450,10 +450,10 @@ class PolicyValueNet(nn.Module):
         self.choice_encoder, _ = mlp.build_body(
             choice_in_dim,
             arch.choice_layers,
-            activation=arch.choice_activation_resolved,
+            between_activation=arch.choice_between_activation_resolved,
+            final_activation=arch.choice_final_activation_resolved,
             dropout=arch.choice_dropout_resolved,
             layernorm=arch.choice_layernorm_resolved,
-            final_activation=arch.encoder_final_activation,
         )
 
     def _build_scorers(
@@ -468,7 +468,8 @@ class PolicyValueNet(nn.Module):
             mlp.build_readout(
                 scorer_in_dim,
                 arch.head_layers_for(family_index),
-                activation=arch.head_activation_resolved,
+                between_activation=arch.head_between_activation_resolved,
+                final_activation=arch.head_final_activation_resolved,
                 dropout=arch.dropout,
             )
             for family_index in range(num_families)
@@ -482,7 +483,8 @@ class PolicyValueNet(nn.Module):
         self.value_head = mlp.build_readout(
             arch.trunk_embed_width,
             arch.value_layers,
-            activation=arch.value_activation_resolved,
+            between_activation=arch.value_between_activation_resolved,
+            final_activation=arch.value_final_activation_resolved,
             dropout=arch.dropout,
         )
 

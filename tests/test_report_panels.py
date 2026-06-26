@@ -153,7 +153,7 @@ def _report_html_with_trunk_gelu() -> str:
     """Generate the model-summary HTML with a gelu trunk activation override."""
     return _report_html_for_arch(
         architecture.ModelArchitecture(
-            trunk_activation=architecture.ActivationName.GELU
+            trunk_between_activation=architecture.ActivationName.GELU
         ),
         use_setup_model=True,
     )

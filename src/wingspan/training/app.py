@@ -297,7 +297,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--activation",
         default=architecture.ActivationName.RELU.value,
         choices=[name.value for name in architecture.ActivationName],
-        help="activation function for every MLP block",
+        dest="between_activation",
+        help="between-layers activation function for every MLP block",
+    )
+    parser.add_argument(
+        "--final-activation",
+        default=architecture.ActivationName.NONE.value,
+        choices=[name.value for name in architecture.ActivationName],
+        dest="final_activation",
+        help="final-layer activation for every MLP block (default: none = no final act)",
     )
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument(
@@ -344,7 +352,8 @@ def _config_from_namespace(args: argparse.Namespace) -> config.RunConfig:
                 choice_layers=_parse_layers(args.choice_layers),
                 head_layers=_parse_layers(args.head_layers),
                 value_layers=_parse_layers(args.value_layers),
-                activation=architecture.ActivationName(args.activation),
+                between_activation=architecture.ActivationName(args.between_activation),
+                final_activation=architecture.ActivationName(args.final_activation),
                 dropout=args.dropout,
                 layernorm=args.layernorm,
                 card_embed_dim=args.card_embed_dim,

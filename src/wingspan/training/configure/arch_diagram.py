@@ -92,13 +92,16 @@ _BOX_FOCUS_ATTRS: dict[str, set[str]] = {
 }
 # The shared op handles brighten their matching mini-boxes instead. The main net
 # and the setup net each have their own activation / dropout handles.
+# "activation" key = between-layer activations; "final_activation" key = final layer.
 _MAIN_OP_FIELDS: dict[str, str] = {
-    "activation": "activation",
+    "activation": "between_activation",
+    "final_activation": "final_activation",
     "dropout": "dropout",
     "layernorm": "layernorm",
 }
 _SETUP_OP_FIELDS: dict[str, str] = {
-    "activation": "setup_activation",
+    "activation": "setup_between_activation",
+    "final_activation": "setup_final_activation",
     "dropout": "setup_dropout",
 }
 _MAIN_OP_ATTRS = set(_MAIN_OP_FIELDS.values())
@@ -409,7 +412,8 @@ def _setup_value_column(
         _BlockKind.READOUT,
         head_layers,
         _SETUP_OP_FIELDS,
-        activation=str(cfg.architecture.setup.activation),
+        between_activation=str(cfg.setup_arch.between_activation),
+        final_activation=str(cfg.setup_arch.final_activation),
         dropout=cfg.architecture.setup.dropout,
         layernorm=False,
     )
@@ -441,7 +445,8 @@ def _setup_policy_column(
         _BlockKind.READOUT,
         head_layers,
         _SETUP_OP_FIELDS,
-        activation=str(cfg.architecture.setup.activation),
+        between_activation=str(cfg.setup_arch.between_activation),
+        final_activation=str(cfg.setup_arch.final_activation),
         dropout=cfg.architecture.setup.dropout,
         layernorm=False,
     )
@@ -464,7 +469,7 @@ def _card_encoder_box(view: state.ConfiguratorState, content_w: int) -> list[tex
     identity one-hot]`` (``CARD_FEATURE_DIM``) to its ``card_embed_dim`` vector,
     yielding the per-card table every board / tray / hand / choice slot looks up.
     A full-width body block whose bottom taps down into the fan-out to both trunks.
-    Applies a final activation when ``encoder_final_activation`` is True."""
+    Per-block between/final activations are resolved from ``cfg.arch``."""
     cfg = view.working
     report = _param_report(view)
     widths = cfg.architecture.main.card_encoder_layers + (
@@ -476,10 +481,10 @@ def _card_encoder_box(view: state.ConfiguratorState, content_w: int) -> list[tex
         _BlockKind.BODY_CHOICE,
         report.embed.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.architecture.main.activation),
+        between_activation=str(cfg.arch.card_between_activation_resolved),
+        final_activation=str(cfg.arch.card_final_activation_resolved),
         dropout=cfg.architecture.main.dropout,
         layernorm=cfg.architecture.main.layernorm,
-        final_activation=cfg.architecture.main.encoder_final_activation,
     )
     return _model_block(
         view,
@@ -563,7 +568,8 @@ def _state_trunk_column(
         _BlockKind.BODY_TRUNK,
         report.trunk.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.architecture.main.activation),
+        between_activation=str(cfg.arch.trunk_between_activation_resolved),
+        final_activation=str(cfg.arch.trunk_final_activation_resolved),
         dropout=cfg.architecture.main.dropout,
         layernorm=cfg.architecture.main.layernorm,
     )
@@ -586,8 +592,7 @@ def _choice_encoder_column(
     view: state.ConfiguratorState, width: int, report: architecture.ParamReport
 ) -> list[text.Text]:
     """The per-choice encoder box, fed by the card encoder plus its additional
-    features. Applies a final activation when ``encoder_final_activation`` is
-    True, matching the trunk; otherwise ends in a bare Linear."""
+    features. Between/final activations resolved from ``cfg.arch``."""
     cfg = view.working
     choice_in = _choice_in(cfg)
     extra = _choice_extra(cfg)
@@ -597,10 +602,10 @@ def _choice_encoder_column(
         _BlockKind.BODY_CHOICE,
         report.choice.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.architecture.main.activation),
+        between_activation=str(cfg.arch.choice_between_activation_resolved),
+        final_activation=str(cfg.arch.choice_final_activation_resolved),
         dropout=cfg.architecture.main.dropout,
         layernorm=cfg.architecture.main.layernorm,
-        final_activation=cfg.architecture.main.encoder_final_activation,
     )
     block = _model_block(
         view,
@@ -651,7 +656,8 @@ def _value_column(
         _BlockKind.READOUT,
         report.value.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.architecture.main.activation),
+        between_activation=str(cfg.arch.value_between_activation_resolved),
+        final_activation=str(cfg.arch.value_final_activation_resolved),
         dropout=cfg.architecture.main.dropout,
         layernorm=False,
     )
@@ -684,7 +690,8 @@ def _decision_column(
         _BlockKind.READOUT,
         report.scorer.layers,
         _MAIN_OP_FIELDS,
-        activation=str(cfg.architecture.main.activation),
+        between_activation=str(cfg.arch.head_between_activation_resolved),
+        final_activation=str(cfg.arch.head_final_activation_resolved),
         dropout=cfg.architecture.main.dropout,
         layernorm=False,
     )
@@ -745,16 +752,15 @@ def _block_op_entries(
     layer_params: tuple[architecture.LayerParam, ...],
     op_fields: dict[str, str],
     *,
-    activation: str,
+    between_activation: str,
+    final_activation: str,
     dropout: float,
     layernorm: bool,
-    final_activation: bool = False,
 ) -> list[_OpEntry]:
     """The flat, run-collapsed list of mini-box entries for a block: each layer
     expands to its ordered ops (Linear, optional LayerNorm, optional activation +
     Dropout), runs of identical layers fold to one ``×N`` group, and each op
-    carries its parameter count and focus state. ``final_activation`` mirrors
-    ``arch.encoder_final_activation`` for ``BODY_CHOICE`` blocks."""
+    carries its parameter count and focus state."""
     per_layer = [
         _layer_ops(
             width,
@@ -765,7 +771,7 @@ def _block_op_entries(
             view.selected_attr,
             layernorm=layernorm,
             dropout=dropout,
-            activation=activation,
+            between_activation=between_activation,
             final_activation=final_activation,
         )
         for index, width in enumerate(widths)
@@ -783,14 +789,13 @@ def _layer_ops(
     *,
     layernorm: bool,
     dropout: float,
-    activation: str,
-    final_activation: bool = False,
+    between_activation: str,
+    final_activation: str,
 ) -> list[_OpEntry]:
     """The ordered op entries one layer expands to, following the model's per-block
-    rules (LayerNorm after every body Linear; activation on every trunk layer and
-    on every encoder layer when ``final_activation`` is True, otherwise only on
-    non-final layers; readouts never on the final layer; dropout only where
-    an activation is present)."""
+    rules (LayerNorm after every body Linear; activation is ``final_activation`` on
+    the last layer and ``between_activation`` on all others, skipped when the value
+    is ``'none'``; dropout only where an activation is present)."""
     ops = [
         _OpEntry(
             kind=_OpKind.LINEAR,
@@ -805,14 +810,16 @@ def _layer_ops(
                 kind=_OpKind.LAYERNORM, label="LayerNorm", short="LN", param=params.norm
             )
         )
-    if _has_activation(kind, is_final, final_activation=final_activation):
-        ops.append(
-            _OpEntry(
-                kind=_OpKind.ACTIVATION,
-                label=activation,
-                short=_SHORT_ACTIVATION.get(activation, activation),
-            )
+    act_label = final_activation if is_final else between_activation
+    if _has_activation(act_label):
+        act_op_field = "final_activation" if is_final else "activation"
+        act_entry = _OpEntry(
+            kind=_OpKind.ACTIVATION,
+            label=act_label,
+            short=_SHORT_ACTIVATION.get(act_label, act_label),
         )
+        act_entry.focused = selected_attr == op_fields.get(act_op_field)
+        ops.append(act_entry)
         if dropout > 0.0:
             ops.append(
                 _OpEntry(
@@ -822,22 +829,14 @@ def _layer_ops(
                 )
             )
     for entry in ops:
-        entry.focused = selected_attr == op_fields.get(entry.kind.value)
+        if entry.kind is not _OpKind.ACTIVATION:
+            entry.focused = selected_attr == op_fields.get(entry.kind.value)
     return ops
 
 
-def _has_activation(
-    kind: _BlockKind, is_final: bool, *, final_activation: bool = False
-) -> bool:
-    """Whether a layer carries an activation: the trunk keeps one on every layer;
-    BODY_CHOICE blocks keep one on every layer when ``final_activation`` is True
-    (``arch.encoder_final_activation``), otherwise only on non-final layers;
-    readout heads always drop it on their final layer."""
-    if kind is _BlockKind.BODY_TRUNK:
-        return True
-    if kind is _BlockKind.BODY_CHOICE and final_activation:
-        return True
-    return not is_final
+def _has_activation(act_label: str) -> bool:
+    """Whether an activation is present — False only when the label is ``'none'``."""
+    return act_label != "none"
 
 
 def _collapse(
@@ -1199,10 +1198,8 @@ class _StaticMain(pydantic.BaseModel):
     choice_layers: architecture.Widths
     head_layers: architecture.Widths
     value_layers: architecture.Widths
-    activation: architecture.ActivationName
     layernorm: bool
     dropout: float
-    encoder_final_activation: bool
 
 
 class _StaticSetup(pydantic.BaseModel):
@@ -1212,7 +1209,6 @@ class _StaticSetup(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(frozen=True)
 
     hidden_layers: architecture.Widths
-    activation: architecture.ActivationName
     dropout: float
 
 
@@ -1313,14 +1309,11 @@ def render_static(
                 choice_layers=arch.choice_layers,
                 head_layers=arch.head_layers,
                 value_layers=arch.value_layers,
-                activation=arch.activation,
                 layernorm=arch.layernorm,
                 dropout=arch.dropout,
-                encoder_final_activation=arch.encoder_final_activation,
             ),
             setup=_StaticSetup(
                 hidden_layers=resolved_setup_arch.hidden_layers,
-                activation=resolved_setup_arch.activation,
                 dropout=resolved_setup_arch.dropout,
             ),
             use_setup_model=use_setup_model,

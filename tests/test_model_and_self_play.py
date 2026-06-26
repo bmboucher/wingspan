@@ -241,7 +241,7 @@ def test_model_forward_with_custom_architecture():
         choice_layers=(72, 48),
         head_layers=(32,),
         value_layers=(24, 16),
-        activation=architecture.ActivationName.GELU,
+        between_activation=architecture.ActivationName.GELU,
         dropout=0.1,
         layernorm=True,
         card_embed_dim=48,

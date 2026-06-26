@@ -140,7 +140,8 @@ class MainNetArchitecture(pydantic.BaseModel):
     head_layers_reset_birdfeeder: architecture.Widths = (128,)
     head_layers_setup: architecture.Widths = (128,)
 
-    activation: architecture.ActivationName = architecture.ActivationName.RELU
+    between_activation: architecture.ActivationName = architecture.ActivationName.RELU
+    final_activation: architecture.ActivationName = architecture.ActivationName.NONE
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
     layernorm: bool = False
 
@@ -165,28 +166,72 @@ class MainNetArchitecture(pydantic.BaseModel):
     # the trunk. Config-carried; default False so old checkpoints load unchanged.
     use_board_attention: bool = False
 
-    # When enabled, card/hand/choice encoders apply a final activation after
-    # their last layer. Saved so old checkpoints keep their original behaviour.
-    encoder_final_activation: bool = True
-
-    # Per-block activation/dropout/layernorm overrides (None = inherit global).
-    # Old run files that predate these fields rehydrate to None→global (REGIME).
-    card_activation: architecture.ActivationName | None = None
+    # Per-block between/final activation overrides plus dropout and LayerNorm
+    # toggles. None = inherit matching global. card/hand/choice _final default to
+    # RELU (reproducing old encoder_final_activation=True for new configured runs).
+    card_between_activation: architecture.ActivationName | None = None
+    card_final_activation: architecture.ActivationName | None = (
+        architecture.ActivationName.RELU
+    )
     card_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
     card_layernorm: bool | None = None
-    hand_activation: architecture.ActivationName | None = None
+    hand_between_activation: architecture.ActivationName | None = None
+    hand_final_activation: architecture.ActivationName | None = (
+        architecture.ActivationName.RELU
+    )
     hand_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
     hand_layernorm: bool | None = None
-    trunk_activation: architecture.ActivationName | None = None
+    trunk_between_activation: architecture.ActivationName | None = None
+    trunk_final_activation: architecture.ActivationName | None = None
     trunk_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
     trunk_layernorm: bool | None = None
-    choice_activation: architecture.ActivationName | None = None
+    choice_between_activation: architecture.ActivationName | None = None
+    choice_final_activation: architecture.ActivationName | None = (
+        architecture.ActivationName.RELU
+    )
     choice_dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = (
         None
     )
     choice_layernorm: bool | None = None
-    value_activation: architecture.ActivationName | None = None
-    head_activation: architecture.ActivationName | None = None
+    value_between_activation: architecture.ActivationName | None = None
+    value_final_activation: architecture.ActivationName | None = None
+    head_between_activation: architecture.ActivationName | None = None
+    head_final_activation: architecture.ActivationName | None = None
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_activation_fields(cls, data: object) -> object:
+        """Translate ≤0.8 ``activation`` + ``encoder_final_activation`` to the
+        between/final scheme. Mirrors the same migration on ModelArchitecture."""
+        if not isinstance(data, dict) or "activation" not in data:
+            return data
+        raw = typing.cast("dict[str, typing.Any]", data)
+
+        global_act: str = raw.pop("activation")
+        encoder_final: bool = bool(raw.pop("encoder_final_activation", False))
+
+        raw.setdefault("between_activation", global_act)
+        raw.setdefault("final_activation", "none")
+
+        for block in ("card", "hand", "choice"):
+            old_act: str | None = raw.pop(f"{block}_activation", None)
+            resolved = old_act if old_act is not None else global_act
+            raw.setdefault(f"{block}_between_activation", old_act)
+            raw.setdefault(
+                f"{block}_final_activation", resolved if encoder_final else "none"
+            )
+
+        old_trunk: str | None = raw.pop("trunk_activation", None)
+        resolved_trunk = old_trunk if old_trunk is not None else global_act
+        raw.setdefault("trunk_between_activation", old_trunk)
+        raw.setdefault("trunk_final_activation", resolved_trunk)
+
+        for block in ("value", "head"):
+            old_act = raw.pop(f"{block}_activation", None)
+            raw.setdefault(f"{block}_between_activation", old_act)
+            raw.setdefault(f"{block}_final_activation", "none")
+
+        return raw
 
 
 class SetupNetArchitecture(pydantic.BaseModel):
@@ -195,8 +240,21 @@ class SetupNetArchitecture(pydantic.BaseModel):
     hidden_layers: typing.Annotated[
         architecture.Widths, pydantic.Field(min_length=1)
     ] = (128, 64)
-    activation: architecture.ActivationName = architecture.ActivationName.RELU
+    between_activation: architecture.ActivationName = architecture.ActivationName.RELU
+    final_activation: architecture.ActivationName = architecture.ActivationName.NONE
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_activation_fields(cls, data: object) -> object:
+        """Translate old ``activation`` field to ``between_activation``."""
+        if not isinstance(data, dict) or "activation" not in data:
+            return data
+        raw = typing.cast("dict[str, typing.Any]", data)
+        old_act: str = raw.pop("activation")
+        raw.setdefault("between_activation", old_act)
+        raw.setdefault("final_activation", "none")
+        return raw
 
 
 class ArchitectureConfig(pydantic.BaseModel):
@@ -513,7 +571,8 @@ class RunConfig(pydantic.BaseModel):
             head_layers=main.head_layers,
             value_layers=main.value_layers,
             per_family_head_layers=per_family,
-            activation=main.activation,
+            between_activation=main.between_activation,
+            final_activation=main.final_activation,
             dropout=main.dropout,
             layernorm=main.layernorm,
             card_embed_dim=main.card_embed_dim,
@@ -524,21 +583,26 @@ class RunConfig(pydantic.BaseModel):
             hand_pooling=main.hand_pooling,
             tray_set_embedding=main.tray_set_embedding,
             use_board_attention=main.use_board_attention,
-            encoder_final_activation=main.encoder_final_activation,
-            card_activation=main.card_activation,
+            card_between_activation=main.card_between_activation,
+            card_final_activation=main.card_final_activation,
             card_dropout=main.card_dropout,
             card_layernorm=main.card_layernorm,
-            hand_activation=main.hand_activation,
+            hand_between_activation=main.hand_between_activation,
+            hand_final_activation=main.hand_final_activation,
             hand_dropout=main.hand_dropout,
             hand_layernorm=main.hand_layernorm,
-            trunk_activation=main.trunk_activation,
+            trunk_between_activation=main.trunk_between_activation,
+            trunk_final_activation=main.trunk_final_activation,
             trunk_dropout=main.trunk_dropout,
             trunk_layernorm=main.trunk_layernorm,
-            choice_activation=main.choice_activation,
+            choice_between_activation=main.choice_between_activation,
+            choice_final_activation=main.choice_final_activation,
             choice_dropout=main.choice_dropout,
             choice_layernorm=main.choice_layernorm,
-            value_activation=main.value_activation,
-            head_activation=main.head_activation,
+            value_between_activation=main.value_between_activation,
+            value_final_activation=main.value_final_activation,
+            head_between_activation=main.head_between_activation,
+            head_final_activation=main.head_final_activation,
         )
 
     @property
@@ -547,7 +611,8 @@ class RunConfig(pydantic.BaseModel):
         setup = self.architecture.setup
         return setup_model.SetupArchitecture(
             hidden_layers=setup.hidden_layers,
-            activation=setup.activation,
+            between_activation=setup.between_activation,
+            final_activation=setup.final_activation,
             dropout=setup.dropout,
             use_policy_head=True,
         )
@@ -799,7 +864,30 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "head_layers_play_bird",
         "head_layers_reset_birdfeeder",
         "head_layers_setup",
+        # Old activation fields (migrated by MainNetArchitecture validator).
         "activation",
+        "encoder_final_activation",
+        "card_activation",
+        "hand_activation",
+        "trunk_activation",
+        "choice_activation",
+        "value_activation",
+        "head_activation",
+        # New between/final activation fields.
+        "between_activation",
+        "final_activation",
+        "card_between_activation",
+        "card_final_activation",
+        "hand_between_activation",
+        "hand_final_activation",
+        "trunk_between_activation",
+        "trunk_final_activation",
+        "choice_between_activation",
+        "choice_final_activation",
+        "value_between_activation",
+        "value_final_activation",
+        "head_between_activation",
+        "head_final_activation",
         "dropout",
         "layernorm",
         "card_embed_dim",
@@ -810,7 +898,6 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "hand_pooling",
         "tray_set_embedding",
         "use_board_attention",
-        "encoder_final_activation",
     }
     setup_arch_keys = {
         "setup_hidden_layers": "hidden_layers",

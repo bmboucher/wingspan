@@ -114,10 +114,10 @@ def _install_v06_card_encoder_main(
     net.card_encoder, _ = mlp.build_body(
         CARD_FEATURE_DIM_V06,
         arch.card_encoder_layers + (arch.card_embed_dim,),
-        activation=arch.card_activation_resolved,
+        between_activation=arch.card_between_activation_resolved,
+        final_activation=arch.card_final_activation_resolved,
         dropout=arch.card_dropout_resolved,
         layernorm=arch.card_layernorm_resolved,
-        final_activation=arch.encoder_final_activation,
     )
     net.register_buffer(
         "card_features",
@@ -134,16 +134,15 @@ def _install_v06_card_encoder_setup(
 ) -> None:
     """Install the frozen 224-wide card encoder on a setup-net instance.
 
-    Same as :func:`_install_v06_card_encoder_main` but uses the setup net's
-    activation API (``arch.activation`` / ``arch.dropout``) and freezes
-    the encoder weights (``requires_grad_(False)``)."""
+    Same as :func:`_install_v06_card_encoder_main` but freezes the encoder
+    weights (``requires_grad_(False)``)."""
     net.card_encoder, _ = mlp.build_body(
         CARD_FEATURE_DIM_V06,
         arch.card_encoder_layers + (arch.card_embed_dim,),
-        activation=arch.activation,
-        dropout=arch.dropout,
-        layernorm=arch.layernorm,
-        final_activation=arch.encoder_final_activation,
+        between_activation=arch.card_between_activation_resolved,
+        final_activation=arch.card_final_activation_resolved,
+        dropout=arch.card_dropout_resolved,
+        layernorm=arch.card_layernorm_resolved,
     )
     net.card_encoder.requires_grad_(False)
     net.register_buffer(

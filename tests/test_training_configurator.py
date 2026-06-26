@@ -764,7 +764,7 @@ def test_arch_diagram_layernorm_appears():
 def test_arch_diagram_activation_label():
     assert "relu" in _box_diagram(_arch_state())
     assert "gelu" in _box_diagram(
-        _arch_state("activation", activation=architecture.ActivationName.GELU)
+        _arch_state("between_activation", between_activation=architecture.ActivationName.GELU)
     )
 
 
@@ -1570,43 +1570,53 @@ def test_locked_out_fields_absent_from_specs():
 def test_per_block_override_fields_present():
     """Per-block override fields for active blocks are present in FIELD_SPECS.
 
-    The hand encoder per-block fields (hand_activation / hand_dropout /
-    hand_layernorm) are intentionally absent from the new-run UI — the
-    dedicated hand encoder is retired for new runs (use_distinct_hand_model
+    The hand encoder per-block fields are intentionally absent from the new-run UI —
+    the dedicated hand encoder is retired for new runs (use_distinct_hand_model
     defaults to False). They remain on the model for old-artifact compat but
     are no longer editable in the configurator."""
     expected_per_block = {
-        "card_activation",
+        "card_between_activation",
+        "card_final_activation",
         "card_dropout",
         "card_layernorm",
-        "trunk_activation",
+        "trunk_between_activation",
+        "trunk_final_activation",
         "trunk_dropout",
         "trunk_layernorm",
-        "choice_activation",
+        "choice_between_activation",
+        "choice_final_activation",
         "choice_dropout",
         "choice_layernorm",
-        "value_activation",
-        "head_activation",
+        "value_between_activation",
+        "value_final_activation",
+        "head_between_activation",
+        "head_final_activation",
     }
     spec_attrs = {spec.attr for spec in fields.FIELD_SPECS}
     for attr in expected_per_block:
         assert attr in spec_attrs, f"{attr!r} per-block field missing from FIELD_SPECS"
 
 
-def test_per_block_override_fields_are_optional_choice_or_float():
-    """Activation/layernorm overrides are OptionalChoiceField; dropout overrides are OptionalFloatField.
+def test_per_block_override_fields_are_optional_activation_or_float():
+    """Activation overrides are OptionalActivationField; layernorm overrides are OptionalChoiceField;
+    dropout overrides are OptionalFloatField.
 
-    Note: hand_{activation,dropout,layernorm} are excluded — the dedicated hand
-    encoder is retired for new runs and its per-block override fields are no
-    longer registered in the configurator UI."""
+    Note: hand_{between,final}_activation and hand_{dropout,layernorm} are excluded —
+    the dedicated hand encoder is retired for new runs and its per-block override fields
+    are no longer registered in the configurator UI."""
     for attr in (
-        "card_activation",
-        "trunk_activation",
-        "choice_activation",
-        "value_activation",
-        "head_activation",
+        "card_between_activation",
+        "card_final_activation",
+        "trunk_between_activation",
+        "trunk_final_activation",
+        "choice_between_activation",
+        "choice_final_activation",
+        "value_between_activation",
+        "value_final_activation",
+        "head_between_activation",
+        "head_final_activation",
     ):
-        assert isinstance(fields.spec_for(attr), fields.OptionalChoiceField), attr
+        assert isinstance(fields.spec_for(attr), fields.OptionalActivationField), attr
     for attr in (
         "card_layernorm",
         "trunk_layernorm",
@@ -1637,13 +1647,13 @@ def test_five_top_level_sections():
     assert sections == expected
 
 
-def test_optional_choice_field_cycles_through_none():
-    """An OptionalChoiceField cycles: None → choices[0] → … → None."""
+def test_optional_activation_field_cycles_through_inherit():
+    """An OptionalActivationField cycles: None (inherit) → choices[0] → … → inherit."""
     cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
-    spec = fields.spec_for("card_activation")
-    assert isinstance(spec, fields.OptionalChoiceField)
+    spec = fields.spec_for("card_between_activation")
+    assert isinstance(spec, fields.OptionalActivationField)
 
-    # Default is None (inherit).
+    # Default is None (inherit the global between_activation).
     assert fields.read_field(cfg, spec) is None
     assert fields.format_value(cfg, spec) == spec.none_label
 
@@ -1652,10 +1662,24 @@ def test_optional_choice_field_cycles_through_none():
     assert error is None
     assert fields.read_field(advanced, spec) == spec.choices[0]
 
-    # Left-nudge from choices[0]: wraps back to None.
+    # Left-nudge from choices[0]: wraps back to None (inherit).
     wrapped, error = fields.nudge(advanced, spec, -1)
     assert error is None
     assert fields.read_field(wrapped, spec) is None
+
+
+def test_optional_activation_field_none_choice_stays_not_inherit():
+    """Committing 'none' to an OptionalActivationField stores NONE (not Python None)."""
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    spec = fields.spec_for("card_between_activation")
+    assert isinstance(spec, fields.OptionalActivationField)
+
+    updated, error = fields.commit(cfg, spec, "none")
+    assert error is None
+    value = fields.read_field(updated, spec)
+    # "none" should store as ActivationName.NONE, not as Python None (inherit).
+    assert value is not None
+    assert str(value) == "none"
 
 
 def test_optional_float_field_steps_from_fallback():
@@ -1677,14 +1701,15 @@ def test_optional_float_field_steps_from_fallback():
 
 
 def test_per_block_override_commit_roundtrip():
-    """Committing a per-block activation stores it and leaves global unchanged."""
+    """Committing a per-block activation stores it and leaves globals unchanged."""
     cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
-    spec = fields.spec_for("trunk_activation")
+    spec = fields.spec_for("trunk_between_activation")
     updated, error = fields.commit(cfg, spec, "gelu")
     assert error is None
-    assert updated.architecture.main.trunk_activation == "gelu"
-    # Global activation is unchanged.
-    assert updated.architecture.main.activation == cfg.architecture.main.activation
+    assert updated.architecture.main.trunk_between_activation == "gelu"
+    # Global activations are unchanged.
+    assert updated.architecture.main.between_activation == cfg.architecture.main.between_activation
+    assert updated.architecture.main.final_activation == cfg.architecture.main.final_activation
 
 
 def test_cloning_group_visibility():
@@ -1765,7 +1790,7 @@ def test_rehydration_per_block_none_inherits_global():
     global_ln = False
     global_drop = 0.0
 
-    # Old-style config: global only, no per-block keys.
+    # New-style config: globals only, no per-block keys.
     old_style = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         architecture=config.ArchitectureConfig(
@@ -1773,7 +1798,7 @@ def test_rehydration_per_block_none_inherits_global():
                 trunk_layers=(32, 32),
                 choice_layers=(32, 32),
                 card_embed_dim=8,
-                activation=global_act,
+                between_activation=global_act,
                 layernorm=global_ln,
                 dropout=global_drop,
                 # per-block fields absent = None = inherit
@@ -1782,12 +1807,12 @@ def test_rehydration_per_block_none_inherits_global():
     )
     arch = old_style.arch
 
-    # All per-block resolved values must equal the global.
-    assert arch.card_activation_resolved == global_act
+    # All per-block between resolved values must equal the global between_activation.
+    assert arch.card_between_activation_resolved == global_act
     assert arch.card_layernorm_resolved == global_ln
     assert abs(arch.card_dropout_resolved - global_drop) < 1e-9
 
-    assert arch.trunk_activation_resolved == global_act
+    assert arch.trunk_between_activation_resolved == global_act
     assert arch.trunk_layernorm_resolved == global_ln
 
     # The shape_key should match what an identical all-global config produces.
@@ -1801,14 +1826,14 @@ def test_rehydration_per_block_none_inherits_global():
                 trunk_layers=(32, 32),
                 choice_layers=(32, 32),
                 card_embed_dim=8,
-                activation=global_act,
+                between_activation=global_act,
                 layernorm=global_ln,
-                trunk_activation=architecture.ActivationName.GELU,
+                trunk_between_activation=architecture.ActivationName.GELU,
             )
         ),
     )
-    assert per_block.arch.trunk_activation_resolved == architecture.ActivationName.GELU
-    assert per_block.arch.card_activation_resolved == global_act  # unchanged
+    assert per_block.arch.trunk_between_activation_resolved == architecture.ActivationName.GELU
+    assert per_block.arch.card_between_activation_resolved == global_act  # unchanged
 
 
 def test_default_flips_tray_set_embedding():

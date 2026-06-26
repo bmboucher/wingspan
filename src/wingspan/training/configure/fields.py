@@ -129,6 +129,12 @@ class OptionalChoiceField(FieldSpec):
     none_label: str = "inherit"
 
 
+class OptionalActivationField(OptionalChoiceField):
+    """An activation choice field where typing ``none`` selects
+    ``ActivationName.NONE`` (drop the layer) rather than reverting to inherit.
+    Clear/empty still resets to Python ``None`` (inherit the global setting)."""
+
+
 class TextField(FieldSpec):
     """A free-text field (e.g. the run name)."""
 
@@ -346,6 +352,16 @@ def _parse(spec: FieldSpec, raw: str) -> tuple[FieldValue, str | None]:
         if not text or text.lower() == "none":
             return None, None
         return text, None
+    if isinstance(spec, OptionalActivationField):
+        # Empty/clear → inherit (Python None); "none" → ActivationName.NONE.
+        if not text:
+            return None, None
+        if text in spec.choices:
+            return text, None
+        return (
+            None,
+            f"{spec.label}: choose one of {', '.join(spec.choices)} or clear to inherit",
+        )
     if isinstance(spec, OptionalChoiceField):
         if not text or text.lower() == "none":
             return None, None
@@ -548,7 +564,8 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
         "head_layers_reset_birdfeeder",
     ),
     "head_layers_setup": ("architecture", "main", "head_layers_setup"),
-    "activation": ("architecture", "main", "activation"),
+    "between_activation": ("architecture", "main", "between_activation"),
+    "final_activation": ("architecture", "main", "final_activation"),
     "dropout": ("architecture", "main", "dropout"),
     "layernorm": ("architecture", "main", "layernorm"),
     "card_embed_dim": ("architecture", "main", "card_embed_dim"),
@@ -558,25 +575,27 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "hand_embed_dim": ("architecture", "main", "hand_embed_dim"),
     "hand_pooling": ("architecture", "main", "hand_pooling"),
     "use_board_attention": ("architecture", "main", "use_board_attention"),
-    "encoder_final_activation": ("architecture", "main", "encoder_final_activation"),
     # architecture.main per-block overrides
-    "card_activation": ("architecture", "main", "card_activation"),
+    "card_between_activation": ("architecture", "main", "card_between_activation"),
+    "card_final_activation": ("architecture", "main", "card_final_activation"),
     "card_dropout": ("architecture", "main", "card_dropout"),
     "card_layernorm": ("architecture", "main", "card_layernorm"),
-    "hand_activation": ("architecture", "main", "hand_activation"),
-    "hand_dropout": ("architecture", "main", "hand_dropout"),
-    "hand_layernorm": ("architecture", "main", "hand_layernorm"),
-    "trunk_activation": ("architecture", "main", "trunk_activation"),
+    "trunk_between_activation": ("architecture", "main", "trunk_between_activation"),
+    "trunk_final_activation": ("architecture", "main", "trunk_final_activation"),
     "trunk_dropout": ("architecture", "main", "trunk_dropout"),
     "trunk_layernorm": ("architecture", "main", "trunk_layernorm"),
-    "choice_activation": ("architecture", "main", "choice_activation"),
+    "choice_between_activation": ("architecture", "main", "choice_between_activation"),
+    "choice_final_activation": ("architecture", "main", "choice_final_activation"),
     "choice_dropout": ("architecture", "main", "choice_dropout"),
     "choice_layernorm": ("architecture", "main", "choice_layernorm"),
-    "value_activation": ("architecture", "main", "value_activation"),
-    "head_activation": ("architecture", "main", "head_activation"),
+    "value_between_activation": ("architecture", "main", "value_between_activation"),
+    "value_final_activation": ("architecture", "main", "value_final_activation"),
+    "head_between_activation": ("architecture", "main", "head_between_activation"),
+    "head_final_activation": ("architecture", "main", "head_final_activation"),
     # architecture.setup section
     "setup_hidden_layers": ("architecture", "setup", "hidden_layers"),
-    "setup_activation": ("architecture", "setup", "activation"),
+    "setup_between_activation": ("architecture", "setup", "between_activation"),
+    "setup_final_activation": ("architecture", "setup", "final_activation"),
     "setup_dropout": ("architecture", "setup", "dropout"),
     # dagger section
     "dagger_expert_checkpoint": ("dagger", "expert_checkpoint"),
@@ -1011,13 +1030,21 @@ FIELD_SPECS: list[FieldSpec] = [
         "[static attributes ⊕ identity one-hot] to its card-embed-dim vector. "
         "Empty (← to 0 layers) = a single linear projection. Fresh run.",
     ),
-    OptionalChoiceField(
-        attr="card_activation",
-        label="activation",
+    OptionalActivationField(
+        attr="card_between_activation",
+        label="between activation",
         group_path=("MODEL ARCHITECTURE", "CARD ENCODER"),
         choices=_ACT_CHOICES,
         impact=ChangeImpact.REGIME,
-        help="Card encoder activation (None = inherit global). Resumable.",
+        help="Card encoder activation between layers (inherit = use global between). Resumable.",
+    ),
+    OptionalActivationField(
+        attr="card_final_activation",
+        label="final activation",
+        group_path=("MODEL ARCHITECTURE", "CARD ENCODER"),
+        choices=_ACT_CHOICES,
+        impact=ChangeImpact.REGIME,
+        help="Card encoder activation after its last layer (inherit = use global final; none = no final). Resumable.",
     ),
     OptionalFloatField(
         attr="card_dropout",
@@ -1060,13 +1087,21 @@ FIELD_SPECS: list[FieldSpec] = [
         "the sizes; ←/→ adds or removes a layer. Its last width is M, the trunk "
         "embedding fed to the value head and concatenated for scoring. Fresh run.",
     ),
-    OptionalChoiceField(
-        attr="trunk_activation",
-        label="activation",
+    OptionalActivationField(
+        attr="trunk_between_activation",
+        label="between activation",
         group_path=("MODEL ARCHITECTURE", "STATE TRUNK"),
         choices=_ACT_CHOICES,
         impact=ChangeImpact.REGIME,
-        help="State trunk activation (None = inherit global). Resumable.",
+        help="State trunk activation between layers (inherit = use global between). Resumable.",
+    ),
+    OptionalActivationField(
+        attr="trunk_final_activation",
+        label="final activation",
+        group_path=("MODEL ARCHITECTURE", "STATE TRUNK"),
+        choices=_ACT_CHOICES,
+        impact=ChangeImpact.REGIME,
+        help="State trunk activation after its last layer (inherit = use global between; none = no final). Resumable.",
     ),
     OptionalFloatField(
         attr="trunk_dropout",
@@ -1108,13 +1143,21 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Per-choice encoder widths (input→output). Its last width is N, the "
         "choice embedding concatenated with M before the scorer heads. Fresh run.",
     ),
-    OptionalChoiceField(
-        attr="choice_activation",
-        label="activation",
+    OptionalActivationField(
+        attr="choice_between_activation",
+        label="between activation",
         group_path=("MODEL ARCHITECTURE", "CHOICE ENCODER"),
         choices=_ACT_CHOICES,
         impact=ChangeImpact.REGIME,
-        help="Choice encoder activation (None = inherit global). Resumable.",
+        help="Choice encoder activation between layers (inherit = use global between). Resumable.",
+    ),
+    OptionalActivationField(
+        attr="choice_final_activation",
+        label="final activation",
+        group_path=("MODEL ARCHITECTURE", "CHOICE ENCODER"),
+        choices=_ACT_CHOICES,
+        impact=ChangeImpact.REGIME,
+        help="Choice encoder activation after its last layer (inherit = use global final; none = no final). Resumable.",
     ),
     OptionalFloatField(
         attr="choice_dropout",
@@ -1144,13 +1187,21 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Value-head hidden widths before the scalar output. Empty = a direct "
         "M→1 readout (the default). Fresh run.",
     ),
-    OptionalChoiceField(
-        attr="value_activation",
-        label="activation",
+    OptionalActivationField(
+        attr="value_between_activation",
+        label="between activation",
         group_path=("MODEL ARCHITECTURE", "CRITIC HEAD"),
         choices=_ACT_CHOICES,
         impact=ChangeImpact.REGIME,
-        help="Value (critic) head activation (None = inherit global). Resumable.",
+        help="Value head activation between hidden layers (inherit = use global between). Resumable.",
+    ),
+    OptionalActivationField(
+        attr="value_final_activation",
+        label="final activation",
+        group_path=("MODEL ARCHITECTURE", "CRITIC HEAD"),
+        choices=_ACT_CHOICES,
+        impact=ChangeImpact.REGIME,
+        help="Value head activation after the final Linear(·,1) (inherit = use global final; none = bare scalar output). Resumable.",
     ),
     # MODEL ARCHITECTURE ▸ ACTOR HEADS
     ChoiceField(
@@ -1304,23 +1355,41 @@ FIELD_SPECS: list[FieldSpec] = [
         visible_when=_per_family_heads,
         help="Scorer head hidden widths for the setup family. Fresh run.",
     ),
-    OptionalChoiceField(
-        attr="head_activation",
-        label="activation",
+    OptionalActivationField(
+        attr="head_between_activation",
+        label="between activation",
         group_path=("MODEL ARCHITECTURE", "ACTOR HEADS"),
         choices=_ACT_CHOICES,
         impact=ChangeImpact.REGIME,
-        help="Scorer (actor) head activation (None = inherit global). Resumable.",
+        help="Scorer head activation between hidden layers (inherit = use global between). Resumable.",
+    ),
+    OptionalActivationField(
+        attr="head_final_activation",
+        label="final activation",
+        group_path=("MODEL ARCHITECTURE", "ACTOR HEADS"),
+        choices=_ACT_CHOICES,
+        impact=ChangeImpact.REGIME,
+        help="Scorer head activation after the final Linear(·,1) (inherit = use global final; none = bare logit). Resumable.",
     ),
     # MODEL ARCHITECTURE ▸ GLOBAL DEFAULTS
     ChoiceField(
-        attr="activation",
-        label="activation",
+        attr="between_activation",
+        label="between activation",
         group_path=("MODEL ARCHITECTURE", "GLOBAL DEFAULTS"),
         choices=_ACT_CHOICES,
         impact=ChangeImpact.REGIME,
-        help="Global activation for every MLP block. Per-block overrides above "
+        help="Global between-layers activation for all MLP blocks. Per-block overrides "
         "take precedence when set. Resumable (doesn't change tensor shapes).",
+    ),
+    ChoiceField(
+        attr="final_activation",
+        label="final activation",
+        group_path=("MODEL ARCHITECTURE", "GLOBAL DEFAULTS"),
+        choices=_ACT_CHOICES,
+        impact=ChangeImpact.REGIME,
+        help="Global final-layer activation for all MLP blocks except the trunk "
+        "(which inherits between_activation). Per-block overrides take precedence. "
+        "Default none = no final activation. Resumable.",
     ),
     FloatField(
         attr="dropout",
@@ -1339,16 +1408,6 @@ FIELD_SPECS: list[FieldSpec] = [
         impact=ChangeImpact.FRESH,
         help="Global LayerNorm in the body blocks. Per-block overrides take "
         "precedence when set. Adds parameters — fresh run to toggle.",
-    ),
-    ChoiceField(
-        attr="encoder_final_activation",
-        label="encoder final act",
-        group_path=("MODEL ARCHITECTURE", "GLOBAL DEFAULTS"),
-        choices=["True", "False"],
-        impact=ChangeImpact.REGIME,
-        help="When on (the default for new runs), the card, hand, and choice encoders "
-        "apply a final activation after their last layer, matching the trunk. Old "
-        "checkpoints carry False and keep their original behaviour on load. Regime.",
     ),
     # MODEL ARCHITECTURE ▸ SETUP MODEL
     ChoiceField(
@@ -1393,13 +1452,22 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Setup-net MLP hidden widths. Changing it restarts only the setup net.",
     ),
     ChoiceField(
-        attr="setup_activation",
-        label="activation",
+        attr="setup_between_activation",
+        label="between activation",
         group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
         choices=_ACT_CHOICES,
         impact=ChangeImpact.REGIME,
         visible_when=_use_setup,
-        help="Activation for the setup net's MLP blocks.",
+        help="Activation between hidden layers in the setup net's MLP.",
+    ),
+    ChoiceField(
+        attr="setup_final_activation",
+        label="final activation",
+        group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
+        choices=_ACT_CHOICES,
+        impact=ChangeImpact.REGIME,
+        visible_when=_use_setup,
+        help="Activation after the final Linear(·,1) in the setup net (none = bare scalar).",
     ),
     FloatField(
         attr="setup_dropout",

@@ -169,10 +169,10 @@ class PolicyValueNetV01(core.PolicyValueNet):
         self.card_encoder, _ = mlp.build_body(
             CARD_FEATURE_DIM_V01,
             arch.card_encoder_layers + (arch.card_embed_dim,),
-            activation=arch.activation,
-            dropout=arch.dropout,
-            layernorm=arch.layernorm,
-            final_activation=arch.encoder_final_activation,
+            between_activation=arch.card_between_activation_resolved,
+            final_activation=arch.card_final_activation_resolved,
+            dropout=arch.card_dropout_resolved,
+            layernorm=arch.card_layernorm_resolved,
         )
         self.register_buffer(
             "card_features",
@@ -201,10 +201,10 @@ class SetupNetV01(setup_net_module.SetupNet):
         self.card_encoder, _ = mlp.build_body(
             CARD_FEATURE_DIM_V01,
             main_arch.card_encoder_layers + (main_arch.card_embed_dim,),
-            activation=main_arch.activation,
-            dropout=main_arch.dropout,
-            layernorm=main_arch.layernorm,
-            final_activation=main_arch.encoder_final_activation,
+            between_activation=main_arch.card_between_activation_resolved,
+            final_activation=main_arch.card_final_activation_resolved,
+            dropout=main_arch.card_dropout_resolved,
+            layernorm=main_arch.card_layernorm_resolved,
         )
         self.card_encoder.requires_grad_(False)
         self.register_buffer(
