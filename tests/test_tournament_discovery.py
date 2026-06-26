@@ -101,7 +101,12 @@ def test_stale_encoding_not_discovered_and_fails_seating(
 
     stale = base / artifacts.ARCHIVE_SUBDIR / "stale"
     stale.mkdir(parents=True)
-    torch.save({"model": {}, "progress": {"iteration": 1}}, stale / artifacts.LAST_CKPT)
+    # Stamp the live era so the checkpoint clears the MAJOR-version gate and the
+    # *encoding-layout* mismatch (stale choice_dim) is what fails seating.
+    torch.save(
+        {"model": {}, "progress": {"iteration": 1}, "version": version.MODEL_VERSION},
+        stale / artifacts.LAST_CKPT,
+    )
     _write_descriptor(stale, choice_dim_offset=-3)
 
     found = {option.checkpoint_dir for option in participants.discover_runs(str(base))}

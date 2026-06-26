@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 pytest.importorskip("torch")
 
-from wingspan import version  # noqa: E402
+from wingspan import architecture, version  # noqa: E402
 from wingspan.training import config, runmeta  # noqa: E402
 
 #### Flat (≤0.4) → nested migration ####
@@ -92,12 +92,13 @@ def test_legacy_bootstrap_opponent_migration():
 
 def test_flat_config_adopts_the_payload_stamp():
     """A pre-field flat config (no ``encoding_version``) adopts the artifact's
-    own era stamp; one that carries the field keeps it."""
-    adopted = config.run_config_from_artifact({"lr": 1e-3}, "0.2")
-    assert adopted.encoding_version == "0.2"
+    own era stamp; one that carries the field keeps it. With no pre-1.0 shims the
+    only loadable stamp is the live era, so adoption is validated against it."""
+    adopted = config.run_config_from_artifact({"lr": 1e-3}, version.MODEL_VERSION)
+    assert adopted.encoding_version == version.MODEL_VERSION
 
     kept = config.run_config_from_artifact(
-        {"lr": 1e-3, "encoding_version": version.MODEL_VERSION}, "0.2"
+        {"lr": 1e-3, "encoding_version": version.MODEL_VERSION}, version.MODEL_VERSION
     )
     assert kept.encoding_version == version.MODEL_VERSION
 
@@ -120,11 +121,11 @@ def test_nested_config_passes_through_unchanged():
 
 def test_nested_config_without_era_adopts_the_stamp():
     """A nested dump whose architecture omits ``encoding_version`` adopts the
-    payload stamp rather than defaulting to live."""
+    passed payload stamp (the live era, the only loadable one at 1.0)."""
     raw = config.RunConfig(misc=config.MiscConfig(device="cpu")).model_dump()
     raw["architecture"].pop("encoding_version")
-    adopted = config.run_config_from_artifact(raw, "0.2")
-    assert adopted.encoding_version == "0.2"
+    adopted = config.run_config_from_artifact(raw, version.MODEL_VERSION)
+    assert adopted.encoding_version == version.MODEL_VERSION
 
 
 #### Dated file round-trip ####
@@ -160,6 +161,55 @@ def test_read_run_config_missing_raises(tmp_path: pathlib.Path):
     inventing a default (callers needing legacy support check first)."""
     with pytest.raises(FileNotFoundError):
         runmeta.read_run_config(str(tmp_path))
+
+
+#### legacy activation-field migration (≤0.8 → between/final) ####
+
+
+def test_legacy_activation_fields_migrate_to_between_final():
+    """A ≤0.8 architecture dump (flat ``activation`` + ``encoder_final_activation``
+    + per-block ``*_activation``) rehydrates into the between/final scheme without
+    a compat shim — the same REGIME migration on both the runtime
+    ``architecture.ModelArchitecture`` and the config ``MainNetArchitecture``."""
+    legacy = {
+        "activation": "gelu",
+        "encoder_final_activation": True,
+        "card_activation": "relu",
+        "trunk_activation": "tanh",
+        "value_activation": "silu",
+    }
+    for arch_cls in (architecture.ModelArchitecture, config.MainNetArchitecture):
+        arch = arch_cls.model_validate(dict(legacy))
+        assert arch.between_activation == architecture.ActivationName.GELU
+        assert arch.final_activation == architecture.ActivationName.NONE
+        # A per-block override survives; encoder_final=True carries it to final.
+        assert arch.card_between_activation == architecture.ActivationName.RELU
+        assert arch.card_final_activation == architecture.ActivationName.RELU
+        # No hand override -> between inherits (None); final resolves to the global.
+        assert arch.hand_between_activation is None
+        assert arch.hand_final_activation == architecture.ActivationName.GELU
+        assert arch.trunk_between_activation == architecture.ActivationName.TANH
+        # Readout blocks take between only; final is always NONE on migrated runs.
+        assert arch.value_between_activation == architecture.ActivationName.SILU
+        assert arch.value_final_activation == architecture.ActivationName.NONE
+
+    # encoder_final omitted (False) -> migrated encoder finals are NONE.
+    no_final = config.MainNetArchitecture.model_validate(
+        {"activation": "relu", "card_activation": "gelu"}
+    )
+    assert no_final.card_between_activation == architecture.ActivationName.GELU
+    assert no_final.card_final_activation == architecture.ActivationName.NONE
+
+    # The setup net carries the simpler single-field migration.
+    setup = config.SetupNetArchitecture.model_validate({"activation": "tanh"})
+    assert setup.between_activation == architecture.ActivationName.TANH
+    assert setup.final_activation == architecture.ActivationName.NONE
+
+    # A config that already uses the new scheme is passed through untouched.
+    modern = config.MainNetArchitecture.model_validate(
+        {"between_activation": "gelu", "final_activation": "none"}
+    )
+    assert modern.between_activation == architecture.ActivationName.GELU
 
 
 #### validate_launchable ####

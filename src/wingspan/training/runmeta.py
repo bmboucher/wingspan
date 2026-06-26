@@ -17,11 +17,11 @@ presence so old run dirs load without any migration.
 This module also owns the descriptor-derived reporting seam (the ``*_for`` /
 ``build_*`` functions): every layout, input width, and parameter count shown by
 ``wingspan inspect`` or written to ``model_inspect.json`` / ``model_summary.html``
-derives from a :class:`ModelConfig` descriptor and is **era-routed by its
-artifact version** (pre-0.1 descriptors get the frozen
-``wingspan.compat.v0_0`` geometry). The run-start writers funnel through the
-same seam via :func:`_descriptor_for`, so a run's reports are consistent with
-the saved config by construction.
+derives from a :class:`ModelConfig` descriptor. With no pre-1.0 shims, every
+loadable artifact shares the live encoding, so the seam reads the live layout
+directly (a future ``v1_<N>`` FRESH change re-introduces era routing here). The
+run-start writers funnel through the same seam via :func:`_descriptor_for`, so a
+run's reports are consistent with the saved config by construction.
 """
 
 from __future__ import annotations
@@ -261,55 +261,23 @@ def build_model_summary_html(
 
 
 def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
-    """The per-layer / per-block parameter accounting for ``descriptor``'s net,
-    era-routed so totals match the actual checkpoint."""
-    from wingspan.compat import (  # local: compat imports the model package
-        v0_1,
-        v0_4,
-        v0_6,
-    )
-
+    """The per-layer / per-block parameter accounting for ``descriptor``'s net."""
     arch = descriptor.architecture
-    card_feat_in = (
-        v0_1.CARD_FEATURE_DIM_V01
-        if v0_1.uses_v0_1_card_feature_encoding(descriptor.version)
-        else (
-            v0_6.CARD_FEATURE_DIM_V06
-            if v0_6.uses_v0_6_card_feature_encoding(descriptor.version)
-            else encode.CARD_FEATURE_DIM
-        )
-    )
-    # Pre-0.6 artifacts (0.0–0.5) have 0 playability multi-hots; v0.6+ have
-    # N_HAND_PLAYABLE_MULTIHOTS.  The playability stripes were added in 0.6, so
-    # any same-major version below 0.6 must use n_playable=0.
-    parsed_ver = version.parse_version(descriptor.version)
-    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
-    n_playable = (
-        0
-        if (parsed_ver.major, parsed_ver.minor)
-        < (playability_ver.major, playability_ver.minor)
-        else encode.N_HAND_PLAYABLE_MULTIHOTS
-    )
-    # Pre-0.9 artifacts carry the 10-dim hand_summary stripe in the state vector;
-    # the distinct-hand path excises it from the continuous feed (trunk_in is 10
-    # narrower than state_dim would otherwise suggest).
-    compaction_ver = version.parse_version("0.9")
-    hand_summary_in_state = arch.use_distinct_hand_model and (
-        parsed_ver.major,
-        parsed_ver.minor,
-    ) < (compaction_ver.major, compaction_ver.minor)
+    # The live (1.0) geometry: the full card-feature encoder, both hand-playability
+    # multi-hots, and the compacted state vector — which derives the 10-dim hand
+    # summary in-model rather than carrying it inline (``hand_summary_in_state``).
     return architecture.count_parameters(
         arch,
-        card_feat_in=card_feat_in,
+        card_feat_in=encode.CARD_FEATURE_DIM,
         trunk_in=encode.trunk_input_dim(
             descriptor.state_dim,
             arch.card_embed_dim,
             use_distinct_hand_model=arch.use_distinct_hand_model,
-            hand_summary_in_state=hand_summary_in_state,
+            hand_summary_in_state=False,
             hand_embed_dim=arch.hand_embed_dim,
             pooled_hand_width=arch.pooled_hand_width,
             tray_set_embedding=arch.tray_set_embedding,
-            n_playable_multihots=n_playable,
+            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
         ),
         choice_in=choice_input_dim_for(descriptor),
         num_families=len(descriptor.family_order),
@@ -318,39 +286,9 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
 
 
 def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
-    """The post-embedding state stripe registry for ``descriptor``, era-routed."""
-    from wingspan.compat import (  # local: compat imports the model package
-        v0_2,
-        v0_3,
-        v0_4,
-    )
-
+    """The post-embedding state stripe registry for ``descriptor``."""
     arch = descriptor.architecture
     spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
-    if v0_2.uses_v0_2_state_encoding(descriptor.version):
-        return v0_2.state_stripe_layout_v02(
-            spec,
-            arch.card_embed_dim,
-            use_distinct_hand_model=arch.use_distinct_hand_model,
-            hand_embed_dim=arch.hand_embed_dim,
-            tray_set_embedding=arch.tray_set_embedding,
-        )
-    if v0_3.uses_v0_3_state_encoding(descriptor.version):
-        return v0_3.state_stripe_layout_v03(
-            spec,
-            arch.card_embed_dim,
-            use_distinct_hand_model=arch.use_distinct_hand_model,
-            hand_embed_dim=arch.hand_embed_dim,
-            tray_set_embedding=arch.tray_set_embedding,
-        )
-    parsed_ver = version.parse_version(descriptor.version)
-    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
-    n_playable = (
-        0
-        if (parsed_ver.major, parsed_ver.minor)
-        < (playability_ver.major, playability_ver.minor)
-        else encode.N_HAND_PLAYABLE_MULTIHOTS
-    )
     return encode_stripes.state_stripe_layout(
         spec,
         arch.card_embed_dim,
@@ -359,96 +297,32 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
         hand_embed_dim=arch.hand_embed_dim,
         pooled_hand_width=arch.pooled_hand_width,
         tray_set_embedding=arch.tray_set_embedding,
-        n_playable_multihots=n_playable,
+        n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
     )
 
 
 def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
-    """The post-embedding choice stripe registry for ``descriptor``, era-routed."""
-    from wingspan.compat import v0_0, v0_4  # local: compat imports the model package
-
+    """The post-embedding choice stripe registry for ``descriptor``."""
     spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
-    if v0_0.uses_v0_0_choice_encoding(descriptor.version):
-        return v0_0.choice_stripe_layout(spec, descriptor.architecture.card_embed_dim)
-    parsed_ver = version.parse_version(descriptor.version)
-    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
-    has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
-        playability_ver.major,
-        playability_ver.minor,
-    )
     return encode_stripes.choice_stripe_layout(
-        spec, descriptor.architecture.card_embed_dim, has_becomes_playable=has_becomes
+        spec, descriptor.architecture.card_embed_dim
     )
 
 
 def choice_input_dim_for(descriptor: ModelConfig) -> int:
-    """The choice encoder's first-``Linear`` input width for ``descriptor``.
-
-    Era-routed: v0.0 artifacts use the v0.0 formula (180-wide bird one-hot +
-    board-idx embedding); v0.1–0.8 artifacts use the v0.8 board-bearing formula
-    (board_idx 15 embedded + single bird_id); pre-0.6 additionally pass
-    ``has_becomes_playable=False``. v0.9+ use the live formula (no board_idx)."""
-    from wingspan.compat import v0_0, v0_4, v0_8  # local: compat imports model package
-
-    if v0_0.uses_v0_0_choice_encoding(descriptor.version):
-        return v0_0.choice_input_dim(
-            descriptor.choice_dim, descriptor.architecture.card_embed_dim
-        )
-    if v0_8.uses_v0_8_choice_encoding(descriptor.version):
-        parsed_ver = version.parse_version(descriptor.version)
-        playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
-        has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
-            playability_ver.major,
-            playability_ver.minor,
-        )
-        return v0_8.choice_input_dim_v08(
-            descriptor.choice_dim,
-            descriptor.architecture.card_embed_dim,
-            include_setup=descriptor.include_setup,
-            has_becomes_playable=has_becomes,
-        )
-    parsed_ver = version.parse_version(descriptor.version)
-    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
-    has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
-        playability_ver.major,
-        playability_ver.minor,
-    )
+    """The choice encoder's first-``Linear`` input width for ``descriptor``."""
     return encode.choice_input_dim(
         descriptor.choice_dim,
         descriptor.architecture.card_embed_dim,
         include_setup=descriptor.include_setup,
-        has_becomes_playable=has_becomes,
     )
 
 
 def choice_extra_for(descriptor: ModelConfig) -> int:
-    """The choice encoder's passthrough width for ``descriptor``, era-routed."""
-    from wingspan.compat import v0_0, v0_4, v0_8  # local: compat imports model package
-
-    if v0_0.uses_v0_0_choice_encoding(descriptor.version):
-        return v0_0.choice_passthrough_dim(descriptor.choice_dim)
-    if v0_8.uses_v0_8_choice_encoding(descriptor.version):
-        parsed_ver = version.parse_version(descriptor.version)
-        playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
-        has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
-            playability_ver.major,
-            playability_ver.minor,
-        )
-        return v0_8.choice_passthrough_dim_v08(
-            descriptor.choice_dim,
-            include_setup=descriptor.include_setup,
-            has_becomes_playable=has_becomes,
-        )
-    parsed_ver = version.parse_version(descriptor.version)
-    playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
-    has_becomes = (parsed_ver.major, parsed_ver.minor) >= (
-        playability_ver.major,
-        playability_ver.minor,
-    )
+    """The choice encoder's passthrough width for ``descriptor``."""
     return encode.choice_passthrough_dim(
         descriptor.choice_dim,
         include_setup=descriptor.include_setup,
-        has_becomes_playable=has_becomes,
     )
 
 

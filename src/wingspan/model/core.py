@@ -32,7 +32,7 @@ import typing
 import torch
 from torch import nn
 
-from wingspan import architecture, decisions, encode
+from wingspan import architecture, decisions, encode, version
 from wingspan.model import hand_model, mlp
 
 if typing.TYPE_CHECKING:
@@ -161,45 +161,13 @@ class PolicyValueNet(nn.Module):
     def class_for_version(cls, artifact_version: str) -> "type[PolicyValueNet]":
         """The net class whose frozen geometry matches ``artifact_version``.
 
-        The single era-routing table: pre-0.1 → ``v0_0.PolicyValueNetV00``
-        (frozen choice encoding); 0.1 → ``v0_1.PolicyValueNetV01`` (frozen
-        229-wide card encoder); 0.2 → ``v0_2.PolicyValueNetV02`` (frozen
-        771-dim state geometry); 0.3 → ``v0_3.PolicyValueNetV03`` (frozen
-        790-dim state geometry, one-hot round + cubes); 0.4–0.5 →
-        ``v0_4.PolicyValueNetV04`` (frozen 795-dim state + no becomes_playable
-        choice stripe); 0.6 → ``v0_6.PolicyValueNetV06`` (frozen 224-wide card
-        encoder, pre-or_cost, eggs-included food encoding); 0.7 →
-        ``v0_7.PolicyValueNetV07`` (eggs-included food ``becomes_playable``);
-        0.8 → ``v0_8.PolicyValueNetV08`` (frozen board_target 120 + board_idx 15
-        choice geometry, pre-0.9 collapse); current era → the live class. Used
-        by every construction seam that must honor an artifact's era."""
-        from wingspan.compat import (  # local: compat subclasses this net
-            v0_0,
-            v0_1,
-            v0_2,
-            v0_3,
-            v0_4,
-            v0_6,
-            v0_7,
-            v0_8,
-        )
-
-        if v0_0.uses_v0_0_choice_encoding(artifact_version):
-            return v0_0.PolicyValueNetV00
-        if v0_1.uses_v0_1_card_feature_encoding(artifact_version):
-            return v0_1.PolicyValueNetV01
-        if v0_2.uses_v0_2_state_encoding(artifact_version):
-            return v0_2.PolicyValueNetV02
-        if v0_3.uses_v0_3_state_encoding(artifact_version):
-            return v0_3.PolicyValueNetV03
-        if v0_4.uses_v0_4_encoding(artifact_version):
-            return v0_4.PolicyValueNetV04
-        if v0_6.uses_v0_6_card_feature_encoding(artifact_version):
-            return v0_6.PolicyValueNetV06
-        if v0_7.uses_v0_7_becomes_playable_encoding(artifact_version):
-            return v0_7.PolicyValueNetV07
-        if v0_8.uses_v0_8_choice_encoding(artifact_version):
-            return v0_8.PolicyValueNetV08
+        No pre-1.0 shims remain — they were dropped at the 1.0 MAJOR bump — so
+        every loadable same-MAJOR artifact returns the live ``PolicyValueNet``.
+        The next ``v1_<N>`` FRESH change re-introduces a branch here that returns
+        its ``wingspan.compat.v1_<N>`` subclass for older same-MAJOR artifacts;
+        ``check_artifact_compatible`` already refuses any different-MAJOR one.
+        Used by every construction seam that must honor an artifact's era."""
+        version.parse_version(artifact_version)  # validate; eras branch here later
         return PolicyValueNet
 
     @classmethod

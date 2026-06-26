@@ -525,9 +525,10 @@ _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
         name="board_summary_opp",
         size=state.N_HABITATS * _BOARD_SUMMARY_FIELDS_PER_HABITAT,
     ),
-    # hand_summary_me removed in v0.9: derived in-model from hand_multihot via
-    # set_summary_from_multihot (same mechanism as playability + tray-set stripes).
-    # Pre-0.9 artifacts load via compat/v0_8.py which restores the stripe.
+    # hand_summary_me removed at the 0.9 compaction (carried into the 1.0
+    # baseline): derived in-model from hand_multihot via set_summary_from_multihot
+    # (same mechanism as the playability + tray-set stripes). No pre-1.0 shim
+    # restores it — every loadable artifact already omits the inline stripe.
     _stripe_descriptors.StripeSpec(name="bonus_progress", size=4 * _BONUS_ID_DIM),
     _stripe_descriptors.StripeSpec(name="opp_bonus_count", size=1),
     _stripe_descriptors.StripeSpec(name="opp_hand_size", size=1),

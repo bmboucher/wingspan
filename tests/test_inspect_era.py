@@ -1,23 +1,23 @@
-"""Tests for the era-routed reporting seam and the static architecture diagram.
+"""Tests for the descriptor-routed reporting seam and the static architecture
+diagram.
 
 Three guarantees from the same change:
 
 * The descriptor-driven builders in ``runmeta`` (``build_inspect_report`` /
   ``build_model_summary_html``) are the single code path behind both the
   run-start writers and ``wingspan inspect`` — the JSON / HTML artifacts a run
-  leaves behind are reproducible from its ``model_config.json`` byte for byte.
+  leaves behind are reproducible from its run-config descriptor byte for byte.
 * ``arch_diagram.render_static`` (the ``wingspan inspect`` ARCHITECTURE panel)
   renders without the interactive configurator state — including the separate
-  setup-net box — and shows the *caller-supplied* era-routed choice-encoder
-  widths, not live-encoder recomputations.
+  setup-net box — and shows the *caller-supplied* descriptor-routed
+  choice-encoder widths, not live-encoder recomputations.
 * The ``wingspan inspect`` CLI itself runs end to end against the no-dir
-  baseline and a pre-0.1 run directory (the v0.0 compat fixture's descriptor —
-  plain JSON, no checkpoint load), and its ``--html`` mode reproduces the
-  run-start ``model_summary.html`` rather than clobbering it.
+  baseline, reports a missing descriptor cleanly, and its ``--html`` mode
+  reproduces the run-start ``model_summary.html`` rather than clobbering it.
 
-The per-era routing *values* (frozen v0.0 vs live widths, param totals matching
-``sum(p.numel())`` of the loaded nets) are asserted against the pinned fixture
-checkpoints in ``test_compat_v0_0.py`` / ``test_compat_v0_1.py``.
+No pre-1.0 compat shims remain (dropped at the 1.0 MAJOR bump), so every
+loadable same-MAJOR descriptor resolves to the live encoder geometry; the
+descriptor seam is exercised here at that single live era.
 """
 
 from __future__ import annotations
@@ -34,12 +34,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 pytest.importorskip("torch")
 
 from wingspan import architecture, encode, setup_model, version
-from wingspan.compat import v0_0
 from wingspan.reporting import inspect_cli
 from wingspan.training import artifacts, config, runmeta, setup_runmeta
 from wingspan.training.configure import arch_diagram
-
-V0_0_FIXTURE_DIR = pathlib.Path(__file__).parent / "data" / "compat" / "v0.0"
 
 _DIAGRAM_WIDTH = 60
 _CONSOLE_WIDTH = 130
@@ -107,24 +104,6 @@ def test_render_static_draws_the_setup_box():
     assert "SETUP INPUT" in plain
 
 
-def test_render_static_shows_the_frozen_era_widths():
-    """A pre-0.1 descriptor's diagram carries the v0.0 choice-encoder input
-    width — different from what the live formula would claim for it."""
-    spec = encode.DEFAULT_SPEC
-    descriptor = _baseline_descriptor(
-        choice_dim=v0_0.choice_feature_dim(spec),
-        version=version.PRE_VERSIONING_VERSION,
-    )
-    frozen_in = runmeta.choice_input_dim_for(descriptor)
-    live_in = encode.choice_input_dim(
-        descriptor.choice_dim,
-        descriptor.architecture.card_embed_dim,
-        include_setup=descriptor.include_setup,
-    )
-    assert frozen_in != live_in
-    assert f"in {frozen_in}" in _render_plain(descriptor, use_setup_model=True)
-
-
 #### Run-start artifacts reproduce from the descriptor ####
 
 
@@ -136,8 +115,7 @@ def test_run_start_html_matches_the_descriptor_rebuild(tmp_path: pathlib.Path):
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(run_name="html-parity"),
     )
-    runmeta.write_model_config(str(tmp_path), cfg)
-    setup_runmeta.write_setup_config(str(tmp_path), cfg)
+    _write_run_config(tmp_path, cfg)
     original = runmeta.write_model_summary_html(str(tmp_path), cfg).read_text(
         encoding="utf-8"
     )
@@ -159,7 +137,7 @@ def test_run_start_inspect_json_matches_the_descriptor_rebuild(
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(run_name="json-parity"),
     )
-    runmeta.write_model_config(str(tmp_path), cfg)
+    _write_run_config(tmp_path, cfg)
     written = runmeta.write_inspect_report(str(tmp_path), cfg).read_text(
         encoding="utf-8"
     )
@@ -176,22 +154,6 @@ def test_inspect_baseline_prints_all_sections(monkeypatch: pytest.MonkeyPatch):
     assert code == 0
     for section in ("STATE VECTOR", "CHOICE VECTOR", "ARCHITECTURE", "PARAMETERS"):
         assert section in out
-
-
-def test_inspect_v0_0_run_shows_the_frozen_geometry(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """Pointed at the pinned v0.0 run directory (descriptor only — no
-    checkpoint load), the choice table resurrects the habitat stripe and the
-    diagram captions the v0.0 choice-encoder input width."""
-    code, out = _run_inspect(
-        ["--checkpoint-dir", str(V0_0_FIXTURE_DIR), "--width", str(_CONSOLE_WIDTH)],
-        monkeypatch,
-    )
-    descriptor = runmeta.read_model_config(str(V0_0_FIXTURE_DIR))
-    assert code == 0
-    assert "habitat" in out
-    assert f"in {runmeta.choice_input_dim_for(descriptor)}" in out
 
 
 def test_inspect_missing_descriptor_is_a_clean_error(
@@ -214,8 +176,7 @@ def test_inspect_html_reproduces_the_run_start_report(
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(run_name="html-regen"),
     )
-    runmeta.write_model_config(str(tmp_path), cfg)
-    setup_runmeta.write_setup_config(str(tmp_path), cfg)
+    _write_run_config(tmp_path, cfg)
     original = runmeta.write_model_summary_html(str(tmp_path), cfg).read_text(
         encoding="utf-8"
     )
@@ -224,3 +185,15 @@ def test_inspect_html_reproduces_the_run_start_report(
     assert "HTML report written" in out
     regenerated = (tmp_path / artifacts.MODEL_SUMMARY_HTML).read_text(encoding="utf-8")
     assert regenerated == original
+
+
+def _write_run_config(tmp_path: pathlib.Path, cfg: config.RunConfig) -> None:
+    """Write the run's unified ``run_config_<stamp>.json`` descriptor sidecar."""
+    runmeta.write_run_config(
+        str(tmp_path),
+        cfg,
+        stamp="t0",
+        started_at="t0",
+        git_sha=None,
+        resumed_from_iteration=0,
+    )

@@ -17,7 +17,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import architecture, decisions, encode, model, version  # noqa: E402
-from wingspan.compat import v0_4  # noqa: E402
 from wingspan.encode import layout, stripes  # noqa: E402
 from wingspan.training import config, runmeta  # noqa: E402
 
@@ -216,16 +215,10 @@ def test_state_layout_for_matches_param_report_trunk_in():
         state_layout = runmeta.state_layout_for(descriptor)
         arch = descriptor.architecture
 
-        # Independent trunk_in using the same era-routing as param_report_for,
-        # passing all arch params so pooled_hand_width and other knobs match.
-        parsed_ver = version.parse_version(descriptor.version)
-        playability_ver = version.parse_version(v0_4.PLAYABILITY_STRIPES_ADDED_IN)
-        n_playable = (
-            0
-            if (parsed_ver.major, parsed_ver.minor)
-            < (playability_ver.major, playability_ver.minor)
-            else encode.N_HAND_PLAYABLE_MULTIHOTS
-        )
+        # Independent trunk_in mirroring param_report_for, passing all arch
+        # params so pooled_hand_width and other knobs match. With no pre-1.0
+        # shims every descriptor is live, so both playability multi-hots are present.
+        n_playable = encode.N_HAND_PLAYABLE_MULTIHOTS
         expected_trunk_in = encode.trunk_input_dim(
             descriptor.state_dim,
             arch.card_embed_dim,

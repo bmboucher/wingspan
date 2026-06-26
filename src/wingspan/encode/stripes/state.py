@@ -249,9 +249,9 @@ def _build_raw_state_stripes(
     )
     off += _board_summary_size
 
-    # hand_summary_me removed in v0.9: the distinct hand encoder now derives the
-    # 10-dim summary in-model from the hand multi-hot via set_summary_from_multihot.
-    # Pre-0.9 artifacts see this stripe via the v0_8 compat shim.
+    # hand_summary_me removed at the 0.9 compaction (the 1.0 baseline): the distinct
+    # hand encoder derives the 10-dim summary in-model from the hand multi-hot via
+    # set_summary_from_multihot. No pre-1.0 shim reinstates the inline stripe.
 
     # ---- bonus progress (POV player only; opponent identity hidden) ----
     bonus_dim = layout._BONUS_ID_DIM  # 26 bonus cards

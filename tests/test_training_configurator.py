@@ -578,7 +578,7 @@ def test_screen_renders_era_line_and_defaults_hints():
             misc=config.MiscConfig(device="cpu"),
             run=config.RunSettings(checkpoint_dir="checkpoints"),
         ),
-        "0.2",
+        version.MODEL_VERSION,
     )
     summary = runs.RunSummary(
         checkpoint_dir="checkpoints", exists=True, train_config=pinned, iteration=3
@@ -591,7 +591,7 @@ def test_screen_renders_era_line_and_defaults_hints():
         seeded_from_saved=True,
     )
     out = _render(view)
-    assert "era 0.2 (resume)" in out
+    assert f"era {version.MODEL_VERSION} (resume)" in out
     assert "save defaults" in out
 
     fresh = _empty_state()
@@ -1087,15 +1087,17 @@ def test_dispatch_edit_checkpoint_dir_reinspects(tmp_path: pathlib.Path):
 
 
 def _pinned_config(directory: pathlib.Path, **overrides: object) -> config.TrainConfig:
-    """A factory-architecture config pinned at era 0.2, as a run started before
-    the 0.3 encoding change would have saved it."""
+    """A factory-architecture config for a saved run at the live era.
+
+    At the 1.0 baseline there is no loadable *older* era to pin to, so a saved
+    run carries the live ``MODEL_VERSION``; the two-distinct-eras divergence
+    machinery is exercised separately by
+    ``test_era_divergence_under_a_newer_live_version``."""
     base: dict[str, object] = {"device": "cpu", "checkpoint_dir": str(directory)}
     base.update(overrides)
     # The flat keys above are routed to their nested sections by the same
     # migration the loaders use for ≤0.4 artifacts.
-    return config.with_encoding_version(
-        config.run_config_from_artifact(base, version.MODEL_VERSION), "0.2"
-    )
+    return config.run_config_from_artifact(base, version.MODEL_VERSION)
 
 
 def _pinned_view(tmp_path: pathlib.Path) -> state.ConfiguratorState:
@@ -1120,7 +1122,7 @@ def test_align_era_pins_and_unpins(tmp_path: pathlib.Path):
     )
 
     # Same architecture at the saved era: pinned to it.
-    assert runs.align_era(summary, live).encoding_version == "0.2"
+    assert runs.align_era(summary, live).encoding_version == version.MODEL_VERSION
     # A genuinely different architecture: live era (a fresh run would start).
     wider = live.model_copy(
         update={
@@ -1145,9 +1147,30 @@ def test_align_era_pins_and_unpins(tmp_path: pathlib.Path):
     assert runs.align_era(unreadable, pinned).encoding_version == version.MODEL_VERSION
 
 
-def test_fresh_edit_bumps_era_and_revert_repins(tmp_path: pathlib.Path):
-    view = _pinned_view(tmp_path)
-    assert view.working.encoding_version == "0.2"
+def test_era_divergence_under_a_newer_live_version(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The two-distinct-eras machinery — era-move footer notices and the
+    launch/confirm era resets — needs a saved run at an era *older* than live. No
+    such era exists at the 1.0 baseline, so this synthesizes the next MINOR as the
+    live version: the real ``MODEL_VERSION`` then reads as a loadable older era a
+    saved run is pinned at. The editor-side mirror of resume-time era pinning; the
+    collapsed era tests above return to exercising divergence once a real FRESH
+    MINOR change ships a second loadable era."""
+    saved_era = version.MODEL_VERSION
+    baseline = version.parse_version(saved_era)
+    newer_live = f"{baseline.major}.{baseline.minor + 1}"
+    # A saved run at the (now-older) baseline era, opened under newer live code.
+    _write_checkpoint(tmp_path, _pinned_config(tmp_path))
+    monkeypatch.setattr(version, "MODEL_VERSION", newer_live)
+    view = controller.build_initial_state(
+        config.RunConfig(
+            misc=config.MiscConfig(device="cpu"),
+            run=config.RunSettings(checkpoint_dir=str(tmp_path)),
+        ),
+        cuda_available=False,
+    )
+    assert view.working.encoding_version == saved_era
     assert view.status() is runs.RunStatus.RESUMABLE
     default_widths = ",".join(
         str(width) for width in view.working.architecture.main.trunk_layers
@@ -1159,7 +1182,7 @@ def test_fresh_edit_bumps_era_and_revert_repins(tmp_path: pathlib.Path):
     controller.dispatch(view, _key(keys.KeyKind.ENTER))
     view.edit_buffer = "256,128"
     controller.dispatch(view, _key(keys.KeyKind.ENTER))
-    assert view.working.encoding_version == version.MODEL_VERSION
+    assert view.working.encoding_version == newer_live
     assert view.working.state_dim == encode.state_size(view.working.encoding_spec)
     assert view.status() is runs.RunStatus.INCOMPATIBLE
     assert view.message is not None and "era" in view.message.text
@@ -1168,16 +1191,23 @@ def test_fresh_edit_bumps_era_and_revert_repins(tmp_path: pathlib.Path):
     controller.dispatch(view, _key(keys.KeyKind.ENTER))
     view.edit_buffer = default_widths
     controller.dispatch(view, _key(keys.KeyKind.ENTER))
-    assert view.working.encoding_version == "0.2"
+    assert view.working.encoding_version == saved_era
     assert view.status() is runs.RunStatus.RESUMABLE
     assert view.message is not None and "resume" in view.message.text
+
+    # Starting a NEW run over the older-era save resets to the live era.
+    controller.dispatch(view, _key(keys.KeyKind.CHAR, "n"))
+    assert view.confirm is not None
+    outcome = controller.dispatch(view, _key(keys.KeyKind.CHAR, "o"))  # overwrite
+    assert outcome is state.Outcome.LAUNCH
+    assert view.working.encoding_version == newer_live
 
 
 def test_regime_edit_keeps_saved_era(tmp_path: pathlib.Path):
     view = _pinned_view(tmp_path)
     view.selected_attr = "lr"
     controller.dispatch(view, _key(keys.KeyKind.RIGHT))  # nudge: REGIME impact
-    assert view.working.encoding_version == "0.2"
+    assert view.working.encoding_version == version.MODEL_VERSION
     assert view.status() is runs.RunStatus.RESUMABLE
 
 
@@ -1203,7 +1233,6 @@ def test_start_empty_launches_live_era(tmp_path: pathlib.Path):
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     view = controller.build_initial_state(cfg, cuda_available=False)
-    view.working = config.with_encoding_version(view.working, "0.2")  # stale pin
     outcome = controller.dispatch(view, _key(keys.KeyKind.CHAR, "s"))
     assert outcome is state.Outcome.LAUNCH and view.working.run.resume is False
     assert view.working.encoding_version == version.MODEL_VERSION
@@ -1220,7 +1249,7 @@ def test_reinspect_to_empty_dir_unpins_era(tmp_path: pathlib.Path):
         ),
         cuda_available=False,
     )
-    assert view.working.encoding_version == "0.2"
+    assert view.working.encoding_version == version.MODEL_VERSION
     view.selected_attr = "checkpoint_dir"
     controller.dispatch(view, _key(keys.KeyKind.ENTER))
     view.edit_buffer = str(empty_dir)
