@@ -37,11 +37,19 @@ MODEL_VERSION = "1.1"
 """The current artifact-compatibility version (the only place it is defined).
 
 1.1 is the first MINOR FRESH bump on top of the 1.0 clean-break baseline. It
-drops the trunk's special ``between_activation`` fallback — ``trunk_final_activation``
-now inherits ``final_activation`` like every other block (see ``docs/VERSIONING.md``).
-v1.0 artifacts with ``trunk_final_activation=null`` are routed to
-``wingspan.compat.v1_0.PolicyValueNetV1_0``, which restores the old trunk-final
-fallback for those checkpoints.
+introduces two changes:
+
+1. *Architecture* — drops the trunk's special ``between_activation`` fallback:
+   ``trunk_final_activation`` now inherits ``final_activation`` like every other
+   block (see ``docs/VERSIONING.md``).
+
+2. *Encoding* — adds the ``becomes_unplayable`` 180-dim multi-hot stripe to the
+   base choice feature vector (immediately after ``becomes_playable``).
+
+v1.0 artifacts are routed to ``wingspan.compat.v1_0.PolicyValueNetV1_0``, which
+restores the old trunk-final fallback and strips the ``becomes_unplayable`` stripe
+from choice encodings. ``compat.encoding_dims_for_era`` returns a narrower
+``choice_dim`` for v1.0.
 
 1.0 was the MAJOR bump that dropped the accumulated pre-1.0 compat shims
 (``wingspan.compat.v0_0`` … ``v0_8``), deleted the old fixture sets, and removed

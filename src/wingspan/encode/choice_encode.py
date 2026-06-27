@@ -138,10 +138,14 @@ def encode_choices(
         )
 
     # Row width depends on whether the becomes_playable stripe is included.
+    # Pre-0.6 eras (has_becomes_playable=False) lack both becomes_playable and
+    # becomes_unplayable; the live path always writes both.
     row_dim = (
         layout.choice_feature_dim(spec)
         if has_becomes_playable
-        else layout.choice_feature_dim(spec) - layout.CHOICE_BECOMES_PLAYABLE_DIM
+        else layout.choice_feature_dim(spec)
+        - layout.CHOICE_BECOMES_PLAYABLE_DIM
+        - layout.CHOICE_BECOMES_UNPLAYABLE_DIM
     )
     feats = np.zeros((n_choices, row_dim), dtype=np.float32)
     for i, choice in enumerate(decision.choices):
@@ -314,6 +318,58 @@ def _featurize_pay_cost(
                     seen_ids.add(id(bird))
         if all_newly:
             _fill_becomes_playable(feat, all_newly)
+    # Becomes-unplayable: food or egg losses that break playability for current birds.
+    if (
+        has_becomes_playable
+        and baselines.playable_now
+        and (
+            choice.paid_food is not None
+            or choice.paid_food_count > 0
+            or choice.paid_egg_count > 0
+        )
+    ):
+        from wingspan.engine import playability as _playability
+
+        all_newly_unplayable: list[cards.Bird] = []
+        seen_unplayable_ids: set[int] = set()
+
+        # Food loss: specific type or optimistic wild count.
+        if choice.paid_food is not None:
+            removed = _playability._single_food_pool(choice.paid_food)
+            food_unplayable = _playability.newly_unplayable_after_food_removed(
+                player,
+                removed,
+                already_playable=baselines.playable_now,
+            )
+            for bird in food_unplayable:
+                if id(bird) not in seen_unplayable_ids:
+                    all_newly_unplayable.append(bird)
+                    seen_unplayable_ids.add(id(bird))
+        elif choice.paid_food_count > 0:
+            food_unplayable = _playability.newly_unplayable_after_optimistic_food_loss(
+                player,
+                choice.paid_food_count,
+                already_playable=baselines.playable_now,
+            )
+            for bird in food_unplayable:
+                if id(bird) not in seen_unplayable_ids:
+                    all_newly_unplayable.append(bird)
+                    seen_unplayable_ids.add(id(bird))
+
+        # Egg loss.
+        if choice.paid_egg_count > 0:
+            egg_unplayable = _playability.newly_unplayable_after_egg_loss(
+                player,
+                choice.paid_egg_count,
+                already_playable=baselines.playable_now,
+            )
+            for bird in egg_unplayable:
+                if id(bird) not in seen_unplayable_ids:
+                    all_newly_unplayable.append(bird)
+                    seen_unplayable_ids.add(id(bird))
+
+        if all_newly_unplayable:
+            _fill_becomes_unplayable(feat, all_newly_unplayable)
 
 
 def _featurize_main_action(
@@ -409,6 +465,16 @@ def _featurize_play_bird(
     _fill_landing_slot(feat, player, choice.habitat)
     _fill_bonus_delta(feat, player, choice.bird, play_habitat=choice.habitat)
     _fill_goal_delta(feat, decision.player_id, choice.bird, state)
+    if has_becomes_playable and baselines.playable_now:
+        from wingspan.engine import playability as _playability
+
+        newly_unplayable = _playability.newly_unplayable_after_play(
+            player,
+            choice.bird,
+            choice.habitat,
+            already_playable=baselines.playable_now,
+        )
+        _fill_becomes_unplayable(feat, newly_unplayable)
 
 
 def _featurize_food_payment(
@@ -431,6 +497,25 @@ def _featurize_food_payment(
     if isinstance(decision, decisions.PayBirdFoodDecision):
         _fill_bird_identity(feat, decision.bird)
         _fill_landing_slot(feat, state.players[decision.player_id], decision.habitat)
+    # becomes_unplayable: which other playable hand birds lose food-affordability
+    # after this exact payment is made. Exclude the bird being paid for.
+    if has_becomes_playable and baselines.playable_now:
+        from wingspan.engine import playability as _playability
+
+        exclude_bird = (
+            decision.bird
+            if isinstance(decision, decisions.PayBirdFoodDecision)
+            else None
+        )
+        baseline = [bird for bird in baselines.playable_now if bird is not exclude_bird]
+        if baseline:
+            player = state.players[decision.player_id]
+            newly_unplayable = _playability.newly_unplayable_after_food_removed(
+                player,
+                choice.payment,
+                already_playable=baseline,
+            )
+            _fill_becomes_unplayable(feat, newly_unplayable)
 
 
 def _featurize_played_bird(
@@ -515,6 +600,24 @@ def _featurize_food(
             ignore_eggs=baselines.food_ignores_eggs,
         )
         _fill_becomes_playable(feat, newly)
+    # becomes_unplayable: food spends that lose affordability for playable birds.
+    if (
+        has_becomes_playable
+        and baselines.playable_now
+        and isinstance(
+            decision, (decisions.SpendFoodDecision, decisions.SpendFoodForEggDecision)
+        )
+    ):
+        from wingspan.engine import playability as _playability
+
+        player = state.players[decision.player_id]
+        removed = _playability._single_food_pool(choice.food)
+        newly_unplayable = _playability.newly_unplayable_after_food_removed(
+            player,
+            removed,
+            already_playable=baselines.playable_now,
+        )
+        _fill_becomes_unplayable(feat, newly_unplayable)
 
 
 def _featurize_board_target(
@@ -562,6 +665,16 @@ def _featurize_board_target(
                 feat, decision.player_id, choice.habitat, played_bird, delta_eggs, state
             )
             _fill_bonus_delta_for_egg(feat, player, played_bird, delta_eggs)
+    # becomes_unplayable: losing one egg can push egg-gated birds below threshold.
+    if is_pay and has_becomes_playable and baselines.playable_now:
+        from wingspan.engine import playability as _playability
+
+        newly_unplayable = _playability.newly_unplayable_after_egg_loss(
+            player,
+            1,
+            already_playable=baselines.playable_now,
+        )
+        _fill_becomes_unplayable(feat, newly_unplayable)
 
 
 def _featurize_bonus_card(
@@ -735,6 +848,12 @@ def _fill_becomes_playable(feat: np.ndarray, birds: list[cards.Bird]) -> None:
     """Set the ``becomes_playable`` stripe bit for each bird in ``birds``."""
     for bird in birds:
         feat[layout.CHOICE_BECOMES_PLAYABLE_OFFSET + cards.bird_index(bird)] = 1.0
+
+
+def _fill_becomes_unplayable(feat: np.ndarray, birds: list[cards.Bird]) -> None:
+    """Set the ``becomes_unplayable`` stripe bit for each bird in ``birds``."""
+    for bird in birds:
+        feat[layout.CHOICE_BECOMES_UNPLAYABLE_OFFSET + cards.bird_index(bird)] = 1.0
 
 
 def _fill_landing_slot(

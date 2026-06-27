@@ -3,9 +3,10 @@
 Pure functions over :class:`~wingspan.state.Player` — no engine state, no I/O.
 Builds on :func:`~wingspan.engine.helpers.any_payment_exists` to classify which
 birds in hand are playable now, which become playable with more eggs, and which
-become newly playable after a food or egg gain. Used by the state / choice
-encoders to fill the ``hand_playable_me``, ``hand_playable_eggs_me``, and
-``becomes_playable`` multi-hot stripes.
+become newly playable after a food or egg gain, and which become newly
+*un*playable after a food, egg, or slot loss. Used by the state / choice
+encoders to fill the ``hand_playable_me``, ``hand_playable_eggs_me``,
+``becomes_playable``, and ``becomes_unplayable`` multi-hot stripes.
 
 Import this module **locally inside encoder functions** (``from wingspan.engine
 import playability``) to keep :mod:`wingspan.encode` engine-free at import time —
@@ -48,7 +49,7 @@ def _bird_playable(
         return False
     if ignore_eggs:
         return any(player.can_play_in(habitat) for habitat in bird.habitats)
-    total_eggs = player.total_eggs + extra_eggs
+    total_eggs = max(0, player.total_eggs + extra_eggs)
     for habitat in bird.habitats:
         if player.can_play_in(habitat) and total_eggs >= player.board.next_egg_cost(
             habitat
@@ -194,6 +195,109 @@ def newly_playable_after_feeder_food(
 
 
 # ---------------------------------------------------------------------------
+# Counterfactual loss helpers
+
+
+def newly_unplayable_after_egg_loss(
+    player: state.Player,
+    n_eggs: int,
+    *,
+    already_playable: list[cards.Bird],
+) -> list[cards.Bird]:
+    """Hand birds in ``already_playable`` that become egg-unaffordable after
+    losing ``n_eggs`` eggs.
+
+    Food affordability is not re-checked (the ``already_playable`` baseline
+    confirms it); only the egg gate changes when eggs decrease."""
+    if not already_playable or n_eggs == 0:
+        return []
+    return [
+        bird
+        for bird in already_playable
+        if not _bird_playable(player, bird, extra_eggs=-n_eggs)
+    ]
+
+
+def newly_unplayable_after_food_removed(
+    player: state.Player,
+    removed: state.FoodPool,
+    *,
+    already_playable: list[cards.Bird],
+) -> list[cards.Bird]:
+    """Hand birds in ``already_playable`` that lose food-affordability when
+    exactly ``removed`` tokens are spent from ``player.food``.
+
+    ``removed`` is an exact multiset; used for ``FoodPaymentChoice`` and
+    fully-specified single-food spends."""
+    if not already_playable:
+        return []
+    food_after = _pool_subtract(player.food, removed)
+    return [
+        bird
+        for bird in already_playable
+        if not helpers.any_payment_exists(food_after, bird.food_cost)
+    ]
+
+
+def newly_unplayable_after_optimistic_food_loss(
+    player: state.Player,
+    n: int,
+    *,
+    already_playable: list[cards.Bird],
+) -> list[cards.Bird]:
+    """Hand birds in ``already_playable`` that become unplayable regardless of
+    how ``n`` food tokens are chosen for removal.
+
+    Optimistic semantics: a bird *survives* if at least one way to remove
+    ``n`` tokens still leaves it food-affordable. We flag it only when every
+    possible size-``n`` removal breaks affordability."""
+    if not already_playable or n == 0:
+        return []
+    removal_options = _removal_multisets(player.food, n)
+    if not removal_options:
+        return []
+    food_after_each = [_pool_subtract(player.food, r) for r in removal_options]
+    return [
+        bird
+        for bird in already_playable
+        if not any(
+            helpers.any_payment_exists(f, bird.food_cost) for f in food_after_each
+        )
+    ]
+
+
+def newly_unplayable_after_play(
+    player: state.Player,
+    played_bird: cards.Bird,
+    habitat: cards.Habitat,
+    *,
+    already_playable: list[cards.Bird],
+) -> list[cards.Bird]:
+    """Hand birds in ``already_playable`` (excluding ``played_bird``) that
+    lose playability after ``played_bird`` is placed into ``habitat``.
+
+    Models the full play cost: −1 slot in ``habitat``, −``next_egg_cost``
+    eggs, and −food payment (optimistic: a baseline bird survives if *some*
+    legal payment of ``played_bird``'s cost still leaves it affordable)."""
+    counterfactual_eggs = player.total_eggs - player.board.next_egg_cost(habitat)
+    payments = helpers.enumerate_payments(player.food, played_bird.food_cost)
+    food_after_payments = [_pool_subtract(player.food, payment) for payment in payments]
+    result: list[cards.Bird] = []
+    for bird in already_playable:
+        if bird is played_bird:
+            continue
+        if not _bird_playable_after_play(
+            player,
+            bird,
+            played_habitat=habitat,
+            counterfactual_eggs=counterfactual_eggs,
+            food_after_payments=food_after_payments,
+        ):
+            result.append(bird)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Setup turn-1 predicates
 
 
@@ -270,3 +374,99 @@ def _foods_to_pool(foods: tuple[cards.Food, ...]) -> state.FoodPool:
     for food in foods:
         counts[cards.food_index(food)] = 1
     return state.FoodPool.model_construct(counts=counts)
+
+
+def _pool_subtract(
+    food_pool: state.FoodPool, removed: state.FoodPool
+) -> state.FoodPool:
+    """Return a new FoodPool that is ``food_pool`` minus ``removed``, clamped to 0."""
+    new_counts = [
+        max(0, food_pool.counts[i] - removed.counts[i]) for i in range(cards.N_FOODS)
+    ]
+    return state.FoodPool.model_construct(counts=new_counts)
+
+
+def _removal_multisets(pool: state.FoodPool, n: int) -> list[state.FoodPool]:
+    """All distinct multisets of exactly ``n`` tokens removable from ``pool``.
+
+    Enumerates token-by-token across the 5 food types. Returns an empty list
+    if the pool contains fewer than ``n`` total tokens."""
+    result: list[state.FoodPool] = []
+    _enumerate_removals(pool.counts, n, 0, [0] * cards.N_FOODS, result)
+    return result
+
+
+def _enumerate_removals(
+    pool_counts: list[int],
+    remaining: int,
+    food_idx: int,
+    current: list[int],
+    result: list[state.FoodPool],
+) -> None:
+    """Recursively fill ``result`` with each distinct size-``remaining`` removal."""
+    if remaining == 0:
+        result.append(state.FoodPool.model_construct(counts=list(current)))
+        return
+    if food_idx >= cards.N_FOODS:
+        return
+    max_take = min(pool_counts[food_idx], remaining)
+    for take in range(0, max_take + 1):
+        current[food_idx] = take
+        _enumerate_removals(
+            pool_counts, remaining - take, food_idx + 1, current, result
+        )
+    current[food_idx] = 0
+
+
+def _counterfactual_can_play_in(
+    player: state.Player,
+    played_habitat: cards.Habitat,
+    target_habitat: cards.Habitat,
+) -> bool:
+    """Open slot in ``target_habitat`` after one bird is placed in ``played_habitat``."""
+    n_birds = len(player.board[target_habitat])
+    if target_habitat == played_habitat:
+        n_birds += 1
+    return n_birds < state.ROW_SLOTS
+
+
+def _counterfactual_next_egg_cost(
+    player: state.Player,
+    played_habitat: cards.Habitat,
+    target_habitat: cards.Habitat,
+) -> int:
+    """Egg cost to play into ``target_habitat`` after one bird lands in ``played_habitat``."""
+    n_birds = len(player.board[target_habitat])
+    if target_habitat == played_habitat:
+        n_birds += 1
+    if n_birds >= len(state.EGG_COSTS):
+        return state.FULL_ROW_EGG_COST
+    return state.EGG_COSTS[n_birds]
+
+
+def _bird_playable_after_play(
+    player: state.Player,
+    bird: cards.Bird,
+    *,
+    played_habitat: cards.Habitat,
+    counterfactual_eggs: int,
+    food_after_payments: list[state.FoodPool],
+) -> bool:
+    """Whether ``bird`` remains playable on the counterfactual board after a
+    play in ``played_habitat`` left ``counterfactual_eggs`` eggs and each
+    element of ``food_after_payments`` as a possible remaining food supply.
+
+    Returns True iff some habitat/payment combination keeps it playable."""
+    for habitat in bird.habitats:
+        if not _counterfactual_can_play_in(player, played_habitat, habitat):
+            continue
+        egg_needed = _counterfactual_next_egg_cost(player, played_habitat, habitat)
+        if counterfactual_eggs < egg_needed:
+            continue
+        # Slot and eggs satisfied; check if any payment still affords this bird.
+        if any(
+            helpers.any_payment_exists(food, bird.food_cost)
+            for food in food_after_payments
+        ):
+            return True
+    return False

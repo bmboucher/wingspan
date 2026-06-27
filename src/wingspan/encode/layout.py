@@ -230,6 +230,7 @@ _CHOICE_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="goal_delta", size=_GOAL_DELTA_DIM),
     _stripe_descriptors.StripeSpec(name="bonus_value", size=_BONUS_VALUE_DIM),
     _stripe_descriptors.StripeSpec(name="becomes_playable", size=_BIRD_ID_DIM),
+    _stripe_descriptors.StripeSpec(name="becomes_unplayable", size=_BIRD_ID_DIM),
 ]
 _CHOICE_SETUP_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="setup_agg", size=_SETUP_DIM),
@@ -612,6 +613,10 @@ CHOICE_KEPT_MULTIHOT_OFFSET = _OFF_KEPT_MULTIHOT
 CHOICE_KEPT_MULTIHOT_DIM = _KEPT_MULTIHOT_DIM
 CHOICE_BECOMES_PLAYABLE_OFFSET: int = CHOICE_BASE_LAYOUT.offset_of("becomes_playable")
 CHOICE_BECOMES_PLAYABLE_DIM: int = _BIRD_ID_DIM
+CHOICE_BECOMES_UNPLAYABLE_OFFSET: int = CHOICE_BASE_LAYOUT.offset_of(
+    "becomes_unplayable"
+)
+CHOICE_BECOMES_UNPLAYABLE_DIM: int = _BIRD_ID_DIM
 
 
 def trunk_input_dim(
@@ -687,6 +692,7 @@ def choice_input_dim(
     include_setup: bool = False,
     has_becomes_playable: bool = True,
     pooled_hand_width: int | None = None,
+    has_becomes_unplayable: bool = True,
 ) -> int:
     """The per-choice encoder's first-``Linear`` input width: the flat
     ``choice_dim`` with the candidate's bird-index column replaced by its
@@ -702,8 +708,11 @@ def choice_input_dim(
     of width ``pooled_hand_width`` (from
     ``architecture.ModelArchitecture.pooled_hand_width``); when ``None``,
     defaults to ``card_embed_dim`` (MEAN/SUM mode / legacy back-compat).
+    ``has_becomes_unplayable`` mirrors this for the ``becomes_unplayable`` stripe
+    (False for v1.0 artifacts whose choice vector predates it); it likewise
+    embeds to ``becomes_embed_w``.
     Set ``has_becomes_playable=False`` for pre-0.6 compat shims whose choice
-    vector lacks the stripe."""
+    vector lacks both stripes."""
     becomes_embed_w = (
         pooled_hand_width if pooled_hand_width is not None else card_embed_dim
     )
@@ -716,23 +725,34 @@ def choice_input_dim(
         base += (
             becomes_embed_w - CHOICE_BECOMES_PLAYABLE_DIM
         )  # multi-hot -> one pooled embedding
+    if has_becomes_unplayable:
+        base += (
+            becomes_embed_w - CHOICE_BECOMES_UNPLAYABLE_DIM
+        )  # multi-hot -> one pooled embedding
     if include_setup:
         base += card_embed_dim - CHOICE_KEPT_MULTIHOT_DIM  # multi-hot -> one embedding
     return base
 
 
 def choice_passthrough_dim(
-    choice_dim: int, *, include_setup: bool = False, has_becomes_playable: bool = True
+    choice_dim: int,
+    *,
+    include_setup: bool = False,
+    has_becomes_playable: bool = True,
+    has_becomes_unplayable: bool = True,
 ) -> int:
     """The choice columns that pass straight through to the encoder — the flat
     ``choice_dim`` minus every card-region stripe the model replaces with a
     shared-embedding lookup (the candidate index column, the ``becomes_playable``
-    multi-hot when present, and — when ``include_setup`` — the kept-set multi-hot).
-    The ``board_hab`` / ``board_col`` one-hots pass through unchanged and are
-    counted in the total. The architecture diagram's "additional inputs" count."""
+    and ``becomes_unplayable`` multi-hots when present, and — when
+    ``include_setup`` — the kept-set multi-hot). The ``board_hab`` /
+    ``board_col`` one-hots pass through unchanged and are counted in the total.
+    The architecture diagram's "additional inputs" count."""
     extra = choice_dim - CHOICE_BIRD_ID_DIM
     if has_becomes_playable:
         extra -= CHOICE_BECOMES_PLAYABLE_DIM
+    if has_becomes_unplayable:
+        extra -= CHOICE_BECOMES_UNPLAYABLE_DIM
     if include_setup:
         extra -= CHOICE_KEPT_MULTIHOT_DIM
     return extra

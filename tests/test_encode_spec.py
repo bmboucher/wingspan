@@ -109,10 +109,12 @@ def test_stripe_layouts_sum_and_show_setup_only_when_included():
             == state_layout.total_size
             == encode.trunk_input_dim(encode.state_size(spec), card_embed_dim)
         )
-        # Pre-0.6 raw dim omits becomes_playable, so the formula is called with
-        # choice_feature_dim - CHOICE_BECOMES_PLAYABLE_DIM.
+        # Pre-0.6 raw dim omits both playable stripes, so the formula is called
+        # with choice_feature_dim - CHOICE_BECOMES_PLAYABLE_DIM - CHOICE_BECOMES_UNPLAYABLE_DIM.
         raw_pre06_dim = (
-            encode.choice_feature_dim(spec) - layout.CHOICE_BECOMES_PLAYABLE_DIM
+            encode.choice_feature_dim(spec)
+            - layout.CHOICE_BECOMES_PLAYABLE_DIM
+            - layout.CHOICE_BECOMES_UNPLAYABLE_DIM
         )
         assert (
             sum(s.size for s in choice_layout.stripes)
@@ -122,12 +124,14 @@ def test_stripe_layouts_sum_and_show_setup_only_when_included():
                 card_embed_dim,
                 include_setup=spec.include_setup,
                 has_becomes_playable=False,
+                has_becomes_unplayable=False,
             )
         )
         choice_names = {s.name for s in choice_layout.stripes}
         assert ("setup_agg" in choice_names) == spec.include_setup
         assert ("kept_multihot" in choice_names) == spec.include_setup
         assert "becomes_playable" not in choice_names
+        assert "becomes_unplayable" not in choice_names
 
         # Live v0.6+ path: n_playable=N, has_becomes_playable=True
         n_playable = encode.N_HAND_PLAYABLE_MULTIHOTS
@@ -159,6 +163,7 @@ def test_stripe_layouts_sum_and_show_setup_only_when_included():
         assert ("setup_agg" in choice_live_names) == spec.include_setup
         assert ("kept_multihot" in choice_live_names) == spec.include_setup
         assert "becomes_playable" in choice_live_names
+        assert "becomes_unplayable" in choice_live_names
 
 
 def test_model_builds_for_both_specs():

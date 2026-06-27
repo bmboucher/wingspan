@@ -285,9 +285,9 @@ def choice_embed_rules(
 
     ``pooled_hand_width`` is the width produced by ``pool_card_set`` under the
     run's ``hand_pooling`` mode (equal to ``card_embed_dim`` for MEAN/SUM;
-    ``2*card_embed_dim+1`` for CONCAT_MAX_SUM).  ``becomes_playable`` is a card
-    set embedded through the same pooling, so it expands to ``pooled_hand_width``
-    instead of the bare ``card_embed_dim`` a sum-only embedding would produce."""
+    ``2*card_embed_dim+1`` for CONCAT_MAX_SUM).  Both ``becomes_playable`` and
+    ``becomes_unplayable`` are card sets embedded through the same pooling, so
+    they each expand to ``pooled_hand_width``."""
     kept = layout.CHOICE_KEPT_MULTIHOT_DIM
     return {
         "bird_id": _EmbedRule(
@@ -320,6 +320,19 @@ def choice_embed_rules(
                 f"birds' shared card vectors (same pooling mode as the hand stripe). "
                 f"Raw encoding is a "
                 f"{layout.CHOICE_BECOMES_PLAYABLE_DIM}-wide multi-hot over all core birds."
+            ),
+        ),
+        "becomes_unplayable": _EmbedRule(
+            new_size=pooled_hand_width,
+            encoding="card-embedding (becomes-unplayable set, pooled)",
+            value_range="learned",
+            notes=(
+                f"The set of currently-playable hand birds that would become "
+                f"unplayable by accepting this choice -> one {pooled_hand_width}-dim "
+                f"embedding, pooled over the birds' shared card vectors (same pooling "
+                f"mode as the hand stripe). Raw encoding is a "
+                f"{layout.CHOICE_BECOMES_UNPLAYABLE_DIM}-wide multi-hot over all "
+                f"core birds."
             ),
         ),
     }

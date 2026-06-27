@@ -75,10 +75,12 @@ class ChoiceEmbedOffsets(typing.NamedTuple):
     the flat choice row on.
 
     ``becomes_playable`` is ``None`` for pre-0.6 eras (the stripe did not exist);
+    ``becomes_unplayable`` is ``None`` for v1.0 artifacts (predates the stripe);
     ``kept_multihot`` is ``None`` when ``include_setup`` is ``False``."""
 
     bird_id: int
     becomes_playable: int | None
+    becomes_unplayable: int | None
     kept_multihot: int | None
 
 
@@ -435,6 +437,7 @@ class PolicyValueNet(nn.Module):
             include_setup=self.include_setup,
             has_becomes_playable=(cho.becomes_playable is not None),
             pooled_hand_width=arch.pooled_hand_width,
+            has_becomes_unplayable=(cho.becomes_unplayable is not None),
         )
         self.choice_encoder, _ = mlp.build_body(
             choice_in_dim,
@@ -521,10 +524,12 @@ class PolicyValueNet(nn.Module):
         """The column offsets :meth:`_embed_choices` splits the flat choice row on.
 
         Returns offsets for the live encoding. Compat subclasses override to return
-        their era's frozen offsets (``becomes_playable=None`` for pre-0.6 eras)."""
+        their era's frozen offsets (``becomes_playable=None`` for pre-0.6 eras,
+        ``becomes_unplayable=None`` for v1.0 artifacts that predate the stripe)."""
         return ChoiceEmbedOffsets(
             bird_id=encode.CHOICE_BIRD_ID_OFFSET,
             becomes_playable=encode.CHOICE_BECOMES_PLAYABLE_OFFSET,
+            becomes_unplayable=encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET,
             kept_multihot=(
                 encode.CHOICE_KEPT_MULTIHOT_OFFSET if self.include_setup else None
             ),
@@ -821,65 +826,67 @@ class PolicyValueNet(nn.Module):
 
         The candidate bird-index column is replaced by a ``card_embed_dim``
         embedding; the ``board_hab``/``board_col`` one-hots and all other scalars
-        pass through unchanged. The ``becomes_playable`` multi-hot (0.9+/0.6+)
-        and the trailing ``kept_multihot`` (when ``include_setup``) are each
-        summed through the card table into one more embedding. Pre-0.6 compat
-        shims return ``becomes_playable=None`` and take the legacy code path."""
+        pass through unchanged. Each present card-summed multi-hot stripe
+        (``becomes_playable``, ``becomes_unplayable``, ``kept_multihot``) is
+        summed through the card table into one embedding. Pre-0.6 compat shims
+        return ``becomes_playable=None``; v1.0 shims return
+        ``becomes_unplayable=None``; eras with no setup return
+        ``kept_multihot=None``."""
         cho = self._choice_embed_offsets()
         off_bird = cho.bird_id
         end_bird = off_bird + encode.CHOICE_BIRD_ID_DIM
 
-        cand_idx = (
-            choices[..., off_bird].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
-        )  # (B, K)
+        # Candidate embedding: look up the bird-index column in the card table.
+        cand_idx = choices[..., off_bird].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
         cand_mask = (cand_idx > 0).unsqueeze(-1).to(card_table.dtype)
         cand_emb = card_table[cand_idx] * cand_mask
 
-        off_becomes = cho.becomes_playable  # None for pre-0.6
-        off_kept = cho.kept_multihot  # None when not include_setup
+        # Build pooled embeddings for card-set stripes (becomes_playable,
+        # becomes_unplayable) using the same pool_card_set as the hand stripe.
+        # kept_multihot uses a simple sum via @ card_table[1:].
+        b, k = choices.shape[:2]
+        card_summed: list[tuple[int, int, torch.Tensor]] = []
+        for off, dim in [
+            (cho.becomes_playable, encode.CHOICE_BECOMES_PLAYABLE_DIM),
+            (cho.becomes_unplayable, encode.CHOICE_BECOMES_UNPLAYABLE_DIM),
+        ]:
+            if off is not None:
+                emb = hand_model.pool_card_set(
+                    choices[..., off : off + dim].reshape(b * k, -1),
+                    card_table[1:],
+                    self.arch.hand_pooling,
+                ).reshape(b, k, -1)
+                card_summed.append((off, dim, emb))
+        if cho.kept_multihot is not None:
+            off_kept = cho.kept_multihot
+            card_summed.append(
+                (
+                    off_kept,
+                    encode.CHOICE_KEPT_MULTIHOT_DIM,
+                    choices[..., off_kept : off_kept + encode.CHOICE_KEPT_MULTIHOT_DIM]
+                    @ card_table[1:],
+                )
+            )
 
-        if off_becomes is not None and off_kept is not None:
-            # 0.6+, include_setup: becomes_playable then setup_agg then kept_multihot.
-            off_setup = off_becomes + encode.CHOICE_BECOMES_PLAYABLE_DIM
-            b, k = choices.shape[:2]
-            becomes_emb = hand_model.pool_card_set(
-                choices[..., off_becomes:off_setup].reshape(b * k, -1),
-                card_table[1:],
-                self.arch.hand_pooling,
-            ).reshape(b, k, -1)
-            kept_emb = choices[..., off_kept:] @ card_table[1:]
-            rest = torch.cat(
-                [
-                    choices[..., :off_bird],
-                    choices[..., end_bird:off_becomes],
-                    choices[..., off_setup:off_kept],
-                ],
-                dim=-1,
-            )
-            return torch.cat([rest, cand_emb, becomes_emb, kept_emb], dim=-1)
-        elif off_becomes is not None:
-            # 0.6+, no setup: becomes_playable is the last stripe.
-            b, k = choices.shape[:2]
-            becomes_emb = hand_model.pool_card_set(
-                choices[..., off_becomes:].reshape(b * k, -1),
-                card_table[1:],
-                self.arch.hand_pooling,
-            ).reshape(b, k, -1)
-            rest = torch.cat(
-                [choices[..., :off_bird], choices[..., end_bird:off_becomes]], dim=-1
-            )
-            return torch.cat([rest, cand_emb, becomes_emb], dim=-1)
-        elif off_kept is not None:
-            # Pre-0.6, include_setup: no becomes_playable stripe.
-            kept_emb = choices[..., off_kept:] @ card_table[1:]
-            rest = torch.cat(
-                [choices[..., :off_bird], choices[..., end_bird:off_kept]], dim=-1
-            )
-            return torch.cat([rest, cand_emb, kept_emb], dim=-1)
-        else:
-            # Pre-0.6, no setup: simplest case.
-            rest = torch.cat([choices[..., :off_bird], choices[..., end_bird:]], dim=-1)
-            return torch.cat([rest, cand_emb], dim=-1)
+        # Collect the scalar "pass-through" features: everything in the raw
+        # vector except the bird-id column and the card-summed stripes.
+        # Sort removed regions by start offset and walk them left-to-right.
+        removed: list[tuple[int, int]] = [(off_bird, end_bird)]
+        for off, dim, _ in card_summed:
+            removed.append((off, off + dim))
+        removed.sort()
+
+        rest_parts: list[torch.Tensor] = []
+        cursor = 0
+        for start, end in removed:
+            if cursor < start:
+                rest_parts.append(choices[..., cursor:start])
+            cursor = end
+        if cursor < choices.shape[-1]:
+            rest_parts.append(choices[..., cursor:])
+
+        rest = torch.cat(rest_parts, dim=-1) if rest_parts else choices[..., :0]
+        return torch.cat([rest, cand_emb] + [emb for _, _, emb in card_summed], dim=-1)
 
 
 ###### MODULE-LEVEL HELPERS ######

@@ -39,9 +39,13 @@ the main actor-critic network. Key structure:
   (stripe absent, derived in-model) and `(343, 353)` for pre-0.9 shims (stripe
   physically present in the frozen 1155-dim vector and excised from the continuous
   prefix before the trunk).
-- `ChoiceEmbedOffsets(board_idx, bird_id, becomes_playable, kept_multihot)`
+- `ChoiceEmbedOffsets(board_idx, bird_id, becomes_playable, becomes_unplayable, kept_multihot)`
   — NamedTuple seam for the choice encoder; `becomes_playable` is `None` for
-  pre-0.6 shims that lack the stripe, `kept_multihot` is `None` outside setup.
+  pre-0.6 shims that lack both stripes; `becomes_unplayable` is `None` for pre-0.6
+  **and** for v1.0 shims (v1.1 added it); `kept_multihot` is `None` outside setup.
+  `_embed_choices` loops over whichever stripes are non-None, summing each through
+  the shared card table, then splices out all card-index / multi-hot regions and
+  concatenates the rest with the resulting embeddings.
 
 **`mlp.py`** — Shared MLP building blocks used by both the policy net and the
 setup net so they produce byte-identical stacks from the same width list:

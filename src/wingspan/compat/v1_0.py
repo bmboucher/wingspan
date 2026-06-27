@@ -1,6 +1,7 @@
-"""v1.0 artifact compat shim: restore old trunk-final-activation fallback.
+"""v1.0 artifact compat shim: restore old trunk-final-activation fallback and
+strip the ``becomes_unplayable`` choice stripe added in v1.1.
 
-**What changed in v1.1.** ``ModelArchitecture.trunk_final_activation_resolved``
+**What changed in v1.1 (architecture).** ``ModelArchitecture.trunk_final_activation_resolved``
 was changed to fall back to ``final_activation`` (the universal rule for every
 other block) instead of ``between_activation`` (the old trunk-specific exception).
 Under v1.0 code, any artifact with ``trunk_final_activation=null`` in its config
@@ -8,13 +9,26 @@ resolved the trunk's final layer to ``between_activation`` (typically ``relu``).
 Under v1.1 code it resolves to ``final_activation`` (typically ``none``), which
 would silently change the computed output for any rehydrated v1.0 checkpoint.
 
+**What changed in v1.1 (encoding).** The ``becomes_unplayable`` 180-dim multi-hot
+stripe was appended to the base choice feature vector immediately after
+``becomes_playable``. v1.0 choice vectors lack this stripe; the shim strips it
+after encoding so the truncated vector matches the width the v1.0 choice encoder
+was built for.
+
 **Shim strategy.** :class:`PolicyValueNetV1_0` is a thin ``PolicyValueNet``
-subclass that overrides ``_build_trunk`` to reproduce the v1.0 resolution:
-when ``arch.trunk_final_activation`` is ``None``, use
-``arch.trunk_between_activation_resolved`` (= old fallback) in place of
-``arch.trunk_final_activation_resolved`` (= new fallback). When
-``trunk_final_activation`` is explicit (non-``None``) the two branches are
-identical, so the shim class is correct for all v1.0 artifacts.
+subclass that overrides:
+
+* ``_build_trunk`` — reproduces the v1.0 trunk-final-activation fallback.
+* ``encode_choices`` — calls the live encoder (which produces the full v1.1
+  vector), then ``np.delete``s the ``becomes_unplayable`` columns so the
+  resulting array is the width the v1.0 choice encoder expects.
+* ``_choice_embed_offsets`` — returns ``becomes_unplayable=None`` so
+  ``_embed_choices`` skips that stripe; adjusts ``kept_multihot`` left by
+  ``CHOICE_BECOMES_UNPLAYABLE_DIM`` because the v1.0 artifacts never carried
+  the stripe in their stored choice vectors.
+
+When ``trunk_final_activation`` is explicit (non-``None``) the two trunk branches
+are identical, so the shim is correct for all v1.0 artifacts.
 
 **Fixture note.** An LFS checkpoint fixture at ``tests/data/compat/v1.0/`` is
 deferred: the only in-production v1.0 artifacts at bump time had
@@ -26,16 +40,17 @@ tensor rather than a saved checkpoint.
 
 from __future__ import annotations
 
-from wingspan import architecture, encode
+import typing
+
+import numpy as np
+
+from wingspan import architecture, decisions, encode, state
 from wingspan.model import core, mlp
 
 
 class PolicyValueNetV1_0(core.PolicyValueNet):
-    """``PolicyValueNet`` with the v1.0 trunk-final-activation fallback.
-
-    Identical to the live net except that when ``trunk_final_activation`` is
-    ``None``, the trunk's final layer uses ``between_activation`` (the v1.0
-    rule) rather than ``final_activation`` (the v1.1 rule).
+    """``PolicyValueNet`` with v1.0 semantics: old trunk-final-activation
+    fallback plus ``becomes_unplayable`` stripe removed from choice encoding.
     """
 
     def _build_trunk(
@@ -74,4 +89,47 @@ class PolicyValueNetV1_0(core.PolicyValueNet):
             final_activation=trunk_final,
             dropout=arch.trunk_dropout_resolved,
             layernorm=arch.trunk_layernorm_resolved,
+        )
+
+    def _build_choice_encoder(
+        self,
+        choice_dim: int,
+        arch: architecture.ModelArchitecture,
+    ) -> None:
+        """Build the choice encoder with the v1.0 (narrower) input width.
+
+        The v1.0 choice vectors lack the ``becomes_unplayable`` stripe, so the
+        encoder's first linear must match the post-strip width."""
+        super()._build_choice_encoder(
+            choice_dim - encode.CHOICE_BECOMES_UNPLAYABLE_DIM, arch
+        )
+
+    def encode_choices(
+        self,
+        decision: decisions.Decision[typing.Any],
+        game_state: state.GameState,
+    ) -> np.ndarray:
+        """Encode choices at live v1.1 dims, then strip the ``becomes_unplayable`` block.
+
+        The live encoder writes the full v1.1 row including the new stripe;
+        ``np.delete`` removes its columns so the result matches the width the
+        v1.0 choice encoder (built without that stripe) expects."""
+        full = super().encode_choices(decision, game_state)
+        start = encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET
+        end = start + encode.CHOICE_BECOMES_UNPLAYABLE_DIM
+        return np.delete(full, slice(start, end), axis=1)
+
+    def _choice_embed_offsets(self) -> core.ChoiceEmbedOffsets:
+        """Return v1.0 era offsets: ``becomes_unplayable=None``; ``kept_multihot``
+        shifted left by ``CHOICE_BECOMES_UNPLAYABLE_DIM`` because the stripe was
+        never in the v1.0 stored choice vectors."""
+        live = super()._choice_embed_offsets()
+        kept = live.kept_multihot
+        if kept is not None:
+            kept = kept - encode.CHOICE_BECOMES_UNPLAYABLE_DIM
+        return core.ChoiceEmbedOffsets(
+            bird_id=live.bird_id,
+            becomes_playable=live.becomes_playable,
+            becomes_unplayable=None,
+            kept_multihot=kept,
         )

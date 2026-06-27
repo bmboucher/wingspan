@@ -36,16 +36,16 @@ def choice_stripe_layout(
     breakdown sums to the choice encoder's first-``Linear`` input
     (``layout.choice_input_dim``), what the network actually sees. The trailing
     ``setup_agg`` / ``kept_multihot`` stripes are present only when
-    ``spec.include_setup``.  ``has_becomes_playable`` controls whether the
-    ``becomes_playable`` stripe is included; pass ``False`` for pre-0.6 artifacts
-    that predate that stripe.
+    ``spec.include_setup``. ``has_becomes_playable`` controls whether the
+    ``becomes_playable`` and ``becomes_unplayable`` stripes are included; pass
+    ``False`` for pre-0.6 artifacts that predate both stripes.
 
     ``pooled_hand_width`` is the width produced by ``pool_card_set`` under the
     run's ``hand_pooling`` mode (from
     ``architecture.ModelArchitecture.pooled_hand_width``).  When ``None``,
     defaults to ``card_embed_dim`` (MEAN/SUM mode / legacy back-compat).
-    Forwarded to ``choice_embed_rules`` and ``choice_input_dim`` so the
-    ``becomes_playable`` stripe reports its correct post-embedding width.
+    Forwarded to ``choice_embed_rules`` and ``choice_input_dim`` so both
+    pooled card-set stripes report their correct post-embedding width.
     """
     becomes_embed_w = (
         pooled_hand_width if pooled_hand_width is not None else card_embed_dim
@@ -60,6 +60,7 @@ def choice_stripe_layout(
             include_setup=spec.include_setup,
             has_becomes_playable=has_becomes_playable,
             pooled_hand_width=pooled_hand_width,
+            has_becomes_unplayable=has_becomes_playable,
         ),
     )
 
@@ -76,12 +77,16 @@ def raw_choice_stripe_layout(
     rewritten to their embedded widths. :func:`choice_stripe_layout` applies
     that rewrite; the compat layout shims (``wingspan.compat``) instead reuse
     the era-shared stripes of this raw registry at their frozen offsets.
-    ``has_becomes_playable`` controls whether the ``becomes_playable`` stripe is
-    included; pass ``False`` for pre-0.6 artifacts that predate that stripe.
+    ``has_becomes_playable`` controls whether both ``becomes_playable`` and
+    ``becomes_unplayable`` are included; pass ``False`` for pre-0.6 artifacts
+    that predate both stripes.
     """
     total = layout.choice_feature_dim(spec)
     if not has_becomes_playable:
-        total -= layout.CHOICE_BECOMES_PLAYABLE_DIM
+        # Pre-0.6 era: neither becomes_playable nor becomes_unplayable present.
+        total -= (
+            layout.CHOICE_BECOMES_PLAYABLE_DIM + layout.CHOICE_BECOMES_UNPLAYABLE_DIM
+        )
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
 
     stripes: list[descriptors.StripeDescriptor] = []
@@ -361,7 +366,7 @@ def raw_choice_stripe_layout(
 
     end = layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_DIM
 
-    # ---- becomes_playable (v0.6+: 180-dim multi-hot in the base spec) ----
+    # ---- becomes_playable / becomes_unplayable (v0.6+: each 180-dim multi-hot) ----
     if has_becomes_playable:
         stripes.append(
             descriptors.StripeDescriptor(
@@ -384,6 +389,32 @@ def raw_choice_stripe_layout(
             )
         )
         end += layout.CHOICE_BECOMES_PLAYABLE_DIM
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name="becomes_unplayable",
+                description=(
+                    "Multi-hot of currently-playable hand birds that would become "
+                    "unplayable as a consequence of accepting this choice (e.g. spending "
+                    "the food or eggs needed to play a bird in hand). Zero when the "
+                    "choice has no such effect, and zero for MainActionChoice / "
+                    "SetupChoice."
+                ),
+                offset=layout.CHOICE_BECOMES_UNPLAYABLE_OFFSET,
+                size=layout.CHOICE_BECOMES_UNPLAYABLE_DIM,
+                encoding="multi-hot",
+                value_range="{0, 1}",
+                notes=(
+                    f"Indexed by stable bird order from cards.bird_index() "
+                    f"({layout.CHOICE_BECOMES_UNPLAYABLE_DIM} dims). Filled for "
+                    "PlayBirdChoice (full-play cost: slot + eggs + optimistic food), "
+                    "FoodPaymentChoice (exact food removed), FoodChoice (spend context: "
+                    "−1 food), BoardTargetChoice (RemoveEgg: −1 egg), and PayCostChoice "
+                    "(paid_food / paid_egg_count). Symmetric counterpart to "
+                    "becomes_playable."
+                ),
+            )
+        )
+        end += layout.CHOICE_BECOMES_UNPLAYABLE_DIM
 
     # ---- setup stripes (trailing; present only when the main model carries setup) ----
     if spec.include_setup:

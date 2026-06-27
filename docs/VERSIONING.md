@@ -35,26 +35,42 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.1 — uniform final-activation inheritance (current)
+### v1.1 — uniform final-activation inheritance + `becomes_unplayable` stripe (current)
 
-`ModelArchitecture.trunk_final_activation_resolved` now inherits
+Two independent changes landed in v1.1:
+
+**1. Uniform final-activation inheritance (architecture).** `ModelArchitecture.trunk_final_activation_resolved` now inherits
 `final_activation` when `trunk_final_activation` is `None` — the same rule every
 other block uses. Previously the trunk fell back to `between_activation`, giving
 it an implicit final relu whenever `final_activation=none` (the default). This
 was a silent asymmetry: `trunk_final_activation=null` in a config meant
 "inherit relu" while `choice_final_activation=null` meant "inherit none".
 
-- **Behavioral change.** Any v1.0 artifact with `trunk_final_activation=null`
-  (the default) would compute differently if reloaded under v1.1 code. The shim
+**2. `becomes_unplayable` choice-encoding stripe (encoding).** A 180-dim
+multi-hot stripe, embedded through the shared card table exactly like
+`becomes_playable`, was appended to the base choice feature vector immediately
+after `becomes_playable`. It flags which currently-playable hand birds a choice
+would make unplayable by spending food, eggs, or a board slot. This adds one
+`card_embed_dim`-wide embedding to the choice encoder's first-Linear input.
+
+- **Behavioral change — architecture.** Any v1.0 artifact with
+  `trunk_final_activation=null` (the default) would compute differently if
+  reloaded under v1.1 code. The shim
   `wingspan.compat.v1_0.PolicyValueNetV1_0` (routed by
   `PolicyValueNet.class_for_version`) restores the old fallback for those
-  artifacts. This is a model-architecture change — not an encoding shape change
-  — so `encoding_dims_for_era` falls through to live widths for both eras.
+  artifacts.
+- **Shape change — encoding.** v1.0 choice vectors are 180 dims narrower (no
+  `becomes_unplayable` stripe). The same shim overrides `encode_choices` (strips
+  the stripe via `np.delete` after live encoding) and `_choice_embed_offsets`
+  (returns `becomes_unplayable=None`; shifts `kept_multihot` offset left by 180
+  when `include_setup`). `encoding_dims_for_era` now branches: v1.0 returns
+  `choice_dim = choice_feature_dim(spec) − CHOICE_BECOMES_UNPLAYABLE_DIM`; v1.1+
+  returns live widths. This is an encoding FRESH change; no separate `v1_1.py`
+  shim was needed because no v1.1 training run existed at the time.
 - **No LFS fixture.** The only in-production v1.0 artifacts at the bump had
   `trunk_final_activation=null` and were discarded in favour of a fresh training
-  run with `final_activation=relu`. A round-trip shim test in
-  `tests/test_compat_v1_0.py` exercises the shim via a freshly-built weight
-  tensor rather than a saved checkpoint.
+  run. `tests/test_compat_v1_0.py` exercises both shim behaviors via a
+  freshly-built weight tensor rather than a saved checkpoint.
 - **User action required.** To get the intended relu after both trunk and choice
   encoders, set `final_activation = "relu"` globally in `TrainConfig` before
   starting a new training run; no config-format change is needed.

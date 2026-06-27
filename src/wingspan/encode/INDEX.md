@@ -23,6 +23,9 @@ stripe offsets. Key exports:
   multi-hots added in v0.6 (`hand_playable_me`, `hand_playable_eggs_me`).
 - `CHOICE_BECOMES_PLAYABLE_OFFSET`, `CHOICE_BECOMES_PLAYABLE_DIM` — offset and
   width of the v0.6 `becomes_playable` stripe in each choice row.
+- `CHOICE_BECOMES_UNPLAYABLE_OFFSET`, `CHOICE_BECOMES_UNPLAYABLE_DIM` — offset and
+  width of the v1.1 `becomes_unplayable` stripe (immediately after `becomes_playable`;
+  180 dims, same space). v1.0 artifacts lack this stripe; see `wingspan.compat.v1_0`.
 - `_OFF_*` constants — the append-only offset chain (part of checkpoint format;
   reordering is a FRESH break).
 - Normalization scales: `_POINTS_SCALE`, `_FOOD_COST_SCALE`, `_WINGSPAN_SCALE`, etc.
@@ -43,10 +46,13 @@ round-goal VP scalars). Also exports per-aspect summary helpers (with `include_g
 (shape `[n_choices, choice_dim]`). One row per offered choice; each row is the
 concatenation of the decision-type one-hot, the choice featurizer output, and
 the per-stripe filler outputs. The `becomes_playable` 180-dim stripe (v0.6) is
-filled on gain-bearing rows and omitted when `has_becomes_playable=False` (for
-pre-0.6 compat shims). `food_playable_ignores_eggs=True` (default, v0.8+) uses
-the eggs-agnostic food baseline and `ignore_eggs=True` in `_bird_playable`; set
-to `False` for the v0.7 compat shim to restore eggs-included semantics.
+filled on gain-bearing rows; the `becomes_unplayable` 180-dim stripe (v1.1,
+immediately after `becomes_playable`) is filled on spend-bearing rows. Both are
+omitted when `has_becomes_playable=False` (pre-0.6 compat shims) — they are
+always added and removed together. `food_playable_ignores_eggs=True` (default,
+v0.8+) uses the eggs-agnostic food baseline and `ignore_eggs=True` in
+`_bird_playable`; set to `False` for the v0.7 compat shim to restore
+eggs-included semantics.
 
 ## Subpackage
 
