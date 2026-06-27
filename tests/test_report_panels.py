@@ -121,6 +121,9 @@ def test_svg_board_attention_absent_by_default():
     assert 'data-params-block="board attn"' not in html
     # data-panel count is the four clickable boxes (bare hand block has none).
     assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS)
+    # Bare pooling block uses the simplified title and no redundant lookup row.
+    assert "MULTI-CARD POOLING" in html
+    assert "card-table lookup" not in html
 
 
 def test_svg_board_attention_present_when_enabled():

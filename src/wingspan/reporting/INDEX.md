@@ -111,24 +111,26 @@ human-friendly text.
 `build_arch_svg(arch, param_report, family_order, *, setup_param, setup_arch, use_setup_model) -> str`
 renders the full network topology as a self-contained SVG string embedded by `html.py`.
 Four visual rows (single-card encoder / consumers / state-choice-setup / heads) with `_SVG_BAND_H`-px
-connector bands between them. The **SINGLE-CARD ENCODER** sits alone on top, producing the shared
-card embedding; the always-present **consumers** row below it holds the hand block — the bare
-**HAND POOLING** block (no I/O boxes, drawn at `_DERIV_HAND_W` width via `_draw_bare_unit` when the
-net pools the card table) or the full **MULTI-CARD ENCODER** (when `use_distinct_hand_model`) — plus
-**BOARD ATTENTION** in col 0 when `arch.use_board_attention` is True. The card embedding fans into
-both attention (board path: CARD→ATTENTION→STATE as straight col-0 verticals) and the hand block;
-`card → choice` routes as a five-segment dogleg (`_Conn.corridor_x`/`lane_y2`) down the gutter between
-the two consumer boxes; the pooled hand feeds STATE (`×N · hand + playable`) and SETUP
-(`×2 · kept + turn-1 playable`). The STATE / CHOICE / SETUP blocks and the VALUE / DECISION heads
-occupy the bottom two rows. `_resolve_geometry` stacks all four rows + three bands into `_Geom`
-(`row1`/`cons_row`/`row2`/`row3` tops & heights, `band1`/`band_cons`/`band2` tops); the single
-`_consumer_connectors` builder emits both the row1→consumers and consumers→row2 bands. Each block's
-activation rows use the resolved per-block activation (e.g. `trunk_activation_resolved`) rather than
-the global fallback. The diagram doubles as the report's navigation: input boxes carry `data-panel`
-attributes and parameter counts carry `data-params-block` attributes — the attention block uses
-`panel=None` and the bare hand-pooling block has no input box, so the card-table-pooling default
-exposes four clickable panels (the `hand` panel is reachable only via the distinct multi-card
-encoder's input box).
+connector bands between them. The **SINGLE-CARD ENCODER** is centered on the 960-wide canvas
+(`_ENC_X`/`_ENC_CX`); the always-present **consumers** row holds the hand block — the bare
+**MULTI-CARD POOLING** block (no I/O boxes, no "0 params" legend, drawn right-of-center at `_POOL_X`
+via `_draw_bare_unit` when the net pools the card table) or the full **MULTI-CARD ENCODER** (when
+`use_distinct_hand_model`) — plus **BOARD ATTENTION** in col 0 when `arch.use_board_attention` is
+True. The three card→{state,choice,setup} feeds share a **trunk** (`_trunk_svg`): a vertical stem at
+`_TRUNK_X` (gutter between the two consumer blocks), splitting in the cons band into labelled
+branches — State gets ×N_CARD_INDEX_SLOTS when attention off or ×TRAY_SIZE tray when on; Choice gets
+×1 candidate; Setup gets ×TRAY_SIZE, dashed when inactive. The card→MULTI-CARD POOLING feed is a
+thick solid line with no label. When attention is on, `_board_path_conns` emits a wide band-1 elbow
+(CARD→ATTENTION) and a col-0 vertical (ATTENTION→STATE); when off it returns [] and the trunk carries
+all card slots to State. The pooled hand feeds STATE (`×N · hand + playable`) and SETUP
+(`×2 · kept + turn-1 playable`). The STATE / CHOICE / SETUP blocks and VALUE / DECISION heads
+occupy the bottom two rows. `_resolve_geometry` stacks all four rows + three bands into `_Geom`;
+trunk bodies/labels are emitted alongside the `_conn_svg` renders in bodies-before-labels order so
+white halos mask crossing lines. Each block's activation rows use the resolved per-block activation.
+The diagram doubles as the report's navigation: input boxes carry `data-panel` attributes and
+parameter counts carry `data-params-block` attributes — the attention block uses `panel=None` and the
+bare pooling block has no input box, so the card-table-pooling default exposes four clickable panels
+(the `hand` panel is reachable only via the distinct multi-card encoder's input box).
 
 **`inspect_cli.py`** — `main_inspect(args)`: the `wingspan inspect` CLI handler.
 Accepts a run directory or `.pt` path; loads the descriptor via

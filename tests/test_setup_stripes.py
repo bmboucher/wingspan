@@ -105,9 +105,9 @@ def test_html_report_documents_inactive_setup_model():
 def test_html_report_arch_svg_content():
     html = _report_html(use_setup_model=True)
     arch = architecture.ModelArchitecture()
-    # All seven blocks are drawn; default config uses pooling so hand is HAND POOLING.
+    # All seven blocks are drawn; default config uses pooling so hand is MULTI-CARD POOLING.
     assert "SINGLE-CARD ENCODER" in html
-    assert "HAND POOLING" in html
+    assert "MULTI-CARD POOLING" in html
     assert "STATE ENCODER" in html
     assert "DECISION HEAD" in html
     # Encoder fan-out copy labels (card -> state board path, pooled hand -> setup).
@@ -127,7 +127,7 @@ def test_html_report_arch_svg_content():
 
 def test_html_report_arch_svg_setup_off():
     html = _report_html(use_setup_model=False)
-    assert "HAND POOLING" in html
+    assert "MULTI-CARD POOLING" in html
     assert "SETUP INPUT" in html
 
 

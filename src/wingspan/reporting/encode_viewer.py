@@ -154,12 +154,15 @@ def extract_card_attr_stripes(bird: cards.Bird) -> list[game_log_html.EncodedStr
 
     # bird_attrs is stripe 0; bird_identity (stripe 1) is intentionally skipped.
     attrs_stripe = stripes.card_feature_stripe_layout().stripes[0]
-    bird_attrs_slice = bird_row[attrs_stripe.offset : attrs_stripe.offset + attrs_stripe.size]
+    bird_attrs_slice = bird_row[
+        attrs_stripe.offset : attrs_stripe.offset + attrs_stripe.size
+    ]
 
     sub_fields = [
         encoded_sub
         for sub_field in (attrs_stripe.sub_fields or ())
-        if (encoded_sub := _build_bird_attr_sub_field(sub_field, bird_attrs_slice)) is not None
+        if (encoded_sub := _build_bird_attr_sub_field(sub_field, bird_attrs_slice))
+        is not None
     ]
     if not sub_fields:
         return []
@@ -545,9 +548,13 @@ def _build_bird_attr_sub_field(
     # Boolean flags: indicate the property is set.
     if name in _BIRD_ATTR_BOOL_FIELDS:
         return game_log_html.EncodedSubField(
-            name=name, description=sub_field.description, encoding=enc,
-            value_range=vr, notes=sub_field.notes,
-            raw_value=float(sub_slice[0]), decoded_label="yes",
+            name=name,
+            description=sub_field.description,
+            encoding=enc,
+            value_range=vr,
+            notes=sub_field.notes,
+            raw_value=float(sub_slice[0]),
+            decoded_label="yes",
         )
 
     # Color: one-hot over the 4 power colors → name at argmax.
@@ -559,9 +566,13 @@ def _build_bird_attr_sub_field(
             else str(active_idx)
         )
         return game_log_html.EncodedSubField(
-            name=name, description=sub_field.description, encoding=enc,
-            value_range=vr, notes=sub_field.notes,
-            active_index=active_idx, decoded_label=color_label,
+            name=name,
+            description=sub_field.description,
+            encoding=enc,
+            value_range=vr,
+            notes=sub_field.notes,
+            active_index=active_idx,
+            decoded_label=color_label,
         )
 
     # food_cost: 6-element vector, normalized ÷ 3 → count per food type.
@@ -574,8 +585,11 @@ def _build_bird_attr_sub_field(
             if abs(float(sub_slice[pos])) >= _ZERO_THRESHOLD and pos < len(food_labels)
         ]
         return game_log_html.EncodedSubField(
-            name=name, description=sub_field.description, encoding=enc,
-            value_range=vr, notes=sub_field.notes,
+            name=name,
+            description=sub_field.description,
+            encoding=enc,
+            value_range=vr,
+            notes=sub_field.notes,
             decoded_label=", ".join(parts) if parts else None,
         )
 
@@ -590,8 +604,11 @@ def _build_bird_attr_sub_field(
                 nest_labels[int(idx)] for idx in active if int(idx) < len(nest_labels)
             )
         return game_log_html.EncodedSubField(
-            name=name, description=sub_field.description, encoding=enc,
-            value_range=vr, notes=sub_field.notes,
+            name=name,
+            description=sub_field.description,
+            encoding=enc,
+            value_range=vr,
+            notes=sub_field.notes,
             decoded_label=decoded or None,
         )
 
@@ -603,8 +620,11 @@ def _build_bird_attr_sub_field(
             hab_labels[int(idx)] for idx in active if int(idx) < len(hab_labels)
         )
         return game_log_html.EncodedSubField(
-            name=name, description=sub_field.description, encoding=enc,
-            value_range=vr, notes=sub_field.notes,
+            name=name,
+            description=sub_field.description,
+            encoding=enc,
+            value_range=vr,
+            notes=sub_field.notes,
             decoded_label=decoded or None,
         )
 
@@ -617,8 +637,11 @@ def _build_bird_attr_sub_field(
             for idx in active
         )
         return game_log_html.EncodedSubField(
-            name=name, description=sub_field.description, encoding=enc,
-            value_range=vr, notes=sub_field.notes,
+            name=name,
+            description=sub_field.description,
+            encoding=enc,
+            value_range=vr,
+            notes=sub_field.notes,
             decoded_label=decoded or None,
         )
 
@@ -632,8 +655,11 @@ def _build_bird_attr_sub_field(
             if abs(float(sub_slice[pos])) >= _ZERO_THRESHOLD and pos < len(slot_names)
         ]
         return game_log_html.EncodedSubField(
-            name=name, description=sub_field.description, encoding=enc,
-            value_range=vr, notes=sub_field.notes,
+            name=name,
+            description=sub_field.description,
+            encoding=enc,
+            value_range=vr,
+            notes=sub_field.notes,
             decoded_label=", ".join(parts) if parts else None,
         )
 
@@ -641,8 +667,11 @@ def _build_bird_attr_sub_field(
     scale = _denorm_scale(sub_field.notes)
     raw_val = float(sub_slice[0])
     return game_log_html.EncodedSubField(
-        name=name, description=sub_field.description, encoding=enc,
-        value_range=vr, notes=sub_field.notes,
+        name=name,
+        description=sub_field.description,
+        encoding=enc,
+        value_range=vr,
+        notes=sub_field.notes,
         raw_value=raw_val,
         decoded_label=str(round(raw_val * scale)) if scale is not None else None,
     )

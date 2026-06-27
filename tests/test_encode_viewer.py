@@ -298,9 +298,7 @@ def test_extract_card_attr_stripes_no_bird_identity():
 def test_extract_card_attr_stripes_habitats_decoded():
     """The habitats sub-field has a decoded_label listing the bird's habitat names."""
     # Find a bird with exactly two habitats.
-    two_hab = next(
-        bird for bird in cards.birds_ordered() if len(bird.habitats) == 2
-    )
+    two_hab = next(bird for bird in cards.birds_ordered() if len(bird.habitats) == 2)
     result = encode_viewer.extract_card_attr_stripes(two_hab)
     assert result
     sub_fields = result[0].sub_fields
@@ -309,7 +307,9 @@ def test_extract_card_attr_stripes_habitats_decoded():
     decoded = hab_fields[0].decoded_label
     assert decoded is not None
     for habitat in two_hab.habitats:
-        assert habitat.value in decoded, f"Habitat {habitat.value} missing from label: {decoded}"
+        assert (
+            habitat.value in decoded
+        ), f"Habitat {habitat.value} missing from label: {decoded}"
 
 
 def test_extract_card_attr_stripes_food_cost_decoded():
@@ -326,7 +326,9 @@ def test_extract_card_attr_stripes_food_cost_decoded():
     food_fields = [sf for sf in sub_fields if sf.name == "food_cost"]
     assert food_fields, f"food_cost missing for {bird_with_food.name}"
     decoded = food_fields[0].decoded_label
-    assert decoded is not None, f"food_cost decoded_label is None for {bird_with_food.name}"
+    assert (
+        decoded is not None
+    ), f"food_cost decoded_label is None for {bird_with_food.name}"
 
 
 def test_extract_card_attr_stripes_color_decoded():
@@ -351,6 +353,6 @@ def test_extract_card_attr_stripes_sub_fields_all_decoded():
         if not result:
             continue
         for sub in result[0].sub_fields:
-            assert sub.decoded_label is not None, (
-                f"decoded_label is None for sub-field '{sub.name}' on bird '{bird.name}'"
-            )
+            assert (
+                sub.decoded_label is not None
+            ), f"decoded_label is None for sub-field '{sub.name}' on bird '{bird.name}'"

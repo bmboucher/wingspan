@@ -403,13 +403,7 @@ def _wrap(
     """Assemble the full HTML document: nav + tab sections + modal + scripts."""
     nav = _nav(run_name, model_version)
     birds_json = birds_catalog.model_dump_json().replace("<", "\\u003c")
-    all_css = (
-        _CSS
-        + "\n"
-        + card_view.CARD_CSS
-        + "\n"
-        + card_view.STRIPE_VIEWER_CSS
-    )
+    all_css = _CSS + "\n" + card_view.CARD_CSS + "\n" + card_view.STRIPE_VIEWER_CSS
     all_script = (
         card_view.CARD_JS
         + "\n"

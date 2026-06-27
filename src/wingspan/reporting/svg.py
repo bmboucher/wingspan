@@ -126,46 +126,42 @@ _STROKE_MANY = 4.0
 _FEW_COPIES = 2
 _MANY_COPIES = 4
 
-# Per-connector attach offsets (relative to a column center) and band-lane y
-# offsets (relative to a band's top), chosen so no two vertical segments share
-# an x where their y-ranges overlap and no two labels collide.  Two bands carry
-# elbows: band 1 (single-card encoder → consumers row) and the "cons" band
-# (consumers row → row 2).
-_X_CARD_TRUNK = -40  # card → board-attention / card → state, straight down col 0
-_X_CARD_HAND_SRC = 35  # card-embedding output → hand-pooling feed
-_X_CARD_CHOICE_SRC = 10
-_X_CARD_CHOICE_DST = -20
-_X_CARD_SETUP_SRC = 70
-_X_CARD_SETUP_DST = -40
+# Single-card encoder is centered on the 960-wide canvas.  The trunk gutter
+# (x = _TRUNK_X) runs between the BOARD ATTENTION and MULTI-CARD POOLING
+# consumer blocks and carries the three branches down to State / Choice / Setup.
+_ENC_X = 335  # SINGLE-CARD ENCODER left edge (centered: (960-290)//2 = 335)
+_ENC_CX = 480  # SINGLE-CARD ENCODER center (≈ canvas center)
+_TRUNK_X = 479  # trunk stem x — matches the Choice column center exactly
+
+# Consumers row: BOARD ATTENTION stays in col 0 (left-of-center); MULTI-CARD
+# POOLING is right-of-center, keeping _TRUNK_X in the gutter between them.
+_POOL_X = 510  # MULTI-CARD POOLING left edge
+_POOL_W = 200  # MULTI-CARD POOLING block width
+_POOL_CX = 610  # MULTI-CARD POOLING center (= _POOL_X + _POOL_W // 2)
+
+# Per-connector attach offsets and band-lane y offsets (relative to each band's
+# top), chosen so no two segments share an x/y and no labels collide.
+_X_CARD_HAND_SRC = 35  # card embedding → MULTI-CARD POOLING (relative to _ENC_CX)
+_X_CARD_ATTN_SRC = -40  # card embedding → BOARD ATTENTION src (relative to _ENC_CX)
+_ATTN_VERT_X = 125  # x for card→attention and attention→state verticals
 _X_HAND_TRUNK_SRC = -40
 _X_HAND_TRUNK_DST = 40
 _X_HAND_SETUP_SRC = 30
 _X_TRUNK_DECISION_SRC = 55
 _X_TRUNK_DECISION_DST = -30
 
-# Band-1 lanes (offset from the band-1 top).
+# Band-1 lanes (offset from band-1 top): card→hand and (attention ON) card→attn.
 _LANE_CARD_HAND = 16
-_LANE_CARD_CHOICE = 24
-_LANE_CARD_SETUP = 40
+_LANE_CARD_ATTN = 38
 
-# "cons" band lanes (offset from the consumers → row-2 band top), spread so the
-# left-cluster labels (hand→state, tray→state, card→choice) clear each other.
+# "cons" band lanes (offset from consumers → row-2 band top).
 _LANE_HAND_STATE = 14
 _LANE_HAND_SETUP = 30
-_LANE_TRAY_STATE = 30
-_LANE_CARD_CHOICE_BOT = 46
+
+# Trunk split point in the "cons" band (below both hand-connector lanes).
+_LANE_TRUNK_SPLIT = 48
 
 _LANE_TRUNK_DECISION = 24  # band-2 lane (trunk → decision elbow)
-
-# Consumers row: the BOARD ATTENTION block sits in col 0; the parameter-less
-# HAND POOLING block is drawn bare (no I/O boxes) to its right, with a gutter
-# between them.  The card → choice fan-out runs down that gutter (the corridor
-# x) as a dogleg — "between the two boxes" — before fanning out below the row;
-# tray → state (board-attention mode) routes around col 0 through the gutter too.
-_DERIV_HAND_X = 372
-_DERIV_HAND_W = 200
-_X_CARD_CHOICE_CORRIDOR = 332
-_X_TRAY_STATE_GUTTER = 316
 
 # Dual-mode (actor-critic) setup column geometry: the 290px column is split
 # into a shared header block at full width plus two 135px sub-blocks with a
@@ -236,13 +232,17 @@ def build_arch_svg(
         parts.append(_row1_side_note(geom))
 
     # Connectors: all bodies first, then all labels, so the white label halos
-    # mask any line they cross.
+    # mask any line they cross.  The trunk (shared card→{state,choice,setup}
+    # stem) is emitted separately so its bodies and labels stay in order.
+    trunk_bodies, trunk_labels = _trunk_svg(geom, arch, use_setup_model)
     conns = _consumer_connectors(
         geom, units, arch, use_setup_model
     ) + _band2_connectors(geom, arch)
     rendered = [_conn_svg(conn) for conn in conns]
     parts.extend(body for body, _ in rendered)
+    parts.extend(trunk_bodies)
     parts.extend(label for _, label in rendered if label)
+    parts.extend(trunk_labels)
 
     parts.append(_total_line(geom, param_report, setup_param, use_setup_model))
     parts.append("</svg>")
@@ -397,7 +397,7 @@ def _card_unit(
     block = param_report.embed
     in_dim = block.layers[0].in_features
     return _Unit(
-        x=_SVG_COL_X[0],
+        x=_ENC_X,
         accent=_ACCENT_CARD,
         title="SINGLE-CARD ENCODER · per-card MLP",
         rows=_op_rows(
@@ -429,10 +429,7 @@ def _hand_pool_rows(arch: architecture.ModelArchitecture) -> tuple[_OpRow, ...]:
         architecture.HandPooling.SUM: "sum over card table",
         architecture.HandPooling.MEAN: "mean over card table",
     }[arch.hand_pooling]
-    return (
-        _OpRow(kind=_OpKind.ACT, label="card-table lookup"),
-        _OpRow(kind=_OpKind.ACT, label=f"pool: {desc}"),
-    )
+    return (_OpRow(kind=_OpKind.ACT, label=f"pool: {desc}"),)
 
 
 def _hand_unit(
@@ -469,29 +466,28 @@ def _hand_unit(
         )
 
     # Default path: main net pools via the shared card table (no extra params).
-    # Drawn bare — its two descriptive rows only, no I/O boxes — since it has no
-    # learnable weights; sits in the consumers row right of the board-attention
-    # block.  The in/out labels remain for the hover tooltip only.
+    # Drawn bare — its single descriptive row only, no I/O boxes — since it has
+    # no learnable weights; sits right-of-center in the consumers row.
     out_count = arch.pooled_hand_width
     return _Unit(
-        x=_DERIV_HAND_X,
+        x=_POOL_X,
         accent=_ACCENT_HAND,
-        title="HAND POOLING · via card table",
+        title="MULTI-CARD POOLING",
         rows=_hand_pool_rows(arch),
-        sigma_text="0 params",
+        sigma_text="",
         in_label="hand multi-hot",
         in_count=encode.HAND_MULTIHOT_DIM,
         out_label="pooled hand",
         out_count=out_count,
         tooltip=(
-            f"Hand Pooling · 0 params · {encode.HAND_MULTIHOT_DIM} → {out_count} · "
+            f"Multi-Card Pooling · {encode.HAND_MULTIHOT_DIM} → {out_count} · "
             f"pools hand / playable / egg-blocked multi-hots through the shared card table · "
             f"mode: {arch.hand_pooling.value}"
         ),
         panel=PANEL_HAND,
         params_key=PARAMS_BLOCK_TOTAL,
         bare_block=True,
-        block_w=_DERIV_HAND_W,
+        block_w=_POOL_W,
     )
 
 
@@ -943,14 +939,13 @@ def _consumer_connectors(
     row-2 inputs.  Counts come from the encode/state layout constants and the
     architecture flags — never hard-coded.
 
-    The card embedding feeds board attention (the board path, col 0) and — when
-    the hand block pools the card table — the bare hand-pooling block.
-    ``card → choice`` runs as a dogleg down the gutter between the two consumer
-    boxes, then out to the choice column; ``card → setup`` drops the tray
-    embeddings into the setup column.  The pooled hand feeds the state encoder
-    and the setup model."""
-    card_cx, choice_cx, setup_cx = _SVG_COL_CX  # col0=card/trunk, col1=hand/choice
-    band1_y, band_cons_y, row2_y = geom.band1_y, geom.band_cons_y, geom.row2_y
+    The card embedding feeds board attention (the board path, col 0 when on) and
+    — when the hand block pools the card table — the bare MULTI-CARD POOLING
+    block.  The three card→{state,choice,setup} feeds share a trunk emitted by
+    ``_trunk_svg``; this function only emits the card→hand thick line, the
+    pooled-hand feeds, and the board path."""
+    setup_cx = _SVG_COL_CX[2]
+    band_cons_y, row2_y = geom.band_cons_y, geom.row2_y
 
     hand = units.hand
     hand_cx = hand.x + (hand.block_w or _SVG_COL_W) // 2
@@ -961,52 +956,20 @@ def _consumer_connectors(
 
     conns: list[_Conn] = []
 
-    # card embedding → hand pooling: the shared card table feeds the
-    # parameter-less pool (drawn only for the bare card-table-pooling block; the
-    # learned multi-card encoder carries its own input box instead).
+    # card embedding → MULTI-CARD POOLING: thick solid line, no label.
+    # (The learned MULTI-CARD ENCODER carries its own input box instead.)
     if hand.bare_block:
         conns.append(
             _Conn(
-                src_x=card_cx + _X_CARD_HAND_SRC,
-                src_y=band1_y,
+                src_x=_ENC_CX + _X_CARD_HAND_SRC,
+                src_y=geom.band1_y,
                 dst_x=hand_cx,
                 dst_y=hand_top_y,
-                lane_y=band1_y + _LANE_CARD_HAND,
+                lane_y=geom.band1_y + _LANE_CARD_HAND,
                 copies=encode.HAND_MULTIHOT_DIM,
-                label="card table",
+                label="",
             )
         )
-
-    # card → choice: one candidate embedding per choice, routed as a dogleg down
-    # the gutter between the two consumer boxes before fanning out to the choice
-    # column ("between the two boxes").
-    conns.append(
-        _Conn(
-            src_x=card_cx + _X_CARD_CHOICE_SRC,
-            src_y=band1_y,
-            dst_x=choice_cx + _X_CARD_CHOICE_DST,
-            dst_y=row2_y,
-            lane_y=band1_y + _LANE_CARD_CHOICE,
-            corridor_x=_X_CARD_CHOICE_CORRIDOR,
-            lane_y2=band_cons_y + _LANE_CARD_CHOICE_BOT,
-            copies=1,
-            label="×1 candidate",
-        )
-    )
-
-    # card → setup: the 3 tray-slot embeddings drop into the setup column.
-    conns.append(
-        _Conn(
-            src_x=card_cx + _X_CARD_SETUP_SRC,
-            src_y=band1_y,
-            dst_x=setup_cx + _X_CARD_SETUP_DST,
-            dst_y=row2_y,
-            lane_y=band1_y + _LANE_CARD_SETUP,
-            copies=state.TRAY_SIZE,
-            label=f"×{state.TRAY_SIZE} · tray",
-            dashed=not use_setup_model,
-        )
-    )
 
     # pooled hand → setup: the two kept-card-derived set summaries.
     conns.append(
@@ -1058,54 +1021,112 @@ def _hand_state_conn(
 
 
 def _board_path_conns(geom: _Geom, arch: architecture.ModelArchitecture) -> list[_Conn]:
-    """The board-slot card embeddings into the state encoder.  With board
-    attention off, all card-index slots drop straight down col 0; with it on,
-    the board slots go CARD → ATTENTION → STATE as two straight verticals while
-    the 3 tray slots bypass attention into STATE via a gutter elbow."""
-    trunk_cx = _SVG_COL_CX[0]
+    """The board-slot card embeddings into the state encoder.
+
+    Attention OFF: the trunk's State branch carries all card-index slots; no
+    separate connector needed here.  Attention ON: board slots go CARD →
+    ATTENTION → STATE as an elbow (band-1) then a straight vertical (band-cons);
+    tray slots bypass attention via the trunk's State branch (×TRAY_SIZE)."""
     if not arch.use_board_attention:
-        return [
-            _Conn(
-                src_x=trunk_cx + _X_CARD_TRUNK,
-                src_y=geom.band1_y,
-                dst_x=trunk_cx + _X_CARD_TRUNK,
-                dst_y=geom.row2_y,
-                copies=encode.N_CARD_INDEX_SLOTS,
-                label=f"×{encode.N_CARD_INDEX_SLOTS}",
-                label2=f"{encode.N_BOARD_INDEX_SLOTS} board + {state.TRAY_SIZE} tray",
-                label_left=True,
-            )
-        ]
+        return []
+
+    # card → BOARD ATTENTION: wide elbow in band-1 from encoder center to the
+    # attention block's col-0 vertical (at _ATTN_VERT_X).
     return [
         _Conn(
-            src_x=trunk_cx + _X_CARD_TRUNK,
+            src_x=_ENC_CX + _X_CARD_ATTN_SRC,
             src_y=geom.band1_y,
-            dst_x=trunk_cx + _X_CARD_TRUNK,
+            dst_x=_ATTN_VERT_X,
             dst_y=geom.cons_row_y,
+            lane_y=geom.band1_y + _LANE_CARD_ATTN,
             copies=encode.N_BOARD_INDEX_SLOTS,
-            label=f"×{encode.N_BOARD_INDEX_SLOTS}",
-            label2=f"2×{encode.SLOTS_PER_BOARD} board slots",
-            label_left=True,
+            label=f"×{encode.N_BOARD_INDEX_SLOTS} board",
         ),
+        # BOARD ATTENTION → STATE: straight vertical.
         _Conn(
-            src_x=trunk_cx + _X_CARD_TRUNK,
+            src_x=_ATTN_VERT_X,
             src_y=geom.band_cons_y,
-            dst_x=trunk_cx + _X_CARD_TRUNK,
+            dst_x=_ATTN_VERT_X,
             dst_y=geom.row2_y,
             copies=encode.N_BOARD_INDEX_SLOTS,
             label=f"×{encode.N_BOARD_INDEX_SLOTS} attended",
             label_left=True,
         ),
-        _Conn(
-            src_x=_X_TRAY_STATE_GUTTER,
-            src_y=geom.band1_y,
-            dst_x=trunk_cx,
-            dst_y=geom.row2_y,
-            lane_y=geom.band_cons_y + _LANE_TRAY_STATE,
-            copies=state.TRAY_SIZE,
-            label=f"×{state.TRAY_SIZE} tray",
-        ),
     ]
+
+
+def _trunk_svg(
+    geom: _Geom, arch: architecture.ModelArchitecture, use_setup_model: bool
+) -> tuple[list[str], list[str]]:
+    """Shared trunk: vertical stem from encoder bottom to a split point in the
+    cons band, then three branches to State / Choice / Setup.
+
+    The stem at ``_TRUNK_X`` runs through the gutter between BOARD ATTENTION
+    and MULTI-CARD POOLING.  Branch labels appear on the horizontal legs after
+    the split.  ``_board_path_conns`` handles the separate attention path when
+    board attention is on, so the State branch copies are scaled accordingly."""
+    split_y = geom.band_cons_y + _LANE_TRUNK_SPLIT
+    state_cx, choice_cx, setup_cx = _SVG_COL_CX
+
+    bodies: list[str] = []
+    labels: list[str] = []
+
+    # Vertical stem (no arrowhead): encoder bottom → split point.
+    stem_sw = _stroke_for(encode.N_CARD_INDEX_SLOTS)
+    bodies.append(
+        f'<line x1="{_TRUNK_X}" y1="{geom.band1_y}" x2="{_TRUNK_X}" y2="{split_y}" '
+        f'stroke="{_SVG_ARROW}" stroke-width="{stem_sw}"/>'
+    )
+
+    # Left branch: trunk → State encoder.
+    if arch.use_board_attention:
+        state_copies = state.TRAY_SIZE
+        state_label = f"×{state.TRAY_SIZE} tray"
+    else:
+        state_copies = encode.N_CARD_INDEX_SLOTS
+        state_label = f"×{encode.N_CARD_INDEX_SLOTS}"
+    state_pts = f"{_TRUNK_X},{split_y} {state_cx},{split_y} {state_cx},{geom.row2_y}"
+    bodies.append(
+        f'<polyline points="{state_pts}" fill="none" stroke="{_SVG_ARROW}" '
+        f'stroke-width="{_stroke_for(state_copies)}" marker-end="url(#arr)"/>'
+    )
+    labels.append(
+        _halo_text(
+            (_TRUNK_X + state_cx) // 2, split_y - 6, state_label, anchor="middle"
+        )
+    )
+
+    # Middle branch: trunk → Choice encoder (near-vertical, labeled to its right).
+    bodies.append(
+        f'<line x1="{choice_cx}" y1="{split_y}" x2="{choice_cx}" y2="{geom.row2_y}" '
+        f'stroke="{_SVG_ARROW}" stroke-width="{_stroke_for(1)}" marker-end="url(#arr)"/>'
+    )
+    labels.append(
+        _halo_text(
+            choice_cx + 7,
+            (split_y + geom.row2_y) // 2,
+            "×1 candidate",
+            anchor="start",
+        )
+    )
+
+    # Right branch: trunk → Setup model (dashed when setup is off).
+    dash_attr = ' stroke-dasharray="6,4"' if not use_setup_model else ""
+    setup_pts = f"{_TRUNK_X},{split_y} {setup_cx},{split_y} {setup_cx},{geom.row2_y}"
+    bodies.append(
+        f'<polyline points="{setup_pts}" fill="none" stroke="{_SVG_ARROW}" '
+        f'stroke-width="{_stroke_for(state.TRAY_SIZE)}"{dash_attr} marker-end="url(#arr)"/>'
+    )
+    labels.append(
+        _halo_text(
+            (_TRUNK_X + setup_cx) // 2,
+            split_y - 6,
+            f"×{state.TRAY_SIZE} tray",
+            anchor="middle",
+        )
+    )
+
+    return bodies, labels
 
 
 def _band2_connectors(geom: _Geom, arch: architecture.ModelArchitecture) -> list[_Conn]:
@@ -1417,21 +1438,22 @@ def _draw_block(unit: _Unit, y: int, body_h: int, *, col_w: int = _SVG_COL_W) ->
         )
     )
 
-    # Block parameter total, overlaid on the bottom-right border.
-    parts.append(
-        _param_click_group(
-            _halo_text(
-                x + width - 12,
-                y + body_h + 4,
-                unit.sigma_text,
-                anchor="end",
-                size=10,
-                color=unit.accent,
-                bold=True,
-            ),
-            unit.params_key,
+    # Block parameter total, overlaid on the bottom-right border (skipped when empty).
+    if unit.sigma_text:
+        parts.append(
+            _param_click_group(
+                _halo_text(
+                    x + width - 12,
+                    y + body_h + 4,
+                    unit.sigma_text,
+                    anchor="end",
+                    size=10,
+                    color=unit.accent,
+                    bold=True,
+                ),
+                unit.params_key,
+            )
         )
-    )
     return "\n".join(parts)
 
 
