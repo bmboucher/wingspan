@@ -1,6 +1,6 @@
 {
-  "saved_with_version": "1.0",
-  "saved_at": "2026-06-26T10:31:01",
+  "saved_with_version": "1.1",
+  "saved_at": "2026-06-27T15:34:30",
   "settings": {
     "architecture": {
       "main": {
@@ -14,11 +14,11 @@
         ],
         "head_layers": [
           64,
-          64
+          32
         ],
         "value_layers": [
           64,
-          64
+          32
         ],
         "head_layers_mode": "uniform",
         "head_layers_main_action": [
@@ -61,7 +61,7 @@
           128
         ],
         "between_activation": "relu",
-        "final_activation": "none",
+        "final_activation": "relu",
         "dropout": 0.0,
         "layernorm": false,
         "card_embed_dim": 64,
@@ -91,9 +91,9 @@
         "choice_dropout": 0.05,
         "choice_layernorm": null,
         "value_between_activation": null,
-        "value_final_activation": null,
+        "value_final_activation": "none",
         "head_between_activation": null,
-        "head_final_activation": null
+        "head_final_activation": "none"
       },
       "setup": {
         "trunk_layers": [
@@ -146,8 +146,8 @@
       "update_minibatch_steps": 2048
     },
     "opponent": {
-      "bootstrap_opponent": "random",
-      "random_phase_win_rate": 0.6,
+      "bootstrap_opponent": "none",
+      "random_phase_win_rate": 0.65,
       "opponent_reset_win_rate": 0.7,
       "opponent_max_iterations": 0,
       "eval_ewma_alpha": 0.7
