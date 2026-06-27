@@ -156,7 +156,7 @@ def test_unknown_or_future_eras_are_rejected():
     """The era validator refuses any era this code cannot load: a different
     MAJOR, a future MINOR, or a malformed string. The live era is accepted."""
     live = config.RunConfig(misc=config.MiscConfig(device="cpu"))
-    for bad in ("0.9", "2.0", "1.1", "garbage"):
+    for bad in ("0.9", "2.0", "1.2", "garbage"):
         with pytest.raises(ValueError):
             config.with_encoding_version(live, bad)
     assert (

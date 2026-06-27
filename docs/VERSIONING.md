@@ -35,7 +35,31 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.0 — clean-break baseline (current)
+### v1.1 — uniform final-activation inheritance (current)
+
+`ModelArchitecture.trunk_final_activation_resolved` now inherits
+`final_activation` when `trunk_final_activation` is `None` — the same rule every
+other block uses. Previously the trunk fell back to `between_activation`, giving
+it an implicit final relu whenever `final_activation=none` (the default). This
+was a silent asymmetry: `trunk_final_activation=null` in a config meant
+"inherit relu" while `choice_final_activation=null` meant "inherit none".
+
+- **Behavioral change.** Any v1.0 artifact with `trunk_final_activation=null`
+  (the default) would compute differently if reloaded under v1.1 code. The shim
+  `wingspan.compat.v1_0.PolicyValueNetV1_0` (routed by
+  `PolicyValueNet.class_for_version`) restores the old fallback for those
+  artifacts. This is a model-architecture change — not an encoding shape change
+  — so `encoding_dims_for_era` falls through to live widths for both eras.
+- **No LFS fixture.** The only in-production v1.0 artifacts at the bump had
+  `trunk_final_activation=null` and were discarded in favour of a fresh training
+  run with `final_activation=relu`. A round-trip shim test in
+  `tests/test_compat_v1_0.py` exercises the shim via a freshly-built weight
+  tensor rather than a saved checkpoint.
+- **User action required.** To get the intended relu after both trunk and choice
+  encoders, set `final_activation = "relu"` globally in `TrainConfig` before
+  starting a new training run; no config-format change is needed.
+
+### v1.0 — clean-break baseline
 
 The 1.0 MAJOR bump. A MAJOR bump is the sanctioned escape hatch that drops the
 accumulated shims and deletes the old fixture sets wholesale; it is its own
@@ -71,12 +95,12 @@ user-approved decision, never a side effect of another change. What 1.0 did:
   stay). The in-memory descriptors `runmeta.ModelConfig` / `setup_runmeta.SetupConfig`
   are **kept** (they describe a loaded run).
 
-The versioning *machinery* is intact, just empty: the `compat` package
+The versioning *machinery* is intact: the `compat` package
 (`compat.encoding_dims_for_era`), the `PolicyValueNet.class_for_version` and
 `version.adapt_encoding_for_version` seams, and `RunConfig.encoding_version`
-era-pinning all fall straight through to the live encoders. The next MINOR FRESH
-change re-introduces the first `wingspan.compat.v1_<N>` module and its
-`tests/data/compat/v1.<N>/` fixture set.
+era-pinning are all wired up. With 1.0 being the first same-MAJOR era, `class_for_version`
+fell straight through to the live encoders — the first v1.x shim is `compat.v1_0`,
+introduced in v1.1.
 
 ---
 

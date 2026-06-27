@@ -240,9 +240,8 @@ class ModelArchitecture(pydantic.BaseModel):
                 f"{block}_final_activation", resolved if encoder_final else "none"
             )
 
-        # trunk: was always finalled; set final explicitly so the trunk-irregularity
-        # resolver (which inherits ``between_activation``, not ``final_activation``)
-        # doesn't accidentally change the computed value when between ≠ trunk_between.
+        # trunk: was always finalled; bake the resolved activation in explicitly so
+        # inheritance logic doesn't affect old configs when between ≠ final.
         trunk_raw = raw.pop("trunk_activation", None)
         old_trunk: str | None = str(trunk_raw) if trunk_raw is not None else None
         resolved_trunk = old_trunk if old_trunk is not None else global_act
@@ -315,9 +314,7 @@ class ModelArchitecture(pydantic.BaseModel):
         return self.head_layers
 
     # Per-block resolved activations. Each ``*_between_*`` inherits the global
-    # ``between_activation``; each ``*_final_*`` inherits ``final_activation``
-    # EXCEPT trunk which inherits ``between_activation`` to preserve the
-    # historical "trunk always activates its last layer" behaviour.
+    # ``between_activation``; each ``*_final_*`` inherits ``final_activation``.
 
     @staticmethod
     def _resolved(
@@ -377,12 +374,8 @@ class ModelArchitecture(pydantic.BaseModel):
 
     @property
     def trunk_final_activation_resolved(self) -> ActivationName:
-        """Resolved final-layer activation for the state trunk.
-
-        Unlike other blocks, the trunk's final layer inherits ``between_activation``
-        (not ``final_activation``) — preserving the historical "trunk always
-        activates its output layer" behaviour when ``final_activation`` is NONE."""
-        return self._resolved(self.trunk_final_activation, self.between_activation)
+        """Resolved final-layer activation for the state trunk."""
+        return self._resolved(self.trunk_final_activation, self.final_activation)
 
     @property
     def trunk_dropout_resolved(self) -> float:

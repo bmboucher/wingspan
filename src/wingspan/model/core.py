@@ -161,13 +161,17 @@ class PolicyValueNet(nn.Module):
     def class_for_version(cls, artifact_version: str) -> "type[PolicyValueNet]":
         """The net class whose frozen geometry matches ``artifact_version``.
 
-        No pre-1.0 shims remain — they were dropped at the 1.0 MAJOR bump — so
-        every loadable same-MAJOR artifact returns the live ``PolicyValueNet``.
-        The next ``v1_<N>`` FRESH change re-introduces a branch here that returns
-        its ``wingspan.compat.v1_<N>`` subclass for older same-MAJOR artifacts;
-        ``check_artifact_compatible`` already refuses any different-MAJOR one.
+        v1.0 artifacts are routed to :class:`wingspan.compat.v1_0.PolicyValueNetV1_0`
+        (restores the old trunk-final-activation fallback). All later same-MAJOR
+        artifacts use the live ``PolicyValueNet``. ``check_artifact_compatible``
+        already refuses any different-MAJOR artifact.
         Used by every construction seam that must honor an artifact's era."""
-        version.parse_version(artifact_version)  # validate; eras branch here later
+        parsed = version.parse_version(artifact_version)
+        if parsed.major == 1 and parsed.minor == 0:
+            # Local import avoids the compat → model → compat circular dependency.
+            from wingspan.compat import v1_0 as compat_v1_0
+
+            return compat_v1_0.PolicyValueNetV1_0
         return PolicyValueNet
 
     @classmethod

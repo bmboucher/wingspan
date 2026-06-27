@@ -33,26 +33,21 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.0"
+MODEL_VERSION = "1.1"
 """The current artifact-compatibility version (the only place it is defined).
 
-1.0 is the clean-break baseline. It was a MAJOR bump that dropped the accumulated
-pre-1.0 compat shims (``wingspan.compat.v0_0`` … ``v0_8``), deleted the old
-fixture sets, and removed the dead code paths those shims existed to support. No
-0.x artifact loads under 1.0 code: ``check_artifact_compatible`` refuses any
-different-MAJOR artifact. The per-version 0.1–0.8 changelog that used to live
-here is recoverable from git history and summarized in ``docs/VERSIONING.md``.
+1.1 is the first MINOR FRESH bump on top of the 1.0 clean-break baseline. It
+drops the trunk's special ``between_activation`` fallback — ``trunk_final_activation``
+now inherits ``final_activation`` like every other block (see ``docs/VERSIONING.md``).
+v1.0 artifacts with ``trunk_final_activation=null`` are routed to
+``wingspan.compat.v1_0.PolicyValueNetV1_0``, which restores the old trunk-final
+fallback for those checkpoints.
 
-The live encoding 1.0 ships is the geometry main reached at 0.9 — the state
-vector compacted to 1119 dims and the choice vector to 328 (board-target
-compression; the ``board_hab`` / ``board_col`` habitat + column one-hots
-replacing the embedded ``board_idx`` block) — with no compat path back to any
-earlier shape.
-
-The versioning *machinery* is intact, just empty: a future MINOR FRESH change
-adds its ``wingspan.compat.v1_<N>`` module and routes through the same seams
-(``model.PolicyValueNet.class_for_version``, ``compat.encoding_dims_for_era``)
-that currently fall straight through to the live encoders."""
+1.0 was the MAJOR bump that dropped the accumulated pre-1.0 compat shims
+(``wingspan.compat.v0_0`` … ``v0_8``), deleted the old fixture sets, and removed
+the dead code paths those shims existed to support. No 0.x artifact loads under
+1.x code. The per-version 0.1–0.8 changelog is recoverable from git history and
+summarized in ``docs/VERSIONING.md``."""
 
 PRE_VERSIONING_VERSION = "0.0"
 """The version assigned to artifacts that predate the ``version`` field.
