@@ -25,6 +25,7 @@ import rich.console as rich_console
 
 from wingspan import decisions
 from wingspan.training import config, convergence, dashboard, metrics, runstate
+from wingspan.training.charts import geometry
 
 
 def _sample_iteration(breakdown: metrics.ScoreBreakdown) -> metrics.IterationMetrics:
@@ -120,36 +121,40 @@ def _state(tmp_path: pathlib.Path) -> runstate.RunState:
 
 
 def test_score_margin_window_sliding_phase():
-    # Sliding phase (>= 2000 iterations): right = ceil(latest/250)*250, width = 2000.
-    it_lo, it_hi = convergence.score_margin_window([_iter(0, 50.0), _iter(2345, 60.0)])
-    assert it_hi == 2500 and it_lo == 500
-    assert it_hi - it_lo == convergence.SCORE_MARGIN_WINDOW == 2000
-    # As soon as any data exceeds 2000 the window bumps immediately to (250, 2250).
+    # Sliding phase (latest >= WINDOW_SCORE_MARGIN): right edge =
+    # ceil(latest / WINDOW_SLIDING_PIN) * WINDOW_SLIDING_PIN, width =
+    # WINDOW_SCORE_MARGIN.  iter 234 → ceil(234 / 25) * 25 = 250, so lo = 50.
+    it_lo, it_hi = convergence.score_margin_window([_iter(0, 50.0), _iter(234, 60.0)])
+    assert it_hi == 250 and it_lo == 50
+    assert it_hi - it_lo == geometry.WINDOW_SCORE_MARGIN
+    # The newest point stays visible: it_lo <= latest <= it_hi at every pin step.
+    assert it_lo <= 234 <= it_hi
+    # One iteration past WINDOW_SCORE_MARGIN the window bumps to the next pin step:
+    # iter 201 → ceil(201 / 25) * 25 = 225, so lo = 25.
     bump_lo, bump_hi = convergence.score_margin_window(
-        [_iter(0, 50.0), _iter(2001, 60.0)]
+        [_iter(0, 50.0), _iter(201, 60.0)]
     )
-    assert bump_lo == 250 and bump_hi == 2250
+    assert bump_lo == 25 and bump_hi == 225
 
 
 def test_score_margin_window_growing_phase():
-    # Growing phase (< 2000 iterations): left pinned at 0, right = ceil(latest/50)*50.
+    # Growing phase (latest < WINDOW_SCORE_MARGIN): left pinned at 0, right edge =
+    # ceil(latest / WINDOW_EARLY_PIN) * WINDOW_EARLY_PIN.  iter 50 → 50.
     short_lo, short_hi = convergence.score_margin_window(
         [_iter(0, 50.0), _iter(50, 60.0)]
     )
-    assert short_lo == 0 and short_hi == 50
-    # iter 1234 → ceil(1234/50)*50 = 1250
-    mid_lo, mid_hi = convergence.score_margin_window(
-        [_iter(0, 50.0), _iter(1234, 60.0)]
-    )
-    assert mid_lo == 0 and mid_hi == 1250
-    # Boundary: iter 2000 → both phases agree on (0, 2000).
+    assert short_lo == 0 and short_hi == geometry.WINDOW_EARLY_PIN
+    # iter 123 → ceil(123 / 50) * 50 = 150
+    mid_lo, mid_hi = convergence.score_margin_window([_iter(0, 50.0), _iter(123, 60.0)])
+    assert mid_lo == 0 and mid_hi == 150
+    # Boundary: iter == WINDOW_SCORE_MARGIN → both phases agree on (0, window).
     boundary_lo, boundary_hi = convergence.score_margin_window(
-        [_iter(0, 50.0), _iter(2000, 60.0)]
+        [_iter(0, 50.0), _iter(geometry.WINDOW_SCORE_MARGIN, 60.0)]
     )
-    assert boundary_lo == 0 and boundary_hi == 2000
+    assert boundary_lo == 0 and boundary_hi == geometry.WINDOW_SCORE_MARGIN
     # Empty history → minimum window.
     empty_lo, empty_hi = convergence.score_margin_window([])
-    assert empty_lo == 0 and empty_hi == convergence.EARLY_WINDOW_PIN
+    assert empty_lo == 0 and empty_hi == geometry.WINDOW_EARLY_PIN
 
 
 def test_marker_columns_maps_change_iterations():
@@ -251,7 +256,8 @@ def test_eval_box_shows_frozen_challenger(tmp_path: pathlib.Path):
 
 def test_renders_long_history_with_markers(tmp_path: pathlib.Path):
     # A render at scale exercises the full-range win-rate markers, the pinned
-    # 2000-window, and the dual margin axis without raising.
+    # WINDOW_SCORE_MARGIN-wide sliding window, and the dual margin axis without
+    # raising.
     state = _state(tmp_path)
     for iteration in range(0, 2400, 100):
         generation = iteration // 800

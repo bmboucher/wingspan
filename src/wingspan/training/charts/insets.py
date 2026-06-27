@@ -166,7 +166,7 @@ def eval_strip(state: runstate.RunState) -> list[text.Text]:
     """Compact one-line eval readout when the panel is too narrow for the inset."""
     last_eval = _latest_eval(state)
     line = text.Text(no_wrap=True, end="")
-    line.append(" " * geometry.GUTTER_W)
+    line.append(" " * geometry.CHART_GUTTER_W)
     if last_eval is None:
         line.append("eval: awaiting first evaluation…", style=theme.TEXT_MUTED)
         return [line]
@@ -239,7 +239,7 @@ def collect_strip(state: runstate.RunState) -> list[text.Text]:
     """Compact one-line bootstrap readout when the panel is too narrow for the
     inset (the random-phase twin of :func:`eval_strip`)."""
     line = text.Text(no_wrap=True, end="")
-    line.append(" " * geometry.GUTTER_W)
+    line.append(" " * geometry.CHART_GUTTER_W)
     last = None if state.last_iter is None else state.last_iter.collection_win_rate
     if last is None:
         line.append(

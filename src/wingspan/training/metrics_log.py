@@ -3,8 +3,8 @@
 The convergence charts in :mod:`wingspan.training.charts` need the *complete*
 per-iteration history — beyond the in-memory ``RunState.history`` cap — so the
 WIN RATE chart can span the whole run and the FINAL SCORE / MARGIN chart can show
-a 2000-iteration window even though only ``config.history_len`` rows are kept in
-memory. This module reads every ``IterationMetrics`` row from disk and memoises
+a ``geometry.WINDOW_SCORE_MARGIN``-iteration window even though only
+``config.history_len`` rows are kept in memory. This module reads every ``IterationMetrics`` row from disk and memoises
 the parse, re-reading only when the file's size or modification time changes, so
 the dashboard (which repaints several times a second) never re-parses thousands
 of rows per frame.

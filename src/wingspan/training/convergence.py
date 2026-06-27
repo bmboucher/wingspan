@@ -5,9 +5,11 @@ rich rendering) so the windowing and EWMA logic stays free of any drawing
 dependency and can be unit-tested directly. Everything here is a pure function
 over a list of :class:`wingspan.training.metrics.IterationMetrics`.
 
-* Both charts share :func:`score_margin_window`: before 2000 iterations the
-  right edge grows with the data (rounded to 50); from 2000 on it becomes a
-  fixed 2000-wide sliding window pinned to a round right edge.
+* Both charts share :func:`score_margin_window`: before
+  ``geometry.WINDOW_SCORE_MARGIN`` iterations the right edge grows with the data
+  (rounded to ``geometry.WINDOW_EARLY_PIN``); from there on it becomes a fixed
+  ``geometry.WINDOW_SCORE_MARGIN``-wide sliding window pinned to a round right
+  edge.
 * WIN RATE draws a single EWMA series (:func:`winrate_ewma_points`) that
   resets at each opponent advance.  FINAL SCORE / MARGIN draws one EWMA series
   per axis (:func:`score_ewma_points`, :func:`margin_ewma_points`).
@@ -19,17 +21,7 @@ from __future__ import annotations
 import math
 
 from wingspan.training import metrics
-
-# The FINAL SCORE / MARGIN chart uses a two-phase window:
-#   - Growing phase (< SCORE_MARGIN_WINDOW iterations): left edge pinned at 0,
-#     right edge = ceil(latest / EARLY_WINDOW_PIN) * EARLY_WINDOW_PIN, so the
-#     axis expands in 50-iteration steps as data arrives.
-#   - Sliding phase (>= SCORE_MARGIN_WINDOW iterations): fixed SCORE_MARGIN_WINDOW-
-#     wide window; right edge = ceil(latest / WINDOW_PIN) * WINDOW_PIN, stepping
-#     in 250-iteration jumps.  Both phases are continuous at the boundary.
-SCORE_MARGIN_WINDOW = 2000
-EARLY_WINDOW_PIN = 50
-WINDOW_PIN = 250
+from wingspan.training.charts import geometry
 
 # When the win-rate / margin EWMA crosses into a new challenger regime, the chart
 # snaps to a neutral baseline at the change marker before climbing again — a
@@ -43,29 +35,37 @@ _MARGIN_RESET = 0.0
 def score_margin_window(history: list[metrics.IterationMetrics]) -> tuple[int, int]:
     """The FINAL SCORE / MARGIN chart's ``(it_lo, it_hi)`` window.
 
-    Two phases, continuous at the boundary (iteration == SCORE_MARGIN_WINDOW):
+    Two phases, continuous at the boundary (iteration ==
+    ``geometry.WINDOW_SCORE_MARGIN``):
 
-    * **Growing phase** (latest iteration < ``SCORE_MARGIN_WINDOW``): left edge
-      fixed at 0; right edge = ``ceil(latest / EARLY_WINDOW_PIN) *
-      EARLY_WINDOW_PIN``, so the axis expands in 50-iteration steps as data
-      arrives instead of showing a mostly-empty 2000-wide window.
-    * **Sliding phase** (latest iteration >= ``SCORE_MARGIN_WINDOW``): the most
-      recent ``SCORE_MARGIN_WINDOW`` iterations; right edge rounded up to the
-      nearest ``WINDOW_PIN`` so the window steps in 250-iteration jumps.
+    * **Growing phase** (latest iteration < ``geometry.WINDOW_SCORE_MARGIN``):
+      left edge fixed at 0; right edge = ``ceil(latest /
+      geometry.WINDOW_EARLY_PIN) * geometry.WINDOW_EARLY_PIN``, so the axis
+      expands in ``geometry.WINDOW_EARLY_PIN``-iteration steps as data arrives
+      instead of showing a mostly-empty ``geometry.WINDOW_SCORE_MARGIN``-wide
+      window.
+    * **Sliding phase** (latest iteration >= ``geometry.WINDOW_SCORE_MARGIN``):
+      the most recent ``geometry.WINDOW_SCORE_MARGIN`` iterations; right edge
+      rounded up to the nearest ``geometry.WINDOW_SLIDING_PIN`` so the window
+      steps in ``geometry.WINDOW_SLIDING_PIN`` jumps.
     """
     if not history:
-        return (0, EARLY_WINDOW_PIN)
+        return (0, geometry.WINDOW_EARLY_PIN)
     it_hi_data = history[-1].iteration
-    if it_hi_data < SCORE_MARGIN_WINDOW:
+    if it_hi_data < geometry.WINDOW_SCORE_MARGIN:
         # Growing phase: left pinned at 0, right grows to track latest data.
         it_hi = max(
-            EARLY_WINDOW_PIN,
-            math.ceil(it_hi_data / EARLY_WINDOW_PIN) * EARLY_WINDOW_PIN,
+            geometry.WINDOW_EARLY_PIN,
+            math.ceil(it_hi_data / geometry.WINDOW_EARLY_PIN)
+            * geometry.WINDOW_EARLY_PIN,
         )
         return (0, it_hi)
     # Sliding phase: fixed-width window, right edge rounded to a round step.
-    it_hi = math.ceil(it_hi_data / WINDOW_PIN) * WINDOW_PIN
-    return (it_hi - SCORE_MARGIN_WINDOW, it_hi)
+    it_hi = (
+        math.ceil(it_hi_data / geometry.WINDOW_SLIDING_PIN)
+        * geometry.WINDOW_SLIDING_PIN
+    )
+    return (it_hi - geometry.WINDOW_SCORE_MARGIN, it_hi)
 
 
 def marker_columns(

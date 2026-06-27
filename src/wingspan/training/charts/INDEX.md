@@ -8,9 +8,14 @@ placed directly in a `rich.Layout` panel.
 
 **`__init__.py`**
 
-**`geometry.py`** — Layout constants shared across chart modules:
-`GUTTER`, `INSET_WIDTH`, `MIN_CHART_HEIGHT`, `BAND_*` heights. Centralised
-so dashboard layout math doesn't scatter magic numbers.
+**`geometry.py`** — Layout constants shared across chart modules, kept in
+global alphabetical order with a concern prefix per name so each concern stays
+grouped: `CHART_*` (gutter width, title/axis row counts, the min plottable
+height, the inter-chart gap), `INSET_*` (docked-inset width + narrow-panel
+cutoff), `TICK_*` (per-axis tick counts), and `WINDOW_*` (the FINAL SCORE /
+MARGIN x-axis sliding-window width and its two pin steps, with
+`WINDOW_SLIDING_PIN` derived from the window). Centralised so dashboard layout
+and convergence-window math don't scatter magic numbers.
 
 **`braille.py`** — `BrailleCanvas(width, height)`: a 2×4-dot Unicode braille
 bitmap canvas. `plot_line(xs, ys)` maps a float series onto the dot grid;

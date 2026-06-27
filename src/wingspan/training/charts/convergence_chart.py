@@ -18,9 +18,10 @@ class GettingBetterChart:
     """The single "TRAINING IMPROVEMENT" panel body: the left-docked EVAL inset
     (the cinematic hero win-rate plus its last/EWMA readouts) followed by two
     side-by-side line charts on their own axes.  Both charts share the same
-    x-axis window logic: a growing window (rounded to 50 iterations) until 2000
-    iterations are reached, then a fixed 2000-wide sliding window pinned to a
-    round right edge.  WIN RATE shows the EWMA win-rate over that window with the
+    x-axis window logic: a growing window (rounded to ``geometry.WINDOW_EARLY_PIN``
+    iterations) until ``geometry.WINDOW_SCORE_MARGIN`` iterations are reached, then
+    a fixed ``geometry.WINDOW_SCORE_MARGIN``-wide sliding window pinned to a round
+    right edge.  WIN RATE shows the EWMA win-rate over that window with the
     opponent-advance threshold line and a vertical marker at each challenger
     upgrade; the y-axis ceiling is ``max(graduation_threshold,
     opponent_advance_threshold)`` and the floor is derived from the global minimum
@@ -113,13 +114,13 @@ def _compute_chart_layout(width: int, height: int) -> _ChartLayout:
     charts_w = width - inset_w - (1 if inset else 0)
     left_w = (charts_w - geometry.CHART_GAP) // 2
     right_w = charts_w - geometry.CHART_GAP - left_w
-    plot_rows = height - geometry.TITLE_ROWS - geometry.AXIS_ROWS
+    plot_rows = height - geometry.CHART_TITLE_ROWS - geometry.CHART_AXIS_ROWS
     return _ChartLayout(
         inset=inset,
         left_w=left_w,
         right_w=right_w,
         rows=plot_rows,
-        renderable=plot_rows >= geometry.MIN_PLOT_ROWS and left_w >= 16,
+        renderable=plot_rows >= geometry.CHART_MIN_PLOT_ROWS and left_w >= 16,
     )
 
 
@@ -131,10 +132,12 @@ def _winrate_block(
     beacon_color: str,
 ) -> list[text.Text]:
     """The win-rate plot block (title + plot grid + x-axis), exactly
-    ``geometry.TITLE_ROWS + rows + geometry.AXIS_ROWS`` lines tall. Plots the
-    EWMA win-rate series over the same sliding window as the FINAL SCORE /
-    MARGIN chart: a growing window (rounded to 50 iterations) until 2000
-    iterations, then a fixed 2000-wide window pinned to a round right edge.
+    ``geometry.CHART_TITLE_ROWS + rows + geometry.CHART_AXIS_ROWS`` lines tall.
+    Plots the EWMA win-rate series over the same sliding window as the FINAL
+    SCORE / MARGIN chart: a growing window (rounded to
+    ``geometry.WINDOW_EARLY_PIN`` iterations) until
+    ``geometry.WINDOW_SCORE_MARGIN`` iterations, then a fixed
+    ``geometry.WINDOW_SCORE_MARGIN``-wide window pinned to a round right edge.
     Dynamic y-axis scaling: the ceiling is
     ``max(graduation_threshold, opponent_advance_threshold)`` (win rates can't
     meaningfully exceed either) and the floor is derived from the global minimum
@@ -142,7 +145,7 @@ def _winrate_block(
     floor only ever moves down). Segments above 50% are drawn in green; segments
     below 50% are drawn in red. A solid dim-red horizontal line marks the 50%
     level when it falls within the chart range."""
-    plot_cols = max(1, width - geometry.GUTTER_W)
+    plot_cols = max(1, width - geometry.CHART_GUTTER_W)
     it_lo, it_hi = convergence.score_margin_window(history)
     ewma_all = convergence.winrate_ewma_points(
         history, state.config.opponent.eval_ewma_alpha
@@ -216,7 +219,7 @@ def _score_margin_block(
     color-coded left axis and the EWMA eval margin on a color-coded right axis,
     each scaled to its own visible range over the sliding pinned window. The
     margin axis carries a zero line when its range straddles zero."""
-    plot_cols = max(1, width - geometry.GUTTER_W * 2)
+    plot_cols = max(1, width - geometry.CHART_GUTTER_W * 2)
     it_lo, it_hi = convergence.score_margin_window(history)
     alpha = state.config.opponent.eval_ewma_alpha
     score = [
@@ -424,14 +427,14 @@ def _axis_two(it_lo: int, it_hi: int, cols: int) -> list[text.Text]:
     tick_cols = [round(i * track / (n_ticks - 1)) for i in range(n_ticks)]
 
     ruler = text.Text(no_wrap=True, end="")
-    ruler.append(" " * (geometry.GUTTER_W - 1) + "└", style=theme.AXIS)
+    ruler.append(" " * (geometry.CHART_GUTTER_W - 1) + "└", style=theme.AXIS)
     ruler.append(
         "".join("┬" if col in tick_cols else "─" for col in range(cols)),
         style=theme.AXIS,
     )
 
     labels = text.Text(no_wrap=True, end="")
-    labels.append(" " * geometry.GUTTER_W, style=theme.AXIS)
+    labels.append(" " * geometry.CHART_GUTTER_W, style=theme.AXIS)
     labels.append(_tick_labels(tick_cols, cols, it_lo, it_hi), style=theme.TEXT_MUTED)
 
     return [ruler, labels]
@@ -593,11 +596,11 @@ def _winrate_v_hi(state: runstate.RunState) -> float:
 def _winrate_label_rows(rows: int, v_lo: float, v_hi: float) -> dict[int, str]:
     """Map plot-row index -> percent gutter label for the win-rate axis.
 
-    Places ``geometry.WIN_RATE_TICK_COUNT`` ticks at equidistant row positions
+    Places ``geometry.TICK_WIN_RATE`` ticks at equidistant row positions
     that never move, with label values recomputed from the current ``v_lo`` and
     ``v_hi`` so the scale adapts without the tick marks jumping around.
     """
-    tick_count = geometry.WIN_RATE_TICK_COUNT
+    tick_count = geometry.TICK_WIN_RATE
     labels: dict[int, str] = {}
     for k in range(tick_count):
         row = round(k * (rows - 1) / (tick_count - 1))
@@ -609,8 +612,8 @@ def _winrate_label_rows(rows: int, v_lo: float, v_hi: float) -> dict[int, str]:
 def _auto_label_rows(rows: int, lo: float, hi: float) -> dict[int, str]:
     """Map plot-row index -> integer gutter label for an auto-scaled value axis."""
     labels: dict[int, str] = {}
-    for tick in range(geometry.POINTS_AXIS_TICKS):
-        frac = tick / (geometry.POINTS_AXIS_TICKS - 1)
+    for tick in range(geometry.TICK_POINTS):
+        frac = tick / (geometry.TICK_POINTS - 1)
         value = lo + frac * (hi - lo)
         labels[round((1 - frac) * (rows - 1))] = f"{value:.0f}"
     return labels
