@@ -67,12 +67,21 @@ def _kept_bonus_block(vec: np.ndarray) -> tuple[float, float, float, float]:
 
 
 def test_stripe_layout_matches_feature_dim():
-    layout = setup_stripes.setup_stripe_layout()
-    assert layout.total_size == setup_encode.SETUP_FEATURE_DIM == 308
+    # Default encoding includes include_playable_kept_cards=True (488 dims).
+    # Verify the layout sums to the encoding's own total_dim.
+    from wingspan.setup_model import architecture as arch_module
+
+    encoding = arch_module.SetupEncoding()
+    layout = setup_stripes.setup_stripe_layout(encoding)
+    assert layout.total_size == encoding.total_dim
     assert {stripe.name for stripe in layout.stripes} >= {
         "kept_bonus_value",
         "goal_affinity",
     }
+    # Explicitly no-flags encoding still gives the SETUP_FEATURE_DIM base (308).
+    enc_off = arch_module.SetupEncoding(include_playable_kept_cards=False)
+    layout_off = setup_stripes.setup_stripe_layout(enc_off)
+    assert layout_off.total_size == setup_encode.SETUP_FEATURE_DIM == 308
 
 
 def test_static_kept_bonus_is_priced_against_the_keep():

@@ -57,7 +57,7 @@ def test_model_driven_self_play_records_both_seats():
     )
     assert len(record.setup_samples) == 2
     for sample in record.setup_samples:
-        assert sample.features.shape == (setup_model.SETUP_FEATURE_DIM,)
+        assert sample.features.shape == (setup_policy_net.feature_dim,)
         assert sample.iteration == 1500
         # Actor-critic mode always populates chosen_idx and all_candidates.
         assert sample.chosen_idx is not None

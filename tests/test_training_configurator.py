@@ -859,15 +859,16 @@ def test_arch_diagram_setup_param_count_matches_net():
             setup=config.SetupNetArchitecture(hidden_layers=(32, 16))
         ),
     )
-    block = setup_model.count_setup_parameters(
-        cfg.setup_arch,
-        feature_dim=setup_model.SETUP_FEATURE_DIM,
-        main_arch=cfg.arch,
-    )
     net = setup_net.SetupNet(
         encoding=setup_model.SetupEncoding(),
         arch=cfg.setup_arch,
         main_arch=cfg.arch,
+    )
+    block = setup_model.count_setup_parameters(
+        cfg.setup_arch,
+        feature_dim=net.feature_dim,
+        main_arch=cfg.arch,
+        encoding=net.encoding,
     )
     assert block.total == sum(param.numel() for param in net.parameters())
 

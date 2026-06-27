@@ -37,7 +37,7 @@ MODEL_VERSION = "1.1"
 """The current artifact-compatibility version (the only place it is defined).
 
 1.1 is the first MINOR FRESH bump on top of the 1.0 clean-break baseline. It
-introduces two changes:
+introduces three changes:
 
 1. *Architecture* — drops the trunk's special ``between_activation`` fallback:
    ``trunk_final_activation`` now inherits ``final_activation`` like every other
@@ -45,6 +45,18 @@ introduces two changes:
 
 2. *Encoding* — adds the ``becomes_unplayable`` 180-dim multi-hot stripe to the
    base choice feature vector (immediately after ``becomes_playable``).
+
+3. *Setup encoding* — the setup net's kept-card and optional playable-card sets
+   are now embedded via the same pooling path as the main net's hand stripe
+   (``hand_model.pool_card_set`` with the same ``hand_pooling`` mode), yielding
+   ``pooled_hand_width = 2N+1 = 129`` for the default CONCAT_MAX_SUM mode instead
+   of the old ``hand_embed_width = N = 64``.  The tray-set embedding that was
+   hardcoded in the setup net is dropped: the tray now contributes only
+   ``TRAY_SIZE × N = 3N = 192`` dims (slot card-table rows), matching the main
+   net's state tray.  ``SetupEncoding.include_playable_kept_cards`` now defaults
+   to ``True``, so the food-agnostic playable-kept-card set embedding is enabled
+   in all new setup nets.  The resulting default ``setup_readout_input_dim``
+   changes from 445 to 575 (= 125 passthrough + 2×129 sets + 3×64 tray).
 
 v1.0 artifacts are routed to ``wingspan.compat.v1_0.PolicyValueNetV1_0``, which
 restores the old trunk-final fallback and strips the ``becomes_unplayable`` stripe

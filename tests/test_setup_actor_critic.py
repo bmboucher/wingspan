@@ -44,14 +44,14 @@ def test_policy_mlp_present_when_enabled():
 def test_forward_unchanged_shape_with_policy_head():
     """forward() still returns (B,) value scalars regardless of policy head."""
     net = _make_net(use_policy_head=True)
-    batch = torch.zeros((5, setup_model.SETUP_FEATURE_DIM), dtype=torch.float32)
+    batch = torch.zeros((5, net.feature_dim), dtype=torch.float32)
     out = net(batch)
     assert out.shape == (5,)
 
 
 def test_policy_and_value_returns_two_tensors():
     net = _make_net(use_policy_head=True)
-    batch = torch.zeros((5, setup_model.SETUP_FEATURE_DIM), dtype=torch.float32)
+    batch = torch.zeros((5, net.feature_dim), dtype=torch.float32)
     policy_logits, value_preds = net.policy_and_value(batch)
     assert policy_logits.shape == (5,)
     assert value_preds.shape == (5,)
@@ -63,7 +63,7 @@ def test_policy_and_value_heads_differ():
     net = _make_net(use_policy_head=True)
     rng = torch.Generator()
     rng.manual_seed(42)
-    batch = torch.randn(3, setup_model.SETUP_FEATURE_DIM, generator=rng)
+    batch = torch.randn(3, net.feature_dim, generator=rng)
     policy_logits, value_preds = net.policy_and_value(batch)
     # They share the same embedding but have separate final MLPs initialized
     # with different random seeds, so their outputs should differ.
@@ -72,7 +72,7 @@ def test_policy_and_value_heads_differ():
 
 def test_policy_and_value_raises_without_policy_head():
     net = _make_net(use_policy_head=False)
-    batch = torch.zeros((2, setup_model.SETUP_FEATURE_DIM), dtype=torch.float32)
+    batch = torch.zeros((2, net.feature_dim), dtype=torch.float32)
     with pytest.raises(RuntimeError, match="use_policy_head"):
         net.policy_and_value(batch)
 
@@ -91,13 +91,14 @@ def _make_config() -> config.TrainConfig:
     )
 
 
+_SAMPLE_FEATURE_DIM = setup_model.SetupEncoding().total_dim
+
+
 def _make_ac_sample(k: int = 10, chosen_idx: int = 0) -> record.SetupSample:
     """One synthetic SetupSample with all_candidates populated."""
     rng = np.random.default_rng(0)
-    features = rng.standard_normal(setup_model.SETUP_FEATURE_DIM).astype(np.float32)
-    all_candidates = rng.standard_normal((k, setup_model.SETUP_FEATURE_DIM)).astype(
-        np.float32
-    )
+    features = rng.standard_normal(_SAMPLE_FEATURE_DIM).astype(np.float32)
+    all_candidates = rng.standard_normal((k, _SAMPLE_FEATURE_DIM)).astype(np.float32)
     return record.SetupSample(
         features=features,
         margin=5.0,
@@ -145,7 +146,7 @@ def test_actor_critic_update_skips_samples_without_ac_data():
     # One valid + two without ac data
     rng = np.random.default_rng(1)
     no_ac = record.SetupSample(
-        features=rng.standard_normal(setup_model.SETUP_FEATURE_DIM).astype(np.float32),
+        features=rng.standard_normal(_SAMPLE_FEATURE_DIM).astype(np.float32),
         margin=2.0,
         iteration=2001,
     )
@@ -273,4 +274,4 @@ def test_play_game_with_setup_ac_data_in_model_driven():
         assert sample.chosen_idx is not None
         assert sample.all_candidates is not None
         assert sample.all_candidates.shape[0] > 0
-        assert sample.all_candidates.shape[1] == sm.SETUP_FEATURE_DIM
+        assert sample.all_candidates.shape[1] == net.feature_dim

@@ -986,7 +986,7 @@ def _consumer_connectors(
             )
         )
 
-    # pooled hand → setup: the two kept-card-derived set summaries.
+    # pooled hand → setup: kept set + playable_kept_cards (two pooled embeddings).
     conns.append(
         _Conn(
             src_x=hand_cx + _X_HAND_SETUP_SRC,
@@ -995,7 +995,7 @@ def _consumer_connectors(
             dst_y=row2_y,
             lane_y=band_cons_y + _LANE_HAND_SETUP,
             copies=2,
-            label="×2 · kept + turn-1 playable",
+            label="×2 · kept + playable",
             dashed=not use_setup_model,
         )
     )

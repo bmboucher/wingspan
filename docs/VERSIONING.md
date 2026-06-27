@@ -35,9 +35,9 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.1 — uniform final-activation inheritance + `becomes_unplayable` stripe (current)
+### v1.1 — uniform final-activation inheritance + `becomes_unplayable` stripe + setup-encoding pooling (current)
 
-Two independent changes landed in v1.1:
+Three independent changes landed in v1.1:
 
 **1. Uniform final-activation inheritance (architecture).** `ModelArchitecture.trunk_final_activation_resolved` now inherits
 `final_activation` when `trunk_final_activation` is `None` — the same rule every
@@ -74,6 +74,29 @@ would make unplayable by spending food, eggs, or a board slot. This adds one
 - **User action required.** To get the intended relu after both trunk and choice
   encoders, set `final_activation = "relu"` globally in `TrainConfig` before
   starting a new training run; no config-format change is needed.
+
+**3. Setup-encoding pooling migration (setup encoding).** The setup net's
+card-set embeddings are migrated to match the main net's hand-pooling path:
+
+- **Kept-card set** (`kept_cards`): was embedded via `hand_model.embed_card_set`
+  using the setup net's own hand encoder (`hand_embed_width = N`). Now embedded
+  via `hand_model.pool_card_set` using the shared card table (`pooled_hand_width =
+  2N+1 = 129` for CONCAT_MAX_SUM). When `use_distinct_hand_model=True`, the prior
+  distinct-encoder path is preserved.
+- **Tray** (`tray`): the hardcoded tray-set embedding (`hand_model.embed_card_set`
+  over the tray multihot) is dropped. The tray now contributes only the three
+  per-slot card-table rows: `TRAY_SIZE × N = 3N = 192` dims, matching the main
+  net's state tray with `tray_set_embedding=False`.
+- **`SetupEncoding.include_playable_kept_cards`** defaults to `True`: the
+  food-agnostic playable-kept-card set embedding (embedded the same pooling way)
+  is now included by default. `total_dim` of a default `SetupEncoding()` is
+  `488`; `setup_readout_input_dim` with a default main arch is `575`
+  (= 125 passthrough + 2×129 sets + 3×64 tray).
+
+These are **setup-artifact-only** shape changes. No main-net compat shim is
+needed. Any existing v1.0/v1.1 setup checkpoints (`setup_config.json` +
+`setup_*.pt`) are incompatible and must be discarded — no v1.1 setup training runs
+existed at the time of this change.
 
 ### v1.0 — clean-break baseline
 

@@ -21,9 +21,15 @@ full vector layout without hard-coding field names.
 - `VectorLayout(stripes, total_dim)` — the full ordered list of stripes for a
   vector; exposes `stripe_by_name(name)` and iteration.
 
-**`embed_rules.py`** — Post-embedding rewrite logic shared by state and choice
-encoders. `apply_embed_rules(vec, rules, card_table)` replaces card-index columns
-with their embedded representations after the base encoding pass.
+**`embed_rules.py`** — Post-embedding rewrite rules for state, choice, and setup
+vectors. `embed_layout(raw, rules, expected_total)` rewrites a raw `VectorLayout`
+into the network's post-embedding view by expanding card-index / multi-hot stripes
+to their embedded widths. `state_embed_rules`, `choice_embed_rules`, and
+`setup_embed_rules` supply per-run rule dicts. For `setup_embed_rules(card_embed_dim,
+set_width, *, use_distinct)`: `kept_cards` and optional `playable_kept_cards` /
+`turn1_playable` stripes expand to `set_width = pooled_hand_width` (pooling path)
+or `hand_embed_width` (distinct-encoder path); `tray` expands to
+`TRAY_SIZE × card_embed_dim` (per-slot rows only — no tray-set embedding).
 
 **`state.py`** — `state_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder that assembles all state stripes in canonical order (board slots by

@@ -72,8 +72,9 @@ def test_card_block_frozen_regardless_hand_block_per_main_arch():
 
     meanpool = setup_net.SetupNet(main_arch=_MEANPOOL_MAIN)
     assert all(not p.requires_grad for p in meanpool.card_encoder.parameters())
-    # No distinct hand model on the main net -> nothing to sync from; the set
-    # encoder is this net's own trainable block.
+    # No distinct hand model on the main net -> the pooling path is used in
+    # _embed_card_set; the hand encoder is built for load_state_dict compat but
+    # receives no gradients. Its requires_grad stays True (untethered copy).
     assert all(p.requires_grad for p in meanpool.hand_encoder.parameters())
 
 
@@ -124,8 +125,9 @@ def test_count_setup_parameters_matches_numel_both_modes():
         net = setup_net.SetupNet(arch=setup_arch, main_arch=main_arch)
         block = setup_model.count_setup_parameters(
             setup_arch,
-            feature_dim=setup_model.SETUP_FEATURE_DIM,
+            feature_dim=net.feature_dim,
             main_arch=main_arch,
+            encoding=net.encoding,
         )
         assert block.total == sum(param.numel() for param in net.parameters())
 
@@ -134,7 +136,7 @@ def test_card_table_cache_populates_and_invalidates():
     net = setup_net.SetupNet(main_arch=_DISTINCT_MAIN)
     net.eval()
     assert net._inference_card_table is None
-    features = torch.zeros(2, setup_model.SETUP_FEATURE_DIM)
+    features = torch.zeros(2, net.feature_dim)
     with torch.no_grad():
         net(features)
     cached = net._inference_card_table
@@ -166,7 +168,7 @@ def test_setup_state_dict_round_trips_through_worker_load():
     source = setup_net.SetupNet(main_arch=_DISTINCT_MAIN)
     twin = setup_net.SetupNet(main_arch=_DISTINCT_MAIN)
     twin.load_state_dict(source.state_dict())
-    features = torch.randn(3, setup_model.SETUP_FEATURE_DIM)
+    features = torch.randn(3, source.feature_dim)
     # Tray index columns must hold valid indices, not random floats.
     features[:, setup_encode.OFF_TRAY : setup_encode.OFF_FEEDER] = 0.0
     source.eval()

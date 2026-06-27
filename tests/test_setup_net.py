@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+# (white-box tests access _embed and _embed_card_set to verify pooling paths)
 """Tests for the setup network and its config descriptor round-trip."""
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from wingspan.training import setup_net, setup_runmeta  # noqa: E402
 def test_forward_shape():
     arch = setup_model.SetupArchitecture(hidden_layers=(32, 16))
     net = setup_net.SetupNet(arch=arch)
-    batch = torch.zeros((7, setup_model.SETUP_FEATURE_DIM), dtype=torch.float32)
+    batch = torch.zeros((7, net.feature_dim), dtype=torch.float32)
     out = net(batch)
     assert out.shape == (7,)
 
@@ -31,7 +33,7 @@ def test_from_setup_config_round_trip():
         ),
     )
     net = setup_net.SetupNet.from_setup_config(descriptor)
-    assert net.feature_dim == setup_model.SETUP_FEATURE_DIM
+    assert net.feature_dim == descriptor.setup_encoding.total_dim
     assert net.arch.hidden_layers == (64,)
     assert net.main_arch.card_embed_dim == 16
     assert net.main_arch.hand_embed_width == 24
@@ -78,3 +80,78 @@ def test_state_dict_syncs_with_playable_kept_cards():
     net = setup_net.SetupNet(encoding=encoding, arch=arch)
     twin = setup_net.SetupNet(encoding=encoding, arch=arch)
     twin.load_state_dict(net.state_dict())
+
+
+def test_pooling_path_matches_main_net_hand_pooling():
+    """The setup net's kept-set embedding equals the main net's hand pooling for
+    the same multi-hot and synced card table — the core consistency guarantee."""
+    from wingspan.model import core as model_core
+    from wingspan.model import hand_model
+
+    main_arch = architecture.ModelArchitecture(card_embed_dim=16)
+    main_net = model_core.PolicyValueNet(arch=main_arch)
+    setup_net_inst = setup_net.SetupNet(main_arch=main_arch)
+    # Sync card encoder weights so both nets share the same card table.
+    setup_net_inst.card_encoder.load_state_dict(main_net.card_encoder.state_dict())
+    main_net.eval()
+    setup_net_inst.eval()
+
+    # Construct a batch of kept-card multi-hots (5 birds each).
+    batch_size = 4
+    kept_multihot = torch.zeros(batch_size, setup_model.SetupEncoding().kept_cards_dim)
+    for row in range(batch_size):
+        kept_multihot[row, row * 5 : row * 5 + 5] = 1.0
+
+    with torch.no_grad():
+        # Main net's hand pooling for the same multihot.
+        main_card_table = main_net.card_table()
+        expected = hand_model.pool_card_set(
+            kept_multihot, main_card_table[1:], main_arch.hand_pooling
+        )
+        # Setup net's kept-set embedding via _embed_card_set (pooling path).
+        setup_card_table = setup_net_inst.card_table()
+        actual = setup_net_inst._embed_card_set(kept_multihot, setup_card_table)
+
+    assert (
+        actual.shape == expected.shape
+    ), f"shape mismatch: setup={actual.shape} vs main={expected.shape}"
+    assert torch.allclose(
+        actual, expected
+    ), "setup net's pooled kept-set embedding diverges from main net's hand pooling"
+
+
+def test_tray_embeds_as_slot_rows_only():
+    """The tray stripe contributes exactly TRAY_SIZE card-table rows to the readout
+    input — no tray-set embedding appended."""
+    from wingspan import state
+
+    main_arch = architecture.ModelArchitecture(card_embed_dim=16)
+    encoding = setup_model.SetupEncoding()
+    net = setup_net.SetupNet(main_arch=main_arch, encoding=encoding)
+    net.eval()
+
+    # Build a feature vector with known tray indices (birds 1, 2, 3 = indices 1+1, 2+1, 3+1).
+    features = torch.zeros(1, encoding.total_dim)
+    features[0, encoding.off_tray : encoding.off_feeder] = torch.tensor([2.0, 3.0, 4.0])
+
+    with torch.no_grad():
+        card_table = net.card_table()
+        tray_idx = (
+            features[..., encoding.off_tray : encoding.off_feeder].long().clamp_(0, 180)
+        )
+        expected_tray_emb = card_table[tray_idx].reshape(1, -1)
+
+        # Extract the tray block from the embedded vector: it immediately follows
+        # kept_emb (set_width) and passthrough (kept_cards_dim..off_tray - kept_cards_dim).
+        embedded = net._embed(features)
+
+    set_width = main_arch.pooled_hand_width
+    passthrough_width = encoding.off_tray - encoding.kept_cards_dim
+    tray_start = set_width + passthrough_width
+    tray_end = tray_start + state.TRAY_SIZE * main_arch.card_embed_dim
+    actual_tray_block = embedded[:, tray_start:tray_end]
+
+    assert actual_tray_block.shape == expected_tray_emb.shape
+    assert torch.allclose(
+        actual_tray_block, expected_tray_emb
+    ), "tray block in embedded output does not match card-table lookup rows"

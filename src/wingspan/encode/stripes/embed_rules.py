@@ -223,52 +223,60 @@ def state_embed_rules(
 
 
 def setup_embed_rules(
-    card_embed_dim: int, hand_embed_width: int
+    card_embed_dim: int,
+    set_width: int,
+    *,
+    use_distinct: bool = False,
 ) -> dict[str, _EmbedRule]:
-    """The kept-cards multi-hot and tray integer-index stripes of the setup vector,
+    """The card-set multi-hot and tray integer-index stripes of the setup vector,
     shown at their post-embedding widths.
 
-    The setup readout MLP receives ``kept_cards`` as one set vector from the
-    frozen hand encoder, and each tray slot as a card-table embedding plus one
-    tray-set embedding.  Everything else passes through unchanged.
+    ``set_width`` is the width of one embedded card-set: ``pooled_hand_width``
+    when ``use_distinct=False`` (the default pooling path), or
+    ``hand_embed_width`` when ``use_distinct=True`` (dedicated hand encoder).
+    The tray rule covers per-slot card-table rows only — no tray-set embedding.
+    Everything else passes through unchanged.
     """
     tray = state.TRAY_SIZE
     kept_dim = layout.HAND_MULTIHOT_DIM
+    if use_distinct:
+        set_encoding = "card-set-embedding (hand encoder)"
+        set_notes_suffix = "via the frozen copy of the main net's hand encoder."
+    else:
+        set_encoding = "card-embedding (pooled)"
+        set_notes_suffix = (
+            "pooled over the shared card table's bird rows "
+            "(same pooling mode as the main net's hand stripe)."
+        )
     _card_set_rule = _EmbedRule(
-        new_size=hand_embed_width,
-        encoding="card-set-embedding (hand encoder)",
+        new_size=set_width,
+        encoding=set_encoding,
         value_range="learned",
-        notes=(
-            f"180-dim multi-hot -> one {hand_embed_width}-dim set embedding via the "
-            "frozen copy of the main net's hand encoder."
-        ),
+        notes=f"180-dim multi-hot -> one {set_width}-dim set embedding {set_notes_suffix}",
     )
     return {
         "kept_cards": _EmbedRule(
-            new_size=hand_embed_width,
-            encoding="card-set-embedding (hand encoder)",
+            new_size=set_width,
+            encoding=set_encoding,
             value_range="learned",
             notes=(
-                f"Kept-card multi-hot ({kept_dim} dims) -> one {hand_embed_width}-dim "
-                "set embedding via the frozen copy of the main net's hand encoder."
+                f"Kept-card multi-hot ({kept_dim} dims) -> one {set_width}-dim "
+                f"set embedding {set_notes_suffix}"
             ),
         ),
         "tray": _EmbedRule(
-            new_size=tray * card_embed_dim + hand_embed_width,
-            encoding="card-embedding + card-set-embedding",
+            new_size=tray * card_embed_dim,
+            encoding="card-embedding",
             value_range="learned",
             notes=(
                 f"{tray} tray slots -> one {card_embed_dim}-dim shared card embedding "
-                f"each ({tray}×{card_embed_dim}) plus one {hand_embed_width}-dim "
-                "tray-set embedding from the frozen hand encoder "
-                f"({tray}×{card_embed_dim} + {hand_embed_width} = "
-                f"{tray * card_embed_dim + hand_embed_width} total). "
+                f"each ({tray}×{card_embed_dim} = {tray * card_embed_dim} total). "
                 f"Raw encoding stores {tray} integer indices."
             ),
         ),
         # Appended card-set multi-hots: each 180-dim stripe is embedded as one
-        # N-dim set vector.  Rules are looked up by name so they only fire when
-        # the stripe is present (embed_layout skips names not in the layout).
+        # set vector.  Rules are looked up by name so they only fire when the
+        # stripe is present (embed_layout skips names not in the layout).
         "turn1_playable": _card_set_rule,
         "playable_kept_cards": _card_set_rule,
     }

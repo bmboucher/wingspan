@@ -15,10 +15,14 @@ format is not coupled to it.
 layernorm, use_policy_head=True)` — frozen topology descriptor for the setup MLP,
 analogous to `ModelArchitecture` for the policy net. `shape_key(arch) -> tuple` —
 the checkpoint-invalidating subset of fields. `SetupEncoding` — the config-carried
-encoding descriptor; `include_turn1_playable: bool = False` (v0.6+) appends a
-180-dim turn-1-playability multi-hot to the feature vector when enabled; old
-setup configs deserialize with the flag absent → `False` → old `total_dim`
-unchanged (no setup shim needed).
+encoding descriptor; `include_playable_kept_cards: bool = True` (default since
+v1.1; enables a food-agnostic 180-dim playable-kept-cards multi-hot); total
+default dim = 488. `include_turn1_playable: bool = False` appends a turn-1-only
+playability multi-hot when enabled. `setup_readout_input_dim(feature_dim,
+main_arch, ...)` computes the MLP's first-Linear input width after embedding: one
+`pooled_hand_width`-wide set vector per included card-set stripe + `TRAY_SIZE ×
+card_embed_dim` for per-slot tray rows only (no tray-set embedding) + passthrough
+scalars. Default with `card_embed_dim=64`: 575 (= 125 + 2×129 + 192).
 
 **`candidates.py`** — The keep-set options the setup model scores:
 - `SetupCandidate(kept_cards, kept_foods, bonus_card)` — one keep option (a

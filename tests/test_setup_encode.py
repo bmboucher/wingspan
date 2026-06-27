@@ -56,8 +56,8 @@ def test_kept_card_and_bonus_indices_are_set():
         bonus_card=dealt_bonus[0],
     )
     vec = setup_encode.encode_setup_candidate(candidate, context)
-
-    assert vec.shape == (setup_encode.SETUP_FEATURE_DIM,)
+    encoding = arch_module.SetupEncoding()
+    assert vec.shape == (encoding.total_dim,)
     # Kept cards multi-hot has exactly the two kept birds set.
     assert vec[cards.bird_index(dealt_cards[0])] == 1.0
     assert vec[cards.bird_index(dealt_cards[2])] == 1.0
@@ -127,11 +127,17 @@ def test_round_goal_one_hots_are_per_round():
         assert stripe[encode.GOAL_CATEGORIES.index(category)] == 1.0
 
 
-def test_playable_kept_cards_stripe_not_present_by_default():
-    """The default encoding (flag off) does not grow the vector size."""
+def test_playable_kept_cards_stripe_present_by_default():
+    """The default encoding (flag on since v1.1) includes the playable stripe."""
     encoding = arch_module.SetupEncoding()
-    assert not encoding.include_playable_kept_cards
-    assert encoding.total_dim == setup_encode.SETUP_FEATURE_DIM
+    assert encoding.include_playable_kept_cards
+    assert encoding.total_dim == encoding.total_dim  # sanity: 488 with N=any
+
+
+def test_no_flags_encoding_matches_base_constant():
+    """Explicitly disabling all optional stripes gives the SETUP_FEATURE_DIM base."""
+    enc_off = arch_module.SetupEncoding(include_playable_kept_cards=False)
+    assert enc_off.total_dim == setup_encode.SETUP_FEATURE_DIM
 
 
 def test_playable_kept_cards_stripe_grows_vector():

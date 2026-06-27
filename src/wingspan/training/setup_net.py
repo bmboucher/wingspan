@@ -20,11 +20,14 @@ so ``load_state_dict`` syncs them weight-for-weight:
 * the **card encoder** (single-card ``M``-dim table) embeds the three tray index
   columns, one card-table row per slot — always frozen and re-synced from the
   main net each iteration (the main net has a card encoder unconditionally);
-* the **hand encoder** (multi-card ``N``-dim set embedder) embeds the kept-cards
-  set and the tray set, each as ``[multi-hot ⊕ derived 10-dim set summary]`` —
-  frozen + synced when the main architecture has ``use_distinct_hand_model``,
-  otherwise the copy is this net's own trainable block (so default configs
-  remain valid).
+* the **hand encoder** (multi-card set embedder) is used **only** when the main
+  architecture has ``use_distinct_hand_model=True``: it embeds card sets via
+  ``[multi-hot ⊕ derived 10-dim set summary]``, frozen + synced each iteration.
+  When ``use_distinct_hand_model=False`` (the default), card sets are embedded
+  by permutation-invariant pooling over the synced card table
+  (``hand_model.pool_card_set``), identical to the main net's hand-pooling path.
+  The hand encoder module is built in all cases so ``load_state_dict`` transfers
+  its weights when the main net has one.
 
 Setup is the most data-starved decision (~2 samples/game) while the embedders
 learn from hundreds of in-game decisions per game; freezing the copies lets the
@@ -182,10 +185,10 @@ class SetupNet(nn.Module):
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """Score a batch of setup candidates via the value head: ``(B, feature_dim)`` -> ``(B,)``.
 
-        The kept-cards multi-hot becomes one set embedding, the tray index
-        columns become per-slot card-table rows plus one tray-set embedding, and
-        the remaining blocks (foods, bonus, feeder, goals) pass through to the
-        value readout MLP in their encoded order."""
+        Card-set multi-hots (kept cards and any appended playability stripes)
+        become pooled or encoder-embedded set vectors; the tray index columns
+        become ``TRAY_SIZE`` per-slot card-table rows; all remaining blocks pass
+        through to the value readout MLP in their encoded order."""
         return self.mlp(self._embed(features)).squeeze(-1)
 
     def policy_and_value(
@@ -234,13 +237,12 @@ class SetupNet(nn.Module):
     def _embed(self, features: torch.Tensor) -> torch.Tensor:
         """Compute the shared readout input from raw ``(B, feature_dim)`` features.
 
-        Replaces the kept-cards multi-hot with one set embedding, and the tray
-        index columns with per-slot card-table rows plus a tray-set embedding.
-        When ``include_turn1_playable`` and/or ``include_playable_kept_cards`` are
-        active, each trailing 180-dim multi-hot is embedded as one additional set
-        vector (in that order).
-        Used by both ``forward`` and ``policy_and_value`` so the embedding is
-        computed once regardless of how many heads are read."""
+        Replaces every card-set multi-hot (kept cards, appended playability
+        stripes) with a pooled or encoder-embedded set vector — matching the main
+        net's embedding path for consistency. The tray index columns become
+        ``TRAY_SIZE`` per-slot card-table rows only (no tray-set term). All other
+        blocks pass through unchanged. Used by both ``forward`` and
+        ``policy_and_value`` so the embedding is computed once."""
         card_table = self._card_table_for_pass()  # (181, M)
 
         # Slice the raw vector using encoding-aware offsets.
@@ -253,44 +255,42 @@ class SetupNet(nn.Module):
             .clamp_(0, encode.HAND_MULTIHOT_DIM)
         )
         # The feeder/goals passthrough ends at the first appended multi-hot stripe.
-        feeder_end_abs = enc.off_turn1_playable
-        feeder_goals_rest = features[..., enc.off_feeder : feeder_end_abs]
+        feeder_goals_rest = features[..., enc.off_feeder : enc.off_turn1_playable]
 
-        # Kept set -> one N-dim embedding (summary derived from the multi-hot).
-        kept_summary = hand_model.set_summary_from_multihot(
-            kept_multihot, self.card_summary_matrix[1:]
-        )
-        kept_emb = hand_model.embed_card_set(
-            self.hand_encoder, kept_multihot, kept_summary
-        )
+        # Kept set -> one set embedding matching the main net's path.
+        kept_emb = self._embed_card_set(kept_multihot, card_table)
 
-        # Tray -> 3 M-dim card-table rows + one N-dim set embedding.
+        # Tray -> 3 M-dim card-table rows only (no tray-set embedding).
         tray_slot_emb = card_table[tray_idx].reshape(*tray_idx.shape[:-1], -1)
-        tray_multihot = hand_model.multihot_from_indices(
-            tray_idx, encode.HAND_MULTIHOT_DIM
-        )
-        tray_summary = hand_model.set_summary_from_indices(
-            tray_idx, self.card_summary_matrix
-        )
-        tray_set_emb = hand_model.embed_card_set(
-            self.hand_encoder, tray_multihot, tray_summary
-        )
 
         # Embed any appended 180-dim card-set multi-hots (turn1_playable, then
-        # playable_kept_cards), each as one extra N-dim set embedding.
+        # playable_kept_cards), each as one extra set embedding.
         appended: list[torch.Tensor] = []
         for stripe_off in self._appended_multihot_offsets():
             mh = features[..., stripe_off : stripe_off + enc.kept_cards_dim]
-            summary = hand_model.set_summary_from_multihot(
-                mh, self.card_summary_matrix[1:]
-            )
-            appended.append(hand_model.embed_card_set(self.hand_encoder, mh, summary))
+            appended.append(self._embed_card_set(mh, card_table))
 
         return torch.cat(
-            [kept_emb, passthrough, tray_set_emb, tray_slot_emb, feeder_goals_rest]
-            + appended,
+            [kept_emb, passthrough, tray_slot_emb, feeder_goals_rest] + appended,
             dim=-1,
         )
+
+    def _embed_card_set(
+        self, multihot: torch.Tensor, card_table: torch.Tensor
+    ) -> torch.Tensor:
+        """Embed one 180-dim card-set multi-hot, matching the main net's path.
+
+        Pools over the synced card table's bird rows when the main architecture
+        uses ``use_distinct_hand_model=False`` (the default pooling path).
+        Falls through to the frozen hand encoder otherwise."""
+        if not self.main_arch.use_distinct_hand_model:
+            return hand_model.pool_card_set(
+                multihot, card_table[1:], self.main_arch.hand_pooling
+            )
+        summary = hand_model.set_summary_from_multihot(
+            multihot, self.card_summary_matrix[1:]
+        )
+        return hand_model.embed_card_set(self.hand_encoder, multihot, summary)
 
     def _appended_multihot_offsets(self) -> list[int]:
         """Absolute feature-vector offsets of each appended 180-dim card-set

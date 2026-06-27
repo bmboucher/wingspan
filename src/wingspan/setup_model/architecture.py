@@ -61,7 +61,7 @@ class SetupEncoding(pydantic.BaseModel):
     split_food: bool = False
     split_bonus: bool = False
     include_turn1_playable: bool = False
-    include_playable_kept_cards: bool = False
+    include_playable_kept_cards: bool = True
 
     # ---- offset properties (all derived, no stored state) ----
 
@@ -202,27 +202,35 @@ def setup_readout_input_dim(
     include_turn1_playable: bool = False,
     include_playable_kept_cards: bool = False,
 ) -> int:
-    """The setup readout MLP's first-``Linear`` input width: the raw
-    ``feature_dim`` vector with the kept-cards multi-hot replaced by one
-    ``N``-wide set embedding and the tray index columns replaced by
-    ``TRAY_SIZE`` ``M``-wide card-table rows plus one more ``N``-wide tray-set
-    embedding (``M = card_embed_dim``, ``N = hand_embed_width``). The single
-    source of truth shared by ``SetupNet`` and the parameter accounting.
+    """The setup readout MLP's first-``Linear`` input width.
+
+    The raw ``feature_dim`` vector is transformed by replacing each card-set
+    multi-hot with a set embedding (pooled or encoder, matching the main net's
+    path) and the tray index columns with ``TRAY_SIZE`` ``M``-wide card-table
+    rows (``M = card_embed_dim``). The tray no longer carries a set embedding —
+    only per-slot rows. The set embedding width ``W`` is
+    ``main_arch.pooled_hand_width`` when not using a distinct hand model
+    (the default), or ``main_arch.hand_embed_width`` otherwise.
 
     When ``include_turn1_playable`` or ``include_playable_kept_cards`` is active,
-    each trailing 180-dim multi-hot is embedded as one extra
-    ``hand_embed_width``-wide set embedding."""
+    each trailing 180-dim multi-hot is embedded as one extra ``W``-wide set
+    embedding and its raw dims are subtracted from passthrough."""
+    set_width = (
+        main_arch.hand_embed_width
+        if main_arch.use_distinct_hand_model
+        else main_arch.pooled_hand_width
+    )
     passthrough = feature_dim - cards.n_birds() - state.TRAY_SIZE
-    n_hand_sets = 2  # kept set + tray set
+    n_card_sets = 1  # kept set
     for flag in (include_turn1_playable, include_playable_kept_cards):
         if flag:
             # Each appended 180-dim multi-hot is embedded as a card set:
             # subtract the raw dims from passthrough, add one set embedding.
             passthrough -= _KEPT_CARDS_DIM
-            n_hand_sets += 1
+            n_card_sets += 1
     return (
         passthrough
-        + n_hand_sets * main_arch.hand_embed_width
+        + n_card_sets * set_width
         + state.TRAY_SIZE * main_arch.card_embed_dim
     )
 
@@ -232,6 +240,7 @@ def count_setup_parameters(
     *,
     feature_dim: int,
     main_arch: architecture.ModelArchitecture | None = None,
+    encoding: SetupEncoding | None = None,
 ) -> architecture.BlockParam:
     """Analytic per-layer parameter accounting for the ``SetupNet`` that
     ``setup_arch`` describes.
@@ -247,9 +256,14 @@ def count_setup_parameters(
     :class:`wingspan.architecture.BlockParam` whose ``total`` equals
     ``sum(p.numel())`` of the built ``SetupNet`` — the architecture diagram's
     per-op and Σ source for the separate setup model.
+
+    ``encoding`` controls which optional stripes are included in the readout-input
+    width calculation (default: ``SetupEncoding()``).
     """
     if main_arch is None:
         main_arch = architecture.ModelArchitecture()
+    if encoding is None:
+        encoding = SetupEncoding()
     embedder_params = sum(
         layer.params
         for layer in architecture.body_layers(
@@ -268,8 +282,8 @@ def count_setup_parameters(
     readout_in = setup_readout_input_dim(
         feature_dim,
         main_arch,
-        include_turn1_playable=False,
-        include_playable_kept_cards=False,
+        include_turn1_playable=encoding.include_turn1_playable,
+        include_playable_kept_cards=encoding.include_playable_kept_cards,
     )
     # When the policy head is present there are two readout MLPs of identical
     # shape (value + policy), so their parameter count doubles.

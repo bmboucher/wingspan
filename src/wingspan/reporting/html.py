@@ -312,13 +312,12 @@ def generate_html_report(
     # count_setup_parameters expects as feature_dim — passing the post-embedding
     # size instead would double-apply the embedding transform, inflating the
     # reported input count.
-    setup_layout = setup_model.setup_readout_stripe_layout(
-        setup_encoding,
-        arch.card_embed_dim,
-        arch.hand_embed_width,
-    )
+    setup_layout = setup_model.setup_readout_stripe_layout(setup_encoding, arch)
     setup_param = setup_model.count_setup_parameters(
-        setup_arch, feature_dim=setup_encoding.total_dim, main_arch=arch
+        setup_arch,
+        feature_dim=setup_encoding.total_dim,
+        main_arch=arch,
+        encoding=setup_encoding,
     )
     setup_annotation = (
         ""

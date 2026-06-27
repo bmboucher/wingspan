@@ -31,20 +31,19 @@ def _config() -> config.TrainConfig:
     )
 
 
+_DEFAULT_FEATURE_DIM = setup_model.SetupEncoding().total_dim
+
+
 def _ac_samples(count: int) -> list[setup_model.SetupSample]:
     rng = np.random.default_rng(0)
     k = 10
     return [
         setup_model.SetupSample(
-            features=(rng.random(setup_model.SETUP_FEATURE_DIM) < 0.2).astype(
-                np.float32
-            ),
+            features=(rng.random(_DEFAULT_FEATURE_DIM) < 0.2).astype(np.float32),
             margin=_CONSTANT_MARGIN,
             iteration=1500,
             chosen_idx=0,
-            all_candidates=rng.random((k, setup_model.SETUP_FEATURE_DIM)).astype(
-                np.float16
-            ),
+            all_candidates=rng.random((k, _DEFAULT_FEATURE_DIM)).astype(np.float16),
         )
         for _ in range(count)
     ]

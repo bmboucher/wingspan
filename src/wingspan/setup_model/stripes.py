@@ -323,34 +323,32 @@ _DEFAULT_ARCH = architecture.ModelArchitecture()
 
 def setup_readout_stripe_layout(
     encoding: arch_module.SetupEncoding | None = None,
-    card_embed_dim: int = _DEFAULT_ARCH.card_embed_dim,
-    hand_embed_width: int = _DEFAULT_ARCH.hand_embed_width,
+    main_arch: architecture.ModelArchitecture | None = None,
 ) -> encode_stripes.VectorLayout:
     """Build the post-embedding stripe registry for the setup readout MLP's input.
 
     The setup readout MLP does not receive the raw candidate feature vector
     directly; it receives an embedded version where the kept-cards multi-hot and
-    the tray integer-index columns are replaced by learned embeddings from the
-    frozen encoder copies.  This function applies those rewrites so the stripe
-    breakdown sums to ``setup_readout_input_dim`` — the same total that the arch
-    diagram shows as ``in N``.
+    any appended card-set stripes are replaced by pooled or encoder-embedded set
+    vectors, and the tray integer-index columns are replaced by per-slot
+    card-table rows. This function applies those rewrites so the stripe breakdown
+    sums to ``setup_readout_input_dim`` — the same total that the arch diagram
+    shows as ``in N``.
 
-    ``card_embed_dim`` and ``hand_embed_width`` must match the main net the setup
-    net was built alongside.  Defaults reproduce the default
-    :class:`~wingspan.architecture.ModelArchitecture` (64-dim card embedding,
-    hand encoder output = card embed dim).
+    ``main_arch`` determines the card-embedding geometry (``card_embed_dim``,
+    ``pooled_hand_width`` / ``hand_embed_width``, ``use_distinct_hand_model``).
+    Defaults reproduce the default :class:`~wingspan.architecture.ModelArchitecture`.
     """
     if encoding is None:
         encoding = arch_module.SetupEncoding()
-    raw = setup_stripe_layout(encoding)
-    main_arch = architecture.ModelArchitecture(
-        card_embed_dim=card_embed_dim,
-        # When hand_embed_width != card_embed_dim, set hand_embed_dim explicitly
-        # so ModelArchitecture.hand_embed_width resolves correctly.
-        hand_embed_dim=(
-            hand_embed_width if hand_embed_width != card_embed_dim else None
-        ),
+    if main_arch is None:
+        main_arch = _DEFAULT_ARCH
+    set_width = (
+        main_arch.hand_embed_width
+        if main_arch.use_distinct_hand_model
+        else main_arch.pooled_hand_width
     )
+    raw = setup_stripe_layout(encoding)
     expected = arch_module.setup_readout_input_dim(
         encoding.total_dim,
         main_arch,
@@ -359,7 +357,11 @@ def setup_readout_stripe_layout(
     )
     return embed_rules.embed_layout(
         raw,
-        embed_rules.setup_embed_rules(card_embed_dim, hand_embed_width),
+        embed_rules.setup_embed_rules(
+            main_arch.card_embed_dim,
+            set_width,
+            use_distinct=main_arch.use_distinct_hand_model,
+        ),
         expected,
     )
 

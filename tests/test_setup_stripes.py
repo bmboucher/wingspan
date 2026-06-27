@@ -19,8 +19,11 @@ from wingspan.setup_model import architecture as arch_module  # noqa: E402
 
 
 def test_layout_total_matches_feature_dim():
-    layout = setup_model.setup_stripe_layout()
-    assert layout.total_size == setup_model.SETUP_FEATURE_DIM
+    # Default encoding includes include_playable_kept_cards=True (488 dims).
+    # SETUP_FEATURE_DIM (308) is the no-flags base; use encoding.total_dim here.
+    encoding = arch_module.SetupEncoding()
+    layout = setup_model.setup_stripe_layout(encoding)
+    assert layout.total_size == encoding.total_dim
     assert sum(stripe.size for stripe in layout.stripes) == layout.total_size
 
 
@@ -50,11 +53,7 @@ def test_playable_kept_cards_readout_stripe_layout_sums_correctly():
     from wingspan.setup_model import stripes as setup_stripes
 
     main_arch = architecture.ModelArchitecture()
-    layout = setup_stripes.setup_readout_stripe_layout(
-        encoding,
-        card_embed_dim=main_arch.card_embed_dim,
-        hand_embed_width=main_arch.hand_embed_width,
-    )
+    layout = setup_stripes.setup_readout_stripe_layout(encoding, main_arch)
     expected = arch_module.setup_readout_input_dim(
         encoding.total_dim,
         main_arch,
@@ -88,7 +87,8 @@ def test_html_report_documents_active_setup_model():
     assert "Setup Vector" in html
     assert "SETUP INPUT" in html
     assert "SETUP VALUE" in html
-    assert str(setup_model.SETUP_FEATURE_DIM) in html
+    # The default encoding's total_dim (488) should appear in the HTML report.
+    assert str(arch_module.SetupEncoding().total_dim) in html
     assert "(separate)" in html
     assert "not active this run" not in html
 
@@ -112,7 +112,7 @@ def test_html_report_arch_svg_content():
     assert "DECISION HEAD" in html
     # Encoder fan-out copy labels (card -> state board path, pooled hand -> setup).
     assert f"×{encode.N_CARD_INDEX_SLOTS}" in html
-    assert "kept + turn-1 playable" in html
+    assert "kept + playable" in html
     # "trained in-game only" note only appears when use_distinct_hand_model=True;
     # the default is now pooled (False), so this note is absent for a bare config.
     # Parameter counts are exact bare integers — no "123k", no Σ, no commas.
