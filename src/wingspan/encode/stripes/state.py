@@ -104,18 +104,29 @@ def _build_raw_state_stripes(
     Called by both :func:`state_stripe_layout` (which then applies
     ``embed_rules``) and :func:`raw_state_stripe_layout` (which returns the raw
     view directly).  The returned layout's offsets and sizes match the flat
-    vector that ``encode_state`` produces."""
+    vector that ``encode_state`` produces.
+
+    Offsets and sizes for all continuous stripes are derived from
+    :data:`~wingspan.encode.layout.STATE_CONT_LAYOUT` — the single authoritative
+    source.  Only the spec-dependent ``decision_type`` stripe at the end requires
+    its own size computation."""
     from wingspan.encode import state_encode
 
     total = state_encode.state_size(spec)
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
     habitat_names = ", ".join(h.value for h in cards.ALL_HABITATS)
 
+    # Derive offset and size from the authoritative continuous layout by stripe name.
+    def _at(name: str) -> tuple[int, int]:
+        return (
+            layout.STATE_CONT_LAYOUT.offset_of(name),
+            layout.STATE_CONT_LAYOUT.size_of(name),
+        )
+
     stripes: list[descriptors.StripeDescriptor] = []
-    off = 0
 
     # ---- turn state (first stripe) ----
-    turn_dim = layout.N_PLAYER_TURNS + 1  # 26 turn positions + is_first_player flag
+    turn_off, turn_size = _at("turn_state")
     stripes.append(
         descriptors.StripeDescriptor(
             name="turn_state",
@@ -123,9 +134,9 @@ def _build_raw_state_stripes(
                 "Which of the player's 26 personal turns they are on, plus "
                 "whether they go first in the current round."
             ),
-            offset=off,
-            size=turn_dim,
-            encoding="complex",
+            offset=turn_off,
+            size=turn_size,
+            encoding="vector",
             value_range="varies",
             notes=(
                 f"{layout.N_PLAYER_TURNS + 1} values: "
@@ -139,41 +150,39 @@ def _build_raw_state_stripes(
             sub_fields=_turn_state_sub_fields(),
         )
     )
-    off += turn_dim
 
     # ---- food inventory ----
+    food_off_me, food_size = _at("food_me")
     stripes.append(
         descriptors.StripeDescriptor(
             name="food_me",
             description="My food inventory, one element per food type.",
-            offset=off,
-            size=cards.N_FOODS,
+            offset=food_off_me,
+            size=food_size,
             encoding="vector",
             value_range="[0, ~1.7]",
             notes=f"Food types in order: {food_names}. Normalized ÷ 6.",
             sub_fields=_food_sub_fields(),
         )
     )
-    off += cards.N_FOODS
 
+    food_off_opp, _ = _at("food_opp")
     stripes.append(
         descriptors.StripeDescriptor(
             name="food_opp",
             description="Opponent food inventory, one element per food type.",
-            offset=off,
-            size=cards.N_FOODS,
+            offset=food_off_opp,
+            size=food_size,
             encoding="vector",
             value_range="[0, ~1.7]",
             notes=f"Food types in order: {food_names}. Normalized ÷ 6.",
             sub_fields=_food_sub_fields(),
         )
     )
-    off += cards.N_FOODS
 
     # ---- board continuous (mutable per-slot state) ----
     n_slots = state.N_HABITATS * state.ROW_SLOTS
     slot_dim = layout._SLOT_MUT_DIM  # 9: eggs, egg_cap, cached×5, tucked, activations
-    board_dim = layout._BOARD_CONT_STRIPE_DIM  # n_slots * slot_dim
 
     _board_notes = (
         f"{n_slots} slots ({state.N_HABITATS} habitats × {state.ROW_SLOTS} positions). "
@@ -182,33 +191,33 @@ def _build_raw_state_stripes(
         f"tucked[{layout._SLOT_MUT_TUCKED}], activations[{layout._SLOT_MUT_ACTIVATIONS}]. "
         "Eggs and cached food normalized ÷ 6; activations ÷ 4."
     )
+    board_off_me, board_size = _at("board_me")
     stripes.append(
         descriptors.StripeDescriptor(
             name="board_me",
             description="Mutable per-slot board state for my board.",
-            offset=off,
-            size=board_dim,
+            offset=board_off_me,
+            size=board_size,
             encoding="complex",
             value_range="[0, ~1]",
             notes=_board_notes,
             sub_fields=_board_slot_sub_fields(),
         )
     )
-    off += board_dim
 
+    board_off_opp, _ = _at("board_opp")
     stripes.append(
         descriptors.StripeDescriptor(
             name="board_opp",
             description="Mutable per-slot board state for the opponent's board.",
-            offset=off,
-            size=board_dim,
+            offset=board_off_opp,
+            size=board_size,
             encoding="complex",
             value_range="[0, ~1]",
             notes=_board_notes,
             sub_fields=_board_slot_sub_fields(),
         )
     )
-    off += board_dim
 
     # ---- board summary (aggregate per-habitat stats, compacted in v0.9) ----
     _board_summary_notes = (
@@ -217,126 +226,123 @@ def _build_raw_state_stripes(
         "Compacted in v0.9 from 6→2 stats per habitat (points/tucked/cached/brown "
         "dropped — redundant with the per-slot continuous stripe and card table)."
     )
-    _board_summary_size = (
-        state.N_HABITATS * layout._BOARD_SUMMARY_FIELDS_PER_HABITAT
-    )  # 3 × 2 = 6
 
+    bs_off_me, bs_size = _at("board_summary_me")
     stripes.append(
         descriptors.StripeDescriptor(
             name="board_summary_me",
             description="Aggregate per-habitat row statistics for my board (row_length, total_eggs).",
-            offset=off,
-            size=_board_summary_size,
+            offset=bs_off_me,
+            size=bs_size,
             encoding="vector",
             value_range="[0, ~1]",
             notes=_board_summary_notes,
             sub_fields=_board_summary_sub_fields(),
         )
     )
-    off += _board_summary_size
 
+    bs_off_opp, _ = _at("board_summary_opp")
     stripes.append(
         descriptors.StripeDescriptor(
             name="board_summary_opp",
             description="Aggregate per-habitat row statistics for the opponent's board (row_length, total_eggs).",
-            offset=off,
-            size=_board_summary_size,
+            offset=bs_off_opp,
+            size=bs_size,
             encoding="vector",
             value_range="[0, ~1]",
             notes=_board_summary_notes,
             sub_fields=_board_summary_sub_fields(),
         )
     )
-    off += _board_summary_size
 
     # hand_summary_me removed at the 0.9 compaction (the 1.0 baseline): the distinct
     # hand encoder derives the 10-dim summary in-model from the hand multi-hot via
     # set_summary_from_multihot. No pre-1.0 shim reinstates the inline stripe.
 
     # ---- bonus progress (POV player only; opponent identity hidden) ----
+    # "bonus_progress" in layout is one 4×bonus_dim block; split here for viewer clarity.
     bonus_dim = layout._BONUS_ID_DIM  # 26 bonus cards
+    bonus_base, _ = _at("bonus_progress")
     stripes.append(
         descriptors.StripeDescriptor(
             name="bonus_progress_held",
             description=(
                 f"Which of the {bonus_dim} bonus cards I am holding (multi-hot)."
             ),
-            offset=off,
+            offset=bonus_base,
             size=bonus_dim,
             encoding="multi-hot",
             value_range="{0, 1}",
             notes="Indexed by stable bonus-card order from cards.bonus_index().",
         )
     )
-    off += bonus_dim
 
     stripes.append(
         descriptors.StripeDescriptor(
             name="bonus_progress_count",
             description="Number of my birds that qualify for each bonus card.",
-            offset=off,
+            offset=bonus_base + bonus_dim,
             size=bonus_dim,
             encoding="vector",
             value_range="[0, ~1]",
             notes=f"One value per bonus card ({bonus_dim} total). Normalized ÷ 5.",
         )
     )
-    off += bonus_dim
 
     stripes.append(
         descriptors.StripeDescriptor(
             name="bonus_progress_stepped",
             description="Current stepped VP for each bonus card I hold.",
-            offset=off,
+            offset=bonus_base + 2 * bonus_dim,
             size=bonus_dim,
             encoding="vector",
             value_range="[0, ~1]",
             notes=f"One value per bonus card ({bonus_dim} total). Normalized ÷ 7 (max single-card VP).",
         )
     )
-    off += bonus_dim
 
     stripes.append(
         descriptors.StripeDescriptor(
             name="bonus_progress_linear",
             description="Linear (fractional) VP for each bonus card I hold.",
-            offset=off,
+            offset=bonus_base + 3 * bonus_dim,
             size=bonus_dim,
             encoding="vector",
             value_range="[0, ~1]",
             notes=f"One value per bonus card ({bonus_dim} total). Normalized ÷ 7.",
         )
     )
-    off += bonus_dim
 
     # ---- opponent aggregate counts ----
+    # "opp_bonus_count" / "opp_hand_size" in layout; renamed here for display consistency.
+    opp_bonus_off, opp_bonus_size = _at("opp_bonus_count")
     stripes.append(
         descriptors.StripeDescriptor(
             name="bonus_count_opp",
             description="Number of bonus cards the opponent holds (identity hidden).",
-            offset=off,
-            size=1,
+            offset=opp_bonus_off,
+            size=opp_bonus_size,
             encoding="scalar",
             value_range="[0, ~1]",
             notes="Normalized ÷ 5.",
         )
     )
-    off += 1
 
+    opp_hand_off, opp_hand_size = _at("opp_hand_size")
     stripes.append(
         descriptors.StripeDescriptor(
             name="hand_size_opp",
             description="Number of bird cards in the opponent's hand (contents hidden).",
-            offset=off,
-            size=1,
+            offset=opp_hand_off,
+            size=opp_hand_size,
             encoding="scalar",
             value_range="[0, ~1]",
             notes="Normalized ÷ 10.",
         )
     )
-    off += 1
 
     # ---- birdfeeder ----
+    bf_off, bf_size = _at("birdfeeder")
     stripes.append(
         descriptors.StripeDescriptor(
             name="birdfeeder",
@@ -344,8 +350,8 @@ def _build_raw_state_stripes(
                 "Birdfeeder die face counts (single-food faces and choice-wild "
                 "dice) plus the reset-availability flag."
             ),
-            offset=off,
-            size=7,
+            offset=bf_off,
+            size=bf_size,
             encoding="vector",
             value_range="[0, 1]",
             notes=(
@@ -357,16 +363,15 @@ def _build_raw_state_stripes(
             sub_fields=_birdfeeder_sub_fields(),
         )
     )
-    off += 7
 
     # ---- miscellaneous scalars (compacted in v0.9) ----
-    misc_dim = 2  # tray size + deck size (goal pts removed in v0.9)
+    misc_off, misc_size = _at("misc_scalars")
     stripes.append(
         descriptors.StripeDescriptor(
             name="misc_scalars",
             description="Miscellaneous game state scalars (tray size, deck size).",
-            offset=off,
-            size=misc_dim,
+            offset=misc_off,
+            size=misc_size,
             encoding="vector",
             value_range="[0, ~1]",
             notes=(
@@ -377,18 +382,17 @@ def _build_raw_state_stripes(
             sub_fields=_misc_scalars_sub_fields(),
         )
     )
-    off += misc_dim
 
     # ---- round-goal state (all four rounds) ----
-    rounds_dim = layout._ROUND_GOALS_STRIPE_DIM
     goal_slot = layout._ROUND_GOAL_SLOT_DIM  # MAX_GOAL_CATEGORIES + 3 = 23
+    rg_off, rg_size = _at("round_goals")
     stripes.append(
         descriptors.StripeDescriptor(
             name="round_goals",
             description="State of all four round goals (category, counts, VP placement).",
-            offset=off,
-            size=rounds_dim,
-            encoding="complex",
+            offset=rg_off,
+            size=rg_size,
+            encoding="vector",
             value_range="varies",
             notes=(
                 f"4 rounds × {goal_slot} values. Per round: "
@@ -401,9 +405,10 @@ def _build_raw_state_stripes(
             sub_fields=_round_goals_sub_fields(),
         )
     )
-    off += rounds_dim
 
     # ---- card-identity index block ----
+    # "card_idx_block" in layout spans board then tray slots; split here for viewer clarity.
+    card_base, _ = _at("card_idx_block")
     n_board_idx = layout.N_BOARD_INDEX_SLOTS  # 2 * 15 = 30
     stripes.append(
         descriptors.StripeDescriptor(
@@ -412,7 +417,7 @@ def _build_raw_state_stripes(
                 "Bird indices for all board slots (my board then opponent's), "
                 "looked up in the shared card embedding table."
             ),
-            offset=off,
+            offset=card_base,
             size=n_board_idx,
             encoding="integer-index",
             value_range=f"int 0–{cards.n_birds()}",
@@ -423,7 +428,6 @@ def _build_raw_state_stripes(
             ),
         )
     )
-    off += n_board_idx
 
     stripes.append(
         descriptors.StripeDescriptor(
@@ -432,17 +436,17 @@ def _build_raw_state_stripes(
                 "Bird indices for the three face-up tray slots, "
                 "looked up in the shared card embedding table."
             ),
-            offset=off,
+            offset=card_base + n_board_idx,
             size=state.TRAY_SIZE,
             encoding="integer-index",
             value_range=f"int 0–{cards.n_birds()}",
             notes=f"{state.TRAY_SIZE} integer indices. bird_index + 1; 0 = empty slot.",
         )
     )
-    off += state.TRAY_SIZE
 
     # ---- hand identity (multi-hot) ----
     hand_dim = layout.HAND_MULTIHOT_DIM  # n_birds = 180
+    hand_off, hand_size = _at("hand_multihot")
     stripes.append(
         descriptors.StripeDescriptor(
             name="hand_multihot",
@@ -450,8 +454,8 @@ def _build_raw_state_stripes(
                 f"My hand encoded as a multi-hot over all {hand_dim} core birds. "
                 "Opponent hand is hidden."
             ),
-            offset=off,
-            size=hand_dim,
+            offset=hand_off,
+            size=hand_size,
             encoding="multi-hot",
             value_range="{0, 1}",
             notes=(
@@ -460,9 +464,9 @@ def _build_raw_state_stripes(
             ),
         )
     )
-    off += hand_dim
 
     # ---- hand-playability multi-hots (v0.6+: two 180-dim stripes) ----
+    hp_me_off, hp_size = _at("hand_playable_me")
     stripes.append(
         descriptors.StripeDescriptor(
             name="hand_playable_me",
@@ -470,8 +474,8 @@ def _build_raw_state_stripes(
                 f"Multi-hot of my hand birds that are playable right now "
                 "(food affordable, at least one open habitat slot, egg cost met)."
             ),
-            offset=off,
-            size=hand_dim,
+            offset=hp_me_off,
+            size=hp_size,
             encoding="multi-hot",
             value_range="{0, 1}",
             notes=(
@@ -480,8 +484,8 @@ def _build_raw_state_stripes(
             ),
         )
     )
-    off += hand_dim
 
+    hp_eggs_off, _ = _at("hand_playable_eggs_me")
     stripes.append(
         descriptors.StripeDescriptor(
             name="hand_playable_eggs_me",
@@ -489,8 +493,8 @@ def _build_raw_state_stripes(
                 f"Multi-hot of my hand birds where food is affordable and a habitat "
                 "slot is open, but the egg cost is not yet met."
             ),
-            offset=off,
-            size=hand_dim,
+            offset=hp_eggs_off,
+            size=hp_size,
             encoding="multi-hot",
             value_range="{0, 1}",
             notes=(
@@ -499,7 +503,6 @@ def _build_raw_state_stripes(
             ),
         )
     )
-    off += hand_dim
 
     # ---- decision-type one-hot (always last; setup column present iff include_setup) ----
     decision_dim = layout.decision_type_dim(spec)
@@ -512,7 +515,7 @@ def _build_raw_state_stripes(
                 f"One-hot encoding of which Decision subclass is being resolved "
                 f"({decision_dim} classes)."
             ),
-            offset=off,
+            offset=layout.STATE_CONT_LAYOUT.total_size,
             size=decision_dim,
             encoding="one-hot",
             value_range="{0, 1}",
@@ -523,11 +526,12 @@ def _build_raw_state_stripes(
             ),
         )
     )
-    off += decision_dim
 
-    assert off == total, (
-        f"stripe offsets sum to {off} but state_size(spec) returns {total} — "
-        "layout.py and stripes.py are out of sync"
+    assert layout.STATE_CONT_LAYOUT.total_size + decision_dim == total, (
+        f"STATE_CONT_LAYOUT.total_size ({layout.STATE_CONT_LAYOUT.total_size}) + "
+        f"decision_dim ({decision_dim}) = "
+        f"{layout.STATE_CONT_LAYOUT.total_size + decision_dim} "
+        f"but state_size(spec) returns {total} — layout.py is out of sync"
     )
     return descriptors.VectorLayout(total_size=total, stripes=tuple(stripes))
 
@@ -607,7 +611,11 @@ def _board_slot_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
 
 
 def _board_summary_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """18 sub-fields for a board-summary stripe (3 habitats × 6 named stats)."""
+    """6 sub-fields for a board-summary stripe (3 habitats × 2 named stats, v0.9+).
+
+    Compacted from 6 stats per habitat in v0.8 to 2 in v0.9 (total_points,
+    total_tucked, total_cached_food, and brown_bird_count dropped as redundant
+    with the per-slot continuous stripe and card table)."""
     stats = [
         (
             "row_length",
@@ -615,26 +623,6 @@ def _board_summary_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
             "Normalized ÷ 5 (max slots).",
         ),
         ("total_eggs", "Total eggs on all birds in this habitat.", "Normalized ÷ 6."),
-        (
-            "total_points",
-            "Total point value of birds in this habitat.",
-            "Normalized ÷ 45 (9 pts × 5 slots).",
-        ),
-        (
-            "total_tucked",
-            "Total tucked cards across all birds in this habitat.",
-            "Normalized ÷ 6.",
-        ),
-        (
-            "total_cached_food",
-            "Total cached food units across all birds in this habitat.",
-            "Normalized ÷ 6.",
-        ),
-        (
-            "brown_bird_count",
-            "Number of brown-power birds in this habitat.",
-            "Normalized ÷ 5 (max slots).",
-        ),
     ]
     sub_fields: list[descriptors.SubFieldDescriptor] = []
     for hab_idx, habitat in enumerate(cards.ALL_HABITATS):
@@ -739,18 +727,8 @@ def _turn_state_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
 
 
 def _misc_scalars_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """4 sub-fields for the misc-scalars stripe (trailing goal/deck scalars)."""
+    """2 sub-fields for the misc-scalars stripe (tray size and deck size, v0.9+)."""
     scalar_entries = [
-        (
-            "my_round_goal_pts",
-            "My accumulated round-goal VP so far.",
-            "Normalized ÷ 10.",
-        ),
-        (
-            "opp_round_goal_pts",
-            "Opponent accumulated round-goal VP so far.",
-            "Normalized ÷ 10.",
-        ),
         (
             "tray_size",
             "Number of face-up cards currently in the tray.",

@@ -99,6 +99,17 @@ class StripeDescriptor(pydantic.BaseModel):
     """Per-element drill-down for semantically distinct stripes. Empty for
     homogeneous stripes where every element has the same meaning."""
 
+    @pydantic.model_validator(mode="after")
+    def _sub_fields_within_bounds(self) -> "StripeDescriptor":
+        for sf in self.sub_fields:
+            if sf.relative_offset + sf.size > self.size:
+                raise ValueError(
+                    f"Sub-field {sf.name!r} (relative_offset={sf.relative_offset}, "
+                    f"size={sf.size}) extends past stripe {self.name!r} "
+                    f"boundary (stripe size={self.size})"
+                )
+        return self
+
 
 class VectorLayout(pydantic.BaseModel):
     """The complete named stripe breakdown of a flat feature vector."""
