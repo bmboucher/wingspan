@@ -120,6 +120,74 @@ def test_pooling_path_matches_main_net_hand_pooling():
     ), "setup net's pooled kept-set embedding diverges from main net's hand pooling"
 
 
+def test_forward_with_trunk():
+    """SetupNet with a shared trunk still produces the correct (B,) output shape."""
+    arch = setup_model.SetupArchitecture(trunk_layers=(64,), hidden_layers=(32,))
+    net = setup_net.SetupNet(arch=arch)
+    batch = torch.zeros((5, net.feature_dim), dtype=torch.float32)
+    out = net(batch)
+    assert out.shape == (5,)
+
+
+def test_policy_and_value_with_trunk():
+    """Both heads accept the trunk output and return the correct shapes."""
+    arch = setup_model.SetupArchitecture(
+        trunk_layers=(64,), hidden_layers=(32,), use_policy_head=True
+    )
+    net = setup_net.SetupNet(arch=arch)
+    batch = torch.zeros((4, net.feature_dim), dtype=torch.float32)
+    policy_logits, value_preds = net.policy_and_value(batch)
+    assert policy_logits.shape == (4,)
+    assert value_preds.shape == (4,)
+
+
+def test_empty_trunk_matches_no_trunk_output():
+    """trunk_layers=() produces byte-identical output to the pre-trunk architecture.
+
+    This is the backward-compat guarantee: old configs that lack trunk_layers
+    deserialize to () and reconstruct the net in exactly the same shape."""
+    arch_no_trunk = setup_model.SetupArchitecture(hidden_layers=(32, 16))
+    arch_empty_trunk = setup_model.SetupArchitecture(
+        trunk_layers=(), hidden_layers=(32, 16)
+    )
+    net_a = setup_net.SetupNet(arch=arch_no_trunk)
+    net_b = setup_net.SetupNet(arch=arch_empty_trunk)
+    # State dicts must be identical in structure.
+    assert set(net_a.state_dict().keys()) == set(net_b.state_dict().keys())
+    # Load net_a's weights into net_b and verify identical forward pass.
+    net_b.load_state_dict(net_a.state_dict())
+    batch = torch.randn(
+        3, net_a.feature_dim, generator=torch.Generator().manual_seed(0)
+    )
+    with torch.no_grad():
+        net_a.eval()
+        net_b.eval()
+        assert torch.allclose(net_a(batch), net_b(batch))
+
+
+def test_trunk_adds_state_dict_keys():
+    """A non-empty trunk adds keys under 'trunk.' in the state dict."""
+    arch_no_trunk = setup_model.SetupArchitecture(hidden_layers=(32,))
+    arch_with_trunk = setup_model.SetupArchitecture(
+        trunk_layers=(64,), hidden_layers=(32,)
+    )
+    net_no_trunk = setup_net.SetupNet(arch=arch_no_trunk)
+    net_with_trunk = setup_net.SetupNet(arch=arch_with_trunk)
+    trunk_keys = {k for k in net_with_trunk.state_dict() if k.startswith("trunk.")}
+    no_trunk_keys = {k for k in net_no_trunk.state_dict() if k.startswith("trunk.")}
+    assert len(trunk_keys) > 0
+    assert len(no_trunk_keys) == 0
+
+
+def test_trunk_shape_key_differs():
+    """trunk_layers affects the shape_key so changed configs force a fresh net."""
+    key_no_trunk = setup_model.SetupArchitecture(hidden_layers=(32,)).shape_key
+    key_with_trunk = setup_model.SetupArchitecture(
+        trunk_layers=(64,), hidden_layers=(32,)
+    ).shape_key
+    assert key_no_trunk != key_with_trunk
+
+
 def test_tray_embeds_as_slot_rows_only():
     """The tray stripe contributes exactly TRAY_SIZE card-table rows to the readout
     input — no tray-set embedding appended."""

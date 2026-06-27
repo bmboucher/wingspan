@@ -740,7 +740,7 @@ def _arch_section(
     param_report: architecture.ParamReport,
     family_order: tuple[str, ...],
     *,
-    setup_param: architecture.BlockParam,
+    setup_param: setup_model.SetupParamReport,
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> str:

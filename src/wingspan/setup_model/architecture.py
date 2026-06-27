@@ -136,29 +136,40 @@ class SetupEncoding(pydantic.BaseModel):
         return base
 
 
-# A setup-net shape signature: the hidden-layer widths plus whether the policy
-# head is present. Activation / dropout are excluded — they leave tensor shapes
-# intact and a resumed run may change them without invalidating the saved weights.
-type SetupShapeKey = tuple[tuple[int, ...], bool]
+# A setup-net shape signature: the trunk widths, the per-head hidden widths,
+# and whether the policy head is present. Activation / dropout are excluded —
+# they leave tensor shapes intact and a resumed run may change them without
+# invalidating the saved weights.
+type SetupShapeKey = tuple[tuple[int, ...], tuple[int, ...], bool]
 
 
 class SetupArchitecture(pydantic.BaseModel):
     """The reconstitutable topology of a :class:`wingspan.training.setup_net.SetupNet`'s
     readout MLP.
 
-    ``hidden_layers`` is ordered input-to-output: ``(128, 64)`` is a two-layer
-    MLP projecting to 64 before the final scalar readout. Reuses
+    ``trunk_layers`` is an optional shared trunk before the value/policy split:
+    ``(128,)`` inserts one shared ``Linear → ReLU`` layer whose output feeds both
+    heads. Empty (the default) means no trunk — both heads read the embedded
+    input directly, exactly reproducing the pre-trunk behavior.
+
+    ``hidden_layers`` is ordered input-to-output for each head: ``(64,)`` is a
+    one-layer head projecting to 64 before the final scalar readout. Reuses
     :data:`wingspan.architecture.Widths` and
     :class:`wingspan.architecture.ActivationName` so the configurator's layer /
     activation editors apply unchanged.
 
-    ``between_activation`` is applied after each hidden-layer ``Linear``;
-    ``final_activation`` (defaults to NONE) would be applied after the final
-    ``Linear(·, 1)`` — keep NONE for the standard bare-scalar readout.
+    ``between_activation`` is applied after each hidden-layer ``Linear`` in both
+    the trunk and the heads; ``final_activation`` (defaults to NONE) would be
+    applied after the final ``Linear(·, 1)`` — keep NONE for the standard
+    bare-scalar readout. The trunk always uses ``between_activation`` as its own
+    final activation so no nonlinearity is skipped between trunk and heads.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
+    # Empty default keeps old artifacts loading identically (the sanctioned
+    # "new fields default to reproduce old behavior" back-compat mechanism).
+    trunk_layers: architecture.Widths = ()
     hidden_layers: typing.Annotated[
         architecture.Widths, pydantic.Field(min_length=1)
     ] = (
@@ -192,7 +203,7 @@ class SetupArchitecture(pydantic.BaseModel):
         changes one of *its* tensor shapes). The embedder copies' shapes ride the
         main architecture and are keyed separately
         (``TrainConfig.setup_architecture_key``)."""
-        return (self.hidden_layers, self.use_policy_head)
+        return (self.trunk_layers, self.hidden_layers, self.use_policy_head)
 
 
 def setup_readout_input_dim(
@@ -235,35 +246,74 @@ def setup_readout_input_dim(
     )
 
 
+class SetupParamReport(pydantic.BaseModel):
+    """Per-block parameter accounting for a :class:`wingspan.training.setup_net.SetupNet`.
+
+    Breaks the setup net into three tiers: the frozen embedder copies
+    (``embedder_params``), the shared trunk (``trunk``, empty when
+    ``trunk_layers=()``), and the per-head readout MLPs
+    (``value_head`` / ``policy_head``). Built by
+    :func:`count_setup_parameters`; its ``total`` equals ``sum(p.numel())``
+    of the real module — the architecture diagram's per-op and Σ source.
+    """
+
+    embedder_params: int
+    trunk: tuple[architecture.LayerParam, ...]
+    value_head: tuple[architecture.LayerParam, ...]
+    # None when use_policy_head=False (value-only mode).
+    policy_head: tuple[architecture.LayerParam, ...] | None
+
+    @property
+    def trunk_params(self) -> int:
+        """Total trainable parameters in the shared trunk (0 when no trunk)."""
+        return sum(layer.params for layer in self.trunk)
+
+    @property
+    def head_in(self) -> int:
+        """Input width to each head: trunk output width when a trunk is present,
+        otherwise the embedded readout-input width."""
+        if self.trunk:
+            return self.trunk[-1].out_features
+        return self.value_head[0].in_features
+
+    @property
+    def total(self) -> int:
+        """Total trainable-parameter count (embedder + trunk + heads).
+
+        Embedder copies are frozen at inference but their parameters are counted
+        because ``sum(p.numel())`` includes all parameters regardless of
+        ``requires_grad``."""
+        head_params = sum(layer.params for layer in self.value_head)
+        if self.policy_head is not None:
+            head_params += sum(layer.params for layer in self.policy_head)
+        return self.embedder_params + self.trunk_params + head_params
+
+
 def count_setup_parameters(
     setup_arch: SetupArchitecture,
     *,
     feature_dim: int,
     main_arch: architecture.ModelArchitecture | None = None,
     encoding: SetupEncoding | None = None,
-) -> architecture.BlockParam:
-    """Analytic per-layer parameter accounting for the ``SetupNet`` that
+) -> SetupParamReport:
+    """Analytic per-block parameter accounting for the ``SetupNet`` that
     ``setup_arch`` describes.
 
-    The setup net is a readout MLP (``setup_readout_input_dim → hidden… → 1``,
-    Linears only, no LayerNorm) over the in-net embedding of the raw features,
-    plus its two frozen embedder copies — the card encoder and the set (hand)
-    encoder, whose shapes come from ``main_arch`` (``None`` = a bare
-    :class:`~wingspan.architecture.ModelArchitecture`, matching ``SetupNet``'s
-    default). The readout's per-layer counts are
-    :func:`wingspan.architecture.readout_layers`; the embedder copies are rolled
-    into ``extra`` (frozen parameters still count in ``numel``). Returns one
-    :class:`wingspan.architecture.BlockParam` whose ``total`` equals
+    Accounts for the frozen embedder copies (card + hand encoders, shaped by
+    ``main_arch``), the optional shared trunk, and the per-head readout MLPs.
+    Returns a :class:`SetupParamReport` whose ``total`` equals
     ``sum(p.numel())`` of the built ``SetupNet`` — the architecture diagram's
     per-op and Σ source for the separate setup model.
 
-    ``encoding`` controls which optional stripes are included in the readout-input
-    width calculation (default: ``SetupEncoding()``).
+    ``encoding`` controls which optional stripes are included in the
+    readout-input width calculation (default: ``SetupEncoding()``).
     """
     if main_arch is None:
         main_arch = architecture.ModelArchitecture()
     if encoding is None:
         encoding = SetupEncoding()
+
+    # Frozen embedder copies (card + hand encoder).
     embedder_params = sum(
         layer.params
         for layer in architecture.body_layers(
@@ -285,12 +335,25 @@ def count_setup_parameters(
         include_turn1_playable=encoding.include_turn1_playable,
         include_playable_kept_cards=encoding.include_playable_kept_cards,
     )
-    # When the policy head is present there are two readout MLPs of identical
-    # shape (value + policy), so their parameter count doubles.
-    readout = architecture.readout_layers(readout_in, setup_arch.hidden_layers)
-    n_heads = 2 if setup_arch.use_policy_head else 1
-    return architecture.BlockParam(
-        label="SETUP",
-        layers=readout * n_heads,
-        extra=embedder_params,
+
+    # Optional shared trunk: body-block layers (no LayerNorm; uses
+    # between_activation as its final activation so the trunk's output is
+    # nonlinear before the heads' first Linear).
+    trunk: tuple[architecture.LayerParam, ...] = ()
+    trunk_out = readout_in
+    if setup_arch.trunk_layers:
+        trunk = architecture.body_layers(
+            readout_in, setup_arch.trunk_layers, main_arch, layernorm=False
+        )
+        trunk_out = setup_arch.trunk_layers[-1]
+
+    # Per-head readout MLPs reading the trunk output (or readout_in directly).
+    value_head = architecture.readout_layers(trunk_out, setup_arch.hidden_layers)
+    policy_head = value_head if setup_arch.use_policy_head else None
+
+    return SetupParamReport(
+        embedder_params=embedder_params,
+        trunk=trunk,
+        value_head=value_head,
+        policy_head=policy_head,
     )

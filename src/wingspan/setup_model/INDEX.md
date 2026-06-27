@@ -11,10 +11,15 @@ format is not coupled to it.
 
 **`__init__.py`**
 
-**`architecture.py`** — `SetupArchitecture(hidden_layers, activation, dropout,
-layernorm, use_policy_head=True)` — frozen topology descriptor for the setup MLP,
-analogous to `ModelArchitecture` for the policy net. `shape_key(arch) -> tuple` —
-the checkpoint-invalidating subset of fields. `SetupEncoding` — the config-carried
+**`architecture.py`** — `SetupArchitecture(trunk_layers=(), hidden_layers,
+activation, dropout, use_policy_head=True)` — frozen topology descriptor for the
+setup net. Optional `trunk_layers` inserts a shared body block before the
+value/policy split (empty = no trunk, exactly reproduces old behavior). Both heads
+read the trunk output; `trunk_layers=()` keeps old checkpoints loading via default
+deserialization. `shape_key(arch) -> tuple` — the checkpoint-invalidating subset
+of fields (now includes `trunk_layers`). `SetupParamReport` — typed accounting
+by embedder/trunk/value-head/policy-head, replacing the old flat `BlockParam`.
+`SetupEncoding` — the config-carried
 encoding descriptor; `include_playable_kept_cards: bool = True` (default since
 v1.1; enables a food-agnostic 180-dim playable-kept-cards multi-hot); total
 default dim = 488. `include_turn1_playable: bool = False` appends a turn-1-only

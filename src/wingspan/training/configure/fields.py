@@ -593,6 +593,7 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "head_between_activation": ("architecture", "main", "head_between_activation"),
     "head_final_activation": ("architecture", "main", "head_final_activation"),
     # architecture.setup section
+    "setup_trunk_layers": ("architecture", "setup", "trunk_layers"),
     "setup_hidden_layers": ("architecture", "setup", "hidden_layers"),
     "setup_between_activation": ("architecture", "setup", "between_activation"),
     "setup_final_activation": ("architecture", "setup", "final_activation"),
@@ -1443,13 +1444,22 @@ FIELD_SPECS: list[FieldSpec] = [
         "Shape-preserving.",
     ),
     LayersField(
-        attr="setup_hidden_layers",
-        label="layers",
+        attr="setup_trunk_layers",
+        label="trunk layers",
         group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
         unit="units",
         impact=ChangeImpact.REGIME,
         visible_when=_use_setup,
-        help="Setup-net MLP hidden widths. Changing it restarts only the setup net.",
+        help="Shared trunk widths before the value/policy split. Empty = no trunk.",
+    ),
+    LayersField(
+        attr="setup_hidden_layers",
+        label="head layers",
+        group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
+        unit="units",
+        impact=ChangeImpact.REGIME,
+        visible_when=_use_setup,
+        help="Per-head MLP hidden widths (value + policy). Changing restarts only the setup net.",
     ),
     ChoiceField(
         attr="setup_between_activation",

@@ -118,15 +118,34 @@ class SetupNet(nn.Module):
             persistent=False,
         )
 
-        # Value head: the trainable readout MLP predicting score margin.
+        # Shared trunk: layers before the value/policy split.
+        # Empty trunk_layers → nn.Identity (no state_dict keys, so old
+        # checkpoints load cleanly via load_state_dict).
         readout_in = setup_model.setup_readout_input_dim(
             encoding.total_dim,
             main_arch,
             include_turn1_playable=encoding.include_turn1_playable,
             include_playable_kept_cards=encoding.include_playable_kept_cards,
         )
+        head_in = readout_in
+        if arch.trunk_layers:
+            trunk_seq, head_in = mlp.build_body(
+                readout_in,
+                arch.trunk_layers,
+                # Trunk uses between_activation as its final activation so the
+                # trunk output is nonlinear before the heads' first Linear.
+                between_activation=arch.between_activation,
+                final_activation=arch.between_activation,
+                dropout=arch.dropout,
+                layernorm=False,
+            )
+            self.trunk: nn.Module = trunk_seq
+        else:
+            self.trunk = nn.Identity()
+
+        # Value head: the trainable readout MLP predicting score margin.
         self.mlp = mlp.build_readout(
-            readout_in,
+            head_in,
             arch.hidden_layers,
             between_activation=arch.between_activation,
             final_activation=arch.final_activation,
@@ -138,7 +157,7 @@ class SetupNet(nn.Module):
         # when ``arch.use_policy_head`` is True (actor-critic mode).
         self.policy_mlp: nn.Sequential | None = (
             mlp.build_readout(
-                readout_in,
+                head_in,
                 arch.hidden_layers,
                 between_activation=arch.between_activation,
                 final_activation=arch.final_activation,
@@ -189,7 +208,7 @@ class SetupNet(nn.Module):
         become pooled or encoder-embedded set vectors; the tray index columns
         become ``TRAY_SIZE`` per-slot card-table rows; all remaining blocks pass
         through to the value readout MLP in their encoded order."""
-        return self.mlp(self._embed(features)).squeeze(-1)
+        return self.mlp(self.trunk(self._embed(features))).squeeze(-1)
 
     def policy_and_value(
         self, features: torch.Tensor
@@ -203,7 +222,7 @@ class SetupNet(nn.Module):
                 "policy_and_value called on a SetupNet without a policy head "
                 "(arch.use_policy_head=False)"
             )
-        embedded = self._embed(features)
+        embedded = self.trunk(self._embed(features))
         policy_logits = self.policy_mlp(embedded).squeeze(-1)
         value_preds = self.mlp(embedded).squeeze(-1)
         return policy_logits, value_preds

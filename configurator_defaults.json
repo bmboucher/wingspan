@@ -96,8 +96,10 @@
         "head_final_activation": null
       },
       "setup": {
+        "trunk_layers": [
+          128
+        ],
         "hidden_layers": [
-          128,
           64
         ],
         "between_activation": "relu",

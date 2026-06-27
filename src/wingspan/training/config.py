@@ -241,6 +241,7 @@ class MainNetArchitecture(pydantic.BaseModel):
 class SetupNetArchitecture(pydantic.BaseModel):
     """Topology fields for the setup-model MLP."""
 
+    trunk_layers: architecture.Widths = ()
     hidden_layers: typing.Annotated[
         architecture.Widths, pydantic.Field(min_length=1)
     ] = (128, 64)
@@ -616,6 +617,7 @@ class RunConfig(pydantic.BaseModel):
         """The setup network's topology descriptor."""
         setup = self.architecture.setup
         return setup_model.SetupArchitecture(
+            trunk_layers=setup.trunk_layers,
             hidden_layers=setup.hidden_layers,
             between_activation=setup.between_activation,
             final_activation=setup.final_activation,
@@ -906,6 +908,7 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "use_board_attention",
     }
     setup_arch_keys = {
+        "setup_trunk_layers": "trunk_layers",
         "setup_hidden_layers": "hidden_layers",
         "setup_activation": "activation",
         "setup_dropout": "dropout",

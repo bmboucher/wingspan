@@ -20,6 +20,7 @@ without torch.
 from wingspan.setup_model.architecture import (
     SetupArchitecture,
     SetupEncoding,
+    SetupParamReport,
     SetupShapeKey,
     count_setup_parameters,
     setup_readout_input_dim,
@@ -52,6 +53,7 @@ __all__ = [
     "SetupCandidate",
     "SetupContext",
     "SetupEncoding",
+    "SetupParamReport",
     "SetupSample",
     "SetupShapeKey",
     "count_setup_parameters",

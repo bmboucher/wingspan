@@ -84,6 +84,7 @@ _BOX_FOCUS_ATTRS: dict[str, set[str]] = {
     "setup": {"setup_hidden_layers", "use_setup_model"},
     "setup_value": {"setup_hidden_layers", "use_setup_model"},
     "setup_policy": {"setup_hidden_layers", "use_setup_model"},
+    "setup_trunk": {"setup_trunk_layers"},
     "embed": {"card_embed_dim", "card_encoder_layers"},
     "trunk": {"trunk_layers"},
     "choice": {"choice_layers"},
@@ -291,10 +292,17 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
     choice_in = _choice_in(cfg)
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
     if cfg.architecture.use_setup_model:
-        chain = _chain(
-            _setup_readout_in(cfg), (*cfg.architecture.setup.hidden_layers, 1)
-        )
-        setup_chain = f"V:{chain} P:{chain}"
+        readout_in = _setup_readout_in(cfg)
+        if cfg.architecture.setup.trunk_layers:
+            trunk_out = cfg.architecture.setup.trunk_layers[-1]
+            chain = _chain(trunk_out, (*cfg.architecture.setup.hidden_layers, 1))
+            setup_chain = (
+                f"T:{_chain(readout_in, cfg.architecture.setup.trunk_layers)}"
+                f" V:{chain} P:{chain}"
+            )
+        else:
+            chain = _chain(readout_in, (*cfg.architecture.setup.hidden_layers, 1))
+            setup_chain = f"V:{chain} P:{chain}"
     else:
         setup_chain = "off"
     rows = [
@@ -356,29 +364,53 @@ def _setup_off_line() -> text.Text:
 
 
 def _setup_input_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
-    """Actor-critic mode: the full-width shared-embedder input box.
+    """Actor-critic mode: the full-width shared-embedder (+ optional trunk) input box.
 
-    Shows only the embedder parameter cost (``block.extra``) and the embedded
-    candidate input dim; the two readout head boxes are drawn below by
-    :func:`_setup_heads_region`.
+    When ``trunk_layers`` is non-empty the box is titled "shared trunk" and
+    shows the trunk layer ops; the value/policy head boxes drawn below by
+    :func:`_setup_heads_region` then receive the trunk output. When no trunk
+    it shows only the embedder parameter cost, exactly as before.
     """
     cfg = view.working
-    block = _setup_block(view)
+    report = _setup_block(view)
+    embed_in = _setup_readout_in(cfg)
     caption = [
         (
-            f"in {_setup_readout_in(cfg)} "
+            f"in {embed_in} "
             f"(from {cfg.setup_encoding.total_dim}-dim raw candidate)",
             theme.TEXT_DIM2,
         )
     ]
+    has_trunk = bool(cfg.setup_arch.trunk_layers)
+    if has_trunk:
+        title = "SETUP INPUT · shared trunk"
+        entries = _block_op_entries(
+            view,
+            cfg.setup_arch.trunk_layers,
+            _BlockKind.READOUT,
+            report.trunk,
+            _SETUP_OP_FIELDS,
+            between_activation=str(cfg.setup_arch.between_activation),
+            final_activation=str(cfg.setup_arch.between_activation),
+            dropout=cfg.architecture.setup.dropout,
+            layernorm=False,
+        )
+        out_caption: tuple[str, str] | None = (
+            "→ ",
+            str(cfg.setup_arch.trunk_layers[-1]),
+        )
+    else:
+        title = "SETUP INPUT · shared embedder"
+        entries = []
+        out_caption = None
     return _model_block(
         view,
-        section="setup",
-        title="SETUP INPUT · shared embedder",
+        section="setup_trunk" if has_trunk else "setup",
+        title=title,
         in_caption=caption,
-        entries=[],
-        sigma_total=block.extra,
-        out_caption=None,
+        entries=entries,
+        sigma_total=report.embedder_params + report.trunk_params,
+        out_caption=out_caption,
         width=content_w,
         tap=True,
         dashed=False,
@@ -390,21 +422,20 @@ def _setup_heads_region(
 ) -> list[text.Text]:
     """Actor-critic mode: value and policy readout-head columns, side by side."""
     col_w, right_w, _, _ = _columns(content_w)
-    block = _setup_block(view)
-    left = _setup_value_column(view, col_w, block)
-    right = _setup_policy_column(view, right_w, block)
+    report = _setup_block(view)
+    left = _setup_value_column(view, col_w, report)
+    right = _setup_policy_column(view, right_w, report)
     height = max(len(left), len(right))
     left, right = _align_bottoms(left, height), _align_bottoms(right, height)
     return text_helpers.join_columns([(left, col_w), (right, right_w)], _COL_GAP)
 
 
 def _setup_value_column(
-    view: state.ConfiguratorState, width: int, block: architecture.BlockParam
+    view: state.ConfiguratorState, width: int, report: setup_model.SetupParamReport
 ) -> list[text.Text]:
     """The value readout head of the setup net (actor-critic mode)."""
     cfg = view.working
-    n_layers = len(cfg.architecture.setup.hidden_layers) + 1
-    head_layers = block.layers[:n_layers]
+    head_layers = report.value_head
     per_head = sum(layer.params for layer in head_layers)
     entries = _block_op_entries(
         view,
@@ -432,18 +463,19 @@ def _setup_value_column(
 
 
 def _setup_policy_column(
-    view: state.ConfiguratorState, width: int, block: architecture.BlockParam
+    view: state.ConfiguratorState, width: int, report: setup_model.SetupParamReport
 ) -> list[text.Text]:
     """The policy readout head of the setup net (actor-critic mode)."""
     cfg = view.working
-    n_layers = len(cfg.architecture.setup.hidden_layers) + 1
-    head_layers = block.layers[n_layers:]
-    per_head = sum(layer.params for layer in head_layers)
+    policy_layers = (
+        report.policy_head if report.policy_head is not None else report.value_head
+    )
+    per_head = sum(layer.params for layer in policy_layers)
     entries = _block_op_entries(
         view,
         (*cfg.architecture.setup.hidden_layers, 1),
         _BlockKind.READOUT,
-        head_layers,
+        policy_layers,
         _SETUP_OP_FIELDS,
         between_activation=str(cfg.setup_arch.between_activation),
         final_activation=str(cfg.setup_arch.final_activation),
@@ -1145,7 +1177,7 @@ def _setup_readout_in(cfg: config.RunConfig) -> int:
     return setup_model.setup_readout_input_dim(cfg.setup_encoding.total_dim, cfg.arch)
 
 
-def _setup_block(view: state.ConfiguratorState) -> architecture.BlockParam:
+def _setup_block(view: state.ConfiguratorState) -> setup_model.SetupParamReport:
     """The separate setup net's parameter accounting (the frozen embedder copies
     are shaped by the working main architecture)."""
     return setup_model.count_setup_parameters(
@@ -1209,6 +1241,7 @@ class _StaticSetup(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
+    trunk_layers: architecture.Widths = ()
     hidden_layers: architecture.Widths
     dropout: float
 
@@ -1314,6 +1347,7 @@ def render_static(
                 dropout=arch.dropout,
             ),
             setup=_StaticSetup(
+                trunk_layers=resolved_setup_arch.trunk_layers,
                 hidden_layers=resolved_setup_arch.hidden_layers,
                 dropout=resolved_setup_arch.dropout,
             ),

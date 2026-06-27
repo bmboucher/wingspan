@@ -213,6 +213,56 @@ def test_birds_tab_payload_all_birds_have_card_name():
         assert entry["card"]["name"], "Bird entry has empty name"
 
 
+def test_count_setup_params_trunk_total_matches_net():
+    """count_setup_parameters total equals sum(p.numel()) of the real SetupNet."""
+    from wingspan.training import setup_net as sn
+
+    arch = setup_model.SetupArchitecture(trunk_layers=(64,), hidden_layers=(32,))
+    net = sn.SetupNet(arch=arch)
+    report = setup_model.count_setup_parameters(
+        arch, feature_dim=setup_model.SetupEncoding().total_dim
+    )
+    assert report.total == sum(p.numel() for p in net.parameters())
+
+
+def test_count_setup_params_no_trunk_total_matches_net():
+    """count_setup_parameters total matches with trunk_layers=() (legacy path)."""
+    from wingspan.training import setup_net as sn
+
+    arch = setup_model.SetupArchitecture(hidden_layers=(64, 32))
+    net = sn.SetupNet(arch=arch)
+    report = setup_model.count_setup_parameters(
+        arch, feature_dim=setup_model.SetupEncoding().total_dim
+    )
+    assert report.total == sum(p.numel() for p in net.parameters())
+    assert report.trunk == ()
+
+
+def test_html_report_with_trunk_renders():
+    """generate_html_report renders without error when the setup net has a trunk."""
+    html = _report_html_for_arch(
+        architecture.ModelArchitecture(),
+        use_setup_model=True,
+        setup_arch=setup_model.SetupArchitecture(
+            trunk_layers=(64,), hidden_layers=(32,)
+        ),
+    )
+    assert "SETUP INPUT · shared trunk" in html
+    assert "SETUP VALUE" in html
+    assert "SETUP POLICY" in html
+
+
+def test_html_report_no_trunk_uses_embedder_title():
+    """Without a trunk the header keeps the 'shared embedder' title."""
+    html = _report_html_for_arch(
+        architecture.ModelArchitecture(),
+        use_setup_model=True,
+        setup_arch=setup_model.SetupArchitecture(hidden_layers=(64, 32)),
+    )
+    assert "SETUP INPUT · shared embedder" in html
+    assert "SETUP INPUT · shared trunk" not in html
+
+
 ###### PRIVATE #######
 
 
@@ -247,7 +297,10 @@ def _report_html_with_trunk_gelu() -> str:
 
 
 def _report_html_for_arch(
-    arch: architecture.ModelArchitecture, use_setup_model: bool
+    arch: architecture.ModelArchitecture,
+    use_setup_model: bool,
+    *,
+    setup_arch: setup_model.SetupArchitecture | None = None,
 ) -> str:
     """Generate the model-summary HTML for an arbitrary ModelArchitecture."""
     spec = encode.spec_for(use_setup_model)
@@ -280,7 +333,9 @@ def _report_html_for_arch(
         param_report,
         arch,
         setup_encoding=setup_model.SetupEncoding(),
-        setup_arch=setup_model.SetupArchitecture(),
+        setup_arch=(
+            setup_arch if setup_arch is not None else setup_model.SetupArchitecture()
+        ),
         use_setup_model=use_setup_model,
         state_dim=state_dim,
         choice_dim=choice_dim,

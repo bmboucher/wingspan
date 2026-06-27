@@ -12,6 +12,7 @@ import sys
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -221,8 +222,30 @@ def test_shape_key_same_layers_different_policy_head():
     key_b = setup_model.SetupArchitecture(
         hidden_layers=(128, 64), use_policy_head=True
     ).shape_key
-    assert key_a[0] == key_b[0]  # hidden_layers same
-    assert key_a[1] != key_b[1]  # use_policy_head differs
+    assert key_a[0] == key_b[0]  # trunk_layers same (both empty)
+    assert key_a[1] == key_b[1]  # hidden_layers same
+    assert key_a[2] != key_b[2]  # use_policy_head differs
+
+
+def test_both_heads_share_the_trunk():
+    """With a trunk, both heads receive the same trunk output — gradients from
+    either head flow back through the shared trunk parameters."""
+    arch = setup_model.SetupArchitecture(
+        trunk_layers=(32,), hidden_layers=(16,), use_policy_head=True
+    )
+    net = setup_net.SetupNet(arch=arch)
+    # The trunk must be an nn.Sequential (not nn.Identity) when trunk_layers is set.
+    assert not isinstance(net.trunk, nn.Identity)
+    # A forward pass through policy_and_value must leave gradients on trunk params.
+    net.train()
+    batch = torch.zeros(2, net.feature_dim, requires_grad=False)
+    policy_logits, value_preds = net.policy_and_value(batch)
+    (
+        policy_logits.sum() + value_preds.sum()
+    ).backward()  # pyright: ignore[reportUnknownMemberType]
+    trunk_params = list(net.trunk.parameters())
+    assert len(trunk_params) > 0
+    assert any(p.grad is not None and p.grad.abs().max() > 0 for p in trunk_params)
 
 
 # ---------------------------------------------------------------------------

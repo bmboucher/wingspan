@@ -73,6 +73,11 @@ def test_key_changes_with_embedder_shapes(tmp_path: pathlib.Path):
         _cfg(tmp_path, trunk_layers=(64, 64)).setup_architecture_key
         == base.setup_architecture_key
     )
+    # But a setup-trunk change IS a setup-architecture change.
+    assert (
+        _cfg(tmp_path, setup_trunk_layers=(32,)).setup_architecture_key
+        != base.setup_architecture_key
+    )
 
 
 def _write_main_checkpoint(tmp_path: pathlib.Path, cfg: config.TrainConfig) -> None:

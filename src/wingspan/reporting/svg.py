@@ -177,7 +177,7 @@ def build_arch_svg(
     param_report: architecture.ParamReport,
     family_order: tuple[str, ...],
     *,
-    setup_param: architecture.BlockParam,
+    setup_param: setup_model.SetupParamReport,
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> str:
@@ -375,7 +375,7 @@ def _build_units(
     param_report: architecture.ParamReport,
     family_order: tuple[str, ...],
     *,
-    setup_param: architecture.BlockParam,
+    setup_param: setup_model.SetupParamReport,
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> _Units:
@@ -586,11 +586,13 @@ def _choice_unit(
 
 
 def _setup_unit(
-    setup_param: architecture.BlockParam,
+    setup_param: setup_model.SetupParamReport,
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> _Unit:
-    in_dim = setup_param.layers[0].in_features
+    # Trunk (if present) + value head displayed as one continuous layer sequence.
+    all_layers = setup_param.trunk + setup_param.value_head
+    in_dim = all_layers[0].in_features
     status = "active" if use_setup_model else "off"
     return _Unit(
         x=_SVG_COL_X[2],
@@ -598,7 +600,7 @@ def _setup_unit(
         title="SETUP MODEL · keep",
         subtitle="" if use_setup_model else "off this run — keep scored in-game",
         rows=_op_rows(
-            setup_param.layers,
+            all_layers,
             between_activation=setup_arch.between_activation.value,
             final_activation=setup_arch.final_activation.value,
             dropout=setup_arch.dropout,
@@ -620,29 +622,56 @@ def _setup_unit(
 
 
 def _build_setup_unit(
-    setup_param: architecture.BlockParam,
+    setup_param: setup_model.SetupParamReport,
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> _Unit:
     """The setup column unit: single block normally, dual-head block when actor-critic.
 
     When ``setup_arch.use_policy_head`` is False, delegates to ``_setup_unit``
-    unchanged.  When True, returns a header ``_Unit`` (shared embedder, no
-    layer rows) with a ``dual`` pair of narrow sub-units — SETUP VALUE on the
-    left, SETUP POLICY on the right — that ``_draw_dual_unit`` renders side by
-    side below the header.
+    unchanged.  When True, returns a header ``_Unit`` (shared embedder + optional
+    trunk) with a ``dual`` pair of narrow sub-units — SETUP VALUE on the left,
+    SETUP POLICY on the right — that ``_draw_dual_unit`` renders side by side
+    below the header.
     """
     if not setup_arch.use_policy_head:
         return _setup_unit(setup_param, setup_arch, use_setup_model)
 
-    # Split the doubled layer list back into value/policy halves.
-    n_layers = len(setup_arch.hidden_layers) + 1
-    value_layers = setup_param.layers[:n_layers]
-    policy_layers = setup_param.layers[n_layers:]
+    # Trunk rows for the header (empty when no trunk).
+    trunk_rows = (
+        _op_rows(
+            setup_param.trunk,
+            between_activation=setup_arch.between_activation.value,
+            # Trunk's final layer uses between_activation (not NONE) so the
+            # output is nonlinear before the heads' first Linear.
+            final_activation=setup_arch.between_activation.value,
+            dropout=setup_arch.dropout,
+        )
+        if setup_param.trunk
+        else ()
+    )
+    embed_in = (
+        setup_param.trunk[0].in_features
+        if setup_param.trunk
+        else setup_param.value_head[0].in_features
+    )
+    head_in = setup_param.head_in
+    header_sigma = setup_param.embedder_params + setup_param.trunk_params
+    status = "active" if use_setup_model else "off"
+    header_title = (
+        "SETUP INPUT · shared trunk"
+        if setup_param.trunk
+        else "SETUP INPUT · shared embedder"
+    )
+
+    value_layers = setup_param.value_head
+    policy_layers = (
+        setup_param.policy_head
+        if setup_param.policy_head is not None
+        else setup_param.value_head
+    )
     value_params = sum(layer.params for layer in value_layers)
     policy_params = sum(layer.params for layer in policy_layers)
-    in_dim = setup_param.layers[0].in_features
-    status = "active" if use_setup_model else "off"
 
     value_unit = _Unit(
         x=_SVG_COL_X[2],
@@ -656,11 +685,11 @@ def _build_setup_unit(
         ),
         sigma_text=_count_text(value_params),
         in_label="setup input",
-        in_count=in_dim,
+        in_count=head_in,
         out_label="score margin",
         out_count=1,
         tooltip=(
-            f"Setup Value Head · {_count_text(value_params)} params · {in_dim} → 1 "
+            f"Setup Value Head · {_count_text(value_params)} params · {head_in} → 1 "
             "(predicted end-game score margin)"
         ),
         dashed=not use_setup_model,
@@ -678,11 +707,11 @@ def _build_setup_unit(
         ),
         sigma_text=_count_text(policy_params),
         in_label="setup input",
-        in_count=in_dim,
+        in_count=head_in,
         out_label="log policy",
         out_count=1,
         tooltip=(
-            f"Setup Policy Head · {_count_text(policy_params)} params · {in_dim} → 1 "
+            f"Setup Policy Head · {_count_text(policy_params)} params · {head_in} → 1 "
             "(log-probabilities over kept-card subsets)"
         ),
         dashed=not use_setup_model,
@@ -691,11 +720,11 @@ def _build_setup_unit(
     return _Unit(
         x=_SVG_COL_X[2],
         accent=_ACCENT_SETUP,
-        title="SETUP INPUT · shared embedder",
-        rows=(),
-        sigma_text=_count_text(setup_param.extra),
+        title=header_title,
+        rows=trunk_rows,
+        sigma_text=_count_text(header_sigma),
         in_label="setup input",
-        in_count=in_dim,
+        in_count=embed_in,
         out_label="",  # not rendered — outputs come from the dual sub-units
         out_count=0,
         tooltip=(
@@ -1594,7 +1623,7 @@ def _svg_root(
     geom: _Geom,
     arch: architecture.ModelArchitecture,
     param_report: architecture.ParamReport,
-    setup_param: architecture.BlockParam,
+    setup_param: setup_model.SetupParamReport,
     num_families: int,
     use_setup_model: bool,
 ) -> str:
@@ -1657,7 +1686,7 @@ def _row1_side_note(geom: _Geom) -> str:
 def _total_line(
     geom: _Geom,
     param_report: architecture.ParamReport,
-    setup_param: architecture.BlockParam,
+    setup_param: setup_model.SetupParamReport,
     use_setup_model: bool,
 ) -> str:
     """The grand-total caption (the separate setup net's count is annotated,
