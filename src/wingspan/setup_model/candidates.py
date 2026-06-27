@@ -20,7 +20,7 @@ import random
 import numpy as np
 import pydantic
 
-from wingspan import cards, decisions
+from wingspan import cards, decisions, sampling
 
 
 class SetupCandidate(pydantic.BaseModel):
@@ -129,20 +129,7 @@ def select_by_margins(
     total = float(weights.sum())
     if not np.isfinite(total) or total <= 0.0:
         return rng.randrange(len(margins))
-    return _weighted_index(rng, (weights / total).tolist())
+    return sampling.weighted_index(rng, (weights / total).tolist())
 
 
 ###### PRIVATE #######
-
-
-def _weighted_index(rng: random.Random, weights: list[float]) -> int:
-    """Return an index sampled in proportion to ``weights`` using the seeded
-    ``rng`` (mirrors ``training.policy._weighted_index`` so the setup sampler is
-    reproducible from a seed without importing the torch-bearing policy module)."""
-    roll = rng.random()
-    acc = 0.0
-    for i, weight in enumerate(weights):
-        acc += weight
-        if roll < acc:
-            return i
-    return len(weights) - 1

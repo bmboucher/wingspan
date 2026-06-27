@@ -568,25 +568,22 @@ class PolicyValueNet(nn.Module):
         )
         slot_emb = card_table[card_idx].reshape(card_idx.shape[0], -1)
 
-        # The hand span may contain N extra playability multi-hots appended after
-        # the hand multi-hot; n_total encodes how many 180-dim blocks are present.
-        hand_span = state[:, off_hand:off_decision]
-        n_total = hand_span.shape[-1] // encode.HAND_MULTIHOT_DIM
-        hand_multihot = hand_span[:, : encode.HAND_MULTIHOT_DIM]
-        extra_multihots = [
-            hand_span[
-                :, (k * encode.HAND_MULTIHOT_DIM) : ((k + 1) * encode.HAND_MULTIHOT_DIM)
-            ]
-            for k in range(1, n_total)
-        ]
+        # Hand multi-hot and any extra playability multi-hots.
+        hand_multihot, extra_multihots = self._extract_hand_blocks(
+            state, off_hand, off_decision
+        )
+        hand_emb, extra_embs = self._embed_hand_and_extras(
+            state, offsets, card_table, hand_multihot, extra_multihots
+        )
 
+        # Continuous features: excise card-index block and (pre-0.9) the stale
+        # hand-summary stripe that is now computed in-model.
         if self.arch.use_distinct_hand_model:
             hand_sum_off = offsets.hand_summary
             hand_sum_end = offsets.hand_summary_end
             prefix = state[:, :off_index]
             if hand_sum_end > hand_sum_off:
-                # Pre-0.9 frozen vector: stripe is physically present — excise it
-                # from the continuous prefix and read it for the hand encoder.
+                # Pre-0.9 frozen vector: excise the hand-summary stripe from the prefix.
                 continuous = torch.cat(
                     [
                         prefix[:, :hand_sum_off],
@@ -595,58 +592,17 @@ class PolicyValueNet(nn.Module):
                     ],
                     dim=-1,
                 )
-                hand_summary = state[:, hand_sum_off:hand_sum_end]
             else:
-                # Live v0.9+: stripe not in vector — continuous prefix is unchanged
-                # and the summary is derived in-model from the hand multi-hot.
                 continuous = torch.cat([prefix, state[:, off_decision:]], dim=-1)
-                hand_summary = hand_model.set_summary_from_multihot(
-                    hand_multihot, self.card_summary_matrix[1:]
-                )
-            hand_emb = hand_model.embed_card_set(
-                self.hand_encoder, hand_multihot, hand_summary
-            )
-            # Embed each extra multi-hot as a card set through the same hand encoder.
-            extra_embs = [
-                hand_model.embed_card_set(
-                    self.hand_encoder,
-                    mh,
-                    hand_model.set_summary_from_multihot(
-                        mh, self.card_summary_matrix[1:]
-                    ),
-                )
-                for mh in extra_multihots
-            ]
         else:
             continuous = torch.cat(
                 [state[:, :off_index], state[:, off_decision:]], dim=-1
             )
-            # Pool hand multi-hot through shared card table rows (skip padding row).
-            hand_emb = hand_model.pool_card_set(
-                hand_multihot, card_table[1:], self.arch.hand_pooling
-            )
-            # Extra multi-hots: same pooling mode as the hand.
-            extra_embs: list[torch.Tensor] = [
-                hand_model.pool_card_set(mh, card_table[1:], self.arch.hand_pooling)
-                for mh in extra_multihots
-            ]
 
         if not self.arch.tray_set_embedding:
             return torch.cat([continuous, slot_emb, hand_emb, *extra_embs], dim=-1)
 
-        # Tray-set embedding: the trailing TRAY_SIZE index columns become a
-        # derived multi-hot + set summary, embedded through the shared hand
-        # encoder as one more set vector beside the per-slot lookups.
-        tray_idx = card_idx[:, encode.N_BOARD_INDEX_SLOTS :]
-        tray_multihot = hand_model.multihot_from_indices(
-            tray_idx, encode.HAND_MULTIHOT_DIM
-        )
-        tray_summary = hand_model.set_summary_from_indices(
-            tray_idx, self.card_summary_matrix
-        )
-        tray_set_emb = hand_model.embed_card_set(
-            self.hand_encoder, tray_multihot, tray_summary
-        )
+        tray_set_emb = self._embed_tray_set(card_idx)
         return torch.cat(
             [continuous, slot_emb, tray_set_emb, hand_emb, *extra_embs], dim=-1
         )
@@ -686,7 +642,7 @@ class PolicyValueNet(nn.Module):
             state.shape[0], -1
         )
 
-        # Mutable board scalars [B, 15, 9] for each player.
+        # Mutable per-slot scalars [B, 15, 9] for each player.
         off_bme = encode.OFF_BOARD_ME
         off_bopp = encode.OFF_BOARD_OPP
         board_end = off_bopp + encode.BOARD_CONT_STRIPE_DIM
@@ -711,25 +667,21 @@ class PolicyValueNet(nn.Module):
         own_flat = _apply_board_attention(self.board_attn_me, own_tokens, own_empty)
         opp_flat = _apply_board_attention(self.board_attn_opp, opp_tokens, opp_empty)
 
-        # Build continuous prefix with board stripes excised (they rode inside
-        # the attention tokens). Boards are adjacent in the layout so one
-        # contiguous slice covers both.
-        hand_span = state[:, off_hand:off_decision]
-        n_total = hand_span.shape[-1] // encode.HAND_MULTIHOT_DIM
-        hand_multihot = hand_span[:, : encode.HAND_MULTIHOT_DIM]
-        extra_multihots = [
-            hand_span[
-                :, (k * encode.HAND_MULTIHOT_DIM) : ((k + 1) * encode.HAND_MULTIHOT_DIM)
-            ]
-            for k in range(1, n_total)
-        ]
+        # Hand multi-hot and any extra playability multi-hots.
+        hand_multihot, extra_multihots = self._extract_hand_blocks(
+            state, off_hand, off_decision
+        )
+        hand_emb, extra_embs = self._embed_hand_and_extras(
+            state, offsets, card_table, hand_multihot, extra_multihots
+        )
 
+        # Continuous prefix: excise the board stripes (re-folded into the attention
+        # tokens) and, for pre-0.9 frozen vectors, the stale hand-summary stripe.
         if self.arch.use_distinct_hand_model:
             hand_sum_off = offsets.hand_summary
             hand_sum_end = offsets.hand_summary_end
             if hand_sum_end > hand_sum_off:
-                # Pre-0.9 frozen vector: excise board_me + board_opp AND
-                # hand_summary from the prefix; read summary from state.
+                # Pre-0.9: excise board_me + board_opp AND hand_summary.
                 continuous = torch.cat(
                     [
                         state[:, :off_bme],
@@ -739,10 +691,8 @@ class PolicyValueNet(nn.Module):
                     ],
                     dim=-1,
                 )
-                hand_summary = state[:, hand_sum_off:hand_sum_end]
             else:
-                # Live v0.9+: excise only board_me + board_opp; derive summary
-                # in-model from the hand multi-hot.
+                # Live v0.9+: excise only board_me + board_opp.
                 continuous = torch.cat(
                     [
                         state[:, :off_bme],
@@ -751,24 +701,8 @@ class PolicyValueNet(nn.Module):
                     ],
                     dim=-1,
                 )
-                hand_summary = hand_model.set_summary_from_multihot(
-                    hand_multihot, self.card_summary_matrix[1:]
-                )
-            hand_emb = hand_model.embed_card_set(
-                self.hand_encoder, hand_multihot, hand_summary
-            )
-            extra_embs = [
-                hand_model.embed_card_set(
-                    self.hand_encoder,
-                    mh,
-                    hand_model.set_summary_from_multihot(
-                        mh, self.card_summary_matrix[1:]
-                    ),
-                )
-                for mh in extra_multihots
-            ]
         else:
-            # Excise board_me + board_opp from the prefix only.
+            # No distinct hand model: excise only board_me + board_opp.
             continuous = torch.cat(
                 [
                     state[:, :off_bme],
@@ -777,33 +711,14 @@ class PolicyValueNet(nn.Module):
                 ],
                 dim=-1,
             )
-            # Pool hand multi-hot through shared card table rows (skip padding row).
-            hand_emb = hand_model.pool_card_set(
-                hand_multihot, card_table[1:], self.arch.hand_pooling
-            )
-            extra_embs: list[torch.Tensor] = [
-                hand_model.pool_card_set(mh, card_table[1:], self.arch.hand_pooling)
-                for mh in extra_multihots
-            ]
 
-        # Tray: identical to the standard path (tray_flat already computed).
         if not self.arch.tray_set_embedding:
             return torch.cat(
                 [continuous, own_flat, opp_flat, tray_flat, hand_emb, *extra_embs],
                 dim=-1,
             )
 
-        # Tray-set embedding through the shared hand encoder.
-        tray_idx = card_idx[:, encode.N_BOARD_INDEX_SLOTS :]
-        tray_multihot = hand_model.multihot_from_indices(
-            tray_idx, encode.HAND_MULTIHOT_DIM
-        )
-        tray_summary = hand_model.set_summary_from_indices(
-            tray_idx, self.card_summary_matrix
-        )
-        tray_set_emb = hand_model.embed_card_set(
-            self.hand_encoder, tray_multihot, tray_summary
-        )
+        tray_set_emb = self._embed_tray_set(card_idx)
         return torch.cat(
             [
                 continuous,
@@ -816,6 +731,89 @@ class PolicyValueNet(nn.Module):
             ],
             dim=-1,
         )
+
+    @staticmethod
+    def _extract_hand_blocks(
+        state: torch.Tensor, off_hand: int, off_decision: int
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """Split the hand span into the hand multi-hot and trailing extra multi-hots.
+
+        The hand span ``state[:, off_hand:off_decision]`` may contain N appended
+        playability multi-hots after the 180-dim hand multi-hot block.  Returns
+        ``(hand_multihot, extra_multihots)``."""
+        hand_span = state[:, off_hand:off_decision]
+        n_total = hand_span.shape[-1] // encode.HAND_MULTIHOT_DIM
+        hand_multihot = hand_span[:, : encode.HAND_MULTIHOT_DIM]
+        extra_multihots = [
+            hand_span[
+                :, (k * encode.HAND_MULTIHOT_DIM) : ((k + 1) * encode.HAND_MULTIHOT_DIM)
+            ]
+            for k in range(1, n_total)
+        ]
+        return hand_multihot, extra_multihots
+
+    def _embed_hand_and_extras(
+        self,
+        state: torch.Tensor,
+        offsets: StateEmbedOffsets,
+        card_table: torch.Tensor,
+        hand_multihot: torch.Tensor,
+        extra_multihots: list[torch.Tensor],
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """Embed the hand multi-hot and any extra playability multi-hots.
+
+        Branches on ``use_distinct_hand_model``:
+
+        * True  — each multi-hot runs through the hand encoder with a per-set
+          summary; the summary is read from the state vector for pre-0.9 frozen
+          artifacts, or derived in-model for live v0.9+ vectors.
+        * False — each multi-hot is mean-pooled through the shared card-table rows.
+
+        Returns ``(hand_emb, extra_embs)``; does not touch the continuous prefix."""
+        if self.arch.use_distinct_hand_model:
+            hand_sum_off = offsets.hand_summary
+            hand_sum_end = offsets.hand_summary_end
+            if hand_sum_end > hand_sum_off:
+                # Pre-0.9 frozen vector: read the summary stripe from the state.
+                hand_summary = state[:, hand_sum_off:hand_sum_end]
+            else:
+                # Live v0.9+: derive summary in-model from the hand multi-hot.
+                hand_summary = hand_model.set_summary_from_multihot(
+                    hand_multihot, self.card_summary_matrix[1:]
+                )
+            hand_emb = hand_model.embed_card_set(
+                self.hand_encoder, hand_multihot, hand_summary
+            )
+            extra_embs: list[torch.Tensor] = [
+                hand_model.embed_card_set(
+                    self.hand_encoder,
+                    mh,
+                    hand_model.set_summary_from_multihot(
+                        mh, self.card_summary_matrix[1:]
+                    ),
+                )
+                for mh in extra_multihots
+            ]
+        else:
+            hand_emb = hand_model.pool_card_set(
+                hand_multihot, card_table[1:], self.arch.hand_pooling
+            )
+            extra_embs = [
+                hand_model.pool_card_set(mh, card_table[1:], self.arch.hand_pooling)
+                for mh in extra_multihots
+            ]
+        return hand_emb, extra_embs
+
+    def _embed_tray_set(self, card_idx: torch.Tensor) -> torch.Tensor:
+        """Embed the tray cards as a card set through the shared hand encoder."""
+        tray_idx = card_idx[:, encode.N_BOARD_INDEX_SLOTS :]
+        tray_multihot = hand_model.multihot_from_indices(
+            tray_idx, encode.HAND_MULTIHOT_DIM
+        )
+        tray_summary = hand_model.set_summary_from_indices(
+            tray_idx, self.card_summary_matrix
+        )
+        return hand_model.embed_card_set(self.hand_encoder, tray_multihot, tray_summary)
 
     def _embed_choices(
         self, choices: torch.Tensor, card_table: torch.Tensor

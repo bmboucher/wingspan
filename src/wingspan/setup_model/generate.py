@@ -31,7 +31,7 @@ import random
 
 import numpy as np
 
-from wingspan import cards, state
+from wingspan import cards, sampling, state
 from wingspan.engine import helpers
 from wingspan.setup_model import candidates, encode
 
@@ -195,17 +195,6 @@ def _softmax_sample_without_replacement(
         if not np.isfinite(total) or total <= 0.0:
             pick_pos = rng.randrange(len(remaining))
         else:
-            pick_pos = _weighted_index(rng, (sub / total).tolist())
+            pick_pos = sampling.weighted_index(rng, (sub / total).tolist())
         chosen.append(remaining.pop(pick_pos))
     return chosen
-
-
-def _weighted_index(rng: random.Random, weights: list[float]) -> int:
-    """Index sampled in proportion to ``weights`` with the seeded ``rng``."""
-    roll = rng.random()
-    acc = 0.0
-    for i, weight in enumerate(weights):
-        acc += weight
-        if roll < acc:
-            return i
-    return len(weights) - 1

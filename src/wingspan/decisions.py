@@ -662,6 +662,37 @@ _DECISION_FAMILY_INDEX: dict[type[Decision[typing.Any]], int] = {
 }
 
 
+def _validate_decision_registry() -> None:
+    """Assert ALL_DECISION_CLASSES and _DECISION_FAMILY are exactly in sync.
+
+    Called once at import time so any mismatch (a new Decision subclass
+    appended to ALL_DECISION_CLASSES but not added to _DECISION_FAMILY, or
+    vice-versa) becomes an immediate import error rather than a silent
+    runtime KeyError on the first game that reaches that decision."""
+    all_set = set(ALL_DECISION_CLASSES)
+    mapped_set = set(_DECISION_FAMILY.keys())
+
+    # Collect both directions so the error message names every missing class.
+    missing_from_family = all_set - mapped_set
+    extra_in_family = mapped_set - all_set
+    errors: list[str] = []
+    if missing_from_family:
+        names = sorted(cls.__name__ for cls in missing_from_family)
+        errors.append(
+            f"in ALL_DECISION_CLASSES but missing from _DECISION_FAMILY: {names}"
+        )
+    if extra_in_family:
+        names = sorted(cls.__name__ for cls in extra_in_family)
+        errors.append(
+            f"in _DECISION_FAMILY but missing from ALL_DECISION_CLASSES: {names}"
+        )
+    if errors:
+        raise AssertionError("Decision registry mismatch — " + "; ".join(errors))
+
+
+_validate_decision_registry()
+
+
 def family_for(decision_class: type[Decision[typing.Any]]) -> DecisionFamily:
     """Return the judgment family a decision class belongs to.
 

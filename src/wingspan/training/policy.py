@@ -29,7 +29,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wingspan import decisions, engine, model
+from wingspan import decisions, engine, model, sampling
 
 
 def sample_action(
@@ -96,7 +96,7 @@ def sample_index_from_probs(
     total = float(probs.sum())
     if not np.isfinite(total) or total <= 0.0:
         return rng.randrange(n_choices)
-    return _weighted_index(rng, (probs / total).tolist())
+    return sampling.weighted_index(rng, (probs / total).tolist())
 
 
 def behavior_logp(probs: np.ndarray, chosen_idx: int, n_choices: int) -> float:
@@ -174,15 +174,3 @@ def policy_probs(
 
 
 ###### PRIVATE #######
-
-
-def _weighted_index(rng: random.Random, weights: list[float]) -> int:
-    """Return an index sampled in proportion to ``weights`` using the seeded
-    ``rng`` (not numpy's global state) so episodes stay reproducible."""
-    roll = rng.random()
-    acc = 0.0
-    for i, weight in enumerate(weights):
-        acc += weight
-        if roll < acc:
-            return i
-    return len(weights) - 1

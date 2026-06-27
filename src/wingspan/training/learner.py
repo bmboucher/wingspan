@@ -117,6 +117,32 @@ def update(
 ###### PRIVATE #######
 
 
+def _empty_stats() -> UpdateStats:
+    """Zero-valued ``UpdateStats`` for the no-steps-to-train early-return path."""
+    return UpdateStats(
+        loss=0.0,
+        policy_loss=0.0,
+        value_loss=0.0,
+        entropy=0.0,
+        grad_norm=0.0,
+        advantage_mean=0.0,
+        advantage_std=0.0,
+        n_steps=0,
+    )
+
+
+def _normalize_advantages(
+    advantages: list[float],
+) -> tuple[float, float, list[float]]:
+    """Normalize ``advantages`` to zero mean and unit std (TRAINING.md §3.3).
+
+    Returns ``(mean, std, normalized_list)``."""
+    adv_arr = np.array(advantages, dtype=np.float32)
+    mean = float(adv_arr.mean())
+    std = float(adv_arr.std())
+    return mean, std, ((adv_arr - mean) / (std + _ADV_STD_EPS)).tolist()
+
+
 def _update_single_pass(
     net: model.PolicyValueNet,
     optimizer: optim.Optimizer,
@@ -132,17 +158,7 @@ def _update_single_pass(
     """
     flat_steps, returns = _flatten(records, cfg)
     if not flat_steps:
-        return UpdateStats(
-            loss=0.0,
-            policy_loss=0.0,
-            value_loss=0.0,
-            entropy=0.0,
-            grad_norm=0.0,
-            advantage_mean=0.0,
-            advantage_std=0.0,
-            imitation_loss=0.0,
-            n_steps=0,
-        )
+        return _empty_stats()
 
     # Forward each bucket separately (padding stays narrow) and keep the
     # graph-carrying tensors so a single backward covers the whole batch.
@@ -247,22 +263,10 @@ def _update_reuse(
     # Pre-compute fixed advantages from captured data (never re-estimated).
     flat_steps, advantages, value_targets = _flatten_with_advantages(records, cfg)
     if not flat_steps:
-        return UpdateStats(
-            loss=0.0,
-            policy_loss=0.0,
-            value_loss=0.0,
-            entropy=0.0,
-            grad_norm=0.0,
-            advantage_mean=0.0,
-            advantage_std=0.0,
-            n_steps=0,
-        )
+        return _empty_stats()
 
     # Normalize advantages once across the whole batch.
-    adv_arr = np.array(advantages, dtype=np.float32)
-    adv_mean = float(adv_arr.mean())
-    adv_std = float(adv_arr.std())
-    norm_adv = ((adv_arr - adv_mean) / (adv_std + _ADV_STD_EPS)).tolist()
+    adv_mean, adv_std, norm_adv = _normalize_advantages(advantages)
 
     # Fixed per-step scalars (stable across epochs; only the forward graph changes).
     old_logp_list = [step.behavior_logp for step in flat_steps]
@@ -619,17 +623,7 @@ def _update_single_pass_minibatched(
     """
     flat_steps, returns = _flatten(records, cfg)
     if not flat_steps:
-        return UpdateStats(
-            loss=0.0,
-            policy_loss=0.0,
-            value_loss=0.0,
-            entropy=0.0,
-            grad_norm=0.0,
-            advantage_mean=0.0,
-            advantage_std=0.0,
-            imitation_loss=0.0,
-            n_steps=0,
-        )
+        return _empty_stats()
 
     N = len(flat_steps)
 
@@ -784,22 +778,10 @@ def _update_reuse_minibatched(
     """
     flat_steps, advantages, value_targets = _flatten_with_advantages(records, cfg)
     if not flat_steps:
-        return UpdateStats(
-            loss=0.0,
-            policy_loss=0.0,
-            value_loss=0.0,
-            entropy=0.0,
-            grad_norm=0.0,
-            advantage_mean=0.0,
-            advantage_std=0.0,
-            n_steps=0,
-        )
+        return _empty_stats()
 
     N = len(flat_steps)
-    adv_arr = np.array(advantages, dtype=np.float32)
-    adv_mean = float(adv_arr.mean())
-    adv_std = float(adv_arr.std())
-    norm_adv = ((adv_arr - adv_mean) / (adv_std + _ADV_STD_EPS)).tolist()
+    adv_mean, adv_std, norm_adv = _normalize_advantages(advantages)
 
     old_logp_list = [step.behavior_logp for step in flat_steps]
     n_epochs = cfg.training.ppo_reuse_epochs if ppo else 1

@@ -17,9 +17,9 @@ the current game state before prompting. Suitable for human-vs-AI play via
 `wingspan play`.
 
 **`display.py`** — Human-readable formatters for cards and game state. Key functions:
-`format_bird(bird)`, `format_bonus_card(bc)`, `format_game_state(gs)`,
-`format_decision(decision)`. Output is plain text for terminal display.
+`format_bird(bird)`, `format_bonus(bc)`, `format_board(gs)`. Output is plain text
+for terminal display.
 
-**`interactive.py`** — Terminal selection-form widget. `select_from(choices, prompt)`
+**`interactive.py`** — Terminal selection-form widget. `select_form(choices, prompt)`
 renders a numbered list and reads a validated integer from stdin. Used by `cli_agent`
 to present each `Decision`'s `choices` list.
