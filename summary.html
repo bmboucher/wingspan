@@ -195,9 +195,9 @@ tr.flash > td { animation: rowflash 1.4s ease-out; }
 <body>
 <nav><span class='nav-brand'>Wingspan</span><span class='nav-run'>2026.06.26-v1.0</span><span class='nav-run'>v1.0</span><div class='nav-tabs'><button class='nav-tab active' data-tab='model'>Model</button><button class='nav-tab' data-tab='birds'>Birds</button></div></nav>
 <div id='tab-model'><div class='container'>
-<div class='section' id='arch'><div class='section-header' style='color:#a855f7'>Architecture</div><div class='section-sub'>Network flow — single-card + multi-card encoders → state encoder ⊕ choice encoder → decision heads + value head · connected setup net</div><div class='arch-svg-wrap'><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1446" width="100%" style="display:block;max-width:960px;" role="img" aria-label="PolicyValueNet architecture: Single-Card Encoder (output reused ×33 in the state input, ×1 per choice) and Multi-Card Encoder feeding State Encoder (M=128) and Choice Encoder (N=128), merging into Value Head and 12 Decision Heads, 776477 params total; separate Setup Model (active, 222274 params); board self-attention over each seat&#x27;s 15 board slots before the State Encoder">
+<div class='section' id='arch'><div class='section-header' style='color:#a855f7'>Architecture</div><div class='section-sub'>Network flow — single-card + multi-card encoders → state encoder ⊕ choice encoder → decision heads + value head · connected setup net</div><div class='arch-svg-wrap'><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1413" width="100%" style="display:block;max-width:960px;" role="img" aria-label="PolicyValueNet architecture: Single-Card Encoder (output reused ×33 in the state input, ×1 per choice) and Multi-Card Encoder feeding State Encoder (M=128) and Choice Encoder (N=128), merging into Value Head and 12 Decision Heads, 776477 params total; separate Setup Model (active, 222274 params); board self-attention over each seat&#x27;s 15 board slots before the State Encoder">
 <title>PolicyValueNet · 776477 params · M=128 N=128 ×12 heads · setup 222274 (active)</title>
-<rect width="960" height="1446" fill="#f1f5f9"/>
+<rect width="960" height="1413" fill="#f1f5f9"/>
 <defs><marker id="arr" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,1 L8.5,5 L0,9 Z" fill="#94a3b8"/></marker></defs>
 <g>
 <title>Single-Card Encoder · 14464 params · 225 → 64 · one shared column per card, reused across board / tray / hand / choice slots</title>
@@ -205,243 +205,241 @@ tr.flash > td { animation: rowflash 1.4s ease-out; }
 <rect x="44" y="22" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
 <text x="165" y="39" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">card features · 225</text>
 </g>
-<defs><clipPath id="clip20-56"><rect x="20" y="56" width="290" height="132" rx="8"/></clipPath></defs>
-<rect x="20" y="56" width="290" height="132" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="20" y="56" width="4" height="132" fill="#a855f7" clip-path="url(#clip20-56)"/>
+<defs><clipPath id="clip20-56"><rect x="20" y="56" width="290" height="99" rx="8"/></clipPath></defs>
+<rect x="20" y="56" width="290" height="99" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="20" y="56" width="4" height="99" fill="#a855f7" clip-path="url(#clip20-56)"/>
 <text x="165" y="81" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">SINGLE-CARD ENCODER · per-card MLP</text>
 <rect x="32" y="108" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
 <text x="167" y="127" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
 <g class="arch-paramclick" data-params-block="embed"><text x="294" y="140" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">14464</text></g>
-<g class="arch-paramclick" data-params-block="embed"><text x="298" y="192" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#a855f7" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">14464</text></g>
-<rect x="44" y="196" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="165" y="213" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">card embedding · 64</text>
-</g>
-<g>
-<title>Hand Pooling · 0 params · 180 → 129 · pools hand / playable / egg-blocked multi-hots through the shared card table · mode: concat_max_sum</title>
-<g class="arch-click" data-panel="hand"><title>Click to inspect this vector</title>
-<rect x="358" y="22" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="479" y="39" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">hand multi-hot · 180</text>
-</g>
-<defs><clipPath id="clip334-56"><rect x="334" y="56" width="290" height="132" rx="8"/></clipPath></defs>
-<rect x="334" y="56" width="290" height="132" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="334" y="56" width="4" height="132" fill="#d946ef" clip-path="url(#clip334-56)"/>
-<text x="479" y="81" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">HAND POOLING · via card table</text>
-<rect x="346" y="108" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="481" y="127" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">card-table lookup</text>
-<rect x="346" y="141" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="481" y="160" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">pool: max ⊕ sum ⊕ count</text>
-<g class="arch-paramclick" data-params-block="total"><text x="612" y="192" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#d946ef" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">0 params</text></g>
-<rect x="358" y="196" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="479" y="213" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">pooled hand · 129</text>
+<g class="arch-paramclick" data-params-block="embed"><text x="298" y="159" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#a855f7" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">14464</text></g>
+<rect x="44" y="163" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="165" y="180" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">card embedding · 64</text>
 </g>
 <g>
 <title>State Encoder · 406400 params · 3045 → M=128</title>
 <g class="arch-click" data-panel="state"><title>Click to inspect this vector</title>
-<rect x="44" y="550" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="165" y="567" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">state input · 3045</text>
+<rect x="44" y="517" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="165" y="534" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">state input · 3045</text>
 </g>
-<defs><clipPath id="clip20-584"><rect x="20" y="584" width="290" height="417" rx="8"/></clipPath></defs>
-<rect x="20" y="584" width="290" height="417" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="20" y="584" width="4" height="417" fill="#3b82f6" clip-path="url(#clip20-584)"/>
-<text x="165" y="609" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">STATE ENCODER</text>
-<rect x="32" y="636" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="167" y="655" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
-<g class="arch-paramclick" data-params-block="trunk"><text x="294" y="668" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">389888</text></g>
-<rect x="32" y="669" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="167" y="688" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="32" y="702" width="270" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="167" y="721" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
-<rect x="32" y="735" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="167" y="754" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
-<g class="arch-paramclick" data-params-block="trunk"><text x="294" y="767" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">16512</text></g>
-<rect x="32" y="768" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="167" y="787" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="32" y="801" width="270" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="167" y="820" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
-<g class="arch-paramclick" data-params-block="trunk"><text x="298" y="1005" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#3b82f6" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">406400</text></g>
-<rect x="44" y="1009" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="165" y="1026" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">state embedding · 128</text>
+<defs><clipPath id="clip20-551"><rect x="20" y="551" width="290" height="417" rx="8"/></clipPath></defs>
+<rect x="20" y="551" width="290" height="417" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="20" y="551" width="4" height="417" fill="#3b82f6" clip-path="url(#clip20-551)"/>
+<text x="165" y="576" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">STATE ENCODER</text>
+<rect x="32" y="603" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="167" y="622" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
+<g class="arch-paramclick" data-params-block="trunk"><text x="294" y="635" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">389888</text></g>
+<rect x="32" y="636" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="167" y="655" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="32" y="669" width="270" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="167" y="688" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
+<rect x="32" y="702" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="167" y="721" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
+<g class="arch-paramclick" data-params-block="trunk"><text x="294" y="734" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">16512</text></g>
+<rect x="32" y="735" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="167" y="754" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="32" y="768" width="270" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="167" y="787" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
+<g class="arch-paramclick" data-params-block="trunk"><text x="298" y="972" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#3b82f6" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">406400</text></g>
+<rect x="44" y="976" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="165" y="993" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">state embedding · 128</text>
 </g>
 <g>
 <title>Choice Encoder · 51840 params · 275 → N=128 · run once per offered choice</title>
 <g class="arch-click" data-panel="choice"><title>Click to inspect this vector</title>
-<rect x="358" y="550" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="479" y="567" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">choice input · 275</text>
+<rect x="358" y="517" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="479" y="534" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">choice input · 275</text>
 </g>
-<defs><clipPath id="clip334-584"><rect x="334" y="584" width="290" height="417" rx="8"/></clipPath></defs>
-<rect x="334" y="584" width="290" height="417" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="334" y="584" width="4" height="417" fill="#0ea5e9" clip-path="url(#clip334-584)"/>
-<text x="479" y="609" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">CHOICE ENCODER</text>
-<rect x="346" y="636" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="481" y="655" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
-<g class="arch-paramclick" data-params-block="choice"><text x="608" y="668" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">35328</text></g>
-<rect x="346" y="669" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="481" y="688" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="346" y="702" width="270" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="481" y="721" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
-<rect x="346" y="735" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="481" y="754" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
-<g class="arch-paramclick" data-params-block="choice"><text x="608" y="767" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">16512</text></g>
-<g class="arch-paramclick" data-params-block="choice"><text x="612" y="1005" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#0ea5e9" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">51840</text></g>
-<rect x="358" y="1009" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="479" y="1026" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">choice embedding · 128</text>
+<defs><clipPath id="clip334-551"><rect x="334" y="551" width="290" height="417" rx="8"/></clipPath></defs>
+<rect x="334" y="551" width="290" height="417" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="334" y="551" width="4" height="417" fill="#0ea5e9" clip-path="url(#clip334-551)"/>
+<text x="479" y="576" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">CHOICE ENCODER</text>
+<rect x="346" y="603" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="481" y="622" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
+<g class="arch-paramclick" data-params-block="choice"><text x="608" y="635" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">35328</text></g>
+<rect x="346" y="636" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="481" y="655" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="346" y="669" width="270" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="481" y="688" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
+<rect x="346" y="702" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="481" y="721" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
+<g class="arch-paramclick" data-params-block="choice"><text x="608" y="734" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">16512</text></g>
+<g class="arch-paramclick" data-params-block="choice"><text x="612" y="972" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#0ea5e9" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">51840</text></g>
+<rect x="358" y="976" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="479" y="993" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">choice embedding · 128</text>
 </g>
 <g>
 <title>Setup Model (active) · 222274 params incl. frozen card/hand encoder copies · actor-critic mode</title>
 <g class="arch-click" data-panel="setup"><title>Click to inspect this vector</title>
-<rect x="672" y="550" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="793" y="567" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">setup input · 618</text>
+<rect x="672" y="517" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="793" y="534" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">setup input · 618</text>
 </g>
-<defs><clipPath id="clip648-584"><rect x="648" y="584" width="290" height="66" rx="8"/></clipPath></defs>
-<rect x="648" y="584" width="290" height="66" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="648" y="584" width="4" height="66" fill="#14b8a6" clip-path="url(#clip648-584)"/>
-<text x="793" y="609" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">SETUP INPUT · shared embedder</text>
+<defs><clipPath id="clip648-551"><rect x="648" y="551" width="290" height="66" rx="8"/></clipPath></defs>
+<rect x="648" y="551" width="290" height="66" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="648" y="551" width="4" height="66" fill="#14b8a6" clip-path="url(#clip648-551)"/>
+<text x="793" y="576" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">SETUP INPUT · shared embedder</text>
 
-<g class="arch-paramclick" data-params-block="total"><text x="926" y="654" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#14b8a6" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">47168</text></g>
-<polyline points="793,650 793,660 715,660 715,670" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
-<polyline points="793,650 793,660 860,660 860,670" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<g class="arch-paramclick" data-params-block="total"><text x="926" y="621" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#14b8a6" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">47168</text></g>
+<polyline points="793,617 793,627 715,627 715,637" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<polyline points="793,617 793,627 860,627 860,637" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
 <g><title>Setup Value Head · 87553 params · 618 → 1 (predicted end-game score margin)</title>
-<defs><clipPath id="clip648-670"><rect x="648" y="670" width="135" height="331" rx="8"/></clipPath></defs>
-<rect x="648" y="670" width="135" height="331" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="648" y="670" width="4" height="331" fill="#14b8a6" clip-path="url(#clip648-670)"/>
-<text x="715" y="695" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">SETUP VALUE</text>
-<rect x="660" y="722" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="717" y="741" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
-<g class="arch-paramclick" data-params-block="total"><text x="767" y="754" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">79232</text></g>
-<rect x="660" y="755" width="115" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="717" y="774" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="660" y="788" width="115" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="717" y="807" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
-<rect x="660" y="821" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="717" y="840" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
-<g class="arch-paramclick" data-params-block="total"><text x="767" y="853" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">8256</text></g>
-<rect x="660" y="854" width="115" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="717" y="873" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="660" y="887" width="115" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="717" y="906" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
-<rect x="660" y="920" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="717" y="939" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →1</text>
-<g class="arch-paramclick" data-params-block="total"><text x="767" y="952" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">65</text></g>
-<g class="arch-paramclick" data-params-block="total"><text x="771" y="1005" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#14b8a6" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">87553</text></g>
-<rect x="672" y="1009" width="87" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="715" y="1026" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">score margin · 1</text>
+<defs><clipPath id="clip648-637"><rect x="648" y="637" width="135" height="331" rx="8"/></clipPath></defs>
+<rect x="648" y="637" width="135" height="331" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="648" y="637" width="4" height="331" fill="#14b8a6" clip-path="url(#clip648-637)"/>
+<text x="715" y="662" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">SETUP VALUE</text>
+<rect x="660" y="689" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="717" y="708" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
+<g class="arch-paramclick" data-params-block="total"><text x="767" y="721" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">79232</text></g>
+<rect x="660" y="722" width="115" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="717" y="741" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="660" y="755" width="115" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="717" y="774" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
+<rect x="660" y="788" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="717" y="807" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
+<g class="arch-paramclick" data-params-block="total"><text x="767" y="820" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">8256</text></g>
+<rect x="660" y="821" width="115" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="717" y="840" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="660" y="854" width="115" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="717" y="873" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
+<rect x="660" y="887" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="717" y="906" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →1</text>
+<g class="arch-paramclick" data-params-block="total"><text x="767" y="919" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">65</text></g>
+<g class="arch-paramclick" data-params-block="total"><text x="771" y="972" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#14b8a6" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">87553</text></g>
+<rect x="672" y="976" width="87" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="715" y="993" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">score margin · 1</text>
 </g>
 <g><title>Setup Policy Head · 87553 params · 618 → 1 (log-probabilities over kept-card subsets)</title>
-<defs><clipPath id="clip793-670"><rect x="793" y="670" width="135" height="331" rx="8"/></clipPath></defs>
-<rect x="793" y="670" width="135" height="331" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="793" y="670" width="4" height="331" fill="#14b8a6" clip-path="url(#clip793-670)"/>
-<text x="860" y="695" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">SETUP POLICY</text>
-<rect x="805" y="722" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="862" y="741" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
-<g class="arch-paramclick" data-params-block="total"><text x="912" y="754" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">79232</text></g>
-<rect x="805" y="755" width="115" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="862" y="774" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="805" y="788" width="115" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="862" y="807" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
-<rect x="805" y="821" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="862" y="840" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
-<g class="arch-paramclick" data-params-block="total"><text x="912" y="853" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">8256</text></g>
-<rect x="805" y="854" width="115" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="862" y="873" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="805" y="887" width="115" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="862" y="906" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
-<rect x="805" y="920" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="862" y="939" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →1</text>
-<g class="arch-paramclick" data-params-block="total"><text x="912" y="952" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">65</text></g>
-<g class="arch-paramclick" data-params-block="total"><text x="916" y="1005" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#14b8a6" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">87553</text></g>
-<rect x="817" y="1009" width="87" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="860" y="1026" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">log policy · 1</text>
+<defs><clipPath id="clip793-637"><rect x="793" y="637" width="135" height="331" rx="8"/></clipPath></defs>
+<rect x="793" y="637" width="135" height="331" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="793" y="637" width="4" height="331" fill="#14b8a6" clip-path="url(#clip793-637)"/>
+<text x="860" y="662" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">SETUP POLICY</text>
+<rect x="805" y="689" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="862" y="708" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →128</text>
+<g class="arch-paramclick" data-params-block="total"><text x="912" y="721" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">79232</text></g>
+<rect x="805" y="722" width="115" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="862" y="741" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="805" y="755" width="115" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="862" y="774" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
+<rect x="805" y="788" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="862" y="807" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
+<g class="arch-paramclick" data-params-block="total"><text x="912" y="820" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">8256</text></g>
+<rect x="805" y="821" width="115" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="862" y="840" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="805" y="854" width="115" height="28" rx="4" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="862" y="873" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#f59e0b" text-anchor="middle">Dropout .05</text>
+<rect x="805" y="887" width="115" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="862" y="906" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →1</text>
+<g class="arch-paramclick" data-params-block="total"><text x="912" y="919" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">65</text></g>
+<g class="arch-paramclick" data-params-block="total"><text x="916" y="972" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#14b8a6" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">87553</text></g>
+<rect x="817" y="976" width="87" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="860" y="993" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">log policy · 1</text>
 </g>
 </g>
 <g>
 <title>Value Head · 12481 params · 128 → 1</title>
-<rect x="44" y="1099" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="165" y="1116" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">state embedding · 128</text>
-<defs><clipPath id="clip20-1133"><rect x="20" y="1133" width="290" height="231" rx="8"/></clipPath></defs>
-<rect x="20" y="1133" width="290" height="231" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="20" y="1133" width="4" height="231" fill="#10b981" clip-path="url(#clip20-1133)"/>
-<text x="165" y="1158" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">VALUE HEAD</text>
-<rect x="32" y="1185" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="167" y="1204" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
-<g class="arch-paramclick" data-params-block="value"><text x="294" y="1217" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">8256</text></g>
-<rect x="32" y="1218" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="167" y="1237" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="32" y="1251" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="167" y="1270" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
-<g class="arch-paramclick" data-params-block="value"><text x="294" y="1283" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">4160</text></g>
-<rect x="32" y="1284" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="167" y="1303" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="32" y="1317" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="167" y="1336" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →1</text>
-<g class="arch-paramclick" data-params-block="value"><text x="294" y="1349" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">65</text></g>
-<g class="arch-paramclick" data-params-block="value"><text x="298" y="1368" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#10b981" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">12481</text></g>
-<rect x="44" y="1372" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="165" y="1389" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">value · 1</text>
+<rect x="44" y="1066" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="165" y="1083" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">state embedding · 128</text>
+<defs><clipPath id="clip20-1100"><rect x="20" y="1100" width="290" height="231" rx="8"/></clipPath></defs>
+<rect x="20" y="1100" width="290" height="231" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="20" y="1100" width="4" height="231" fill="#10b981" clip-path="url(#clip20-1100)"/>
+<text x="165" y="1125" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">VALUE HEAD</text>
+<rect x="32" y="1152" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="167" y="1171" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
+<g class="arch-paramclick" data-params-block="value"><text x="294" y="1184" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">8256</text></g>
+<rect x="32" y="1185" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="167" y="1204" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="32" y="1218" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="167" y="1237" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
+<g class="arch-paramclick" data-params-block="value"><text x="294" y="1250" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">4160</text></g>
+<rect x="32" y="1251" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="167" y="1270" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="32" y="1284" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="167" y="1303" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →1</text>
+<g class="arch-paramclick" data-params-block="value"><text x="294" y="1316" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">65</text></g>
+<g class="arch-paramclick" data-params-block="value"><text x="298" y="1335" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#10b981" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">12481</text></g>
+<rect x="44" y="1339" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="165" y="1356" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">value · 1</text>
 </g>
 <g>
 <title>Decision Head ×12 · 20673 params each · 248076 total · 256 → 1 score per offered choice</title>
-<rect x="358" y="1099" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1" stroke-dasharray="4,3"/>
-<text x="479" y="1116" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">state ⊕ choice · 256</text>
-<rect x="340" y="1139" width="290" height="231" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="337" y="1136" width="290" height="231" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<defs><clipPath id="clip334-1133"><rect x="334" y="1133" width="290" height="231" rx="8"/></clipPath></defs>
-<rect x="334" y="1133" width="290" height="231" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="5,3"/>
-<rect x="334" y="1133" width="4" height="231" fill="#f97316" clip-path="url(#clip334-1133)"/>
-<text x="479" y="1158" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">DECISION HEAD</text>
-<rect x="581" y="1143" width="33" height="18" rx="9" fill="#fde8d8"/><text x="597" y="1156" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="10" font-weight="700" fill="#f97316" text-anchor="middle">×12</text>
-<rect x="346" y="1185" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="481" y="1204" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
-<g class="arch-paramclick" data-params-block="scorer"><text x="608" y="1217" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">16448</text></g>
-<rect x="346" y="1218" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="481" y="1237" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="346" y="1251" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="481" y="1270" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
-<g class="arch-paramclick" data-params-block="scorer"><text x="608" y="1283" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">4160</text></g>
-<rect x="346" y="1284" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
-<text x="481" y="1303" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
-<rect x="346" y="1317" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="481" y="1336" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →1</text>
-<g class="arch-paramclick" data-params-block="scorer"><text x="608" y="1349" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">65</text></g>
-<g class="arch-paramclick" data-params-block="scorer"><text x="612" y="1368" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#f97316" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">20673 each</text></g>
-<rect x="358" y="1372" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1" stroke-dasharray="4,3"/>
-<text x="479" y="1389" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">choice score · 1</text>
+<rect x="358" y="1066" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="479" y="1083" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">state ⊕ choice · 256</text>
+<rect x="340" y="1106" width="290" height="231" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="337" y="1103" width="290" height="231" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<defs><clipPath id="clip334-1100"><rect x="334" y="1100" width="290" height="231" rx="8"/></clipPath></defs>
+<rect x="334" y="1100" width="290" height="231" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="5,3"/>
+<rect x="334" y="1100" width="4" height="231" fill="#f97316" clip-path="url(#clip334-1100)"/>
+<text x="479" y="1125" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">DECISION HEAD</text>
+<rect x="581" y="1110" width="33" height="18" rx="9" fill="#fde8d8"/><text x="597" y="1123" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="10" font-weight="700" fill="#f97316" text-anchor="middle">×12</text>
+<rect x="346" y="1152" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="481" y="1171" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
+<g class="arch-paramclick" data-params-block="scorer"><text x="608" y="1184" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">16448</text></g>
+<rect x="346" y="1185" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="481" y="1204" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="346" y="1218" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="481" y="1237" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →64</text>
+<g class="arch-paramclick" data-params-block="scorer"><text x="608" y="1250" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">4160</text></g>
+<rect x="346" y="1251" width="270" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="481" y="1270" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">relu</text>
+<rect x="346" y="1284" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="481" y="1303" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">Linear →1</text>
+<g class="arch-paramclick" data-params-block="scorer"><text x="608" y="1316" font-family="'Courier New',monospace" font-size="9" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">65</text></g>
+<g class="arch-paramclick" data-params-block="scorer"><text x="612" y="1335" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#f97316" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">20673 each</text></g>
+<rect x="358" y="1339" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="479" y="1356" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">choice score · 1</text>
 </g>
 <g>
 <title>Board Self-Attention · 43216 params · two single-head nn.MultiheadAttention modules, one per seat · 15 board-slot tokens × 73-wide · attended tokens re-folded into state input (trunk width unchanged)</title>
-<rect x="44" y="286" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="165" y="303" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">board tokens · 30</text>
-<defs><clipPath id="clip20-320"><rect x="20" y="320" width="290" height="132" rx="8"/></clipPath></defs>
-<rect x="20" y="320" width="290" height="132" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
-<rect x="20" y="320" width="4" height="132" fill="#f59e0b" clip-path="url(#clip20-320)"/>
-<text x="165" y="345" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">BOARD ATTENTION · per-seat self-attn</text>
+<rect x="44" y="253" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="165" y="270" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">board tokens · 30</text>
+<defs><clipPath id="clip20-287"><rect x="20" y="287" width="290" height="132" rx="8"/></clipPath></defs>
+<rect x="20" y="287" width="290" height="132" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="20" y="287" width="4" height="132" fill="#f59e0b" clip-path="url(#clip20-287)"/>
+<text x="165" y="312" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">BOARD ATTENTION · per-seat self-attn</text>
+<rect x="32" y="339" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="167" y="358" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">self-attention ×2 boards</text>
 <rect x="32" y="372" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="167" y="391" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">self-attention ×2 boards</text>
-<rect x="32" y="405" width="270" height="28" rx="4" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="1.5"/>
-<text x="167" y="424" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">15 tokens · 73-wide</text>
-<g class="arch-paramclick" data-params-block="board attn"><text x="298" y="456" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#f59e0b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">43216</text></g>
-<rect x="44" y="460" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-<text x="165" y="477" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">attended tokens · 30</text>
+<text x="167" y="391" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#3b82f6" text-anchor="middle">15 tokens · 73-wide</text>
+<g class="arch-paramclick" data-params-block="board attn"><text x="298" y="423" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#f59e0b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">43216</text></g>
+<rect x="44" y="427" width="242" height="26" rx="5" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
+<text x="165" y="444" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#4338ca" text-anchor="middle">attended tokens · 30</text>
 </g>
-<polyline points="175,222 175,270 459,270 459,550" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
-<polyline points="235,222 235,254 753,254 753,550" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arr)"/>
-<polyline points="509,222 509,238 793,238 793,550" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arr)"/>
-<line x1="125" y1="222" x2="125" y2="286" stroke="#94a3b8" stroke-width="4.0" marker-end="url(#arr)"/>
-<line x1="125" y1="486" x2="125" y2="550" stroke="#94a3b8" stroke-width="4.0" marker-end="url(#arr)"/>
-<polyline points="315,222 315,526 205,526 205,550" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arr)"/>
-<line x1="165" y1="1035" x2="165" y2="1099" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
-<polyline points="220,1035 220,1059 449,1059 449,1099" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
-<line x1="479" y1="1035" x2="479" y2="1099" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
-<text x="330" y="264" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×1 candidate</text>
-<text x="494" y="248" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×3 · tray</text>
-<text x="651" y="232" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×2 · kept + tray set</text>
-<text x="118" y="252" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×30</text>
-<text x="118" y="264" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">2×15 board slots</text>
-<text x="118" y="516" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×30 attended</text>
-<text x="260" y="520" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×3 tray</text>
-<text x="172" y="1065" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="start" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">M=128</text>
-<text x="334" y="1053" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">M=128</text>
-<text x="486" y="1065" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="start" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">N=128</text>
-<g class="arch-paramclick" data-params-block="total"><text x="480" y="1428" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#a855f7" text-anchor="middle">TOTAL 776477 params · setup 222274 (separate)</text></g>
+<g>
+<title>Hand Pooling · 0 params · 180 → 129 · pools hand / playable / egg-blocked multi-hots through the shared card table · mode: concat_max_sum</title>
+<defs><clipPath id="clip372-287"><rect x="372" y="287" width="200" height="132" rx="8"/></clipPath></defs>
+<rect x="372" y="287" width="200" height="132" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="372" y="287" width="4" height="132" fill="#d946ef" clip-path="url(#clip372-287)"/>
+<text x="472" y="312" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#1e293b" text-anchor="middle">HAND POOLING · via card table</text>
+<rect x="384" y="339" width="180" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="474" y="358" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">card-table lookup</text>
+<rect x="384" y="372" width="180" height="28" rx="4" fill="#22c55e" fill-opacity="0.06" stroke="#22c55e" stroke-width="1.5"/>
+<text x="474" y="391" font-family="'Courier New',monospace" font-size="11" font-weight="600" fill="#22c55e" text-anchor="middle">pool: max ⊕ sum ⊕ count</text>
+<g class="arch-paramclick" data-params-block="total"><text x="560" y="423" font-family="'Courier New',monospace" font-size="10" font-weight="700" fill="#d946ef" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">0 params</text></g>
+</g>
+<polyline points="200,189 200,205 472,205 472,287" fill="none" stroke="#94a3b8" stroke-width="4.0" marker-end="url(#arr)"/>
+<polyline points="175,189 175,213 332,213 332,499 459,499 459,517" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<polyline points="235,189 235,229 753,229 753,517" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arr)"/>
+<polyline points="502,419 502,483 793,483 793,517" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arr)"/>
+<polyline points="432,419 432,467 205,467 205,517" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arr)"/>
+<line x1="125" y1="189" x2="125" y2="253" stroke="#94a3b8" stroke-width="4.0" marker-end="url(#arr)"/>
+<line x1="125" y1="453" x2="125" y2="517" stroke="#94a3b8" stroke-width="4.0" marker-end="url(#arr)"/>
+<polyline points="316,189 316,483 165,483 165,517" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arr)"/>
+<line x1="165" y1="1002" x2="165" y2="1066" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<polyline points="220,1002 220,1026 449,1026 449,1066" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="479" y1="1002" x2="479" y2="1066" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="336" y="199" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">card table</text>
+<text x="395" y="493" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×1 candidate</text>
+<text x="494" y="223" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×3 · tray</text>
+<text x="647" y="477" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×2 · kept + turn-1 playable</text>
+<text x="318" y="461" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×3 · hand + playable</text>
+<text x="118" y="219" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×30</text>
+<text x="118" y="231" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">2×15 board slots</text>
+<text x="118" y="483" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×30 attended</text>
+<text x="240" y="477" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">×3 tray</text>
+<text x="172" y="1032" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="start" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">M=128</text>
+<text x="334" y="1020" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">M=128</text>
+<text x="486" y="1032" font-family="'Courier New',monospace" font-size="10" fill="#64748b" text-anchor="start" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">N=128</text>
+<g class="arch-paramclick" data-params-block="total"><text x="480" y="1395" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#a855f7" text-anchor="middle">TOTAL 776477 params · setup 222274 (separate)</text></g>
 </svg></div><div class='click-hint'>Click an input box to inspect that vector's element-by-element breakdown, or any parameter count to open the parameter table at that block.</div></div>
 <div class='section panel' id='card' hidden><div class='section-header' style='color:#a855f7'>Card Feature Vector</div><div class='section-sub'>225 elements (raw single-card encoder input — static attributes + identity one-hot, one row of the shared card table) · 2 stripes · 1 with drill-down</div><div class='tbl-wrap'><table><thead><tr><th>Name</th><th class='right'>Offset</th><th class='right'>Size</th><th>Encoding</th><th>Range</th><th>Description</th></tr></thead><tbody><tr><td><details><summary class='mono' style='font-weight:600'>bird_attrs</summary><div class='sub-wrap'><table class='sub-tbl'><thead><tr><th>Name</th><th class='right'>Abs&nbsp;Offset</th><th class='right'>Size</th><th>Encoding</th><th>Range</th><th>Description</th></tr></thead><tbody><tr><td class='mono'>points</td><td class='right dim mono'>0</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, 1]</td><td>Printed victory-point value.<div class='notes-text'>Normalized ÷ 9.</div></td></tr><tr><td class='mono'>food_cost</td><td class='right dim mono'>1</td><td class='right dim mono'>6</td><td class='dim'>vector</td><td class='dim mono'>[0, ~1]</td><td>Printed food cost, one element per food type plus wild.<div class='notes-text'>Order: invertebrate, seed, fish, fruit, rodent, wild. Normalized ÷ 3.</div></td></tr><tr><td class='mono'>nest</td><td class='right dim mono'>7</td><td class='right dim mono'>4</td><td class='dim'>multi-hot</td><td class='dim mono'>{0, 1}</td><td>Nest type over the concrete nests.<div class='notes-text'>Order: bowl, cavity, ground, platform. A STAR nest is a wildcard (all ones); a bird with no nest is all zeros.</div></td></tr><tr><td class='mono'>habitats</td><td class='right dim mono'>11</td><td class='right dim mono'>3</td><td class='dim'>multi-hot</td><td class='dim mono'>{0, 1}</td><td>Habitats the bird can be played in.<div class='notes-text'>Order: forest, grassland, wetland. Dual-habitat birds set two bits.</div></td></tr><tr><td class='mono'>flocking</td><td class='right dim mono'>14</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>{0, 1}</td><td>Whether the bird has a flocking (tuck) power.</td></tr><tr><td class='mono'>predator</td><td class='right dim mono'>15</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>{0, 1}</td><td>Whether the bird has a predator power.</td></tr><tr><td class='mono'>wingspan</td><td class='right dim mono'>16</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>Printed wingspan in centimeters.<div class='notes-text'>Normalized ÷ 200.</div></td></tr><tr><td class='mono'>egg_limit</td><td class='right dim mono'>17</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, 1]</td><td>Printed egg capacity.<div class='notes-text'>Normalized ÷ 6.</div></td></tr><tr><td class='mono'>color</td><td class='right dim mono'>18</td><td class='right dim mono'>4</td><td class='dim'>one-hot</td><td class='dim mono'>{0, 1}</td><td>Power color of the bird&#x27;s ability.<div class='notes-text'>Order: brown, white, pink, yellow. A power-less bird is all zeros.</div></td></tr><tr><td class='mono'>plays_another_bird</td><td class='right dim mono'>22</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>{0, 1}</td><td>Whether the bird&#x27;s white power grants an extra bird play.<div class='notes-text'>Set for PLAY_ADDITIONAL_BIRD and PLAY_ADDITIONAL_BIRD_HERE effects.</div></td></tr><tr><td class='mono'>caches_food</td><td class='right dim mono'>23</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>{0, 1}</td><td>Whether the bird&#x27;s power includes a food-caching effect.<div class='notes-text'>Set for CACHE_FOOD, GAIN_FOOD_FEEDER_MAY_CACHE, ROLL_NOT_IN_FEEDER_CACHE, and PINK_GAIN_FOOD_CACHE.</div></td></tr><tr><td class='mono'>bonus_categories</td><td class='right dim mono'>24</td><td class='right dim mono'>7</td><td class='dim'>multi-hot</td><td class='dim mono'>{0, 1}</td><td>Curated bonus cards the bird statically qualifies for.<div class='notes-text'>7 intrinsic-property categories (lexical or numeric threshold — not state-dependent, not covered by another stripe). Order: Anatomist, Backyard Birder, Cartographer, Historian, Large Bird Specialist, Passerine Specialist, Photographer. Dense 0..6 indices (independent of cards.bonus_index).</div></td></tr><tr><td class='mono'>power_exchange</td><td class='right dim mono'>31</td><td class='right dim mono'>13</td><td class='dim'>vector</td><td class='dim mono'>[0, ~1]</td><td>Resource exchange encoding what the bird&#x27;s power does.<div class='notes-text'>13 slots matching the choice-row exchange stripe semantics: [cards_to_discard, food_to_pay, eggs_to_pay, food_to_gain, eggs_to_gain, cards_to_draw, cards_to_tuck, opp_food_to_gain, opp_eggs_to_gain, opp_cards_to_draw, opp_cards_to_tuck, plays_to_gain, cache_to_gain]. Normalized ÷ 3. Zero for UNIMPLEMENTED powers.</div></td></tr><tr><td class='mono'>or_cost</td><td class='right dim mono'>44</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>{0, 1}</td><td>Whether the bird&#x27;s food cost is an OR choice.<div class='notes-text'>1.0 when the bird can pay 1 accepted food OR 2 non-accepted foods (2-for-1 substitution); 0.0 for standard AND costs.</div></td></tr></tbody></table></div></details></td><td class='right dim mono'>0</td><td class='right mono'>45</td><td><span class='badge'>complex</span></td><td class='dim mono'>[0, ~1]</td><td>Dense, normalized view of the bird&#x27;s immutable card attributes.<div class='notes-text'>Static printed-card facts only — mutable per-slot state (eggs, cached food, …) lives in the board stripes, not here.</div></td></tr><tr><td><span class='mono' style='font-weight:600'>bird_identity</span></td><td class='right dim mono'>45</td><td class='right mono'>180</td><td><span class='badge'>one-hot</span></td><td class='dim mono'>{0, 1}</td><td>One-hot identity of the bird over all core birds.<div class='notes-text'>Indexed by cards.bird_index; gives the encoder a learned per-card component beyond the shared attributes.</div></td></tr></tbody></table></div></div>
 <div class='section panel' id='hand' hidden><div class='section-header' style='color:#d946ef'>Card Set Vector</div><div class='section-sub'>190 elements (raw multi-card encoder input — set multi-hot + summary stats (own hand / setup keep / tray set)) · 2 stripes · 1 with drill-down</div><div class='tbl-wrap'><table><thead><tr><th>Name</th><th class='right'>Offset</th><th class='right'>Size</th><th>Encoding</th><th>Range</th><th>Description</th></tr></thead><tbody><tr><td><span class='mono' style='font-weight:600'>hand_multihot</span></td><td class='right dim mono'>0</td><td class='right mono'>180</td><td><span class='badge'>multi-hot</span></td><td class='dim mono'>{0, 1}</td><td>Multi-hot identity of every bird in the card set.<div class='notes-text'>One bit per core bird, indexed by cards.bird_index. The same encoder embeds the own hand, a setup pick&#x27;s kept set, and the tray set.</div></td></tr><tr><td><details><summary class='mono' style='font-weight:600'>hand_summary</summary><div class='sub-wrap'><table class='sub-tbl'><thead><tr><th>Name</th><th class='right'>Abs&nbsp;Offset</th><th class='right'>Size</th><th>Encoding</th><th>Range</th><th>Description</th></tr></thead><tbody><tr><td class='mono'>hand_size</td><td class='right dim mono'>180</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>Total cards currently in hand.<div class='notes-text'>Normalized ÷ 10.</div></td></tr><tr><td class='mono'>forest_count</td><td class='right dim mono'>181</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>Number of hand birds that live in forest (a dual-habitat bird counts in each).<div class='notes-text'>Normalized ÷ 10.</div></td></tr><tr><td class='mono'>grassland_count</td><td class='right dim mono'>182</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>Number of hand birds that live in grassland (a dual-habitat bird counts in each).<div class='notes-text'>Normalized ÷ 10.</div></td></tr><tr><td class='mono'>wetland_count</td><td class='right dim mono'>183</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>Number of hand birds that live in wetland (a dual-habitat bird counts in each).<div class='notes-text'>Normalized ÷ 10.</div></td></tr><tr><td class='mono'>has_invertebrate_cost</td><td class='right dim mono'>184</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>1.0 if any hand bird has invertebrate in its food cost.<div class='notes-text'>{0, 1}.</div></td></tr><tr><td class='mono'>has_seed_cost</td><td class='right dim mono'>185</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>1.0 if any hand bird has seed in its food cost.<div class='notes-text'>{0, 1}.</div></td></tr><tr><td class='mono'>has_fish_cost</td><td class='right dim mono'>186</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>1.0 if any hand bird has fish in its food cost.<div class='notes-text'>{0, 1}.</div></td></tr><tr><td class='mono'>has_fruit_cost</td><td class='right dim mono'>187</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>1.0 if any hand bird has fruit in its food cost.<div class='notes-text'>{0, 1}.</div></td></tr><tr><td class='mono'>has_rodent_cost</td><td class='right dim mono'>188</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>1.0 if any hand bird has rodent in its food cost.<div class='notes-text'>{0, 1}.</div></td></tr><tr><td class='mono'>has_wild_cost</td><td class='right dim mono'>189</td><td class='right dim mono'>1</td><td class='dim'>scalar</td><td class='dim mono'>[0, ~1]</td><td>1.0 if any hand bird has a wild token in its cost.<div class='notes-text'>{0, 1}.</div></td></tr></tbody></table></div></details></td><td class='right dim mono'>180</td><td class='right mono'>10</td><td><span class='badge'>vector</span></td><td class='dim mono'>[0, ~1]</td><td>Aggregate statistics summarizing the card set.<div class='notes-text'>Set size, per-habitat membership counts, and per-food any-bird-costs-it flags.</div></td></tr></tbody></table></div></div>
