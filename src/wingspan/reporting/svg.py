@@ -156,6 +156,7 @@ _LANE_CARD_ATTN = 38
 
 # "cons" band lanes (offset from consumers → row-2 band top).
 _LANE_HAND_STATE = 14
+_LANE_HAND_CHOICE = 22  # pool → choice encoder (becomes_playable)
 _LANE_HAND_SETUP = 30
 
 # Trunk split point in the "cons" band (below both hand-connector lanes).
@@ -968,6 +969,20 @@ def _consumer_connectors(
                 lane_y=geom.band1_y + _LANE_CARD_HAND,
                 copies=encode.HAND_MULTIHOT_DIM,
                 label="",
+            )
+        )
+
+    # pooled hand → choice encoder: the becomes_playable card-set embedding.
+    if hand.bare_block:
+        conns.append(
+            _Conn(
+                src_x=hand_cx,
+                src_y=hand_bottom_y,
+                dst_x=_SVG_COL_CX[1],
+                dst_y=row2_y,
+                lane_y=band_cons_y + _LANE_HAND_CHOICE,
+                copies=1,
+                label="×1 becomes-playable",
             )
         )
 

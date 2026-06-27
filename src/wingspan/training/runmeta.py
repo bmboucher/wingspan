@@ -305,7 +305,9 @@ def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
     """The post-embedding choice stripe registry for ``descriptor``."""
     spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
     return encode_stripes.choice_stripe_layout(
-        spec, descriptor.architecture.card_embed_dim
+        spec,
+        descriptor.architecture.card_embed_dim,
+        pooled_hand_width=descriptor.architecture.pooled_hand_width,
     )
 
 
@@ -315,6 +317,7 @@ def choice_input_dim_for(descriptor: ModelConfig) -> int:
         descriptor.choice_dim,
         descriptor.architecture.card_embed_dim,
         include_setup=descriptor.include_setup,
+        pooled_hand_width=descriptor.architecture.pooled_hand_width,
     )
 
 

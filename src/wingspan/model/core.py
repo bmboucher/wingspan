@@ -434,6 +434,7 @@ class PolicyValueNet(nn.Module):
             arch.card_embed_dim,
             include_setup=self.include_setup,
             has_becomes_playable=(cho.becomes_playable is not None),
+            pooled_hand_width=arch.pooled_hand_width,
         )
         self.choice_encoder, _ = mlp.build_body(
             choice_in_dim,
@@ -840,7 +841,12 @@ class PolicyValueNet(nn.Module):
         if off_becomes is not None and off_kept is not None:
             # 0.6+, include_setup: becomes_playable then setup_agg then kept_multihot.
             off_setup = off_becomes + encode.CHOICE_BECOMES_PLAYABLE_DIM
-            becomes_emb = choices[..., off_becomes:off_setup] @ card_table[1:]
+            b, k = choices.shape[:2]
+            becomes_emb = hand_model.pool_card_set(
+                choices[..., off_becomes:off_setup].reshape(b * k, -1),
+                card_table[1:],
+                self.arch.hand_pooling,
+            ).reshape(b, k, -1)
             kept_emb = choices[..., off_kept:] @ card_table[1:]
             rest = torch.cat(
                 [
@@ -853,7 +859,12 @@ class PolicyValueNet(nn.Module):
             return torch.cat([rest, cand_emb, becomes_emb, kept_emb], dim=-1)
         elif off_becomes is not None:
             # 0.6+, no setup: becomes_playable is the last stripe.
-            becomes_emb = choices[..., off_becomes:] @ card_table[1:]
+            b, k = choices.shape[:2]
+            becomes_emb = hand_model.pool_card_set(
+                choices[..., off_becomes:].reshape(b * k, -1),
+                card_table[1:],
+                self.arch.hand_pooling,
+            ).reshape(b, k, -1)
             rest = torch.cat(
                 [choices[..., :off_bird], choices[..., end_bird:off_becomes]], dim=-1
             )

@@ -126,7 +126,9 @@ def test_param_count_matches_accounting() -> None:
             n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
         ),
         choice_in=encode.choice_input_dim(
-            encode.CHOICE_FEATURE_DIM, arch_attn.card_embed_dim
+            encode.CHOICE_FEATURE_DIM,
+            arch_attn.card_embed_dim,
+            pooled_hand_width=arch_attn.pooled_hand_width,
         ),
         num_families=encode.num_families(spec),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
@@ -157,7 +159,9 @@ def test_base_param_count_unchanged() -> None:
             n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
         ),
         choice_in=encode.choice_input_dim(
-            encode.CHOICE_FEATURE_DIM, arch_base.card_embed_dim
+            encode.CHOICE_FEATURE_DIM,
+            arch_base.card_embed_dim,
+            pooled_hand_width=arch_base.pooled_hand_width,
         ),
         num_families=encode.num_families(spec),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,

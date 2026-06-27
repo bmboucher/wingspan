@@ -25,6 +25,7 @@ def choice_stripe_layout(
     card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
     *,
     has_becomes_playable: bool = True,
+    pooled_hand_width: int | None = None,
 ) -> descriptors.VectorLayout:
     """Build the stripe registry for the per-choice encoder's input vector.
 
@@ -38,16 +39,27 @@ def choice_stripe_layout(
     ``spec.include_setup``.  ``has_becomes_playable`` controls whether the
     ``becomes_playable`` stripe is included; pass ``False`` for pre-0.6 artifacts
     that predate that stripe.
+
+    ``pooled_hand_width`` is the width produced by ``pool_card_set`` under the
+    run's ``hand_pooling`` mode (from
+    ``architecture.ModelArchitecture.pooled_hand_width``).  When ``None``,
+    defaults to ``card_embed_dim`` (MEAN/SUM mode / legacy back-compat).
+    Forwarded to ``choice_embed_rules`` and ``choice_input_dim`` so the
+    ``becomes_playable`` stripe reports its correct post-embedding width.
     """
+    becomes_embed_w = (
+        pooled_hand_width if pooled_hand_width is not None else card_embed_dim
+    )
     raw = raw_choice_stripe_layout(spec, has_becomes_playable=has_becomes_playable)
     return embed_rules.embed_layout(
         raw,
-        embed_rules.choice_embed_rules(card_embed_dim),
+        embed_rules.choice_embed_rules(card_embed_dim, becomes_embed_w),
         layout.choice_input_dim(
             raw.total_size,
             card_embed_dim,
             include_setup=spec.include_setup,
             has_becomes_playable=has_becomes_playable,
+            pooled_hand_width=pooled_hand_width,
         ),
     )
 

@@ -1120,6 +1120,7 @@ def _choice_in(cfg: config.RunConfig | _StaticConfig) -> int:
         cfg.architecture.main.card_embed_dim,
         include_setup=cfg.encoding_spec.include_setup,
         has_becomes_playable=True,
+        pooled_hand_width=cfg.arch.pooled_hand_width,
     )
 
 

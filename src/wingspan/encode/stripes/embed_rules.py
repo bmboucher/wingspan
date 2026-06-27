@@ -274,12 +274,20 @@ def setup_embed_rules(
     }
 
 
-def choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
+def choice_embed_rules(
+    card_embed_dim: int, pooled_hand_width: int
+) -> dict[str, _EmbedRule]:
     """The bird-index / kept-set stripes of the choice vector, embedded.
     The ``board_hab``/``board_col`` one-hots and ``board_target`` scalars pass
     through unchanged (no rule). The ``kept_multihot`` rule only fires when the
     stripe is present (``include_setup`` layouts) — ``embed_layout`` looks rules
-    up by name."""
+    up by name.
+
+    ``pooled_hand_width`` is the width produced by ``pool_card_set`` under the
+    run's ``hand_pooling`` mode (equal to ``card_embed_dim`` for MEAN/SUM;
+    ``2*card_embed_dim+1`` for CONCAT_MAX_SUM).  ``becomes_playable`` is a card
+    set embedded through the same pooling, so it expands to ``pooled_hand_width``
+    instead of the bare ``card_embed_dim`` a sum-only embedding would produce."""
     kept = layout.CHOICE_KEPT_MULTIHOT_DIM
     return {
         "bird_id": _EmbedRule(
@@ -303,13 +311,14 @@ def choice_embed_rules(card_embed_dim: int) -> dict[str, _EmbedRule]:
             ),
         ),
         "becomes_playable": _EmbedRule(
-            new_size=card_embed_dim,
-            encoding="card-embedding (becomes-playable set, summed)",
+            new_size=pooled_hand_width,
+            encoding="card-embedding (becomes-playable set, pooled)",
             value_range="learned",
             notes=(
                 f"The set of hand birds that would become playable by accepting this "
-                f"choice -> one {card_embed_dim}-dim embedding, summed over the "
-                f"birds' shared card vectors. Raw encoding is a "
+                f"choice -> one {pooled_hand_width}-dim embedding, pooled over the "
+                f"birds' shared card vectors (same pooling mode as the hand stripe). "
+                f"Raw encoding is a "
                 f"{layout.CHOICE_BECOMES_PLAYABLE_DIM}-wide multi-hot over all core birds."
             ),
         ),

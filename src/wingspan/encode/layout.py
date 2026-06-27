@@ -686,6 +686,7 @@ def choice_input_dim(
     *,
     include_setup: bool = False,
     has_becomes_playable: bool = True,
+    pooled_hand_width: int | None = None,
 ) -> int:
     """The per-choice encoder's first-``Linear`` input width: the flat
     ``choice_dim`` with the candidate's bird-index column replaced by its
@@ -697,8 +698,15 @@ def choice_input_dim(
     explicit (default matches ``DEFAULT_SPEC``).
 
     When ``has_becomes_playable`` is True (the live 0.9+ encoding), the
-    ``becomes_playable`` 180-dim multi-hot is replaced by one summed embedding;
-    set to False for pre-0.6 compat shims whose choice vector lacks the stripe."""
+    ``becomes_playable`` 180-dim multi-hot is replaced by one pooled embedding
+    of width ``pooled_hand_width`` (from
+    ``architecture.ModelArchitecture.pooled_hand_width``); when ``None``,
+    defaults to ``card_embed_dim`` (MEAN/SUM mode / legacy back-compat).
+    Set ``has_becomes_playable=False`` for pre-0.6 compat shims whose choice
+    vector lacks the stripe."""
+    becomes_embed_w = (
+        pooled_hand_width if pooled_hand_width is not None else card_embed_dim
+    )
     base = (
         choice_dim
         - CHOICE_BIRD_ID_DIM  # candidate index column -> one embedding
@@ -706,8 +714,8 @@ def choice_input_dim(
     )
     if has_becomes_playable:
         base += (
-            card_embed_dim - CHOICE_BECOMES_PLAYABLE_DIM
-        )  # multi-hot -> one embedding
+            becomes_embed_w - CHOICE_BECOMES_PLAYABLE_DIM
+        )  # multi-hot -> one pooled embedding
     if include_setup:
         base += card_embed_dim - CHOICE_KEPT_MULTIHOT_DIM  # multi-hot -> one embedding
     return base

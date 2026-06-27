@@ -192,7 +192,9 @@ def test_model_candidate_embedding_is_a_masked_lookup():
     choices[0, 1, encode.CHOICE_BIRD_ID_OFFSET] = float(bird_index + 1)
     embedded = net._embed_choices(choices, card_table)
 
-    assert embedded.shape[-1] == encode.choice_input_dim(net.choice_dim, embed_dim)
+    assert embedded.shape[-1] == encode.choice_input_dim(
+        net.choice_dim, embed_dim, pooled_hand_width=net.arch.pooled_hand_width
+    )
     # ``_embed_choices`` concatenates [rest, cand_emb, becomes_emb].
     # ``rest`` is the passthrough slice (everything except bird-id and
     # becomes_playable columns), so ``cand_emb`` starts at passthrough width.
@@ -218,7 +220,10 @@ def test_model_kept_set_embedding_sums_card_vectors():
     embedded = net._embed_choices(choices, card_table)
 
     assert embedded.shape[-1] == encode.choice_input_dim(
-        net.choice_dim, embed_dim, include_setup=True
+        net.choice_dim,
+        embed_dim,
+        include_setup=True,
+        pooled_hand_width=net.arch.pooled_hand_width,
     )
     kept_slice = embedded[..., -embed_dim:]
     expected = torch.stack(

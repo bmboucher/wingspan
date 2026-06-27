@@ -699,6 +699,7 @@ def _param_report_for(cfg: config.TrainConfig) -> architecture.ParamReport:
             main.card_embed_dim,
             include_setup=cfg.encoding_spec.include_setup,
             has_becomes_playable=True,
+            pooled_hand_width=cfg.arch.pooled_hand_width,
         ),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
