@@ -110,9 +110,9 @@ def test_html_report_arch_svg_content():
     assert "HAND POOLING" in html
     assert "STATE ENCODER" in html
     assert "DECISION HEAD" in html
-    # Encoder fan-out copy labels (card -> trunk, hand -> setup).
+    # Encoder fan-out copy labels (card -> state board path, pooled hand -> setup).
     assert f"×{encode.N_CARD_INDEX_SLOTS}" in html
-    assert "kept + tray set" in html
+    assert "kept + turn-1 playable" in html
     # "trained in-game only" note only appears when use_distinct_hand_model=True;
     # the default is now pooled (False), so this note is absent for a bare config.
     # Parameter counts are exact bare integers — no "123k", no Σ, no commas.

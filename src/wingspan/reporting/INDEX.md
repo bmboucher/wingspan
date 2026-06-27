@@ -110,15 +110,25 @@ human-friendly text.
 **`svg.py`** — SVG architecture-diagram builder.
 `build_arch_svg(arch, param_report, family_order, *, setup_param, setup_arch, use_setup_model) -> str`
 renders the full network topology as a self-contained SVG string embedded by `html.py`.
-Three visual rows (encoders / consumers / heads) with `_SVG_BAND_H`-px connector bands between
-them hold the seven permanent blocks (SINGLE-CARD ENCODER, MULTI-CARD ENCODER, STATE ENCODER,
-CHOICE ENCODER, SETUP MODEL, VALUE HEAD, DECISION HEAD) and, when `arch.use_board_attention` is
-True, an additional **BOARD ATTENTION** row inserted between the encoder row and consumer row —
-drawn in col 0, with the board-slot path routing CARD→ATTENTION→STATE as straight verticals.
-Each block's activation rows use the resolved per-block activation (e.g. `trunk_activation_resolved`)
-rather than the global fallback. The diagram doubles as the report's navigation: input boxes carry
-`data-panel` attributes and parameter counts carry `data-params-block` attributes (the attention
-block uses `panel=None` — it has no vector-layout panel).
+Four visual rows (single-card encoder / consumers / state-choice-setup / heads) with `_SVG_BAND_H`-px
+connector bands between them. The **SINGLE-CARD ENCODER** sits alone on top, producing the shared
+card embedding; the always-present **consumers** row below it holds the hand block — the bare
+**HAND POOLING** block (no I/O boxes, drawn at `_DERIV_HAND_W` width via `_draw_bare_unit` when the
+net pools the card table) or the full **MULTI-CARD ENCODER** (when `use_distinct_hand_model`) — plus
+**BOARD ATTENTION** in col 0 when `arch.use_board_attention` is True. The card embedding fans into
+both attention (board path: CARD→ATTENTION→STATE as straight col-0 verticals) and the hand block;
+`card → choice` routes as a five-segment dogleg (`_Conn.corridor_x`/`lane_y2`) down the gutter between
+the two consumer boxes; the pooled hand feeds STATE (`×N · hand + playable`) and SETUP
+(`×2 · kept + turn-1 playable`). The STATE / CHOICE / SETUP blocks and the VALUE / DECISION heads
+occupy the bottom two rows. `_resolve_geometry` stacks all four rows + three bands into `_Geom`
+(`row1`/`cons_row`/`row2`/`row3` tops & heights, `band1`/`band_cons`/`band2` tops); the single
+`_consumer_connectors` builder emits both the row1→consumers and consumers→row2 bands. Each block's
+activation rows use the resolved per-block activation (e.g. `trunk_activation_resolved`) rather than
+the global fallback. The diagram doubles as the report's navigation: input boxes carry `data-panel`
+attributes and parameter counts carry `data-params-block` attributes — the attention block uses
+`panel=None` and the bare hand-pooling block has no input box, so the card-table-pooling default
+exposes four clickable panels (the `hand` panel is reachable only via the distinct multi-card
+encoder's input box).
 
 **`inspect_cli.py`** — `main_inspect(args)`: the `wingspan inspect` CLI handler.
 Accepts a run directory or `.pt` path; loads the descriptor via

@@ -4,7 +4,8 @@ Cover the two raw encoder-input stripe layouts (single-card features and the
 multi-card set input) staying in sync with the encode constants, and the
 diagram-as-menu HTML structure: the architecture section leading the page, the
 detail sections rendered as hidden panels, the SVG click hooks (``data-panel``
-on the five input boxes, ``data-params-block`` on the parameter counts), the
+on the input boxes — four by default, since the card-table hand-pooling block is
+drawn bare with no input box, ``data-params-block`` on the parameter counts), the
 parameter table's per-block jump anchors, and the nav losing its section tabs.
 """
 
@@ -19,11 +20,13 @@ from wingspan import architecture, decisions, encode, setup_model, version  # no
 from wingspan.encode import stripes as encode_stripes  # noqa: E402
 from wingspan.reporting import html as report  # noqa: E402
 
-# The five clickable input boxes' panel ids, in diagram order, and the
-# parameter-table block keys the default architecture renders anchors for.
-# "hand" is absent — the dedicated hand encoder is off by default
-# (use_distinct_hand_model=False), so ParamReport.hand is None for a bare config.
+# The five detail-panel ids html.py always emits (in diagram order), and the
+# parameter-table block keys the default architecture renders anchors for. By
+# default the hand block pools the card table and is drawn bare (no input box),
+# so only four of the five panels are clickable from the diagram; the "hand"
+# panel becomes clickable only with a distinct (learned) hand encoder.
 _PANEL_IDS = ("card", "hand", "state", "choice", "setup")
+_CLICKABLE_PANEL_IDS = ("card", "state", "choice", "setup")
 _PARAMS_BLOCK_KEYS = ("embed", "trunk", "choice", "scorer", "value", "total")
 
 
@@ -84,11 +87,13 @@ def test_html_arch_section_leads_and_panels_start_hidden():
 
 def test_html_svg_click_hooks():
     html = _report_html(use_setup_model=True)
-    # Exactly the five input boxes are clickable — output boxes and the heads'
-    # intermediate-embedding inputs are not.
-    assert html.count("data-panel=") == len(_PANEL_IDS)
-    for panel_id in _PANEL_IDS:
+    # Only the input boxes are clickable — output boxes and the heads'
+    # intermediate-embedding inputs are not.  The card-table hand-pooling block
+    # is bare (no input box), so "hand" is not clickable by default.
+    assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS)
+    for panel_id in _CLICKABLE_PANEL_IDS:
         assert f'data-panel="{panel_id}"' in html
+    assert 'data-panel="hand"' not in html
     assert "arch-click" in html
     assert "arch-paramclick" in html
     for block_key in ("embed", "trunk", "total"):
@@ -114,8 +119,8 @@ def test_svg_board_attention_absent_by_default():
     html = _report_html(use_setup_model=True)
     assert "BOARD ATTENTION" not in html
     assert 'data-params-block="board attn"' not in html
-    # data-panel count must still be exactly 5 (no attention panel added).
-    assert html.count("data-panel=") == len(_PANEL_IDS)
+    # data-panel count is the four clickable boxes (bare hand block has none).
+    assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS)
 
 
 def test_svg_board_attention_present_when_enabled():
@@ -124,7 +129,18 @@ def test_svg_board_attention_present_when_enabled():
     assert 'data-params-block="board attn"' in html
     assert "id='params-block-board attn'" in html
     assert f"×{encode.N_BOARD_INDEX_SLOTS}" in html
-    # panel=None on the attention unit — must NOT add a 6th data-panel.
+    # panel=None on the attention unit and a bare hand block — neither adds a
+    # data-panel beyond the four clickable input boxes.
+    assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS)
+
+
+def test_svg_distinct_hand_model_input_is_clickable():
+    # With a learned (distinct) hand encoder the multi-card encoder is a full
+    # block with its own input box, so the "hand" panel becomes clickable and
+    # all five panels are reachable from the diagram.
+    html = _report_html_with_distinct_hand()
+    assert "MULTI-CARD ENCODER" in html
+    assert 'data-panel="hand"' in html
     assert html.count("data-panel=") == len(_PANEL_IDS)
 
 
@@ -161,6 +177,7 @@ def test_birds_tab_enc_modal_present():
 def test_birds_tab_payload_contains_180_birds():
     """The birds-data JSON payload has exactly 180 entries (core set)."""
     import json
+
     html = _report_html(use_setup_model=True)
     start = html.find("id='birds-data'>") + len("id='birds-data'>")
     end = html.find("</script>", start)
@@ -171,6 +188,7 @@ def test_birds_tab_payload_contains_180_birds():
 def test_birds_tab_payload_no_bird_identity_stripe():
     """No bird in the Birds tab payload has a 'bird_identity' stripe."""
     import json
+
     html = _report_html(use_setup_model=True)
     start = html.find("id='birds-data'>") + len("id='birds-data'>")
     end = html.find("</script>", start)
@@ -183,6 +201,7 @@ def test_birds_tab_payload_no_bird_identity_stripe():
 def test_birds_tab_payload_all_birds_have_card_name():
     """Every entry in the birds-data payload has a non-empty card name."""
     import json
+
     html = _report_html(use_setup_model=True)
     start = html.find("id='birds-data'>") + len("id='birds-data'>")
     end = html.find("</script>", start)
@@ -203,6 +222,14 @@ def _report_html_with_attention() -> str:
     """Generate the model-summary HTML with board self-attention enabled."""
     return _report_html_for_arch(
         architecture.ModelArchitecture(use_board_attention=True), use_setup_model=True
+    )
+
+
+def _report_html_with_distinct_hand() -> str:
+    """Generate the model-summary HTML with a learned (distinct) hand encoder."""
+    return _report_html_for_arch(
+        architecture.ModelArchitecture(use_distinct_hand_model=True),
+        use_setup_model=True,
     )
 
 
