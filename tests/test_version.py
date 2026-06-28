@@ -8,12 +8,7 @@ artifacts load and play lives in ``test_compat_v0_0.py``.
 
 from __future__ import annotations
 
-import os
-import sys
-
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import architecture, version  # noqa: E402
 from wingspan.training import runmeta  # noqa: E402

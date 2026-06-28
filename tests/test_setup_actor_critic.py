@@ -6,15 +6,10 @@ and gradient flow, and play_game_with_setup populating chosen_idx/all_candidates
 
 from __future__ import annotations
 
-import os
-import sys
-
 import numpy as np
 import pytest
 import torch
 import torch.nn as nn
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import setup_model  # noqa: E402
 from wingspan.model import core as model_core  # noqa: E402

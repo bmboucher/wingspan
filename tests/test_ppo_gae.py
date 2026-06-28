@@ -12,14 +12,10 @@ Covers:
 from __future__ import annotations
 
 import math
-import os
 import random
-import sys
 
 import numpy as np
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 torch = pytest.importorskip("torch")
 F = pytest.importorskip("torch.nn.functional")

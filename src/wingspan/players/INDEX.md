@@ -9,7 +9,7 @@ both use the same loading and logging conventions.
 **`__init__.py`**
 
 **`spec.py`** — The player-spec grammar: `PlayerSpec` Pydantic model and
-`parse_spec(s: str) -> PlayerSpec`. Recognized forms:
+`parse_player_spec(raw: str, checkpoint_dir: Path) -> PlayerSpec`. Recognized forms:
 - `"human"` → interactive CLI agent.
 - `"random"` → uniform-random agent.
 - `"<name>"` → named run in the default checkpoint directory.
@@ -33,6 +33,12 @@ both use the same loading and logging conventions.
   encoding-compatibility signatures both paths verify before seating a net;
   `expected_encoding_key` derives an era's true widths via
   `compat.encoding_dims_for_era`.
+
+**`value_sink.py`** — `ValueProbe`: a one-slot mailbox for the critic's raw
+value output (deciding-player POV, divided by `score_norm`). `record(value)`
+stores the critic output; `take()` returns and clears it. Bridges the AI agent
+(which runs the forward pass) and the instrumentation handler (which reads the
+critic value for the timeline chart) across their decoupling.
 
 **`decision_probe.py`** — `DecisionProbe`: a one-slot mailbox ferrying the critic
 value *and* a `PolicyAnnotation` (probs, scores, chosen_idx) from the AI agent to

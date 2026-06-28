@@ -7,11 +7,7 @@ message and exit code 1.
 
 from __future__ import annotations
 
-import os
 import pathlib
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
 

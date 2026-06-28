@@ -19,14 +19,10 @@ post-update parameters agree within a tight tolerance:
 
 from __future__ import annotations
 
-import os
 import random
-import sys
 
 import numpy as np
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 torch = pytest.importorskip("torch")
 

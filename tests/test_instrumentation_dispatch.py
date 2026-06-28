@@ -9,15 +9,11 @@ across all of them.
 from __future__ import annotations
 
 import collections
-import os
 import pathlib
 import random
-import sys
 import typing
 
 import pydantic
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import agents, cards, decisions, engine, state
 from wingspan.engine import core

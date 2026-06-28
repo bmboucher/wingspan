@@ -6,11 +6,6 @@ and that AND-cost birds are unaffected."""
 
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 from wingspan import cards
 from wingspan.agents import display
 

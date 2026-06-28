@@ -13,12 +13,7 @@ fix (parser routing + the engine reactor hooks):
 
 from __future__ import annotations
 
-import pathlib
 import random
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
-
 import typing  # noqa: E402
 
 from wingspan import agents, cards, decisions, engine, state  # noqa: E402

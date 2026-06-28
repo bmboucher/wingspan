@@ -46,9 +46,10 @@ mix, kept-food vector, and (when `encoding.include_turn1_playable`) a 180-dim
 multi-hot of birds payable from `kept_foods` on turn 1. Output width matches
 `encoding.total_dim`.
 
-**`stripes.py`** — `setup_stripe_layout() -> VectorLayout` and
-`setup_input_dim() -> int`. Programmatic stripe registry for the setup input
-vector; analogous to `encode.stripes` for the main encoder.
+**`stripes.py`** — `setup_stripe_layout(encoding) -> VectorLayout` and
+`setup_readout_stripe_layout(encoding) -> VectorLayout`. Programmatic stripe
+registry for the setup input and readout vectors; analogous to `encode.stripes`
+for the main encoder.
 
 **`generate.py`** — `RandomSetupGenerator(hand_combos, food_sets,
 tuples_per_batch=16, *, split_food=False)` — generates random-setup candidates

@@ -8,11 +8,7 @@ net trains on it), and produces no separate setup samples.
 
 from __future__ import annotations
 
-import os
 import random
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import torch  # noqa: E402
 

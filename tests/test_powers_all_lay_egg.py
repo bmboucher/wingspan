@@ -11,14 +11,10 @@ Power text: "All players lay 1 [egg] on any 1 [<nest>] bird. You may lay 1
 
 from __future__ import annotations
 
-import os
 import random
-import sys
 import typing
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, engine, state  # noqa: E402
 from wingspan.engine import powers  # noqa: E402

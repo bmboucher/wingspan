@@ -11,10 +11,6 @@ import random
 
 
 def test_random_game_completes():
-    import os
-    import sys
-
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
     from wingspan import agents, engine
 
     eng, *_ = engine.Engine.create(seed=123)

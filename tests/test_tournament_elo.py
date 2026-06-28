@@ -7,11 +7,7 @@ a canonical order before applying updates, so the report's Elo is reproducible).
 
 from __future__ import annotations
 
-import pathlib
 import random
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from wingspan.tournament import elo, models
 

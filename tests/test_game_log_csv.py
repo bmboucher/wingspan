@@ -10,15 +10,6 @@ from __future__ import annotations
 import base64
 import csv
 import io
-import os
-import sys
-
-
-def _setup_path() -> None:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
-
-_setup_path()
 
 from wingspan.reporting import game_log_csv, game_log_html
 

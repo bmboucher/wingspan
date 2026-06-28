@@ -32,30 +32,40 @@ import pydantic
 # blocks may be empty (a direct linear readout).
 type Widths = tuple[typing.Annotated[int, pydantic.Field(ge=1)], ...]
 
-# The weight-shape signature of an architecture: the parts that, if changed,
-# make previously-trained weights unloadable (activation / dropout are excluded —
-# they leave every tensor shape intact, so a resumed run may change them).
-# The four per-block layernorm bools replace the former single global layernorm
-# slot; old configs resolve all four to the global, so matching is preserved.
-type ShapeKey = tuple[
-    tuple[int, ...],  # trunk_layers
-    tuple[int, ...],  # choice_layers
-    tuple[int, ...],  # head_layers
-    tuple[int, ...],  # value_layers
-    bool,  # card_layernorm_resolved
-    bool,  # hand_layernorm_resolved
-    bool,  # trunk_layernorm_resolved
-    bool,  # choice_layernorm_resolved
-    int,  # card_embed_dim
-    tuple[int, ...],  # card_encoder_layers
-    tuple[tuple[int, ...], ...] | None,  # per_family_head_layers
-    bool,  # use_distinct_hand_model
-    tuple[int, ...],  # hand_encoder_layers
-    int,  # hand_embed_width (the *resolved* N, so None == explicit-equal)
-    bool,  # tray_set_embedding
-    bool,  # use_board_attention
-    HandPooling | None,  # hand_pooling (None when use_distinct_hand_model)
-]
+
+class ShapeKey(pydantic.BaseModel):
+    """The weight-compatibility signature of an architecture.
+
+    Two ``ModelArchitecture`` instances load each other's weights iff their
+    ``shape_key`` properties are equal (``==``). Every field here, if changed,
+    makes previously-trained weights unloadable; activation / dropout are
+    excluded — they leave every tensor shape intact, so a resumed run may
+    change them without a weight break.
+
+    Frozen so ``ShapeKey`` objects are hashable and value-comparable via ``==``.
+    The four per-block layernorm bools replace the former single global layernorm
+    slot; old configs resolve all four to the global, so matching is preserved.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    trunk_layers: tuple[int, ...]
+    choice_layers: tuple[int, ...]
+    head_layers: tuple[int, ...]
+    value_layers: tuple[int, ...]
+    card_layernorm_resolved: bool
+    hand_layernorm_resolved: bool
+    trunk_layernorm_resolved: bool
+    choice_layernorm_resolved: bool
+    card_embed_dim: int
+    card_encoder_layers: tuple[int, ...]
+    per_family_head_layers: tuple[tuple[int, ...], ...] | None
+    use_distinct_hand_model: bool
+    hand_encoder_layers: tuple[int, ...]
+    hand_embed_width: int  # the *resolved* N, so None == explicit-equal
+    tray_set_embedding: bool
+    use_board_attention: bool
+    hand_pooling: HandPooling | None  # None when use_distinct_hand_model
 
 
 class ActivationName(enum.StrEnum):
@@ -437,27 +447,27 @@ class ModelArchitecture(pydantic.BaseModel):
     def shape_key(self) -> ShapeKey:
         """The weight-compatibility signature (everything that changes a tensor
         shape). Two architectures load each other's weights iff these agree."""
-        return (
-            self.trunk_layers,
-            self.choice_layers,
-            self.head_layers,
-            self.value_layers,
-            self.card_layernorm_resolved,
-            self.hand_layernorm_resolved,
-            self.trunk_layernorm_resolved,
-            self.choice_layernorm_resolved,
-            self.card_embed_dim,
-            self.card_encoder_layers,
-            self.per_family_head_layers,
-            self.use_distinct_hand_model,
-            self.hand_encoder_layers,
-            self.hand_embed_width,
-            self.tray_set_embedding,
-            self.use_board_attention,
+        return ShapeKey(
+            trunk_layers=self.trunk_layers,
+            choice_layers=self.choice_layers,
+            head_layers=self.head_layers,
+            value_layers=self.value_layers,
+            card_layernorm_resolved=self.card_layernorm_resolved,
+            hand_layernorm_resolved=self.hand_layernorm_resolved,
+            trunk_layernorm_resolved=self.trunk_layernorm_resolved,
+            choice_layernorm_resolved=self.choice_layernorm_resolved,
+            card_embed_dim=self.card_embed_dim,
+            card_encoder_layers=self.card_encoder_layers,
+            per_family_head_layers=self.per_family_head_layers,
+            use_distinct_hand_model=self.use_distinct_hand_model,
+            hand_encoder_layers=self.hand_encoder_layers,
+            hand_embed_width=self.hand_embed_width,
+            tray_set_embedding=self.tray_set_embedding,
+            use_board_attention=self.use_board_attention,
             # None when distinct (pooling inert) so old distinct artifacts'
             # keys are unaffected; the pooling mode only appears in the key
             # for the pooled path, where it determines the trunk input width.
-            None if self.use_distinct_hand_model else self.hand_pooling,
+            hand_pooling=None if self.use_distinct_hand_model else self.hand_pooling,
         )
 
 

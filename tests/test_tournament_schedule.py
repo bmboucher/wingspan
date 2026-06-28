@@ -8,10 +8,6 @@ orientations share a seed (so model-vs-model games are true mirrors).
 from __future__ import annotations
 
 import collections
-import pathlib
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from wingspan.tournament import models, schedule
 

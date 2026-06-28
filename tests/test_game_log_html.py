@@ -15,15 +15,11 @@ Tests prepend ``src/`` to ``sys.path`` to match ``test_smoke.py``.
 
 from __future__ import annotations
 
-import os
 import pathlib
 import random
-import sys
 import typing
 
 import pydantic
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import agents, cards, engine, state
 from wingspan.cards.parse import catalog

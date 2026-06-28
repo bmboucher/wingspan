@@ -13,12 +13,8 @@ loop rather than a private helper.
 
 from __future__ import annotations
 
-import os
 import random
-import sys
 import typing
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import agents, decisions, engine  # noqa: E402
 from wingspan.engine import core as engine_core  # noqa: E402

@@ -13,15 +13,11 @@ the bird's current slot). The "stay" row's deltas are all-zero.
 from __future__ import annotations
 
 import math
-import os
 import random
-import sys
 
 import numpy as np
 import pydantic
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, state  # noqa: E402
 from wingspan.encode import layout  # noqa: E402

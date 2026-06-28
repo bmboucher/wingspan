@@ -17,32 +17,25 @@ the main actor-critic network. Key structure:
 - Value head: `M → value_layers → 1`.
 - Optional shared card embedding (`nn.Embedding`) and hand encoder (if
   `arch.use_distinct_hand_model`).
-- `net.encode_state(gs, spec) -> Tensor` and `net.encode_choices(gs, decision,
-  spec) -> Tensor` — the sanctioned inference entry points; never pair the live
-  encoder with a stale spec by hand.
-- `net.card_table() -> Tensor` — precomputes and caches the full card-feature
-  matrix (all `N_BIRDS` embeddings); result is cached per forward pass for
-  efficiency (the card-table inference cache).
+- `PolicyValueNet.encode_state(gs, spec) -> Tensor` and
+  `PolicyValueNet.encode_choices(gs, decision, spec) -> Tensor` — the sanctioned
+  inference entry points; never pair the live encoder with a stale spec by hand.
+- `PolicyValueNet.card_table() -> Tensor` — precomputes and caches the full
+  card-feature matrix (all `N_BIRDS` embeddings); cached per forward pass
+  (the card-table inference cache).
 - `PolicyValueNet.from_model_config(config: ModelConfig) -> PolicyValueNet` —
   reconstitutes a net from a persisted descriptor; the only valid way to load
   a checkpoint for inference.
 - `PolicyValueNet.class_for_version(artifact_version) -> type[PolicyValueNet]`
-  — the single era-routing table (pre-0.1 → `PolicyValueNetV00`, 0.1 →
-  `…V01`, 0.2 → `…V02`, 0.3 → `…V03`, 0.4/0.5 → `…V04`, live otherwise);
-  used by `from_model_config`, the checkpoint loaders, and the era-pinned
-  training pipeline.
-- `StateEmbedOffsets(card_index, hand_multihot, decision_type, hand_summary, hand_summary_end)`
+  — the single era-routing table (v1.0 → `compat.v1_0.PolicyValueNetV1_0`,
+  all later same-MAJOR → live `PolicyValueNet`); used by `from_model_config`,
+  the checkpoint loaders, and the era-pinned training pipeline.
+- `StateEmbedOffsets(card_index, hand_multihot, decision_type)`
   — NamedTuple seam frozen by era shims so `_embed_state` slices each era's
-  vector at its own offsets (the v0.6 insertion of two playability stripes shifts
-  `decision_type` by +360; earlier eras override via `_state_embed_offsets()`).
-  The `hand_summary` / `hand_summary_end` pair is `(0, 0)` in the live v0.9 net
-  (stripe absent, derived in-model) and `(343, 353)` for pre-0.9 shims (stripe
-  physically present in the frozen 1155-dim vector and excised from the continuous
-  prefix before the trunk).
+  vector at its own offsets. Future shims override via `_state_embed_offsets()`.
 - `ChoiceEmbedOffsets(board_idx, bird_id, becomes_playable, becomes_unplayable, kept_multihot)`
-  — NamedTuple seam for the choice encoder; `becomes_playable` is `None` for
-  pre-0.6 shims that lack both stripes; `becomes_unplayable` is `None` for pre-0.6
-  **and** for v1.0 shims (v1.1 added it); `kept_multihot` is `None` outside setup.
+  — NamedTuple seam for the choice encoder; `becomes_unplayable` is `None` for
+  v1.0 shims (v1.1 added it); `kept_multihot` is `None` outside setup.
   `_embed_choices` loops over whichever stripes are non-None, summing each through
   the shared card table, then splices out all card-index / multi-hot regions and
   concatenates the rest with the resulting embeddings.

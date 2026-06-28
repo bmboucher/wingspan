@@ -11,10 +11,6 @@ reads (record_game, standings, push_event).
 from __future__ import annotations
 
 import io
-import pathlib
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 import rich.console as rich_console
 

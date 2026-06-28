@@ -17,11 +17,11 @@ MARGIN x-axis sliding-window width and its two pin steps, with
 `WINDOW_SLIDING_PIN` derived from the window). Centralised so dashboard layout
 and convergence-window math don't scatter magic numbers.
 
-**`braille.py`** — `BrailleCanvas(width, height)`: a 2×4-dot Unicode braille
-bitmap canvas. `plot_line(xs, ys)` maps a float series onto the dot grid;
-`plot_bar(xs, ys)` draws filled columns. `render() -> str` returns the canvas
-as a block of braille Unicode characters. The foundation for
-`convergence_chart.py` and `insets.py`.
+**`braille.py`** — `BrailleCanvas(cols, rows, n_series)`: a multi-series 2×4-dot
+Unicode braille bitmap canvas; each series has its own bit-plane. Core API:
+`set_dot(px, py, series)` lights one dot, `line(x0, y0, x1, y1, series,
+dotted)` draws a Bresenham segment, `cell(row, col) -> (char, owner_series)`
+reads one cell for rendering. Used by `convergence_chart.py` and `insets.py`.
 
 **`text_helpers.py`** — Pure string helpers for dashboard text elements:
 - `sparkline(values, width) -> str` — Unicode eighth-block bar sparkline.
@@ -39,7 +39,10 @@ a `rich` renderable showing the per-decision-family action distribution as
 horizontal eighth-block bars. Used in the FLIGHT PLAN band to monitor policy
 entropy per family.
 
-**`insets.py`** — Docked panel renderables for the right-side inset column:
-- `EvalInset(eval_result)` — compact win-rate + CI display.
-- `NarrowPanelStrip(panels)` — stacks multiple narrow renderables vertically
-  for the inset column layout.
+**`insets.py`** — Docked panel builder functions for the right-side inset column:
+- `eval_inset(state, height) -> list[text.Text]` — cinematic hero win-rate
+  block: hero number, recent and EWMA eval rows, sample size, challenger, and
+  iterations since last upgrade; padded to `height`.
+- `eval_strip(state) -> list[text.Text]` — one-line narrow-panel eval row.
+- `collect_inset(state, height) -> list[text.Text]` — collect-phase inset.
+- `collect_strip(state) -> list[text.Text]` — one-line narrow-panel collect row.

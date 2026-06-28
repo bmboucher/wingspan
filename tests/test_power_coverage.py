@@ -9,11 +9,6 @@ effect kind (so it actually fires between turns).
 
 from __future__ import annotations
 
-import pathlib
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
-
 from wingspan import cards  # noqa: E402
 
 # The pink effect kinds the engine's reactor hooks actually dispatch. A pink bird

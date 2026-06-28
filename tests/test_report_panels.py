@@ -11,11 +11,6 @@ parameter table's per-block jump anchors, and the nav losing its section tabs.
 
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 from wingspan import architecture, decisions, encode, setup_model, version  # noqa: E402
 from wingspan.encode import stripes as encode_stripes  # noqa: E402
 from wingspan.reporting import html as report  # noqa: E402

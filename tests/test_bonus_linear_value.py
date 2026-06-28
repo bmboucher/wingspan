@@ -10,10 +10,6 @@ count and so pass straight through.
 from __future__ import annotations
 
 import math
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, state
 from wingspan.engine import scoring

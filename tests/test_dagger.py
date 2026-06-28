@@ -19,14 +19,11 @@ from __future__ import annotations
 
 import pathlib
 import random
-import sys
 import typing
 
 import numpy as np
 import pytest
 import torch
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from wingspan import model  # noqa: E402
 from wingspan.training import collect, config, learner, loop_resume  # noqa: E402

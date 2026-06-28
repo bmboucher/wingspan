@@ -17,13 +17,9 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import pathlib
-import sys
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 pytest.importorskip("torch")
 pytest.importorskip("rich")
@@ -469,7 +465,11 @@ def test_dispatch_nudge_bootstrap_cycles_through_options(tmp_path: pathlib.Path)
     view = controller.build_initial_state(cfg, cuda_available=False)
     view.selected_attr = "bootstrap_opponent"
 
-    # Default is "random" (index 1 in [none, random, archive]).
+    # Default is "none" (index 0 in [none, random, archive]).
+    assert view.working.opponent.bootstrap_opponent == "none"
+
+    # Right: none → random.
+    controller.dispatch(view, _key(keys.KeyKind.RIGHT))
     assert view.working.opponent.bootstrap_opponent == "random"
 
     # Right: random → archive path.

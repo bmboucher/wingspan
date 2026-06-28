@@ -46,9 +46,13 @@ wingspan = ["data/*.json"]
 # for consistent formatting. Both editors (Pylance) and the CLI read the
 # config below, so humans and AI agents see identical results.
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
 [tool.pyright]
 include = ["src", "tests"]
-extraPaths = ["src"]  # tests import `wingspan` via sys.path insert, no install needed
+extraPaths = ["src", "tests"]  # src: wingspan package; tests: stub_agents and shared helpers
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
@@ -85,9 +89,6 @@ parallel = true
 omit = [
     "*/wingspan/cli.py",               # argparse CLI boilerplate
     "*/wingspan/__main__.py",          # dispatcher entry point
-    "*/wingspan/introspect.py",        # CLI introspection tool
-    "*/wingspan/report.py",            # text report rendering
-    "*/wingspan/report_svg.py",        # SVG diagram generation
     "*/wingspan/training/charts/*.py", # chart/visualization generation
     "*/wingspan/cloud/*.py",           # AWS/S3 integration (needs live cloud)
 ]

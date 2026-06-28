@@ -7,15 +7,11 @@ roll odds and the choice semantics added by the die-fidelity fix.
 
 from __future__ import annotations
 
-import pathlib
 import random
-import sys
 import typing
 from collections import Counter
 
 import pytest
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from wingspan import cards, decisions, engine, state  # noqa: E402
 from wingspan.engine import actions  # noqa: E402

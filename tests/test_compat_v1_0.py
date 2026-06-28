@@ -15,15 +15,10 @@ rehydrated v1.0 checkpoints compute identically to what they did at training tim
 
 from __future__ import annotations
 
-import os
-import sys
-
 # pyright: reportPrivateUsage=false
 # (tests access _choice_embed_offsets to pin the ChoiceEmbedOffsets seam)
 import numpy as np
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 torch = pytest.importorskip("torch")
 from torch import nn

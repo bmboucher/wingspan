@@ -19,18 +19,15 @@ review:
 
 from __future__ import annotations
 
-import os
-import sys
-
 import numpy as np
-
-# Make ``import wingspan`` work whether pytest is run from repo root or the
-# tests/ directory.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state
 from wingspan.encode import layout, state_encode, stripes
 from wingspan.engine import scoring
+
+# Make ``import wingspan`` work whether pytest is run from repo root or the
+# tests/ directory.
+
 
 # ---------------------------------------------------------------------------
 # State encoder

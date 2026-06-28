@@ -10,12 +10,8 @@ stack's heavyweight dependencies.
 from __future__ import annotations
 
 import math
-import os
-import sys
 
 import numpy as np
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions
 from wingspan.training import steps, timestamps

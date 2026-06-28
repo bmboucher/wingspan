@@ -3,12 +3,8 @@ optional skip — edge cases that don't surface through any real bird's activati
 
 from __future__ import annotations
 
-import os
 import random
-import sys
 import typing
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, engine, state
 from wingspan.engine.powers import dispatch

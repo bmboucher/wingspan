@@ -7,9 +7,11 @@ hyperparameter guidance, and Phase 0–3 roadmap.
 
 ## Entry points
 
-**`__main__.py` / `app.py`** — Argparse + `--config` flag → instantiates
-`TrainingLoop` on a background thread, starts `rich.Live` with the dashboard,
-and blocks until the loop stops or the user hits Ctrl-C.
+**`__main__.py`** — Package entry point; delegates to `app.py`.
+
+**`app.py`** — Argparse + `--config` flag → instantiates `TrainingLoop` on a
+background thread, starts `rich.Live` with the dashboard, and blocks until the
+loop stops or the user hits Ctrl-C.
 
 ## Config and metadata
 

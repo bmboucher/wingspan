@@ -23,13 +23,10 @@ descriptor seam is exercised here at that single live era.
 from __future__ import annotations
 
 import io
-import os
 import pathlib
 import sys
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 pytest.importorskip("torch")
 

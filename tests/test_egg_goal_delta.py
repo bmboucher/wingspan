@@ -14,13 +14,9 @@ nest, and the Oologist / Breeding Manager egg thresholds. Black-box through
 from __future__ import annotations
 
 import math
-import os
 import random
-import sys
 
 import numpy as np
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state  # noqa: E402
 from wingspan.encode import layout  # noqa: E402

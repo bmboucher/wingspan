@@ -15,7 +15,7 @@ Source-of-truth files this report describes:
 | Choice-vector stripe layout & offsets | `src/wingspan/encode/layout.py` |
 | Per-choice featurizers | `src/wingspan/encode/choice_encode.py` |
 | Engine call sites | `src/wingspan/engine/` (core, actions, powers/, reactors) |
-| Per-family heads | `src/wingspan/model.py` |
+| Per-family heads | `src/wingspan/model/core.py` |
 | Setup model | `src/wingspan/setup_model/`, `src/wingspan/training/setup_net.py` |
 | Setup / bonus config axes | `src/wingspan/training/config.py` |
 
@@ -63,7 +63,7 @@ The family → decision-class map (head order = `ALL_DECISION_FAMILIES`):
 |---|---|---|
 | 1 | `MAIN_ACTION` | `MainActionDecision` |
 | 2 | `DRAW_BIRD` | `DrawCardsPickSourceDecision`, `BirdPowerPickBirdFromHandDecision` |
-| 3 | `DISCARD_BIRD` | `BirdPowerTuckFromHandDecision`, `DiscardBirdForFoodDecision` |
+| 3 | `DISCARD_BIRD` | `BirdPowerTuckFromHandDecision`, `BirdPowerDiscardFromHandDecision`, `DiscardBirdForFoodDecision` |
 | 4 | `GAIN_FOOD` | `GainFoodDecision` |
 | 5 | `SPEND_FOOD` | `SpendFoodDecision`, `SpendFoodForEggDecision`, `PayBirdFoodDecision` |
 | 6 | `LAY_EGG` | `LayEggDecision` |
@@ -79,13 +79,9 @@ The family → decision-class map (head order = `ALL_DECISION_FAMILIES`):
 
 ## 1. The choice vector at a glance
 
-One uniform row per candidate (`encode/layout.py`); base width 215, plus the
+One uniform row per candidate (`encode/layout.py`); base width **508**, plus the
 trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes when
-`include_setup` (399). This is the artifact-version-0.1 layout; checkpoints
-from the pre-0.1 geometry (397-dim rows: a 3-dim habitat one-hot, a 180-wide
-`bird_id` one-hot doubling as the setup multi-hot, no landing-slot marks) are
-re-encoded at inference by `wingspan.compat.v0_0` and play through the
-frozen-era `PolicyValueNetV00`. The live stripes, in offset order:
+`include_setup` (**692**). The live stripes, in offset order:
 
 | Stripe | Width | Contents | Filled for |
 |---|---|---|---|

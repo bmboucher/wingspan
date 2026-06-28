@@ -13,13 +13,9 @@ round (no choice can change a frozen payout).
 
 from __future__ import annotations
 
-import os
 import random
-import sys
 
 import numpy as np
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state  # noqa: E402
 from wingspan.encode import layout, state_encode  # noqa: E402

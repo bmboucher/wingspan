@@ -10,9 +10,6 @@ from __future__ import annotations
 
 import pathlib
 import random
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 import pytest
 import torch

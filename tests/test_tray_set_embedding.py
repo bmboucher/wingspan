@@ -13,16 +13,11 @@ shape flow, and the validator guarding the flag.
 
 from __future__ import annotations
 
-import os
 import random
-import sys
 
 import numpy as np
 import pydantic
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 import torch  # noqa: E402
 
 from wingspan import architecture, cards, encode, model, state  # noqa: E402

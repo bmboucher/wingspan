@@ -3,13 +3,9 @@
 from __future__ import annotations
 
 import copy
-import os
 import random
-import sys
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, engine, state
 

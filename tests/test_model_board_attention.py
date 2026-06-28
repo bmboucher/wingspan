@@ -7,12 +7,7 @@ trunk-input-width invariance, and the save/reload round-trip.
 
 from __future__ import annotations
 
-import os
-import sys
-
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 torch = pytest.importorskip("torch")
 

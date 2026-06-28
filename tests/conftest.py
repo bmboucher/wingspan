@@ -35,8 +35,7 @@ _HEAVY_TEST_FILES = frozenset(
         "test_training_dashboard.py",
         "test_mp_collect.py",
         "test_model_and_self_play.py",
-        "test_compat_v0_0.py",
-        "test_compat_v0_1.py",
+        "test_compat_v1_0.py",
         "test_setup_train_cpu.py",
         "test_setup_arch_key_restart.py",
         "test_setup_collect.py",
@@ -44,11 +43,10 @@ _HEAVY_TEST_FILES = frozenset(
     }
 )
 
-# Both of these must happen before any test module imports torch / wingspan:
-# the env var is read once at torch import time, and the path insert is what
-# makes ``wingspan`` importable without an install.
+# Must happen before any test module imports torch: the env var is read once
+# at torch import time.  The pythonpath plugin (pyproject.toml
+# [tool.pytest.ini_options] pythonpath=["src"]) handles `wingspan` importability.
 os.environ.setdefault("OMP_NUM_THREADS", str(_TEST_INTRAOP_THREADS))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

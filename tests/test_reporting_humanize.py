@@ -7,11 +7,6 @@ and :func:`humanize_forced`.  Tests prepend ``src/`` to ``sys.path`` to match
 
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 from wingspan import cards, decisions, state
 from wingspan.reporting import humanize
 

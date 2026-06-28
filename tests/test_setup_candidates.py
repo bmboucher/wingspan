@@ -8,13 +8,9 @@ the ``SetupCandidate`` round-trip and ``select_by_margins`` (argmax vs softmax).
 
 from __future__ import annotations
 
-import os
 import random
-import sys
 
 import numpy as np
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, engine  # noqa: E402
 from wingspan.setup_model import candidates  # noqa: E402

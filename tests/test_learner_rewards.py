@@ -16,13 +16,9 @@ values so regressions in the discounting / telescoping logic are caught directly
 from __future__ import annotations
 
 import math
-import os
-import sys
 
 import numpy as np
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 pytest.importorskip("torch")  # learner imports torch at module load
 

@@ -17,14 +17,10 @@ superseded-era branch and the era-divergence assertions return.
 
 from __future__ import annotations
 
-import os
 import pathlib
-import sys
 import typing
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 torch = pytest.importorskip("torch")
 

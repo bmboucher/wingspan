@@ -2,7 +2,7 @@
 
 General-purpose event router that an `Engine` holds. Configure a set of handlers
 via a serializable `InstrumentationConfig`, attach it to an engine, and the
-dispatcher fires typed callbacks on game events. Used for training data collection
+router fires typed callbacks on game events. Used for training data collection
 (decision logging) and analytics (per-bird play tallies).
 
 ## Modules
@@ -17,23 +17,34 @@ dispatcher fires typed callbacks on game events. Used for training data collecti
   through to handlers so they can name their output files correctly.
 - `HandlerConfig` — abstract base; each handler module defines its own subclass.
 
-**`dispatcher.py`** — `EventDispatcher`: the live event router held by `Engine`.
-Built from an `InstrumentationConfig` via `EventDispatcher.from_config(config,
-context)`. Key method: `dispatch(event: GameEvent)` — calls all registered
-handlers whose `handles(event)` returns `True`. Thread-safe; handlers are called
-synchronously in the engine thread.
+**`dispatcher.py`** — `Instrumentation`: the live event router held by `Engine`.
+One typed `fire` method per `EventName` (e.g. `game_start(engine=...)`,
+`made_decision(engine=..., decision=..., choice=...)`); each iterates that
+event's handlers. `open(context)` / `close()` fan out across the *unique*
+handler set so a multi-event handler's resources are acquired and released once.
+`EMPTY` is the shared no-op router for uninstrumented engines (every event costs
+one dict lookup that misses). Built from an `InstrumentationConfig` via
+`InstrumentationConfig.build`.
+
+**`registry.py`** — Handler registry: `@register(name)` decorator registers a
+`CallbackHandler` subclass under a stable config-key string;
+`handler_class_for(name)` and `name_for(handler_class)` provide the forward
+and reverse lookups for (de)serialization.
 
 **`events.py`** — Event taxonomy and handler base classes:
-- `GameEvent` — abstract base with `player_id` and `round_idx`.
-- Concrete events: `BirdPlayedEvent`, `DecisionMadeEvent`, `RoundEndEvent`,
-  `GameEndEvent`, etc. Each carries the typed data relevant to that moment.
-- `GameEventHandler` — abstract base; subclasses override `handles(event) -> bool`
-  and `handle(event)`.
-
-**`registry.py`** — Config-class-name ↔ handler bijection:
-`@register_handler(config_class)` decorator associates a `HandlerConfig`
-subclass with its `GameEventHandler` implementation.
-`handler_for_config(config) -> GameEventHandler` — lookup used by the dispatcher.
+- `EventName` — `StrEnum` with one member per game event (`GAME_START`,
+  `GAME_END`, `ROUND_START`, `ROUND_END`, `TURN_START`, `TURN_END`,
+  `MAKING_DECISION`, `MADE_DECISION`, `BIRD_PLACED`, `FOOD_GAINED`,
+  `EGGS_LAID`, `CARDS_DRAWN`, `ROUND_GOAL_SCORED`, `PLAYER_FINAL_SCORED`,
+  `SETUP_APPLIED`, `SETUP_START`).
+- `CallbackHandler` — abstract base; subclasses implement the methods matching
+  the events they subscribe to and declare their `EventName` set in `HANDLES`.
+- Concrete handler protocol classes: `GameStartHandler`, `GameEndHandler`,
+  `RoundStartHandler`, `RoundEndHandler`, `TurnStartHandler`, `TurnEndHandler`,
+  `MakingDecisionHandler`, `MadeDecisionHandler`, `BirdPlacedHandler`,
+  `FoodGainedHandler`, `EggsLaidHandler`, `CardsDrawnHandler`,
+  `RoundGoalScoredHandler`, `PlayerFinalScoredHandler`, `SetupAppliedHandler`,
+  `SetupStartHandler`.
 
 ## handlers/ subpackage
 
@@ -46,7 +57,7 @@ how many times each bird is played per game. Writes a `card_visits.json` summary
 at game end. Useful for coverage reports and card-popularity analytics.
 
 **`handlers/decision_logger.py`** — `DecisionLoggerHandler` / `DecisionLoggerConfig`:
-appends a JSONL row for every `DecisionMadeEvent`. Each row contains the encoded
+appends a JSONL row for every `MADE_DECISION` event. Each row contains the encoded
 state vector, encoded choice matrix, and the chosen index — the primary source
 of training data for offline supervised learning.
 

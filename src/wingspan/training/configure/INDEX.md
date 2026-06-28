@@ -70,17 +70,18 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   immutable snapshot the screen renders from; mutations return a new instance.
 
 **`keys.py`** — Cross-platform raw single-key reader:
-- `read_key() -> str | None` — non-blocking; returns a key name (`"UP"`,
-  `"ENTER"`, `"q"`, etc.) or `None` if no key is ready.
-- Uses `msvcrt` on Windows, `termios`+`tty` on POSIX. Called in a tight
-  loop by `controller.py`.
+- `KeyKind` StrEnum and `KeyEvent(kind, char)` Pydantic model — typed key event.
+- `decode_char(ch) -> KeyEvent`, `decode_windows_special(code) -> KeyEvent`,
+  `decode_unix_escape(tail) -> KeyEvent` — platform-specific decoders.
+- `KeyReader` — context-manager that puts the terminal in raw mode; its
+  `poll(timeout) -> KeyEvent | None` method is the non-blocking read entry point.
+  Uses `msvcrt` on Windows, `termios`+`tty` on POSIX.
 
 **`screen.py`** — `rich` layout and rendering:
-- `build_layout() -> Layout` — the two-panel (field list / help + arch diagram)
-  layout structure.
-- `render_config_panel(state)`, `render_runs_panel(state)`,
-  `render_arch_panel(state)` — per-mode panel renderers.
-- `render_modal(state)` — overlays the confirm prompt when `state.mode == CONFIRM`.
+- `build(view, frame) -> Layout` — builds the two-panel rich layout from the
+  current `ConfiguratorState` snapshot; `frame` drives cursor blink.
+- Private renderers: `_form_panel`, `_arch_panel`, `_detail`, `_header`.
+  All accept the current `ConfiguratorState` and return `rich` renderables.
 
 **`controller.py`** — Main loop and event dispatch:
 - `run_configurator(config) -> (Outcome, TrainConfig)` — starts `rich.Live`,
@@ -97,6 +98,7 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   which re-aligns the era and surfaces a footer notice when it moves; fresh
   launches are re-keyed at the live `MODEL_VERSION` in `_launch`.
 
-**`arch_diagram.py`** — `ArchDiagram(arch: ModelArchitecture)`: a `rich`
-renderable that draws the live architecture as a text-art block diagram,
-updated in real time as the user nudges width fields in the configurator.
+**`arch_diagram.py`** — `ArchitectureDiagram`: a `rich` renderable that draws
+the live architecture as a text-art block diagram, updated in real time as the
+user nudges width fields in the configurator. `viewport(state) -> rich.text.Text`
+is the public entry point.

@@ -3,11 +3,6 @@ and run_final_self_play_eval (which exercises _counting_greedy_agent internally)
 
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 import pytest
 
 torch = pytest.importorskip("torch")

@@ -11,11 +11,6 @@ that invariant and the round-trip through ``model_config.json``.
 
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 from wingspan import architecture, decisions, encode, model, version  # noqa: E402
 from wingspan.encode import layout, stripes  # noqa: E402
 from wingspan.training import config, runmeta  # noqa: E402

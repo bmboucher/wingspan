@@ -14,12 +14,8 @@ this goal lives with its families (``test_egg_goal_delta``,
 from __future__ import annotations
 
 import math
-import os
 import random
-import sys
 import typing
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state  # noqa: E402
 from wingspan.encode import layout, state_encode  # noqa: E402

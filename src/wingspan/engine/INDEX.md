@@ -43,10 +43,11 @@ marks global lines that appear in both per-player files.
 `do_draw_cards(engine, agent)`, `do_play_bird(engine, agent)`. Each mutates
 `engine.state` and calls `engine.ask` for any decisions required by the action.
 
-**`reactors.py`** — Pink (between-turns) reactor hooks: `fire_pink_reactors(engine,
-trigger_player_id, event)`. Iterates all players' boards and calls the pink
-handler for any bird whose power matches the trigger event. See `docs/BIRDS.md`
-for the reactive power taxonomy.
+**`reactors.py`** — Pink (between-turns) reactor hooks: `trigger_pink_lay_eggs_reactors(engine,
+trigger_player_id)`, `trigger_pink_play_bird_reactors(engine, trigger_player_id)`,
+`trigger_pink_gain_food_reactors(engine, trigger_player_id)`. Each iterates all
+players' boards and fires any bird whose pink power matches the trigger event.
+See `docs/BIRDS.md` for the reactive power taxonomy.
 
 **`scoring.py`** — `score_round_goal(gs, goal) -> list[int]` (2-player payouts)
 and `final_scoring(gs) -> dict[str, ScoreBreakdown]`. Bonus-card scoring lives

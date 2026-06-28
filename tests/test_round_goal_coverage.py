@@ -9,11 +9,7 @@ previously unscored.
 
 from __future__ import annotations
 
-import pathlib
 import random
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from wingspan import cards, state  # noqa: E402
 from wingspan.engine import scoring  # noqa: E402

@@ -16,11 +16,6 @@ count cleanly separates the two.
 
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 from wingspan import cards, decisions, engine, setup_model, state  # noqa: E402
 from wingspan.training import collect  # noqa: E402
 

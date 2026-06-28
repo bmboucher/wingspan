@@ -17,16 +17,12 @@ Covers three layers:
 from __future__ import annotations
 
 import math
-import os
 import pathlib
 import random
-import sys
 import typing
 
 import numpy as np
 import pydantic
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import agents, cards, decisions, engine
 from wingspan.engine import scoring

@@ -34,6 +34,15 @@ same-MAJOR era or refuse one explicitly.
 ## Modules
 
 **`__init__.py`** — the package-level dims router:
-`encoding_dims_for_era(artifact_version, spec) -> (state_dim, choice_dim)`. With
-no shims present it validates the version and returns the live widths; a future
-MINOR FRESH change adds its era branch here.
+`encoding_dims_for_era(artifact_version, spec) -> (state_dim, choice_dim)`.
+Routes v1.0 artifacts to the v1.0 frozen dims (narrower `choice_dim`: without
+the `becomes_unplayable` stripe); later same-MAJOR artifacts get the live widths.
+
+**`v1_0.py`** — v1.0 artifact compat shim:
+- `PolicyValueNetV1_0` — `PolicyValueNet` subclass that restores the v1.0
+  trunk-final-activation fallback (`trunk_final_activation=null` resolved to
+  `between_activation` instead of `final_activation`) and strips the
+  `becomes_unplayable` 180-dim choice stripe added in v1.1. Overrides
+  `_build_trunk`, `encode_choices`, and `_choice_embed_offsets`.
+- `uses_v1_0` — version predicate (`artifact.major == 1 and artifact.minor == 0`).
+  Used by `model.PolicyValueNet.class_for_version` to route v1.0 artifacts here.

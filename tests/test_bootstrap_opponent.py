@@ -13,13 +13,10 @@ from __future__ import annotations
 
 import gzip
 import pathlib
-import sys
 import typing
 
 import pytest
 import torch
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from wingspan import model  # noqa: E402
 from wingspan.training import collect, config, loop_resume, mp_collect  # noqa: E402

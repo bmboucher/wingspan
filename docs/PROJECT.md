@@ -28,6 +28,7 @@ src/wingspan/
   decisions.py     # Decision[C] hierarchy + Choice hierarchy + MainAction + judgment families
   architecture.py  # ModelArchitecture + ActivationName (torch-free network topology descriptor)
   version.py       # MODEL_VERSION artifact-compat version + load-time check (torch-free)
+  sampling.py      # weighted_index(...) — seed-stable weighted sampling (torch-free)
   data/*.json      # wingsearch card data (bundled)
 ```
 

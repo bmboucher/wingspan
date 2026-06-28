@@ -12,11 +12,7 @@ your habitat with the fewest birds has 3 birds in it").
 
 from __future__ import annotations
 
-import os
 import random
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, engine, state  # noqa: E402
 from wingspan.engine import scoring  # noqa: E402

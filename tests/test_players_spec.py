@@ -8,11 +8,7 @@ setup-net run directory.
 
 from __future__ import annotations
 
-import os
 import pathlib
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import players  # noqa: E402
 from wingspan.training import artifacts  # noqa: E402

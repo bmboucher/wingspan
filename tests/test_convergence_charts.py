@@ -10,13 +10,9 @@ readout, and a render at scale with markers).
 from __future__ import annotations
 
 import io
-import os
 import pathlib
-import sys
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 pytest.importorskip("torch")
 pytest.importorskip("rich")

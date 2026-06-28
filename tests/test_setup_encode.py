@@ -9,11 +9,7 @@ file, ``test_setup_encode_pricing.py``.
 
 from __future__ import annotations
 
-import os
 import random
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, encode, state  # noqa: E402
 from wingspan.setup_model import architecture as arch_module  # noqa: E402

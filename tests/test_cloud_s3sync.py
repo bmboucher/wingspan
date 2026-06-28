@@ -9,13 +9,9 @@ the PUT is captured, so no AWS access is required.
 
 from __future__ import annotations
 
-import os
 import pathlib
-import sys
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 pytest.importorskip("boto3")
 

@@ -7,11 +7,7 @@ correctly across types and birds (so scoring is unchanged)."""
 
 from __future__ import annotations
 
-import os
 import random
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, engine, state
 from wingspan.engine import powers

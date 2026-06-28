@@ -10,11 +10,7 @@ ask path.
 
 from __future__ import annotations
 
-import os
 import random
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import agents, cards, decisions, engine  # noqa: E402
 from wingspan.setup_model import candidates  # noqa: E402

@@ -19,12 +19,8 @@ Gaps covered
 
 from __future__ import annotations
 
-import os
 import random
-import sys
 import typing
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, engine, state  # noqa: E402
 from wingspan.engine import powers, reactors  # noqa: E402

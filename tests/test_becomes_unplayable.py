@@ -8,13 +8,8 @@ introduced by the new stripe.
 
 from __future__ import annotations
 
-import os
-import sys
-
 import numpy as np
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards, decisions, encode, engine, state
 from wingspan.encode import layout

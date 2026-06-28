@@ -13,12 +13,8 @@ if played.
 from __future__ import annotations
 
 import math
-import os
-import sys
 
 import numpy as np
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import cards  # noqa: E402
 from wingspan.engine import scoring  # noqa: E402

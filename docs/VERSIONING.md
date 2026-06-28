@@ -2,7 +2,7 @@
 
 Every persisted artifact (the dated `run_config_<stamp>.json` run descriptor and
 every `.pt` payload) is stamped with a `MAJOR.MINOR` **artifact version**
-(`wingspan.version.MODEL_VERSION`, currently **`1.0`**). This is distinct from
+(`wingspan.version.MODEL_VERSION`, currently **`1.1`**). This is distinct from
 the package release version (`wingspan.__version__`) — one tracks the codebase,
 the other the on-disk artifact format.
 

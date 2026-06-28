@@ -13,13 +13,8 @@ through the shared card table.
 
 from __future__ import annotations
 
-import os
-import sys
-
 import numpy as np
 import torch
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from wingspan import architecture, cards, decisions, encode, engine, model, state
 from wingspan.encode import layout
