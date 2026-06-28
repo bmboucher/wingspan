@@ -156,20 +156,20 @@ _LANE_CARD_ATTN = 38
 
 # "cons" band lanes (offset from consumers → row-2 band top).
 _LANE_HAND_STATE = 14
-_LANE_HAND_CHOICE = 22  # pool → choice encoder (becomes_playable)
-_LANE_HAND_SETUP = 30
-
-# Trunk split point in the "cons" band (below both hand-connector lanes).
-_LANE_TRUNK_SPLIT = 48
+_LANE_HAND_CHOICE = 30  # pool → choice encoder (becomes_playable)
+_LANE_HAND_SETUP = 42
+_LANE_TRUNK_SPLIT = 54  # below both hand-connector lanes; still fits in _SVG_BAND_H=64
 
 _LANE_TRUNK_DECISION = 24  # band-2 lane (trunk → decision elbow)
 
-# Dual-mode (actor-critic) setup column geometry: the 290px column is split
-# into a shared header block at full width plus two 135px sub-blocks with a
-# 10px gap between them and 20px of vertical space for the Y-split arrow.
+# The MULTI-CARD POOLING → CHOICE arrow lands at 2/3 the choice column width
+# (so it's visually distinct from the trunk→choice arrow that lands at center).
+_X_CHOICE_DST_POOL = _SVG_COL_X[1] + _SVG_COL_W * 2 // 3  # = 527
+
+# Dual-mode (actor-critic) setup column geometry: a shared header block at full
+# width, then two full-width sub-blocks (SETUP VALUE above SETUP POLICY) each
+# separated by _DUAL_SPLIT_GAP pixels of vertical space for the fork arrows.
 _DUAL_SPLIT_GAP = 20
-_DUAL_SUB_W = 135
-_DUAL_SUB_GAP = 10
 
 
 def build_arch_svg(
@@ -235,7 +235,7 @@ def build_arch_svg(
     # Connectors: all bodies first, then all labels, so the white label halos
     # mask any line they cross.  The trunk (shared card→{state,choice,setup}
     # stem) is emitted separately so its bodies and labels stay in order.
-    trunk_bodies, trunk_labels = _trunk_svg(geom, arch, use_setup_model)
+    trunk_bodies, trunk_labels = _trunk_svg(geom, arch, use_setup_model, color=_ACCENT_CARD)
     conns = _consumer_connectors(
         geom, units, arch, use_setup_model
     ) + _band2_connectors(geom, arch)
@@ -295,9 +295,10 @@ class _Unit(pydantic.BaseModel):
     # the parameter-table block the unit's parameter counts jump to.
     panel: str | None = None
     params_key: str | None = None
-    # When set, this unit is rendered as a header-only input box that fans out
-    # to two side-by-side sub-units (actor-critic setup mode).  The outer unit
-    # provides the shared embedder input box; ``dual`` provides the two heads.
+    # When set, this unit is rendered as a header trunk block that forks via two
+    # vertical arrows into two full-width sub-units stacked vertically below
+    # (actor-critic setup mode).  The outer unit provides the shared trunk input
+    # box; ``dual`` provides the two heads.
     dual: tuple["_Unit", "_Unit"] | None = None
     # A parameter-less block (e.g. card-table hand pooling) drawn as its block
     # body only — no input/output vector boxes — at a custom width.
@@ -337,6 +338,7 @@ class _Conn(pydantic.BaseModel):
     label_dx: int = 0
     label_left: bool = False
     dashed: bool = False
+    stroke: str = _SVG_ARROW
     # Optional dogleg: when both are set, the elbow routes down a vertical
     # corridor at ``corridor_x`` (between the consumer boxes) from ``lane_y`` to
     # ``lane_y2`` before fanning out to ``dst_x`` — a five-segment path.
@@ -400,7 +402,7 @@ def _card_unit(
     return _Unit(
         x=_ENC_X,
         accent=_ACCENT_CARD,
-        title="SINGLE-CARD ENCODER · per-card MLP",
+        title="SINGLE-CARD ENCODER",
         rows=_op_rows(
             block.layers,
             between_activation=arch.card_between_activation_resolved.value,
@@ -445,7 +447,7 @@ def _hand_unit(
         return _Unit(
             x=_SVG_COL_X[1],
             accent=_ACCENT_HAND,
-            title="MULTI-CARD ENCODER · card-set MLP",
+            title="MULTI-CARD ENCODER",
             rows=_op_rows(
                 layers,
                 between_activation=arch.hand_between_activation_resolved.value,
@@ -531,7 +533,7 @@ def _attention_unit(
     return _Unit(
         x=_SVG_COL_X[0],
         accent=_ACCENT_ATTN,
-        title="BOARD ATTENTION · per-seat self-attn",
+        title="BOARD ATTENTION",
         rows=(
             _OpRow(kind=_OpKind.LINEAR, label="self-attention ×2 boards", params=None),
             _OpRow(
@@ -597,7 +599,7 @@ def _setup_unit(
     return _Unit(
         x=_SVG_COL_X[2],
         accent=_ACCENT_SETUP,
-        title="SETUP MODEL · keep",
+        title="SETUP TRUNK",
         subtitle="" if use_setup_model else "off this run — keep scored in-game",
         rows=_op_rows(
             all_layers,
@@ -658,11 +660,7 @@ def _build_setup_unit(
     head_in = setup_param.head_in
     header_sigma = setup_param.embedder_params + setup_param.trunk_params
     status = "active" if use_setup_model else "off"
-    header_title = (
-        "SETUP INPUT · shared trunk"
-        if setup_param.trunk
-        else "SETUP INPUT · shared embedder"
-    )
+    header_title = "SETUP TRUNK"
 
     value_layers = setup_param.value_head
     policy_layers = (
@@ -696,7 +694,7 @@ def _build_setup_unit(
         params_key=PARAMS_BLOCK_TOTAL,
     )
     policy_unit = _Unit(
-        x=_SVG_COL_X[2] + _DUAL_SUB_W + _DUAL_SUB_GAP,
+        x=_SVG_COL_X[2],
         accent=_ACCENT_SETUP,
         title="SETUP POLICY",
         rows=_op_rows(
@@ -797,7 +795,7 @@ def _decision_unit(
     return _Unit(
         x=_SVG_COL_X[1],
         accent=_ACCENT_DECISION,
-        title="DECISION HEAD",
+        title="POLICY HEAD",
         rows=rows,
         sigma_text=sigma_text,
         in_label="state ⊕ choice",
@@ -887,17 +885,17 @@ def _unit_h(num_rows: int) -> int:
 def _setup_col_h(unit: _Unit) -> int:
     """Pixel height of the setup column, accounting for dual (actor-critic) mode.
 
-    In dual mode the column holds a shared-embedder header block at the top, a
-    vertical gap for the Y-split arrow, and two narrow sub-blocks side by side
-    below — each a full ``_unit_h`` in its own right (no inner input box, but
-    an output box is drawn for each head).
+    In dual mode the column holds a shared trunk header block at the top, then
+    two full-width sub-blocks stacked vertically (SETUP VALUE above SETUP POLICY),
+    each separated by ``_DUAL_SPLIT_GAP`` pixels for the fork arrows.
     """
     if unit.dual is None:
         return _unit_h(len(unit.rows))
-    # Header contributes: input IO box + IO gap + block body (no layer rows).
-    header_h = _SVG_IO_H + _SVG_IO_GAP + _block_body_h(0)
-    sub_h = max(_unit_h(len(unit.dual[0].rows)), _unit_h(len(unit.dual[1].rows)))
-    return header_h + _DUAL_SPLIT_GAP + sub_h
+    # Header: input IO box + IO gap + block body (trunk rows).
+    header_h = _SVG_IO_H + _SVG_IO_GAP + _block_body_h(len(unit.rows))
+    value_h = _unit_h(len(unit.dual[0].rows))
+    policy_h = _unit_h(len(unit.dual[1].rows))
+    return header_h + _DUAL_SPLIT_GAP + value_h + _DUAL_SPLIT_GAP + policy_h
 
 
 def _block_outer_h(unit: _Unit) -> int:
@@ -998,20 +996,23 @@ def _consumer_connectors(
                 lane_y=geom.band1_y + _LANE_CARD_HAND,
                 copies=encode.HAND_MULTIHOT_DIM,
                 label="",
+                stroke=_ACCENT_CARD,
             )
         )
 
-    # pooled hand → choice encoder: the becomes_playable card-set embedding.
+    # pooled hand → choice encoder: the becomes_playable + becomes_unplayable stripes.
+    # Lands at 2/3 the choice input box width (trunk→choice lands at center = 1/2).
     if hand.bare_block:
         conns.append(
             _Conn(
                 src_x=hand_cx,
                 src_y=hand_bottom_y,
-                dst_x=_SVG_COL_CX[1],
+                dst_x=_X_CHOICE_DST_POOL,
                 dst_y=row2_y,
                 lane_y=band_cons_y + _LANE_HAND_CHOICE,
                 copies=1,
-                label="×1 becomes-playable",
+                label="×2",
+                stroke=_ACCENT_HAND,
             )
         )
 
@@ -1026,6 +1027,7 @@ def _consumer_connectors(
             copies=2,
             label="×2 · kept + playable",
             dashed=not use_setup_model,
+            stroke=_ACCENT_HAND,
         )
     )
 
@@ -1061,6 +1063,7 @@ def _hand_state_conn(
         lane_y=geom.band_cons_y + _LANE_HAND_STATE,
         copies=copies,
         label=label,
+        stroke=_ACCENT_HAND,
     )
 
 
@@ -1085,6 +1088,7 @@ def _board_path_conns(geom: _Geom, arch: architecture.ModelArchitecture) -> list
             lane_y=geom.band1_y + _LANE_CARD_ATTN,
             copies=encode.N_BOARD_INDEX_SLOTS,
             label=f"×{encode.N_BOARD_INDEX_SLOTS} board",
+            stroke=_ACCENT_CARD,
         ),
         # BOARD ATTENTION → STATE: straight vertical.
         _Conn(
@@ -1095,12 +1099,16 @@ def _board_path_conns(geom: _Geom, arch: architecture.ModelArchitecture) -> list
             copies=encode.N_BOARD_INDEX_SLOTS,
             label=f"×{encode.N_BOARD_INDEX_SLOTS} attended",
             label_left=True,
+            stroke=_ACCENT_ATTN,
         ),
     ]
 
 
 def _trunk_svg(
-    geom: _Geom, arch: architecture.ModelArchitecture, use_setup_model: bool
+    geom: _Geom,
+    arch: architecture.ModelArchitecture,
+    use_setup_model: bool,
+    color: str = _ACCENT_CARD,
 ) -> tuple[list[str], list[str]]:
     """Shared trunk: vertical stem from encoder bottom to a split point in the
     cons band, then three branches to State / Choice / Setup.
@@ -1119,7 +1127,7 @@ def _trunk_svg(
     stem_sw = _stroke_for(encode.N_CARD_INDEX_SLOTS)
     bodies.append(
         f'<line x1="{_TRUNK_X}" y1="{geom.band1_y}" x2="{_TRUNK_X}" y2="{split_y}" '
-        f'stroke="{_SVG_ARROW}" stroke-width="{stem_sw}"/>'
+        f'stroke="{color}" stroke-width="{stem_sw}"/>'
     )
 
     # Left branch: trunk → State encoder.
@@ -1131,7 +1139,7 @@ def _trunk_svg(
         state_label = f"×{encode.N_CARD_INDEX_SLOTS}"
     state_pts = f"{_TRUNK_X},{split_y} {state_cx},{split_y} {state_cx},{geom.row2_y}"
     bodies.append(
-        f'<polyline points="{state_pts}" fill="none" stroke="{_SVG_ARROW}" '
+        f'<polyline points="{state_pts}" fill="none" stroke="{color}" '
         f'stroke-width="{_stroke_for(state_copies)}" marker-end="url(#arr)"/>'
     )
     labels.append(
@@ -1143,7 +1151,7 @@ def _trunk_svg(
     # Middle branch: trunk → Choice encoder (near-vertical, labeled to its right).
     bodies.append(
         f'<line x1="{choice_cx}" y1="{split_y}" x2="{choice_cx}" y2="{geom.row2_y}" '
-        f'stroke="{_SVG_ARROW}" stroke-width="{_stroke_for(1)}" marker-end="url(#arr)"/>'
+        f'stroke="{color}" stroke-width="{_stroke_for(1)}" marker-end="url(#arr)"/>'
     )
     labels.append(
         _halo_text(
@@ -1158,7 +1166,7 @@ def _trunk_svg(
     dash_attr = ' stroke-dasharray="6,4"' if not use_setup_model else ""
     setup_pts = f"{_TRUNK_X},{split_y} {setup_cx},{split_y} {setup_cx},{geom.row2_y}"
     bodies.append(
-        f'<polyline points="{setup_pts}" fill="none" stroke="{_SVG_ARROW}" '
+        f'<polyline points="{setup_pts}" fill="none" stroke="{color}" '
         f'stroke-width="{_stroke_for(state.TRAY_SIZE)}"{dash_attr} marker-end="url(#arr)"/>'
     )
     labels.append(
@@ -1218,10 +1226,11 @@ def _conn_svg(conn: _Conn) -> tuple[str, str]:
 
     # Straight vertical: line with the label(s) stacked beside it — to its
     # right by default, right-aligned to its left under ``label_left``.
+    color = conn.stroke
     if lane_y is None:
         body = (
             f'<line x1="{conn.src_x}" y1="{conn.src_y}" x2="{conn.dst_x}" y2="{conn.dst_y}" '
-            f'stroke="{_SVG_ARROW}" stroke-width="{stroke}"{dash} marker-end="url(#arr)"/>'
+            f'stroke="{color}" stroke-width="{stroke}"{dash} marker-end="url(#arr)"/>'
         )
         mid_y = (conn.src_y + conn.dst_y) // 2
         anchor, label_x = (
@@ -1244,7 +1253,7 @@ def _conn_svg(conn: _Conn) -> tuple[str, str]:
             f"{conn.dst_x},{conn.lane_y2} {conn.dst_x},{conn.dst_y}"
         )
         body = (
-            f'<polyline points="{pts}" fill="none" stroke="{_SVG_ARROW}" '
+            f'<polyline points="{pts}" fill="none" stroke="{color}" '
             f'stroke-width="{stroke}"{dash} marker-end="url(#arr)"/>'
         )
         label = ""
@@ -1259,7 +1268,7 @@ def _conn_svg(conn: _Conn) -> tuple[str, str]:
         f"{conn.dst_x},{lane_y} {conn.dst_x},{conn.dst_y}"
     )
     body = (
-        f'<polyline points="{pts}" fill="none" stroke="{_SVG_ARROW}" '
+        f'<polyline points="{pts}" fill="none" stroke="{color}" '
         f'stroke-width="{stroke}"{dash} marker-end="url(#arr)"/>'
     )
     label = ""
@@ -1276,8 +1285,8 @@ def _draw_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
     """One block with its input box above and output box below, grouped under a
     shared hover tooltip. A unit with a ``panel`` gets its input box wrapped in
     the ``arch-click`` group the report's script opens that panel from.
-    A unit with ``dual`` set is rendered as a header-only input box that fans
-    out to two side-by-side sub-units below.  A ``bare_block`` unit is drawn as
+    A unit with ``dual`` set is rendered as a header trunk block that forks
+    into two full-width sub-units stacked vertically below.  A ``bare_block`` unit is drawn as
     its block body alone (no I/O boxes), at its ``block_w`` width."""
     if unit.dual is not None:
         return _draw_dual_unit(unit, top_y, unit_h)
@@ -1332,37 +1341,39 @@ def _draw_bare_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
 
 
 def _draw_dual_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
-    """Actor-critic setup column: full-width header input block → Y-split arrow
-    → two narrow sub-blocks (SETUP VALUE left, SETUP POLICY right) with their
-    own output IO boxes.
+    """Actor-critic setup column: full-width header trunk block → fork arrows →
+    two full-width sub-blocks stacked vertically (SETUP VALUE above SETUP POLICY).
 
     Layout (top to bottom within the allocated ``unit_h``):
     * Input IO box at full column width (clickable to the setup panel).
-    * Block body at full width, title "SETUP INPUT", sigma = embedder params,
-      no layer rows.
-    * ``_DUAL_SPLIT_GAP`` pixels of vertical space with a Y-shaped connector.
-    * Two ``_DUAL_SUB_W``-wide block bodies (value left, policy right), each
-      sharing the remaining height with their output IO box at the bottom.
+    * Header block body at full width (trunk rows, if any).
+    * ``_DUAL_SPLIT_GAP`` pixels with two vertical fork arrows (one per head).
+    * SETUP VALUE — full-width unit with its own input/output IO boxes.
+    * ``_DUAL_SPLIT_GAP`` pixels of vertical separation.
+    * SETUP POLICY — full-width unit with its own input/output IO boxes.
+
+    Draw order puts the long header→policy arrow behind the value block so the
+    value block's white rect naturally masks its mid-section, leaving the arrow
+    visible above and below the value block.
     """
     assert unit.dual is not None
     value_unit, policy_unit = unit.dual
 
     # Header block occupies the top of the allocated column height.
-    header_body_h = _block_body_h(0)
+    header_body_h = _block_body_h(len(unit.rows))
     header_block_y = top_y + _SVG_IO_H + _SVG_IO_GAP
     header_bottom = header_block_y + header_body_h
 
-    # Sub-units fill the remaining space below the split gap.
-    sub_top_y = header_bottom + _DUAL_SPLIT_GAP
-    sub_h = top_y + unit_h - sub_top_y
+    # Sub-blocks stacked below the header, each at full column width.
+    value_h = _unit_h(len(value_unit.rows))
+    policy_h = _unit_h(len(policy_unit.rows))
+    value_top = header_bottom + _DUAL_SPLIT_GAP
+    policy_top = value_top + value_h + _DUAL_SPLIT_GAP
 
-    # Center x-coordinates for the Y-split connector.
-    header_cx = unit.x + _SVG_COL_W // 2
-    value_cx = value_unit.x + _DUAL_SUB_W // 2
-    policy_cx = policy_unit.x + _DUAL_SUB_W // 2
-    split_mid_y = header_bottom + _DUAL_SPLIT_GAP // 2
+    # Fork x-positions offset slightly off-center to read as two distinct branches.
+    cx = unit.x + _SVG_COL_W // 2
 
-    # Shared embedder input box (full width, clickable to the setup panel).
+    # Shared trunk input box (full width, clickable to the setup panel).
     in_box = _io_box(
         unit.x,
         top_y,
@@ -1376,38 +1387,11 @@ def _draw_dual_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
             f"<title>Click to inspect this vector</title>\n{in_box}\n</g>"
         )
 
-    # Y-split: two L-shaped polylines sharing the vertical stem, each ending
-    # with an arrowhead at the top of its sub-block.
-    def _branch(dst_cx: int) -> str:
-        pts = (
-            f"{header_cx},{header_bottom} {header_cx},{split_mid_y} "
-            f"{dst_cx},{split_mid_y} {dst_cx},{sub_top_y}"
-        )
+    def _fork_arrow(src_x: int, dst_y: int) -> str:
         return (
-            f'<polyline points="{pts}" fill="none" stroke="{_SVG_ARROW}" '
+            f'<line x1="{src_x}" y1="{header_bottom}" x2="{src_x}" y2="{dst_y}" '
+            f'fill="none" stroke="{_SVG_ARROW}" '
             f'stroke-width="{_STROKE_SINGLE}" marker-end="url(#arr)"/>'
-        )
-
-    y_split = f"{_branch(value_cx)}\n{_branch(policy_cx)}"
-
-    # Sub-block drawing helper: block body + output IO box, no input IO box.
-    def _draw_sub(sub: _Unit) -> str:
-        sub_body_h = sub_h - _SVG_IO_GAP - _SVG_IO_H
-        sub_body_y = sub_top_y
-        out_y = sub_top_y + sub_h - _SVG_IO_H
-        return "\n".join(
-            [
-                f"<g><title>{html_lib.escape(sub.tooltip)}</title>",
-                _draw_block(sub, sub_body_y, sub_body_h, col_w=_DUAL_SUB_W),
-                _io_box(
-                    sub.x,
-                    out_y,
-                    f"{sub.out_label} · {_count_text(sub.out_count)}",
-                    dashed=sub.dashed,
-                    col_w=_DUAL_SUB_W,
-                ),
-                "</g>",
-            ]
         )
 
     parts = [
@@ -1415,9 +1399,12 @@ def _draw_dual_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
         f"<title>{html_lib.escape(unit.tooltip)}</title>",
         in_box,
         _draw_block(unit, header_block_y, header_body_h, col_w=_SVG_COL_W),
-        y_split,
-        _draw_sub(value_unit),
-        _draw_sub(policy_unit),
+        # Long fork arrow to policy drawn first — value block will mask its mid-section.
+        _fork_arrow(cx + 15, policy_top),
+        _draw_unit(value_unit, value_top, value_h),
+        # Short fork arrow to value drawn after value block so arrowhead is on top.
+        _fork_arrow(cx - 15, value_top),
+        _draw_unit(policy_unit, policy_top, policy_h),
         "</g>",
     ]
     return "\n".join(parts)

@@ -80,7 +80,7 @@ def test_html_report_documents_active_setup_model():
     html = _report_html(use_setup_model=True)
     assert "id='setup'" in html
     assert "Setup Vector" in html
-    assert "SETUP INPUT" in html
+    assert "SETUP TRUNK" in html
     assert "SETUP VALUE" in html
     # The default encoding's total_dim (488) should appear in the HTML report.
     assert str(arch_module.SetupEncoding().total_dim) in html
@@ -92,7 +92,7 @@ def test_html_report_documents_inactive_setup_model():
     html = _report_html(use_setup_model=False)
     assert "id='setup'" in html
     assert "Setup Vector" in html
-    assert "SETUP INPUT" in html
+    assert "SETUP TRUNK" in html
     assert "SETUP VALUE" in html
     assert "not active this run" in html
 
@@ -104,7 +104,7 @@ def test_html_report_arch_svg_content():
     assert "SINGLE-CARD ENCODER" in html
     assert "MULTI-CARD POOLING" in html
     assert "STATE ENCODER" in html
-    assert "DECISION HEAD" in html
+    assert "POLICY HEAD" in html
     # Encoder fan-out copy labels (card -> state board path, pooled hand -> setup).
     assert f"×{encode.N_CARD_INDEX_SLOTS}" in html
     assert "kept + playable" in html
@@ -123,7 +123,7 @@ def test_html_report_arch_svg_content():
 def test_html_report_arch_svg_setup_off():
     html = _report_html(use_setup_model=False)
     assert "MULTI-CARD POOLING" in html
-    assert "SETUP INPUT" in html
+    assert "SETUP TRUNK" in html
 
 
 ###### PRIVATE #######

@@ -242,20 +242,19 @@ def test_html_report_with_trunk_renders():
             trunk_layers=(64,), hidden_layers=(32,)
         ),
     )
-    assert "SETUP INPUT · shared trunk" in html
+    assert "SETUP TRUNK" in html
     assert "SETUP VALUE" in html
     assert "SETUP POLICY" in html
 
 
 def test_html_report_no_trunk_uses_embedder_title():
-    """Without a trunk the header keeps the 'shared embedder' title."""
+    """Both trunk and no-trunk paths use the same SETUP TRUNK header title."""
     html = _report_html_for_arch(
         architecture.ModelArchitecture(),
         use_setup_model=True,
         setup_arch=setup_model.SetupArchitecture(hidden_layers=(64, 32)),
     )
-    assert "SETUP INPUT · shared embedder" in html
-    assert "SETUP INPUT · shared trunk" not in html
+    assert "SETUP TRUNK" in html
 
 
 ###### PRIVATE #######
