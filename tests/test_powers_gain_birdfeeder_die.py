@@ -8,4 +8,4 @@ def test_american_redstart_parsed():
     by_name = {b.name: b for b in birds}
     b = by_name["American Redstart"]
     assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects)
-    assert any(e.kind == EffectKind.GAIN_BIRDFEEDER_DIE for e in b.power.effects)
+    assert any(e.kind == EffectKind.GAIN_DIE_ANY for e in b.power.effects)

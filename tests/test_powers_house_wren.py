@@ -8,4 +8,4 @@ def test_house_wren_parsed():
     by_name = {b.name: b for b in birds}
     b = by_name["House Wren"]
     assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects)
-    assert any(e.kind == EffectKind.PLAY_ADDITIONAL_BIRD for e in b.power.effects)
+    assert any(e.kind == EffectKind.PLAY_ADDITIONAL_BIRD_HERE for e in b.power.effects)

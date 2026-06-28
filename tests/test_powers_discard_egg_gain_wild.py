@@ -10,11 +10,11 @@ def test_discard_egg_gain_wild_parsed():
     amount_2 = ["Chihuahuan Raven", "Common Raven"]
     for name in amount_1:
         b = by_name[name]
-        effs = [e for e in b.power.effects if e.kind == EffectKind.DISCARD_EGG_GAIN_WILD]
+        effs = [e for e in b.power.effects if e.kind == EffectKind.DISCARD_EGG_FOR_WILD]
         assert effs, f"{name} missing"
         assert effs[0].amount == 1
     for name in amount_2:
         b = by_name[name]
-        effs = [e for e in b.power.effects if e.kind == EffectKind.DISCARD_EGG_GAIN_WILD]
+        effs = [e for e in b.power.effects if e.kind == EffectKind.DISCARD_EGG_FOR_WILD]
         assert effs, f"{name} missing"
         assert effs[0].amount == 2

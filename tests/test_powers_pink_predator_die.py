@@ -9,4 +9,4 @@ def test_pink_predator_die_parsed():
     for name in ["Black Vulture", "Black-Billed Magpie", "Turkey Vulture"]:
         b = by_name[name]
         assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects), f"{name} UNIMPL"
-        assert any(e.kind == EffectKind.PINK_OPP_PREDATOR_DIE for e in b.power.effects), f"{name} missing"
+        assert any(e.kind == EffectKind.PINK_PREDATOR_FEEDER for e in b.power.effects), f"{name} missing"

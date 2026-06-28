@@ -8,4 +8,4 @@ def test_brant_draw_tray_parsed():
     by_name = {b.name: b for b in birds}
     b = by_name["Brant"]
     assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects)
-    assert any(e.kind == EffectKind.DRAW_TRAY_ALL for e in b.power.effects)
+    assert any(e.kind == EffectKind.DRAW_FROM_TRAY_ALL for e in b.power.effects)

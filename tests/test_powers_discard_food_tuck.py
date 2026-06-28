@@ -10,12 +10,12 @@ def test_discard_food_tuck_parsed():
     fish_birds = ["American White Pelican", "Double-Crested Cormorant"]
     for name in seed_birds:
         b = by_name[name]
-        effs = [e for e in b.power.effects if e.kind == EffectKind.DISCARD_FOOD_TUCK_FROM_DECK]
+        effs = [e for e in b.power.effects if e.kind == EffectKind.TUCK_FROM_DECK_PAID]
         assert effs, f"{name} missing effect"
         assert effs[0].food == Food.SEED
         assert effs[0].amount == 2
     for name in fish_birds:
         b = by_name[name]
-        effs = [e for e in b.power.effects if e.kind == EffectKind.DISCARD_FOOD_TUCK_FROM_DECK]
+        effs = [e for e in b.power.effects if e.kind == EffectKind.TUCK_FROM_DECK_PAID]
         assert effs, f"{name} missing effect"
         assert effs[0].food == Food.FISH

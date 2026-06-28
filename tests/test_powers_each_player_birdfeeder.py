@@ -9,4 +9,4 @@ def test_each_player_birdfeeder_die_parsed():
     for name in ["Anna's Hummingbird", "Ruby-Throated Hummingbird"]:
         b = by_name[name]
         assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects), f"{name} UNIMPL"
-        assert any(e.kind == EffectKind.EACH_PLAYER_GAIN_BIRDFEEDER_DIE for e in b.power.effects)
+        assert any(e.kind == EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER for e in b.power.effects)

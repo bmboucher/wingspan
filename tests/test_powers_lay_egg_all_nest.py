@@ -14,4 +14,4 @@ def test_lay_egg_all_nest_parsed():
         assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects), f"{name} UNIMPLEMENTED"
         effs = [e for e in b.power.effects if e.kind == EffectKind.LAY_EGG_ALL_NEST]
         assert effs, f"{name} missing LAY_EGG_ALL_NEST"
-        assert effs[0].extra[0] == expected_nest, f"{name} wrong nest type"
+        assert effs[0].nest == expected_nest, f"{name} wrong nest type"

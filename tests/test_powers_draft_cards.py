@@ -8,4 +8,4 @@ def test_draft_cards_parsed():
     by_name = {b.name: b for b in birds}
     b = by_name["American Oystercatcher"]
     assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects)
-    assert any(e.kind == EffectKind.DRAFT_CARDS for e in b.power.effects)
+    assert any(e.kind == EffectKind.DRAW_N_PLUS_ONE_DRAFT for e in b.power.effects)

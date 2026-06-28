@@ -12,6 +12,6 @@ def test_birdfeeder_choice_parsed():
     for name, fa, fb in inv_fruit + seed_fruit:
         b = by_name[name]
         assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects), f"{name} UNIMPL"
-        effs = [e for e in b.power.effects if e.kind == EffectKind.GAIN_FOOD_BIRDFEEDER_CHOICE]
+        effs = [e for e in b.power.effects if e.kind == EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE]
         assert effs, f"{name} missing"
-        assert fa in effs[0].extra and fb in effs[0].extra, f"{name} wrong foods"
+        assert {effs[0].food_a, effs[0].food_b} == {fa, fb}, f"{name} wrong foods"

@@ -17,6 +17,6 @@ def test_predator_tuck_parsed():
         assert name in by_name, f"{name} not found"
         b = by_name[name]
         assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects), f"{name} still UNIMPLEMENTED"
-        effs = [e for e in b.power.effects if e.kind == EffectKind.PREDATOR_TUCK]
-        assert effs, f"{name} missing PREDATOR_TUCK"
-        assert effs[0].extra[0] == threshold, f"{name} wrong threshold"
+        effs = [e for e in b.power.effects if e.kind == EffectKind.PREDATOR_HUNT]
+        assert effs, f"{name} missing PREDATOR_HUNT"
+        assert effs[0].max_wingspan_cm == threshold, f"{name} wrong threshold"

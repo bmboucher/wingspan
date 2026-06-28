@@ -15,6 +15,6 @@ def test_all_players_lay_on_nest_parsed():
     for name, expected_nest in cases:
         b = by_name[name]
         assert not any(e.kind == EffectKind.UNIMPLEMENTED for e in b.power.effects), f"{name} UNIMPL"
-        effs = [e for e in b.power.effects if e.kind == EffectKind.ALL_PLAYERS_LAY_ON_NEST]
-        assert effs, f"{name} missing ALL_PLAYERS_LAY_ON_NEST effect"
-        assert effs[0].extra[0] == expected_nest, f"{name}: expected {expected_nest}, got {effs[0].extra[0]}"
+        effs = [e for e in b.power.effects if e.kind == EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST]
+        assert effs, f"{name} missing ALL_PLAYERS_LAY_EGG_ON_NEST effect"
+        assert effs[0].nest == expected_nest, f"{name}: expected {expected_nest}, got {effs[0].nest}"
