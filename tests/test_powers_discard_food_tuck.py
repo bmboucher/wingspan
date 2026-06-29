@@ -1,7 +1,11 @@
 from __future__ import annotations
-import sys, os
+
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from wingspan.cards import load_all, EffectKind, Food
+from wingspan.cards import EffectKind, Food, load_all
+
 
 def test_discard_food_tuck_parsed():
     birds, _, _ = load_all()

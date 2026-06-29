@@ -235,7 +235,9 @@ def build_arch_svg(
     # Connectors: all bodies first, then all labels, so the white label halos
     # mask any line they cross.  The trunk (shared card→{state,choice,setup}
     # stem) is emitted separately so its bodies and labels stay in order.
-    trunk_bodies, trunk_labels = _trunk_svg(geom, arch, use_setup_model, color=_ACCENT_CARD)
+    trunk_bodies, trunk_labels = _trunk_svg(
+        geom, arch, use_setup_model, color=_ACCENT_CARD
+    )
     conns = _consumer_connectors(
         geom, units, arch, use_setup_model
     ) + _band2_connectors(geom, arch)
