@@ -221,6 +221,53 @@ class FoodChoice(Choice):
     from_choice_die: bool = False
 
 
+class FoodSubsetChoice(Choice):
+    """Gain a whole *multiset* of foods in one decision — the collapsed gain.
+
+    The ``combine_gain_food`` regime replaces a run of single-food
+    ``FoodChoice`` gains with one ``GainFoodDecision`` whose options are the
+    legal multi-food subsets a player could take at once (a Forest multi-die
+    gain, a raven's two-wild supply gain, or the opening setup food keep).
+
+    ``plain`` carries the foods taken from single die faces / the supply (one
+    per food type). ``choice_inv`` / ``choice_seed`` count birdfeeder *choice
+    dice* resolved as invertebrate / seed respectively — kept apart from the
+    plain slots so the model still scores burning a flexible choice die against
+    spending a rigid single face (the same distinction ``FoodChoice`` draws via
+    ``from_choice_die``). For supply gains both are ``0``. The realized gain is
+    ``plain`` plus ``choice_inv`` invertebrate and ``choice_seed`` seed.
+
+    Encoded as a count *vector* over the shared 7-slot ``gain_food`` stripe (no
+    shape change vs. the ``FoodChoice`` one-hot); a single-unit subset is
+    therefore byte-identical to the matching ``FoodChoice``."""
+
+    # ``label`` defaults empty and is rendered lazily by ``display_label`` from
+    # the typed fields below (a combined gain can enumerate many subsets but the
+    # agent reads at most one label); leaving it unset keeps value-equality —
+    # which ``Engine.ask`` relies on — between two equal offered subsets.
+    label: str = ""
+    plain: state.FoodPool
+    choice_inv: int = 0
+    choice_seed: int = 0
+
+    def total_units(self) -> int:
+        """How many food tokens this subset grants in total."""
+        return self.plain.total() + self.choice_inv + self.choice_seed
+
+    def display_label(self) -> str:
+        """Human-readable gain summary, e.g. ``gain 2fish+1seed``."""
+        if self.label:
+            return self.label
+        parts = [
+            f"{amount}{food.value}" for food, amount in self.plain.items() if amount > 0
+        ]
+        if self.choice_inv:
+            parts.append(f"{self.choice_inv}{cards.Food.INVERTEBRATE.value}(choice)")
+        if self.choice_seed:
+            parts.append(f"{self.choice_seed}{cards.Food.SEED.value}(choice)")
+        return f"gain {'+'.join(parts) if parts else 'nothing'}"
+
+
 class BoardTargetChoice(Choice):
     """A specific bird on the asking player's board, identified by
     ``(habitat, slot)``."""
@@ -379,7 +426,7 @@ class PayBirdFoodDecision(Decision[FoodPaymentChoice]):
     habitat: cards.Habitat
 
 
-class GainFoodDecision(Decision[FoodChoice | SkipChoice]):
+class GainFoodDecision(Decision[FoodChoice | FoodSubsetChoice | SkipChoice]):
     """Pick which food to gain — a birdfeeder die or a token from the supply.
 
     The single "which food advances my plans?" decision, unified across every
@@ -388,7 +435,12 @@ class GainFoodDecision(Decision[FoodChoice | SkipChoice]):
     wild half of discard-egg-for-wild, step 3 of Green Heron's wild-food trade).
     ``SkipChoice`` is offered only where the gain is optional; mandatory gains
     offer food choices only. (Formerly ``GainFoodPickDieDecision`` — widened
-    past the feeder die and renamed.)"""
+    past the feeder die and renamed.)
+
+    Under the ``combine_gain_food`` regime the options are ``FoodSubsetChoice``
+    multisets (a whole multi-food gain scored at once) instead of single
+    ``FoodChoice`` dice; the decision class — and so its decision-type one-hot
+    and GAIN_FOOD family — is unchanged, only the option shape differs."""
 
 
 class SpendFoodDecision(Decision[FoodChoice | SkipChoice]):

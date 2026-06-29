@@ -91,8 +91,16 @@ class Engine:
         agents: typing.Sequence[Agent] | None = None,
         instrumentation: dispatcher.Instrumentation | None = None,
         event_recorder: gamelog_recorder.AnyRecorder | None = None,
+        *,
+        combine_gain_food: bool = False,
     ):
         self.state = gs
+        # Engine-behavior flag (the ``combine_gain_food`` regime): collapse a run
+        # of single-food gains into one combined subset decision. Read directly by
+        # ``actions.do_gain_food`` / the raven supply handler / the setup-food
+        # branch, so it never threads through the turn loop or power dispatch.
+        # Encoding-independent (no shape change); defaults off.
+        self.combine_gain_food = combine_gain_food
         # ``agents`` is indexed by ``Player.id`` so opponent-prompting power
         # effects (pink reactors, "each player chooses" effects) can route to
         # the correct controller without threading agents through every method
@@ -141,6 +149,7 @@ class Engine:
         *,
         split_setup_bonus: bool = False,
         split_setup_food: bool = False,
+        combine_gain_food: bool = False,
     ) -> Engine:
         """Construct an Engine on ``gs`` with ``agents``, run a full game,
         and return the engine. The caller's ``gs`` is mutated in place, so
@@ -162,12 +171,16 @@ class Engine:
         ``GainFoodDecision`` / ``SpendFoodDecision`` asks after the card-keep
         resolves (the ``split_setup_food`` regime). The number and kind of asks
         depends on how many birds the player kept (see
-        ``_maybe_resolve_deferred_setup_food``)."""
+        ``_maybe_resolve_deferred_setup_food``).
+
+        ``combine_gain_food`` collapses multi-die / multi-token food gains into
+        one combined subset decision (the ``combine_gain_food`` regime)."""
         eng = Engine(
             gs,
             agents=agents,
             instrumentation=instrumentation,
             event_recorder=event_recorder,
+            combine_gain_food=combine_gain_food,
         )
         eng.log_section("=== GAME START ===", global_line=True)
         eng.instrumentation.game_start(engine=eng)
@@ -194,6 +207,7 @@ class Engine:
         event_recorder: gamelog_recorder.AnyRecorder | None = None,
         *,
         split_setup_food: bool = False,
+        combine_gain_food: bool = False,
     ) -> Engine:
         """Like :meth:`play_one_game`, but the setup phase is resolved by
         ``choose_setups`` (the random generator or the setup model) instead of by
@@ -207,12 +221,16 @@ class Engine:
         duration of the game (default: the no-op ``EMPTY``).
 
         ``split_setup_food`` defers food to sequential in-game food decisions after
-        each seat's card-keep is applied (the ``split_setup_food`` regime)."""
+        each seat's card-keep is applied (the ``split_setup_food`` regime).
+
+        ``combine_gain_food`` collapses multi-die / multi-token food gains into
+        one combined subset decision (the ``combine_gain_food`` regime)."""
         eng = Engine(
             gs,
             agents=agents,
             instrumentation=instrumentation,
             event_recorder=event_recorder,
+            combine_gain_food=combine_gain_food,
         )
         eng.log_section("=== GAME START ===", global_line=True)
         eng.instrumentation.game_start(engine=eng)
@@ -846,6 +864,10 @@ class Engine:
         ``Engine.ask`` so collecting agents record them like any in-game decision.
         The encoder's action-cubes snapshot is pre-loaded to round-1 values (same
         as the bonus-deferral path) so the heads score food over a faithful opening.
+
+        Under the ``combine_gain_food`` regime the gain/discard split is replaced
+        by a single "gain ``5 - n_kept`` foods" pick over the distinct-foods
+        subsets (one die of each food on offer), from a zeroed food pool.
         """
         if not defer_food:
             return
@@ -855,6 +877,23 @@ class Engine:
         for seat in self.state.players:
             seat.action_cubes_left = state.ROUND_CUBES[0]
         self.state.current_player = player.id
+
+        if self.combine_gain_food:
+            # One combined "gain N foods" pick over N-subsets of the five distinct
+            # foods (one die of each on offer), replacing the gain/discard split.
+            # N = 5 - n_kept (the foods kept after paying for birds); start at 0.
+            for food in cards.ALL_FOODS:
+                player.food[food] = 0
+            n_keep = len(cards.ALL_FOODS) - n_kept
+            actions.combined_supply_gain(
+                self,
+                agent,
+                player,
+                n_keep,
+                per_food_capacity=1,
+                prompt=f"[{player.name}] setup: choose {n_keep} food to keep",
+            )
+            return
 
         if n_kept >= 3:
             # High-keep: player would have no food left after paying for birds.

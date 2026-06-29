@@ -118,6 +118,7 @@ def play_game(
     seed: int,
     opponent_agent: engine.Agent | None = None,
     expert_net: model.PolicyValueNet | None = None,
+    combine_gain_food: bool = False,
 ) -> GameRecord:
     """Play one game and return its recorded transitions + scores.
 
@@ -132,6 +133,9 @@ def play_game(
     ``expert_probs`` is filled with the expert's soft policy distribution over
     the same legal options, computed through the expert's *own* encoder so
     cross-era labeling works correctly.
+
+    ``combine_gain_food`` collapses multi-token food gains into one combined
+    subset decision (the ``combine_gain_food`` regime).
     """
     eng = new_engine(seed)
     recorded: list[training_steps.Step] = []
@@ -141,7 +145,9 @@ def play_game(
         if opponent_agent is None
         else (net_agent, opponent_agent)
     )
-    engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
+    engine.Engine.play_one_game(
+        eng.state, (agent_a, agent_b), combine_gain_food=combine_gain_food
+    )
     timestamps.finalize_timestamps(recorded)
 
     breakdowns = (
@@ -171,6 +177,7 @@ def play_game_with_setup(
     split_setup_food: bool = False,
     setup_greedy: bool = False,
     expert_net: model.PolicyValueNet | None = None,
+    combine_gain_food: bool = False,
 ) -> GameRecord:
     """Play one game whose setups are chosen externally (the setup-model path).
 
@@ -254,7 +261,11 @@ def play_game_with_setup(
         return [result.candidate for result in keep_results]
 
     engine.Engine.play_one_game_with_setups(
-        eng.state, (agent_a, agent_b), choose_setups, split_setup_food=split_setup_food
+        eng.state,
+        (agent_a, agent_b),
+        choose_setups,
+        split_setup_food=split_setup_food,
+        combine_gain_food=combine_gain_food,
     )
     timestamps.finalize_timestamps(recorded)
 

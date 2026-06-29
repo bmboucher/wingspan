@@ -13,6 +13,7 @@ on in-place mutation for turn-by-turn play.
 from __future__ import annotations
 
 import collections.abc
+import itertools
 import random
 import typing
 
@@ -492,6 +493,59 @@ class Birdfeeder(pydantic.BaseModel):
         if from_choice_die:
             return f"{food.value} (choice die ×{self.choice_dice})"
         return f"{food.value}({self.counts[food]})"
+
+    def subset_options(self, n: int) -> list[tuple["FoodPool", int, int]]:
+        """Every legal multi-food subset a player taking up to ``n`` dice could
+        grab from the feeder *as it stands now*, as ``(plain, choice_inv,
+        choice_seed)`` triples (the ``combine_gain_food`` regime's option set).
+
+        ``plain`` is the single-face dice taken (per food); ``choice_inv`` /
+        ``choice_seed`` are choice dice resolved as invertebrate / seed. A subset
+        of size ``M`` (``= plain.total() + choice_inv + choice_seed``) is offered
+        when:
+
+        * ``M == n`` — the gain reaches the target, taken regardless of what the
+          feeder is left showing, **or**
+        * ``M < n`` **and** the post-removal feeder shows at most one face
+          (``distinct_faces() <= 1`` — a single face *or* empty), the only state
+          from which the player may reroll to keep gaining. (Note this is *not*
+          ``reset_available()``, which excludes the empty feeder — an empty
+          leftover, the "take everything" case when ``n`` exceeds the dice on
+          offer, must still qualify.)
+
+        Enumerated by die *counts*, not per-die permutations, so each triple is
+        unique; the rigid single-face and flexible choice-die ways to take
+        invertebrate / seed are kept apart (distinct downstream slots), never
+        merged on the realized food. Callers turn each triple into a
+        ``decisions.FoodSubsetChoice``; the reset / reroll / recursion logic
+        lives in the engine, not here."""
+        options: list[tuple[FoodPool, int, int]] = []
+        single_ranges = [range(self.counts[food] + 1) for food in cards.ALL_FOODS]
+        for single in itertools.product(*single_ranges):
+            single_total = sum(single)
+            if single_total > n:
+                continue
+            faces_left = sum(
+                1
+                for food, taken in zip(cards.ALL_FOODS, single)
+                if self.counts[food] - taken > 0
+            )
+
+            for choice_taken in range(self.choice_dice + 1):
+                size = single_total + choice_taken
+                if size < 1 or size > n:
+                    continue
+                distinct_after = faces_left + (
+                    1 if self.choice_dice - choice_taken > 0 else 0
+                )
+                if not (size == n or distinct_after <= 1):
+                    continue
+                # Each split of the taken choice dice into invertebrate / seed is
+                # a distinct option (different gain_food slots downstream).
+                for choice_inv in range(choice_taken + 1):
+                    plain = FoodPool(counts=list(single))
+                    options.append((plain, choice_inv, choice_taken - choice_inv))
+        return options
 
     def format(self) -> str:
         """Compact human-readable rendering of the full die state for logs.

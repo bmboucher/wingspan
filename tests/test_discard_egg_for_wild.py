@@ -111,6 +111,68 @@ def test_discard_egg_for_wild_decrements_egg_and_grants_food():
     assert player.food[cards.Food.FRUIT] == 1
 
 
+def test_discard_egg_for_wild_combined_gain_takes_subset_at_once():
+    """With combine_gain_food on, the two-wild supply gain is a single combined
+    GainFoodDecision over multi-food subsets (repeats allowed) — taking 2 seed in
+    one pick rather than two separate single-food asks."""
+    birds, bonuses, goals = cards.load_all()
+    gs = state.new_game(random.Random(1), birds, bonuses, goals)
+    eng = engine.Engine(gs, combine_gain_food=True)
+    bird = _find_bird(birds, "Common Raven")  # amount=2
+
+    player = eng.state.me()
+    raven = state.PlayedBird(bird=bird)
+    sibling = state.PlayedBird(bird=_find_bird(birds, "American Crow"), eggs=1)
+    player.board[cards.Habitat.FOREST].extend([sibling, raven])
+    for food in player.food:
+        player.food[food] = 0
+
+    gain_asks = {"n": 0}
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        if isinstance(decision, decisions.AcceptExchangeDecision):
+            return typing.cast(
+                C,
+                next(
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.PayCostChoice)
+                ),
+            )
+        if isinstance(decision, decisions.RemoveEggDecision):
+            return typing.cast(
+                C,
+                next(
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.BoardTargetChoice)
+                ),
+            )
+        if isinstance(decision, decisions.GainFoodDecision):
+            gain_asks["n"] += 1
+            return typing.cast(
+                C,
+                next(
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.FoodSubsetChoice)
+                    and choice.plain[cards.Food.SEED] == 2
+                ),
+            )
+        raise AssertionError(f"unexpected decision type: {type(decision).__name__}")
+
+    powers.dispatch_power(
+        eng, agent, player, raven, cards.Habitat.FOREST, trigger="activate"
+    )
+
+    assert sibling.eggs == 0
+    assert player.food[cards.Food.SEED] == 2
+    assert gain_asks["n"] == 1  # one combined decision, not two single-food asks
+
+
 def test_discard_egg_for_wild_skips_when_no_other_bird_has_an_egg():
     eng, birds = _empty_engine(seed=2)
     bird = _find_bird(birds, "American Crow")  # amount=1

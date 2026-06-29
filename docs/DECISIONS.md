@@ -86,7 +86,7 @@ trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes when
 | Stripe | Width | Contents | Filled for |
 |---|---|---|---|
 | `kind` | 6 | one-hot: bird / food / habitat / payment / board_target / special | every row |
-| `gain_food` | 7 | 5 plain food faces + choice-die-as-invertebrate + choice-die-as-seed | food-type identifier: die gains, supply gains, and single-token spends — the *type* of the token, not the direction of flow |
+| `gain_food` | 7 | 5 plain food faces + choice-die-as-invertebrate + choice-die-as-seed | food-type identifier: die gains, supply gains, and single-token spends — the *type* of the token, not the direction of flow. A **one-hot** for a single `FoodChoice`; a **count vector** for a combined `FoodSubsetChoice` (the `combine_gain_food` regime), filled by `_fill_gain_food_vector` — same 7 slots, raw counts, so a single-unit subset is byte-identical to the one-hot |
 | `pay_food` | 5 | per-food payment counts (÷4) | payment multisets, named exchange costs, setup foods-spent |
 | `board_target` | 60 | 15 slots × 4 scalars: lay-flag, pay-flag, cached-total (÷max), tucked | egg add/remove targets; played-bird picks (context, no flag) |
 | `main_action` | 4 | one-hot over Gain Food / Lay Eggs / Draw Cards / Play Bird | main-action rows |
@@ -267,11 +267,29 @@ head scores "burn the flexible die" separately from "spend a rigid single
 face" (e.g. to deny the opponent the flexible die). Supply picks use the plain
 slots only. What is *in* the feeder rides the state vector.
 
+**The `combine_gain_food` regime (config; default off).** When on, a run of
+single-food gains is collapsed into one `GainFoodDecision` whose options are
+multi-food *subsets* (`decisions.FoodSubsetChoice`): the same decision class,
+decision-type one-hot, and GAIN_FOOD head, but the `gain_food` stripe carries a
+**count vector** (raw counts per slot) rather than a one-hot, and
+`becomes_playable` reflects the *whole* combined gain (via
+`playability.newly_playable_after_foods`) — so a bird needing two foods together
+lights up. It collapses three call sites: the Forest base-dice gain
+(`actions.combined_feeder_gain`, with the feeder reset / reroll folded in —
+partial subset → committed reroll → recurse; `n == 1` delegates to the single-die
+path so it stays byte-identical), the ravens' two-wild supply gain, and the
+`split_setup_food` opening keep (`actions.combined_supply_gain`). No tensor shape
+changes (REGIME): it lives on `EngineConfig.combine_gain_food`, stays out of
+`architecture_key`, and needs no `MODEL_VERSION` bump or compat shim. The Forest
+*conversion* extra die and the each-player hummingbird gain stay on the single-die
+path. See `docs/VERSIONING.md`.
+
 **Variation within the family.** One decision class, but two sources (feeder
-vs. supply — distinguishable by whether choice-die slots can appear), and a
-decider who is frequently the non-active player (each-player powers, pink
-reaction) — made uniform by the POV state encoding. All picks at this head
-are mandatory; the yes/no for optional effects resolves upstream in
+vs. supply — distinguishable by whether choice-die slots can appear), a decider
+who is frequently the non-active player (each-player powers, pink reaction) —
+made uniform by the POV state encoding — and, under `combine_gain_food`, two
+option shapes (single `FoodChoice` vs. multi-food `FoodSubsetChoice`). All picks
+at this head are mandatory; the yes/no for optional effects resolves upstream in
 SKIP_OPTIONAL.
 
 **`becomes_playable` semantics on food-gain rows (v0.8+).** The baseline

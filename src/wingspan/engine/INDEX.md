@@ -14,7 +14,10 @@ scoring) lives in sibling modules as free functions whose first argument is the
 - `Agent` — `typing.Protocol` with generic `__call__[C: Choice](self, engine,
   decision: Decision[C], /) -> C`. Non-generic at use sites (`list[Agent]`
   typechecks); each call's return type tracks the Decision's parameterization.
-- `Engine(gs: GameState, agents, instrumentation)` — constructor.
+- `Engine(gs: GameState, agents, instrumentation, *, combine_gain_food=False)` —
+  constructor. `combine_gain_food` is the engine-behavior flag (default off) read
+  by `actions.do_gain_food` / the raven supply handler / the setup-food branch to
+  collapse multi-food gains into one combined subset decision.
 - `Engine.create(seed) -> (Engine, birds, bonuses, goals)` — static factory that
   instantiates a fresh game from a seed.
 - `Engine.play_one_game(gs, agents, instrumentation, split_setup_bonus) -> Engine`
@@ -42,6 +45,14 @@ marks global lines that appear in both per-player files.
 `do_gain_food(engine, agent)`, `do_lay_eggs(engine, agent)`,
 `do_draw_cards(engine, agent)`, `do_play_bird(engine, agent)`. Each mutates
 `engine.state` and calls `engine.ask` for any decisions required by the action.
+Under `engine.combine_gain_food`, multi-food gains route through the combined
+builders: `combined_feeder_gain(engine, agent, player, n)` (the path-dependent
+Forest feeder gain — reset folded in, partial subset → committed reroll →
+recurse, `n==1` delegates to `take_one_from_feeder`), `_apply_subset(engine,
+player, choice)` (moves a chosen `FoodSubsetChoice`'s dice out of the feeder,
+bypassing `gain_feeder_die`'s mid-take reroll), and `combined_supply_gain(engine,
+agent, player, n, *, per_food_capacity, prompt)` (the ravens' supply gain and the
+setup keep — multisets within a per-food capacity).
 
 **`reactors.py`** — Pink (between-turns) reactor hooks: `trigger_pink_lay_eggs_reactors(engine,
 trigger_player_id)`, `trigger_pink_play_bird_reactors(engine, trigger_player_id)`,

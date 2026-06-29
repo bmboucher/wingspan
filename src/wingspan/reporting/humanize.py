@@ -44,6 +44,19 @@ _ROW_HAS_RE = re.compile(
 )
 
 
+def _food_subset_summary(choice: decisions.FoodSubsetChoice) -> str:
+    """A readable multiset summary of a combined gain, e.g. ``2 fish + 1 seed``;
+    choice-die resolutions are tagged ``(choice)``."""
+    parts = [
+        f"{amount} {food.value}" for food, amount in choice.plain.items() if amount > 0
+    ]
+    if choice.choice_inv:
+        parts.append(f"{choice.choice_inv} {cards.Food.INVERTEBRATE.value} (choice)")
+    if choice.choice_seed:
+        parts.append(f"{choice.choice_seed} {cards.Food.SEED.value} (choice)")
+    return " + ".join(parts) if parts else "nothing"
+
+
 def humanize_choice(
     choice: decisions.Choice,
     gs: state.GameState,
@@ -67,6 +80,8 @@ def humanize_choice(
         if choice.from_choice_die:
             return f"{choice.food.value} (from {_CHOICE_DIE_LABEL})"
         return choice.food.value  # renderer applies emoji
+    if isinstance(choice, decisions.FoodSubsetChoice):
+        return _food_subset_summary(choice)
     if isinstance(choice, decisions.FoodPaymentChoice):
         return choice.payment.format()
     if isinstance(choice, decisions.BoardTargetChoice):
@@ -136,6 +151,8 @@ def humanize_outcome(
         if isinstance(decision, decisions.SpendFoodDecision):
             return f"Discards {choice.food.value}"
         return f"Gains {choice.food.value}"
+    if isinstance(choice, decisions.FoodSubsetChoice):
+        return f"Gains {_food_subset_summary(choice)}"
     if isinstance(choice, decisions.SkipChoice):
         # Item 10: mirror accept label so decline reads symmetrically.
         if isinstance(decision, decisions.AcceptExchangeDecision):

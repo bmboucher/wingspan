@@ -274,6 +274,19 @@ But shape is a proxy, and an incomplete one. The real fault line is
   to it must be era-gated (MINOR bump + shim) so an old artifact keeps the old
   path, **even when no tensor shape changes**.
 
+`combine_gain_food` (the collapsed multi-food gain;
+`EngineConfig.combine_gain_food`, default off) is the textbook *safe* case. It is
+**config-carried** (the flag travels in the frozen `RunConfig`) **and** purely
+additive: it widens `GainFoodDecision` with a new `FoodSubsetChoice` shape and
+adds a new featurizer (`_featurize_food_subset`) that fills the same 7-slot
+`gain_food` stripe as a count vector — the existing `_fill_gain_food` /
+`_featurize_food` one-hot path is untouched. An old artifact rehydrates with the
+flag off, so the new featurizer is dead code for it and it computes identically.
+No tensor shape changes (it stays out of `architecture_key`), no `MODEL_VERSION`
+bump, no compat shim. This is the difference from the 2026-06-1x bugs below:
+those mutated a shared code-carried path that *every* artifact reads;
+`combine_gain_food` only ever runs new code behind a config-carried flag.
+
 A shape-preserving code-carried change is the dangerous case: it loads without
 complaint and silently misbehaves. The 2026-06-10 `_embed_state` bug was exactly
 this — a v0.2 net fed its 771-dim vector but sliced it with the live 790-dim

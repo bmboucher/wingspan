@@ -620,6 +620,35 @@ def _featurize_food(
         _fill_becomes_unplayable(feat, newly_unplayable)
 
 
+def _featurize_food_subset(
+    feat: np.ndarray,
+    decision: layout._AnyDecision,
+    choice: decisions.FoodSubsetChoice,
+    state: state.GameState,
+    baselines: _HandPlayabilityBaselines,
+    has_becomes_playable: bool = True,
+) -> None:
+    # The ``combine_gain_food`` regime's multi-food gain: the same FOOD kind and
+    # gain_food stripe as a single FoodChoice, but filled as a count vector
+    # (1.0 per unit, so a single-unit subset is byte-identical to the one-hot).
+    feat[layout._OFF_KIND + layout._KIND_FOOD] = 1.0
+    _fill_gain_food_vector(feat, choice.plain, choice.choice_inv, choice.choice_seed)
+    # becomes_playable: which hand birds the *whole* combined gain unlocks (a bird
+    # needing two foods together lights up only when both are in this subset).
+    if has_becomes_playable and isinstance(decision, decisions.GainFoodDecision):
+        from wingspan.engine import playability as _playability
+
+        player = state.players[decision.player_id]
+        newly = _playability.newly_playable_after_foods(
+            player,
+            _combined_gain_pool(choice),
+            already_playable=baselines.food_affordable,
+            ignore_eggs=baselines.food_ignores_eggs,
+        )
+        _fill_becomes_playable(feat, newly)
+    # No becomes_unplayable: a gain only adds food (a FoodSubsetChoice never spends).
+
+
 def _featurize_board_target(
     feat: np.ndarray,
     decision: layout._AnyDecision,
@@ -825,6 +854,7 @@ _CHOICE_FEATURIZERS: dict[type[decisions.Choice], layout._ChoiceFeaturizer] = {
     decisions.PlayedBirdChoice: _featurize_played_bird,
     decisions.HabitatChoice: _featurize_habitat,
     decisions.FoodChoice: _featurize_food,
+    decisions.FoodSubsetChoice: _featurize_food_subset,
     decisions.BoardTargetChoice: _featurize_board_target,
     decisions.BonusCardChoice: _featurize_bonus_card,
     decisions.DrawSourceChoice: _featurize_draw_source,
@@ -1194,6 +1224,32 @@ def _fill_gain_food(feat: np.ndarray, food: cards.Food, from_choice_die: bool) -
         if candidate == food:
             feat[layout._OFF_GAIN_FOOD + i] = 1.0
             break
+
+
+def _fill_gain_food_vector(
+    feat: np.ndarray, plain: state.FoodPool, choice_inv: int, choice_seed: int
+) -> None:
+    """Fill the gain_food stripe as a count *vector* for a combined subset gain.
+
+    Slots ``0..N_FOODS-1`` hold the plain single-face / supply foods; the final
+    two hold the choice dice resolved as invertebrate / seed. Raw counts (1.0 per
+    unit, no normalization) so a single-unit subset matches the
+    :func:`_fill_gain_food` one-hot exactly — the regime is REGIME, not a shape
+    or scale change."""
+    for i in range(cards.N_FOODS):
+        feat[layout._OFF_GAIN_FOOD + i] = float(plain.counts[i])
+    feat[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_INV] = float(choice_inv)
+    feat[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_SEED] = float(choice_seed)
+
+
+def _combined_gain_pool(choice: decisions.FoodSubsetChoice) -> state.FoodPool:
+    """The realized food multiset a ``FoodSubsetChoice`` grants — its plain foods
+    plus the choice dice resolved to invertebrate / seed — for the
+    ``becomes_playable`` counterfactual. A fresh pool; never mutates the choice."""
+    pool = state.FoodPool(counts=list(choice.plain.counts))
+    pool[cards.Food.INVERTEBRATE] += choice.choice_inv
+    pool[cards.Food.SEED] += choice.choice_seed
+    return pool
 
 
 def _add_pay_food(feat: np.ndarray, food: cards.Food) -> None:

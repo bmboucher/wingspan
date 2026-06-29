@@ -110,6 +110,10 @@ class _WorkerArch(pydantic.BaseModel):
     # Whether the opening food pick is deferred to sequential in-game food
     # decisions (the ``split_setup_food`` regime); applied in both paths.
     split_setup_food: bool = False
+    # Whether multi-token food gains collapse into one combined subset decision
+    # (the ``combine_gain_food`` regime); applied in collection and eval paths
+    # so workers match the main process.
+    combine_gain_food: bool = False
     # Path to a .pt.gz checkpoint to load as the bootstrap opponent (the
     # ``initial_vs_random`` phase opponent). ``None`` = random agent.
     # Static for the run — set once when the pool is spawned.
@@ -196,6 +200,7 @@ class ProcessCollector:
             setup_greedy=cfg.training.setup.policy_greedy,
             split_setup_bonus=cfg.split_setup_bonus_active,
             split_setup_food=cfg.split_setup_food_active,
+            combine_gain_food=cfg.engine.combine_gain_food,
             bootstrap_opponent_checkpoint=cfg.bootstrap_opponent_checkpoint,
             dagger_expert_checkpoint=cfg.dagger_expert_checkpoint,
         )
@@ -588,7 +593,15 @@ def _worker_play(task: _GameTask) -> collect.GameRecord:
             )
     expert_net = _dagger_expert_net(arch) if task.dagger_active else None
     return _compact(
-        collect.play_game(net, device, rng, task.seed, opponent, expert_net)
+        collect.play_game(
+            net,
+            device,
+            rng,
+            task.seed,
+            opponent,
+            expert_net,
+            combine_gain_food=arch.combine_gain_food,
+        )
     )
 
 
@@ -635,6 +648,7 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             split_setup_food=arch.split_setup_food,
             setup_greedy=_worker_setup_greedy,
             expert_net=expert_net,
+            combine_gain_food=arch.combine_gain_food,
         )
     )
 
@@ -658,6 +672,7 @@ def _worker_eval(task: _EvalTask) -> int:
         task.net_seat,
         split_setup_bonus=arch.split_setup_bonus,
         split_setup_food=arch.split_setup_food,
+        combine_gain_food=arch.combine_gain_food,
     )
 
 

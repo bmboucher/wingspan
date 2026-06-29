@@ -115,11 +115,13 @@ def raw_choice_stripe_layout(
             description="Food selection for a gain (and food choice for spend decisions).",
             offset=layout._OFF_GAIN_FOOD,
             size=layout._GAIN_FOOD_DIM,
-            encoding="one-hot",
-            value_range="{0, 1}",
+            encoding="vector",
+            value_range="[0, n]",
             notes=(
                 f"7 values: the five plain-die foods ({food_names}) then "
                 "take-choice-die-as-invertebrate[5] and take-choice-die-as-seed[6]. "
+                "A one-hot for a single FoodChoice gain/spend; a count vector for a "
+                "combined FoodSubsetChoice gain (combine_gain_food regime). "
                 "Zero for non-food choices."
             ),
             sub_fields=_gain_food_sub_fields(),

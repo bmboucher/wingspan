@@ -560,7 +560,9 @@ def test_encode_choices_warns_but_does_not_abort_on_absurd_cardinality():
     unattended training run is never killed by a single wide decision."""
     eng, _birds, *_ = engine.Engine.create(seed=8)
     n_choices = encode.RUNAWAY_CHOICE_THRESHOLD + 1
-    too_many: list[decisions.FoodChoice | decisions.SkipChoice] = [
+    too_many: list[
+        decisions.FoodChoice | decisions.FoodSubsetChoice | decisions.SkipChoice
+    ] = [
         decisions.FoodChoice(label=f"c{i}", food=cards.Food.SEED)
         for i in range(n_choices)
     ]
@@ -609,6 +611,74 @@ def test_gain_food_choice_die_uses_distinct_slots():
     assert combo[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_INV] == 1.0
     assert combo[layout._OFF_GAIN_FOOD + 0] == 0.0
     assert not np.array_equal(plain, combo)
+
+
+def test_food_subset_choice_fills_gain_food_as_count_vector():
+    """A combined FoodSubsetChoice gain fills the gain_food stripe as a count
+    vector (not a one-hot): a 2-fish supply subset puts 2.0 in the fish slot."""
+    eng, *_ = engine.Engine.create(seed=2)
+    fish = cards.food_index(cards.Food.FISH)
+    seed = cards.food_index(cards.Food.SEED)
+    decision = decisions.GainFoodDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.FoodSubsetChoice(
+                plain=state.FoodPool.from_dict({cards.Food.FISH: 2})
+            ),
+            decisions.FoodSubsetChoice(
+                plain=state.FoodPool.from_dict({cards.Food.FISH: 1, cards.Food.SEED: 1})
+            ),
+        ],
+    )
+    two_fish, fish_seed = encode.encode_choices(decision, eng.state)
+    assert two_fish[layout._OFF_GAIN_FOOD + fish] == 2.0
+    assert fish_seed[layout._OFF_GAIN_FOOD + fish] == 1.0
+    assert fish_seed[layout._OFF_GAIN_FOOD + seed] == 1.0
+
+
+def test_food_subset_choice_die_slots_are_distinct_from_plain():
+    """Choice-die resolutions fill the dedicated choice-die slots, not the plain
+    invertebrate / seed slots."""
+    eng, *_ = engine.Engine.create(seed=2)
+    decision = decisions.GainFoodDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.FoodSubsetChoice(
+                plain=state.FoodPool(), choice_inv=1, choice_seed=1
+            )
+        ],
+    )
+    (row,) = encode.encode_choices(decision, eng.state)
+    assert row[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_INV] == 1.0
+    assert row[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_SEED] == 1.0
+    assert row[layout._OFF_GAIN_FOOD + cards.food_index(cards.Food.INVERTEBRATE)] == 0.0
+    assert row[layout._OFF_GAIN_FOOD + cards.food_index(cards.Food.SEED)] == 0.0
+
+
+def test_food_subset_single_unit_byte_identical_to_food_choice():
+    """A single-unit FoodSubsetChoice encodes byte-identically to the matching
+    FoodChoice one-hot — the combine_gain_food regime is REGIME, not a
+    shape/scale change, so N==1 produces the exact same row."""
+    eng, *_ = engine.Engine.create(seed=2)
+    subset = decisions.GainFoodDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.FoodSubsetChoice(
+                plain=state.FoodPool.from_dict({cards.Food.FISH: 1})
+            )
+        ],
+    )
+    one_hot = decisions.GainFoodDecision(
+        player_id=0,
+        prompt="x",
+        choices=[decisions.FoodChoice(label="fish", food=cards.Food.FISH)],
+    )
+    (subset_row,) = encode.encode_choices(subset, eng.state)
+    (one_hot_row,) = encode.encode_choices(one_hot, eng.state)
+    assert np.array_equal(subset_row, one_hot_row)
 
 
 def test_main_action_choice_is_one_hot_in_stable_order():

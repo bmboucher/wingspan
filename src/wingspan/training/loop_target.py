@@ -81,6 +81,7 @@ def handle_target_reached(training_loop: "loop.TrainingLoop", iteration: int) ->
         on_progress=_on_progress,
         split_setup_bonus=training_loop.config.split_setup_bonus_active,
         split_setup_food=training_loop.config.split_setup_food_active,
+        combine_gain_food=training_loop.config.engine.combine_gain_food,
     )
 
     # Persist the final-eval result beside ``final_<n>.pt`` so it is a

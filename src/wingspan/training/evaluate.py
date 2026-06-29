@@ -49,6 +49,7 @@ def evaluate_vs_opponent(
     on_progress: EvalProgress | None = None,
     split_setup_bonus: bool = False,
     split_setup_food: bool = False,
+    combine_gain_food: bool = False,
 ) -> metrics.EvalResult:
     """Play ``n_pairs`` mirrored deals against the reference opponent and
     summarize. ``opponent_net=None`` plays against the random agent; any other
@@ -62,6 +63,7 @@ def evaluate_vs_opponent(
     collection regime — the opening bonus is picked by the in-game greedy head
     rather than baked into the random opening. ``split_setup_food`` analogously
     defers the opening food pick to sequential in-game food decisions.
+    ``combine_gain_food`` mirrors the collection regime's collapsed food gains.
     """
     n_games = 2 * n_pairs
     margins: list[int] = []
@@ -77,6 +79,7 @@ def evaluate_vs_opponent(
                     net_seat,
                     split_setup_bonus=split_setup_bonus,
                     split_setup_food=split_setup_food,
+                    combine_gain_food=combine_gain_food,
                 )
             )
             if on_progress is not None:
@@ -92,6 +95,7 @@ def play_eval_game(
     net_seat: int,
     split_setup_bonus: bool = False,
     split_setup_food: bool = False,
+    combine_gain_food: bool = False,
 ) -> int:
     """Play one greedy-policy-vs-opponent game on ``seed`` with the policy in
     ``net_seat``; return the policy's score margin (its score − opponent's). The
@@ -99,7 +103,9 @@ def play_eval_game(
     net's own greedy policy. Deterministic in ``(seed, net_seat)`` and the
     weights, so it returns the same margin in any process. ``split_setup_bonus``
     defers the opening bonus pick to the in-game ``CHOOSE_BONUS`` head.
-    ``split_setup_food`` defers the opening food pick to in-game food decisions."""
+    ``split_setup_food`` defers the opening food pick to in-game food decisions.
+    ``combine_gain_food`` collapses multi-token food gains into one combined
+    subset decision (all three mirror the collection regime)."""
     eng = collect.new_engine(seed)
     net_agent = _greedy_agent(net, device)
     if opponent_net is None:
@@ -115,6 +121,7 @@ def play_eval_game(
         (seats[0], seats[1]),
         split_setup_bonus=split_setup_bonus,
         split_setup_food=split_setup_food,
+        combine_gain_food=combine_gain_food,
     )
 
     net_score = eng.state.players[net_seat].final_score or 0
@@ -131,6 +138,7 @@ def run_final_self_play_eval(
     on_progress: EvalProgress | None = None,
     split_setup_bonus: bool = False,
     split_setup_food: bool = False,
+    combine_gain_food: bool = False,
 ) -> metrics.FinalEvalStats:
     """Play ``n_games`` of model-vs-itself (both seats greedy, model fixed).
 
@@ -141,6 +149,8 @@ def run_final_self_play_eval(
     the model we "landed on". ``split_setup_bonus`` defers the opening bonus pick
     to the in-game greedy ``CHOOSE_BONUS`` head, mirroring the collection regime.
     ``split_setup_food`` analogously defers the opening food pick.
+    ``combine_gain_food`` collapses multi-token food gains into one combined
+    subset decision.
     """
     n_pairs = n_games // 2
     actual_games = 2 * n_pairs
@@ -164,6 +174,7 @@ def run_final_self_play_eval(
                 (greedy, greedy),
                 split_setup_bonus=split_setup_bonus,
                 split_setup_food=split_setup_food,
+                combine_gain_food=combine_gain_food,
             )
             bd0 = collect.player_breakdown(eng.state.players[0])
             bd1 = collect.player_breakdown(eng.state.players[1])

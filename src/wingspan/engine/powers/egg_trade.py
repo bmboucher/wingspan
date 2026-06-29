@@ -167,8 +167,24 @@ def _gain_wild_from_supply(
     bird: cards.Bird,
     amount: int,
 ) -> None:
-    """Let ``player`` pick ``amount`` wild foods one at a time from the infinite
-    supply, crediting each to their tray."""
+    """Let ``player`` pick ``amount`` wild foods from the infinite supply,
+    crediting them to their tray.
+
+    Under the ``combine_gain_food`` regime the whole multi-food gain is one
+    combined ``GainFoodDecision`` (repeats allowed — capacity ``amount``);
+    otherwise it is ``amount`` single-food asks."""
+    from wingspan.engine import actions
+
+    if engine.combine_gain_food:
+        actions.combined_supply_gain(
+            engine,
+            agent,
+            player,
+            amount,
+            per_food_capacity=amount,
+            prompt=f"[{player.name}] gain {amount} [wild] from supply (from {bird.name})",
+        )
+        return
     for _ in range(amount):
         food_ch = engine.ask(
             agent,

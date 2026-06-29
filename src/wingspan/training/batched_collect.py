@@ -73,6 +73,7 @@ def collect_games(
     should_stop: typing.Callable[[], bool] | None = None,
     max_concurrent: int = _MAX_CONCURRENT_GAMES,
     vs_random: bool = False,
+    combine_gain_food: bool = False,
 ) -> list[collect.GameRecord]:
     """Play ``len(seeds)`` games concurrently with batched inference — self-play,
     or (when ``vs_random``) the net at seat 0 against the random agent.
@@ -104,6 +105,7 @@ def collect_games(
                 on_game_done,
                 done_lock,
                 vs_random,
+                combine_gain_food,
             )
     finally:
         server.stop()
@@ -250,13 +252,16 @@ def _run_wave(
     on_game_done: typing.Callable[[collect.GameRecord], None] | None,
     done_lock: threading.Lock,
     vs_random: bool,
+    combine_gain_food: bool,
 ) -> None:
     """Play one wave of games (one thread each) to completion."""
 
     def run_one(slot: int) -> None:
         server.register()
         try:
-            record = _play_one_game(net, device, server, seeds[slot], vs_random)
+            record = _play_one_game(
+                net, device, server, seeds[slot], vs_random, combine_gain_food
+            )
         finally:
             server.unregister()
         results[slot] = record
@@ -280,6 +285,7 @@ def _play_one_game(
     server: _BatchInferenceServer,
     seed: int,
     vs_random: bool,
+    combine_gain_food: bool = False,
 ) -> collect.GameRecord:
     """Play a single game whose policy queries route through the shared batch
     server. Mirrors :func:`collect.play_game` exactly apart from the batched
@@ -294,7 +300,9 @@ def _play_one_game(
         if vs_random
         else (net_agent, net_agent)
     )
-    engine.Engine.play_one_game(eng.state, (agent_a, agent_b))
+    engine.Engine.play_one_game(
+        eng.state, (agent_a, agent_b), combine_gain_food=combine_gain_food
+    )
     timestamps.finalize_timestamps(recorded)
 
     breakdowns = (

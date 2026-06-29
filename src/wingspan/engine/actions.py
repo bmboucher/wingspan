@@ -11,6 +11,7 @@ decisions) that ``do_play_bird_action`` and the extra-play loop both call.
 
 from __future__ import annotations
 
+import itertools
 import typing
 
 from wingspan import cards, decisions, state
@@ -225,8 +226,12 @@ def do_gain_food(engine: "core.Engine", agent: "core.Agent") -> None:
     engine.events.begin_activate_base(
         player.id, cards.Habitat.FOREST.value, "gain_food"
     )
-    for _ in range(n_dice):
-        _take_one_die_active(engine, agent, player)
+    if engine.combine_gain_food:
+        # Collapse the n_dice single-die asks into one combined subset decision.
+        combined_feeder_gain(engine, agent, player, n_dice)
+    else:
+        for _ in range(n_dice):
+            _take_one_die_active(engine, agent, player)
     _convert_gain_food(engine, agent, player)
     engine.events.end_event()
     activate_row_powers(engine, agent, player, cards.Habitat.FOREST)
@@ -393,6 +398,139 @@ def take_all_of_food(
     for _ in range(count):
         gain_feeder_die(engine, player, food)
     return count
+
+
+def combined_feeder_gain(
+    engine: "core.Engine", agent: "core.Agent", player: state.Player, n: int
+) -> None:
+    """The ``combine_gain_food`` form of a multi-die feeder gain: present the
+    whole "take ``n`` dice" pick as a single ``GainFoodDecision`` over multi-food
+    subsets (:class:`decisions.FoodSubsetChoice`) instead of ``n`` separate
+    single-die asks, so the model scores the combined gain — and its
+    ``becomes_playable`` consequence — in one shot.
+
+    The feeder's path-dependent reset is folded in: the start-of-choice reset is
+    offered as usual; the subset menu (:meth:`state.Birdfeeder.subset_options`)
+    only lets a *partial* take (fewer than ``n``) stop where the leftover feeder
+    is rerollable, and choosing one commits to that reroll and recurses for the
+    rest. A subset reaching ``n`` ends the gain, rerolling only an emptied feeder
+    (a single-face leftover is left for the next player).
+
+    ``n == 1`` (and every recursion tail) delegates to
+    :func:`take_one_from_feeder` so a single die is byte-identical to the
+    uncombined path."""
+    if n <= 0:
+        return
+    if n == 1:
+        gained = take_one_from_feeder(
+            engine,
+            agent,
+            player,
+            prompt=f"[{player.name}] take 1 die from birdfeeder",
+        )
+        assert gained is not None  # an unrestricted post-reset menu is never empty
+        engine.log(f"  +1 {gained.value}")
+        return
+
+    offer_birdfeeder_reset(engine, agent, player)
+    feeder = engine.state.birdfeeder
+    chosen = engine.ask(
+        agent,
+        decisions.GainFoodDecision(
+            player_id=player.id,
+            prompt=f"[{player.name}] take up to {n} dice from birdfeeder",
+            choices=[
+                decisions.FoodSubsetChoice(
+                    plain=plain, choice_inv=choice_inv, choice_seed=choice_seed
+                )
+                for plain, choice_inv, choice_seed in feeder.subset_options(n)
+            ],
+        ),
+    )
+    assert isinstance(chosen, decisions.FoodSubsetChoice)
+    _apply_subset(engine, player, chosen)
+    taken = chosen.total_units()
+    engine.log(f"  +{taken} ({chosen.display_label()})")
+
+    if taken == n:
+        # Reached the target. Only an emptied feeder rerolls (Rule 1); a
+        # single-face leftover stays showing for the next player to reset.
+        if feeder.is_empty():
+            feeder.reroll(engine.state.rng)
+            engine.log(f"  birdfeeder emptied; rerolled to {feeder.format()}")
+    else:
+        # A partial subset is a committed reset: reroll the (now rerollable)
+        # leftover and gain the rest from the fresh feeder, which re-offers the
+        # start-of-choice reset.
+        feeder.reroll(engine.state.rng)
+        engine.log(f"  {player.name} resets the birdfeeder -> {feeder.format()}")
+        combined_feeder_gain(engine, agent, player, n - taken)
+
+
+def _apply_subset(
+    engine: "core.Engine", player: state.Player, choice: decisions.FoodSubsetChoice
+) -> None:
+    """Move a chosen :class:`decisions.FoodSubsetChoice`'s dice out of the feeder
+    into ``player``'s supply, all at once.
+
+    Bypasses :func:`gain_feeder_die` deliberately: that helper rerolls the moment
+    a take empties the feeder, which would invalidate the rest of the chosen
+    multiset mid-apply. :func:`combined_feeder_gain` owns the single post-subset
+    reroll instead. Plain single-face dice are spent before choice dice, so each
+    ``Birdfeeder.take`` lands on the face the subset was enumerated against."""
+    feeder = engine.state.birdfeeder
+    for food, amount in choice.plain.items():
+        for _ in range(amount):
+            feeder.take(food)
+            player.food[food] += 1
+    for _ in range(choice.choice_inv):
+        feeder.take(cards.Food.INVERTEBRATE, from_choice_die=True)
+        player.food[cards.Food.INVERTEBRATE] += 1
+    for _ in range(choice.choice_seed):
+        feeder.take(cards.Food.SEED, from_choice_die=True)
+        player.food[cards.Food.SEED] += 1
+
+
+def combined_supply_gain(
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    n: int,
+    *,
+    per_food_capacity: int,
+    prompt: str,
+) -> None:
+    """The ``combine_gain_food`` form of a multi-token *supply* gain: present the
+    whole "gain ``n`` foods" pick as one ``GainFoodDecision`` over multi-food
+    subsets, rather than ``n`` single-food asks.
+
+    ``per_food_capacity`` bounds how many of each food a subset may include — set
+    it to ``n`` for an open supply gain so repeats are allowed (the ravens' two
+    wild), or ``1`` for the opening setup keep (one die of each food on offer, so
+    every option is a distinct-foods subset). No feeder, no reset, no choice
+    dice. A no-op for ``n <= 0``; ``Engine.ask`` auto-resolves a single option
+    (e.g. ``n == 5`` at setup → keep all five)."""
+    if n <= 0:
+        return
+    per_food = min(per_food_capacity, n)
+    chosen = engine.ask(
+        agent,
+        decisions.GainFoodDecision(
+            player_id=player.id,
+            prompt=prompt,
+            choices=[
+                decisions.FoodSubsetChoice(plain=state.FoodPool(counts=list(combo)))
+                for combo in itertools.product(
+                    range(per_food + 1), repeat=cards.N_FOODS
+                )
+                if sum(combo) == n
+            ],
+        ),
+    )
+    assert isinstance(chosen, decisions.FoodSubsetChoice)
+    for food, amount in chosen.plain.items():
+        player.food[food] += amount
+    engine.log(f"  +{chosen.total_units()} ({chosen.display_label()})")
 
 
 # ---------------------------------------------------------------------------

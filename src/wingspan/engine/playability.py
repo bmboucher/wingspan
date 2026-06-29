@@ -132,6 +132,32 @@ def newly_playable_after_food(
     ]
 
 
+def newly_playable_after_foods(
+    player: state.Player,
+    gained: state.FoodPool,
+    *,
+    already_playable: list[cards.Bird],
+    ignore_eggs: bool = True,
+) -> list[cards.Bird]:
+    """Hand birds not in ``already_playable`` that become playable after gaining
+    the whole ``gained`` multiset of foods at once.
+
+    The multi-food generalization of :func:`newly_playable_after_food`, used by
+    the ``combine_gain_food`` regime's ``FoodSubsetChoice`` rows: a bird that
+    needs two different foods together lights up only when *both* are gained in
+    the same subset. ``gained`` is the realized pool (single-face foods plus the
+    choice dice already resolved to invertebrate / seed); it is never mutated.
+    ``ignore_eggs`` carries the same food-gain semantics as
+    :func:`newly_playable_after_food`."""
+    already_set = set(id(bird) for bird in already_playable)
+    return [
+        bird
+        for bird in player.hand
+        if id(bird) not in already_set
+        and _bird_playable(player, bird, extra_food=gained, ignore_eggs=ignore_eggs)
+    ]
+
+
 def newly_playable_after_egg(
     player: state.Player,
     n_eggs: int = 1,

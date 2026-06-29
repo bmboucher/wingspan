@@ -71,6 +71,7 @@ def collect_games(
         on_game_done=lambda rec: record_collected_game(training_loop, rec),
         should_stop=training_loop._stop.is_set,
         vs_random=vs_random,
+        combine_gain_food=training_loop.config.engine.combine_gain_food,
     )
 
 
@@ -134,6 +135,7 @@ def collect_with_setup_sequential(
             split_setup_bonus=training_loop.config.split_setup_bonus_active,
             split_setup_food=training_loop.config.split_setup_food_active,
             setup_greedy=training_loop.config.training.setup.policy_greedy,
+            combine_gain_food=training_loop.config.engine.combine_gain_food,
         )
         records.append(record)
         record_collected_game(training_loop, record)

@@ -79,6 +79,7 @@ def maybe_evaluate(
             ),
             split_setup_bonus=training_loop.config.split_setup_bonus_active,
             split_setup_food=training_loop.config.split_setup_food_active,
+            combine_gain_food=training_loop.config.engine.combine_gain_food,
         )
     return result, time.monotonic() - start
 

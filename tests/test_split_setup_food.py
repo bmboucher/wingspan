@@ -163,3 +163,61 @@ def test_split_setup_bonus_and_food_together() -> None:
         assert player.final_score is not None
         # Each player should have exactly one bonus card (deferred but still picked).
         assert len(player.bonus_cards) == 1
+
+
+def test_split_setup_food_combined_total_matches_hand_size() -> None:
+    """With combine_gain_food on, the opening food keep is one combined "gain N"
+    decision (N = 5 - n_kept); the post-setup food total still equals
+    5 - len(hand), the same invariant the sequential split path satisfies."""
+    import random
+
+    from wingspan import decisions
+    from wingspan.instrumentation import dispatcher
+
+    captured: list[decisions.FoodSubsetChoice] = []
+    post_setup: list[tuple[int, int]] = []
+
+    class _Watcher(dispatcher.Instrumentation):
+        def making_decision(  # type: ignore[override]
+            self,
+            *,
+            engine: engine.Engine,
+            decision: decisions.Decision[decisions.Choice],
+        ) -> None:
+            if (
+                isinstance(decision, decisions.GainFoodDecision)
+                and "setup" in decision.prompt
+            ):
+                captured.extend(
+                    choice
+                    for choice in decision.choices
+                    if isinstance(choice, decisions.FoodSubsetChoice)
+                )
+
+        def round_start(  # type: ignore[override]
+            self, *, engine: engine.Engine, round_num: int
+        ) -> None:
+            if round_num == 0 and not post_setup:
+                for seat in engine.state.players:
+                    post_setup.append((len(seat.hand), seat.food.total()))
+
+    birds, bonuses, goals = cards.load_all()
+    gs = state.new_game(random.Random(21), birds, bonuses, goals)
+    rand_rng = random.Random(21)
+    agent_a = agents.random_agent(rand_rng)
+    agent_b = agents.random_agent(rand_rng)
+
+    engine.Engine.play_one_game(
+        gs,
+        (agent_a, agent_b),
+        instrumentation=_Watcher(),
+        split_setup_food=True,
+        combine_gain_food=True,
+    )
+
+    assert post_setup, "expected round_start to capture post-setup food"
+    for n_hand, food_total in post_setup:
+        assert food_total == 5 - n_hand, (n_hand, food_total)
+    # A seat keeping 1..4 birds exercises a real (multi-option) combined menu.
+    assert captured, "expected at least one combined setup food decision"
+    assert all(all(count <= 1 for count in choice.plain.counts) for choice in captured)

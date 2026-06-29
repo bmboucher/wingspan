@@ -52,7 +52,12 @@ omitted when `has_becomes_playable=False` (pre-0.6 compat shims) — they are
 always added and removed together. `food_playable_ignores_eggs=True` (default,
 v0.8+) uses the eggs-agnostic food baseline and `ignore_eggs=True` in
 `_bird_playable`; set to `False` for the v0.7 compat shim to restore
-eggs-included semantics.
+eggs-included semantics. `_featurize_food_subset` (registered for
+`decisions.FoodSubsetChoice`, the `combine_gain_food` regime) fills the 7-slot
+`gain_food` stripe as a count vector via `_fill_gain_food_vector` (raw counts, so
+a single-unit subset is byte-identical to the `FoodChoice` one-hot) and the
+combined `becomes_playable` via `playability.newly_playable_after_foods` on the
+realized pool (`_combined_gain_pool`). No shape change — same stripe width.
 
 ## Subpackage
 

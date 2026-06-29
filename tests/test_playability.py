@@ -204,6 +204,58 @@ def test_newly_playable_after_food_non_matching_food_not_flagged():
     assert target not in newly, "FISH should not flag a SEED-only bird"
 
 
+def _two_distinct_food_bird(
+    birds_list: list[cards.Bird], player: state.Player
+) -> cards.Bird | None:
+    """A hand-eligible bird whose AND cost needs exactly two distinct foods, one
+    of each (no wild) — the case only a *combined* gain can satisfy in one step."""
+    for bird in birds_list:
+        cost = bird.food_cost
+        if cost.is_or_cost or cost.wild:
+            continue
+        needed = [count for count in cost.specific if count > 0]
+        if needed == [1, 1] and any(player.can_play_in(h) for h in bird.habitats):
+            return bird
+    return None
+
+
+def test_newly_playable_after_foods_unlocks_only_on_combined_gain():
+    """A bird needing two different foods is flagged by ``newly_playable_after_foods``
+    only when *both* foods are in the gained pool — a single-food gain leaves it
+    unaffordable. This is the signal the combine_gain_food regime surfaces that a
+    one-at-a-time gain cannot."""
+    eng, birds_list, *_ = engine.Engine.create(seed=8)
+    player = eng.state.players[0]
+    target = _two_distinct_food_bird(birds_list, player)
+    if target is None:
+        pytest.skip("no two-distinct-food bird in this catalog")
+
+    food_a, food_b = [
+        cards.ALL_FOODS[i]
+        for i, count in enumerate(target.food_cost.specific)
+        if count > 0
+    ]
+    player.food = state.FoodPool(counts=[0] * cards.N_FOODS)
+    player.hand = [target]
+    baseline: list[cards.Bird] = []
+
+    only_a = playability.newly_playable_after_foods(
+        player,
+        state.FoodPool.from_dict({food_a: 1}),
+        already_playable=baseline,
+        ignore_eggs=True,
+    )
+    assert target not in only_a, "one food alone must not unlock a two-food bird"
+
+    both = playability.newly_playable_after_foods(
+        player,
+        state.FoodPool.from_dict({food_a: 1, food_b: 1}),
+        already_playable=baseline,
+        ignore_eggs=True,
+    )
+    assert target in both, "gaining both foods together unlocks the bird"
+
+
 # ---------------------------------------------------------------------------
 # newly_playable_after_food
 

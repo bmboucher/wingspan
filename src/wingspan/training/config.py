@@ -405,13 +405,21 @@ class OpponentConfig(pydantic.BaseModel):
 
 
 class EngineConfig(pydantic.BaseModel):
-    """Placeholder for future encoding-independent game-variant toggles.
+    """Encoding-independent game-variant toggles.
 
     Every game-rule constant (``ROUND_CUBES``, ``ROW_SLOTS``, …) is hardcoded
-    in ``state.py`` and is FRESH-coupled to the encoding. The only existing
-    config-level rule toggles (``use_setup_model``, ``split_setup_*``) change
-    tensor shapes, so they belong in ``architecture``. This section is reserved
-    for future knobs that do not affect the encoding (e.g. player count)."""
+    in ``state.py`` and is FRESH-coupled to the encoding. Shape-changing rule
+    toggles (``use_setup_model``, ``split_setup_*``) live in ``architecture``;
+    this section holds knobs that change engine behavior without touching any
+    tensor shape — so they never enter ``architecture_key`` and need no
+    ``MODEL_VERSION`` bump or compat shim."""
+
+    # ``combine_gain_food`` collapses a run of single-food gains (Forest
+    # multi-die gain, the ravens' two-wild supply gain, the split-setup food
+    # keep) into one combined subset decision. The gain_food stripe carries a
+    # count vector instead of a one-hot — same width, so REGIME/resumable.
+    # Defaults off: an old artifact replays with the single-food path unchanged.
+    combine_gain_food: bool = False
 
 
 class MiscConfig(pydantic.BaseModel):
