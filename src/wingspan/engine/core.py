@@ -27,6 +27,7 @@ import typing
 
 from wingspan import cards, decisions, state
 from wingspan.engine import actions, log_format, scoring
+from wingspan.gamelog import recorder as gamelog_recorder
 from wingspan.instrumentation import dispatcher
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,7 @@ class Engine:
         gs: state.GameState,
         agents: typing.Sequence[Agent] | None = None,
         instrumentation: dispatcher.Instrumentation | None = None,
+        event_recorder: gamelog_recorder.AnyRecorder | None = None,
     ):
         self.state = gs
         # ``agents`` is indexed by ``Player.id`` so opponent-prompting power
@@ -105,6 +107,11 @@ class Engine:
         # shared no-op ``EMPTY`` so an uninstrumented game pays nothing per event.
         self.instrumentation: dispatcher.Instrumentation = (
             instrumentation if instrumentation is not None else dispatcher.EMPTY
+        )
+        # The structured event-tree emitter. Defaults to the shared no-op
+        # ``EMPTY`` so uninstrumented games pay nothing.
+        self.events: gamelog_recorder.AnyRecorder = (
+            event_recorder if event_recorder is not None else gamelog_recorder.EMPTY
         )
 
     # ------------------------------------------------------------------
@@ -130,6 +137,7 @@ class Engine:
         gs: state.GameState,
         agents: tuple[Agent, Agent],
         instrumentation: dispatcher.Instrumentation | None = None,
+        event_recorder: gamelog_recorder.AnyRecorder | None = None,
         *,
         split_setup_bonus: bool = False,
         split_setup_food: bool = False,
@@ -142,6 +150,9 @@ class Engine:
         ``instrumentation`` attaches an event router for the duration of the
         game (default: the no-op ``EMPTY``).
 
+        ``event_recorder`` attaches a structured event-tree emitter for the
+        duration of the game (default: the no-op ``EMPTY``).
+
         ``split_setup_bonus`` defers the opening bonus pick out of the combined
         ``SetupDecision`` to a follow-up in-game ``CHOOSE_BONUS`` decision (the
         ``split_setup_bonus`` regime); the dealt cards/food are still the
@@ -152,9 +163,15 @@ class Engine:
         resolves (the ``split_setup_food`` regime). The number and kind of asks
         depends on how many birds the player kept (see
         ``_maybe_resolve_deferred_setup_food``)."""
-        eng = Engine(gs, agents=agents, instrumentation=instrumentation)
+        eng = Engine(
+            gs,
+            agents=agents,
+            instrumentation=instrumentation,
+            event_recorder=event_recorder,
+        )
         eng.log_section("=== GAME START ===", global_line=True)
         eng.instrumentation.game_start(engine=eng)
+        eng.events.begin_game()
         log_format.log_game_setup(eng)
         eng._setup_phase(
             agents, defer_bonus=split_setup_bonus, defer_food=split_setup_food
@@ -164,6 +181,7 @@ class Engine:
         scoring.final_scoring(eng)
         eng.state.game_over = True
         eng.log_section("=== GAME END ===", global_line=True)
+        eng.events.end_game(eng)
         eng.instrumentation.game_end(engine=eng)
         return eng
 
@@ -173,6 +191,7 @@ class Engine:
         agents: tuple[Agent, Agent],
         choose_setups: SetupChooser,
         instrumentation: dispatcher.Instrumentation | None = None,
+        event_recorder: gamelog_recorder.AnyRecorder | None = None,
         *,
         split_setup_food: bool = False,
     ) -> Engine:
@@ -184,11 +203,20 @@ class Engine:
         decides over exactly the inputs an agent would have seen; everything after
         setup is identical to ``play_one_game``.
 
+        ``event_recorder`` attaches a structured event-tree emitter for the
+        duration of the game (default: the no-op ``EMPTY``).
+
         ``split_setup_food`` defers food to sequential in-game food decisions after
         each seat's card-keep is applied (the ``split_setup_food`` regime)."""
-        eng = Engine(gs, agents=agents, instrumentation=instrumentation)
+        eng = Engine(
+            gs,
+            agents=agents,
+            instrumentation=instrumentation,
+            event_recorder=event_recorder,
+        )
         eng.log_section("=== GAME START ===", global_line=True)
         eng.instrumentation.game_start(engine=eng)
+        eng.events.begin_game()
         log_format.log_game_setup(eng)
         eng._setup_phase_fixed(choose_setups, defer_food=split_setup_food)
         for round_idx in range(4):
@@ -196,6 +224,7 @@ class Engine:
         scoring.final_scoring(eng)
         eng.state.game_over = True
         eng.log_section("=== GAME END ===", global_line=True)
+        eng.events.end_game(eng)
         eng.instrumentation.game_end(engine=eng)
         return eng
 
@@ -236,6 +265,7 @@ class Engine:
                 decision.player_id,
                 f"only 1 choice: {decision.choices[0].display_label()}",
             )
+            self.events.record_forced(self, decision, decision.choices[0])
             return decision.choices[0]
         self.instrumentation.making_decision(engine=self, decision=decision)
         choice: C = agent(self, decision)
@@ -247,6 +277,7 @@ class Engine:
         self.instrumentation.made_decision(
             engine=self, decision=decision, choice=choice
         )
+        self.events.record_decision(self, decision, choice)
         return choice
 
     def log(self, msg: str, player_id: int | None = None) -> None:
@@ -323,6 +354,7 @@ class Engine:
             for pb in row:
                 pb.pink_fired = False
         self.instrumentation.turn_start(engine=self, player=player)
+        self.events.begin_phase("turn")
         # Print the turn header first so it anchors the block, then the state
         # summary, then ask for the main action (which logs the AI distribution)
         # so the decision lines always follow their context header.
@@ -333,7 +365,9 @@ class Engine:
         )
         log_format.log_turn_summary(self)
         self.log("")
+        self.events.begin_main_action(player.id)
         choice = self.ask(agent, self._main_action_decision(player))
+        self.events.end_event()
         player.action_cubes_left -= 1
         self._dispatch_main_action(agent, choice)
         actions.consume_extra_plays(self, player, agent)
@@ -504,6 +538,7 @@ class Engine:
             self.log_section(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
             log_format.log_dealt_hand(self, player, dealt_cards)
             log_format.log_dealt_bonus(self, dealt_cards, dealt_bonus, player)
+            self.events.begin_setup(player.id)
             self._apply_setup_choice(
                 player, dealt_cards, dealt_bonus, sc, defer_food=defer_food
             )
@@ -514,6 +549,7 @@ class Engine:
                 len(sc.kept_cards),
                 defer_food=defer_food,
             )
+            self.events.end_event()
             self._log_setup_result(player)
 
     def _log_setup_result(self, player: state.Player) -> None:
@@ -544,6 +580,7 @@ class Engine:
         )
         self.log_global(f"Round goal: {self.state.round_goals[round_idx].description}")
         self.instrumentation.round_start(engine=self, round_num=round_idx)
+        self.events.begin_phase("round")
         # Turn order rotates each round off the randomly-chosen first player;
         # both players hold equal cubes, so a strict alternation drains them
         # evenly. ``current_player`` is set immediately before each turn so the
@@ -636,6 +673,8 @@ class Engine:
             dealt_cards=dealt_cards,
             dealt_bonus=dealt_bonus,
         )
+        self.events.begin_phase("setup")
+        self.events.begin_setup(player.id)
         self.instrumentation.setup_start(
             engine=self, player=player, dealt_bonus=dealt_bonus
         )
@@ -658,6 +697,7 @@ class Engine:
         self._maybe_resolve_deferred_setup_food(
             player, agents[player.id], len(chosen.kept_cards), defer_food=defer_food
         )
+        self.events.end_event()
 
     def _deal_starting_bonus(self) -> list[cards.BonusCard]:
         """Pop ``STARTING_BONUS_CARDS_DEAL`` bonus cards from the deck (or as

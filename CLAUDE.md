@@ -15,6 +15,7 @@ Load these when working in the relevant area. Update them in the same commit tha
 | `docs/PROJECT.md` | Top-level package map (links to each subpackage's `INDEX.md`) | Adding or renaming a top-level package; structural refactors |
 | `src/wingspan/*/INDEX.md` | Per-subpackage module detail: classes, key methods, state | Adding or renaming a module within a subpackage |
 | `docs/DECISIONS.md` | Decision/choice taxonomy, `ALL_DECISION_CLASSES` ordering, choice-vector stripes, engine call sites | Adding a `Decision`/`Choice` subclass; changing a featurizer; reordering `ALL_DECISION_CLASSES` |
+| `docs/GAMELOG.md` | Six event types, sub-event taxonomy, open-event-stack rule, call-site map | Adding a `GameEvent`/`SubEvent` subclass; wiring a new call site; changing a renderer |
 | `docs/BIRDS.md` | All 180 birds + 26 bonus cards: `EffectKind` patterns, handler mappings, implementation gaps | Adding an `EffectKind` variant, a matcher, or a power handler |
 | `docs/BONUSES.md` | All 26 bonus cards and 16 round goals: scoring rules, state/choice encoding, what advances each | Adding a bonus category, a goal category, or changing the delta/encoding logic |
 | `docs/TRAINING.md` | Training program, hyperparameter guidance, Phase 0–3 roadmap | Changing the training approach, convergence criteria, or phased plan |

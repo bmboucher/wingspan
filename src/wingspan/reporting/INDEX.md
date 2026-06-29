@@ -64,22 +64,36 @@ wraps the CSV as a `data:text/csv;charset=utf-8;base64,…` URI for use as a dow
 `capture_phase(engine, …) -> PhaseRecord` flattens the live `GameState` into
 primitive display models. `capture_setup_phase(engine, …, dealt_bonus) ->
 PhaseRecord` creates the combined per-player setup phase with bonus options
-pre-populated (`pending=True`). `SetupCaptureState` is a transient per-player
-bucket filled by `record_setup_decision(capture, engine, decision, choice,
-annotation)` for each setup-context decision. `finalize_setup_phase(phase,
-capture)` sets `selected` on kept hand cards and the kept bonus, and assembles
-the `[keep_item, food_group, bonus_item]` decision log.
-`_merge_secondary_setup_segments(segments)` folds CHOOSING BONUS CARD segments
-into the preceding segment so the `zip(phases, segments)` count stays 1:1.
-`build_decision_item(engine, decision, choice, annotation) -> LogItem` builds a
-structured decision box from a `PolicyAnnotation` (up to 5 options by probability,
-always including the chosen one). `build_report(…, decision_items)` merges
-pre-built decision items with the engine text log (skips `kind=="setup"` phases,
-whose log items are already set by `finalize_setup_phase`; converts forced-single
-lines to `"forced"` items; humanizes everything else as `"note"` items) and
-assembles the report. `build_timeline(engine, raw_points, seat_configs)` finalizes
-provisional per-decision timestamps and computes P0-relative future-return chart
-coordinates for value/target lines, reusing `timestamps.discounted_future_returns`.
+pre-populated (`pending=True`).
+
+All log-item content now sources from the structured event tree (see
+`gamelog/INDEX.md`) rather than text-parsing engine.log.
+
+`tree_to_log_items(phase: PhaseNode) -> list[LogItem]` converts one tree phase's
+events into the `LogItem` list consumed by the HTML viewer: `MainActionEvent` →
+a `"decision"` item; `PlayBirdEvent` → a `"group"` headed by its bird-selection
+decision, with egg/food sub-events as children and any `WhitePowerEvent` as a
+trailing `"note"`; `ActivateBaseEvent` / `ActivateBrownEvent` / `ReactionEvent` /
+`RoundGoalEvent` / `FinalScoringEvent` → their sub-events/notes in order.
+
+`_apply_setup_highlights(phase, setup_event)` reads `SetupEvent.kept_card_names`
+and `kept_bonus_name` from the recorder's tree to set `selected` on the kept hand
+cards and bonus card in a setup phase.
+
+`build_report(*, engine, phases, tree, seed, matchup, timeline)` merges the
+handler's phase snapshots with the tree: for setup phases it reads the
+`SetupEvent` to apply highlights; for all phases it calls `tree_to_log_items`
+to populate `log_items`.
+
+`extract_timeline_points(tree) -> list[RawTimelinePoint]` DFS-walks all
+`DecisionSubEvent`s in recording order to collect the timeline scalars
+(`value`, `turn_counter`, `setup_slot`, `family_idx`, `score_p0`, `score_p1`,
+`margin_before`).
+
+`build_timeline(engine, raw_points, seat_configs)` finalizes provisional
+per-decision timestamps and computes P0-relative future-return chart coordinates
+for value/target lines, reusing `timestamps.discounted_future_returns`.
+
 Imported lazily by the `GameLogHtml` instrumentation handler so its `engine`
 dependency stays off the import-time path.
 

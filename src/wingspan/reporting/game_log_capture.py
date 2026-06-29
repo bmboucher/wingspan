@@ -1,47 +1,35 @@
-"""Convert live game state and the engine's text log into a game-log report.
+"""Convert live game state and the structured event tree into a game-log report.
 
-This is the engine-aware half of the HTML game-log feature: it reads a
-``GameState`` (and the bonus-scoring helpers) to flatten each phase into the
-primitive display models in :mod:`wingspan.reporting.game_log_html`, and it
-splits the engine's interleaved text log into one ``LogItem`` block per phase.
-It is imported lazily by
-:class:`wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler` —
-never at import time — so its dependence on ``engine`` does not close the
-``engine`` ↔ ``instrumentation`` import cycle.
+This module is the engine-aware half of the HTML game-log feature. It reads a
+``GameState`` and ``GameEventTree`` to assemble the primitive display models in
+:mod:`wingspan.reporting.game_log_html`. It is imported lazily by
+:class:`wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler`
+to keep the ``engine`` <-> ``instrumentation`` import cycle at bay.
 
-Public API: :func:`capture_phase` (one snapshot without log items),
-:func:`capture_setup_phase` (snapshot for the combined per-player setup phase),
-:func:`build_decision_item` (build a structured ``LogItem`` from a
-``PolicyAnnotation``), :func:`record_setup_decision` (route one setup decision
-into a per-player capture bucket), :func:`finalize_setup_phase` (assemble
-highlighted cards + grouped food log after all setup decisions are recorded),
-:func:`build_timeline` (finalize timestamps and compute per-decision chart
-points), and :func:`build_report` (merge decision items with the text log and
-assemble the report).
+Public API: :func:`capture_phase`, :func:`capture_setup_phase` (state
+snapshots), :func:`tree_to_log_items` (phase → ``LogItem`` list from tree),
+:func:`extract_timeline_points` (DFS → ``RawTimelinePoint`` list),
+:func:`build_timeline` (finalize timestamps / compute chart points), and
+:func:`build_report` (merge tree with phase snapshots and assemble the report).
 """
 
 from __future__ import annotations
 
-import collections
 import functools
-import re
 import typing
 
 import pydantic
 
-from wingspan import cards, decisions, state
+from wingspan import cards, state
 from wingspan.agents import display
 from wingspan.engine import scoring
-from wingspan.players import decision_probe
-from wingspan.reporting import card_view, game_log_html, humanize
+from wingspan.gamelog import models as gamelog_models
+from wingspan.reporting import card_view, game_log_html
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
     from wingspan.training import config as train_config
 
-# Marks a phase boundary in the interleaved log: the engine writes one such
-# header per captured phase, in the same order the capture events fire.
-_HEADER_PREFIX = "==="
 
 # Display labels for the three habitat rows, in board order.
 _HABITAT_LABELS: dict[cards.Habitat, str] = {
@@ -50,15 +38,16 @@ _HABITAT_LABELS: dict[cards.Habitat, str] = {
     cards.Habitat.WETLAND: "Wetland",
 }
 
-# Matches a FoodPool.format() string like "1seed", "1fish+1rodent", "1wild".
-_FOOD_PAYMENT_LABEL_RE = re.compile(r"^\d+[a-z]+(\+\d+[a-z]+)*$")
-
 
 @functools.cache
 def _birds_by_name() -> dict[str, cards.Bird]:
     """Name→Bird map for the full card table, cached per process."""
     birds, _, _ = cards.load_all()
     return {bird.name: bird for bird in birds}
+
+
+# ---------------------------------------------------------------------------
+# Phase snapshot helpers
 
 
 def capture_setup_phase(
@@ -72,9 +61,8 @@ def capture_setup_phase(
     """Snapshot state at the start of one player's combined setup phase.
 
     Like :func:`capture_phase` but populates ``setup_bonus_options`` with the
-    two offered bonus cards (marked ``pending=True``).  The viewer dims
-    un-selected options until :func:`finalize_setup_phase` sets ``selected``
-    on the kept card and clears the ``pending`` flag."""
+    two offered bonus cards (marked ``pending=True``).  :func:`build_report`
+    sets ``selected`` on the kept card and clears the ``pending`` flag."""
     phase = capture_phase(engine, index=index, title=title, kind="setup", active=active)
     phase.setup_bonus_options = [
         game_log_html.BonusCardInfo(
@@ -95,10 +83,9 @@ def capture_phase(
 ) -> game_log_html.PhaseRecord:
     """Snapshot the current game state as a narration-less phase record.
 
-    The narration is filled in later by :func:`build_report` once the whole log
-    is available; everything else (both seats' boards, hands, food, scores,
-    bonus cards, the shared tray / birdfeeder / round goals) is read from the
-    live state now."""
+    The narration is filled in later by :func:`build_report` once the tree is
+    available; everything else (boards, hands, food, scores, bonus cards, the
+    shared tray / birdfeeder / round goals) is read from the live state now."""
     gs = engine.state
     return game_log_html.PhaseRecord(
         index=index,
@@ -115,12 +102,15 @@ def capture_phase(
     )
 
 
+# ---------------------------------------------------------------------------
+# Timeline data model and builder
+
+
 class RawTimelinePoint(pydantic.BaseModel):
     """One recorded decision's raw data for the timeline chart.
 
-    Populated by the instrumentation handler at ``made_decision`` time, before
-    timestamp finalization (provisional timestamps are spread into turn windows
-    only after the game ends). ``value_pov`` is the critic's output for the
+    Populated by :func:`extract_timeline_points` from the event tree, before
+    timestamp finalization. ``value_pov`` is the critic's output for the
     deciding player's POV (divided by ``score_norm``); ``None`` when no net
     backed that seat."""
 
@@ -132,291 +122,6 @@ class RawTimelinePoint(pydantic.BaseModel):
     score_p1: int
     phase_index: int
     value_pov: float | None = None
-
-
-def build_decision_item(
-    engine: core.Engine,
-    decision: decisions.Decision[typing.Any],
-    choice: decisions.Choice,
-    annotation: decision_probe.PolicyAnnotation,
-) -> game_log_html.LogItem:
-    """Build a structured ``LogItem`` for one genuine AI decision.
-
-    Selects up to ``_MAX_DECISION_OPTIONS`` options by probability (always
-    including the chosen option even if it falls outside the top N) and builds
-    a ``DecisionOption`` for each using the humanizer.  The ``text`` field
-    holds the humanized outcome summary shown in the collapsed header.
-
-    When the annotation carries raw encoder vectors (main-net decisions) or
-    setup-net candidate vectors, extracts non-zero stripe summaries for the
-    encoding-viewer modal.  For setup decisions, deal context (tray, birdfeeder)
-    goes in the state panel and per-candidate blocks in the choice panel."""
-    from wingspan.reporting import encode_viewer
-
-    gs = engine.state
-    n_choices = len(decision.choices)
-    ranked = sorted(
-        range(n_choices), key=lambda idx: annotation.probs[idx], reverse=True
-    )
-
-    # Top-N by probability, then force-include the selected option if absent.
-    shown_indices = ranked[:_MAX_DECISION_OPTIONS]
-    if annotation.chosen_idx not in shown_indices:
-        shown_indices = shown_indices[:-1] + [annotation.chosen_idx]
-
-    # Extract state stripes once (shared across all options for this decision).
-    # Setup path: decode the deal context from the first candidate's vector.
-    # Main-net path: decode the full encode_state vector.
-    state_stripes: list[game_log_html.EncodedStripe] | None = None
-    if annotation.setup_feats is not None and annotation.setup_encoding is not None:
-        if annotation.setup_feats:
-            state_stripes = encode_viewer.extract_setup_context_stripes(
-                annotation.setup_feats[0], annotation.setup_encoding
-            )
-    elif annotation.state_vec is not None:
-        state_stripes = encode_viewer.extract_state_stripes(
-            annotation.state_vec,
-            include_setup=annotation.include_setup or False,
-        )
-
-    options: list[game_log_html.DecisionOption] = []
-    for idx in shown_indices:
-        idx_choice = decision.choices[idx]
-
-        # Extract per-option choice stripes. Setup path: per-candidate blocks.
-        # Main-net path: one row from the encode_choices matrix.
-        choice_stripes: list[game_log_html.EncodedStripe] | None = None
-        if annotation.setup_feats is not None and annotation.setup_encoding is not None:
-            if idx < len(annotation.setup_feats):
-                choice_stripes = encode_viewer.extract_setup_candidate_stripes(
-                    annotation.setup_feats[idx], annotation.setup_encoding
-                )
-        elif annotation.choice_feats is not None and idx < len(annotation.choice_feats):
-            choice_stripes = encode_viewer.extract_choice_stripes(
-                annotation.choice_feats[idx],
-                include_setup=annotation.include_setup or False,
-            )
-
-        options.append(
-            game_log_html.DecisionOption(
-                label=humanize.humanize_choice(
-                    idx_choice, gs, player_id=decision.player_id, decision=decision
-                ),
-                prob=annotation.probs[idx],
-                score=annotation.scores[idx] if annotation.scores is not None else None,
-                selected=(idx == annotation.chosen_idx),
-                choice_stripes=choice_stripes,
-            )
-        )
-
-    # Tag a semantic category for the grouping/merge post-passes.
-    category: game_log_html.LogItemCategory | None = None
-    if isinstance(decision, decisions.PlayBirdDecision):
-        category = game_log_html.LogItemCategory.PLAY_BIRD
-    elif isinstance(decision, decisions.RemoveEggDecision):
-        category = game_log_html.LogItemCategory.PAY_EGG
-    elif isinstance(decision, decisions.PayBirdFoodDecision):
-        category = game_log_html.LogItemCategory.PAY_FOOD
-    elif (
-        isinstance(decision, decisions.DrawCardsPickSourceDecision)
-        and isinstance(choice, decisions.DrawSourceChoice)
-        and choice.source == "deck"
-    ):
-        category = game_log_html.LogItemCategory.DRAW_DECK
-
-    return game_log_html.LogItem(
-        kind="decision",
-        player_id=decision.player_id,
-        text=humanize.humanize_outcome(decision, choice, gs),
-        options=options,
-        state_stripes=state_stripes,
-        category=category,
-    )
-
-
-# Maximum options shown in a decision box (selected always included).
-_MAX_DECISION_OPTIONS = 5
-
-# Substring that identifies the secondary setup-bonus log segment, emitted only
-# in the deferred-bonus regime.  Must not match the combined-regime header
-# "… BIRDS, FOOD, AND BONUS CARD".
-_BONUS_SEGMENT_MARKER = "CHOOSING BONUS CARD"
-
-
-class SetupCaptureState(pydantic.BaseModel):
-    """Transient accumulator for one player's setup decisions.
-
-    Created at ``setup_start`` and consumed at ``game_end`` (``finalize_setup_phase``).
-    All fields are filled in incrementally as ``record_setup_decision`` processes
-    each decision; nothing outside this module needs to inspect the fields directly."""
-
-    phase_index: int
-    kept_card_names: set[str] = pydantic.Field(default_factory=set)
-    kept_bonus_name: str | None = None
-    keep_item: game_log_html.LogItem | None = None
-    bonus_item: game_log_html.LogItem | None = None
-    food_items: list[game_log_html.LogItem] = pydantic.Field(
-        default_factory=list[game_log_html.LogItem]
-    )
-    food_spent: list[str] = pydantic.Field(default_factory=list)
-    food_gained: list[str] = pydantic.Field(default_factory=list)
-    combined_food_labels: list[str] = pydantic.Field(default_factory=list)
-
-
-def record_setup_decision(
-    capture: SetupCaptureState,
-    engine: core.Engine,
-    decision: decisions.Decision[typing.Any],
-    choice: decisions.Choice,
-    annotation: decision_probe.PolicyAnnotation | None,
-) -> None:
-    """Route one setup-context decision into the capture bucket.
-
-    Called by the instrumentation handler instead of the normal decision-item
-    path whenever the current phase is a setup phase.  Branches on the choice
-    type to fill the correct slot(s) in ``capture``."""
-    # SetupChoice: records kept cards and, in non-split regimes, food + bonus.
-    if isinstance(choice, decisions.SetupChoice):
-        capture.kept_card_names = {bird.name for bird in choice.kept_cards}
-        if choice.bonus_card is not None:
-            capture.kept_bonus_name = choice.bonus_card.name
-            # In combined regime the bonus is baked into SetupChoice; there is no
-            # follow-up BonusCardChoice, so we set the bonus_item here as a forced
-            # entry.  The deferred-bonus regime sets it via the BonusCardChoice branch.
-            capture.bonus_item = game_log_html.LogItem(
-                kind="forced",
-                player_id=decision.player_id,
-                text=f"Keeps bonus card {choice.bonus_card.name}",
-                forced=True,
-            )
-        if choice.kept_foods:
-            capture.combined_food_labels = [food.value for food in choice.kept_foods]
-        names = ", ".join(bird.name for bird in choice.kept_cards) or "no birds"
-        keep_text = f"Keeps {names}"
-        if annotation is not None:
-            item = build_decision_item(engine, decision, choice, annotation)
-            item.text = keep_text
-        else:
-            item = game_log_html.LogItem(
-                kind="forced", player_id=decision.player_id, text=keep_text, forced=True
-            )
-        capture.keep_item = item
-        return
-
-    # FoodChoice under SpendFoodDecision: player discards one food token.
-    if isinstance(choice, decisions.FoodChoice) and isinstance(
-        decision, decisions.SpendFoodDecision
-    ):
-        food_value = choice.food.value
-        capture.food_spent.append(food_value)
-        spend_text = f"Discards {food_value}"
-        if annotation is not None:
-            item = build_decision_item(engine, decision, choice, annotation)
-            item.text = spend_text
-        else:
-            item = game_log_html.LogItem(
-                kind="forced",
-                player_id=decision.player_id,
-                text=spend_text,
-                forced=True,
-            )
-        capture.food_items.append(item)
-        return
-
-    # FoodChoice under GainFoodDecision: player gains one food token.
-    if isinstance(choice, decisions.FoodChoice) and isinstance(
-        decision, decisions.GainFoodDecision
-    ):
-        food_value = choice.food.value
-        capture.food_gained.append(food_value)
-        gain_text = f"Gains {food_value}"
-        if annotation is not None:
-            item = build_decision_item(engine, decision, choice, annotation)
-            item.text = gain_text
-        else:
-            item = game_log_html.LogItem(
-                kind="forced", player_id=decision.player_id, text=gain_text, forced=True
-            )
-        capture.food_items.append(item)
-        return
-
-    # BonusCardChoice: deferred-bonus path; player picks which bonus to keep.
-    if isinstance(choice, decisions.BonusCardChoice):
-        capture.kept_bonus_name = choice.bonus_card.name
-        if annotation is not None:
-            item = build_decision_item(engine, decision, choice, annotation)
-        else:
-            bonus_text = (
-                f"Keeps bonus card {capture.kept_bonus_name}"
-                if capture.kept_bonus_name
-                else "Keeps bonus card"
-            )
-            item = game_log_html.LogItem(
-                kind="forced",
-                player_id=decision.player_id,
-                text=bonus_text,
-                forced=True,
-            )
-        capture.bonus_item = item
-        return
-
-
-def finalize_setup_phase(
-    phase: game_log_html.PhaseRecord,
-    capture: SetupCaptureState,
-) -> None:
-    """Assemble the completed setup phase log from the capture bucket.
-
-    Sets the ``selected`` flag on the kept hand cards and the kept bonus card,
-    clears the ``pending`` flag on the chosen bonus, computes the kept-food
-    label list, and builds the three-node decision log (keep, food group, bonus).
-    This runs once per player at ``game_end``, before ``build_report``."""
-    # Highlight kept hand cards.
-    if phase.active_player_id is not None:
-        active_panels = [
-            panel for panel in phase.panels if panel.player_id == phase.active_player_id
-        ]
-        if active_panels:
-            for cell in active_panels[0].hand:
-                cell.selected = cell.name in capture.kept_card_names
-
-    # Highlight kept bonus and mark the chosen one as no-longer-pending.
-    for bonus_opt in phase.setup_bonus_options:
-        if bonus_opt.name == capture.kept_bonus_name:
-            bonus_opt.selected = True
-            bonus_opt.pending = False
-
-    # Derive the kept-food label list.
-    if capture.combined_food_labels:
-        kept_food_labels = capture.combined_food_labels
-    elif capture.food_spent:
-        all_food_values = [food.value for food in cards.ALL_FOODS]
-        kept_food_labels = [f for f in all_food_values if f not in capture.food_spent]
-    else:
-        kept_food_labels = capture.food_gained
-
-    # Build the food group node when there is food to report.  Use "group" (a
-    # collapsible toggle with per-decision children) only when individual food
-    # decisions exist (split-food regime).  In combined regime food_items is
-    # empty — use "forced" so the summary renders as a plain, non-collapsible
-    # line rather than an empty clickable toggle.
-    food_group: game_log_html.LogItem | None = None
-    if capture.food_items or kept_food_labels:
-        kept_label = ", ".join(kept_food_labels) if kept_food_labels else "no food"
-        food_group = game_log_html.LogItem(
-            kind="group" if capture.food_items else "forced",
-            player_id=phase.active_player_id,
-            text=f"Keeps {kept_label}",
-            children=list(capture.food_items),
-            forced=not bool(capture.food_items),
-        )
-
-    # Assemble the phase log: [keep-choice, food-group, bonus-choice] (skipping None).
-    phase.log_items = [
-        item
-        for item in (capture.keep_item, food_group, capture.bonus_item)
-        if item is not None
-    ]
 
 
 def build_timeline(
@@ -455,8 +160,7 @@ def build_timeline(
     terminal_own_score = (float(final_score_p0), float(final_score_p1))
 
     # Build a {index: target_raw} map (raw = before / score_norm division),
-    # matching the actual training signal for each seat's reward_mode and
-    # reward_basis.
+    # matching the actual training signal for each seat's reward_mode.
     target_raw: dict[int, float] = {}
     for player_id in (0, 1):
         cfg = seat_configs[player_id]
@@ -481,10 +185,7 @@ def build_timeline(
                 target_raw[idx] = terminal
             continue
 
-        # decision_delta: critic target telescopes toward 0 at the end. With
-        # OWN_SCORE basis, checkpoints are the player's own live score at each
-        # decision (score_p0 / score_p1 in RawTimelinePoint); with MARGIN basis,
-        # checkpoints are the running margin (margin_before).
+        # decision_delta: critic target telescopes toward 0 at the end.
         if own_score_basis:
             checkpoints = [
                 float(
@@ -503,19 +204,17 @@ def build_timeline(
         for position, idx in enumerate(indices):
             target_raw[idx] = raw_returns[position]
 
-    # Assemble TimelinePoint objects — value/target are P0-relative future returns, in VP.
+    # Assemble TimelinePoint objects (value/target are P0-relative future returns, in VP).
     result: list[game_log_html.TimelinePoint] = []
     for idx, (pt, ts) in enumerate(zip(raw_points, final_ts)):
         cfg = seat_configs[pt.player_id]
         score_norm = cfg.training.score_norm if cfg is not None else 1.0
         sign = 1 if pt.player_id == 0 else -1
 
-        # Critic: denormalize the predicted return to P0-relative VP.
         value_return: float | None = None
         if pt.value_pov is not None and cfg is not None:
             value_return = sign * pt.value_pov * score_norm
 
-        # Target: raw return is already in VP (not normalized); convert to P0.
         target_return: float | None = None
         if idx in target_raw:
             target_return = sign * target_raw[idx]
@@ -534,44 +233,34 @@ def build_timeline(
     return result
 
 
+# ---------------------------------------------------------------------------
+# Report assembly
+
+
 def build_report(
     *,
     engine: core.Engine,
     phases: list[game_log_html.PhaseRecord],
+    tree: gamelog_models.GameEventTree,
     seed: int | None,
     matchup: tuple[str, str] | None,
     timeline: list[game_log_html.TimelinePoint] | None = None,
-    decision_items: list[tuple[int, game_log_html.LogItem]] | None = None,
 ) -> game_log_html.GameLogReport:
-    """Merge structured decision items with the text log and assemble the report.
+    """Assemble the HTML game-log report from phase snapshots and the event tree.
 
-    For each non-setup phase, the pre-built ``decision_items`` (keyed by
-    ``phase_index``) are consumed in order as decision headers are encountered in
-    the text log; remaining lines become ``note`` or ``forced`` ``LogItem``s.
-    Setup phases already have their ``log_items`` set by
-    :func:`finalize_setup_phase` and are skipped in the text-log loop.
-
-    ``_merge_secondary_setup_segments`` folds any secondary CHOOSING BONUS CARD
-    segment into the preceding segment first so the ``zip(phases, segments)``
-    count stays 1:1 after we create only one phase per player."""
-    # Group non-setup decision items by phase index for per-phase lookup.
-    items_by_phase: dict[int, collections.deque[game_log_html.LogItem]] = (
-        collections.defaultdict(collections.deque)
-    )
-    for phase_index, log_item in decision_items or []:
-        items_by_phase[phase_index].append(log_item)
-
-    segments = _split_log_into_segments(engine.state.log_entries)
-    segments = _merge_secondary_setup_segments(segments)
-
-    for phase, segment in zip(phases, segments):
+    For each non-setup phase, ``tree_to_log_items`` maps the tree's events to
+    ``LogItem`` objects.  Setup phases additionally get hand and bonus-card
+    highlights applied from the ``SetupEvent`` stored in the tree."""
+    for phase, tree_phase in zip(phases, tree.phases):
         if phase.kind == "setup":
-            # log_items already set by finalize_setup_phase; skip text-log pass.
-            continue
-        phase_queue = items_by_phase.get(phase.index, collections.deque())
-        phase.log_items = _segment_log_items(
-            segment, is_turn=phase.kind == "turn", phase_decision_items=phase_queue
-        )
+            setup_events = [
+                ev
+                for ev in tree_phase.events
+                if isinstance(ev, gamelog_models.SetupEvent)
+            ]
+            if setup_events:
+                _apply_setup_highlights(phase, setup_events[0])
+        phase.log_items = tree_to_log_items(tree_phase)
 
     final_scores = [player.final_score for player in engine.state.players]
     return game_log_html.GameLogReport(
@@ -588,10 +277,51 @@ def build_report(
     )
 
 
+# ---------------------------------------------------------------------------
+# Tree → LogItem conversion
+
+
+def tree_to_log_items(phase: gamelog_models.PhaseNode) -> list[game_log_html.LogItem]:
+    """Convert a tree phase's events into ``LogItem`` list for the HTML decision log.
+
+    Each :class:`~gamelog_models.GameEvent` type maps to one or more ``LogItem``
+    objects: decisions become collapsible boxes, notes become muted lines,
+    play-bird events become grouped parents, and scoring events are skipped
+    (they render as phase snapshots, not log items)."""
+    items: list[game_log_html.LogItem] = []
+    for event in phase.events:
+        items.extend(_game_event_to_items(event))
+    return items
+
+
+def extract_timeline_points(
+    tree: gamelog_models.GameEventTree,
+) -> list[RawTimelinePoint]:
+    """Extract timeline data by DFS-walking all ``DecisionSubEvent``s in the tree.
+
+    Each :class:`~gamelog_models.DecisionSubEvent` stores the timeline scalars
+    recorded at decision time; this function reconstructs
+    :class:`RawTimelinePoint` objects from them, assigning ``phase_index`` from
+    the tree's phase structure (positionally aligned with the handler's
+    ``PhaseRecord`` list)."""
+    from wingspan.training import timestamps
+
+    slot_ts = (
+        timestamps.SETUP_KEEP_TIMESTAMP,
+        timestamps.SETUP_BONUS_TIMESTAMP,
+        timestamps.SETUP_FOOD_TIMESTAMP,
+    )
+    points: list[RawTimelinePoint] = []
+    for phase_idx, phase_node in enumerate(tree.phases):
+        for event in phase_node.events:
+            _collect_decision_points(event, phase_idx, points, slot_ts)
+    return points
+
+
 ###### PRIVATE #######
 
 
-#### State -> reporting-model conversion (primitives only) ####
+#### State → reporting-model conversion ####
 
 
 def _player_panel(
@@ -657,7 +387,6 @@ def _score_breakdown(
     bird_pts = sum(pb.bird.points for row in player.board.values() for pb in row)
     bonus_pts = sum(scoring.bonus_score(player, bc) for bc in player.bonus_cards)
 
-    # Use live projections for all rounds, not just the accumulated total.
     goals_pts = sum(
         scoring.round_goal_standing_for_round(gs, player, ri).vp
         for ri in range(min(len(gs.round_goals), 4))
@@ -737,337 +466,172 @@ def _feeder_slots(feeder: state.Birdfeeder) -> list[str | None]:
     return slots[:5]
 
 
-#### Log segmentation ####
+#### Tree-to-item conversion helpers ####
 
 
-def _merge_secondary_setup_segments(
-    segments: list[list[state.LogEntry]],
-) -> list[list[state.LogEntry]]:
-    """Fold deferred-bonus setup segments into the preceding primary segment.
+def _apply_setup_highlights(
+    phase: game_log_html.PhaseRecord,
+    setup_event: gamelog_models.SetupEvent,
+) -> None:
+    """Apply hand and bonus-card highlights from a ``SetupEvent`` to its phase record.
 
-    In the split-bonus regime the engine emits two ``=== ===`` headers per
-    player: the primary CHOOSING BIRDS header and a secondary CHOOSING BONUS
-    CARD header.  After this change we create only one phase per player, so the
-    secondary segment must be folded into the primary to keep the
-    ``zip(phases, segments)`` count aligned.
+    Sets ``selected=True`` on kept hand cards and the kept bonus card option,
+    clearing ``pending`` on the chosen bonus. Replaces the old ``finalize_setup_phase``.
+    """
+    if phase.active_player_id is not None:
+        active_panels = [
+            panel for panel in phase.panels if panel.player_id == phase.active_player_id
+        ]
+        if active_panels:
+            kept = set(setup_event.kept_card_names)
+            for cell in active_panels[0].hand:
+                cell.selected = cell.name in kept
 
-    Any segment whose header line contains ``_BONUS_SEGMENT_MARKER`` is appended
-    (without its header line) to the previous segment and removed.  In the
-    combined or food-split regimes no such header exists, so the list is
-    returned unchanged."""
-    merged: list[list[state.LogEntry]] = []
-    for segment in segments:
-        header_text = segment[0].text if segment else ""
-        if merged and _BONUS_SEGMENT_MARKER in header_text:
-            merged[-1].extend(segment[1:])
-        else:
-            merged.append(segment)
-    return merged
-
-
-def _split_log_into_segments(
-    entries: list[state.LogEntry],
-) -> list[list[state.LogEntry]]:
-    """Split the interleaved log into one segment per ``=== ... ===`` header.
-
-    Each segment starts at a header line and runs up to (excluding) the next
-    one. Any lines before the first header are dropped (there are none in
-    practice — the log opens with the GAME START banner)."""
-    segments: list[list[state.LogEntry]] = []
-    for entry in entries:
-        if entry.text.startswith(_HEADER_PREFIX):
-            segments.append([entry])
-        elif segments:
-            segments[-1].append(entry)
-    return segments
+    kept_bonus = setup_event.kept_bonus_name
+    for bonus_opt in phase.setup_bonus_options:
+        if bonus_opt.name == kept_bonus:
+            bonus_opt.selected = True
+            bonus_opt.pending = False
 
 
-def _segment_log_items(
-    segment: list[state.LogEntry],
-    *,
-    is_turn: bool,
-    phase_decision_items: collections.deque[game_log_html.LogItem],
+def _game_event_to_items(
+    event: gamelog_models.GameEvent,
 ) -> list[game_log_html.LogItem]:
-    """Convert one log segment into a list of ``LogItem``s.
-
-    Decision header lines (``is_decision_start``) pop a pre-built item from
-    ``phase_decision_items`` (always 1:1 for AI seats) and skip the distribution
-    text block through and including the following ``chose:`` line.  Forced
-    single-choice lines become ``"forced"`` items.  Everything else becomes a
-    ``"note"`` item processed through the humanizer.
-
-    A turn segment opens with the verbose board/hand/score summary; the whole
-    prefix up to the first blank line is dropped (the panel already shows it).
-
-    After the flat list is built, two post-passes run:
-    ``_merge_draw_deck`` folds deck-draw outcomes into their decision header, and
-    ``_group_play_bird`` nests egg/food payments under the play-bird decision."""
-    body = segment[1:]  # skip the === header line
-    if is_turn:
-        body = _drop_summary_block(body)
-
-    flat: list[game_log_html.LogItem] = []
-    body_iter = iter(body)
-
-    for entry in body_iter:
-        text = display.strip_ansi(entry.text)
-
-        if _is_decision_start(text):
-            # Consume the structured decision item for this AI decision.
-            if phase_decision_items:
-                flat.append(phase_decision_items.popleft())
-            # Skip the distribution block (option lines + chose: line).
-            for skip_entry in body_iter:
-                if "chose:" in display.strip_ansi(skip_entry.text):
-                    break
-
-        elif "skipping decision, only 1 choice: " in text:
-            # Engine logged a forced single-option decision.
-            label = text.split("only 1 choice: ", 1)[-1].strip()
-            forced_category = _categorize_forced_label(label)
-            flat.append(
-                game_log_html.LogItem(
-                    kind="forced",
-                    player_id=entry.player_id,
-                    text=humanize.humanize_forced(label),
-                    forced=True,
-                    category=forced_category,
-                )
-            )
-
-        else:
-            # Regular notification: classify, humanize, and show as a note.
-            note_category, power_color = _classify_note_raw(text)
-            cleaned = humanize.humanize_note(text)
-            if cleaned:
-                flat.append(
-                    game_log_html.LogItem(
-                        kind="note",
-                        player_id=entry.player_id,
-                        text=cleaned,
-                        category=note_category,
-                        power_color=power_color,
-                    )
-                )
-
-    return _group_play_bird(_merge_draw_deck(flat))
+    """Map one :class:`~gamelog_models.GameEvent` to zero or more ``LogItem``s."""
+    if isinstance(event, gamelog_models.PlayBirdEvent):
+        return _play_bird_event_to_items(event)
+    elif isinstance(event, gamelog_models.SetupEvent):
+        return _sub_events_to_items(event.sub_events, event.player_id)
+    elif isinstance(
+        event, (gamelog_models.RoundGoalEvent, gamelog_models.FinalScoringEvent)
+    ):
+        # Rendered as phase snapshots; no log-item representation.
+        return []
+    else:
+        # MainActionEvent, ActivateBaseEvent, ActivateBrownEvent, ReactionEvent, LooseEvent
+        result: list[game_log_html.LogItem] = []
+        result.extend(_sub_events_to_items(event.sub_events, event.player_id))
+        for child in event.children:
+            result.extend(_game_event_to_items(child))
+        return result
 
 
-def _drop_summary_block(body: list[state.LogEntry]) -> list[state.LogEntry]:
-    """Drop everything up to and including the first blank line — the turn-start
-    state summary. Returns ``body`` unchanged if no blank line is present."""
-    for index, entry in enumerate(body):
-        if entry.text == "":
-            return body[index + 1 :]
-    return body
-
-
-def _is_decision_start(text: str) -> bool:
-    """True when this log line is a decision header (the start of a new event).
-
-    Decision headers are emitted by the display agent in the form
-    ``[P0] SomeDecision | N choices | head:...``; they start with ``[`` and
-    contain the word ``Decision``."""
-    return text.startswith("[") and "Decision" in text
-
-
-#### Note/forced classification for grouping passes ####
-
-
-def _classify_note_raw(
-    raw_text: str,
-) -> tuple[game_log_html.LogItemCategory | None, str | None]:
-    """Classify a raw (pre-humanization) log line as a category + power_color.
-
-    Returns ``(category, power_color)`` where ``power_color`` is set for brown
-    power-activation notes so the renderer can apply the matching CSS class."""
-
-    # Play-bird outcome note: "plays X into habitat (paid ...)"
-    if re.match(r"plays .+ into \w+\s*\(paid .+\)", raw_text, re.IGNORECASE):
-        return game_log_html.LogItemCategory.PLAY_BIRD_NOTE, None
-
-    # Deck-draw outcome note: "drew from deck: X"
-    if re.match(r"drew from deck: .+", raw_text):
-        return game_log_html.LogItemCategory.DRAW_DECK_NOTE, None
-
-    # Brown power activation: "@ Bird - "text""
-    bird_power_match = re.match(r'@ (.+?) - "(.+)"', raw_text)
-    if bird_power_match:
-        bird_name = bird_power_match.group(1)
-        bird = _birds_by_name().get(bird_name)
-        power_color = bird.power.color.value if bird is not None else None
-        return game_log_html.LogItemCategory.POWER_ACTIVATION, power_color
-
-    return None, None
-
-
-def _categorize_forced_label(
-    label: str,
-) -> game_log_html.LogItemCategory | None:
-    """Map a forced choice's raw display_label() string to a LogItemCategory."""
-
-    # DrawSourceChoice deck
-    if label == "deck":
-        return game_log_html.LogItemCategory.DRAW_DECK
-
-    # DrawSourceChoice tray — not a grouped category
-    if re.match(r"tray\[\d+\]=", label):
-        return None
-
-    # BoardTargetChoice: "BirdName@habitat[slot]" — egg cost or lay target
-    if re.match(r".+@\w+\[\d+\]", label):
-        return game_log_html.LogItemCategory.PAY_EGG
-
-    # FoodPaymentChoice: "1seed", "1fish+1rodent", etc.
-    if _FOOD_PAYMENT_LABEL_RE.match(label):
-        return game_log_html.LogItemCategory.PAY_FOOD
-
-    return None
-
-
-#### Grouping / merge post-passes ####
-
-
-def _merge_draw_deck(
-    items: list[game_log_html.LogItem],
+def _play_bird_event_to_items(
+    event: gamelog_models.PlayBirdEvent,
 ) -> list[game_log_html.LogItem]:
-    """Fold a DRAW_DECK decision header together with its trailing outcome note.
+    """A ``PlayBirdEvent`` becomes a 'group' headed by the bird-selection decision.
 
-    When a 'Draws from the deck' decision/forced item is immediately followed by
-    a 'Draws {card} from the deck' note, the card name is folded into the
-    decision header and the note is dropped.  Option labels are unchanged."""
-    merged: list[game_log_html.LogItem] = []
-    skip_next = False
-    for index, item in enumerate(items):
-        if skip_next:
-            skip_next = False
-            continue
-        if (
-            item.category == game_log_html.LogItemCategory.DRAW_DECK
-            and index + 1 < len(items)
-            and items[index + 1].category
-            == game_log_html.LogItemCategory.DRAW_DECK_NOTE
-        ):
-            # Fold: update the header text with the drawn-card outcome.
-            merged.append(item.model_copy(update={"text": items[index + 1].text}))
-            skip_next = True
-        else:
-            merged.append(item)
-    return merged
+    Sub-events (selection, egg payments, food payment) are children. Any
+    ``WhitePowerEvent`` child contributes a trailing power-activation note plus
+    its own decisions."""
+    child_items = _sub_events_to_items(event.sub_events, event.player_id)
+    if not child_items:
+        # No decisions recorded (shouldn't happen in normal play); fall back flat.
+        items: list[game_log_html.LogItem] = []
+        for child in event.children:
+            items.extend(_game_event_to_items(child))
+        return items
 
+    group = game_log_html.LogItem(
+        kind="group",
+        player_id=event.player_id,
+        text=child_items[0].text,
+        children=child_items,
+    )
+    result: list[game_log_html.LogItem] = [group]
 
-_PAY_KINDS: frozenset[game_log_html.LogItemCategory] = frozenset(
-    [game_log_html.LogItemCategory.PAY_EGG, game_log_html.LogItemCategory.PAY_FOOD]
-)
-
-# Matches "Plays {bird} in {habitat}" to extract the bird name.
-_PLAY_BIRD_TEXT_RE = re.compile(r"Plays (.+) in (Forest|Grassland|Wetland)$")
-
-# Matches "Remove 1 egg from {bird}" to extract the bird name for child relabeling.
-_REMOVE_EGG_TEXT_RE = re.compile(r"Remove 1 egg from (.+)$")
-
-# Matches "{bird} ({habitat})" — the forced board-target format from humanize_forced.
-_BOARD_TARGET_TEXT_RE = re.compile(r"(.+?) \((Forest|Grassland|Wetland)\)$")
-
-
-def _group_play_bird(
-    items: list[game_log_html.LogItem],
-) -> list[game_log_html.LogItem]:
-    """Group each PLAY_BIRD item with its contiguous PAY_EGG/PAY_FOOD children.
-
-    For each PLAY_BIRD item:
-    1. Collect the immediately following PAY_EGG and PAY_FOOD items as children.
-    2. Relabel absorbed PAY_EGG children to "Pays egg from {bird}".
-    3. Drop the trailing PLAY_BIRD_NOTE (the engine's redundant "plays X into Y" line).
-    4. Build a ``kind="group"`` parent item with "Plays X in Y" as the header.
-    5. If the played bird has a white power, synthesize a colored note after the group.
-
-    Standalone PLAY_BIRD_NOTE items (not preceded by a PLAY_BIRD decision) are
-    also dropped — they duplicate the group header."""
-    result: list[game_log_html.LogItem] = []
-    idx = 0
-    bird_map = _birds_by_name()
-
-    while idx < len(items):
-        item = items[idx]
-
-        if item.category == game_log_html.LogItemCategory.PLAY_BIRD_NOTE:
-            # Standalone note (not grouped) — drop it; the group header covers it.
-            idx += 1
-            continue
-
-        if item.category != game_log_html.LogItemCategory.PLAY_BIRD:
-            result.append(item)
-            idx += 1
-            continue
-
-        # Collect contiguous PAY_EGG/PAY_FOOD items as children.
-        children: list[game_log_html.LogItem] = [item]
-        idx += 1
-        while idx < len(items) and items[idx].category in _PAY_KINDS:
-            child = items[idx]
-            # Re-label PAY_EGG child to payment-focused language.
-            if child.category == game_log_html.LogItemCategory.PAY_EGG:
-                bird_name = _extract_egg_bird_name(child.text)
-                if bird_name:
-                    child = child.model_copy(
-                        update={"text": f"Pays egg from {bird_name}"}
-                    )
-            children.append(child)
-            idx += 1
-
-        # Drop the trailing PLAY_BIRD_NOTE if present.
-        if (
-            idx < len(items)
-            and items[idx].category == game_log_html.LogItemCategory.PLAY_BIRD_NOTE
-        ):
-            idx += 1
-
-        # Build the group item.
-        play_text = item.text  # "Plays X in Y"
-        result.append(
-            game_log_html.LogItem(
-                kind="group",
-                player_id=item.player_id,
-                text=play_text,
-                children=children,
-            )
-        )
-
-        # Synthesize a white-power box if the bird has a white on-play power.
-        bird_match = _PLAY_BIRD_TEXT_RE.match(play_text)
-        if bird_match:
-            bird_name = bird_match.group(1)
-            bird = bird_map.get(bird_name)
-            if (
-                bird is not None
-                and bird.power.color.value == "white"
-                and bird.plain_power_text
-            ):
+    # Each WhitePowerEvent child contributes a power-activation note and its decisions.
+    for child_event in event.children:
+        if isinstance(child_event, gamelog_models.WhitePowerEvent):
+            bird = _birds_by_name().get(child_event.bird_name)
+            if bird is not None and bird.plain_power_text:
                 result.append(
                     game_log_html.LogItem(
                         kind="note",
-                        player_id=item.player_id,
-                        text=f"{bird_name}: {bird.plain_power_text}",
+                        player_id=event.player_id,
+                        text=f"{child_event.bird_name}: {bird.plain_power_text}",
                         power_color="white",
-                        category=game_log_html.LogItemCategory.POWER_ACTIVATION,
                     )
                 )
+            result.extend(_sub_events_to_items(child_event.sub_events, event.player_id))
+        else:
+            result.extend(_game_event_to_items(child_event))
 
     return result
 
 
-def _extract_egg_bird_name(text: str) -> str | None:
-    """Extract the bird name from a PAY_EGG item's text for child relabeling."""
+def _sub_events_to_items(
+    sub_events: list[gamelog_models.SubEvent],
+    player_id: int | None,
+) -> list[game_log_html.LogItem]:
+    """Convert a list of ``SubEvent``s to ``LogItem``s, dropping empty notes."""
+    items: list[game_log_html.LogItem] = []
+    for sub in sub_events:
+        item = _sub_event_to_item(sub, player_id)
+        if item is not None:
+            items.append(item)
+    return items
 
-    # Decision item: "Remove 1 egg from {bird}"
-    match = _REMOVE_EGG_TEXT_RE.match(text)
-    if match:
-        return match.group(1)
 
-    # Forced item (from humanize_forced): "{bird} ({habitat})"
-    match = _BOARD_TARGET_TEXT_RE.match(text)
-    if match:
-        return match.group(1)
-
+def _sub_event_to_item(
+    sub: gamelog_models.SubEvent,
+    player_id: int | None = None,
+) -> game_log_html.LogItem | None:
+    """Convert one ``SubEvent`` to a ``LogItem``, or ``None`` to suppress it."""
+    pid = sub.player_id if sub.player_id is not None else player_id
+    if isinstance(sub, gamelog_models.DecisionSubEvent):
+        return game_log_html.LogItem(
+            kind="decision",
+            player_id=pid,
+            text=sub.outcome_text,
+            options=list(sub.options),
+            state_stripes=sub.state_stripes,
+        )
+    elif isinstance(sub, gamelog_models.ForcedSubEvent):
+        return game_log_html.LogItem(
+            kind="forced",
+            player_id=pid,
+            text=sub.text,
+            forced=True,
+        )
+    elif isinstance(sub, gamelog_models.NoteSubEvent):
+        if sub.text:
+            return game_log_html.LogItem(
+                kind="note",
+                player_id=pid,
+                text=sub.text,
+            )
     return None
+
+
+def _collect_decision_points(
+    event: gamelog_models.GameEvent,
+    phase_idx: int,
+    points: list[RawTimelinePoint],
+    slot_ts: tuple[float, float, float],
+) -> None:
+    """DFS helper: collect ``DecisionSubEvent`` data into ``RawTimelinePoint``s.
+
+    Visits ``event.sub_events`` first (in recording order), then recurses into
+    ``event.children`` so the point sequence matches the game's decision order."""
+    for sub in event.sub_events:
+        if isinstance(sub, gamelog_models.DecisionSubEvent):
+            slot = sub.setup_slot
+            if slot is None:
+                prov_ts = float(sub.turn_counter)
+            else:
+                prov_ts = slot_ts[slot] if 0 <= slot < 3 else slot_ts[2]
+            points.append(
+                RawTimelinePoint(
+                    player_id=sub.player_id or 0,
+                    margin_before=sub.margin_before,
+                    provisional_timestamp=prov_ts,
+                    family_idx=sub.family_idx,
+                    score_p0=sub.score_p0,
+                    score_p1=sub.score_p1,
+                    phase_index=phase_idx,
+                    value_pov=sub.value,
+                )
+            )
+    for child in event.children:
+        _collect_decision_points(child, phase_idx, points, slot_ts)

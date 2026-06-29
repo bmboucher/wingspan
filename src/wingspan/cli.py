@@ -28,6 +28,8 @@ import yaml
 
 from wingspan import engine, players, state
 from wingspan.agents import display
+from wingspan.gamelog import recorder as gamelog_recorder
+from wingspan.gamelog import render_text as gamelog_render_text
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
 from wingspan.instrumentation import events as instrumentation_events
@@ -79,9 +81,19 @@ def main_play(argv: list[str] | None = None) -> int:
         regime = "  |  opening " + ", ".join(regime_parts) if regime_parts else ""
         print(f"Seed: {seed}  |  P0: {args.p0}  vs  P1: {args.p1}{regime}")
 
-    instrumentation = _open_instrumentation(
-        args, seed, (config_a, config_b), (probe_0, probe_1)
+    # Build one EventRecorder per run when any structured-log output is requested.
+    # The recorder reads each seat's DecisionProbe so decision boxes get
+    # probability bars and encoding-viewer stripes.
+    rec = (
+        gamelog_recorder.EventRecorder(
+            probes=(probe_0, probe_1),
+            seat_configs=(config_a, config_b),
+        )
+        if (args.html or args.log)
+        else gamelog_recorder.EMPTY
     )
+
+    instrumentation = _open_instrumentation(args, seed, (config_a, config_b))
     try:
         for game_idx in range(args.games):
             eng, _, _, _ = engine.Engine.create(seed=seed + game_idx)
@@ -89,6 +101,7 @@ def main_play(argv: list[str] | None = None) -> int:
                 eng.state,
                 (agent_a, agent_b),
                 instrumentation=instrumentation,
+                event_recorder=rec,
                 split_setup_bonus=split_setup_bonus,
                 split_setup_food=split_setup_food,
             )
@@ -98,19 +111,37 @@ def main_play(argv: list[str] | None = None) -> int:
                     f"Game {game_idx + 1}: scores={scores}, "
                     f"log lines={len(eng.state.log)}"
                 )
+
+            # --log: write the structured gamelog tree as plaintext.
             if args.log:
                 log_path = args.log if args.games == 1 else f"{args.log}.{game_idx}"
+                assert isinstance(rec, gamelog_recorder.EventRecorder)
+                content = gamelog_render_text.render_plaintext(rec.root)
+                pathlib.Path(log_path).write_text(content, encoding="utf-8")
+                if not args.quiet:
+                    print(f"  log -> {log_path}")
+
+            # --debug-log: dump the raw engine.log stream (old --log behaviour).
+            if args.debug_log:
+                debug_path = (
+                    args.debug_log
+                    if args.games == 1
+                    else f"{args.debug_log}.{game_idx}"
+                )
                 if args.collate:
-                    _write_log(log_path, eng.state.log)
+                    _write_log(debug_path, eng.state.log)
                     if not args.quiet:
-                        print(f"  log -> {log_path}")
+                        print(f"  debug-log -> {debug_path}")
                 else:
-                    _write_split_logs(log_path, eng.state.log_entries)
+                    _write_split_logs(debug_path, eng.state.log_entries)
                     if not args.quiet:
-                        print(f"  log -> {log_path}_p0.log, {log_path}_p1.log")
+                        print(
+                            f"  debug-log -> {debug_path}_p0.log, {debug_path}_p1.log"
+                        )
+
             if args.html and not args.quiet:
-                # The HTML file itself is written by the instrumentation
-                # handler on game end; report where it landed.
+                # The HTML file itself is written by the instrumentation handler on
+                # game end; report where it landed.
                 print(f"  html -> {_html_game_path(args.html, game_idx, args.games)}")
     finally:
         instrumentation.close()
@@ -140,7 +171,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--games", type=int, default=1, help="Number of games to play.")
     parser.add_argument(
-        "--log", type=str, default=None, help="Path to write detailed game log(s)."
+        "--log",
+        type=str,
+        default=None,
+        help="Path to write a structured plaintext game log (fresh format sourced "
+        "from the event tree, one file per game).",
+    )
+    parser.add_argument(
+        "--debug-log",
+        type=str,
+        default=None,
+        dest="debug_log",
+        help="Path to write the raw engine.log dump (old --log behaviour). "
+        "Respects --collate for interleaved vs per-player files.",
     )
     parser.add_argument(
         "--html",
@@ -153,7 +196,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--collate",
         action="store_true",
-        help="Write a single interleaved log file instead of per-player files "
+        help="Write a single interleaved debug-log file instead of per-player files "
         "(FILE_p0.log / FILE_p1.log). Use when a single unified view is preferred.",
     )
     parser.add_argument("--quiet", action="store_true")
@@ -197,16 +240,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 # The handler name and the events the HTML game-log recorder subscribes to.
-# Phase-boundary events fire once per ``=== ... ===`` header in the log so the
-# handler's per-phase snapshots align one-to-one with the log segments.
-# MADE_DECISION is included so the handler can record per-decision timeline data.
+# Phase-boundary events fire once per game phase boundary so the handler's
+# per-phase snapshots align with the event tree's phases.
+# MADE_DECISION is NOT subscribed: the EventRecorder is the sole probe consumer.
 _HTML_HANDLER_NAME = "__game_log_html__"
 _HTML_HANDLER_EVENTS = (
     instrumentation_events.EventName.GAME_START,
     instrumentation_events.EventName.SETUP_START,
     instrumentation_events.EventName.ROUND_START,
     instrumentation_events.EventName.TURN_START,
-    instrumentation_events.EventName.MADE_DECISION,
     instrumentation_events.EventName.GAME_END,
 )
 
@@ -217,20 +259,16 @@ def _open_instrumentation(
     seat_configs: (
         tuple[train_config.TrainConfig | None, train_config.TrainConfig | None] | None
     ) = None,
-    probes: (
-        tuple[decision_probe.DecisionProbe | None, decision_probe.DecisionProbe | None]
-        | None
-    ) = None,
 ) -> dispatcher.Instrumentation:
     """Build and open the event-callback router for this run.
 
-    Combines the standalone ``--instrument`` config (same shape as
-    ``TrainConfig.instrumentation``) with the built-in HTML game-log recorder
-    attached by ``--html``. Returns the no-op ``EMPTY`` router when neither flag
-    is given. The caller must ``close`` whatever this returns when the run ends.
+    Combines the standalone ``--instrument`` config with the built-in HTML
+    game-log recorder attached by ``--html``. Returns the no-op ``EMPTY``
+    router when neither flag is given. The caller must ``close`` whatever this
+    returns when the run ends.
 
-    When ``seat_configs`` and ``probes`` are both supplied (the normal ``play``
-    path), they are injected into the HTML handler via
+    When ``seat_configs`` is supplied (the normal ``play`` path), it is injected
+    into the HTML handler via
     :meth:`~wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler.configure_timeline`
     so the timeline chart can render value/target lines."""
     if args.instrument is None and args.html is None:
@@ -250,15 +288,15 @@ def _open_instrumentation(
         {"handlers": handlers, "events": events_map}
     )
 
-    # Inject timeline probes into the HTML handler before building the router.
-    if args.html is not None and seat_configs is not None and probes is not None:
+    # Inject seat configs into the HTML handler before building the router.
+    if args.html is not None and seat_configs is not None:
         from wingspan.instrumentation.handlers import (
             game_log_html as html_handler_module,
         )
 
         html_handler = cfg.handlers[_HTML_HANDLER_NAME]
         assert isinstance(html_handler, html_handler_module.GameLogHtmlHandler)
-        html_handler.configure_timeline(seat_configs, probes)
+        html_handler.configure_timeline(seat_configs)
 
     out_dir = (
         pathlib.Path(args.instrument_out)

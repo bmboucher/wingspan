@@ -14,8 +14,24 @@ import pytest  # noqa: E402
 from wingspan import cli  # noqa: E402
 
 
-def test_random_vs_random_game_runs_and_writes_split_logs(tmp_path: pathlib.Path):
-    """One quick random-vs-random game exits 0 and writes non-empty per-player logs."""
+def test_random_vs_random_game_runs_and_exits_zero():
+    """One quick random-vs-random game exits 0."""
+    exit_code = cli.main_play(
+        [
+            "--p0",
+            "random",
+            "--p1",
+            "random",
+            "--seed",
+            "123",
+            "--quiet",
+        ]
+    )
+    assert exit_code == 0
+
+
+def test_log_flag_writes_structured_plaintext(tmp_path: pathlib.Path):
+    """``--log`` writes a single structured plaintext file sourced from the event tree."""
     log_path = tmp_path / "game.log"
     exit_code = cli.main_play(
         [
@@ -31,18 +47,43 @@ def test_random_vs_random_game_runs_and_writes_split_logs(tmp_path: pathlib.Path
         ]
     )
     assert exit_code == 0
-    # Default: produces _p0.log and _p1.log, not the bare path.
+    assert log_path.exists(), "--log must write the bare path"
+    text = log_path.read_text(encoding="utf-8").strip()
+    assert text, "--log output must be non-empty"
+    # The plaintext renderer emits phase headers from the event tree.
+    assert "=== GAME_START ===" in text
+    assert "=== SETUP ===" in text
+
+
+def test_debug_log_flag_writes_split_logs(tmp_path: pathlib.Path):
+    """``--debug-log`` writes per-player split log files (old ``--log`` behaviour)."""
+    log_path = tmp_path / "game.log"
+    exit_code = cli.main_play(
+        [
+            "--p0",
+            "random",
+            "--p1",
+            "random",
+            "--seed",
+            "123",
+            "--quiet",
+            "--debug-log",
+            str(log_path),
+        ]
+    )
+    assert exit_code == 0
+    # Default (no --collate): produces _p0.log and _p1.log, not the bare path.
     assert (
         not log_path.exists()
-    ), "collate mode not requested; bare log should not exist"
+    ), "collate mode not requested; bare debug-log should not exist"
     p0_log = tmp_path / "game.log_p0.log"
     p1_log = tmp_path / "game.log_p1.log"
     assert p0_log.exists() and p0_log.read_text(encoding="utf-8").strip()
     assert p1_log.exists() and p1_log.read_text(encoding="utf-8").strip()
 
 
-def test_collate_flag_writes_single_log(tmp_path: pathlib.Path):
-    """With ``--collate`` the interleaved log is written to the bare path."""
+def test_collate_flag_writes_single_debug_log(tmp_path: pathlib.Path):
+    """With ``--collate --debug-log`` the interleaved log is written to the bare path."""
     log_path = tmp_path / "game.log"
     exit_code = cli.main_play(
         [
@@ -54,7 +95,7 @@ def test_collate_flag_writes_single_log(tmp_path: pathlib.Path):
             "123",
             "--quiet",
             "--collate",
-            "--log",
+            "--debug-log",
             str(log_path),
         ]
     )
@@ -62,8 +103,8 @@ def test_collate_flag_writes_single_log(tmp_path: pathlib.Path):
     assert log_path.read_text(encoding="utf-8").strip()
 
 
-def test_split_logs_player_attribution(tmp_path: pathlib.Path):
-    """Per-player log files each contain all global lines and only their own
+def test_debug_log_player_attribution(tmp_path: pathlib.Path):
+    """Per-player ``--debug-log`` files contain all global lines and only their own
     decision lines; lines tagged to the other player are absent."""
     log_path = tmp_path / "split.log"
     exit_code = cli.main_play(
@@ -75,7 +116,7 @@ def test_split_logs_player_attribution(tmp_path: pathlib.Path):
             "--seed",
             "42",
             "--quiet",
-            "--log",
+            "--debug-log",
             str(log_path),
         ]
     )
@@ -93,7 +134,7 @@ def test_split_logs_player_attribution(tmp_path: pathlib.Path):
 
 
 def test_multi_game_logs_get_index_suffixes(tmp_path: pathlib.Path):
-    """With ``--games N --collate`` each game's log lands at ``<path>.<game_idx>``."""
+    """With ``--games N`` and ``--log`` each game's log lands at ``<path>.<game_idx>``."""
     log_path = tmp_path / "games.log"
     exit_code = cli.main_play(
         [
@@ -106,7 +147,6 @@ def test_multi_game_logs_get_index_suffixes(tmp_path: pathlib.Path):
             "--games",
             "2",
             "--quiet",
-            "--collate",
             "--log",
             str(log_path),
         ]

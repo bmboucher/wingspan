@@ -68,6 +68,7 @@ def trigger_pink_predator_success(
                 for eff in pb.bird.power.effects:
                     if eff.kind != cards.EffectKind.PINK_PREDATOR_FEEDER:
                         continue
+                    engine.events.begin_reaction(other_player.id, pb.bird.name)
                     gained = actions.take_one_from_feeder(
                         engine,
                         engine.agent_for(other_player),
@@ -79,6 +80,7 @@ def trigger_pink_predator_success(
                     )
                     assert gained is not None  # unrestricted menu, post-reset
                     engine.log(f"  {pb.bird.name}: +1 {gained.value} from birdfeeder")
+                    engine.events.end_event()
                     pb.pink_fired = True
 
 
@@ -119,11 +121,16 @@ def fire_pink_lay_egg(
                     slot=slot,
                 )
             )
+
+    # No eligible targets — non-firing scan; emit nothing.
     if not eligible:
         engine.log(
             f"  {pb.bird.name} (pink): no [{nest.value}] bird with room; skipped"
         )
         return False
+
+    # Eligible targets exist — open the reaction event for all asks that follow.
+    engine.events.begin_reaction(other_player.id, pb.bird.name)
 
     # When the anti-egg-goal is active, gate before the mandatory pick (gap #19).
     # Local import avoids a circular dependency: reactors → powers/__init__ → reactors.
@@ -143,6 +150,7 @@ def fire_pink_lay_egg(
         )
         if not accepted:
             engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
+            engine.events.end_event()
             return False
 
     ch = engine.ask(
@@ -159,6 +167,7 @@ def fire_pink_lay_egg(
     if isinstance(ch, decisions.SkipChoice):
         # Unreachable — no skip row in choices; isinstance guard for type narrowing.
         engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
+        engine.events.end_event()
         return False
     other_player.board[ch.habitat][ch.slot].eggs += 1
     engine.log(
@@ -166,6 +175,7 @@ def fire_pink_lay_egg(
         f"{other_player.board[ch.habitat][ch.slot].bird.name}"
         f"@{ch.habitat.value}[{ch.slot}]"
     )
+    engine.events.end_event()
     return True
 
 
@@ -226,7 +236,7 @@ def trigger_pink_gain_food_reactors(
                         and eff.food is not None
                         and eff.food in gained_foods
                     ):
-                        if _react_cache_from_supply(engine, pb, eff):
+                        if _react_cache_from_supply(engine, other_player, pb, eff):
                             pb.pink_fired = True
 
 
@@ -237,20 +247,27 @@ def _react_gain_from_supply(
     eff: cards.Effect,
 ) -> bool:
     assert eff.food is not None
+    engine.events.begin_reaction(other_player.id, pb.bird.name)
     other_player.food[eff.food] += eff.amount
     engine.log(
         f"  {pb.bird.name} (pink): [{other_player.name}] +{eff.amount} "
         f"{eff.food.value} from supply"
     )
+    engine.events.end_event()
     return True
 
 
 def _react_cache_from_supply(
-    engine: "core.Engine", pb: state.PlayedBird, eff: cards.Effect
+    engine: "core.Engine",
+    other_player: state.Player,
+    pb: state.PlayedBird,
+    eff: cards.Effect,
 ) -> bool:
     assert eff.food is not None
+    engine.events.begin_reaction(other_player.id, pb.bird.name)
     pb.cached_food[eff.food] += eff.amount
     engine.log(f"  {pb.bird.name} (pink): cached {eff.amount} {eff.food.value}")
+    engine.events.end_event()
     return True
 
 
@@ -265,9 +282,15 @@ def _react_tuck_from_hand(
     No-op once the hand is empty. Returns True if at least one card was tucked."""
     trigger_habitat = eff.habitat.value if eff.habitat else "?"
     tucked_any = False
+    reaction_opened = False
     for _ in range(eff.amount):
         if not other_player.hand:
-            return tucked_any
+            break
+
+        # Open reaction event before the gate ask so both asks land inside it.
+        if not reaction_opened:
+            engine.events.begin_reaction(other_player.id, pb.bird.name)
+            reaction_opened = True
 
         # Gate: does the reacting player want to activate the tuck?
         gate_ch = engine.ask(
@@ -286,7 +309,7 @@ def _react_tuck_from_hand(
         )
         if isinstance(gate_ch, decisions.SkipChoice):
             engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
-            return tucked_any
+            break
 
         # Card selection: mandatory once activated.
         choices = [
@@ -310,4 +333,7 @@ def _react_tuck_from_hand(
         engine.log(
             f"  {pb.bird.name} (pink): [{other_player.name}] tucked {ch.bird.name}"
         )
+
+    if reaction_opened:
+        engine.events.end_event()
     return tucked_any

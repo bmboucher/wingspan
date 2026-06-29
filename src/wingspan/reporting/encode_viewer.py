@@ -6,7 +6,7 @@
 Given a flat state vector or per-choice vector, walks the corresponding
 :class:`~wingspan.encode.stripes.VectorLayout`, finds stripes whose slice is
 non-zero (absolute value above a small threshold), and converts each active
-entry into a compact :class:`~wingspan.reporting.game_log_html.EncodedStripe`
+entry into a compact :class:`~wingspan.reporting.gamelog_models.EncodedStripe`
 record carrying only the non-zero sub-fields.  The result is embedded in the
 HTML game log to power the encoding-viewer modal.
 
@@ -26,7 +26,7 @@ import numpy as np
 
 from wingspan import cards, decisions, setup_model
 from wingspan.encode import layout, state_encode, stripes
-from wingspan.reporting import game_log_html
+from wingspan.gamelog import models as gamelog_models
 
 # Values whose absolute magnitude is below this threshold are treated as zero.
 _ZERO_THRESHOLD = 1e-6
@@ -79,7 +79,7 @@ _BIRD_ATTR_BOOL_FIELDS: frozenset[str] = frozenset(
 def extract_state_stripes(
     vector: list[float],
     include_setup: bool,
-) -> list[game_log_html.EncodedStripe]:
+) -> list[gamelog_models.EncodedStripe]:
     """Return non-zero stripe summaries for a flat state feature vector.
 
     Uses :func:`~wingspan.encode.stripes.raw_state_stripe_layout` to get the
@@ -95,7 +95,7 @@ def extract_state_stripes(
 def extract_choice_stripes(
     choice_vec: list[float],
     include_setup: bool,
-) -> list[game_log_html.EncodedStripe]:
+) -> list[gamelog_models.EncodedStripe]:
     """Return non-zero stripe summaries for one row of the choice feature matrix.
 
     Uses :func:`~wingspan.encode.stripes.raw_choice_stripe_layout` to get the
@@ -110,7 +110,7 @@ def extract_choice_stripes(
 def extract_setup_context_stripes(
     vector: list[float],
     encoding: setup_model.SetupEncoding,
-) -> list[game_log_html.EncodedStripe]:
+) -> list[gamelog_models.EncodedStripe]:
     """Return non-zero stripe summaries for the shared deal-context portion of a
     setup candidate vector.
 
@@ -128,7 +128,7 @@ def extract_setup_context_stripes(
 def extract_setup_candidate_stripes(
     vector: list[float],
     encoding: setup_model.SetupEncoding,
-) -> list[game_log_html.EncodedStripe]:
+) -> list[gamelog_models.EncodedStripe]:
     """Return non-zero stripe summaries for the per-candidate portion of a setup
     candidate vector.
 
@@ -142,7 +142,7 @@ def extract_setup_candidate_stripes(
     return [s for s in all_stripes if s.name not in _SETUP_CONTEXT_STRIPES]
 
 
-def extract_card_attr_stripes(bird: cards.Bird) -> list[game_log_html.EncodedStripe]:
+def extract_card_attr_stripes(bird: cards.Bird) -> list[gamelog_models.EncodedStripe]:
     """Return the non-zero bird-attribute sub-fields for ``bird``'s feature vector.
 
     Reads the bird's row from :func:`~wingspan.encode.state_encode.card_feature_matrix`,
@@ -168,7 +168,7 @@ def extract_card_attr_stripes(bird: cards.Bird) -> list[game_log_html.EncodedStr
     if not sub_fields:
         return []
     return [
-        game_log_html.EncodedStripe(
+        gamelog_models.EncodedStripe(
             name=attrs_stripe.name,
             description=attrs_stripe.description,
             sub_fields=sub_fields,
@@ -207,12 +207,12 @@ def _extract_nonzero_stripes(
     vector: np.ndarray,
     vector_layout: stripes.VectorLayout,
     include_setup: bool,
-) -> list[game_log_html.EncodedStripe]:
+) -> list[gamelog_models.EncodedStripe]:
     """Walk a VectorLayout and return an EncodedStripe for each non-zero stripe.
 
     Skips stripes with ``encoding == "complex"`` (learned embeddings) and any
     stripe whose entire slice is within ``_ZERO_THRESHOLD`` of zero."""
-    result: list[game_log_html.EncodedStripe] = []
+    result: list[gamelog_models.EncodedStripe] = []
     for stripe_desc in vector_layout.stripes:
         if stripe_desc.encoding == "complex":
             continue
@@ -231,7 +231,7 @@ def _build_encoded_stripe(
     stripe_desc: stripes.StripeDescriptor,
     stripe_slice: np.ndarray,
     include_setup: bool,
-) -> game_log_html.EncodedStripe:
+) -> gamelog_models.EncodedStripe:
     """Build an EncodedStripe from one non-zero stripe slice.
 
     When the stripe has named sub-fields, delegates each element to
@@ -253,7 +253,7 @@ def _build_encoded_stripe(
             stripe_desc, stripe_slice, include_setup
         )
 
-    return game_log_html.EncodedStripe(
+    return gamelog_models.EncodedStripe(
         name=stripe_desc.name,
         description=stripe_desc.description,
         sub_fields=sub_fields,
@@ -264,7 +264,7 @@ def _build_sub_field(
     sub_field: stripes.SubFieldDescriptor,
     stripe_slice: np.ndarray,
     stripe_encoding: str,
-) -> game_log_html.EncodedSubField | None:
+) -> gamelog_models.EncodedSubField | None:
     """Build one EncodedSubField, or None if this sub-field is zero.
 
     Denormalizes scalar values when notes contain a '÷ N' divisor.  Uses the
@@ -281,7 +281,7 @@ def _build_sub_field(
 
     # One-hot block: report the argmax position.
     if effective_encoding == "one-hot":
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=sub_field.name,
             description=sub_field.description,
             encoding=effective_encoding,
@@ -293,7 +293,7 @@ def _build_sub_field(
     # Single scalar: denormalize to integer when a divisor is present.
     if sub_field.size == 1:
         raw_val = float(sub_slice[0])
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=sub_field.name,
             description=sub_field.description,
             encoding=effective_encoding,
@@ -309,7 +309,7 @@ def _build_sub_field(
     decoded_label: str | None = None
     if scale is not None:
         decoded_label = ", ".join(str(round(v * scale)) for v in raw_values)
-    return game_log_html.EncodedSubField(
+    return gamelog_models.EncodedSubField(
         name=sub_field.name,
         description=sub_field.description,
         encoding=effective_encoding,
@@ -324,7 +324,7 @@ def _build_whole_stripe_sub_fields(
     stripe_desc: stripes.StripeDescriptor,
     stripe_slice: np.ndarray,
     include_setup: bool,
-) -> list[game_log_html.EncodedSubField]:
+) -> list[gamelog_models.EncodedSubField]:
     """Represent a no-sub-field stripe as one or more EncodedSubField entries.
 
     Applies semantic decode for index, multi-hot, and one-hot stripes, and
@@ -353,7 +353,7 @@ def _build_whole_stripe_sub_fields(
             else str(active_idx)
         )
         return [
-            game_log_html.EncodedSubField(
+            gamelog_models.EncodedSubField(
                 name=stripe_desc.name,
                 description=stripe_desc.description,
                 encoding=stripe_desc.encoding,
@@ -374,7 +374,7 @@ def _build_whole_stripe_sub_fields(
             else str(active_idx)
         )
         return [
-            game_log_html.EncodedSubField(
+            gamelog_models.EncodedSubField(
                 name=stripe_desc.name,
                 description=stripe_desc.description,
                 encoding=stripe_desc.encoding,
@@ -388,7 +388,7 @@ def _build_whole_stripe_sub_fields(
     # Generic one-hot.
     if stripe_desc.encoding == "one-hot":
         return [
-            game_log_html.EncodedSubField(
+            gamelog_models.EncodedSubField(
                 name=stripe_desc.name,
                 description=stripe_desc.description,
                 encoding=stripe_desc.encoding,
@@ -403,7 +403,7 @@ def _build_whole_stripe_sub_fields(
         raw_val = float(stripe_slice[0])
         scale = _denorm_scale(stripe_desc.notes)
         return [
-            game_log_html.EncodedSubField(
+            gamelog_models.EncodedSubField(
                 name=stripe_desc.name,
                 description=stripe_desc.description,
                 encoding=stripe_desc.encoding,
@@ -420,7 +420,7 @@ def _build_whole_stripe_sub_fields(
     active_indices = np.where(np.abs(stripe_slice) >= _ZERO_THRESHOLD)[0]
     scale = _denorm_scale(stripe_desc.notes)
     return [
-        game_log_html.EncodedSubField(
+        gamelog_models.EncodedSubField(
             name=f"{stripe_desc.name}[{idx}]",
             description=stripe_desc.description,
             encoding=stripe_desc.encoding,
@@ -443,13 +443,13 @@ def _build_whole_stripe_sub_fields(
 def _decode_bird_index_stripe(
     stripe_desc: stripes.StripeDescriptor,
     stripe_slice: np.ndarray,
-) -> list[game_log_html.EncodedSubField]:
+) -> list[gamelog_models.EncodedSubField]:
     """One sub-field per occupied slot in a bird integer-index stripe.
 
     Index 0 means empty (skipped).  Index N means bird_index N-1 (the encoder
     stores bird_index + 1 so that 0 is the unambiguous empty sentinel)."""
     bird_name_tuple = _bird_names()
-    sub_fields: list[game_log_html.EncodedSubField] = []
+    sub_fields: list[gamelog_models.EncodedSubField] = []
     for position, raw_val in enumerate(stripe_slice):
         int_idx = round(float(raw_val))
         if int_idx == 0:
@@ -460,7 +460,7 @@ def _decode_bird_index_stripe(
             else f"bird_{int_idx}"
         )
         sub_fields.append(
-            game_log_html.EncodedSubField(
+            gamelog_models.EncodedSubField(
                 name=f"{stripe_desc.name}[{position}]",
                 description=stripe_desc.description,
                 encoding=stripe_desc.encoding,
@@ -476,7 +476,7 @@ def _decode_bird_index_stripe(
 def _decode_bird_multihot_stripe(
     stripe_desc: stripes.StripeDescriptor,
     stripe_slice: np.ndarray,
-) -> list[game_log_html.EncodedSubField]:
+) -> list[gamelog_models.EncodedSubField]:
     """Collapse an active bird multi-hot to one row listing all active birds."""
     bird_name_tuple = _bird_names()
     active = np.where(np.abs(stripe_slice) >= _ZERO_THRESHOLD)[0]
@@ -487,7 +487,7 @@ def _decode_bird_multihot_stripe(
         for idx in active
     ]
     return [
-        game_log_html.EncodedSubField(
+        gamelog_models.EncodedSubField(
             name=stripe_desc.name,
             description=stripe_desc.description,
             encoding=stripe_desc.encoding,
@@ -501,7 +501,7 @@ def _decode_bird_multihot_stripe(
 def _decode_bonus_multihot_stripe(
     stripe_desc: stripes.StripeDescriptor,
     stripe_slice: np.ndarray,
-) -> list[game_log_html.EncodedSubField]:
+) -> list[gamelog_models.EncodedSubField]:
     """Collapse an active bonus multi-hot to one row listing all held bonuses."""
     bonus_name_tuple = _bonus_names()
     active = np.where(np.abs(stripe_slice) >= _ZERO_THRESHOLD)[0]
@@ -512,7 +512,7 @@ def _decode_bonus_multihot_stripe(
         for idx in active
     ]
     return [
-        game_log_html.EncodedSubField(
+        gamelog_models.EncodedSubField(
             name=stripe_desc.name,
             description=stripe_desc.description,
             encoding=stripe_desc.encoding,
@@ -529,7 +529,7 @@ def _decode_bonus_multihot_stripe(
 def _build_bird_attr_sub_field(
     sub_field: stripes.SubFieldDescriptor,
     attrs_slice: np.ndarray,
-) -> game_log_html.EncodedSubField | None:
+) -> gamelog_models.EncodedSubField | None:
     """Build one named EncodedSubField from a bird_attrs sub-field, or None if zero.
 
     Uses domain-specific decode logic per field name: multi-hot → active names,
@@ -548,7 +548,7 @@ def _build_bird_attr_sub_field(
 
     # Boolean flags: indicate the property is set.
     if name in _BIRD_ATTR_BOOL_FIELDS:
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=name,
             description=sub_field.description,
             encoding=enc,
@@ -566,7 +566,7 @@ def _build_bird_attr_sub_field(
             if active_idx < len(layout._COLORS)
             else str(active_idx)
         )
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=name,
             description=sub_field.description,
             encoding=enc,
@@ -585,7 +585,7 @@ def _build_bird_attr_sub_field(
             for pos in range(len(sub_slice))
             if abs(float(sub_slice[pos])) >= _ZERO_THRESHOLD and pos < len(food_labels)
         ]
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=name,
             description=sub_field.description,
             encoding=enc,
@@ -604,7 +604,7 @@ def _build_bird_attr_sub_field(
             decoded = ", ".join(
                 nest_labels[int(idx)] for idx in active if int(idx) < len(nest_labels)
             )
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=name,
             description=sub_field.description,
             encoding=enc,
@@ -620,7 +620,7 @@ def _build_bird_attr_sub_field(
         decoded = ", ".join(
             hab_labels[int(idx)] for idx in active if int(idx) < len(hab_labels)
         )
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=name,
             description=sub_field.description,
             encoding=enc,
@@ -637,7 +637,7 @@ def _build_bird_attr_sub_field(
             cat_names[int(idx)] if int(idx) < len(cat_names) else f"cat_{idx}"
             for idx in active
         )
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=name,
             description=sub_field.description,
             encoding=enc,
@@ -655,7 +655,7 @@ def _build_bird_attr_sub_field(
             for pos in range(len(sub_slice))
             if abs(float(sub_slice[pos])) >= _ZERO_THRESHOLD and pos < len(slot_names)
         ]
-        return game_log_html.EncodedSubField(
+        return gamelog_models.EncodedSubField(
             name=name,
             description=sub_field.description,
             encoding=enc,
@@ -667,7 +667,7 @@ def _build_bird_attr_sub_field(
     # Fallback: normalized scalar (points, wingspan, egg_limit).
     scale = _denorm_scale(sub_field.notes)
     raw_val = float(sub_slice[0])
-    return game_log_html.EncodedSubField(
+    return gamelog_models.EncodedSubField(
         name=name,
         description=sub_field.description,
         encoding=enc,

@@ -42,6 +42,7 @@ src/wingspan/
 | `compat/` | Version-specific artifact shims (cleared at a MAJOR bump) | [`compat/INDEX.md`](../src/wingspan/compat/INDEX.md) |
 | `encode/` | State/choice tensor encoders for RL | [`encode/INDEX.md`](../src/wingspan/encode/INDEX.md) |
 | `engine/` | Turn loop, action dispatch, pink reactors, scoring | [`engine/INDEX.md`](../src/wingspan/engine/INDEX.md) |
+| `gamelog/` | Structured game-event tree: models, recorder, plaintext renderer | [`gamelog/INDEX.md`](../src/wingspan/gamelog/INDEX.md) |
 | `instrumentation/` | General-purpose event-callback instrumentation for games | [`instrumentation/INDEX.md`](../src/wingspan/instrumentation/INDEX.md) |
 | `model/` | PyTorch policy-value network | [`model/INDEX.md`](../src/wingspan/model/INDEX.md) |
 | `players/` | Seat players from CLI specs (shared by play + tournament) | [`players/INDEX.md`](../src/wingspan/players/INDEX.md) |

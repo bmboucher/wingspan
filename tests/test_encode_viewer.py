@@ -9,7 +9,8 @@ are caught here rather than silently at runtime.
 from __future__ import annotations
 
 from wingspan import cards, decisions, encode, engine, state
-from wingspan.reporting import encode_viewer, game_log_html
+from wingspan.gamelog import models as gamelog_models
+from wingspan.reporting import encode_viewer
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -59,7 +60,7 @@ def test_extract_state_stripes_structure():
     vec = encode.encode_state(eng.state).tolist()
     result = encode_viewer.extract_state_stripes(vec, include_setup=False)
     for stripe in result:
-        assert isinstance(stripe, game_log_html.EncodedStripe)
+        assert isinstance(stripe, gamelog_models.EncodedStripe)
         assert stripe.name
         assert stripe.description
         assert stripe.sub_fields
@@ -72,7 +73,7 @@ def test_extract_state_stripes_sub_field_structure():
     result = encode_viewer.extract_state_stripes(vec, include_setup=False)
     for stripe in result:
         for sub in stripe.sub_fields:
-            assert isinstance(sub, game_log_html.EncodedSubField)
+            assert isinstance(sub, gamelog_models.EncodedSubField)
             assert sub.name
             assert sub.description
             assert sub.encoding
@@ -178,7 +179,7 @@ def test_normalized_scalars_have_integer_decoded_labels():
     result = encode_viewer.extract_state_stripes(vec, include_setup=False)
 
     # Find any scalar sub_field with a ÷ in notes that has a decoded_label.
-    denorm_fields: list[game_log_html.EncodedSubField] = []
+    denorm_fields: list[gamelog_models.EncodedSubField] = []
     for stripe in result:
         for sub in stripe.sub_fields:
             if sub.notes and "÷" in sub.notes and sub.decoded_label is not None:

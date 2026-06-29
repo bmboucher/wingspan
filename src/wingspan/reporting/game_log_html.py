@@ -29,6 +29,7 @@ import typing
 
 import pydantic
 
+from wingspan.gamelog import models as gamelog_models
 from wingspan.reporting import game_log_csv
 
 # Number of board columns per habitat row — the viewer always draws this many
@@ -149,55 +150,6 @@ class RoundGoalInfo(pydantic.BaseModel):
     p1_count: int = 0
 
 
-class EncodedSubField(pydantic.BaseModel):
-    """One named element or block within a non-zero feature stripe, for the
-    encoding-viewer modal.
-
-    Exactly one of ``active_index``, ``raw_value``, or ``raw_values`` is set,
-    depending on the sub-field's encoding: ``"one-hot"`` uses ``active_index``
-    (the argmax position); size-1 scalars use ``raw_value``; multi-element
-    blocks use ``raw_values`` (non-zero positions only)."""
-
-    name: str
-    description: str
-    encoding: str
-    value_range: str
-    notes: str | None = None
-    active_index: int | None = None
-    raw_value: float | None = None
-    raw_values: list[float] | None = None
-    decoded_label: str | None = None
-
-
-class EncodedStripe(pydantic.BaseModel):
-    """One non-zero stripe from the state or choice vector, for the
-    encoding-viewer modal.
-
-    ``sub_fields`` holds only the non-zero elements (or the whole stripe when
-    it carries no named sub-fields). Empty stripes (all-zero) are never
-    included in the parent list."""
-
-    name: str
-    description: str
-    sub_fields: list[EncodedSubField]
-
-
-class DecisionOption(pydantic.BaseModel):
-    """One offered option within a decision box in the decision log.
-
-    ``prob`` is the policy's softmax probability (``None`` when unavailable);
-    ``score`` is the raw logit used for ranking (``None`` for the setup-net
-    value-only mode); ``selected`` marks the option that was actually played.
-    ``choice_stripes`` carries the non-zero choice-vector stripes for the
-    encoding-viewer modal (``None`` when no model backed this seat)."""
-
-    label: str
-    prob: float | None = None
-    score: float | None = None
-    selected: bool = False
-    choice_stripes: list[EncodedStripe] | None = None
-
-
 class LogItem(pydantic.BaseModel):
     """One item in the phase's decision log: a decision, forced move, note, or group.
 
@@ -217,10 +169,10 @@ class LogItem(pydantic.BaseModel):
     kind: typing.Literal["decision", "forced", "note", "group"]
     player_id: int | None
     text: str
-    options: list[DecisionOption] = []
+    options: list[gamelog_models.DecisionOption] = []
     forced: bool = False
     children: list[LogItem] = []
-    state_stripes: list[EncodedStripe] | None = None
+    state_stripes: list[gamelog_models.EncodedStripe] | None = None
     category: LogItemCategory | None = pydantic.Field(default=None, exclude=True)
     power_color: str | None = None
 
@@ -283,7 +235,7 @@ class BirdCatalogEntry(pydantic.BaseModel):
     """One bird in the model-summary Birds tab: its card display data and encoding stripes."""
 
     card: BirdCellInfo
-    stripes: list[EncodedStripe]
+    stripes: list[gamelog_models.EncodedStripe]
 
 
 class BirdCatalog(pydantic.BaseModel):

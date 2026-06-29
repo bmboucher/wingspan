@@ -48,6 +48,9 @@ def score_round_goal(engine: "core.Engine", round_idx: int) -> None:
     engine.state.scored_goals.append(
         state.RoundGoalResult(counts=list(counts), vp_awarded=[vp_0, vp_1])
     )
+    engine.events.record_round_goal(
+        engine, round_idx, goal.category, counts, [vp_0, vp_1]
+    )
     engine.instrumentation.round_goal_scored(
         engine=engine, round_num=round_idx, goal=goal, counts=counts
     )

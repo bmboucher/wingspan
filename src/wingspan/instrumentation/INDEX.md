@@ -64,19 +64,17 @@ of training data for offline supervised learning.
 **`handlers/game_log_html.py`** — `GameLogHtml` (`GameLogHtmlHandler`): records
 each game as a navigable, self-contained HTML log viewer (the `wingspan play
 --html` flag). Subscribes to `game_start` / `setup_start` / `round_start` /
-`turn_start` / `made_decision` / `game_end`. Phase-boundary events fire once per
-`=== ... ===` log header so snapshots zip one-to-one with the (merged) text log.
-One combined setup phase per player is created at `setup_start`; setup decisions
-are routed into per-player `SetupCaptureState` buckets rather than the flat
-`_decision_items` list. `finalize_setup_phase` is called at `game_end` to
-assemble highlighted hand/bonus and the nested food-group decision log. The
-capture layer's `_merge_secondary_setup_segments` folds the secondary
-CHOOSING BONUS CARD header into the primary segment so the zip stays aligned.
-`made_decision` records a `RawTimelinePoint` for the Timeline chart and, for
-non-setup phases with a `PolicyAnnotation`, also builds a `LogItem` (option bars
-+ selected highlight) stored in `_decision_items`. At `game_end` calls
-`build_timeline` then `build_report`. Config: `output_path` and `index_suffix`.
-Call `configure_timeline(seat_configs, probes)` before the first game to inject
-per-seat `TrainConfig` and `DecisionProbe` objects; without them the timeline
-shows scores only and decision boxes omit option bars. State→model conversion
-lives in `reporting.game_log_capture`, imported lazily.
+`turn_start` / `game_end` — **not** `made_decision` (the `EventRecorder` is the
+sole `DecisionProbe` consumer). Phase-boundary callbacks fire at the same code
+point as the recorder's `begin_phase` calls so that `zip(handler._phases,
+engine.events.root.phases)` is 1-to-1 by position. At `game_end`, asserts that
+`engine.events` is an `EventRecorder` (raises a clear error if not), reads
+`engine.events.root`, calls the capture layer's `extract_timeline_points` and
+`build_timeline`, then `build_report` to merge the per-phase state snapshots
+with the tree's log items and setup highlights. Config: `output_path`
+and `index_suffix`. Call `configure_timeline(seat_configs)` before the first game
+to inject per-seat `TrainConfig` instances; without them the timeline shows scores
+only and decision boxes omit option bars. Requires an `EventRecorder` to be
+passed as `event_recorder=` to `Engine.play_one_game` — the CLI wires this
+automatically when `--html` is given. State→model conversion lives in
+`reporting.game_log_capture`, imported lazily.

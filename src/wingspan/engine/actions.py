@@ -116,7 +116,9 @@ def do_play_bird(
     )
     # WHITE power triggers when played.
     if card.color == cards.PowerColor.WHITE:
+        engine.events.begin_white_power(player.id, card.name)
         powers.dispatch_power(engine, agent, player, pb, habitat, "play")
+        engine.events.end_event()
     # Pink reactors: an opponent's "when another player plays a bird in their
     # [habitat]" power fires when this play's habitat matches.
     reactors.trigger_pink_play_bird_reactors(engine, player, habitat)
@@ -135,8 +137,10 @@ def do_play_bird_action(engine: "core.Engine", agent: "core.Agent") -> None:
     if not plays:
         engine.log(f"[{player.name}] has no playable bird; action wasted")
         return
+    engine.events.begin_play_bird(player.id)
     choice = _ask_play_bird(engine, agent, player, plays, extra=False)
     do_play_bird(engine, agent, choice.bird, choice.habitat)
+    engine.events.end_event()
 
 
 def discard_an_egg(
@@ -198,8 +202,10 @@ def consume_extra_plays(
             )
         else:
             engine.log(f"[{player.name}] takes an EXTRA play")
+        engine.events.begin_play_bird(player.id)
         choice = _ask_play_bird(engine, agent, player, plays, extra=True)
         do_play_bird(engine, agent, choice.bird, choice.habitat)
+        engine.events.end_event()
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +222,13 @@ def do_gain_food(engine: "core.Engine", agent: "core.Agent") -> None:
     engine.log(
         f"[{player.name}] gain food: row has {n_birds} birds, take {n_dice} dice"
     )
+    engine.events.begin_activate_base(
+        player.id, cards.Habitat.FOREST.value, "gain_food"
+    )
     for _ in range(n_dice):
         _take_one_die_active(engine, agent, player)
     _convert_gain_food(engine, agent, player)
+    engine.events.end_event()
     activate_row_powers(engine, agent, player, cards.Habitat.FOREST)
     # Pink reactors: an opponent's "when another player gains [food]" power
     # (Loggerhead Shrike) fires on the foods gained during this action.
@@ -396,9 +406,13 @@ def do_lay_eggs(engine: "core.Engine", agent: "core.Agent") -> None:
     n_birds = player.row_activation_count(cards.Habitat.GRASSLAND)
     n_eggs = player.board.lay_eggs_count()
     engine.log(f"[{player.name}] lay eggs: row has {n_birds} birds, lay {n_eggs} eggs")
+    engine.events.begin_activate_base(
+        player.id, cards.Habitat.GRASSLAND.value, "lay_eggs"
+    )
     for _ in range(n_eggs):
         lay_one_egg(engine, agent, player)
     _convert_lay_eggs(engine, agent, player)
+    engine.events.end_event()
     activate_row_powers(engine, agent, player, cards.Habitat.GRASSLAND)
     reactors.trigger_pink_lay_eggs_reactors(engine, player)
     engine.instrumentation.eggs_laid(engine=engine, player=player, count=n_eggs)
@@ -446,9 +460,13 @@ def do_draw_cards(engine: "core.Engine", agent: "core.Agent") -> None:
     n_birds = player.row_activation_count(cards.Habitat.WETLAND)
     n_cards = player.board.draw_cards_count()
     engine.log(f"[{player.name}] draw cards: row has {n_birds} birds, draw {n_cards}")
+    engine.events.begin_activate_base(
+        player.id, cards.Habitat.WETLAND.value, "draw_cards"
+    )
     for _ in range(n_cards):
         draw_one_card(engine, agent, player)
     _convert_draw_cards(engine, agent, player)
+    engine.events.end_event()
     activate_row_powers(engine, agent, player, cards.Habitat.WETLAND)
     engine.instrumentation.cards_drawn(engine=engine, player=player, count=n_cards)
 
@@ -516,12 +534,16 @@ def activate_row_powers(
     for a brown power, a "no brown power" note otherwise — so the detailed game
     log accounts for the whole row even when a power fizzles or is declined."""
     for pb in reversed(player.board[habitat]):
-        if pb.bird.color != cards.PowerColor.BROWN:
+        is_brown = pb.bird.color == cards.PowerColor.BROWN
+        engine.events.begin_activate_brown(player.id, pb.bird.name, is_brown=is_brown)
+        if not is_brown:
             engine.log(f"[{player.name}] @ {pb.bird.name} - no brown power")
+            engine.events.end_event()
             continue
         engine.log(f'[{player.name}] @ {pb.bird.name} - "{pb.bird.plain_power_text}"')
         pb.activations += 1
         powers.dispatch_power(engine, agent, player, pb, habitat, "activate")
+        engine.events.end_event()
 
 
 ###### PRIVATE #######

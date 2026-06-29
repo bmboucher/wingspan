@@ -23,6 +23,8 @@ import pydantic
 
 from wingspan import agents, cards, engine, state
 from wingspan.cards.parse import catalog
+from wingspan.gamelog import models as gamelog_models
+from wingspan.gamelog import recorder as gamelog_recorder
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import events as instrumentation_events
 from wingspan.reporting import game_log_capture, game_log_html
@@ -30,7 +32,6 @@ from wingspan.reporting import game_log_capture, game_log_html
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
 
-_HEADER_PREFIX = "==="
 _CAPTURE_EVENTS = [
     "game_start",
     "setup_start",
@@ -188,10 +189,10 @@ def _tiny_report() -> game_log_html.GameLogReport:
                 player_id=0,
                 text="Lay eggs",
                 options=[
-                    game_log_html.DecisionOption(
+                    gamelog_models.DecisionOption(
                         label="Lay eggs", prob=0.7, score=1.2, selected=True
                     ),
-                    game_log_html.DecisionOption(
+                    gamelog_models.DecisionOption(
                         label="Gain food", prob=0.3, score=0.5, selected=False
                     ),
                 ],
@@ -325,7 +326,7 @@ def test_group_log_item_renders_nested_details():
         kind="decision",
         player_id=0,
         text="Discards seed",
-        options=[game_log_html.DecisionOption(label="seed", prob=0.9, selected=True)],
+        options=[gamelog_models.DecisionOption(label="seed", prob=0.9, selected=True)],
     )
     group = game_log_html.LogItem(
         kind="group",
@@ -371,10 +372,10 @@ def test_setup_bonus_options_selected_class():
     assert "setup-opt" in html
 
 
-#### Capture — finalize_setup_phase ####
+#### Capture — _apply_setup_highlights ####
 
 
-def _make_phase_with_hand(
+def _make_setup_phase(
     active_id: int, hand_names: list[str]
 ) -> game_log_html.PhaseRecord:
     """A minimal PhaseRecord with the given hand for the active player."""
@@ -442,15 +443,15 @@ def _make_phase_with_hand(
     )
 
 
-def test_finalize_setup_phase_highlights_kept_cards():
-    """finalize_setup_phase sets selected=True on kept cards only."""
-    phase = _make_phase_with_hand(0, ["Robin", "Mallard", "Egret"])
-    capture = game_log_capture.SetupCaptureState(
-        phase_index=0,
-        kept_card_names={"Robin", "Egret"},
+def test_apply_setup_highlights_marks_kept_cards():
+    """_apply_setup_highlights sets selected=True on kept cards only."""
+    phase = _make_setup_phase(0, ["Robin", "Mallard", "Egret"])
+    setup_event = gamelog_models.SetupEvent(
+        player_id=0,
+        kept_card_names=["Robin", "Egret"],
         kept_bonus_name="Cartographer",
     )
-    game_log_capture.finalize_setup_phase(phase, capture)
+    game_log_capture._apply_setup_highlights(phase, setup_event)  # type: ignore[attr-defined]
 
     hand = phase.panels[0].hand
     assert hand[0].name == "Robin" and hand[0].selected
@@ -458,67 +459,21 @@ def test_finalize_setup_phase_highlights_kept_cards():
     assert hand[2].name == "Egret" and hand[2].selected
 
 
-def test_finalize_setup_phase_marks_kept_bonus():
-    """finalize_setup_phase sets selected=True and pending=False on the kept bonus."""
-    phase = _make_phase_with_hand(0, ["Robin"])
-    capture = game_log_capture.SetupCaptureState(
-        phase_index=0,
-        kept_card_names={"Robin"},
+def test_apply_setup_highlights_marks_kept_bonus():
+    """_apply_setup_highlights marks the kept bonus as selected and not pending."""
+    phase = _make_setup_phase(0, ["Robin"])
+    setup_event = gamelog_models.SetupEvent(
+        player_id=0,
+        kept_card_names=["Robin"],
         kept_bonus_name="Cartographer",
     )
-    game_log_capture.finalize_setup_phase(phase, capture)
+    game_log_capture._apply_setup_highlights(phase, setup_event)  # type: ignore[attr-defined]
 
     opts = phase.setup_bonus_options
     kept = next(bc for bc in opts if bc.name == "Cartographer")
     other = next(bc for bc in opts if bc.name == "Bird Counter")
     assert kept.selected and not kept.pending
     assert not other.selected and other.pending
-
-
-def test_finalize_setup_phase_food_group_node():
-    """finalize_setup_phase builds a food group node when food_items are present."""
-    phase = _make_phase_with_hand(0, ["Robin"])
-    child = game_log_html.LogItem(kind="decision", player_id=0, text="Discards fish")
-    capture = game_log_capture.SetupCaptureState(
-        phase_index=0,
-        kept_card_names={"Robin"},
-        kept_bonus_name=None,
-        food_spent=["fish", "rodent"],
-        food_items=[child],
-    )
-    game_log_capture.finalize_setup_phase(phase, capture)
-
-    # A group node should appear in the log items (no keep_item or bonus_item set).
-    assert len(phase.log_items) == 1
-    group = phase.log_items[0]
-    assert group.kind == "group"
-    assert "Keeps" in group.text
-    assert child in group.children
-
-
-def test_finalize_setup_phase_assembles_all_three_nodes():
-    """finalize_setup_phase produces [keep_item, food_group, bonus_item] when all present."""
-    phase = _make_phase_with_hand(0, ["Robin"])
-    keep_item = game_log_html.LogItem(kind="decision", player_id=0, text="Keeps Robin")
-    bonus_item = game_log_html.LogItem(
-        kind="decision", player_id=0, text="Keeps Cartographer"
-    )
-    child = game_log_html.LogItem(kind="decision", player_id=0, text="Discards fish")
-    capture = game_log_capture.SetupCaptureState(
-        phase_index=0,
-        kept_card_names={"Robin"},
-        kept_bonus_name="Cartographer",
-        keep_item=keep_item,
-        bonus_item=bonus_item,
-        food_spent=["fish"],
-        food_items=[child],
-    )
-    game_log_capture.finalize_setup_phase(phase, capture)
-
-    assert len(phase.log_items) == 3
-    assert phase.log_items[0] is keep_item
-    assert phase.log_items[1].kind == "group"
-    assert phase.log_items[2] is bonus_item
 
 
 #### Capture — _bird_cell_info food-cost slots ####
@@ -556,74 +511,21 @@ def test_mallard_or_cost_slots_are_invertebrate_and_seed():
     assert _food_cost_slots(mallard) == ["invertebrate", "seed"]
 
 
-#### Capture — _merge_secondary_setup_segments ####
-
-
-def _make_log_entries(texts: list[str]) -> list[state.LogEntry]:
-    """Build a list of LogEntry objects from plain text strings."""
-    return [state.LogEntry(text=text, player_id=None) for text in texts]
-
-
-def test_merge_secondary_setup_segments_folds_bonus_card_header():
-    """A CHOOSING BONUS CARD segment is folded into the preceding segment."""
-    entries = _make_log_entries(
-        [
-            "=== SETUP: P0 CHOOSING BIRDS ===",
-            "Dealt hand (5): ...",
-            "[P0] SetupDecision ...",
-            "=== SETUP: P0 CHOOSING BONUS CARD ===",
-            "[P0] BirdPowerPickBonusCardDecision ...",
-        ]
-    )
-    # Split into raw segments (two headers = two segments).
-    from wingspan.reporting import game_log_capture as glc
-
-    segments = glc._split_log_into_segments(entries)  # type: ignore[attr-defined]
-    assert len(segments) == 2
-
-    merged = glc._merge_secondary_setup_segments(segments)  # type: ignore[attr-defined]
-    assert len(merged) == 1
-    # Header from the primary segment, body entries from both.
-    assert merged[0][0].text.startswith("=== SETUP: P0 CHOOSING BIRDS")
-    texts = [entry.text for entry in merged[0]]
-    assert any("CHOOSING BONUS CARD" not in text for text in texts[1:])
-    assert any("BirdPowerPickBonusCardDecision" in text for text in texts)
-
-
-def test_merge_secondary_setup_segments_no_op_for_combined_regime():
-    """In combined regime (single header) the segments are returned unchanged."""
-    entries = _make_log_entries(
-        [
-            "=== SETUP: P0 CHOOSING BIRDS, FOOD, AND BONUS CARD ===",
-            "Dealt hand (5): ...",
-        ]
-    )
-    from wingspan.reporting import game_log_capture as glc
-
-    segments = glc._split_log_into_segments(entries)  # type: ignore[attr-defined]
-    merged = glc._merge_secondary_setup_segments(segments)  # type: ignore[attr-defined]
-    assert len(merged) == len(segments) == 1
-
-
 #### Capture over a full game ####
 
 
-def test_capture_phases_align_one_to_one_with_log_headers():
+def test_capture_phases_align_one_to_one_with_tree():
+    """The handler phase list and the event tree phases are the same count."""
     eng, *_ = engine.Engine.create(seed=2024)
     rng = random.Random(2024)
-    phases = _run_and_capture(eng, rng)
-    # In the combined/random regime there are no secondary setup headers, so
-    # raw count == merged count; phases should align 1:1 with merged segments.
-    raw_headers = sum(
-        1 for entry in eng.state.log_entries if entry.text.startswith(_HEADER_PREFIX)
-    )
-    assert len(phases) == raw_headers
+    phases, tree = _run_and_capture(eng, rng)
+    assert len(phases) == len(tree.phases)
 
 
 def test_capture_kind_counts_match_game_shape():
     eng, *_ = engine.Engine.create(seed=99)
     rng = random.Random(99)
-    phases = _run_and_capture(eng, rng)
+    phases, _ = _run_and_capture(eng, rng)
     kinds = [phase.kind for phase in phases]
     assert kinds.count("game_start") == 1
     assert kinds.count("setup") == 2  # one per seat
@@ -635,7 +537,7 @@ def test_capture_kind_counts_match_game_shape():
 def test_every_board_row_is_padded_to_five_columns():
     eng, *_ = engine.Engine.create(seed=11)
     rng = random.Random(11)
-    phases = _run_and_capture(eng, rng)
+    phases, _ = _run_and_capture(eng, rng)
     for phase in phases:
         assert len(phase.panels) == 2
         for panel in phase.panels:
@@ -647,9 +549,9 @@ def test_every_board_row_is_padded_to_five_columns():
 def test_turn_log_drops_the_state_summary_block():
     eng, *_ = engine.Engine.create(seed=314)
     rng = random.Random(314)
-    phases = _run_and_capture(eng, rng)
+    phases, tree = _run_and_capture(eng, rng)
     report = game_log_capture.build_report(
-        engine=eng, phases=phases, seed=314, matchup=("random", "random")
+        engine=eng, phases=phases, tree=tree, seed=314, matchup=("random", "random")
     )
     turn_phases = [phase for phase in report.phases if phase.kind == "turn"]
     assert turn_phases, "a full game has turns"
@@ -663,9 +565,9 @@ def test_turn_log_drops_the_state_summary_block():
 def test_log_items_carry_seat_attribution():
     eng, *_ = engine.Engine.create(seed=555)
     rng = random.Random(555)
-    phases = _run_and_capture(eng, rng)
+    phases, tree = _run_and_capture(eng, rng)
     report = game_log_capture.build_report(
-        engine=eng, phases=phases, seed=555, matchup=None
+        engine=eng, phases=phases, tree=tree, seed=555, matchup=None
     )
     all_items = [item for phase in report.phases for item in phase.log_items]
     seat_ids = {item.player_id for item in all_items}
@@ -677,18 +579,21 @@ def test_log_items_carry_seat_attribution():
 
 def _run_and_capture(
     eng: engine.Engine, rng: random.Random
-) -> list[game_log_html.PhaseRecord]:
-    """Drive one game through a recording handler and return its phase records,
-    with the final-scoring phase appended.
+) -> tuple[list[game_log_html.PhaseRecord], gamelog_models.GameEventTree]:
+    """Drive one game through a recording handler and EventRecorder; return (phases, tree).
 
-    The recorder subscribes to setup_start (one phase per player), round_start,
-    and turn_start; the final phase is captured directly afterwards, exactly as
-    the production handler's ``game_end`` does, so the returned list aligns
-    one-to-one with the (merged) log's ``=== ... ===`` headers."""
-    recorder = _PhaseRecorder()
+    The phase recorder subscribes to setup_start, round_start, and turn_start;
+    the final-scoring phase is appended afterwards, exactly as the production
+    handler's ``game_end`` does.  An EventRecorder is wired alongside so the
+    caller can pass ``tree`` to ``build_report``."""
+    recorder_handler = _PhaseRecorder()
+    rec = gamelog_recorder.EventRecorder(
+        probes=(None, None),
+        seat_configs=(None, None),
+    )
     cfg = instrumentation_config.InstrumentationConfig.model_validate(
         {
-            "handlers": {"rec": recorder},
+            "handlers": {"rec": recorder_handler},
             "events": {event: ["rec"] for event in _CAPTURE_EVENTS[:-1]},
         }
     )
@@ -702,14 +607,15 @@ def _run_and_capture(
         eng.state,
         (agents.random_agent(rng), agents.random_agent(rng)),
         instrumentation=instrumentation,
+        event_recorder=rec,
     )
-    phases = list(recorder.captured)
+    phases = list(recorder_handler.captured)
     phases.append(
         game_log_capture.capture_phase(
             eng, index=len(phases), title="Final scoring", kind="game_end", active=None
         )
     )
-    return phases
+    return phases, rec.root
 
 
 #### CLI flag ####
