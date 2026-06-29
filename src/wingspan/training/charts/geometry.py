@@ -6,10 +6,11 @@ composition over named geometry rather than bare magic numbers. The
 ``WINDOW_*`` group additionally owns the FINAL SCORE / MARGIN chart's x-axis
 window extents (the sliding-window width and its two pin steps), so the
 convergence math references named constants instead of literal iteration counts.
+The ``WINRATE_`` group owns the WIN RATE chart's y-axis floor parameters.
 
 Constants are kept in global alphabetical order, which — because every name
-carries a concern prefix (``CHART_`` / ``INSET_`` / ``TICK_`` / ``WINDOW_``) —
-also keeps each concern grouped together.
+carries a concern prefix (``CHART_`` / ``INSET_`` / ``TICK_`` / ``WINDOW_`` /
+``WINRATE_``) — also keeps each concern grouped together.
 """
 
 from __future__ import annotations
@@ -46,3 +47,11 @@ WINDOW_EARLY_PIN = 50  # growing-phase right-edge rounding step
 WINDOW_SCORE_MARGIN = 200  # sliding-window width, in iterations
 WINDOW_SLIDING_DIVISOR = 8  # WINDOW_SCORE_MARGIN / this = the sliding pin step
 WINDOW_SLIDING_PIN = WINDOW_SCORE_MARGIN // WINDOW_SLIDING_DIVISOR
+
+# WIN RATE chart y-axis floor parameters: the floor is the visible-window minimum
+# rounded down to WINRATE_FLOOR_STEP_PCT, capped at WINRATE_FLOOR_CAP_PCT so the
+# 50% baseline remains on screen even when win rates are high.
+WINRATE_FLOOR_CAP_PCT = 50.0  # the win-rate y-axis floor never rises above this
+WINRATE_FLOOR_STEP_PCT = (
+    5.0  # the floor is the window minimum rounded down to this step
+)

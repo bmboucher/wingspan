@@ -24,14 +24,16 @@ class GettingBetterChart:
     right edge.  WIN RATE shows the EWMA win-rate over that window with the
     opponent-advance threshold line and a vertical marker at each challenger
     upgrade; the y-axis ceiling is ``max(graduation_threshold,
-    opponent_advance_threshold)`` and the floor is derived from the global minimum
-    EWMA (floored to a 5% step).  Segments below 50% are drawn in red; a solid
-    dim-red baseline marks the 50% level.  FINAL SCORE / MARGIN is a dual-axis
-    chart: the EWMA final score on a color-coded left axis and the EWMA eval
-    margin on a color-coded right axis, each scaled to its own visible range.
-    When the panel is too narrow the inset drops to a one-line strip beneath the
-    charts.  The win-rate sawtooths back down each time the reference opponent is
-    advanced (it then climbs again vs a stronger self)."""
+    opponent_advance_threshold)`` and the floor is the visible-window minimum
+    rounded down to a ``geometry.WINRATE_FLOOR_STEP_PCT`` step, capped at
+    ``geometry.WINRATE_FLOOR_CAP_PCT`` so the 50% baseline stays on screen.
+    Segments below 50% are drawn in red; a solid dim-red baseline marks the 50%
+    level.  FINAL SCORE / MARGIN is a dual-axis chart: the EWMA final score on a
+    color-coded left axis and the EWMA eval margin on a color-coded right axis,
+    each scaled to its own visible range.  When the panel is too narrow the inset
+    drops to a one-line strip beneath the charts.  The win-rate sawtooths back
+    down each time the reference opponent is advanced (it then climbs again vs a
+    stronger self)."""
 
     def __init__(self, state: runstate.RunState, frame: int):
         self.state = state
@@ -140,11 +142,12 @@ def _winrate_block(
     ``geometry.WINDOW_SCORE_MARGIN``-wide window pinned to a round right edge.
     Dynamic y-axis scaling: the ceiling is
     ``max(graduation_threshold, opponent_advance_threshold)`` (win rates can't
-    meaningfully exceed either) and the floor is derived from the global minimum
-    EWMA value (rounded to a stable 5% step, computed over the whole run so the
-    floor only ever moves down). Segments above 50% are drawn in green; segments
-    below 50% are drawn in red. A solid dim-red horizontal line marks the 50%
-    level when it falls within the chart range."""
+    meaningfully exceed either) and the floor is the visible-window minimum
+    rounded down to a ``geometry.WINRATE_FLOOR_STEP_PCT`` step, capped at
+    ``geometry.WINRATE_FLOOR_CAP_PCT`` — the floor can rise again as old low
+    points scroll off the left edge. Segments above 50% are drawn in green;
+    segments below 50% are drawn in red. A solid dim-red horizontal line marks
+    the 50% level when it falls within the chart range."""
     plot_cols = max(1, width - geometry.CHART_GUTTER_W)
     it_lo, it_hi = convergence.score_margin_window(history)
     ewma_all = convergence.winrate_ewma_points(
@@ -152,11 +155,11 @@ def _winrate_block(
     )
     ewma = [pt for pt in ewma_all if pt[0] >= it_lo]
 
-    # Dynamic floor/ceiling: floor from global min across the *whole run* so the
-    # axis can only move down, never jump upward; ceiling from the max of the
-    # graduation and opponent-advance thresholds.  Series 0 = red (below 50%,
-    # higher canvas priority), series 1 = green (above 50%).
-    v_lo = _winrate_v_lo(ewma_all)
+    # Dynamic floor/ceiling: floor from visible-window min so the axis zooms in
+    # when win rates are high and can rise again as old lows scroll off; ceiling
+    # from the max of the graduation and opponent-advance thresholds.  Series 0 =
+    # red (below 50%, higher canvas priority), series 1 = green (above 50%).
+    v_lo = _winrate_v_lo(ewma)
     v_hi = _winrate_v_hi(state)
 
     canvas = braille.BrailleCanvas(plot_cols, rows, 2)
@@ -567,15 +570,19 @@ def _beacon_cell(
 def _winrate_v_lo(ewma: list[tuple[int, float]]) -> float:
     """Dynamic y-axis floor for the win-rate chart.
 
-    Takes the global minimum EWMA value seen in history, floors it to the
-    nearest 5%, then subtracts a 5% breathing margin.  Using the global
-    minimum means the floor can only move down, never jump upward mid-run.
+    The minimum EWMA value in the *visible window*, floored to a
+    ``geometry.WINRATE_FLOOR_STEP_PCT`` step and capped at
+    ``geometry.WINRATE_FLOOR_CAP_PCT`` so the 50% baseline always stays on
+    screen.  Windowed (not whole-run), so the floor rises again as old low
+    points scroll off the left edge.
     """
     if not ewma:
-        return 0.0
+        return geometry.WINRATE_FLOOR_CAP_PCT
     min_val = min(val for _, val in ewma)
-    floor5 = (min_val // 5) * 5
-    return max(0.0, floor5 - 5.0)
+    floored = (
+        min_val // geometry.WINRATE_FLOOR_STEP_PCT
+    ) * geometry.WINRATE_FLOOR_STEP_PCT
+    return min(geometry.WINRATE_FLOOR_CAP_PCT, floored)
 
 
 def _winrate_v_hi(state: runstate.RunState) -> float:

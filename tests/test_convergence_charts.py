@@ -21,7 +21,7 @@ import rich.console as rich_console
 
 from wingspan import decisions
 from wingspan.training import config, convergence, dashboard, metrics, runstate
-from wingspan.training.charts import geometry
+from wingspan.training.charts import convergence_chart, geometry
 
 
 def _sample_iteration(breakdown: metrics.ScoreBreakdown) -> metrics.IterationMetrics:
@@ -196,6 +196,22 @@ def test_score_ewma_smooths_every_iteration():
     assert [it for it, _ in points] == [0, 1, 2]
     assert points[0][1] == 60.0
     assert points[1][1] == 50.0  # 0.5*40 + 0.5*60
+
+
+def test_winrate_v_lo_floor_and_cap():
+    # Rounds down to nearest 5% step when the floored value is below the cap.
+    assert convergence_chart._winrate_v_lo([(0, 37.8)]) == 35.0  # type: ignore[reportPrivateUsage]
+    assert convergence_chart._winrate_v_lo([(0, 47.2)]) == 45.0  # type: ignore[reportPrivateUsage]
+    # Exact 5% boundary floors to itself (not below).
+    assert convergence_chart._winrate_v_lo([(0, 45.0)]) == 45.0  # type: ignore[reportPrivateUsage]
+    # Cap applies: window min 58% floors to 55%, but WINRATE_FLOOR_CAP_PCT wins.
+    assert convergence_chart._winrate_v_lo([(0, 58.0)]) == geometry.WINRATE_FLOOR_CAP_PCT  # type: ignore[reportPrivateUsage]
+    # Cap also applies when floored value would be well above 50%.
+    assert convergence_chart._winrate_v_lo([(0, 63.2)]) == geometry.WINRATE_FLOOR_CAP_PCT  # type: ignore[reportPrivateUsage]
+    # Empty window returns the cap.
+    assert convergence_chart._winrate_v_lo([]) == geometry.WINRATE_FLOOR_CAP_PCT  # type: ignore[reportPrivateUsage]
+    # Multiple points — uses the minimum, not the latest or maximum.
+    assert convergence_chart._winrate_v_lo([(0, 72.0), (1, 38.4), (2, 80.0)]) == 35.0  # type: ignore[reportPrivateUsage]
 
 
 def test_opponent_change_iterations_round_trip():
