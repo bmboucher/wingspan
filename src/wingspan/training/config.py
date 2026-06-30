@@ -239,7 +239,14 @@ class MainNetArchitecture(pydantic.BaseModel):
 
 
 class SetupNetArchitecture(pydantic.BaseModel):
-    """Topology fields for the setup-model MLP."""
+    """Topology fields for the setup-model MLP.
+
+    ``trunk_layers`` / ``hidden_layers`` describe the policy path (over the fused
+    state ⊕ action embedding); ``value_trunk_layers`` / ``value_hidden_layers``
+    describe the separate state-only value path (``V(s)``). Empty
+    ``value_hidden_layers`` reuses ``hidden_layers`` at the narrower state-only
+    input width.
+    """
 
     trunk_layers: architecture.Widths = ()
     hidden_layers: typing.Annotated[
@@ -248,6 +255,8 @@ class SetupNetArchitecture(pydantic.BaseModel):
     between_activation: architecture.ActivationName = architecture.ActivationName.RELU
     final_activation: architecture.ActivationName = architecture.ActivationName.NONE
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
+    value_trunk_layers: architecture.Widths = ()
+    value_hidden_layers: architecture.Widths = ()
 
     @pydantic.model_validator(mode="before")
     @classmethod
@@ -631,6 +640,8 @@ class RunConfig(pydantic.BaseModel):
             final_activation=setup.final_activation,
             dropout=setup.dropout,
             use_policy_head=True,
+            value_trunk_layers=setup.value_trunk_layers,
+            value_hidden_layers=setup.value_hidden_layers,
         )
 
     @property

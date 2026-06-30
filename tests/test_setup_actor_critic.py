@@ -73,6 +73,46 @@ def test_policy_and_value_raises_without_policy_head():
         net.policy_and_value(batch)
 
 
+@pytest.mark.parametrize("split_bonus", [False, True])
+def test_value_head_invariant_to_chosen_action(split_bonus: bool):
+    """The critic is V(s): its output depends only on the action-independent
+    STATE stripes (tray / feeder / goals / bonus-on-offer), so two candidate
+    vectors that share those stripes but differ everywhere else (the keep)
+    receive an identical value. This is the property whose absence made the old
+    per-candidate Q(s, a) baseline self-cancel."""
+    encoding = setup_model.SetupEncoding(
+        split_bonus=split_bonus, split_food=split_bonus
+    )
+    arch = setup_model.SetupArchitecture(hidden_layers=(16, 8), use_policy_head=True)
+    net = setup_net.SetupNet(encoding=encoding, arch=arch)
+    net.eval()
+    enc = net.encoding
+
+    rng = np.random.default_rng(7)
+    base = rng.standard_normal(net.feature_dim).astype(np.float32)
+    variant = rng.standard_normal(net.feature_dim).astype(np.float32)
+    # Force the action-independent STATE stripes equal between the two vectors.
+    state_slices = [
+        slice(enc.off_tray, enc.off_feeder),  # tray
+        slice(enc.off_feeder, enc.off_goals),  # birdfeeder
+        slice(enc.off_goals, enc.off_bonus_value),  # round goals
+    ]
+    if enc.split_bonus:
+        state_slices.append(
+            slice(enc.off_bonus_block, enc.off_bonus_block + enc.bonus_cards_dim)
+        )
+    for state_slice in state_slices:
+        variant[state_slice] = base[state_slice]
+
+    feats = torch.tensor(np.stack([base, variant]), dtype=torch.float32)
+    values = net(feats)
+    # V(s) ignores the keep -> identical for two same-state candidates.
+    assert torch.allclose(values[0], values[1], atol=1e-6)
+    # The policy head reads the fused vector, so it still distinguishes them.
+    logits = net.policy_logits(feats)
+    assert not torch.allclose(logits[0], logits[1])
+
+
 # ---------------------------------------------------------------------------
 # actor_critic_update: loss computation and gradient flow
 
@@ -90,17 +130,26 @@ def _make_config() -> config.TrainConfig:
 _SAMPLE_FEATURE_DIM = setup_model.SetupEncoding().total_dim
 
 
-def _make_ac_sample(k: int = 10, chosen_idx: int = 0) -> record.SetupSample:
-    """One synthetic SetupSample with all_candidates populated."""
-    rng = np.random.default_rng(0)
+def _make_ac_sample(
+    k: int = 10, chosen_idx: int = 0, seed: int = 0, margin: float = 5.0
+) -> record.SetupSample:
+    """One synthetic SetupSample with all_candidates and return fields populated.
+
+    Distinct ``seed`` values give distinct candidate matrices and margins so the
+    learner's per-batch advantage whitening sees non-zero variance (identical
+    samples would whiten to a zero advantage and produce no policy gradient)."""
+    rng = np.random.default_rng(seed)
     features = rng.standard_normal(_SAMPLE_FEATURE_DIM).astype(np.float32)
     all_candidates = rng.standard_normal((k, _SAMPLE_FEATURE_DIM)).astype(np.float32)
     return record.SetupSample(
         features=features,
-        margin=5.0,
+        margin=margin,
         iteration=2001,
         chosen_idx=chosen_idx,
         all_candidates=all_candidates,
+        own_total=margin,
+        opp_total=0.0,
+        won=1 if margin > 0 else (-1 if margin < 0 else 0),
     )
 
 
@@ -110,7 +159,7 @@ def test_actor_critic_update_returns_nonzero_loss():
     optimizer = torch.optim.Adam(
         [p for p in net.parameters() if p.requires_grad], lr=1e-3
     )
-    samples = [_make_ac_sample() for _ in range(4)]
+    samples = [_make_ac_sample(seed=i, margin=float(i + 1)) for i in range(4)]
     stats = setup_learner.actor_critic_update(
         net, optimizer, samples, cfg, torch.device("cpu")
     )
@@ -154,26 +203,29 @@ def test_actor_critic_update_skips_samples_without_ac_data():
 
 
 def test_actor_critic_update_gradient_flows_to_policy_head():
-    """Gradient reaches policy_mlp parameters but not the frozen card encoder."""
+    """Gradient reaches policy_mlp parameters but not the frozen card encoder.
+
+    The samples must differ so the whitened advantage has non-zero variance,
+    otherwise the policy gradient is zero by construction."""
     cfg = _make_config()
     net = _make_net(use_policy_head=True)
     optimizer = torch.optim.Adam(
         [p for p in net.parameters() if p.requires_grad], lr=1e-3
     )
-    samples = [_make_ac_sample(k=8, chosen_idx=3) for _ in range(2)]
+    samples = [
+        _make_ac_sample(k=8, chosen_idx=3, seed=i, margin=float(i + 1))
+        for i in range(3)
+    ]
+    setup_learner.actor_critic_update(net, optimizer, samples, cfg, torch.device("cpu"))
 
-    # Zero all grads first, then run one update.
-    optimizer.zero_grad()
-    net.train()
-    loss_tensor = setup_learner._ac_group_loss(  # pyright: ignore[reportPrivateUsage]
-        samples, net, cfg, torch.device("cpu")
-    )
-    loss_tensor.backward()  # pyright: ignore[reportUnknownMemberType]
-
-    # Policy MLP parameters must have nonzero grad.
+    # Policy MLP parameters must have nonzero grad after the update's backward.
     assert net.policy_mlp is not None
     policy_params = list(net.policy_mlp.parameters())
     assert any(p.grad is not None and p.grad.abs().max() > 0 for p in policy_params)
+
+    # The value head (self.mlp) must also receive gradient (value loss).
+    value_params = list(net.mlp.parameters())
+    assert any(p.grad is not None and p.grad.abs().max() > 0 for p in value_params)
 
     # Frozen card encoder parameters must have no grad.
     for param in net.card_encoder.parameters():
@@ -187,8 +239,12 @@ def test_actor_critic_update_groups_by_candidate_count():
     optimizer = torch.optim.Adam(
         [p for p in net.parameters() if p.requires_grad], lr=1e-3
     )
-    samples_504 = [_make_ac_sample(k=504) for _ in range(2)]
-    samples_252 = [_make_ac_sample(k=252) for _ in range(2)]
+    samples_504 = [
+        _make_ac_sample(k=504, seed=i, margin=float(i + 1)) for i in range(2)
+    ]
+    samples_252 = [
+        _make_ac_sample(k=252, seed=i + 10, margin=float(i - 1)) for i in range(2)
+    ]
     stats = setup_learner.actor_critic_update(
         net, optimizer, samples_504 + samples_252, cfg, torch.device("cpu")
     )
@@ -222,25 +278,33 @@ def test_shape_key_same_layers_different_policy_head():
     assert key_a[2] != key_b[2]  # use_policy_head differs
 
 
-def test_both_heads_share_the_trunk():
-    """With a trunk, both heads receive the same trunk output — gradients from
-    either head flow back through the shared trunk parameters."""
+def test_policy_trunk_separate_from_value_trunk():
+    """``trunk_layers`` builds the POLICY trunk (over the fused embedding);
+    ``value_trunk_layers`` builds the separate value trunk (over the state-only
+    embedding). Each receives gradient only from its own head."""
     arch = setup_model.SetupArchitecture(
-        trunk_layers=(32,), hidden_layers=(16,), use_policy_head=True
+        trunk_layers=(32,),
+        hidden_layers=(16,),
+        value_trunk_layers=(24,),
+        use_policy_head=True,
     )
     net = setup_net.SetupNet(arch=arch)
-    # The trunk must be an nn.Sequential (not nn.Identity) when trunk_layers is set.
+    # Both trunks must be real Sequentials (not Identity) when their layers are set.
     assert not isinstance(net.trunk, nn.Identity)
-    # A forward pass through policy_and_value must leave gradients on trunk params.
+    assert not isinstance(net.value_trunk, nn.Identity)
     net.train()
-    batch = torch.zeros(2, net.feature_dim, requires_grad=False)
+    batch = torch.randn(2, net.feature_dim, requires_grad=False)
     policy_logits, value_preds = net.policy_and_value(batch)
     (
         policy_logits.sum() + value_preds.sum()
     ).backward()  # pyright: ignore[reportUnknownMemberType]
     trunk_params = list(net.trunk.parameters())
-    assert len(trunk_params) > 0
+    value_trunk_params = list(net.value_trunk.parameters())
+    assert trunk_params and value_trunk_params
     assert any(p.grad is not None and p.grad.abs().max() > 0 for p in trunk_params)
+    assert any(
+        p.grad is not None and p.grad.abs().max() > 0 for p in value_trunk_params
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -293,3 +357,10 @@ def test_play_game_with_setup_ac_data_in_model_driven():
         assert sample.all_candidates is not None
         assert sample.all_candidates.shape[0] > 0
         assert sample.all_candidates.shape[1] == net.feature_dim
+        # The reward-consistency fields are populated for returns.setup_return.
+        assert sample.margin == pytest.approx(sample.own_total - sample.opp_total)
+        assert sample.won in (-1, 0, 1)
+        assert sample.final_timestamp > 0.0
+        # One checkpoint per in-game decision the seat made.
+        assert len(sample.margin_checkpoints) == len(sample.decision_times)
+        assert len(sample.score_checkpoints) == len(sample.decision_times)

@@ -2,7 +2,7 @@
 
 Every persisted artifact (the dated `run_config_<stamp>.json` run descriptor and
 every `.pt` payload) is stamped with a `MAJOR.MINOR` **artifact version**
-(`wingspan.version.MODEL_VERSION`, currently **`1.1`**). This is distinct from
+(`wingspan.version.MODEL_VERSION`, currently **`1.2`**). This is distinct from
 the package release version (`wingspan.__version__`) — one tracks the codebase,
 the other the on-disk artifact format.
 
@@ -35,7 +35,43 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.1 — uniform final-activation inheritance + `becomes_unplayable` stripe + setup-encoding pooling (current)
+### v1.2 — setup value head `Q(s,a)` → state-only `V(s)` + setup↔in-game return reconciliation (current)
+
+A **setup-artifact-only** FRESH bump. The separate setup model's value head was a
+per-candidate critic reading the *fused* state ⊕ action vector — it learned
+`Q(s, a_chosen)`, so the actor-critic advantage `margin − Q(s,a)` self-cancelled
+(its conditional mean given the chosen action is ≈ 0) and the setup policy never
+left a near-uniform band. v1.2 splits the value head into a **state-only** trunk
+reading only the action-independent deal stripes (tray, birdfeeder, round goals,
+bonus-on-offer) → a true `V(s)` baseline, so `advantage = target − V(s)` carries a
+real gradient. The value head's first `Linear` therefore shrinks (≈304 vs ≈568 by
+default), changing the setup-net weight shape.
+
+A second, shape-preserving (REGIME) change reconciles the setup target with the
+in-game return: the setup keep is the `t=0` decision of the same game whose
+in-game steps are `t>0`, so its target is now the in-game return kernel
+(`wingspan.training.returns.setup_return`) evaluated at that anchor — honoring
+`reward_mode` / `reward_discount` / `reward_basis` / `end_game_bonus` exactly as
+the main learner does. At the default config the target is byte-identical to the
+old `margin / score_norm`.
+
+- **Main net unaffected.** The main net's encoding and topology are unchanged, so
+  there is **no `compat.v1_1` shim** and no `encoding_dims_for_era` entry — 1.2
+  main-net dims equal 1.1 equal live (`encoding_dims_for_era` already returns live
+  dims for any same-MAJOR era ≥ 1.1). A run pinned to an earlier same-MAJOR era
+  keeps training its main net at that era.
+- **Setup checkpoints are discarded, not migrated.** A `Q`-trained fused value
+  head has no faithful `V(s)` reconstruction, so there is no setup shim (and no
+  `SetupNet.class_for_version` seam exists). On resume,
+  `loop_setup.maybe_resume_setup`'s shape-mismatch path rebuilds the setup net
+  fresh (with an `ALARM`); `players.loaders.load_setup_net` refuses an
+  incompatible `setup.pt` with a clear "retrain the setup model" error rather than
+  an opaque torch size error. The main net resumes normally.
+- **In-flight runs.** A run already in progress stays era-pinned at its own
+  version and keeps all main-net progress; only its setup model restarts fresh at
+  the next resume (the setup policy was near-random, so nothing of value is lost).
+
+### v1.1 — uniform final-activation inheritance + `becomes_unplayable` stripe + setup-encoding pooling
 
 Three independent changes landed in v1.1:
 

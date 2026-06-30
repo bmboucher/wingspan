@@ -276,13 +276,18 @@ def play_game_with_setup(
     score_0, score_1 = breakdowns[0].total, breakdowns[1].total
     winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
     totals = (score_0, score_1)
+    final_ts = timestamps.final_timestamp(eng.state.turn_counter)
     setup_samples = [
-        setup_model.SetupSample(
-            features=chosen_features,
-            margin=totals[seat] - totals[1 - seat],
+        _build_setup_sample(
+            seat,
+            chosen_features,
+            chosen_idx,
+            all_candidates,
+            recorded=recorded,
+            totals=totals,
+            winner=winner,
             iteration=spec.iteration,
-            chosen_idx=chosen_idx,
-            all_candidates=all_candidates,
+            final_timestamp=final_ts,
         )
         for seat, chosen_features, chosen_idx, all_candidates in pending_setups
     ]
@@ -292,7 +297,44 @@ def play_game_with_setup(
         winner=winner,
         seed=spec.continuation_seed,
         setup_samples=setup_samples,
-        final_timestamp=timestamps.final_timestamp(eng.state.turn_counter),
+        final_timestamp=final_ts,
+    )
+
+
+def _build_setup_sample(
+    seat: int,
+    chosen_features: np.ndarray,
+    chosen_idx: int | None,
+    all_candidates: np.ndarray | None,
+    *,
+    recorded: list[training_steps.Step],
+    totals: tuple[float, float],
+    winner: int,
+    iteration: int,
+    final_timestamp: float,
+) -> setup_model.SetupSample:
+    """A seat's ``SetupSample``, capturing the seat's in-game value-checkpoint
+    sequence so the learner can reproduce the in-game return at the ``t=0`` setup
+    anchor (``returns.setup_return``) under any reward mode / discount / basis.
+
+    The setup keep itself scores nothing at ``t=0`` (``v=0``); the discounted
+    return is built from the seat's subsequent in-game ``margin_before`` /
+    ``score_before`` snapshots plus the terminal value."""
+    seat_steps = [step for step in recorded if step.player_id == seat]
+    won = 1 if winner == seat else (-1 if winner == (1 - seat) else 0)
+    return setup_model.SetupSample(
+        features=chosen_features,
+        margin=totals[seat] - totals[1 - seat],
+        iteration=iteration,
+        chosen_idx=chosen_idx,
+        all_candidates=all_candidates,
+        own_total=totals[seat],
+        opp_total=totals[1 - seat],
+        won=won,
+        margin_checkpoints=[step.margin_before for step in seat_steps],
+        score_checkpoints=[step.score_before for step in seat_steps],
+        decision_times=[step.timestamp for step in seat_steps],
+        final_timestamp=final_timestamp,
     )
 
 
@@ -519,5 +561,4 @@ def _setup_policy_logits(
     the ``(K,)`` logits used for softmax candidate selection (actor-critic mode)."""
     with torch.no_grad():
         feats_t = torch.tensor(features, dtype=torch.float32, device=device)
-        policy_logits, _ = setup_policy_net.policy_and_value(feats_t)
-        return policy_logits.cpu().numpy()
+        return setup_policy_net.policy_logits(feats_t).cpu().numpy()

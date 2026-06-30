@@ -292,17 +292,15 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
     choice_in = _choice_in(cfg)
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
     if cfg.architecture.use_setup_model:
-        readout_in = _setup_readout_in(cfg)
-        if cfg.architecture.setup.trunk_layers:
-            trunk_out = cfg.architecture.setup.trunk_layers[-1]
-            chain = _chain(trunk_out, (*cfg.architecture.setup.hidden_layers, 1))
-            setup_chain = (
-                f"T:{_chain(readout_in, cfg.architecture.setup.trunk_layers)}"
-                f" V:{chain} P:{chain}"
-            )
-        else:
-            chain = _chain(readout_in, (*cfg.architecture.setup.hidden_layers, 1))
-            setup_chain = f"V:{chain} P:{chain}"
+        # Value head reads the state-only embedding (V(s)); policy head reads the
+        # fused state ⊕ action candidate. Distinct input widths show the split.
+        value_chain = _chain(
+            _setup_state_in(cfg), (*cfg.setup_arch.value_hidden_resolved, 1)
+        )
+        policy_chain = _chain(
+            _setup_readout_in(cfg), (*cfg.architecture.setup.hidden_layers, 1)
+        )
+        setup_chain = f"V:{value_chain} P:{policy_chain}"
     else:
         setup_chain = "off"
     rows = [
@@ -433,13 +431,16 @@ def _setup_heads_region(
 def _setup_value_column(
     view: state.ConfiguratorState, width: int, report: setup_model.SetupParamReport
 ) -> list[text.Text]:
-    """The value readout head of the setup net (actor-critic mode)."""
+    """The value readout head of the setup net (actor-critic mode).
+
+    Reads the STATE-ONLY embedding — the action-independent deal stripes only —
+    so it is the critic ``V(s)``, invariant to the chosen keep."""
     cfg = view.working
     head_layers = report.value_head
     per_head = sum(layer.params for layer in head_layers)
     entries = _block_op_entries(
         view,
-        (*cfg.architecture.setup.hidden_layers, 1),
+        (*cfg.setup_arch.value_hidden_resolved, 1),
         _BlockKind.READOUT,
         head_layers,
         _SETUP_OP_FIELDS,
@@ -452,7 +453,7 @@ def _setup_value_column(
         view,
         section="setup_value",
         title="SETUP VALUE",
-        in_caption=[],
+        in_caption=[(f"in {report.value_in} (state only) → V(s)", theme.TEXT_DIM2)],
         entries=entries,
         sigma_total=per_head,
         out_caption=("→ ", "1"),
@@ -465,7 +466,10 @@ def _setup_value_column(
 def _setup_policy_column(
     view: state.ConfiguratorState, width: int, report: setup_model.SetupParamReport
 ) -> list[text.Text]:
-    """The policy readout head of the setup net (actor-critic mode)."""
+    """The policy readout head of the setup net (actor-critic mode).
+
+    Reads the FUSED state ⊕ action candidate embedding, so its logits rank the
+    keep candidates."""
     cfg = view.working
     policy_layers = (
         report.policy_head if report.policy_head is not None else report.value_head
@@ -486,7 +490,7 @@ def _setup_policy_column(
         view,
         section="setup_policy",
         title="SETUP POLICY",
-        in_caption=[],
+        in_caption=[(f"in {report.policy_in} (state ⊕ keep)", theme.TEXT_DIM2)],
         entries=entries,
         sigma_total=per_head,
         out_caption=("→ ", "1"),
@@ -1172,9 +1176,16 @@ def _choice_extra(cfg: config.RunConfig | _StaticConfig) -> int:
 
 
 def _setup_readout_in(cfg: config.RunConfig) -> int:
-    """The setup net's readout-MLP input width under the working main
-    architecture (whose embedder copies size the embedded candidate)."""
+    """The setup net's POLICY readout-MLP input width: the fused state ⊕ action
+    candidate embedding under the working main architecture (whose embedder
+    copies size the embedded candidate)."""
     return setup_model.setup_readout_input_dim(cfg.setup_encoding.total_dim, cfg.arch)
+
+
+def _setup_state_in(cfg: config.RunConfig) -> int:
+    """The setup net's VALUE head input width: the state-only embedding ``V(s)``
+    reads (action-independent stripes only)."""
+    return setup_model.setup_state_input_dim(cfg.setup_encoding, cfg.arch)
 
 
 def _setup_block(view: state.ConfiguratorState) -> setup_model.SetupParamReport:

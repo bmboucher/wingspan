@@ -46,14 +46,15 @@ import torch.nn.functional as F
 from torch import optim
 
 from wingspan import model
-from wingspan.training import collect, config, steps, timestamps
+from wingspan.training import collect, config, returns, steps, timestamps
 
 # Option-count bucket edges. A step with ``n`` candidates pads up to the
 # smallest edge ``>= n``; the 89.5% of decisions with <=4 options pad to 4 (not
 # 504), and the rare wide decisions get their own narrow bucket.
 _BUCKET_EDGES: tuple[int, ...] = (2, 4, 8, 16, 32, 64, 128, 256, 512, 2048)
 
-_ADV_STD_EPS = 1e-6
+# The advantage-normalization epsilon, shared with the setup learner via returns.
+_ADV_STD_EPS = returns.ADV_STD_EPS
 
 
 class UpdateStats(pydantic.BaseModel):
@@ -408,14 +409,10 @@ def _gae_flatten(
     for record in records:
         score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
 
-        # Terminal values (same logic as _decision_delta_returns).
-        if basis is config.RewardBasis.OWN_SCORE:
-            bonus_0 = end_bonus if record.winner == 0 else 0.0
-            bonus_1 = end_bonus if record.winner == 1 else 0.0
-            terminal = (score_0 + bonus_0, score_1 + bonus_1)
-        else:
-            bonus_0 = _winner_bonus(record.winner, end_bonus)
-            terminal = (score_0 - score_1 + bonus_0, score_1 - score_0 - bonus_0)
+        # Terminal values (shared with _terminal_margin_returns / _decision_delta_returns).
+        terminal = returns.terminal_values(
+            score_0, score_1, record.winner, end_bonus, basis
+        )
 
         n_record_steps = len(record.steps)
         out_adv = [0.0] * n_record_steps
@@ -494,23 +491,14 @@ def _terminal_margin_returns(
     """The end-of-game value from each step's player POV, broadcast to every step.
 
     With ``MARGIN`` basis, value = own − opponent score; seats get opposite signs.
-    ``end_game_bonus`` is added/subtracted symmetrically (``_winner_bonus``).
+    ``end_game_bonus`` is added/subtracted symmetrically (``returns.terminal_values``).
     With ``OWN_SCORE`` basis, value = player's own absolute score; both seats
     are positive and ``end_game_bonus`` is added only to the winner's score."""
     score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
-    if basis is config.RewardBasis.OWN_SCORE:
-        bonus_0 = end_game_bonus if record.winner == 0 else 0.0
-        bonus_1 = end_game_bonus if record.winner == 1 else 0.0
-        per_pov = (
-            (score_0 + bonus_0) / score_norm,
-            (score_1 + bonus_1) / score_norm,
-        )
-    else:
-        bonus_0 = _winner_bonus(record.winner, end_game_bonus)
-        per_pov = (
-            (score_0 - score_1 + bonus_0) / score_norm,
-            (score_1 - score_0 - bonus_0) / score_norm,
-        )
+    terminal_0, terminal_1 = returns.terminal_values(
+        score_0, score_1, record.winner, end_game_bonus, basis
+    )
+    per_pov = (terminal_0 / score_norm, terminal_1 / score_norm)
     return [per_pov[step.player_id] for step in record.steps]
 
 
@@ -536,13 +524,9 @@ def _decision_delta_returns(
     score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
 
     # Terminal value for each seat (the final ``v`` in the checkpoint sequence).
-    if basis is config.RewardBasis.OWN_SCORE:
-        bonus_0 = end_game_bonus if record.winner == 0 else 0.0
-        bonus_1 = end_game_bonus if record.winner == 1 else 0.0
-        terminal = (score_0 + bonus_0, score_1 + bonus_1)
-    else:
-        bonus_0 = _winner_bonus(record.winner, end_game_bonus)
-        terminal = (score_0 - score_1 + bonus_0, score_1 - score_0 - bonus_0)
+    terminal = returns.terminal_values(
+        score_0, score_1, record.winner, end_game_bonus, basis
+    )
 
     # Returns land back in record order, so route each player's discounted
     # returns through the global step index they were computed from.
@@ -564,16 +548,6 @@ def _decision_delta_returns(
         for position, idx in enumerate(indices):
             out[idx] = raw_returns[position] / score_norm
     return out
-
-
-def _winner_bonus(winner: int, end_game_bonus: float) -> float:
-    """Seat-0-POV bonus delta: ``+bonus`` when seat 0 wins, ``-bonus`` when seat 1
-    wins, ``0`` on a tie (``winner == -1``)."""
-    if winner == 0:
-        return end_game_bonus
-    if winner == 1:
-        return -end_game_bonus
-    return 0.0
 
 
 #### Minibatch helpers ####

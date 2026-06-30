@@ -222,14 +222,28 @@ dispatches to one of two paths based on `cfg.training.policy_loss` and
 - `_flatten` pairs each step with its MC return per `cfg.reward_mode`:
   `_terminal_margin_returns` broadcasts the end-of-game margin; for
   `decision_delta`, `_decision_delta_returns` discounts per-decision
-  `margin_before` deltas by γ^Δt into each step's return.
+  `margin_before` deltas by γ^Δt into each step's return. Both delegate the
+  terminal-value computation to `returns.terminal_values`.
+
+**`returns.py`** — the shared, torch-free training-return kernel both learners
+call. `winner_bonus(winner, end_game_bonus)` and
+`terminal_values(score_0, score_1, winner, end_game_bonus, basis)` give a game's
+per-seat terminal value; `setup_return(own, opp, won, margin_checkpoints,
+score_checkpoints, decision_times, final_timestamp, training)` evaluates the
+in-game return at the seat's `t=0` setup decision, so the setup critic trains on
+the same target as the main learner. `ADV_STD_EPS` is the shared
+advantage-whitening epsilon.
 
 **`setup_net.py`** — `SetupNet(arch: SetupArchitecture, ...)`: the setup
-model's MLP. Always actor-critic: value head predicts score margin; policy head
-outputs per-candidate logits for REINFORCE selection.
+model's MLP. Always actor-critic. The **policy head** (`policy_logits`) reads
+the fused state ⊕ action candidate; the **value head** (`forward`) reads a
+state-only embedding (`_embed_state`) so it is the critic `V(s)` — invariant to
+the chosen keep — not the post-keep `Q(s, a)`.
 
 **`setup_learner.py`** — `actor_critic_update(net, optimizer, samples, config, device)`:
-one REINFORCE + value-regression step over this iteration's `SetupSample` list.
+one REINFORCE + value-regression step. The baseline is `V(s)` (one forward per
+deal); the target is `returns.setup_return`; the advantage is whitened per-batch
+like the in-game learner, in a single combined optimizer step.
 
 ## Evaluation + metrics
 

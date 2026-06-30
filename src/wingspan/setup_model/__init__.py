@@ -24,6 +24,7 @@ from wingspan.setup_model.architecture import (
     SetupShapeKey,
     count_setup_parameters,
     setup_readout_input_dim,
+    setup_state_input_dim,
 )
 from wingspan.setup_model.candidates import (
     SetupCandidate,
@@ -62,5 +63,6 @@ __all__ = [
     "select_by_margins",
     "setup_readout_input_dim",
     "setup_readout_stripe_layout",
+    "setup_state_input_dim",
     "setup_stripe_layout",
 ]

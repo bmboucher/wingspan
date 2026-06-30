@@ -33,8 +33,28 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.1"
+MODEL_VERSION = "1.2"
 """The current artifact-compatibility version (the only place it is defined).
+
+1.2 is a **setup-artifact-only** MINOR FRESH bump. The separate setup model's
+value head becomes a state-only critic ``V(s)`` — reading only the
+action-independent deal stripes (tray, birdfeeder, round goals, bonus-on-offer)
+— instead of the former per-candidate ``Q(s, a)`` over the fused state ⊕ action
+vector. Its first ``Linear`` is therefore narrower (≈304 vs ≈568 by default) and
+old ``setup.pt`` weights no longer fit. The fix removes the action-dependent
+baseline that made the setup advantage self-cancel, and reconciles the setup
+target with the in-game return at ``t=0`` (``training.returns``; a
+shape-preserving REGIME change).
+
+The **main net's encoding and topology are unchanged**, so there is no
+``compat.v1_1`` shim and no ``encoding_dims_for_era`` entry — 1.2 main-net dims
+equal 1.1 equal live. Only the setup model is affected, and setup checkpoints are
+discarded, not migrated (a Q-trained fused value head has no faithful ``V(s)``
+reconstruction): a resumed run restarts its setup model fresh via
+``loop_setup.maybe_resume_setup``'s shape-mismatch path, and
+``players.loaders.load_setup_net`` refuses an incompatible ``setup.pt`` with a
+clear retrain message. A run pinned to an earlier same-MAJOR era keeps training
+its (unchanged) main net at that era while always building the live setup net.
 
 1.1 is the first MINOR FRESH bump on top of the 1.0 clean-break baseline. It
 introduces three changes:

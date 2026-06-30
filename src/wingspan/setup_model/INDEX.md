@@ -1,33 +1,37 @@
 # setup_model — Setup model (actor-critic bandit)
 
 Separately-trained model that scores initial bird-keep candidates at the start of
-each game. Trained actor-critic alongside the main policy net: the value head
-predicts the expected score margin for each setup; the policy head outputs
-per-candidate logits used for REINFORCE selection. Has its own architecture
-descriptor, encoder, and training sample type; the main policy net's checkpoint
-format is not coupled to it.
+each game. Trained actor-critic alongside the main policy net: the **policy head**
+reads the fused state ⊕ action candidate and ranks the keeps (REINFORCE); the
+**value head** reads a state-only embedding, so it is the critic `V(s)` —
+invariant to the chosen keep — rather than the post-keep `Q(s, a)` that made the
+old advantage self-cancel. Has its own architecture descriptor, encoder, and
+training sample type; the main policy net's checkpoint format is not coupled to it.
 
 ## Modules
 
 **`__init__.py`**
 
 **`architecture.py`** — `SetupArchitecture(trunk_layers=(), hidden_layers,
-activation, dropout, use_policy_head=True)` — frozen topology descriptor for the
-setup net. Optional `trunk_layers` inserts a shared body block before the
-value/policy split (empty = no trunk, exactly reproduces old behavior). Both heads
-read the trunk output; `trunk_layers=()` keeps old checkpoints loading via default
-deserialization. `shape_key(arch) -> tuple` — the checkpoint-invalidating subset
-of fields (now includes `trunk_layers`). `SetupParamReport` — typed accounting
-by embedder/trunk/value-head/policy-head, replacing the old flat `BlockParam`.
-`SetupEncoding` — the config-carried
-encoding descriptor; `include_playable_kept_cards: bool = True` (default since
-v1.1; enables a food-agnostic 180-dim playable-kept-cards multi-hot); total
-default dim = 488. `include_turn1_playable: bool = False` appends a turn-1-only
-playability multi-hot when enabled. `setup_readout_input_dim(feature_dim,
-main_arch, ...)` computes the MLP's first-Linear input width after embedding: one
-`pooled_hand_width`-wide set vector per included card-set stripe + `TRAY_SIZE ×
-card_embed_dim` for per-slot tray rows only (no tray-set embedding) + passthrough
-scalars. Default with `card_embed_dim=64`: 575 (= 125 + 2×129 + 192).
+activation, dropout, use_policy_head=True, value_trunk_layers=(),
+value_hidden_layers=())` — frozen topology descriptor for the setup net.
+`trunk_layers` / `hidden_layers` describe the **policy** path (over the fused
+candidate); `value_trunk_layers` / `value_hidden_layers` describe the separate
+state-only **value** path (empty `value_hidden_layers` reuses `hidden_layers` via
+`value_hidden_resolved`). `shape_key(arch) -> tuple` — the checkpoint-invalidating
+subset of fields, covering both paths. `SetupParamReport` — typed accounting by
+embedder / policy-trunk (`trunk`) / value-trunk (`value_trunk`) / `value_head` /
+`policy_head`, with `value_in` / `policy_in` per-head input widths.
+`SetupEncoding` — the config-carried encoding descriptor;
+`include_playable_kept_cards: bool = True` (default since v1.1); total default
+dim = 488. `include_turn1_playable: bool = False` appends a turn-1-only
+playability multi-hot when enabled. `bonus_cards_dim` is the on-offer multi-hot
+width (state, split-bonus only). `setup_readout_input_dim(feature_dim, main_arch,
+...)` computes the **policy** head's input width (fused candidate); default with
+`card_embed_dim=64`: 575. `setup_state_input_dim(encoding, main_arch)` computes
+the **value** head's narrower state-only input width (tray rows + feeder + goals +
+bonus-on-offer); 304 with split-bonus (= 192 + 6 + 80 + 26), 278 without (no
+bonus-state stripe).
 
 **`candidates.py`** — The keep-set options the setup model scores:
 - `SetupCandidate(kept_cards, kept_foods, bonus_card)` — one keep option (a
@@ -60,7 +64,12 @@ single game deal. `tuples_per_batch` defaults to 16 and is unused at runtime (wa
 used by the removed batch-deal random-phase path).
 
 **`record.py`** — `SetupSample(features, margin, iteration, chosen_idx,
-all_candidates)` — one actor-critic training sample. `features` is the encoded
-feature vector for the chosen setup; `margin` is the seat's end-of-game score
-margin; `chosen_idx` and `all_candidates` carry the data for REINFORCE gradient
-computation over all candidates.
+all_candidates, own_total, opp_total, won, margin_checkpoints, score_checkpoints,
+decision_times, final_timestamp)` — one actor-critic training sample. `features`
+is the encoded chosen setup; `chosen_idx` / `all_candidates` carry the REINFORCE
+data (V(s) is read from `all_candidates` row 0, whose state stripes are shared).
+`margin` is the realized end-of-game margin (dashboard readout); the remaining
+fields reproduce the in-game return at the `t=0` setup decision via
+`returns.setup_return` (own/opponent totals, seat-relative `won`, and the seat's
+per-decision checkpoint/time sequences for the discounted-return modes). The new
+fields default safely so older samples still deserialize.

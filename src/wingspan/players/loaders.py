@@ -158,7 +158,19 @@ def load_setup_net(
     )
     # No pre-1.0 shims remain: every loadable artifact uses the live setup net.
     net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
-    net_instance.load_state_dict(payload["setup_model"])
+    try:
+        net_instance.load_state_dict(payload["setup_model"])
+    except RuntimeError as error:
+        # A shape mismatch means the weights predate a setup-net topology change
+        # (e.g. the v1.2 state-only V(s) value head, whose Linear is narrower
+        # than the old fused Q head). Setup checkpoints are not migrated — refuse
+        # explicitly rather than surfacing an opaque torch size error.
+        raise version.IncompatibleArtifactError(
+            f"setup checkpoint at {ckpt_path} does not fit the live SetupNet "
+            f"architecture (artifact version {artifact_version}, code version "
+            f"{version.MODEL_VERSION}). Old setup models are discarded, not "
+            f"migrated — retrain the setup model."
+        ) from error
     net_instance.eval()
     return net_instance.to(device)
 

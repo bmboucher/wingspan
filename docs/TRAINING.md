@@ -831,11 +831,18 @@ actor-critic mode that adds a policy head and trains it with REINFORCE.
 
 #### How it works
 
-**Architecture.** When `setup_use_actor_critic=True`, `SetupNet` builds a second
-`policy_mlp` head alongside the existing value `mlp`, with identical shape. Both
-heads share the frozen card/hand embedder and the learned per-set embedding —
-only the final readout layers are separate. Toggle `SetupArchitecture.use_policy_head`
-in the shape key, so switching the flag invalidates and resets the setup checkpoint.
+**Architecture (v1.2).** `SetupNet` has two heads with **different inputs**. The
+`policy_mlp` reads the *fused* state ⊕ action candidate embedding and ranks the
+keeps. The value `mlp` reads a **state-only** embedding (`_embed_state`: tray
+rows + birdfeeder + round goals + bonus-on-offer) so it is the critic `V(s)` —
+invariant to the chosen keep — not the post-keep `Q(s, a)`. This is the load-bearing
+fix: with a per-candidate `Q(s, a_chosen)` baseline the advantage `margin − Q(s,a)`
+self-cancels (conditional mean ≈ 0 given the action), so the policy gets no
+gradient and the entropy bonus collapses the logits toward uniform — exactly the
+"setup scores in a narrow band" symptom. A state-only `V(s)` restores a real
+advantage. The value path has its own optional `value_trunk_layers` /
+`value_hidden_layers`; both head shapes and `use_policy_head` are in the shape key
+(a state-only value head is a setup-FRESH change — v1.2, see `docs/VERSIONING.md`).
 
 **Collection (MODEL_DRIVEN phase).** Instead of ranking candidates by the value
 head and picking the top-scoring one, `play_game_with_setup` calls
@@ -846,26 +853,40 @@ samples via softmax (`setup_policy_temperature` still applies). The full
 `SetupSample.chosen_idx`. These fields are **in-memory only** and are not
 persisted to the JSONL store — the offline bootstrap format is unchanged.
 
-**IPC cost.** Each sample carries a `(K, SETUP_FEATURE_DIM)` float16 array.
-With K=504 (bonus included) and `setup_model.SETUP_FEATURE_DIM = 308` (current),
-that is ~303 KB/sample, ~0.6 MB/game (two seats), ~155 MB/iteration at 256 games.
-That is no longer negligible — re-measure against the IPC budget, and note that
-`split_setup_bonus` (§6.6) halves K to 252, roughly halving this cost.
+**IPC cost.** Each sample carries a `(K, feature_dim)` float16 array (the
+dominant cost: K=504 bonus-included × the encoding's `total_dim`, ~hundreds of
+KB/sample; `split_setup_bonus` (§6.6) halves K to 252). v1.2 adds the seat's
+per-in-game-decision checkpoint/time sequences (`margin_checkpoints` /
+`score_checkpoints` / `decision_times`, ~tens of floats) plus a few scalars
+(`own_total`, `opp_total`, `won`, `final_timestamp`) so `returns.setup_return`
+can reproduce the discounted return — negligible against `all_candidates`.
 
-**Training (MODEL_DRIVEN phase).** One on-policy REINFORCE step replaces the
-plain MSE `online_update`:
+**Training (MODEL_DRIVEN phase).** One on-policy REINFORCE step. `V(s)` is
+computed **once per deal** from the state stripes (row 0 of `all_candidates`,
+whose state is shared across the K rows); the policy logits are forwarded per
+candidate-count group:
 
 ```
-advantage = (margin / score_norm) − value_pred.detach()   # actor sees critic only as a baseline
-log_probs  = log_softmax(policy_logits)                    # over all K candidates
-loss = pg_coef   * (−log_probs[chosen_idx] * advantage)   # REINFORCE
-     + value_coef * MSE(value_pred[chosen_idx], target)   # keep the critic honest
-     − entropy_coef * H(softmax(policy_logits))            # exploration bonus
+target  = returns.setup_return(...)            # in-game return at the t=0 setup decision
+V_s     = net(state_row)                        # state-only critic V(s), one per deal
+advantage = whiten(target − V_s.detach())       # per-batch (mean/std), like the in-game learner
+loss = pg_coef    * mean(−log_softmax(policy_logits)[chosen] · advantage)   # REINFORCE
+     + value_coef * MSE(V_s, target)                                        # critic regression
+     − entropy_coef * mean(H(softmax(policy_logits)))                       # exploration bonus
 ```
 
-The advantage is clamped to `[−10, 10]` for stability. Samples without
-`all_candidates` (e.g. RANDOM_RECORD samples replayed from the store) are
-silently skipped — only the on-policy MODEL_DRIVEN games contribute.
+`target` is the in-game return at the seat's `t=0` setup decision
+(`returns.setup_return`), so the setup and in-game value functions share one
+return definition under any `reward_mode` / `reward_discount` / `reward_basis` /
+`end_game_bonus`. At the default config it equals the legacy `margin / score_norm`.
+The advantage is whitened per-batch to zero-mean/unit-std (the in-game §3.3
+normalization, `returns.ADV_STD_EPS`) rather than clamped, and the whole iteration
+takes one combined optimizer step. Samples without `all_candidates` (e.g. an
+earlier random phase) are silently skipped — only on-policy MODEL_DRIVEN games
+contribute.
+
+**Margin readout.** The dashboard's predicted-vs-realized line now reports the
+mean `V(s) × score_norm` (the state value in points) against the realized margin.
 
 **The offline fit at `setup_train_iter` is unchanged.** It trains the value head
 via MSE on the bootstrap RANDOM_RECORD samples as before. The policy head first

@@ -594,8 +594,10 @@ def _setup_unit(
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> _Unit:
-    # Trunk (if present) + value head displayed as one continuous layer sequence.
-    all_layers = setup_param.trunk + setup_param.value_head
+    # Value-only fallback (use_policy_head=False, never used in practice): the
+    # state-only value path — value trunk (if present) + value head — as one
+    # continuous sequence. The critic is V(s), so it cannot rank keeps.
+    all_layers = setup_param.value_trunk + setup_param.value_head
     in_dim = all_layers[0].in_features
     status = "active" if use_setup_model else "off"
     return _Unit(
@@ -610,14 +612,14 @@ def _setup_unit(
             dropout=setup_arch.dropout,
         ),
         sigma_text=_count_text(setup_param.total),
-        in_label="setup input",
+        in_label="state only",
         in_count=in_dim,
-        out_label="score margin",
+        out_label="V(s)",
         out_count=1,
         tooltip=(
             f"Setup Model ({status}) · {_count_text(setup_param.total)} params incl. the "
             f"frozen card / hand encoder copies · {in_dim} → 1 "
-            f"(predicted end-game score margin)"
+            f"(state-only critic V(s))"
         ),
         dashed=not use_setup_model,
         panel=PANEL_SETUP,
@@ -654,12 +656,14 @@ def _build_setup_unit(
         if setup_param.trunk
         else ()
     )
+    # The header carries the frozen embedders + the (policy-path) trunk, which
+    # reads the fused state ⊕ action candidate; the value sub-unit reads its own
+    # narrower state-only embedding (``value_in``).
     embed_in = (
-        setup_param.trunk[0].in_features
-        if setup_param.trunk
-        else setup_param.value_head[0].in_features
+        setup_param.trunk[0].in_features if setup_param.trunk else setup_param.policy_in
     )
-    head_in = setup_param.head_in
+    value_in = setup_param.value_in
+    policy_in = setup_param.policy_in
     header_sigma = setup_param.embedder_params + setup_param.trunk_params
     status = "active" if use_setup_model else "off"
     header_title = "SETUP TRUNK"
@@ -684,13 +688,14 @@ def _build_setup_unit(
             dropout=setup_arch.dropout,
         ),
         sigma_text=_count_text(value_params),
-        in_label="setup input",
-        in_count=head_in,
-        out_label="score margin",
+        in_label="state only",
+        in_count=value_in,
+        out_label="V(s)",
         out_count=1,
         tooltip=(
-            f"Setup Value Head · {_count_text(value_params)} params · {head_in} → 1 "
-            "(predicted end-game score margin)"
+            f"Setup Value Head · {_count_text(value_params)} params · {value_in} → 1 "
+            "(state-only critic V(s): tray / feeder / goals / bonus-on-offer, "
+            "invariant to the chosen keep)"
         ),
         dashed=not use_setup_model,
         params_key=PARAMS_BLOCK_TOTAL,
@@ -706,13 +711,13 @@ def _build_setup_unit(
             dropout=setup_arch.dropout,
         ),
         sigma_text=_count_text(policy_params),
-        in_label="setup input",
-        in_count=head_in,
+        in_label="state ⊕ keep",
+        in_count=policy_in,
         out_label="log policy",
         out_count=1,
         tooltip=(
-            f"Setup Policy Head · {_count_text(policy_params)} params · {head_in} → 1 "
-            "(log-probabilities over kept-card subsets)"
+            f"Setup Policy Head · {_count_text(policy_params)} params · {policy_in} → 1 "
+            "(log-probabilities over kept-card subsets, from the fused candidate)"
         ),
         dashed=not use_setup_model,
         params_key=PARAMS_BLOCK_TOTAL,

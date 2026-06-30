@@ -310,11 +310,12 @@ def _compute_setup_scores_and_probs(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Score every choice in ``decision`` through the setup net.
 
-    Returns ``(scores, probs, vecs)`` where ``scores`` is the raw per-choice
-    score vector — policy logits in actor-critic mode, value margins in
-    value-only mode — ``probs`` is the softmax distribution, and ``vecs`` is
-    the ``(N, D)`` matrix of raw candidate feature vectors, all aligned to
-    ``decision.choices``."""
+    Returns ``(scores, probs, vecs)`` where ``scores`` is the per-choice policy
+    logit vector (actor-critic mode, the only mode used in practice), ``probs``
+    is the softmax distribution, and ``vecs`` is the ``(N, D)`` matrix of raw
+    candidate feature vectors, all aligned to ``decision.choices``. The value
+    head is the state-only critic ``V(s)`` — identical across candidates — so a
+    value-only net cannot rank keeps; that fallback scores them uniformly."""
     context = setup_model.SetupContext.from_state(eng.state, decision.dealt_bonus)
 
     # Encode each choice using the same candidate → feature-vector path the
@@ -331,12 +332,12 @@ def _compute_setup_scores_and_probs(
     )
     feats = torch.tensor(vecs, dtype=torch.float32, device=device)
 
-    # Mirror collect.py: actor-critic nets use policy logits for selection;
-    # value-only nets use the predicted score margins.
+    # Mirror collect.py: actor-critic nets rank candidates by policy logits. The
+    # value-only fallback reads the state-only V(s), identical for every
+    # candidate of a deal — a uniform (degenerate) ranking, never used in practice.
     with torch.no_grad():
         if net_instance.arch.use_policy_head:
-            policy_logits, _ = net_instance.policy_and_value(feats)
-            scores = policy_logits.cpu().numpy()
+            scores = net_instance.policy_logits(feats).cpu().numpy()
         else:
             scores = net_instance(feats).cpu().numpy()
 

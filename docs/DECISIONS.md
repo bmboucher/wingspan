@@ -670,18 +670,22 @@ The opening (keep some of 5 dealt birds, retain the complementary foods, take
 a bonus card) is scored by one of two owners, on the `use_setup_model` config
 axis:
 
-- **`use_setup_model = True` (default):** a separate value-regression bandit
+- **`use_setup_model = True` (default):** a separate actor-critic bandit
   (`wingspan.setup_model` + `training.setup_net`) scores the enumerated
   candidates and the main net drops everything setup-shaped (head, decision
-  column, `setup_agg` stripe). Its input vector is, in brief: a kept-cards
-  multi-hot, a kept-foods multi-hot, and a kept-bonus one-hot, plus per-deal
-  context (the three tray card indices, the six birdfeeder face counts, and
-  the four round-goal one-hots), plus two candidate-pricing blocks — the kept
+  column, `setup_agg` stripe). Its per-candidate input vector is, in brief: a
+  kept-cards multi-hot, a kept-foods multi-hot, and a kept-bonus one-hot, plus
+  per-deal context (the three tray card indices, the six birdfeeder face counts,
+  and the four round-goal one-hots), plus two candidate-pricing blocks — the kept
   bonus valued against the keep (kept qualifiers, the stepped / linear VP
   they would pay, tray potential) and a per-goal kept-card affinity (how many
   kept cards would advance each goal's category if played) — with the
   card-identity blocks embedded through frozen copies of the main net's
-  shared card encoders.
+  shared card encoders. The **policy head** reads this whole fused vector to
+  rank candidates; the **value head** reads only the action-independent *context*
+  stripes (tray / birdfeeder / round goals, plus the bonus-cards-on-offer multi-hot
+  in split-bonus mode), so it is the critic `V(s)` and the advantage `target − V(s)`
+  no longer self-cancels (v1.2; see `docs/TRAINING.md §6.5`, `docs/VERSIONING.md`).
 - **`use_setup_model = False`:** the main net keeps a `SETUP` head and scores
   the same candidates as ordinary choice rows (the kept birds as a multi-hot
   on the dedicated trailing `kept_multihot` stripe — the single-candidate

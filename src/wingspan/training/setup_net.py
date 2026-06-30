@@ -1,17 +1,25 @@
-"""The setup model network: a value-regressor (and optional policy head) over a
-setup candidate, reading the main net's card representations.
+"""The setup model network: an actor-critic over a setup candidate, reading the
+main net's card representations.
 
 ``SetupNet`` consumes one
-:func:`wingspan.setup_model.encode.encode_setup_candidate` feature vector and
-emits either one or two scalars depending on whether the actor-critic mode is
-enabled (``arch.use_policy_head``):
+:func:`wingspan.setup_model.encode.encode_setup_candidate` feature vector
+through two heads with **different inputs**:
 
-* **Value-only** (default): ``forward(features)`` returns ``(B,)`` predicted
-  score margins.  The setup policy is a softmax over these predicted margins for
-  all 504 candidate keeps (``setup_model.select_by_margins``).
-* **Actor-critic**: ``forward`` still returns value scalars (backward compat);
-  ``policy_and_value(features)`` returns ``(policy_logits (B,), value_preds (B,))``.
-  Candidate selection uses policy logits; training uses REINFORCE + value MSE.
+* **Policy head** (``policy_logits`` / selection + REINFORCE actor): reads the
+  FUSED state ⊕ action embedding — the full per-candidate vector — so its logits
+  rank candidate keeps. Candidate selection at collection time uses these logits.
+* **Value head** (``forward`` / the critic ``V(s)``): reads a STATE-ONLY
+  embedding — only the action-independent stripes (tray, birdfeeder, round goals,
+  and the bonus-cards-on-offer multi-hot in ``split_bonus`` mode). Its output is
+  therefore identical for every keep candidate of a deal: a true value baseline,
+  not the post-keep ``Q(s, a)``. This is what makes the setup advantage
+  ``target − V(s)`` carry a real gradient (``docs/TRAINING.md §6.5``);
+  ``policy_and_value`` returns ``(policy_logits (B,), value_preds (B,))`` for
+  inspection, but the learner computes ``V(s)`` once per deal via ``forward``.
+
+Because ``V(s)`` ignores the action, candidate ranking REQUIRES the policy head
+(``arch.use_policy_head=True``, always set in practice); a value-only
+configuration would score every candidate identically.
 
 The card-identity blocks are embedded in-net through copies of the main net's
 two shared embedders, built from the same :func:`wingspan.model.mlp.build_body` recipe
@@ -118,22 +126,23 @@ class SetupNet(nn.Module):
             persistent=False,
         )
 
-        # Shared trunk: layers before the value/policy split.
-        # Empty trunk_layers → nn.Identity (no state_dict keys, so old
-        # checkpoints load cleanly via load_state_dict).
+        # ---- Policy path: optional trunk + policy head over the FUSED
+        # (state ⊕ action) per-candidate embedding. Empty trunk_layers →
+        # nn.Identity (no state_dict keys, so a trunk-less checkpoint loads
+        # cleanly via load_state_dict). ----
         readout_in = setup_model.setup_readout_input_dim(
             encoding.total_dim,
             main_arch,
             include_turn1_playable=encoding.include_turn1_playable,
             include_playable_kept_cards=encoding.include_playable_kept_cards,
         )
-        head_in = readout_in
+        policy_head_in = readout_in
         if arch.trunk_layers:
-            trunk_seq, head_in = mlp.build_body(
+            trunk_seq, policy_head_in = mlp.build_body(
                 readout_in,
                 arch.trunk_layers,
                 # Trunk uses between_activation as its final activation so the
-                # trunk output is nonlinear before the heads' first Linear.
+                # trunk output is nonlinear before the head's first Linear.
                 between_activation=arch.between_activation,
                 final_activation=arch.between_activation,
                 dropout=arch.dropout,
@@ -143,21 +152,11 @@ class SetupNet(nn.Module):
         else:
             self.trunk = nn.Identity()
 
-        # Value head: the trainable readout MLP predicting score margin.
-        self.mlp = mlp.build_readout(
-            head_in,
-            arch.hidden_layers,
-            between_activation=arch.between_activation,
-            final_activation=arch.final_activation,
-            dropout=arch.dropout,
-        )
-
-        # Policy head: a second readout MLP of identical architecture whose
-        # logits drive candidate selection and REINFORCE training. Present only
-        # when ``arch.use_policy_head`` is True (actor-critic mode).
+        # Policy head: logits over candidate keeps for selection + REINFORCE.
+        # Present only when ``arch.use_policy_head`` is True (always, in practice).
         self.policy_mlp: nn.Sequential | None = (
             mlp.build_readout(
-                head_in,
+                policy_head_in,
                 arch.hidden_layers,
                 between_activation=arch.between_activation,
                 final_activation=arch.final_activation,
@@ -165,6 +164,35 @@ class SetupNet(nn.Module):
             )
             if arch.use_policy_head
             else None
+        )
+
+        # ---- Value path: optional trunk + value head over the STATE-ONLY
+        # embedding (``setup_state_input_dim``). The critic is a function of the
+        # deal state alone — ``V(s)``, not ``Q(s, a)`` — so the setup advantage
+        # ``target − V(s)`` no longer self-cancels (``docs/TRAINING.md §6.5``). ----
+        state_in = setup_model.setup_state_input_dim(encoding, main_arch)
+        value_head_in = state_in
+        if arch.value_trunk_layers:
+            value_trunk_seq, value_head_in = mlp.build_body(
+                state_in,
+                arch.value_trunk_layers,
+                between_activation=arch.between_activation,
+                final_activation=arch.between_activation,
+                dropout=arch.dropout,
+                layernorm=False,
+            )
+            self.value_trunk: nn.Module = value_trunk_seq
+        else:
+            self.value_trunk = nn.Identity()
+
+        # Value head: the trainable readout MLP predicting the normalized return
+        # ``V(s)`` (in ``score_norm`` units) from the state-only embedding.
+        self.mlp = mlp.build_readout(
+            value_head_in,
+            arch.value_hidden_resolved,
+            between_activation=arch.between_activation,
+            final_activation=arch.final_activation,
+            dropout=arch.dropout,
         )
 
     def _build_card_encoder(self, main_arch: architecture.ModelArchitecture) -> None:
@@ -202,30 +230,41 @@ class SetupNet(nn.Module):
         )
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        """Score a batch of setup candidates via the value head: ``(B, feature_dim)`` -> ``(B,)``.
+        """The state-only critic ``V(s)``: ``(B, feature_dim)`` -> ``(B,)``.
 
-        Card-set multi-hots (kept cards and any appended playability stripes)
-        become pooled or encoder-embedded set vectors; the tray index columns
-        become ``TRAY_SIZE`` per-slot card-table rows; all remaining blocks pass
-        through to the value readout MLP in their encoded order."""
-        return self.mlp(self.trunk(self._embed(features))).squeeze(-1)
+        Reads *only* the action-independent stripes of each candidate vector
+        (the tray as ``TRAY_SIZE`` per-slot card-table rows, plus the raw
+        birdfeeder / round-goal passthrough and — in ``split_bonus`` mode — the
+        bonus-cards-on-offer multi-hot), so the prediction is identical for every
+        keep candidate of a deal: a true value baseline, not ``Q(s, a)``."""
+        return self.mlp(self.value_trunk(self._embed_state(features))).squeeze(-1)
+
+    def policy_logits(self, features: torch.Tensor) -> torch.Tensor:
+        """Per-candidate selection logits via the policy head: ``(B, feature_dim)`` -> ``(B,)``.
+
+        Reads the FUSED state ⊕ action embedding (card-set multi-hots become
+        pooled/encoder set vectors; the tray becomes per-slot card-table rows;
+        all other blocks pass through). Requires ``arch.use_policy_head=True``;
+        raises ``RuntimeError`` otherwise."""
+        if self.policy_mlp is None:
+            raise RuntimeError(
+                "policy_logits called on a SetupNet without a policy head "
+                "(arch.use_policy_head=False)"
+            )
+        return self.policy_mlp(self.trunk(self._embed(features))).squeeze(-1)
 
     def policy_and_value(
         self, features: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Score a batch via both heads: ``(B, feature_dim)`` -> ``(policy_logits (B,), value_preds (B,))``.
 
-        Requires ``arch.use_policy_head=True``; raises ``RuntimeError`` otherwise.
-        Both heads run on the same embedded representation, computed once."""
-        if self.policy_mlp is None:
-            raise RuntimeError(
-                "policy_and_value called on a SetupNet without a policy head "
-                "(arch.use_policy_head=False)"
-            )
-        embedded = self.trunk(self._embed(features))
-        policy_logits = self.policy_mlp(embedded).squeeze(-1)
-        value_preds = self.mlp(embedded).squeeze(-1)
-        return policy_logits, value_preds
+        The policy head reads the fused state ⊕ action embedding; the value head
+        reads the state-only embedding, so ``value_preds`` is constant across the
+        candidates of one deal (it is ``V(s)``, ignoring the action). Requires
+        ``arch.use_policy_head=True``; raises ``RuntimeError`` otherwise. The
+        learner computes ``V(s)`` once per deal via ``forward`` rather than over
+        every candidate; this convenience pairing is for inspection/tests."""
+        return self.policy_logits(features), self.forward(features)
 
     def card_table(self) -> torch.Tensor:
         """The frozen ``[181, M]`` card table: the constant card-feature matrix
@@ -293,6 +332,48 @@ class SetupNet(nn.Module):
             [kept_emb, passthrough, tray_slot_emb, feeder_goals_rest] + appended,
             dim=-1,
         )
+
+    def _embed_state(self, features: torch.Tensor) -> torch.Tensor:
+        """The state-only readout input for the value head ``V(s)``.
+
+        Gathers *only* the action-independent stripes — the tray (as
+        ``TRAY_SIZE`` per-slot card-table rows), the raw birdfeeder + round-goal
+        passthrough, and (in ``split_bonus`` mode) the bonus-cards-on-offer
+        multi-hot. These stripes are byte-identical across every keep candidate
+        of a deal, so the value head's output is invariant to the chosen action.
+
+        The stripes are NON-CONTIGUOUS in the raw vector (the keep-dependent
+        ``kept_bonus_value`` / ``goal_affinity`` sit between goals and the
+        appended sets, and the bonus-block affinity sits right after the on-offer
+        multi-hot), so this is a stripe-aware gather by ``SetupEncoding`` offsets,
+        never a single slice. Order: tray rows ⊕ feeder ⊕ goals ⊕ bonus-on-offer,
+        matching ``setup_model.setup_state_input_dim``."""
+        card_table = self._card_table_for_pass()  # (181, M)
+        enc = self.encoding
+
+        # Tray -> 3 M-dim card-table rows (state; same path as ``_embed``).
+        tray_idx = (
+            features[..., enc.off_tray : enc.off_feeder]
+            .long()
+            .clamp_(0, encode.HAND_MULTIHOT_DIM)
+        )
+        tray_slot_emb = card_table[tray_idx].reshape(*tray_idx.shape[:-1], -1)
+
+        # Birdfeeder + round goals: raw passthrough between off_feeder and the
+        # start of the keep-dependent pricing block (off_bonus_value == end of goals).
+        feeder = features[..., enc.off_feeder : enc.off_goals]
+        goals = features[..., enc.off_goals : enc.off_bonus_value]
+
+        parts = [tray_slot_emb, feeder, goals]
+        if enc.split_bonus:
+            # Leading ``bonus_cards_dim`` of the bonus block = the on-offer
+            # multi-hot (state); the trailing 2 affinity dims are action.
+            parts.append(
+                features[
+                    ..., enc.off_bonus_block : enc.off_bonus_block + enc.bonus_cards_dim
+                ]
+            )
+        return torch.cat(parts, dim=-1)
 
     def _embed_card_set(
         self, multihot: torch.Tensor, card_table: torch.Tensor

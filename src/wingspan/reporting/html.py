@@ -368,8 +368,10 @@ def generate_html_report(
                 input_note=(
                     "post-embedding network input — raw candidate features after "
                     "the kept-card multi-hot and tray indices are replaced by "
-                    "frozen encoder embeddings (matches the arch diagram's "
-                    "‘in N’)"
+                    "frozen encoder embeddings. This fused state ⊕ action vector "
+                    "is the POLICY head's input (arch diagram ‘state ⊕ keep’); "
+                    "the value head reads only the action-independent state "
+                    "subset (tray / feeder / goals / bonus-on-offer) → V(s)"
                 ),
                 annotation=setup_annotation,
             ),
