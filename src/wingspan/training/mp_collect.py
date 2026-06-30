@@ -37,6 +37,7 @@ import logging
 import os
 import pathlib
 import random
+import threading
 import typing
 from concurrent import futures
 
@@ -211,6 +212,8 @@ class ProcessCollector:
         )
         self._num_workers = num_workers or _default_worker_count(cfg.run.games_per_iter)
         self._pool: futures.ProcessPoolExecutor | None = None
+        self._pool_lock = threading.Lock()
+        self._terminated = False
         self._weights_version = 0
         self._setup_weights_version = 0
         # The opponent file is rewritten only when the generation advances; -1
@@ -371,26 +374,55 @@ class ProcessCollector:
                 on_progress(len(margins), n_games)
         return evaluate.summarize_eval(margins, opponent_generation)
 
+    def terminate(self) -> None:
+        """Forcibly kill all worker processes immediately, abandoning any in-flight
+        games. Used for a fast (<1s) shutdown that discards the current iteration's
+        partial work. Idempotent; thread-safe vs the worker's pool use."""
+        with self._pool_lock:
+            self._terminated = True
+            if self._pool is not None:
+                # _processes is the live {pid: Process} registry — not public API,
+                # but the only way to kill in-flight workers instantly. Accessing it
+                # here, inside ProcessCollector, is deliberate intra-package coupling.
+                for (
+                    proc
+                ) in (
+                    self._pool._processes.values()
+                ):  # pyright: ignore[reportPrivateUsage]
+                    proc.kill()
+                self._pool.shutdown(wait=False, cancel_futures=True)
+                self._pool = None
+        self._remove_broadcast_files()
+
     def close(self) -> None:
         """Shut the pool down (waiting for in-flight games) and remove the
         broadcast weights files. Idempotent."""
-        if self._pool is not None:
-            self._pool.shutdown(wait=True, cancel_futures=True)
-            self._pool = None
-        self._weights_path.unlink(missing_ok=True)
-        self._opponent_path.unlink(missing_ok=True)
-        self._setup_weights_path.unlink(missing_ok=True)
+        with self._pool_lock:
+            if self._pool is not None:
+                self._pool.shutdown(wait=True, cancel_futures=True)
+                self._pool = None
+        self._remove_broadcast_files()
 
     ###### PRIVATE #######
 
     def _ensure_pool(self) -> futures.ProcessPoolExecutor:
-        if self._pool is None:
-            self._pool = futures.ProcessPoolExecutor(
-                max_workers=self._num_workers,
-                initializer=_worker_init,
-                initargs=(self._arch,),
-            )
-        return self._pool
+        with self._pool_lock:
+            if self._terminated:
+                raise RuntimeError("collector terminated")
+            if self._pool is None:
+                self._pool = futures.ProcessPoolExecutor(
+                    max_workers=self._num_workers,
+                    initializer=_worker_init,
+                    initargs=(self._arch,),
+                )
+            return self._pool
+
+    def _remove_broadcast_files(self) -> None:
+        """Unlink the on-disk broadcast files. Called by both ``terminate`` and
+        ``close``; ``missing_ok`` makes it idempotent regardless of order."""
+        self._weights_path.unlink(missing_ok=True)
+        self._opponent_path.unlink(missing_ok=True)
+        self._setup_weights_path.unlink(missing_ok=True)
 
     def _broadcast_weights(self, net: model.PolicyValueNet) -> None:
         """Write the current policy weights to the versioned file (every

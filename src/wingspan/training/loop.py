@@ -136,8 +136,17 @@ class TrainingLoop:
     # ------------------------------------------------------------------
 
     def request_stop(self) -> None:
-        """Ask the loop to finish the current game and shut down gracefully."""
+        """Abandon the current iteration and shut down immediately.
+
+        Sets the stop flag and force-terminates the collection pool so in-flight
+        games (which may run for minutes) die at once. The current iteration's
+        partial data is discarded; the last completed iteration is already
+        checkpointed to ``last.pt`` and a resume starts from there.
+        """
         self._stop.set()
+        collector = self._collector
+        if collector is not None:
+            collector.terminate()
 
     @property
     def stopped(self) -> bool:
@@ -176,7 +185,12 @@ class TrainingLoop:
         try:
             iteration = self._start_iteration
             while not self._stop.is_set() and not self._reached_limit(iteration):
-                self._run_iteration(iteration)
+                try:
+                    self._run_iteration(iteration)
+                except Exception:
+                    if self._stop.is_set():
+                        break  # pool terminated mid-iteration by a hard stop — discard, exit
+                    raise
                 if loop_target.handle_target_if_reached(self, iteration):
                     break  # user chose "end" → exit the iteration loop
                 iteration += 1
@@ -265,6 +279,8 @@ class TrainingLoop:
             self, iteration, setup_enabled, dagger_active=imitation_phase
         )
         collect_seconds = time.monotonic() - collect_start
+        if self._stop.is_set():
+            return  # stop requested mid-collection — discard this iteration
         if not records:
             return  # stopped before completing any game this iteration
 

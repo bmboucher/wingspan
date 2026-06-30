@@ -151,7 +151,10 @@ and returns steps via IPC (fp16-compressed for bandwidth). The pool is kept
 alive across iterations to amortize process-spawn cost. `_WorkerArch` carries
 `encoding_version` so workers rebuild the era's net class
 (`PolicyValueNet.class_for_version`) for both their own net and the eval
-opponent.
+opponent. Two shutdown paths: `close()` waits for in-flight games (normal end
+of run); `terminate()` kills worker processes immediately and discards the
+current iteration (called by `TrainingLoop.request_stop()` for sub-second
+Ctrl+C / SIGTERM response — see `COLLECTORS.md`).
 
 **`batched_collect.py`** — `BatchedCollector`: batched-forward collection for
 the CUDA path. Runs multiple game environments in lockstep, forwarding a batch

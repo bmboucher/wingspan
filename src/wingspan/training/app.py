@@ -9,8 +9,9 @@ Training runs on a background thread and mutates the shared
 lock) to render, so the display never blocks on training work and the two
 wall-clocks tick smoothly every frame.
 
-``Ctrl+C`` requests a graceful stop: the loop finishes the current game, writes
-a final checkpoint, and the dashboard shows the shutdown before the screen is
+``Ctrl+C`` requests a fast stop: the worker pool is killed immediately, the
+current iteration's partial data is discarded, and the last completed iteration's
+checkpoint is preserved. The dashboard shows the shutdown before the screen is
 restored and a plain-text summary is printed.
 
 When the training loop reaches its ``target_iterations`` milestone it pauses and

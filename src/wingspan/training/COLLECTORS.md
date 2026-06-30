@@ -34,3 +34,19 @@ All three return the same `collect.GameRecord` objects, so every downstream
 aggregate (`loop`, `metrics`) is collector-agnostic. `mp_collect` returns them in
 completion order rather than seed order; downstream aggregates are
 order-independent.
+
+## Shutdown: `close()` vs `terminate()`
+
+`ProcessCollector` has two shutdown paths:
+
+| Method | Wait for in-flight? | Use when |
+|--------|---------------------|----------|
+| `close()` | Yes (`shutdown(wait=True)`) | Normal end of run — all games finish, then files are removed |
+| `terminate()` | No — workers are killed (`proc.kill()`) | Ctrl+C / SIGTERM — discard the current iteration, exit in <1s |
+
+`terminate()` is called by `TrainingLoop.request_stop()`. In-flight games die
+instantly; the `BrokenProcessPool` or `RuntimeError` propagating up through
+`collect_games` is swallowed by the loop's stop-guard `try/except` so the run
+reaches `Phase.STOPPED` cleanly. A subsequent `collect_games` call raises
+`RuntimeError("collector terminated")` immediately so no new pool is spawned
+after a terminate.

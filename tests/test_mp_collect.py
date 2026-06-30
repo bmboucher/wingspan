@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+# (test accesses ProcessCollector._pool to poll for pool startup — deliberate)
 """Tests for the process-parallel self-play collector (``mp_collect``).
 
 These spawn a small worker pool, so they exercise the real Windows-spawn path:
@@ -10,6 +12,8 @@ and the small net keeps every per-decision forward pass cheap.
 from __future__ import annotations
 
 import pathlib
+import threading
+import time
 
 import torch
 
@@ -167,3 +171,64 @@ def test_eval_empty_is_noop(tmp_path: pathlib.Path) -> None:
         collector.close()
     assert result.n_games == 0
     assert result.win_rate == 0.0
+
+
+def test_terminate_before_pool_is_noop(tmp_path: pathlib.Path) -> None:
+    """terminate() on a never-used collector does not raise and leaves no _mp_* files."""
+    cfg = _small_config(tmp_path)
+    collector = mp_collect.ProcessCollector(cfg, num_workers=2)
+    collector.terminate()  # pool never created — must not raise
+    assert not list(tmp_path.glob("_mp_*.pt"))
+    assert not list(tmp_path.glob("_mp_*.pt.tmp"))
+
+
+def test_terminate_kills_workers_and_is_fast(tmp_path: pathlib.Path) -> None:
+    """terminate() kills in-flight workers immediately and returns in under a second.
+
+    A background thread starts a collect (which spawns workers and submits games);
+    we wait for the pool to exist, then call terminate() from the main thread and
+    assert it returns quickly and that a subsequent collect_games raises.
+    """
+    cfg = _small_config(tmp_path)
+    net = _small_net(cfg)
+    device = torch.device("cpu")
+    collector = mp_collect.ProcessCollector(cfg, num_workers=2)
+
+    collect_error: list[Exception] = []
+
+    def _run_collect() -> None:
+        try:
+            # A large seed list keeps workers busy long enough for terminate() to land.
+            seeds = list(range(200, 232))
+            collector.collect_games(net, device, seeds)
+        except Exception as error:  # noqa: BLE001
+            collect_error.append(error)
+
+    bg = threading.Thread(target=_run_collect, daemon=True)
+    bg.start()
+
+    # Wait until the pool is up (workers spawned and accepting tasks).
+    deadline = time.monotonic() + 30.0
+    while collector._pool is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert collector._pool is not None, "pool never started within 30s"
+
+    # terminate() must return quickly.
+    terminate_start = time.monotonic()
+    collector.terminate()
+    elapsed = time.monotonic() - terminate_start
+    assert elapsed < 2.0, f"terminate() took {elapsed:.2f}s — expected < 2s"
+
+    bg.join(timeout=10.0)
+    assert not bg.is_alive(), "background collect thread did not finish within 10s"
+
+    # The background collect should have raised (BrokenProcessPool or RuntimeError).
+    assert collect_error, "expected collect_games to raise after terminate()"
+
+    # A subsequent call must raise RuntimeError (not silently spawn a new pool).
+    try:
+        collector.collect_games(net, device, [1, 2])
+        raised = False
+    except RuntimeError:
+        raised = True
+    assert raised, "collect_games after terminate() should raise RuntimeError"

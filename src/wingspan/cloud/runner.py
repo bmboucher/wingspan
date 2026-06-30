@@ -248,12 +248,15 @@ class HeadlessRunner:
     #### Signals + sleep ####
 
     def _install_signal_handlers(self) -> None:
-        """Route SIGTERM / SIGINT to a graceful stop (runs on the main thread)."""
+        """Route SIGTERM / SIGINT to a fast stop (runs on the main thread)."""
 
         def _handler(signum: int, _frame: types.FrameType | None) -> None:
-            _LOG.info("signal %d received — requesting graceful stop", signum)
+            _LOG.info("signal %d received — requesting stop", signum)
             self._stop_requested = True
             if self._training is not None:
+                # request_stop kills the worker pool immediately; the current
+                # iteration's partial data is discarded and _final_sync uploads
+                # the already-checkpointed last.pt.
                 self._training.request_stop()
             self._wake.set()
 
