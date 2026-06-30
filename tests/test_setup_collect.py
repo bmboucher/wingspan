@@ -41,7 +41,7 @@ def _generator() -> setup_model.RandomSetupGenerator:
 
 def test_model_driven_self_play_records_both_seats():
     setup_policy_net = setup_net.SetupNet(
-        arch=setup_model.SetupArchitecture(hidden_layers=(16,))
+        arch=setup_model.SetupArchitecture(head_layers=(16,))
     )
     record = collect.play_game_with_setup(
         _net(),
@@ -63,7 +63,7 @@ def test_model_driven_self_play_records_both_seats():
 
 def test_vs_random_records_only_net_seat():
     setup_policy_net = setup_net.SetupNet(
-        arch=setup_model.SetupArchitecture(hidden_layers=(16,))
+        arch=setup_model.SetupArchitecture(head_layers=(16,))
     )
     record = collect.play_game_with_setup(
         _net(),

@@ -42,20 +42,21 @@ def test_playable_kept_cards_stripe_layout_with_flag_on():
     assert "playable_kept_cards" in stripe_names
 
 
-def test_playable_kept_cards_readout_stripe_layout_sums_correctly():
-    """setup_readout_stripe_layout sums to setup_readout_input_dim with flag on."""
+def test_state_and_choice_stripe_layouts_sum_correctly():
+    """setup_state_stripe_layout / setup_choice_stripe_layout each sum to their dim
+    function, and together to the fused readout width (the partition identity)."""
     encoding = arch_module.SetupEncoding(include_playable_kept_cards=True)
     from wingspan.setup_model import stripes as setup_stripes
 
     main_arch = architecture.ModelArchitecture()
-    layout = setup_stripes.setup_readout_stripe_layout(encoding, main_arch)
-    expected = arch_module.setup_readout_input_dim(
-        encoding.total_dim,
-        main_arch,
-        include_playable_kept_cards=True,
-    )
-    assert layout.total_size == expected
-    assert sum(stripe.size for stripe in layout.stripes) == expected
+    state_layout = setup_stripes.setup_state_stripe_layout(encoding, main_arch)
+    choice_layout = setup_stripes.setup_choice_stripe_layout(encoding, main_arch)
+    state_in = arch_module.setup_state_input_dim(encoding, main_arch)
+    choice_in = arch_module.setup_choice_input_dim(encoding, main_arch)
+    assert state_layout.total_size == state_in
+    assert sum(stripe.size for stripe in state_layout.stripes) == state_in
+    assert choice_layout.total_size == choice_in
+    assert sum(stripe.size for stripe in choice_layout.stripes) == choice_in
 
 
 def test_split_food_plus_playable_kept_cards_layout():
@@ -78,21 +79,26 @@ def test_sub_fields_stay_within_their_stripe():
 
 def test_html_report_documents_active_setup_model():
     html = _report_html(use_setup_model=True)
-    assert "id='setup'" in html
-    assert "Setup Vector" in html
-    assert "SETUP TRUNK" in html
+    assert "id='setup_state'" in html
+    assert "id='setup_choice'" in html
+    assert "Setup State Vector" in html
+    assert "Setup Choice Vector" in html
+    assert "STATE TRUNK" in html
+    assert "CHOICE TRUNK" in html
     assert "SETUP VALUE" in html
-    # The default encoding's total_dim (488) should appear in the HTML report.
-    assert str(arch_module.SetupEncoding().total_dim) in html
+    assert "SETUP POLICY" in html
     assert "(separate)" in html
     assert "not active this run" not in html
 
 
 def test_html_report_documents_inactive_setup_model():
     html = _report_html(use_setup_model=False)
-    assert "id='setup'" in html
-    assert "Setup Vector" in html
-    assert "SETUP TRUNK" in html
+    assert "id='setup_state'" in html
+    assert "id='setup_choice'" in html
+    assert "Setup State Vector" in html
+    assert "Setup Choice Vector" in html
+    assert "STATE TRUNK" in html
+    assert "CHOICE TRUNK" in html
     assert "SETUP VALUE" in html
     assert "not active this run" in html
 
@@ -123,7 +129,8 @@ def test_html_report_arch_svg_content():
 def test_html_report_arch_svg_setup_off():
     html = _report_html(use_setup_model=False)
     assert "MULTI-CARD POOLING" in html
-    assert "SETUP TRUNK" in html
+    assert "STATE TRUNK" in html
+    assert "CHOICE TRUNK" in html
 
 
 ###### PRIVATE #######

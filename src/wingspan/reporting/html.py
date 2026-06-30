@@ -307,15 +307,15 @@ def generate_html_report(
     feature-vector dimension for parameter accounting and the post-embedding
     layout for the vector breakdown table.
     """
-    # The post-embedding layout is what the readout MLP actually receives (and
-    # what the breakdown table displays). The raw total_dim is what
-    # count_setup_parameters expects as feature_dim — passing the post-embedding
-    # size instead would double-apply the embedding transform, inflating the
-    # reported input count.
-    setup_layout = setup_model.setup_readout_stripe_layout(setup_encoding, arch)
+    # The post-embedding layouts are what the trunks actually receive (and what the
+    # breakdown tables display): the raw candidate features after the kept-card
+    # multi-hots and tray indices are replaced by frozen encoder embeddings. The
+    # state stripes feed the state trunk; the choice (action) stripes feed the
+    # choice trunk. ``count_setup_parameters`` derives every width from the encoding.
+    setup_state_layout = setup_model.setup_state_stripe_layout(setup_encoding, arch)
+    setup_choice_layout = setup_model.setup_choice_stripe_layout(setup_encoding, arch)
     setup_param = setup_model.count_setup_parameters(
         setup_arch,
-        feature_dim=setup_encoding.total_dim,
         main_arch=arch,
         encoding=setup_encoding,
     )
@@ -361,17 +361,29 @@ def generate_html_report(
                 choice_layout, report_svg.PANEL_CHOICE, "Choice Vector", _ACCENT_CHOICE
             ),
             _vector_section(
-                setup_layout,
-                report_svg.PANEL_SETUP,
-                "Setup Vector",
+                setup_state_layout,
+                report_svg.PANEL_SETUP_STATE,
+                "Setup State Vector",
                 _ACCENT_SETUP,
                 input_note=(
-                    "post-embedding network input — raw candidate features after "
-                    "the kept-card multi-hot and tray indices are replaced by "
-                    "frozen encoder embeddings. This fused state ⊕ action vector "
-                    "is the POLICY head's input (arch diagram ‘state ⊕ keep’); "
-                    "the value head reads only the action-independent state "
-                    "subset (tray / feeder / goals / bonus-on-offer) → V(s)"
+                    "post-embedding STATE-trunk input — the action-independent deal "
+                    "stripes (tray as card-table rows, birdfeeder, round goals, and "
+                    "the bonus-cards-on-offer multi-hot in split-bonus mode). The "
+                    "state trunk encodes this into the shared state encoding; the "
+                    "value head reads it alone → V(s)"
+                ),
+                annotation=setup_annotation,
+            ),
+            _vector_section(
+                setup_choice_layout,
+                report_svg.PANEL_SETUP_CHOICE,
+                "Setup Choice Vector",
+                _ACCENT_SETUP,
+                input_note=(
+                    "post-embedding CHOICE-trunk input — the keep-dependent (action) "
+                    "stripes (kept-card / playability sets, kept foods, the bonus "
+                    "action, kept-bonus pricing and goal affinity). The choice trunk "
+                    "encodes this; the policy head scores state ⊕ choice encodings"
                 ),
                 annotation=setup_annotation,
             ),
@@ -759,7 +771,9 @@ def _arch_section(
         f"<div class='section-header' style='color:{_ACCENT_ARCH}'>Architecture</div>"
         f"<div class='section-sub'>"
         f"Network flow — single-card + multi-card encoders → state encoder"
-        f" ⊕ choice encoder → decision heads + value head · connected setup net"
+        f" ⊕ choice encoder → decision heads + value head · connected two-tower"
+        f" setup net (state vector → state trunk → V(s); choice vector → choice"
+        f" trunk → policy over state ⊕ choice)"
         f"</div>"
         f"<div class='arch-svg-wrap'>{svg}</div>"
         f"<div class='click-hint'>Click an input box to inspect that vector's "

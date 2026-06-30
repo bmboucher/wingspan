@@ -594,7 +594,9 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "head_final_activation": ("architecture", "main", "head_final_activation"),
     # architecture.setup section
     "setup_trunk_layers": ("architecture", "setup", "trunk_layers"),
-    "setup_hidden_layers": ("architecture", "setup", "hidden_layers"),
+    "setup_choice_layers": ("architecture", "setup", "choice_layers"),
+    "setup_head_layers": ("architecture", "setup", "head_layers"),
+    "setup_value_layers": ("architecture", "setup", "value_layers"),
     "setup_between_activation": ("architecture", "setup", "between_activation"),
     "setup_final_activation": ("architecture", "setup", "final_activation"),
     "setup_dropout": ("architecture", "setup", "dropout"),
@@ -1457,21 +1459,45 @@ FIELD_SPECS: list[FieldSpec] = [
     ),
     LayersField(
         attr="setup_trunk_layers",
-        label="trunk layers",
+        label="state trunk layers",
         group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
         unit="units",
         impact=ChangeImpact.REGIME,
         visible_when=_use_setup,
-        help="Shared trunk widths before the value/policy split. Empty = no trunk.",
+        help="State trunk widths (shared; encodes the action-independent stripes "
+        "into the state encoding both heads read).",
     ),
     LayersField(
-        attr="setup_hidden_layers",
-        label="head layers",
+        attr="setup_choice_layers",
+        label="choice trunk layers",
         group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
         unit="units",
         impact=ChangeImpact.REGIME,
         visible_when=_use_setup,
-        help="Per-head MLP hidden widths (value + policy). Changing restarts only the setup net.",
+        help="Choice trunk widths (encodes the action stripes into the choice "
+        "encoding the policy head reads).",
+    ),
+    LayersField(
+        attr="setup_head_layers",
+        label="policy head layers",
+        group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.REGIME,
+        visible_when=_use_setup,
+        help="Policy head MLP hidden widths (over state ⊕ choice encodings). "
+        "Empty = a single bare Linear. Changing restarts only the setup net.",
+    ),
+    LayersField(
+        attr="setup_value_layers",
+        label="value head layers",
+        group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
+        unit="units",
+        min_len=0,
+        impact=ChangeImpact.REGIME,
+        visible_when=_use_setup,
+        help="Value head MLP hidden widths (over the state encoding). "
+        "Empty = a single bare Linear.",
     ),
     ChoiceField(
         attr="setup_between_activation",

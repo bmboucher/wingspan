@@ -49,7 +49,7 @@ def _loop_config(tmp_path: pathlib.Path) -> config.TrainConfig:
                 choice_layers=(32, 32),
                 card_embed_dim=8,
             ),
-            setup=config.SetupNetArchitecture(hidden_layers=(16,)),
+            setup=config.SetupNetArchitecture(head_layers=(16,)),
         ),
     )
 
@@ -64,7 +64,7 @@ def test_card_block_frozen_regardless_hand_block_per_main_arch():
     distinct = setup_net.SetupNet(main_arch=_DISTINCT_MAIN)
     assert all(not p.requires_grad for p in distinct.card_encoder.parameters())
     assert all(not p.requires_grad for p in distinct.hand_encoder.parameters())
-    assert all(p.requires_grad for p in distinct.mlp.parameters())
+    assert all(p.requires_grad for p in distinct.value_head.parameters())
 
     meanpool = setup_net.SetupNet(main_arch=_MEANPOOL_MAIN)
     assert all(not p.requires_grad for p in meanpool.card_encoder.parameters())
@@ -116,12 +116,11 @@ def test_sync_copies_main_weights_and_resyncs_after_update(tmp_path: pathlib.Pat
 
 
 def test_count_setup_parameters_matches_numel_both_modes():
-    setup_arch = setup_model.SetupArchitecture(hidden_layers=(32, 16))
+    setup_arch = setup_model.SetupArchitecture(head_layers=(32, 16))
     for main_arch in (_DISTINCT_MAIN, _MEANPOOL_MAIN):
         net = setup_net.SetupNet(arch=setup_arch, main_arch=main_arch)
         block = setup_model.count_setup_parameters(
             setup_arch,
-            feature_dim=net.feature_dim,
             main_arch=main_arch,
             encoding=net.encoding,
         )
@@ -150,7 +149,7 @@ def test_train_mode_pins_frozen_submodules_to_eval():
     assert distinct.training
     assert not distinct.card_encoder.training
     assert not distinct.hand_encoder.training
-    assert distinct.mlp.training
+    assert distinct.value_head.training
 
     meanpool = setup_net.SetupNet(main_arch=_MEANPOOL_MAIN)
     meanpool.train()

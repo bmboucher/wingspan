@@ -16,7 +16,7 @@ def _config() -> config.TrainConfig:
     return config.RunConfig(
         architecture=config.ArchitectureConfig(
             use_setup_model=True,
-            setup=config.SetupNetArchitecture(hidden_layers=(32, 16)),
+            setup=config.SetupNetArchitecture(head_layers=(32, 16)),
         ),
         training=config.TrainingConfig(
             score_norm=50.0,

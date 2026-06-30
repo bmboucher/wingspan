@@ -239,24 +239,26 @@ class MainNetArchitecture(pydantic.BaseModel):
 
 
 class SetupNetArchitecture(pydantic.BaseModel):
-    """Topology fields for the setup-model MLP.
+    """Topology fields for the setup-model two-tower net.
 
-    ``trunk_layers`` / ``hidden_layers`` describe the policy path (over the fused
-    state ⊕ action embedding); ``value_trunk_layers`` / ``value_hidden_layers``
-    describe the separate state-only value path (``V(s)``). Empty
-    ``value_hidden_layers`` reuses ``hidden_layers`` at the narrower state-only
-    input width.
+    Mirrors :class:`wingspan.setup_model.SetupArchitecture`: ``trunk_layers`` is the
+    state trunk (shared, over the action-independent stripes), ``choice_layers`` the
+    choice trunk (over the action stripes), ``head_layers`` the policy head (over
+    ``cat(state_enc, choice_enc)``), and ``value_layers`` the value head (over
+    ``state_enc``).
     """
 
-    trunk_layers: architecture.Widths = ()
-    hidden_layers: typing.Annotated[
+    trunk_layers: typing.Annotated[
         architecture.Widths, pydantic.Field(min_length=1)
-    ] = (128, 64)
+    ] = (128,)
+    choice_layers: typing.Annotated[
+        architecture.Widths, pydantic.Field(min_length=1)
+    ] = (128,)
+    head_layers: architecture.Widths = (128,)
+    value_layers: architecture.Widths = ()
     between_activation: architecture.ActivationName = architecture.ActivationName.RELU
     final_activation: architecture.ActivationName = architecture.ActivationName.NONE
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
-    value_trunk_layers: architecture.Widths = ()
-    value_hidden_layers: architecture.Widths = ()
 
     @pydantic.model_validator(mode="before")
     @classmethod
@@ -635,13 +637,13 @@ class RunConfig(pydantic.BaseModel):
         setup = self.architecture.setup
         return setup_model.SetupArchitecture(
             trunk_layers=setup.trunk_layers,
-            hidden_layers=setup.hidden_layers,
+            choice_layers=setup.choice_layers,
+            head_layers=setup.head_layers,
+            value_layers=setup.value_layers,
             between_activation=setup.between_activation,
             final_activation=setup.final_activation,
             dropout=setup.dropout,
             use_policy_head=True,
-            value_trunk_layers=setup.value_trunk_layers,
-            value_hidden_layers=setup.value_hidden_layers,
         )
 
     @property
@@ -928,7 +930,9 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
     }
     setup_arch_keys = {
         "setup_trunk_layers": "trunk_layers",
-        "setup_hidden_layers": "hidden_layers",
+        "setup_choice_layers": "choice_layers",
+        "setup_head_layers": "head_layers",
+        "setup_value_layers": "value_layers",
         "setup_activation": "activation",
         "setup_dropout": "dropout",
     }

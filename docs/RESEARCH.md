@@ -75,9 +75,10 @@ analysis harness wires them together:
 
 `ModelArchitecture` exposes independent width lists for every submodel: card
 encoder (`card_encoder_layers` → EMBED), state trunk (`trunk_layers`), choice
-encoder (`choice_layers`), value head (`value_layers`), plus a separate setup
-net (`setup_hidden_layers`). All six submodels are independently sizable, and
-per-decision-family head sizing is also fully supported (see below).
+encoder (`choice_layers`), value head (`value_layers`), plus the two-tower setup
+net (`setup_trunk_layers` / `setup_choice_layers` / `setup_head_layers` /
+`setup_value_layers`). All are independently sizable, and per-decision-family head
+sizing is also fully supported (see below).
 
 - [ ] **Define the lite/heavy presets** per submodel (EMBED / TRUNK / CHOICE / per-head SCORER / VALUE / setup), as a small set of named `ModelArchitecture`/`TrainConfig` presets.
 - [ ] **Sweep launcher.** Generate one run-file per (submodel→heavy, rest lite) cell plus an all-lite baseline, and start them as independent runs. The `wingspan-monitor` roster already compares live runs; what's missing is emitting the configs.

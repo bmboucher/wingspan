@@ -234,11 +234,15 @@ in-game return at the seat's `t=0` setup decision, so the setup critic trains on
 the same target as the main learner. `ADV_STD_EPS` is the shared
 advantage-whitening epsilon.
 
-**`setup_net.py`** — `SetupNet(arch: SetupArchitecture, ...)`: the setup
-model's MLP. Always actor-critic. The **policy head** (`policy_logits`) reads
-the fused state ⊕ action candidate; the **value head** (`forward`) reads a
-state-only embedding (`_embed_state`) so it is the critic `V(s)` — invariant to
-the chosen keep — not the post-keep `Q(s, a)`.
+**`setup_net.py`** — `SetupNet(arch: SetupArchitecture, ...)`: a two-tower
+actor-critic mirroring `model.PolicyValueNet`. A shared **state trunk**
+(`trunk_layers`) over `_embed_state` produces `state_enc` (cached once per pass via
+`_state_enc`); a **choice trunk** (`choice_layers`) over the new `_embed_choice`
+produces `choice_enc`. The **value head** (`forward`) reads `state_enc` only, so it
+is the critic `V(s)` — invariant to the chosen keep — not the post-keep `Q(s, a)`;
+the **policy head** (`policy_logits`) reads `state_enc ⊕ choice_enc`.
+`_embed_state` / `_embed_choice` are stripe-aware gathers that partition the
+embedded candidate (state stripes vs action stripes).
 
 **`setup_learner.py`** — `actor_critic_update(net, optimizer, samples, config, device)`:
 one REINFORCE + value-regression step. The baseline is `V(s)` (one forward per

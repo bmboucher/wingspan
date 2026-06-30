@@ -715,7 +715,8 @@ def test_arch_diagram_renders_all_sizes(width: int, height: int):
 def test_arch_diagram_all_blocks_present():
     out = _box_diagram(_arch_state())
     for block in (
-        "SETUP INPUT",  # actor-critic mode: title is "SETUP INPUT · shared embedder"
+        "SETUP STATE",  # the setup net's state trunk column (actor-critic mode)
+        "SETUP CHOICE",  # the setup net's choice trunk column
         "CARD ENCODER",
         "STATE TRUNK",
         "CHOICE ENC",
@@ -726,14 +727,15 @@ def test_arch_diagram_all_blocks_present():
 
 
 def test_arch_diagram_setup_box_toggles():
-    # With use_setup_model=True the setup box always shows "SETUP INPUT" (always AC).
+    # With use_setup_model=True the setup net's two trunk columns show.
     on_ac = _box_diagram(_arch_state())
-    assert "SETUP INPUT" in on_ac
+    assert "SETUP STATE" in on_ac
+    assert "SETUP CHOICE" in on_ac
     assert "SETUP MODEL" not in on_ac
 
     # use_setup_model=False shows the "off" placeholder.
     off = _box_diagram(_arch_state(use_setup_model=False))
-    assert "SETUP INPUT" not in off
+    assert "SETUP STATE" not in off
     assert "SETUP MODEL" not in off
     assert "setup model · off" in off
 
@@ -856,7 +858,7 @@ def test_arch_diagram_setup_param_count_matches_net():
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         architecture=config.ArchitectureConfig(
-            setup=config.SetupNetArchitecture(hidden_layers=(32, 16))
+            setup=config.SetupNetArchitecture(head_layers=(32, 16))
         ),
     )
     net = setup_net.SetupNet(
@@ -866,7 +868,6 @@ def test_arch_diagram_setup_param_count_matches_net():
     )
     block = setup_model.count_setup_parameters(
         cfg.setup_arch,
-        feature_dim=net.feature_dim,
         main_arch=cfg.arch,
         encoding=net.encoding,
     )

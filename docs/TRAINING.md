@@ -831,18 +831,24 @@ actor-critic mode that adds a policy head and trains it with REINFORCE.
 
 #### How it works
 
-**Architecture (v1.2).** `SetupNet` has two heads with **different inputs**. The
-`policy_mlp` reads the *fused* state ⊕ action candidate embedding and ranks the
-keeps. The value `mlp` reads a **state-only** embedding (`_embed_state`: tray
-rows + birdfeeder + round goals + bonus-on-offer) so it is the critic `V(s)` —
-invariant to the chosen keep — not the post-keep `Q(s, a)`. This is the load-bearing
-fix: with a per-candidate `Q(s, a_chosen)` baseline the advantage `margin − Q(s,a)`
-self-cancels (conditional mean ≈ 0 given the action), so the policy gets no
-gradient and the entropy bonus collapses the logits toward uniform — exactly the
-"setup scores in a narrow band" symptom. A state-only `V(s)` restores a real
-advantage. The value path has its own optional `value_trunk_layers` /
-`value_hidden_layers`; both head shapes and `use_policy_head` are in the shape key
-(a state-only value head is a setup-FRESH change — v1.2, see `docs/VERSIONING.md`).
+**Architecture (v1.3).** `SetupNet` is a two-tower actor-critic mirroring the
+in-game `PolicyValueNet`. A shared **state trunk** (`trunk_layers`) encodes the
+action-independent stripes (`_embed_state`: tray rows + birdfeeder + round goals +
+bonus-on-offer) into `state_enc`; a separate **choice trunk** (`choice_layers`)
+encodes the action stripes (`_embed_choice`: kept/playability sets + foods + bonus
+action + affinities) into `choice_enc`. The **value head** (`value_layers`) reads
+`state_enc` only, so it is the critic `V(s)` — invariant to the chosen keep — not
+the post-keep `Q(s, a)`. This is the load-bearing fix: with a per-candidate
+`Q(s, a_chosen)` baseline the advantage `margin − Q(s,a)` self-cancels (conditional
+mean ≈ 0 given the action), so the policy gets no gradient and the entropy bonus
+collapses the logits toward uniform — exactly the "setup scores in a narrow band"
+symptom. A state-only `V(s)` restores a real advantage. The **policy head**
+(`head_layers`) reads `cat(state_enc, choice_enc)` and ranks the keeps. The shared
+state trunk feeds both heads, so the value baseline is now coupled to the policy
+trunk's learned representation — a deliberate REGIME-style consequence of the
+two-tower design (the in-game net works the same way). All four width fields plus
+`use_policy_head` are in the shape key (the two-tower restructure is a setup-FRESH
+change — v1.3, see `docs/VERSIONING.md`).
 
 **Collection (MODEL_DRIVEN phase).** Instead of ranking candidates by the value
 head and picking the top-scoring one, `play_game_with_setup` calls

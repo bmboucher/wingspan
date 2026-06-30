@@ -15,7 +15,8 @@ policy-head logits.
 The network's card-embedding blocks are *not* described here — they are frozen
 copies of the main net's shared embedders, so their shapes come from the main
 :class:`~wingspan.architecture.ModelArchitecture` (threaded into
-:func:`setup_readout_input_dim` / :func:`count_setup_parameters`).
+:func:`setup_state_input_dim` / :func:`setup_choice_input_dim` /
+:func:`count_setup_parameters`).
 
 Kept torch-free (only ``pydantic`` / ``enum``) so ``config`` and ``setup_runmeta``
 can import it without pulling in torch, mirroring why ``ModelArchitecture`` lives
@@ -28,7 +29,7 @@ import typing
 
 import pydantic
 
-from wingspan import architecture, cards, encode, state
+from wingspan import architecture, encode, state
 
 # Fixed block sizes shared by SetupEncoding and encode.py.
 _KEPT_CARDS_DIM = 180  # cards.n_birds() — stable core-set count
@@ -145,75 +146,65 @@ class SetupEncoding(pydantic.BaseModel):
         return base
 
 
-# A setup-net shape signature: the policy trunk widths, the policy-head hidden
-# widths, whether the policy head is present, and the value path's trunk + hidden
-# widths (the value head reads a state-only embedding of a different width than
-# the policy head, so its shape is keyed separately). Activation / dropout are
-# excluded — they leave tensor shapes intact and a resumed run may change them
+# A setup-net shape signature mirroring the in-game two-tower net: the state-trunk
+# widths, the choice-trunk widths, the policy-head widths, the value-head widths,
+# and whether the policy head (and choice trunk) are present. Activation / dropout
+# are excluded — they leave tensor shapes intact and a resumed run may change them
 # without invalidating the saved weights.
 type SetupShapeKey = tuple[
-    tuple[int, ...], tuple[int, ...], bool, tuple[int, ...], tuple[int, ...]
+    tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...], bool
 ]
 
 
 class SetupArchitecture(pydantic.BaseModel):
-    """The reconstitutable topology of a :class:`wingspan.training.setup_net.SetupNet`'s
-    readout MLP.
+    """The reconstitutable topology of a :class:`wingspan.training.setup_net.SetupNet`,
+    a two-tower actor-critic mirroring :class:`wingspan.architecture.ModelArchitecture`.
 
-    ``trunk_layers`` is an optional shared trunk before the value/policy split:
-    ``(128,)`` inserts one shared ``Linear → ReLU`` layer whose output feeds both
-    heads. Empty (the default) means no trunk — both heads read the embedded
-    input directly, exactly reproducing the pre-trunk behavior.
+    The field names mirror the in-game net's descriptor exactly:
 
-    ``hidden_layers`` is ordered input-to-output for each head: ``(64,)`` is a
-    one-layer head projecting to 64 before the final scalar readout. Reuses
+    * ``trunk_layers`` — the **state trunk**, encoding the action-independent
+      stripes (``setup_state_input_dim``) into a shared ``state_enc``. Its output
+      feeds *both* heads, so the value and policy heads share a learned state
+      representation (the point of the two-tower design).
+    * ``choice_layers`` — the **choice trunk**, encoding the action stripes
+      (``setup_choice_input_dim``) into ``choice_enc``; feeds the policy head only.
+    * ``head_layers`` — the **policy head** (actor), reading ``cat(state_enc,
+      choice_enc)`` and producing the per-candidate selection logit.
+    * ``value_layers`` — the **value head** (critic ``V(s)``), reading ``state_enc``
+      only. Because ``V(s)`` is a function of state alone, the setup advantage
+      ``target − V(s)`` does not self-cancel (``docs/TRAINING.md §6.5``).
+
+    Each width tuple is ordered input-to-output. Reuses
     :data:`wingspan.architecture.Widths` and
     :class:`wingspan.architecture.ActivationName` so the configurator's layer /
-    activation editors apply unchanged.
-
-    ``between_activation`` is applied after each hidden-layer ``Linear`` in both
-    the trunk and the heads; ``final_activation`` (defaults to NONE) would be
-    applied after the final ``Linear(·, 1)`` — keep NONE for the standard
-    bare-scalar readout. The trunk always uses ``between_activation`` as its own
-    final activation so no nonlinearity is skipped between trunk and heads.
-
-    ``trunk_layers`` / ``hidden_layers`` describe the **policy** path, which reads
-    the fused per-candidate (state ⊕ action) embedding. The **value** path is a
-    separate state-only critic ``V(s)`` reading only the action-independent
-    stripes (``setup_state_input_dim``); ``value_trunk_layers`` is its optional
-    trunk and ``value_hidden_layers`` its head widths (empty reuses
-    ``hidden_layers``). Because ``V(s)`` is a function of state alone, the setup
-    advantage ``target − V(s)`` no longer self-cancels (``docs/TRAINING.md §6.5``).
+    activation editors apply unchanged. ``between_activation`` is applied after
+    each hidden ``Linear`` in the trunks and heads; the trunks additionally use it
+    as their own final activation so ``state_enc`` / ``choice_enc`` are nonlinear
+    before the heads' first ``Linear``. ``final_activation`` (default NONE) follows
+    the heads' final ``Linear(·, 1)`` — keep NONE for the standard bare-scalar
+    readout.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    # Empty default keeps old artifacts loading identically (the sanctioned
-    # "new fields default to reproduce old behavior" back-compat mechanism).
-    trunk_layers: architecture.Widths = ()
-    hidden_layers: typing.Annotated[
+    # The state trunk (over the action-independent stripes); shared by both heads.
+    trunk_layers: typing.Annotated[
         architecture.Widths, pydantic.Field(min_length=1)
-    ] = (
-        128,
-        64,
-    )
+    ] = (128,)
+    # The choice trunk (over the action stripes); feeds the policy head only.
+    choice_layers: typing.Annotated[
+        architecture.Widths, pydantic.Field(min_length=1)
+    ] = (128,)
+    # The policy head (over cat(state_enc, choice_enc)).
+    head_layers: architecture.Widths = (128,)
+    # The value head (over state_enc). Empty → a single bare Linear(state_enc, 1).
+    value_layers: architecture.Widths = ()
     between_activation: architecture.ActivationName = architecture.ActivationName.RELU
     final_activation: architecture.ActivationName = architecture.ActivationName.NONE
     dropout: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] = 0.0
     # Always True: the setup net always trains actor-critic (value + policy heads).
-    # Included in the shape key because it doubles the readout Linear layers.
+    # When False (value-only) there is no choice trunk and no policy head.
     use_policy_head: bool = True
-    # The state-only value path. ``value_trunk_layers=()`` → no value trunk;
-    # ``value_hidden_layers=()`` → the value head reuses ``hidden_layers``.
-    value_trunk_layers: architecture.Widths = ()
-    value_hidden_layers: architecture.Widths = ()
-
-    @property
-    def value_hidden_resolved(self) -> architecture.Widths:
-        """The value head's hidden widths: ``value_hidden_layers`` when set,
-        otherwise ``hidden_layers`` (so an unset value path mirrors the policy
-        head's depth at the narrower state-only input width)."""
-        return self.value_hidden_layers or self.hidden_layers
 
     @pydantic.model_validator(mode="before")
     @classmethod
@@ -231,58 +222,59 @@ class SetupArchitecture(pydantic.BaseModel):
 
     @property
     def shape_key(self) -> SetupShapeKey:
-        """The readout MLPs' weight-compatibility signature (everything that
-        changes one of *their* tensor shapes), covering both the policy path
-        (``trunk_layers`` / ``hidden_layers``) and the state-only value path
-        (``value_trunk_layers`` / ``value_hidden_resolved``). The embedder copies'
+        """The net's weight-compatibility signature (everything that changes one of
+        its tensor shapes): the state trunk, the choice trunk, the policy head, the
+        value head, and whether the policy head is present. The embedder copies'
         shapes ride the main architecture and are keyed separately
         (``TrainConfig.setup_architecture_key``)."""
         return (
             self.trunk_layers,
-            self.hidden_layers,
+            self.choice_layers,
+            self.head_layers,
+            self.value_layers,
             self.use_policy_head,
-            self.value_trunk_layers,
-            self.value_hidden_resolved,
         )
 
 
-def setup_readout_input_dim(
-    feature_dim: int,
-    main_arch: architecture.ModelArchitecture,
-    *,
-    include_turn1_playable: bool = False,
-    include_playable_kept_cards: bool = False,
+def setup_choice_input_dim(
+    encoding: SetupEncoding, main_arch: architecture.ModelArchitecture
 ) -> int:
-    """The setup readout MLP's first-``Linear`` input width.
+    """The setup **choice/policy** trunk's first-``Linear`` input width: the
+    action-dependent (keep) stripes only.
 
-    The raw ``feature_dim`` vector is transformed by replacing each card-set
-    multi-hot with a set embedding (pooled or encoder, matching the main net's
-    path) and the tray index columns with ``TRAY_SIZE`` ``M``-wide card-table
-    rows (``M = card_embed_dim``). The tray no longer carries a set embedding —
-    only per-slot rows. The set embedding width ``W`` is
-    ``main_arch.pooled_hand_width`` when not using a distinct hand model
-    (the default), or ``main_arch.hand_embed_width`` otherwise.
+    The choice trunk reads everything ``V(s)`` does not: the kept-cards set
+    (embedded as one ``W``-wide set vector, ``W = main_arch.pooled_hand_width``
+    when not using a distinct hand model, else ``main_arch.hand_embed_width``),
+    kept foods (omitted in ``split_food`` mode), the bonus action (the folded
+    ``kept_bonus`` one-hot, or the ``bonus_card_affinity`` min/max in
+    ``split_bonus`` mode), ``kept_bonus_value`` (folded mode only), the per-round
+    ``goal_affinity``, and each appended playability multi-hot (``turn1_playable``
+    / ``playable_kept_cards``) embedded as one extra set vector.
 
-    When ``include_turn1_playable`` or ``include_playable_kept_cards`` is active,
-    each trailing 180-dim multi-hot is embedded as one extra ``W``-wide set
-    embedding and its raw dims are subtracted from passthrough."""
+    Together with :func:`setup_state_input_dim` this partitions the embedded
+    candidate vector exactly: ``setup_choice_input_dim + setup_state_input_dim``
+    equals the fused readout width the prior single-tower net used."""
     set_width = (
         main_arch.hand_embed_width
         if main_arch.use_distinct_hand_model
         else main_arch.pooled_hand_width
     )
-    passthrough = feature_dim - cards.n_birds() - state.TRAY_SIZE
-    n_card_sets = 1  # kept set
-    for flag in (include_turn1_playable, include_playable_kept_cards):
-        if flag:
-            # Each appended 180-dim multi-hot is embedded as a card set:
-            # subtract the raw dims from passthrough, add one set embedding.
-            passthrough -= _KEPT_CARDS_DIM
-            n_card_sets += 1
+    foods = 0 if encoding.split_food else _KEPT_FOODS_DIM
+    # The bonus block minus its leading on-offer (state) stripe: the folded
+    # kept_bonus one-hot (26) or the split bonus_card_affinity min/max (2).
+    bonus_action = encoding.bonus_block_dim - encoding.bonus_cards_dim
+    bonus_value = 0 if encoding.split_bonus else _KEPT_BONUS_VALUE_DIM
+    n_card_sets = (
+        1  # kept set
+        + int(encoding.include_turn1_playable)
+        + int(encoding.include_playable_kept_cards)
+    )
     return (
-        passthrough
-        + n_card_sets * set_width
-        + state.TRAY_SIZE * main_arch.card_embed_dim
+        n_card_sets * set_width
+        + foods
+        + bonus_action
+        + bonus_value
+        + _GOAL_AFFINITY_DIM
     )
 
 
@@ -310,52 +302,54 @@ def setup_state_input_dim(
 class SetupParamReport(pydantic.BaseModel):
     """Per-block parameter accounting for a :class:`wingspan.training.setup_net.SetupNet`.
 
-    Breaks the setup net into tiers: the frozen embedder copies
-    (``embedder_params``), the **policy** trunk (``trunk``, over the fused
-    state ⊕ action embedding; empty when ``trunk_layers=()``), the **value**
-    trunk (``value_trunk``, over the state-only embedding; empty when
-    ``value_trunk_layers=()``), and the per-head readout MLPs
-    (``value_head`` / ``policy_head``). The value head reads a narrower
-    state-only input than the policy head. Built by
-    :func:`count_setup_parameters`; its ``total`` equals ``sum(p.numel())``
-    of the real module — the architecture diagram's per-op and Σ source.
+    Breaks the two-tower setup net into tiers: the frozen embedder copies
+    (``embedder_params``), the **state trunk** (``state_trunk``, over the
+    action-independent stripes; feeds both heads), the **choice trunk**
+    (``choice_trunk``, over the action stripes; empty in value-only mode), and the
+    per-head readout MLPs — ``value_head`` reads ``state_enc`` and ``policy_head``
+    reads ``cat(state_enc, choice_enc)``. Built by :func:`count_setup_parameters`;
+    its ``total`` equals ``sum(p.numel())`` of the real module — the architecture
+    diagram's per-op and Σ source.
     """
 
     embedder_params: int
-    # The policy trunk (over the fused state ⊕ action embedding).
-    trunk: tuple[architecture.LayerParam, ...]
-    # The value trunk (over the state-only embedding); empty when value_trunk_layers=().
-    value_trunk: tuple[architecture.LayerParam, ...]
+    # The state trunk (over the action-independent stripes); feeds both heads.
+    state_trunk: tuple[architecture.LayerParam, ...]
+    # The choice trunk (over the action stripes); empty when use_policy_head=False.
+    choice_trunk: tuple[architecture.LayerParam, ...]
     value_head: tuple[architecture.LayerParam, ...]
     # None when use_policy_head=False (value-only mode).
     policy_head: tuple[architecture.LayerParam, ...] | None
 
     @property
-    def trunk_params(self) -> int:
-        """Total trainable parameters in the policy trunk (0 when no trunk)."""
-        return sum(layer.params for layer in self.trunk)
+    def state_trunk_params(self) -> int:
+        """Total trainable parameters in the state trunk."""
+        return sum(layer.params for layer in self.state_trunk)
 
     @property
-    def value_trunk_params(self) -> int:
-        """Total trainable parameters in the value trunk (0 when no value trunk)."""
-        return sum(layer.params for layer in self.value_trunk)
+    def choice_trunk_params(self) -> int:
+        """Total trainable parameters in the choice trunk (0 in value-only mode)."""
+        return sum(layer.params for layer in self.choice_trunk)
 
     @property
-    def policy_in(self) -> int:
-        """Input width to the policy head: policy-trunk output when present,
-        otherwise the fused readout-input width."""
-        if self.trunk:
-            return self.trunk[-1].out_features
-        head = self.policy_head if self.policy_head is not None else self.value_head
-        return head[0].in_features
+    def state_enc_dim(self) -> int:
+        """Width of the shared state encoding (the state trunk's output)."""
+        return self.state_trunk[-1].out_features
+
+    @property
+    def choice_enc_dim(self) -> int:
+        """Width of the choice encoding (the choice trunk's output); 0 value-only."""
+        return self.choice_trunk[-1].out_features if self.choice_trunk else 0
 
     @property
     def value_in(self) -> int:
-        """Input width to the value head: value-trunk output when present,
-        otherwise the state-only embedded width (``setup_state_input_dim``)."""
-        if self.value_trunk:
-            return self.value_trunk[-1].out_features
-        return self.value_head[0].in_features
+        """Input width to the value head: the shared state encoding."""
+        return self.state_enc_dim
+
+    @property
+    def policy_in(self) -> int:
+        """Input width to the policy head: state encoding ⊕ choice encoding."""
+        return self.state_enc_dim + self.choice_enc_dim
 
     @property
     def total(self) -> int:
@@ -369,8 +363,8 @@ class SetupParamReport(pydantic.BaseModel):
             head_params += sum(layer.params for layer in self.policy_head)
         return (
             self.embedder_params
-            + self.trunk_params
-            + self.value_trunk_params
+            + self.state_trunk_params
+            + self.choice_trunk_params
             + head_params
         )
 
@@ -378,7 +372,6 @@ class SetupParamReport(pydantic.BaseModel):
 def count_setup_parameters(
     setup_arch: SetupArchitecture,
     *,
-    feature_dim: int,
     main_arch: architecture.ModelArchitecture | None = None,
     encoding: SetupEncoding | None = None,
 ) -> SetupParamReport:
@@ -386,13 +379,13 @@ def count_setup_parameters(
     ``setup_arch`` describes.
 
     Accounts for the frozen embedder copies (card + hand encoders, shaped by
-    ``main_arch``), the optional shared trunk, and the per-head readout MLPs.
-    Returns a :class:`SetupParamReport` whose ``total`` equals
-    ``sum(p.numel())`` of the built ``SetupNet`` — the architecture diagram's
-    per-op and Σ source for the separate setup model.
+    ``main_arch``), the state and choice trunks, and the per-head readout MLPs.
+    Returns a :class:`SetupParamReport` whose ``total`` equals ``sum(p.numel())``
+    of the built ``SetupNet`` — the architecture diagram's per-op and Σ source for
+    the separate setup model.
 
-    ``encoding`` controls which optional stripes are included in the
-    readout-input width calculation (default: ``SetupEncoding()``).
+    ``encoding`` controls which optional stripes are present in the state- and
+    choice-input width calculations (default: ``SetupEncoding()``).
     """
     if main_arch is None:
         main_arch = architecture.ModelArchitecture()
@@ -415,45 +408,40 @@ def count_setup_parameters(
             main_arch,
         )
     )
-    readout_in = setup_readout_input_dim(
-        feature_dim,
-        main_arch,
-        include_turn1_playable=encoding.include_turn1_playable,
-        include_playable_kept_cards=encoding.include_playable_kept_cards,
-    )
+
+    # State trunk: over the action-independent stripes, feeding both heads. No
+    # LayerNorm; uses between_activation as its own final activation so the output
+    # is nonlinear before the heads' first Linear.
     state_in = setup_state_input_dim(encoding, main_arch)
+    state_trunk = architecture.body_layers(
+        state_in, setup_arch.trunk_layers, main_arch, layernorm=False
+    )
+    state_enc_dim = setup_arch.trunk_layers[-1]
 
-    # Policy path: optional trunk over the fused embedding, then the policy head.
-    # (No LayerNorm; the trunk uses between_activation as its own final activation
-    # so its output is nonlinear before the head's first Linear.)
-    trunk: tuple[architecture.LayerParam, ...] = ()
-    policy_in = readout_in
-    if setup_arch.trunk_layers:
-        trunk = architecture.body_layers(
-            readout_in, setup_arch.trunk_layers, main_arch, layernorm=False
+    # Choice trunk: over the action stripes, feeding the policy head only. Present
+    # only with a policy head (value-only mode has no choice trunk).
+    choice_trunk: tuple[architecture.LayerParam, ...] = ()
+    choice_enc_dim = 0
+    if setup_arch.use_policy_head:
+        choice_in = setup_choice_input_dim(encoding, main_arch)
+        choice_trunk = architecture.body_layers(
+            choice_in, setup_arch.choice_layers, main_arch, layernorm=False
         )
-        policy_in = setup_arch.trunk_layers[-1]
+        choice_enc_dim = setup_arch.choice_layers[-1]
 
-    # Value path: optional trunk over the state-only embedding, then the value head.
-    value_trunk: tuple[architecture.LayerParam, ...] = ()
-    value_in = state_in
-    if setup_arch.value_trunk_layers:
-        value_trunk = architecture.body_layers(
-            state_in, setup_arch.value_trunk_layers, main_arch, layernorm=False
-        )
-        value_in = setup_arch.value_trunk_layers[-1]
-
-    value_head = architecture.readout_layers(value_in, setup_arch.value_hidden_resolved)
+    value_head = architecture.readout_layers(state_enc_dim, setup_arch.value_layers)
     policy_head = (
-        architecture.readout_layers(policy_in, setup_arch.hidden_layers)
+        architecture.readout_layers(
+            state_enc_dim + choice_enc_dim, setup_arch.head_layers
+        )
         if setup_arch.use_policy_head
         else None
     )
 
     return SetupParamReport(
         embedder_params=embedder_params,
-        trunk=trunk,
-        value_trunk=value_trunk,
+        state_trunk=state_trunk,
+        choice_trunk=choice_trunk,
         value_head=value_head,
         policy_head=policy_head,
     )

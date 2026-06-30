@@ -96,9 +96,10 @@ def test_render_static_draws_the_live_baseline():
 
 def test_render_static_draws_the_setup_box():
     """With the separate setup model active, the static diagram includes its
-    box — a run trained with ``use_setup_model`` shows its full topology."""
+    two-tower boxes — a run trained with ``use_setup_model`` shows its full topology."""
     plain = _render_plain(_baseline_descriptor(), use_setup_model=True)
-    assert "SETUP INPUT" in plain
+    assert "SETUP STATE" in plain
+    assert "SETUP CHOICE" in plain
 
 
 #### Run-start artifacts reproduce from the descriptor ####

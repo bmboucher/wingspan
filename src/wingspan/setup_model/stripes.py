@@ -3,20 +3,28 @@
 # deliberate intra-package coupling identical to encode/stripes.py's convention)
 """Programmatic stripe registry for the setup model's input vector.
 
-Two layouts are available:
+Three layouts are available:
 
 * :func:`setup_stripe_layout` — the **raw** pre-embedding vector (``total_dim``
   elements, the bytes the encoder actually writes).  Use this when you need to
   document or inspect the encoder output itself.
 
-* :func:`setup_readout_stripe_layout` — the **post-embedding** view that the
-  setup readout MLP's first ``Linear`` layer actually receives, after the frozen
-  card-table and hand-encoder copies replace the kept-cards multi-hot and tray
-  integer-index columns with their learned embeddings.  This is the setup
-  analogue of :func:`wingspan.encode.stripes.state_stripe_layout` / ``choice_stripe_layout``
-  and is what the HTML model-summary report should display.
+* :func:`setup_state_stripe_layout` — the **post-embedding state vector** the
+  setup net's STATE trunk receives: the action-independent stripes (tray as
+  per-slot card-table rows, birdfeeder, round goals, and the bonus-cards-on-offer
+  multi-hot in split-bonus mode), in the order ``SetupNet._embed_state``
+  concatenates them.  Sums to :func:`setup_state_input_dim`.
 
-The default (no args to either) reproduces the pre-0.2 all-splits-off layout.
+* :func:`setup_choice_stripe_layout` — the **post-embedding choice vector** the
+  setup net's CHOICE trunk receives: the action stripes (kept-card / playability
+  sets, kept foods, the bonus action, kept-bonus pricing and goal affinity), in
+  the order ``SetupNet._embed_choice`` concatenates them.  Sums to
+  :func:`setup_choice_input_dim`.
+
+The two post-embedding layouts are the setup analogue of
+:func:`wingspan.encode.stripes.state_stripe_layout` / ``choice_stripe_layout`` and
+are what the HTML model-summary report displays. The default (no args) reproduces
+the all-splits-off layout.
 """
 
 from __future__ import annotations
@@ -321,52 +329,113 @@ def setup_stripe_layout(
 _DEFAULT_ARCH = architecture.ModelArchitecture()
 
 
-def setup_readout_stripe_layout(
+def setup_state_stripe_layout(
     encoding: arch_module.SetupEncoding | None = None,
     main_arch: architecture.ModelArchitecture | None = None,
 ) -> encode_stripes.VectorLayout:
-    """Build the post-embedding stripe registry for the setup readout MLP's input.
+    """The post-embedding STATE vector the setup net's state trunk receives.
 
-    The setup readout MLP does not receive the raw candidate feature vector
-    directly; it receives an embedded version where the kept-cards multi-hot and
-    any appended card-set stripes are replaced by pooled or encoder-embedded set
-    vectors, and the tray integer-index columns are replaced by per-slot
-    card-table rows. This function applies those rewrites so the stripe breakdown
-    sums to ``setup_readout_input_dim`` — the same total that the arch diagram
-    shows as ``in N``.
+    Gathers the action-independent stripes — the tray (per-slot card-table rows),
+    the birdfeeder, the round goals, and (in ``split_bonus`` mode) the
+    bonus-cards-on-offer multi-hot — in the order ``SetupNet._embed_state``
+    concatenates them, embedding the tray through the frozen card table. Sums to
+    ``setup_state_input_dim`` — the state trunk's first-``Linear`` input width.
 
-    ``main_arch`` determines the card-embedding geometry (``card_embed_dim``,
-    ``pooled_hand_width`` / ``hand_embed_width``, ``use_distinct_hand_model``).
+    ``main_arch`` determines the card-embedding geometry (``card_embed_dim``).
     Defaults reproduce the default :class:`~wingspan.architecture.ModelArchitecture`.
     """
     if encoding is None:
         encoding = arch_module.SetupEncoding()
     if main_arch is None:
         main_arch = _DEFAULT_ARCH
+    names = ["tray", "birdfeeder", "round_goals"]
+    if encoding.split_bonus:
+        names.append("bonus_cards")
+    return _embed_setup_sub_layout(
+        encoding,
+        main_arch,
+        names,
+        arch_module.setup_state_input_dim(encoding, main_arch),
+    )
+
+
+def setup_choice_stripe_layout(
+    encoding: arch_module.SetupEncoding | None = None,
+    main_arch: architecture.ModelArchitecture | None = None,
+) -> encode_stripes.VectorLayout:
+    """The post-embedding CHOICE vector the setup net's choice trunk receives.
+
+    Gathers the action (keep-dependent) stripes — the kept-cards set, kept foods,
+    the bonus action (folded ``kept_bonus`` one-hot or split ``bonus_card_affinity``),
+    ``kept_bonus_value`` (folded mode only), the per-round ``goal_affinity``, and
+    each appended playability set — in the order ``SetupNet._embed_choice``
+    concatenates them, embedding the kept-card and playability multi-hots as set
+    vectors. Sums to ``setup_choice_input_dim`` — the choice trunk's first-``Linear``
+    input width.
+
+    ``main_arch`` determines the set-embedding geometry. Defaults reproduce the
+    default :class:`~wingspan.architecture.ModelArchitecture`.
+    """
+    if encoding is None:
+        encoding = arch_module.SetupEncoding()
+    if main_arch is None:
+        main_arch = _DEFAULT_ARCH
+    names = [
+        "kept_cards",
+        "kept_foods",
+        "kept_bonus",
+        "bonus_card_affinity",
+        "kept_bonus_value",
+        "goal_affinity",
+        "turn1_playable",
+        "playable_kept_cards",
+    ]
+    return _embed_setup_sub_layout(
+        encoding,
+        main_arch,
+        names,
+        arch_module.setup_choice_input_dim(encoding, main_arch),
+    )
+
+
+###### PRIVATE #######
+
+
+def _embed_setup_sub_layout(
+    encoding: arch_module.SetupEncoding,
+    main_arch: architecture.ModelArchitecture,
+    names: list[str],
+    expected_total: int,
+) -> encode_stripes.VectorLayout:
+    """Select the named raw stripes (in ``names`` order, skipping absent ones),
+    re-offset them contiguously, then apply the setup card-embedding rewrites so
+    the result sums to ``expected_total`` — the matching trunk's first-``Linear``
+    input width. ``names`` must follow the order the net concatenates the stripes
+    so the displayed offsets match the real tensor positions."""
     set_width = (
         main_arch.hand_embed_width
         if main_arch.use_distinct_hand_model
         else main_arch.pooled_hand_width
     )
-    raw = setup_stripe_layout(encoding)
-    expected = arch_module.setup_readout_input_dim(
-        encoding.total_dim,
-        main_arch,
-        include_turn1_playable=encoding.include_turn1_playable,
-        include_playable_kept_cards=encoding.include_playable_kept_cards,
-    )
+    by_name = {stripe.name: stripe for stripe in setup_stripe_layout(encoding).stripes}
+    selected: list[encode_stripes.StripeDescriptor] = []
+    off = 0
+    for name in names:
+        stripe = by_name.get(name)
+        if stripe is None:
+            continue
+        selected.append(stripe.model_copy(update={"offset": off}))
+        off += stripe.size
+    sub = encode_stripes.VectorLayout(total_size=off, stripes=tuple(selected))
     return embed_rules.embed_layout(
-        raw,
+        sub,
         embed_rules.setup_embed_rules(
             main_arch.card_embed_dim,
             set_width,
             use_distinct=main_arch.use_distinct_hand_model,
         ),
-        expected,
+        expected_total,
     )
-
-
-###### PRIVATE #######
 
 
 def _kept_food_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...]:

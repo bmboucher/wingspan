@@ -53,7 +53,9 @@ PANEL_CARD = "card"
 PANEL_HAND = "hand"
 PANEL_STATE = "state"
 PANEL_CHOICE = "choice"
-PANEL_SETUP = "setup"
+PANEL_SETUP = "setup"  # value-only fallback's single input box
+PANEL_SETUP_STATE = "setup_state"
+PANEL_SETUP_CHOICE = "setup_choice"
 PANEL_PARAMS = "params"
 PARAMS_BLOCK_TOTAL = "total"
 
@@ -166,10 +168,18 @@ _LANE_TRUNK_DECISION = 24  # band-2 lane (trunk → decision elbow)
 # (so it's visually distinct from the trunk→choice arrow that lands at center).
 _X_CHOICE_DST_POOL = _SVG_COL_X[1] + _SVG_COL_W * 2 // 3  # = 527
 
-# Dual-mode (actor-critic) setup column geometry: a shared header block at full
-# width, then two full-width sub-blocks (SETUP VALUE above SETUP POLICY) each
-# separated by _DUAL_SPLIT_GAP pixels of vertical space for the fork arrows.
-_DUAL_SPLIT_GAP = 20
+# Two-tower (actor-critic) setup column geometry: within col-2 the setup net is
+# drawn as a compressed replica of the main net — a STATE sub-column (state vector
+# → STATE TRUNK → SETUP VALUE) beside a CHOICE sub-column (choice vector → CHOICE
+# TRUNK → SETUP POLICY), each at half the column width, with the state encoding
+# also feeding the policy head (diagonal arrow). Mirrors the main net's
+# M→{value, decision} + N→decision idiom.
+_SETUP_SUB_GAP = 14  # gap between the two half-width sub-columns
+_SETUP_SUB_W = (_SVG_COL_W - _SETUP_SUB_GAP) // 2  # 138
+_SETUP_TOWER_GAP = 30  # vertical gap (trunk enc → head) carrying the enc arrows
+# The two sub-column centers (state left, choice right), for the inbound feeds.
+_SETUP_STATE_CX = _SVG_COL_X[2] + _SETUP_SUB_W // 2
+_SETUP_CHOICE_CX = _SVG_COL_X[2] + _SETUP_SUB_W + _SETUP_SUB_GAP + _SETUP_SUB_W // 2
 
 
 def build_arch_svg(
@@ -297,15 +307,30 @@ class _Unit(pydantic.BaseModel):
     # the parameter-table block the unit's parameter counts jump to.
     panel: str | None = None
     params_key: str | None = None
-    # When set, this unit is rendered as a header trunk block that forks via two
-    # vertical arrows into two full-width sub-units stacked vertically below
-    # (actor-critic setup mode).  The outer unit provides the shared trunk input
-    # box; ``dual`` provides the two heads.
-    dual: tuple["_Unit", "_Unit"] | None = None
+    # When set, this unit is the setup column container rendered as a compressed
+    # two-tower replica of the main net (actor-critic setup mode): a STATE and a
+    # CHOICE sub-column, each at half width. ``_draw_setup_tower`` draws it.
+    setup_tower: "_SetupTower | None" = None
     # A parameter-less block (e.g. card-table hand pooling) drawn as its block
     # body only — no input/output vector boxes — at a custom width.
     bare_block: bool = False
     block_w: int | None = None
+
+
+class _SetupTower(pydantic.BaseModel):
+    """The two-tower setup column: a STATE sub-column (state vector → state trunk →
+    value head) beside a CHOICE sub-column (choice vector → choice trunk → policy
+    head), with the state encoding also feeding the policy head. Each sub-``_Unit``
+    carries its own half-width ``x``; ``_draw_setup_tower`` lays them out."""
+
+    state_trunk: _Unit
+    choice_trunk: _Unit
+    value_head: _Unit
+    policy_head: _Unit
+
+
+# ``_Unit.setup_tower`` forward-references ``_SetupTower`` (defined just above).
+_Unit.model_rebuild()
 
 
 class _Units(pydantic.BaseModel):
@@ -595,15 +620,15 @@ def _setup_unit(
     use_setup_model: bool,
 ) -> _Unit:
     # Value-only fallback (use_policy_head=False, never used in practice): the
-    # state-only value path — value trunk (if present) + value head — as one
-    # continuous sequence. The critic is V(s), so it cannot rank keeps.
-    all_layers = setup_param.value_trunk + setup_param.value_head
+    # state path — state trunk + value head — as one continuous sequence. The
+    # critic is V(s), so it cannot rank keeps.
+    all_layers = setup_param.state_trunk + setup_param.value_head
     in_dim = all_layers[0].in_features
     status = "active" if use_setup_model else "off"
     return _Unit(
         x=_SVG_COL_X[2],
         accent=_ACCENT_SETUP,
-        title="SETUP TRUNK",
+        title="SETUP VALUE",
         subtitle="" if use_setup_model else "off this run — keep scored in-game",
         rows=_op_rows(
             all_layers,
@@ -612,7 +637,7 @@ def _setup_unit(
             dropout=setup_arch.dropout,
         ),
         sigma_text=_count_text(setup_param.total),
-        in_label="state only",
+        in_label="state vector",
         in_count=in_dim,
         out_label="V(s)",
         out_count=1,
@@ -632,114 +657,158 @@ def _build_setup_unit(
     setup_arch: setup_model.SetupArchitecture,
     use_setup_model: bool,
 ) -> _Unit:
-    """The setup column unit: single block normally, dual-head block when actor-critic.
+    """The setup column unit: a single block in value-only mode, a two-tower
+    container (``setup_tower``) in the normal actor-critic mode.
 
-    When ``setup_arch.use_policy_head`` is False, delegates to ``_setup_unit``
-    unchanged.  When True, returns a header ``_Unit`` (shared embedder + optional
-    trunk) with a ``dual`` pair of narrow sub-units — SETUP VALUE on the left,
-    SETUP POLICY on the right — that ``_draw_dual_unit`` renders side by side
-    below the header.
+    When ``setup_arch.use_policy_head`` is False, delegates to ``_setup_unit``.
+    When True, returns a container ``_Unit`` whose ``setup_tower`` carries the four
+    half-width sub-blocks — STATE TRUNK / SETUP VALUE on the left, CHOICE TRUNK /
+    SETUP POLICY on the right — that ``_draw_setup_tower`` renders as a compressed
+    replica of the main net.
     """
     if not setup_arch.use_policy_head:
         return _setup_unit(setup_param, setup_arch, use_setup_model)
 
-    # Trunk rows for the header (empty when no trunk).
-    trunk_rows = (
-        _op_rows(
-            setup_param.trunk,
-            between_activation=setup_arch.between_activation.value,
-            # Trunk's final layer uses between_activation (not NONE) so the
-            # output is nonlinear before the heads' first Linear.
-            final_activation=setup_arch.between_activation.value,
-            dropout=setup_arch.dropout,
-        )
-        if setup_param.trunk
-        else ()
-    )
-    # The header carries the frozen embedders + the (policy-path) trunk, which
-    # reads the fused state ⊕ action candidate; the value sub-unit reads its own
-    # narrower state-only embedding (``value_in``).
-    embed_in = (
-        setup_param.trunk[0].in_features if setup_param.trunk else setup_param.policy_in
-    )
-    value_in = setup_param.value_in
-    policy_in = setup_param.policy_in
-    header_sigma = setup_param.embedder_params + setup_param.trunk_params
-    status = "active" if use_setup_model else "off"
-    header_title = "SETUP TRUNK"
+    left_x = _SVG_COL_X[2]
+    right_x = _SVG_COL_X[2] + _SETUP_SUB_W + _SETUP_SUB_GAP
+    dashed = not use_setup_model
+    between = setup_arch.between_activation.value
+    final = setup_arch.final_activation.value
+    drop = setup_arch.dropout
+    off_subtitle = "" if use_setup_model else "off this run"
 
-    value_layers = setup_param.value_head
+    state_in = setup_param.state_trunk[0].in_features
+    state_enc = setup_param.state_enc_dim
+    choice_in = setup_param.choice_trunk[0].in_features
+    choice_enc = setup_param.choice_enc_dim
+    policy_in = setup_param.policy_in
+
+    # The two trunks use between_activation as their own final activation so the
+    # encodings are nonlinear before the heads' first Linear.
+    state_trunk = _Unit(
+        x=left_x,
+        accent=_ACCENT_SETUP,
+        title="STATE TRUNK",
+        subtitle=off_subtitle,
+        rows=_op_rows(
+            setup_param.state_trunk,
+            between_activation=between,
+            final_activation=between,
+            dropout=drop,
+        ),
+        sigma_text=_count_text(setup_param.state_trunk_params),
+        in_label="state vector",
+        in_count=state_in,
+        out_label="state enc",
+        out_count=state_enc,
+        tooltip=(
+            f"Setup State Trunk · {_count_text(setup_param.state_trunk_params)} params · "
+            f"{state_in} → {state_enc} · encodes the action-independent stripes "
+            "(tray / feeder / goals / bonus-on-offer); the shared encoding feeds both heads"
+        ),
+        dashed=dashed,
+        panel=PANEL_SETUP_STATE,
+        params_key=PARAMS_BLOCK_TOTAL,
+    )
+    choice_trunk = _Unit(
+        x=right_x,
+        accent=_ACCENT_SETUP,
+        title="CHOICE TRUNK",
+        subtitle=off_subtitle,
+        rows=_op_rows(
+            setup_param.choice_trunk,
+            between_activation=between,
+            final_activation=between,
+            dropout=drop,
+        ),
+        sigma_text=_count_text(setup_param.choice_trunk_params),
+        in_label="choice vector",
+        in_count=choice_in,
+        out_label="choice enc",
+        out_count=choice_enc,
+        tooltip=(
+            f"Setup Choice Trunk · {_count_text(setup_param.choice_trunk_params)} params · "
+            f"{choice_in} → {choice_enc} · encodes the action stripes "
+            "(kept cards / foods / bonus / affinities); feeds the policy head"
+        ),
+        dashed=dashed,
+        panel=PANEL_SETUP_CHOICE,
+        params_key=PARAMS_BLOCK_TOTAL,
+    )
+    value_params = sum(layer.params for layer in setup_param.value_head)
+    value_head = _Unit(
+        x=left_x,
+        accent=_ACCENT_SETUP,
+        title="SETUP VALUE",
+        rows=_op_rows(
+            setup_param.value_head,
+            between_activation=between,
+            final_activation=final,
+            dropout=drop,
+        ),
+        sigma_text=_count_text(value_params),
+        in_label="state enc",
+        in_count=state_enc,
+        out_label="V(s)",
+        out_count=1,
+        tooltip=(
+            f"Setup Value Head · {_count_text(value_params)} params · {state_enc} → 1 "
+            "(state-only critic V(s), invariant to the chosen keep)"
+        ),
+        dashed=dashed,
+        params_key=PARAMS_BLOCK_TOTAL,
+    )
     policy_layers = (
         setup_param.policy_head
         if setup_param.policy_head is not None
         else setup_param.value_head
     )
-    value_params = sum(layer.params for layer in value_layers)
     policy_params = sum(layer.params for layer in policy_layers)
-
-    value_unit = _Unit(
-        x=_SVG_COL_X[2],
-        accent=_ACCENT_SETUP,
-        title="SETUP VALUE",
-        rows=_op_rows(
-            value_layers,
-            between_activation=setup_arch.between_activation.value,
-            final_activation=setup_arch.final_activation.value,
-            dropout=setup_arch.dropout,
-        ),
-        sigma_text=_count_text(value_params),
-        in_label="state only",
-        in_count=value_in,
-        out_label="V(s)",
-        out_count=1,
-        tooltip=(
-            f"Setup Value Head · {_count_text(value_params)} params · {value_in} → 1 "
-            "(state-only critic V(s): tray / feeder / goals / bonus-on-offer, "
-            "invariant to the chosen keep)"
-        ),
-        dashed=not use_setup_model,
-        params_key=PARAMS_BLOCK_TOTAL,
-    )
-    policy_unit = _Unit(
-        x=_SVG_COL_X[2],
+    policy_head = _Unit(
+        x=right_x,
         accent=_ACCENT_SETUP,
         title="SETUP POLICY",
         rows=_op_rows(
             policy_layers,
-            between_activation=setup_arch.between_activation.value,
-            final_activation=setup_arch.final_activation.value,
-            dropout=setup_arch.dropout,
+            between_activation=between,
+            final_activation=final,
+            dropout=drop,
         ),
         sigma_text=_count_text(policy_params),
-        in_label="state ⊕ keep",
+        in_label="state ⊕ choice",
         in_count=policy_in,
         out_label="log policy",
         out_count=1,
         tooltip=(
             f"Setup Policy Head · {_count_text(policy_params)} params · {policy_in} → 1 "
-            "(log-probabilities over kept-card subsets, from the fused candidate)"
+            "(log-probabilities over kept-card subsets, from state ⊕ choice encodings)"
         ),
-        dashed=not use_setup_model,
+        dashed=dashed,
         params_key=PARAMS_BLOCK_TOTAL,
     )
+    status = "active" if use_setup_model else "off"
     return _Unit(
         x=_SVG_COL_X[2],
         accent=_ACCENT_SETUP,
-        title=header_title,
-        rows=trunk_rows,
-        sigma_text=_count_text(header_sigma),
-        in_label="setup input",
-        in_count=embed_in,
-        out_label="",  # not rendered — outputs come from the dual sub-units
+        title="SETUP MODEL",
+        rows=(),
+        sigma_text="",
+        in_label="",
+        in_count=0,
+        out_label="",
         out_count=0,
         tooltip=(
             f"Setup Model ({status}) · {_count_text(setup_param.total)} params incl. "
-            "frozen card/hand encoder copies · actor-critic mode"
+            "frozen card/hand encoder copies · two-tower actor-critic"
         ),
-        dashed=not use_setup_model,
-        panel=PANEL_SETUP,
+        dashed=dashed,
         params_key=PARAMS_BLOCK_TOTAL,
-        dual=(value_unit, policy_unit),
+        setup_tower=_SetupTower(
+            state_trunk=state_trunk,
+            choice_trunk=choice_trunk,
+            value_head=value_head,
+            policy_head=policy_head,
+        ),
     )
 
 
@@ -890,27 +959,43 @@ def _unit_h(num_rows: int) -> int:
 
 
 def _setup_col_h(unit: _Unit) -> int:
-    """Pixel height of the setup column, accounting for dual (actor-critic) mode.
+    """Pixel height of the setup column, accounting for two-tower (actor-critic) mode.
 
-    In dual mode the column holds a shared trunk header block at the top, then
-    two full-width sub-blocks stacked vertically (SETUP VALUE above SETUP POLICY),
-    each separated by ``_DUAL_SPLIT_GAP`` pixels for the fork arrows.
+    Value-only mode is a single full unit. Two-tower mode stacks (top to bottom):
+    the input boxes, the trunk blocks, their enc output boxes, the enc-arrow gap,
+    the head blocks, and the head output boxes — the trunk and head rows each take
+    the taller of the two sub-columns.
     """
-    if unit.dual is None:
+    tower = unit.setup_tower
+    if tower is None:
         return _unit_h(len(unit.rows))
-    # Header: input IO box + IO gap + block body (trunk rows).
-    header_h = _SVG_IO_H + _SVG_IO_GAP + _block_body_h(len(unit.rows))
-    value_h = _unit_h(len(unit.dual[0].rows))
-    policy_h = _unit_h(len(unit.dual[1].rows))
-    return header_h + _DUAL_SPLIT_GAP + value_h + _DUAL_SPLIT_GAP + policy_h
+    trunk_body_h = max(
+        _block_body_h(len(tower.state_trunk.rows)),
+        _block_body_h(len(tower.choice_trunk.rows)),
+    )
+    head_body_h = max(
+        _block_body_h(len(tower.value_head.rows)),
+        _block_body_h(len(tower.policy_head.rows)),
+    )
+    return (
+        _SVG_IO_H
+        + _SVG_IO_GAP
+        + trunk_body_h
+        + _SVG_IO_GAP
+        + _SVG_IO_H
+        + _SETUP_TOWER_GAP
+        + head_body_h
+        + _SVG_IO_GAP
+        + _SVG_IO_H
+    )
 
 
 def _block_outer_h(unit: _Unit) -> int:
     """Pixel height a unit occupies from its top: a full unit (input box + body +
-    output box), the dual-column stack, or — for a bare block — the body alone
+    output box), the two-tower setup stack, or — for a bare block — the body alone
     plus a top margin the height of an input box, so its body lines up with the
     bodies of neighbouring full blocks."""
-    if unit.dual is not None:
+    if unit.setup_tower is not None:
         return _setup_col_h(unit)
     if unit.bare_block:
         return _SVG_IO_H + _SVG_IO_GAP + _block_body_h(len(unit.rows))
@@ -978,8 +1063,12 @@ def _consumer_connectors(
     — when the hand block pools the card table — the bare MULTI-CARD POOLING
     block.  The three card→{state,choice,setup} feeds share a trunk emitted by
     ``_trunk_svg``; this function only emits the card→hand thick line, the
-    pooled-hand feeds, and the board path."""
-    setup_cx = _SVG_COL_CX[2]
+    pooled-hand feeds, and the board path.
+
+    The pooled-hand setup feed (kept + playable sets — action stripes) lands on the
+    CHOICE sub-column; the tray feed (state) is routed to the STATE sub-column by
+    ``_trunk_svg``."""
+    setup_cx = _SETUP_CHOICE_CX
     band_cons_y, row2_y = geom.band_cons_y, geom.row2_y
 
     hand = units.hand
@@ -1123,9 +1212,13 @@ def _trunk_svg(
     The stem at ``_TRUNK_X`` runs through the gutter between BOARD ATTENTION
     and MULTI-CARD POOLING.  Branch labels appear on the horizontal legs after
     the split.  ``_board_path_conns`` handles the separate attention path when
-    board attention is on, so the State branch copies are scaled accordingly."""
+    board attention is on, so the State branch copies are scaled accordingly.
+
+    The setup branch carries the tray (state) feed, so it lands on the setup
+    column's STATE sub-column (``_SETUP_STATE_CX``)."""
     split_y = geom.band_cons_y + _LANE_TRUNK_SPLIT
-    state_cx, choice_cx, setup_cx = _SVG_COL_CX
+    state_cx, choice_cx, _ = _SVG_COL_CX
+    setup_cx = _SETUP_STATE_CX
 
     bodies: list[str] = []
     labels: list[str] = []
@@ -1292,11 +1385,11 @@ def _draw_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
     """One block with its input box above and output box below, grouped under a
     shared hover tooltip. A unit with a ``panel`` gets its input box wrapped in
     the ``arch-click`` group the report's script opens that panel from.
-    A unit with ``dual`` set is rendered as a header trunk block that forks
-    into two full-width sub-units stacked vertically below.  A ``bare_block`` unit is drawn as
-    its block body alone (no I/O boxes), at its ``block_w`` width."""
-    if unit.dual is not None:
-        return _draw_dual_unit(unit, top_y, unit_h)
+    A unit with ``setup_tower`` set is rendered as the two-tower setup column.
+    A ``bare_block`` unit is drawn as its block body alone (no I/O boxes), at its
+    ``block_w`` width."""
+    if unit.setup_tower is not None:
+        return _draw_setup_tower(unit, top_y, unit_h)
     if unit.bare_block:
         return _draw_bare_unit(unit, top_y, unit_h)
     body_h = unit_h - 2 * (_SVG_IO_H + _SVG_IO_GAP)
@@ -1347,71 +1440,100 @@ def _draw_bare_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
     )
 
 
-def _draw_dual_unit(unit: _Unit, top_y: int, unit_h: int) -> str:
-    """Actor-critic setup column: full-width header trunk block → fork arrows →
-    two full-width sub-blocks stacked vertically (SETUP VALUE above SETUP POLICY).
+def _draw_setup_tower(unit: _Unit, top_y: int, unit_h: int) -> str:
+    """The two-tower setup column: a compressed replica of the main net inside col-2.
 
-    Layout (top to bottom within the allocated ``unit_h``):
-    * Input IO box at full column width (clickable to the setup panel).
-    * Header block body at full width (trunk rows, if any).
-    * ``_DUAL_SPLIT_GAP`` pixels with two vertical fork arrows (one per head).
-    * SETUP VALUE — full-width unit with its own input/output IO boxes.
-    * ``_DUAL_SPLIT_GAP`` pixels of vertical separation.
-    * SETUP POLICY — full-width unit with its own input/output IO boxes.
+    A STATE sub-column (state vector → STATE TRUNK → SETUP VALUE) on the left and a
+    CHOICE sub-column (choice vector → CHOICE TRUNK → SETUP POLICY) on the right,
+    each at half the column width. The shared state encoding feeds the value head
+    (vertical, left) and the policy head (diagonal across the gap); the choice
+    encoding feeds the policy head (vertical, right) — mirroring the main net's
+    M→{value, decision} + N→decision idiom.
 
-    Draw order puts the long header→policy arrow behind the value block so the
-    value block's white rect naturally masks its mid-section, leaving the arrow
-    visible above and below the value block.
+    Layout (top to bottom): the two input boxes · the two trunk blocks · their enc
+    output boxes · the ``_SETUP_TOWER_GAP`` enc-arrow gap · the two head blocks ·
+    the two head output boxes.
     """
-    assert unit.dual is not None
-    value_unit, policy_unit = unit.dual
+    tower = unit.setup_tower
+    assert tower is not None
+    state_trunk, choice_trunk = tower.state_trunk, tower.choice_trunk
+    value_head, policy_head = tower.value_head, tower.policy_head
 
-    # Header block occupies the top of the allocated column height.
-    header_body_h = _block_body_h(len(unit.rows))
-    header_block_y = top_y + _SVG_IO_H + _SVG_IO_GAP
-    header_bottom = header_block_y + header_body_h
-
-    # Sub-blocks stacked below the header, each at full column width.
-    value_h = _unit_h(len(value_unit.rows))
-    policy_h = _unit_h(len(policy_unit.rows))
-    value_top = header_bottom + _DUAL_SPLIT_GAP
-    policy_top = value_top + value_h + _DUAL_SPLIT_GAP
-
-    # Fork x-positions offset slightly off-center to read as two distinct branches.
-    cx = unit.x + _SVG_COL_W // 2
-
-    # Shared trunk input box (full width, clickable to the setup panel).
-    in_box = _io_box(
-        unit.x,
-        top_y,
-        f"{unit.in_label} · {_count_text(unit.in_count)}",
-        dashed=unit.dashed,
-        col_w=_SVG_COL_W,
+    trunk_body_h = max(
+        _block_body_h(len(state_trunk.rows)), _block_body_h(len(choice_trunk.rows))
     )
-    if unit.panel is not None:
-        in_box = (
-            f'<g class="arch-click" data-panel="{html_lib.escape(unit.panel)}">'
-            f"<title>Click to inspect this vector</title>\n{in_box}\n</g>"
+    head_body_h = max(
+        _block_body_h(len(value_head.rows)), _block_body_h(len(policy_head.rows))
+    )
+    trunk_y = top_y + _SVG_IO_H + _SVG_IO_GAP
+    enc_out_y = trunk_y + trunk_body_h + _SVG_IO_GAP
+    enc_bottom = enc_out_y + _SVG_IO_H
+    head_y = enc_bottom + _SETUP_TOWER_GAP
+    head_out_y = head_y + head_body_h + _SVG_IO_GAP
+
+    left_cx = state_trunk.x + _SETUP_SUB_W // 2
+    right_cx = choice_trunk.x + _SETUP_SUB_W // 2
+
+    def _vec_in_box(sub: _Unit) -> str:
+        box = _io_box(
+            sub.x,
+            top_y,
+            f"{sub.in_label} · {_count_text(sub.in_count)}",
+            dashed=sub.dashed,
+            col_w=_SETUP_SUB_W,
+        )
+        if sub.panel is not None:
+            box = (
+                f'<g class="arch-click" data-panel="{html_lib.escape(sub.panel)}">'
+                f"<title>Click to inspect this vector</title>\n{box}\n</g>"
+            )
+        return box
+
+    def _box_at(sub: _Unit, box_y: int) -> str:
+        return _io_box(
+            sub.x,
+            box_y,
+            f"{sub.out_label} · {_count_text(sub.out_count)}",
+            dashed=sub.dashed,
+            col_w=_SETUP_SUB_W,
         )
 
-    def _fork_arrow(src_x: int, dst_y: int) -> str:
+    dash = ' stroke-dasharray="6,4"' if unit.dashed else ""
+
+    def _enc_line(src_x: int, dst_x: int) -> str:
         return (
-            f'<line x1="{src_x}" y1="{header_bottom}" x2="{src_x}" y2="{dst_y}" '
-            f'fill="none" stroke="{_SVG_ARROW}" '
-            f'stroke-width="{_STROKE_SINGLE}" marker-end="url(#arr)"/>'
+            f'<line x1="{src_x}" y1="{enc_bottom}" x2="{dst_x}" y2="{head_y}" '
+            f'fill="none" stroke="{_SVG_ARROW}" stroke-width="{_STROKE_SINGLE}"{dash} '
+            f'marker-end="url(#arr)"/>'
         )
 
+    # state enc → value (vertical, left); state enc → policy (diagonal across the
+    # gap, labelled); choice enc → policy (vertical, right). Lines first, then the
+    # label, so its halo masks the lines it crosses.
+    diag_lbl = _halo_text(
+        (left_cx + right_cx) // 2,
+        (enc_bottom + head_y) // 2 + 3,
+        "state enc",
+        anchor="middle",
+        size=9,
+    )
     parts = [
         "<g>",
         f"<title>{html_lib.escape(unit.tooltip)}</title>",
-        in_box,
-        _draw_block(unit, header_block_y, header_body_h, col_w=_SVG_COL_W),
-        # Long fork arrow to policy drawn first — value block will mask its mid-section.
-        _fork_arrow(cx + 15, policy_top),
-        _draw_unit(value_unit, value_top, value_h),
-        # Short fork arrow to value drawn after value block so arrowhead is on top.
-        _fork_arrow(cx - 15, value_top),
-        _draw_unit(policy_unit, policy_top, policy_h),
+        _vec_in_box(state_trunk),
+        _vec_in_box(choice_trunk),
+        _draw_block(state_trunk, trunk_y, trunk_body_h, col_w=_SETUP_SUB_W),
+        _draw_block(choice_trunk, trunk_y, trunk_body_h, col_w=_SETUP_SUB_W),
+        _box_at(state_trunk, enc_out_y),
+        _box_at(choice_trunk, enc_out_y),
+        _enc_line(left_cx - 12, left_cx - 12),
+        _enc_line(left_cx + 12, right_cx - 12),
+        _enc_line(right_cx + 12, right_cx + 12),
+        diag_lbl,
+        _draw_block(value_head, head_y, head_body_h, col_w=_SETUP_SUB_W),
+        _draw_block(policy_head, head_y, head_body_h, col_w=_SETUP_SUB_W),
+        _box_at(value_head, head_out_y),
+        _box_at(policy_head, head_out_y),
         "</g>",
     ]
     return "\n".join(parts)

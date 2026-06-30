@@ -1,7 +1,7 @@
 """Tests for the actor-critic setup training path.
 
-Covers: SetupNet policy head construction/forwarding, actor_critic_update loss
-and gradient flow, and play_game_with_setup populating chosen_idx/all_candidates.
+Covers: SetupNet two-tower construction/forwarding, actor_critic_update loss and
+gradient flow, and play_game_with_setup populating chosen_idx/all_candidates.
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
-import torch.nn as nn
 
 from wingspan import setup_model  # noqa: E402
 from wingspan.model import core as model_core  # noqa: E402
@@ -22,19 +21,19 @@ from wingspan.training import collect, config, setup_learner, setup_net  # noqa:
 
 def _make_net(use_policy_head: bool) -> setup_net.SetupNet:
     arch = setup_model.SetupArchitecture(
-        hidden_layers=(16, 8), use_policy_head=use_policy_head
+        head_layers=(16, 8), use_policy_head=use_policy_head
     )
     return setup_net.SetupNet(arch=arch)
 
 
-def test_policy_mlp_absent_by_default():
+def test_policy_head_absent_by_default():
     net = _make_net(use_policy_head=False)
-    assert net.policy_mlp is None
+    assert net.policy_head is None
 
 
-def test_policy_mlp_present_when_enabled():
+def test_policy_head_present_when_enabled():
     net = _make_net(use_policy_head=True)
-    assert net.policy_mlp is not None
+    assert net.policy_head is not None
 
 
 def test_forward_unchanged_shape_with_policy_head():
@@ -54,15 +53,13 @@ def test_policy_and_value_returns_two_tensors():
 
 
 def test_policy_and_value_heads_differ():
-    """Policy and value heads have independent weights; their outputs should diverge
-    after the first non-trivial input."""
+    """Both heads read the shared state encoding, but the policy head also reads the
+    choice encoding and has its own MLP, so their outputs diverge."""
     net = _make_net(use_policy_head=True)
     rng = torch.Generator()
     rng.manual_seed(42)
     batch = torch.randn(3, net.feature_dim, generator=rng)
     policy_logits, value_preds = net.policy_and_value(batch)
-    # They share the same embedding but have separate final MLPs initialized
-    # with different random seeds, so their outputs should differ.
     assert not torch.allclose(policy_logits, value_preds)
 
 
@@ -76,14 +73,14 @@ def test_policy_and_value_raises_without_policy_head():
 @pytest.mark.parametrize("split_bonus", [False, True])
 def test_value_head_invariant_to_chosen_action(split_bonus: bool):
     """The critic is V(s): its output depends only on the action-independent
-    STATE stripes (tray / feeder / goals / bonus-on-offer), so two candidate
-    vectors that share those stripes but differ everywhere else (the keep)
-    receive an identical value. This is the property whose absence made the old
-    per-candidate Q(s, a) baseline self-cancel."""
+    STATE stripes (tray / feeder / goals / bonus-on-offer) — read through the
+    shared state trunk — so two candidate vectors that share those stripes but
+    differ everywhere else (the keep) receive an identical value. This is the
+    property whose absence made the old per-candidate Q(s, a) baseline self-cancel."""
     encoding = setup_model.SetupEncoding(
         split_bonus=split_bonus, split_food=split_bonus
     )
-    arch = setup_model.SetupArchitecture(hidden_layers=(16, 8), use_policy_head=True)
+    arch = setup_model.SetupArchitecture(head_layers=(16, 8), use_policy_head=True)
     net = setup_net.SetupNet(encoding=encoding, arch=arch)
     net.eval()
     enc = net.encoding
@@ -108,7 +105,7 @@ def test_value_head_invariant_to_chosen_action(split_bonus: bool):
     values = net(feats)
     # V(s) ignores the keep -> identical for two same-state candidates.
     assert torch.allclose(values[0], values[1], atol=1e-6)
-    # The policy head reads the fused vector, so it still distinguishes them.
+    # The policy head reads state ⊕ choice, so it still distinguishes them.
     logits = net.policy_logits(feats)
     assert not torch.allclose(logits[0], logits[1])
 
@@ -121,7 +118,7 @@ def _make_config() -> config.TrainConfig:
     return config.RunConfig(
         architecture=config.ArchitectureConfig(
             setup=config.SetupNetArchitecture(
-                hidden_layers=(16, 8),
+                head_layers=(16, 8),
             ),
         ),
     )
@@ -203,7 +200,7 @@ def test_actor_critic_update_skips_samples_without_ac_data():
 
 
 def test_actor_critic_update_gradient_flows_to_policy_head():
-    """Gradient reaches policy_mlp parameters but not the frozen card encoder.
+    """Gradient reaches policy_head parameters but not the frozen card encoder.
 
     The samples must differ so the whitened advantage has non-zero variance,
     otherwise the policy gradient is zero by construction."""
@@ -218,13 +215,13 @@ def test_actor_critic_update_gradient_flows_to_policy_head():
     ]
     setup_learner.actor_critic_update(net, optimizer, samples, cfg, torch.device("cpu"))
 
-    # Policy MLP parameters must have nonzero grad after the update's backward.
-    assert net.policy_mlp is not None
-    policy_params = list(net.policy_mlp.parameters())
+    # Policy head parameters must have nonzero grad after the update's backward.
+    assert net.policy_head is not None
+    policy_params = list(net.policy_head.parameters())
     assert any(p.grad is not None and p.grad.abs().max() > 0 for p in policy_params)
 
-    # The value head (self.mlp) must also receive gradient (value loss).
-    value_params = list(net.mlp.parameters())
+    # The value head must also receive gradient (value loss).
+    value_params = list(net.value_head.parameters())
     assert any(p.grad is not None and p.grad.abs().max() > 0 for p in value_params)
 
     # Frozen card encoder parameters must have no grad.
@@ -258,53 +255,56 @@ def test_actor_critic_update_groups_by_candidate_count():
 
 def test_shape_key_differs_by_policy_head():
     key_off = setup_model.SetupArchitecture(
-        hidden_layers=(64, 32), use_policy_head=False
+        head_layers=(64, 32), use_policy_head=False
     ).shape_key
     key_on = setup_model.SetupArchitecture(
-        hidden_layers=(64, 32), use_policy_head=True
+        head_layers=(64, 32), use_policy_head=True
     ).shape_key
     assert key_off != key_on
 
 
 def test_shape_key_same_layers_different_policy_head():
     key_a = setup_model.SetupArchitecture(
-        hidden_layers=(128, 64), use_policy_head=False
+        head_layers=(128, 64), use_policy_head=False
     ).shape_key
     key_b = setup_model.SetupArchitecture(
-        hidden_layers=(128, 64), use_policy_head=True
+        head_layers=(128, 64), use_policy_head=True
     ).shape_key
-    assert key_a[0] == key_b[0]  # trunk_layers same (both empty)
-    assert key_a[1] == key_b[1]  # hidden_layers same
-    assert key_a[2] != key_b[2]  # use_policy_head differs
+    # shape_key = (trunk_layers, choice_layers, head_layers, value_layers, use_policy_head)
+    assert key_a[0] == key_b[0]  # trunk_layers same (both default)
+    assert key_a[2] == key_b[2]  # head_layers same
+    assert key_a[4] != key_b[4]  # use_policy_head differs
 
 
-def test_policy_trunk_separate_from_value_trunk():
-    """``trunk_layers`` builds the POLICY trunk (over the fused embedding);
-    ``value_trunk_layers`` builds the separate value trunk (over the state-only
-    embedding). Each receives gradient only from its own head."""
+def test_state_trunk_shared_choice_trunk_policy_only():
+    """The shared state trunk feeds both heads (so a value-only backward still
+    reaches it); the choice trunk feeds only the policy head."""
     arch = setup_model.SetupArchitecture(
         trunk_layers=(32,),
-        hidden_layers=(16,),
-        value_trunk_layers=(24,),
+        choice_layers=(24,),
+        head_layers=(16,),
         use_policy_head=True,
     )
     net = setup_net.SetupNet(arch=arch)
-    # Both trunks must be real Sequentials (not Identity) when their layers are set.
-    assert not isinstance(net.trunk, nn.Identity)
-    assert not isinstance(net.value_trunk, nn.Identity)
     net.train()
-    batch = torch.randn(2, net.feature_dim, requires_grad=False)
-    policy_logits, value_preds = net.policy_and_value(batch)
-    (
-        policy_logits.sum() + value_preds.sum()
-    ).backward()  # pyright: ignore[reportUnknownMemberType]
-    trunk_params = list(net.trunk.parameters())
-    value_trunk_params = list(net.value_trunk.parameters())
-    assert trunk_params and value_trunk_params
-    assert any(p.grad is not None and p.grad.abs().max() > 0 for p in trunk_params)
-    assert any(
-        p.grad is not None and p.grad.abs().max() > 0 for p in value_trunk_params
-    )
+    batch = torch.randn(2, net.feature_dim)
+    state_params = list(net.state_trunk.parameters())
+    choice_params = list(net.choice_trunk.parameters())
+    assert state_params and choice_params
+
+    # A value-only backward reaches the shared state trunk but not the choice trunk.
+    net.zero_grad()
+    net(batch).sum().backward()  # pyright: ignore[reportUnknownMemberType]
+    assert any(p.grad is not None and p.grad.abs().max() > 0 for p in state_params)
+    assert all(p.grad is None or p.grad.abs().max() == 0 for p in choice_params)
+
+    # A policy backward reaches both trunks.
+    net.zero_grad()
+    net.policy_logits(
+        batch
+    ).sum().backward()  # pyright: ignore[reportUnknownMemberType]
+    assert any(p.grad is not None and p.grad.abs().max() > 0 for p in state_params)
+    assert any(p.grad is not None and p.grad.abs().max() > 0 for p in choice_params)
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ def test_play_game_with_setup_ac_data_in_model_driven():
     net_cfg = config.RunConfig(
         architecture=config.ArchitectureConfig(
             setup=config.SetupNetArchitecture(
-                hidden_layers=(16, 8),
+                head_layers=(16, 8),
             )
         ),
     )

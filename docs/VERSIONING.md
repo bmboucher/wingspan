@@ -35,7 +35,36 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.2 — setup value head `Q(s,a)` → state-only `V(s)` + setup↔in-game return reconciliation (current)
+### v1.3 — setup net → two-tower (state trunk + choice trunk) (current)
+
+A **setup-artifact-only** FRESH bump. v1.2 made the value head a state-only `V(s)`
+but left the net asymmetric: the policy head read a single *fused* state ⊕ action
+vector through one trunk, the value head read a state-only vector through a
+separate trunk, and the two shared nothing. v1.3 restructures `SetupNet` into a
+**two-tower actor-critic mirroring the in-game `PolicyValueNet`**: a shared **state
+trunk** (`trunk_layers`) encodes the action-independent stripes into a `state_enc`
+that feeds *both* heads, and a separate **choice trunk** (`choice_layers`) encodes
+the action stripes into a `choice_enc`. The value head reads `state_enc` only
+(still a true `V(s)`); the policy head reads `cat(state_enc, choice_enc)`. The
+value and policy heads now share a learned state representation — the point of the
+two-tower design — while the `V(s)` baseline property is preserved (the value head
+output is a pure function of state). `SetupArchitecture`'s layer-width fields are
+renamed to mirror `ModelArchitecture` exactly: `trunk_layers` (state trunk),
+`choice_layers` (choice trunk), `head_layers` (policy head), `value_layers` (value
+head), defaulting to `(128,)` state / `(128,)` choice trunks.
+
+- **Main net unaffected.** No `compat.v1_2` shim and no `encoding_dims_for_era`
+  entry — 1.3 main-net dims equal 1.2 equal live.
+- **Setup checkpoints are discarded, not migrated.** The submodule set and the
+  policy head's first `Linear` change, so a v1.2 `setup.pt` no longer fits. On
+  resume, `loop_setup.maybe_resume_setup`'s shape-mismatch path rebuilds the setup
+  net fresh (with an `ALARM`); `players.loaders.load_setup_net` refuses an
+  incompatible `setup.pt` with a clear "retrain the setup model" error. The main
+  net resumes normally.
+- **In-flight runs.** A run already in progress keeps all main-net progress; only
+  its setup model restarts fresh at the next resume.
+
+### v1.2 — setup value head `Q(s,a)` → state-only `V(s)` + setup↔in-game return reconciliation
 
 A **setup-artifact-only** FRESH bump. The separate setup model's value head was a
 per-candidate critic reading the *fused* state ⊕ action vector — it learned

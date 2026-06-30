@@ -38,7 +38,7 @@ def _cfg(tmp_path: pathlib.Path, **overrides: object) -> config.TrainConfig:
         "trunk_layers": (32, 32),
         "choice_layers": (32, 32),
         "card_embed_dim": 8,
-        "setup_hidden_layers": (16,),
+        "setup_head_layers": (16,),
     }
     base.update(overrides)
     # The flat keys above are routed to their nested sections by the same
@@ -69,9 +69,14 @@ def test_key_changes_with_embedder_shapes(tmp_path: pathlib.Path):
         _cfg(tmp_path, trunk_layers=(64, 64)).setup_architecture_key
         == base.setup_architecture_key
     )
-    # But a setup-trunk change IS a setup-architecture change.
+    # But a setup state-trunk change IS a setup-architecture change.
     assert (
         _cfg(tmp_path, setup_trunk_layers=(32,)).setup_architecture_key
+        != base.setup_architecture_key
+    )
+    # As is a setup choice-trunk change (the second tower).
+    assert (
+        _cfg(tmp_path, setup_choice_layers=(48,)).setup_architecture_key
         != base.setup_architecture_key
     )
 
@@ -125,7 +130,7 @@ def test_incompatible_weights_fall_back_fresh(tmp_path: pathlib.Path):
     bad_payload: dict[str, object] = {
         "setup_config": cfg.model_dump(),
         "setup_feature_dim": cfg.setup_encoding.total_dim,
-        "setup_model": {"mlp.0.weight": torch.zeros(1, 1)},
+        "setup_model": {"nonexistent.weight": torch.zeros(1, 1)},
         "setup_optimizer": {},
     }
     torch.save(bad_payload, tmp_path / artifacts.SETUP_CKPT)
@@ -151,8 +156,8 @@ def test_matching_setup_checkpoint_still_resumes(tmp_path: pathlib.Path):
 
     resumed = loop.TrainingLoop(cfg)
     assert resumed._setup_net is not None and source._setup_net is not None
-    source_mlp = source._setup_net.mlp.state_dict()
-    for name, tensor in resumed._setup_net.mlp.state_dict().items():
-        assert torch.equal(tensor, source_mlp[name])
+    source_value = source._setup_net.value_head.state_dict()
+    for name, tensor in resumed._setup_net.value_head.state_dict().items():
+        assert torch.equal(tensor, source_value[name])
     # And the post-resume sync re-pinned the embedder copies to the main net.
     assert torch.equal(resumed._setup_net.card_table(), resumed.net.card_table())

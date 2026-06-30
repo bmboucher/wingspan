@@ -23,7 +23,7 @@ from wingspan.setup_model.architecture import (
     SetupParamReport,
     SetupShapeKey,
     count_setup_parameters,
-    setup_readout_input_dim,
+    setup_choice_input_dim,
     setup_state_input_dim,
 )
 from wingspan.setup_model.candidates import (
@@ -40,7 +40,8 @@ from wingspan.setup_model.encode import (
 from wingspan.setup_model.generate import JointSetup, RandomSetupGenerator, SeatDeal
 from wingspan.setup_model.record import SetupSample
 from wingspan.setup_model.stripes import (
-    setup_readout_stripe_layout,
+    setup_choice_stripe_layout,
+    setup_state_stripe_layout,
     setup_stripe_layout,
 )
 
@@ -61,8 +62,9 @@ __all__ = [
     "encode_setup_candidate",
     "enumerate_setup_candidates",
     "select_by_margins",
-    "setup_readout_input_dim",
-    "setup_readout_stripe_layout",
+    "setup_choice_input_dim",
+    "setup_choice_stripe_layout",
     "setup_state_input_dim",
+    "setup_state_stripe_layout",
     "setup_stripe_layout",
 ]

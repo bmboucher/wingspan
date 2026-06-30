@@ -33,8 +33,27 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.2"
+MODEL_VERSION = "1.3"
 """The current artifact-compatibility version (the only place it is defined).
+
+1.3 is another **setup-artifact-only** MINOR FRESH bump. The separate setup model
+is restructured into a two-tower actor-critic mirroring the in-game
+``model.PolicyValueNet``: a shared **state trunk** encodes the action-independent
+stripes into a ``state_enc`` that feeds both heads, and a separate **choice trunk**
+encodes the action stripes into a ``choice_enc``. The value head reads ``state_enc``
+only (still a true ``V(s)``); the policy head reads ``cat(state_enc, choice_enc)``
+instead of the former fused per-candidate vector. ``SetupArchitecture`` gains
+``trunk_layers`` / ``choice_layers`` / ``head_layers`` / ``value_layers`` (mirroring
+``ModelArchitecture``'s field names), defaulting to ``(128,)`` state and ``(128,)``
+choice trunks. The submodule set and the policy head's first ``Linear`` change, so
+old ``setup.pt`` weights no longer fit.
+
+As with 1.2 the **main net's encoding and topology are unchanged**, so there is no
+``compat.v1_2`` shim and no ``encoding_dims_for_era`` entry — 1.3 main-net dims equal
+1.2 equal live. Setup checkpoints are discarded, not migrated: a resumed run restarts
+its setup model fresh via ``loop_setup.maybe_resume_setup``'s shape-mismatch path, and
+``players.loaders.load_setup_net`` refuses an incompatible ``setup.pt`` with a clear
+retrain message.
 
 1.2 is a **setup-artifact-only** MINOR FRESH bump. The separate setup model's
 value head becomes a state-only critic ``V(s)`` — reading only the

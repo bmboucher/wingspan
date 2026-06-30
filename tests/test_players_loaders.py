@@ -55,7 +55,7 @@ def _setup_cfg(checkpoint_dir: pathlib.Path) -> config.RunConfig:
                 card_encoder_layers=(),
                 hand_encoder_layers=(8,),
             ),
-            setup=config.SetupNetArchitecture(hidden_layers=(8,)),
+            setup=config.SetupNetArchitecture(head_layers=(8,)),
         ),
     )
 

@@ -15,13 +15,14 @@ from wingspan import architecture, decisions, encode, setup_model, version  # no
 from wingspan.encode import stripes as encode_stripes  # noqa: E402
 from wingspan.reporting import html as report  # noqa: E402
 
-# The five detail-panel ids html.py always emits (in diagram order), and the
+# The six detail-panel ids html.py always emits (in diagram order), and the
 # parameter-table block keys the default architecture renders anchors for. By
 # default the hand block pools the card table and is drawn bare (no input box),
-# so only four of the five panels are clickable from the diagram; the "hand"
-# panel becomes clickable only with a distinct (learned) hand encoder.
-_PANEL_IDS = ("card", "hand", "state", "choice", "setup")
-_CLICKABLE_PANEL_IDS = ("card", "state", "choice", "setup")
+# so five of the six panels are clickable from the diagram (the two setup vectors
+# — state and choice — are each their own clickable input box); the "hand" panel
+# becomes clickable only with a distinct (learned) hand encoder.
+_PANEL_IDS = ("card", "hand", "state", "choice", "setup_state", "setup_choice")
+_CLICKABLE_PANEL_IDS = ("card", "state", "choice", "setup_state", "setup_choice")
 _PARAMS_BLOCK_KEYS = ("embed", "trunk", "choice", "scorer", "value", "total")
 
 
@@ -114,7 +115,7 @@ def test_svg_board_attention_absent_by_default():
     html = _report_html(use_setup_model=True)
     assert "BOARD ATTENTION" not in html
     assert 'data-params-block="board attn"' not in html
-    # data-panel count is the four clickable boxes (bare hand block has none).
+    # data-panel count is the five clickable boxes (bare hand block has none).
     assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS)
     # Bare pooling block uses the simplified title and no redundant lookup row.
     assert "MULTI-CARD POOLING" in html
@@ -128,7 +129,7 @@ def test_svg_board_attention_present_when_enabled():
     assert "id='params-block-board attn'" in html
     assert f"×{encode.N_BOARD_INDEX_SLOTS}" in html
     # panel=None on the attention unit and a bare hand block — neither adds a
-    # data-panel beyond the four clickable input boxes.
+    # data-panel beyond the five clickable input boxes.
     assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS)
 
 
@@ -208,53 +209,56 @@ def test_birds_tab_payload_all_birds_have_card_name():
         assert entry["card"]["name"], "Bird entry has empty name"
 
 
-def test_count_setup_params_trunk_total_matches_net():
+def test_count_setup_params_total_matches_net():
     """count_setup_parameters total equals sum(p.numel()) of the real SetupNet."""
     from wingspan.training import setup_net as sn
 
-    arch = setup_model.SetupArchitecture(trunk_layers=(64,), hidden_layers=(32,))
-    net = sn.SetupNet(arch=arch)
-    report = setup_model.count_setup_parameters(
-        arch, feature_dim=setup_model.SetupEncoding().total_dim
+    arch = setup_model.SetupArchitecture(
+        trunk_layers=(64,), choice_layers=(48,), head_layers=(32,)
     )
+    net = sn.SetupNet(arch=arch)
+    report = setup_model.count_setup_parameters(arch)
     assert report.total == sum(p.numel() for p in net.parameters())
 
 
-def test_count_setup_params_no_trunk_total_matches_net():
-    """count_setup_parameters total matches with trunk_layers=() (legacy path)."""
+def test_count_setup_params_default_total_matches_net():
+    """count_setup_parameters total matches the default two-tower SetupNet."""
     from wingspan.training import setup_net as sn
 
-    arch = setup_model.SetupArchitecture(hidden_layers=(64, 32))
+    arch = setup_model.SetupArchitecture(head_layers=(64, 32))
     net = sn.SetupNet(arch=arch)
-    report = setup_model.count_setup_parameters(
-        arch, feature_dim=setup_model.SetupEncoding().total_dim
-    )
+    report = setup_model.count_setup_parameters(arch)
     assert report.total == sum(p.numel() for p in net.parameters())
-    assert report.trunk == ()
+    # The choice trunk is present in actor-critic mode.
+    assert report.choice_trunk != ()
 
 
-def test_html_report_with_trunk_renders():
-    """generate_html_report renders without error when the setup net has a trunk."""
+def test_html_report_two_tower_renders():
+    """generate_html_report renders the two-tower setup blocks without error."""
     html = _report_html_for_arch(
         architecture.ModelArchitecture(),
         use_setup_model=True,
         setup_arch=setup_model.SetupArchitecture(
-            trunk_layers=(64,), hidden_layers=(32,)
+            trunk_layers=(64,), choice_layers=(48,), head_layers=(32,)
         ),
     )
-    assert "SETUP TRUNK" in html
+    assert "STATE TRUNK" in html
+    assert "CHOICE TRUNK" in html
     assert "SETUP VALUE" in html
     assert "SETUP POLICY" in html
 
 
-def test_html_report_no_trunk_uses_embedder_title():
-    """Both trunk and no-trunk paths use the same SETUP TRUNK header title."""
+def test_html_report_emits_two_setup_vector_panels():
+    """The setup net contributes two separate vector panels — state and choice."""
     html = _report_html_for_arch(
         architecture.ModelArchitecture(),
         use_setup_model=True,
-        setup_arch=setup_model.SetupArchitecture(hidden_layers=(64, 32)),
+        setup_arch=setup_model.SetupArchitecture(head_layers=(64, 32)),
     )
-    assert "SETUP TRUNK" in html
+    assert "Setup State Vector" in html
+    assert "Setup Choice Vector" in html
+    assert "id='setup_state'" in html
+    assert "id='setup_choice'" in html
 
 
 ###### PRIVATE #######

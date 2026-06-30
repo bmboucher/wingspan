@@ -81,10 +81,11 @@ _SCROLL_MORE_DOWN = "  ▼ more"
 
 # Which selected field lights up a whole BOX (gold border + title).
 _BOX_FOCUS_ATTRS: dict[str, set[str]] = {
-    "setup": {"setup_hidden_layers", "use_setup_model"},
-    "setup_value": {"setup_hidden_layers", "use_setup_model"},
-    "setup_policy": {"setup_hidden_layers", "use_setup_model"},
-    "setup_trunk": {"setup_trunk_layers"},
+    "setup": {"use_setup_model"},
+    "setup_state_trunk": {"setup_trunk_layers", "use_setup_model"},
+    "setup_choice_trunk": {"setup_choice_layers", "use_setup_model"},
+    "setup_value": {"setup_value_layers", "use_setup_model"},
+    "setup_policy": {"setup_head_layers", "use_setup_model"},
     "embed": {"card_embed_dim", "card_encoder_layers"},
     "trunk": {"trunk_layers"},
     "choice": {"choice_layers"},
@@ -225,10 +226,10 @@ def _diagram_rows(
         rows.extend(block_rows)
 
     if cfg.architecture.use_setup_model:
-        add("setup", _setup_input_box(view, content_w))
-        block_start["setup_value"] = len(rows)
-        block_start["setup_policy"] = len(rows)
-        rows.extend(_fanout_rows(content_w, left_center, right_center))
+        add("setup", _setup_trunks_region(view, content_w))
+        block_start["setup_state_trunk"] = block_start["setup"]
+        block_start["setup_choice_trunk"] = block_start["setup"]
+        rows.extend(_merge_rows(content_w, left_center, right_center))
         add("setup_value", _setup_heads_region(view, content_w))
         block_start["setup_policy"] = block_start["setup_value"]
     else:
@@ -292,15 +293,17 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
     choice_in = _choice_in(cfg)
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
     if cfg.architecture.use_setup_model:
-        # Value head reads the state-only embedding (V(s)); policy head reads the
-        # fused state ⊕ action candidate. Distinct input widths show the split.
-        value_chain = _chain(
-            _setup_state_in(cfg), (*cfg.setup_arch.value_hidden_resolved, 1)
+        # Two-tower: a state trunk + a choice trunk; the value head reads the state
+        # encoding (V(s)), the policy head reads state ⊕ choice encodings.
+        state_enc = cfg.setup_arch.trunk_layers[-1]
+        choice_enc = cfg.setup_arch.choice_layers[-1]
+        state_chain = _chain(_setup_state_in(cfg), cfg.setup_arch.trunk_layers)
+        choice_chain = _chain(_setup_choice_in(cfg), cfg.setup_arch.choice_layers)
+        value_chain = _chain(state_enc, (*cfg.setup_arch.value_layers, 1))
+        policy_chain = _chain(state_enc + choice_enc, (*cfg.setup_arch.head_layers, 1))
+        setup_chain = (
+            f"S:{state_chain} C:{choice_chain} V:{value_chain} P:{policy_chain}"
         )
-        policy_chain = _chain(
-            _setup_readout_in(cfg), (*cfg.architecture.setup.hidden_layers, 1)
-        )
-        setup_chain = f"V:{value_chain} P:{policy_chain}"
     else:
         setup_chain = "off"
     rows = [
@@ -361,55 +364,83 @@ def _setup_off_line() -> text.Text:
     return line
 
 
-def _setup_input_box(view: state.ConfiguratorState, content_w: int) -> list[text.Text]:
-    """Actor-critic mode: the full-width shared-embedder (+ optional trunk) input box.
+def _setup_trunks_region(
+    view: state.ConfiguratorState, content_w: int
+) -> list[text.Text]:
+    """Actor-critic mode: the STATE trunk and CHOICE trunk columns, side by side.
 
-    When ``trunk_layers`` is non-empty the box is titled "shared trunk" and
-    shows the trunk layer ops; the value/policy head boxes drawn below by
-    :func:`_setup_heads_region` then receive the trunk output. When no trunk
-    it shows only the embedder parameter cost, exactly as before.
+    The two-tower replica of the main net's ``_trunk_region``: the state trunk
+    encodes the action-independent stripes (its output feeds both heads), the
+    choice trunk encodes the action stripes (its output feeds the policy head).
     """
-    cfg = view.working
+    col_w, right_w, _, _ = _columns(content_w)
     report = _setup_block(view)
-    embed_in = _setup_readout_in(cfg)
-    caption = [
-        (
-            f"in {embed_in} "
-            f"(from {cfg.setup_encoding.total_dim}-dim raw candidate)",
-            theme.TEXT_DIM2,
-        )
-    ]
-    has_trunk = bool(cfg.setup_arch.trunk_layers)
-    if has_trunk:
-        title = "SETUP INPUT · shared trunk"
-        entries = _block_op_entries(
-            view,
-            cfg.setup_arch.trunk_layers,
-            _BlockKind.READOUT,
-            report.trunk,
-            _SETUP_OP_FIELDS,
-            between_activation=str(cfg.setup_arch.between_activation),
-            final_activation=str(cfg.setup_arch.between_activation),
-            dropout=cfg.architecture.setup.dropout,
-            layernorm=False,
-        )
-        out_caption: tuple[str, str] | None = (
-            "→ ",
-            str(cfg.setup_arch.trunk_layers[-1]),
-        )
-    else:
-        title = "SETUP INPUT · shared embedder"
-        entries = []
-        out_caption = None
+    left = _setup_state_trunk_column(view, col_w, report)
+    right = _setup_choice_trunk_column(view, right_w, report)
+    height = max(len(left), len(right))
+    left, right = _align_bottoms(left, height), _align_bottoms(right, height)
+    return text_helpers.join_columns([(left, col_w), (right, right_w)], _COL_GAP)
+
+
+def _setup_state_trunk_column(
+    view: state.ConfiguratorState, width: int, report: setup_model.SetupParamReport
+) -> list[text.Text]:
+    """The state trunk of the setup net: encodes the action-independent stripes
+    (tray / feeder / goals / bonus-on-offer) into the shared state encoding both
+    heads read."""
+    cfg = view.working
+    entries = _block_op_entries(
+        view,
+        cfg.setup_arch.trunk_layers,
+        _BlockKind.READOUT,
+        report.state_trunk,
+        _SETUP_OP_FIELDS,
+        between_activation=str(cfg.setup_arch.between_activation),
+        final_activation=str(cfg.setup_arch.between_activation),
+        dropout=cfg.setup_arch.dropout,
+        layernorm=False,
+    )
     return _model_block(
         view,
-        section="setup_trunk" if has_trunk else "setup",
-        title=title,
-        in_caption=caption,
+        section="setup_state_trunk",
+        title="SETUP STATE",
+        in_caption=[(f"in {_setup_state_in(cfg)} (state vector)", theme.TEXT_DIM2)],
         entries=entries,
-        sigma_total=report.embedder_params + report.trunk_params,
-        out_caption=out_caption,
-        width=content_w,
+        sigma_total=report.state_trunk_params,
+        out_caption=("→ ", str(cfg.setup_arch.trunk_layers[-1])),
+        width=width,
+        tap=True,
+        dashed=False,
+    )
+
+
+def _setup_choice_trunk_column(
+    view: state.ConfiguratorState, width: int, report: setup_model.SetupParamReport
+) -> list[text.Text]:
+    """The choice trunk of the setup net: encodes the action stripes (kept-card /
+    playability sets, kept foods, bonus action, affinities) into the choice
+    encoding the policy head reads."""
+    cfg = view.working
+    entries = _block_op_entries(
+        view,
+        cfg.setup_arch.choice_layers,
+        _BlockKind.READOUT,
+        report.choice_trunk,
+        _SETUP_OP_FIELDS,
+        between_activation=str(cfg.setup_arch.between_activation),
+        final_activation=str(cfg.setup_arch.between_activation),
+        dropout=cfg.setup_arch.dropout,
+        layernorm=False,
+    )
+    return _model_block(
+        view,
+        section="setup_choice_trunk",
+        title="SETUP CHOICE",
+        in_caption=[(f"in {_setup_choice_in(cfg)} (choice vector)", theme.TEXT_DIM2)],
+        entries=entries,
+        sigma_total=report.choice_trunk_params,
+        out_caption=("→ ", str(cfg.setup_arch.choice_layers[-1])),
+        width=width,
         tap=True,
         dashed=False,
     )
@@ -433,27 +464,27 @@ def _setup_value_column(
 ) -> list[text.Text]:
     """The value readout head of the setup net (actor-critic mode).
 
-    Reads the STATE-ONLY embedding — the action-independent deal stripes only —
-    so it is the critic ``V(s)``, invariant to the chosen keep."""
+    Reads the shared STATE encoding only, so it is the critic ``V(s)``, invariant
+    to the chosen keep."""
     cfg = view.working
     head_layers = report.value_head
     per_head = sum(layer.params for layer in head_layers)
     entries = _block_op_entries(
         view,
-        (*cfg.setup_arch.value_hidden_resolved, 1),
+        (*cfg.setup_arch.value_layers, 1),
         _BlockKind.READOUT,
         head_layers,
         _SETUP_OP_FIELDS,
         between_activation=str(cfg.setup_arch.between_activation),
         final_activation=str(cfg.setup_arch.final_activation),
-        dropout=cfg.architecture.setup.dropout,
+        dropout=cfg.setup_arch.dropout,
         layernorm=False,
     )
     return _model_block(
         view,
         section="setup_value",
         title="SETUP VALUE",
-        in_caption=[(f"in {report.value_in} (state only) → V(s)", theme.TEXT_DIM2)],
+        in_caption=[(f"in {report.value_in} (state enc) → V(s)", theme.TEXT_DIM2)],
         entries=entries,
         sigma_total=per_head,
         out_caption=("→ ", "1"),
@@ -468,8 +499,8 @@ def _setup_policy_column(
 ) -> list[text.Text]:
     """The policy readout head of the setup net (actor-critic mode).
 
-    Reads the FUSED state ⊕ action candidate embedding, so its logits rank the
-    keep candidates."""
+    Reads ``cat(state_enc, choice_enc)`` — the shared state encoding plus the
+    choice trunk's encoding — so its logits rank the keep candidates."""
     cfg = view.working
     policy_layers = (
         report.policy_head if report.policy_head is not None else report.value_head
@@ -477,20 +508,20 @@ def _setup_policy_column(
     per_head = sum(layer.params for layer in policy_layers)
     entries = _block_op_entries(
         view,
-        (*cfg.architecture.setup.hidden_layers, 1),
+        (*cfg.setup_arch.head_layers, 1),
         _BlockKind.READOUT,
         policy_layers,
         _SETUP_OP_FIELDS,
         between_activation=str(cfg.setup_arch.between_activation),
         final_activation=str(cfg.setup_arch.final_activation),
-        dropout=cfg.architecture.setup.dropout,
+        dropout=cfg.setup_arch.dropout,
         layernorm=False,
     )
     return _model_block(
         view,
         section="setup_policy",
         title="SETUP POLICY",
-        in_caption=[(f"in {report.policy_in} (state ⊕ keep)", theme.TEXT_DIM2)],
+        in_caption=[(f"in {report.policy_in} (state ⊕ choice)", theme.TEXT_DIM2)],
         entries=entries,
         sigma_total=per_head,
         out_caption=("→ ", "1"),
@@ -1175,17 +1206,16 @@ def _choice_extra(cfg: config.RunConfig | _StaticConfig) -> int:
     )
 
 
-def _setup_readout_in(cfg: config.RunConfig) -> int:
-    """The setup net's POLICY readout-MLP input width: the fused state ⊕ action
-    candidate embedding under the working main architecture (whose embedder
-    copies size the embedded candidate)."""
-    return setup_model.setup_readout_input_dim(cfg.setup_encoding.total_dim, cfg.arch)
-
-
 def _setup_state_in(cfg: config.RunConfig) -> int:
-    """The setup net's VALUE head input width: the state-only embedding ``V(s)``
-    reads (action-independent stripes only)."""
+    """The setup net's STATE trunk input width: the action-independent embedding
+    the state trunk reads (tray / feeder / goals / bonus-on-offer)."""
     return setup_model.setup_state_input_dim(cfg.setup_encoding, cfg.arch)
+
+
+def _setup_choice_in(cfg: config.RunConfig) -> int:
+    """The setup net's CHOICE trunk input width: the action-stripe embedding the
+    choice trunk reads (kept sets, foods, bonus action, affinities)."""
+    return setup_model.setup_choice_input_dim(cfg.setup_encoding, cfg.arch)
 
 
 def _setup_block(view: state.ConfiguratorState) -> setup_model.SetupParamReport:
@@ -1193,8 +1223,8 @@ def _setup_block(view: state.ConfiguratorState) -> setup_model.SetupParamReport:
     are shaped by the working main architecture)."""
     return setup_model.count_setup_parameters(
         view.working.setup_arch,
-        feature_dim=view.working.setup_encoding.total_dim,
         main_arch=view.working.arch,
+        encoding=view.working.setup_encoding,
     )
 
 
@@ -1205,7 +1235,13 @@ def _box_focused(view: state.ConfiguratorState, section: str) -> bool:
 
 def _section_accent(section: str, dashed: bool) -> str:
     """The unfocused border color for a structural box."""
-    if section in ("setup", "setup_value", "setup_policy"):
+    if section in (
+        "setup",
+        "setup_state_trunk",
+        "setup_choice_trunk",
+        "setup_value",
+        "setup_policy",
+    ):
         return _SETUP_BORDER
     if section == "embed":
         return _CARD_BORDER
@@ -1247,13 +1283,17 @@ class _StaticMain(pydantic.BaseModel):
 
 
 class _StaticSetup(pydantic.BaseModel):
-    """The ``architecture.setup`` topology knobs the diagram reads, projected from
-    the caller-supplied :class:`~wingspan.setup_model.SetupArchitecture`."""
+    """The ``architecture.setup`` topology knobs, projected from the
+    caller-supplied :class:`~wingspan.setup_model.SetupArchitecture`. The diagram
+    reads the setup widths through ``cfg.setup_arch`` (identical on the live and
+    static configs); these mirror the two-tower fields for completeness."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    trunk_layers: architecture.Widths = ()
-    hidden_layers: architecture.Widths
+    trunk_layers: architecture.Widths = (128,)
+    choice_layers: architecture.Widths = (128,)
+    head_layers: architecture.Widths = (128,)
+    value_layers: architecture.Widths = ()
     dropout: float
 
 
@@ -1359,7 +1399,9 @@ def render_static(
             ),
             setup=_StaticSetup(
                 trunk_layers=resolved_setup_arch.trunk_layers,
-                hidden_layers=resolved_setup_arch.hidden_layers,
+                choice_layers=resolved_setup_arch.choice_layers,
+                head_layers=resolved_setup_arch.head_layers,
+                value_layers=resolved_setup_arch.value_layers,
                 dropout=resolved_setup_arch.dropout,
             ),
             use_setup_model=use_setup_model,
