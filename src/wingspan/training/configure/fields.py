@@ -601,6 +601,8 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     # dagger section
     "dagger_expert_checkpoint": ("dagger", "expert_checkpoint"),
     "clone_iters": ("dagger", "clone_iters"),
+    # engine section
+    "combine_gain_food": ("engine", "combine_gain_food"),
 }
 
 
@@ -749,6 +751,16 @@ FIELD_SPECS: list[FieldSpec] = [
         step=0.05,
         impact=ChangeImpact.REGIME,
         help="Smoothing for the PRODUCING band's score / margin readouts.",
+    ),
+    ChoiceField(
+        attr="combine_gain_food",
+        label="combine food gains",
+        group_path=("COLLECTION",),
+        choices=["True", "False"],
+        impact=ChangeImpact.REGIME,
+        help="When True, multi-die (feeder) and multi-token (supply) food gains are "
+        "collapsed into a single FoodSubset decision presenting all legal subsets at "
+        "once instead of one die/token at a time. Resumable — no shape change.",
     ),
     # COLLECTION ▸ BOOTSTRAP
     BootstrapField(
