@@ -35,7 +35,30 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.3 — setup net → two-tower (state trunk + choice trunk) (current)
+### v1.4 — `resets_feeder` choice stripe (current)
+
+A **main-net** FRESH bump. Under `combine_gain_food`, `actions.combined_feeder_gain`
+folds the birdfeeder reroll into the `FoodSubsetChoice` menu: a partial take (fewer
+than `n` dice), or a full take that empties the feeder, commits the engine to a
+reroll and re-pick. Previously such an option was byte-indistinguishable from a plain
+smaller gain — only a lower `gain_food` count. v1.4 adds a 1-dim `resets_feeder`
+stripe as the last *base* choice stripe (immediately after `becomes_unplayable`,
+before the conditional setup stripes); the engine sets
+`FoodSubsetChoice.resets_birdfeeder` and the featurizer lights the bit, so the model
+weighs the fresh re-pick against the smaller immediate gain.
+
+- **Setup net unaffected.** The setup model's choice encoding is independent of the
+  main choice width, so setup artifacts stay loadable and there is no setup-side shim.
+- **Compat.** v1.1–1.3 main-net artifacts route to `compat.v1_3.PolicyValueNetV1_3`,
+  which strips the `resets_feeder` column (keeping `becomes_unplayable`) and shifts
+  only `kept_multihot`. v1.0 artifacts route to `compat.v1_0.PolicyValueNetV1_0`,
+  which now inherits `PolicyValueNetV1_3` to compose that strip with its own
+  `becomes_unplayable` strip (v1.0 lacks both). `encoding_dims_for_era` returns a
+  `choice_dim` one narrower for every era with minor ≤ 3.
+- **In-flight runs.** An era-pinned 1.0–1.3 run keeps training at its own era (no
+  `resets_feeder` signal) via the shim; only a fresh launch adopts v1.4.
+
+### v1.3 — setup net → two-tower (state trunk + choice trunk)
 
 A **setup-artifact-only** FRESH bump. v1.2 made the value head a state-only `V(s)`
 but left the net asymmetric: the policy head read a single *fused* state ⊕ action
@@ -351,6 +374,14 @@ No tensor shape changes (it stays out of `architecture_key`), no `MODEL_VERSION`
 bump, no compat shim. This is the difference from the 2026-06-1x bugs below:
 those mutated a shared code-carried path that *every* artifact reads;
 `combine_gain_food` only ever runs new code behind a config-carried flag.
+
+The v1.4 `resets_feeder` stripe is the instructive counter-case: it annotates the
+*same* `combine_gain_food` `FoodSubsetChoice` rows, but it is a new always-present
+choice-vector column, not config-carried geometry — so even though the bit only ever
+carries a value for combined-gain rows, adding the column widened `choice_dim` for
+every artifact and *did* take a FRESH `MODEL_VERSION` bump + `compat.v1_3` shim.
+Config-carried *behavior* behind a flag is REGIME; a new *stripe* is FRESH no matter
+how narrow its trigger.
 
 A shape-preserving code-carried change is the dangerous case: it loads without
 complaint and silently misbehaves. The 2026-06-10 `_embed_state` bug was exactly

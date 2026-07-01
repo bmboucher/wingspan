@@ -1,21 +1,24 @@
 # compat — Version-specific artifact shims
 
-**Currently empty.** The pre-1.0 shims (`v0_0` … `v0_7`) were dropped wholesale
-at the 1.0 MAJOR version bump, along with their fixture sets. No 0.x artifact
-loads under 1.0 code — `version.check_artifact_compatible` refuses any
-different-MAJOR artifact. See `docs/VERSIONING.md` for the full compat policy
-(FRESH vs REGIME, when a MINOR bump is required, fixture-set rules, the MAJOR
-escape hatch).
+The pre-1.0 shims (`v0_0` … `v0_7`) were dropped wholesale at the 1.0 MAJOR version
+bump, along with their fixture sets. No 0.x artifact loads under 1.x code —
+`version.check_artifact_compatible` refuses any different-MAJOR artifact. The
+same-MAJOR MINOR reshapes since then have re-populated the package: **`v1_0`** (the
+v1.1 `becomes_unplayable` stripe + trunk-final-activation change) and **`v1_3`** (the
+v1.4 `resets_feeder` stripe). See `docs/VERSIONING.md` for the full compat policy
+(FRESH vs REGIME, when a MINOR bump is required, fixture-set rules, the MAJOR escape
+hatch).
 
-The package is kept as the documented home for the seam. The next MINOR FRESH
-change (the first `1.<N>` encoding reshape) re-introduces one module per
-superseded era here, exactly as the v0.x shims worked:
+Each MINOR FRESH encoding reshape adds one module per superseded era:
 
-- a `v1_<N>.py` module with a `uses_v1_<N>_*` version predicate and frozen
-  `encode_*` / `*_embed_offsets` helpers,
-- a `PolicyValueNet`/`SetupNet` subclass that overrides the reshaped geometry,
-- a branch added to `model.PolicyValueNet.class_for_version` and (if widths
-  change) to `encoding_dims_for_era` below.
+- a `v1_<N>.py` module with frozen `encode_*` / `*_embed_offsets` overrides,
+- a `PolicyValueNet`/`SetupNet` subclass that regenerates the era's geometry,
+- a branch added to `model.PolicyValueNet.class_for_version` and (if widths change)
+  to `encoding_dims_for_era` below.
+
+When a later reshape supersedes an era that already lacked an earlier stripe, the
+older shim *inherits* the newer one so the strips compose (e.g. `v1_0` inherits
+`v1_3`: v1.0 vectors lack both `becomes_unplayable` and `resets_feeder`).
 
 **Freeze _all_ geometry the net derives, not just `encode_state`.** A shim's job
 is that the rehydrated net computes identically to the saved one. The net also
@@ -35,14 +38,25 @@ same-MAJOR era or refuse one explicitly.
 
 **`__init__.py`** — the package-level dims router:
 `encoding_dims_for_era(artifact_version, spec) -> (state_dim, choice_dim)`.
-Routes v1.0 artifacts to the v1.0 frozen dims (narrower `choice_dim`: without
-the `becomes_unplayable` stripe); later same-MAJOR artifacts get the live widths.
+Narrows `choice_dim` by every stripe added after the artifact's era: minus the
+1-dim `resets_feeder` stripe for every era with minor ≤ 3, and additionally minus
+the 180-dim `becomes_unplayable` stripe for v1.0. Later same-MAJOR artifacts get the
+live widths.
+
+**`v1_3.py`** — v1.3 artifact compat shim:
+- `PolicyValueNetV1_3` — `PolicyValueNet` subclass that strips the v1.4
+  `resets_feeder` 1-dim choice stripe (the last base stripe, after
+  `becomes_unplayable`). Overrides `_build_choice_encoder`, `encode_choices`, and
+  `_choice_embed_offsets` (only `kept_multihot` shifts; `bird_id` /
+  `becomes_playable` / `becomes_unplayable` precede the new stripe and are
+  unchanged). No trunk override — v1.1–1.3 topology equals live. Routed for artifact
+  minor 1–3 by `model.PolicyValueNet.class_for_version`.
 
 **`v1_0.py`** — v1.0 artifact compat shim:
-- `PolicyValueNetV1_0` — `PolicyValueNet` subclass that restores the v1.0
-  trunk-final-activation fallback (`trunk_final_activation=null` resolved to
-  `between_activation` instead of `final_activation`) and strips the
-  `becomes_unplayable` 180-dim choice stripe added in v1.1. Overrides
-  `_build_trunk`, `encode_choices`, and `_choice_embed_offsets`.
-- `uses_v1_0` — version predicate (`artifact.major == 1 and artifact.minor == 0`).
-  Used by `model.PolicyValueNet.class_for_version` to route v1.0 artifacts here.
+- `PolicyValueNetV1_0` — a `PolicyValueNetV1_3` subclass (so the `resets_feeder`
+  strip is inherited) that additionally restores the v1.0 trunk-final-activation
+  fallback (`trunk_final_activation=null` resolved to `between_activation` instead of
+  `final_activation`) and strips the `becomes_unplayable` 180-dim choice stripe added
+  in v1.1. Overrides `_build_trunk`, `_build_choice_encoder`, `encode_choices`, and
+  `_choice_embed_offsets`, each chaining `super()` (the v1_3 strip) then removing
+  `becomes_unplayable`. Routed for artifact minor 0.

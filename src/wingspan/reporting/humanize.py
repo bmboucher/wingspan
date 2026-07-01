@@ -46,7 +46,8 @@ _ROW_HAS_RE = re.compile(
 
 def _food_subset_summary(choice: decisions.FoodSubsetChoice) -> str:
     """A readable multiset summary of a combined gain, e.g. ``2 fish + 1 seed``;
-    choice-die resolutions are tagged ``(choice)``."""
+    choice-die resolutions are tagged ``(choice)`` and a subset that rerolls the
+    birdfeeder is tagged ``(resets feeder)``."""
     parts = [
         f"{amount} {food.value}" for food, amount in choice.plain.items() if amount > 0
     ]
@@ -54,7 +55,8 @@ def _food_subset_summary(choice: decisions.FoodSubsetChoice) -> str:
         parts.append(f"{choice.choice_inv} {cards.Food.INVERTEBRATE.value} (choice)")
     if choice.choice_seed:
         parts.append(f"{choice.choice_seed} {cards.Food.SEED.value} (choice)")
-    return " + ".join(parts) if parts else "nothing"
+    summary = " + ".join(parts) if parts else "nothing"
+    return f"{summary} (resets feeder)" if choice.resets_birdfeeder else summary
 
 
 def humanize_choice(

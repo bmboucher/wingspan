@@ -300,3 +300,98 @@ def test_full_game_completes_with_combine_gain_food() -> None:
     for player in eng.state.players:
         assert player.final_score is not None
         assert player.food.total() >= 0
+
+
+# ---------------------------------------------------------------------------
+# resets_birdfeeder flag (v1.4)
+
+
+def test_partial_subset_flags_reset_full_non_empty_does_not() -> None:
+    """A partial subset (fewer than n) carries resets_birdfeeder=True; a full
+    subset that leaves the feeder non-empty carries False."""
+    gs = _new_game()
+    _staged_feeder(gs, fish=1, seed=2)  # 3 dice, two faces (no pre-gain reset)
+    player = gs.players[0]
+    gs.current_player = 0
+    captured: dict[tuple[int, int], bool] = {}
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        assert isinstance(decision, decisions.GainFoodDecision)
+        for choice in decision.choices:
+            assert isinstance(choice, decisions.FoodSubsetChoice)
+            key = (choice.plain[cards.Food.FISH], choice.plain[cards.Food.SEED])
+            captured[key] = choice.resets_birdfeeder
+        # Take a full (size-2) subset so the gain ends without recursion.
+        for choice in decision.choices:
+            if (
+                isinstance(choice, decisions.FoodSubsetChoice)
+                and choice.total_units() == 2
+            ):
+                return typing.cast(C, choice)
+        raise AssertionError("no size-2 subset offered")
+
+    eng = engine.Engine(gs, combine_gain_food=True)
+    actions.combined_feeder_gain(eng, agent, player, 2)
+
+    # {fish:1} is the only offered partial (leaves seed×2, one face); it resets.
+    assert captured[(1, 0)] is True
+    # The full size-2 subsets leave the 3-die feeder non-empty → no reset.
+    assert captured[(1, 1)] is False
+    assert captured[(0, 2)] is False
+
+
+def test_full_subset_flags_reset_when_it_empties_the_feeder() -> None:
+    """A full take (== n) that empties the feeder carries resets_birdfeeder=True."""
+    gs = _new_game()
+    _staged_feeder(gs, fish=1, fruit=1)  # 2 dice, two faces; taking both empties it
+    player = gs.players[0]
+    gs.current_player = 0
+    captured: dict[tuple[int, int], bool] = {}
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        assert isinstance(decision, decisions.GainFoodDecision)
+        for choice in decision.choices:
+            assert isinstance(choice, decisions.FoodSubsetChoice)
+            key = (choice.plain[cards.Food.FISH], choice.plain[cards.Food.FRUIT])
+            captured[key] = choice.resets_birdfeeder
+        for choice in decision.choices:
+            if (
+                isinstance(choice, decisions.FoodSubsetChoice)
+                and choice.total_units() == 2
+            ):
+                return typing.cast(C, choice)
+        raise AssertionError("no size-2 subset offered")
+
+    eng = engine.Engine(gs, combine_gain_food=True)
+    actions.combined_feeder_gain(eng, agent, player, 2)
+
+    # The full {fish:1,fruit:1} take empties the 2-die feeder → reset.
+    assert captured[(1, 1)] is True
+
+
+def test_supply_gain_subsets_never_reset() -> None:
+    """combined_supply_gain has no feeder, so its subsets leave the flag False."""
+    gs = _new_game()
+    player = gs.players[0]
+    gs.current_player = 0
+    for food in cards.ALL_FOODS:
+        player.food[food] = 0
+    seen_flags: list[bool] = []
+
+    def agent[C: decisions.Choice](
+        _eng: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        assert isinstance(decision, decisions.GainFoodDecision)
+        for choice in decision.choices:
+            assert isinstance(choice, decisions.FoodSubsetChoice)
+            seen_flags.append(choice.resets_birdfeeder)
+        return typing.cast(C, decision.choices[0])
+
+    eng = engine.Engine(gs, combine_gain_food=True)
+    actions.combined_supply_gain(eng, agent, player, 2, per_food_capacity=2, prompt="x")
+
+    assert seen_flags and not any(seen_flags)

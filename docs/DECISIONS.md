@@ -79,9 +79,9 @@ The family → decision-class map (head order = `ALL_DECISION_FAMILIES`):
 
 ## 1. The choice vector at a glance
 
-One uniform row per candidate (`encode/layout.py`); base width **508**, plus the
+One uniform row per candidate (`encode/layout.py`); base width **509**, plus the
 trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes when
-`include_setup` (**692**). The live stripes, in offset order:
+`include_setup` (**693**). The live stripes, in offset order:
 
 | Stripe | Width | Contents | Filled for |
 |---|---|---|---|
@@ -101,6 +101,7 @@ trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes when
 | `bonus_value` | 5 | what this **offered bonus card** is worth to the decider: board qualifying count, the stepped and linear VP that count pays, and qualifying-bird counts in hand (kept subset at setup) and tray | bonus picks; setup keeps carrying a bonus |
 | `becomes_playable` | 180 | hand birds that transition from not-playable to playable as a direct result of the food or eggs this choice grants. **Food-gain path (v0.8+):** baseline is `playable_now ∪ playable_if_eggs`; `_bird_playable` is called with `ignore_eggs=True` — open slot + food-affordable is enough, egg cost is not checked. **Egg-gain path:** unchanged — baseline is `playable_now`, full `_bird_playable`. Exact on `FoodChoice` (`GainFoodDecision`); optimistic best-case on `PayCostChoice` skip_optional and on `GAIN_FOOD`/`LAY_EGGS` `MainActionChoice` rows. Zero on `BoardTargetChoice` (`LayEggDecision`) and all non-gain rows. Embedded through the shared card table (same as `hand_multihot`). | gain-bearing rows: food picks, accept-exchange rows with `gained_food_count > 0` or `gained_egg_count > 0`, `GAIN_FOOD` and `LAY_EGGS` main-action rows |
 | `becomes_unplayable` | 180 | currently-playable hand birds that lose playability as a direct result of the food, eggs, or board slot this choice spends. Symmetric counterpart to `becomes_playable`; uses `playable_now` as the baseline (birds fully playable before the choice). **Optimistic** for under-specified removals: a bird survives iff at least one way to remove the tokens still leaves it food-affordable. Exact on `FoodPaymentChoice` (payment multiset known) and `FoodChoice` (`SpendFoodDecision`/`SpendFoodForEggDecision`, −1 token). **Optimistic** on `PayCostChoice` with `paid_food_count > 0` (type unknown). **Full-play** on `PlayBirdChoice` (−1 slot in played habitat, −`next_egg_cost` eggs, −food payment — optimistic over payment alternatives). **Egg-loss** on `BoardTargetChoice` (`RemoveEggDecision`, `is_pay`): −1 egg to `total_eggs`. Zero on `MainActionChoice`, `SetupChoice`, gain-only rows, and every row type not listed. Never populated for the bird being played/paid-for (excluded from its own row's baseline). Embedded through the shared card table (one `card_embed_dim` embedding, summed). Added in **v1.1**; v1.0 artifacts lack this stripe — the `wingspan.compat.v1_0` shim strips it. | spend-bearing rows: `PlayBirdChoice`, `FoodPaymentChoice`, `FoodChoice` (spend context), `BoardTargetChoice` (`RemoveEggDecision`), `PayCostChoice` with food or egg payment |
+| `resets_feeder` | 1 | 1 if this combined food-gain option rerolls the birdfeeder — a partial take (fewer than `n` dice → committed reset + re-pick) or a full take that empties the feeder — so the model can tell a smaller-but-rerolls gain apart from a plain smaller gain (the `gain_food` count vector alone cannot). The last *base* stripe (after `becomes_unplayable`, before the trailing setup stripes). Added in **v1.4**; v1.0–1.3 artifacts lack it — the `wingspan.compat.v1_3` shim strips it, and `v1_0` inherits that strip. | `combine_gain_food` `FoodSubsetChoice` rows only |
 | `setup_agg` | 4 | kept-subset aggregates: Σpoints, Σfood-cost, Σegg-limit, kept count | setup keeps only (`include_setup`) |
 | `kept_multihot` | 180 | multi-hot of the specific kept birds, summed through the shared card table (the kept set is unordered — the single-candidate `bird_id` column stays zero on setup rows) | setup keeps only (`include_setup`) |
 
@@ -278,11 +279,18 @@ lights up. It collapses three call sites: the Forest base-dice gain
 (`actions.combined_feeder_gain`, with the feeder reset / reroll folded in —
 partial subset → committed reroll → recurse; `n == 1` delegates to the single-die
 path so it stays byte-identical), the ravens' two-wild supply gain, and the
-`split_setup_food` opening keep (`actions.combined_supply_gain`). No tensor shape
-changes (REGIME): it lives on `EngineConfig.combine_gain_food`, stays out of
-`architecture_key`, and needs no `MODEL_VERSION` bump or compat shim. The Forest
-*conversion* extra die and the each-player hummingbird gain stay on the single-die
-path. See `docs/VERSIONING.md`.
+`split_setup_food` opening keep (`actions.combined_supply_gain`). Each feeder
+subset that will reroll — a partial take, or a full take that empties the feeder —
+is flagged via `FoodSubsetChoice.resets_birdfeeder` and lights the dedicated 1-dim
+`resets_feeder` choice stripe, so the model reads the fresh re-pick rather than
+only a lower food count.
+
+Toggling the regime is itself shape-preserving and config-carried (REGIME): it
+lives on `EngineConfig.combine_gain_food`, stays out of `architecture_key`, and the
+`resets_feeder` stripe is always present regardless of the toggle. Adding that
+stripe, however, *was* a FRESH change — the v1.4 `MODEL_VERSION` bump with the
+`wingspan.compat.v1_3` shim. The Forest *conversion* extra die and the each-player
+hummingbird gain stay on the single-die path. See `docs/VERSIONING.md`.
 
 **Variation within the family.** One decision class, but two sources (feeder
 vs. supply — distinguishable by whether choice-die slots can appear), a decider

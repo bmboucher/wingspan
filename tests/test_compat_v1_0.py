@@ -25,6 +25,7 @@ from torch import nn
 
 from wingspan import architecture, decisions, encode, engine, version
 from wingspan.compat import v1_0 as compat_v1_0
+from wingspan.compat import v1_3 as compat_v1_3
 from wingspan.model import core
 
 
@@ -56,9 +57,10 @@ class TestClassForVersionRouting:
         cls = core.PolicyValueNet.class_for_version("1.0")
         assert cls is compat_v1_0.PolicyValueNetV1_0
 
-    def test_v1_1_returns_live_class(self) -> None:
-        cls = core.PolicyValueNet.class_for_version("1.1")
-        assert cls is core.PolicyValueNet
+    def test_v1_1_through_v1_3_return_v1_3_shim(self) -> None:
+        for minor in ("1.1", "1.2", "1.3"):
+            cls = core.PolicyValueNet.class_for_version(minor)
+            assert cls is compat_v1_3.PolicyValueNetV1_3
 
     def test_current_version_returns_live_class(self) -> None:
         cls = core.PolicyValueNet.class_for_version(version.MODEL_VERSION)
@@ -122,9 +124,10 @@ class TestV1_0EncodingCompat:
             card_embed_dim=4,
         )
 
-    def test_v1_0_encode_choices_narrower_than_live_by_unplayable_stripe(self) -> None:
-        """The v1.0 shim's encode_choices output is exactly CHOICE_BECOMES_UNPLAYABLE_DIM
-        columns narrower than the live encoder output."""
+    def test_v1_0_encode_choices_narrower_than_live_by_both_stripes(self) -> None:
+        """The v1.0 shim's encode_choices output is exactly
+        CHOICE_BECOMES_UNPLAYABLE_DIM + CHOICE_RESETS_FEEDER_DIM columns narrower than
+        the live encoder output (v1.0 predates both stripes)."""
         eng, *_ = engine.Engine.create(seed=100)
         arch = self._small_arch()
         shim_net = self._make_net(arch)
@@ -140,12 +143,15 @@ class TestV1_0EncodingCompat:
         )
         live_cols = encode.encode_choices(decision, eng.state).shape[1]
         shim_cols = shim_net.encode_choices(decision, eng.state).shape[1]
-        assert live_cols - shim_cols == encode.CHOICE_BECOMES_UNPLAYABLE_DIM
+        assert live_cols - shim_cols == (
+            encode.CHOICE_BECOMES_UNPLAYABLE_DIM + encode.CHOICE_RESETS_FEEDER_DIM
+        )
 
-    def test_v1_0_encode_choices_width_matches_live_without_unplayable_block(
+    def test_v1_0_encode_choices_width_matches_live_without_both_blocks(
         self,
     ) -> None:
-        """encode_choices on the shim matches live output with unplayable cols removed."""
+        """encode_choices on the shim matches live output with both the
+        becomes_unplayable and resets_feeder columns removed."""
         eng, *_ = engine.Engine.create(seed=100)
         arch = self._small_arch()
         shim_net = self._make_net(arch)
@@ -165,9 +171,19 @@ class TestV1_0EncodingCompat:
         live_full = encode.encode_choices(decision, eng.state)
         shim_out = shim_net.encode_choices(decision, eng.state)
 
-        start = encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET
-        end = start + encode.CHOICE_BECOMES_UNPLAYABLE_DIM
-        live_stripped = np.delete(live_full, slice(start, end), axis=1)
+        removed = list(
+            range(
+                encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET,
+                encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET
+                + encode.CHOICE_BECOMES_UNPLAYABLE_DIM,
+            )
+        ) + list(
+            range(
+                encode.CHOICE_RESETS_FEEDER_OFFSET,
+                encode.CHOICE_RESETS_FEEDER_OFFSET + encode.CHOICE_RESETS_FEEDER_DIM,
+            )
+        )
+        live_stripped = np.delete(live_full, removed, axis=1)
 
         assert shim_out.shape == live_stripped.shape
         assert np.array_equal(shim_out, live_stripped)
@@ -197,9 +213,8 @@ class TestV1_0EncodingCompat:
 
         assert live_offsets.kept_multihot is not None
         assert shim_offsets.kept_multihot is not None
-        assert (
-            live_offsets.kept_multihot - shim_offsets.kept_multihot
-            == encode.CHOICE_BECOMES_UNPLAYABLE_DIM
+        assert live_offsets.kept_multihot - shim_offsets.kept_multihot == (
+            encode.CHOICE_BECOMES_UNPLAYABLE_DIM + encode.CHOICE_RESETS_FEEDER_DIM
         )
 
     def test_v1_0_becomes_playable_offset_unchanged(self) -> None:

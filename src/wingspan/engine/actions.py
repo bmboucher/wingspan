@@ -434,17 +434,31 @@ def combined_feeder_gain(
 
     offer_birdfeeder_reset(engine, agent, player)
     feeder = engine.state.birdfeeder
+    feeder_total = feeder.total()
+    # Flag every subset whose selection triggers a reroll below: a partial take
+    # (size < n commits to the reset + recursion) or a full take that empties the
+    # feeder (size == feeder_total, the Rule-1 auto-reroll). This mirrors the
+    # reroll branches after the ask, so the model can weigh the fresh re-pick
+    # against the smaller immediate gain.
+    subset_choices: list[
+        decisions.FoodChoice | decisions.FoodSubsetChoice | decisions.SkipChoice
+    ] = []
+    for plain, choice_inv, choice_seed in feeder.subset_options(n):
+        size = plain.total() + choice_inv + choice_seed
+        subset_choices.append(
+            decisions.FoodSubsetChoice(
+                plain=plain,
+                choice_inv=choice_inv,
+                choice_seed=choice_seed,
+                resets_birdfeeder=size < n or size == feeder_total,
+            )
+        )
     chosen = engine.ask(
         agent,
         decisions.GainFoodDecision(
             player_id=player.id,
             prompt=f"[{player.name}] take up to {n} dice from birdfeeder",
-            choices=[
-                decisions.FoodSubsetChoice(
-                    plain=plain, choice_inv=choice_inv, choice_seed=choice_seed
-                )
-                for plain, choice_inv, choice_seed in feeder.subset_options(n)
-            ],
+            choices=subset_choices,
         ),
     )
     assert isinstance(chosen, decisions.FoodSubsetChoice)

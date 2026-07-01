@@ -176,6 +176,7 @@ _GOAL_DELTA_COUNT = 0  # within-slot: count change (÷ _GOAL_COUNT_SCALE)
 _GOAL_DELTA_VP = 1  # within-slot: VP delta (÷ _ROUND_GOAL_POINTS_SCALE)
 _BONUS_VALUE_DIM = 5  # candidate bonus card's value to the deciding player (below)
 _SETUP_DIM = 4  # setup kept-subset aggregates (only when include_setup)
+_RESETS_FEEDER_DIM = 1  # 1 if this combined food-gain subset rerolls the birdfeeder
 
 # The board_target stripe is a per-board-slot block: 4 scalars repeated over
 # every board slot. Per slot: lay_eggs, pay_eggs, cached_total (all food types
@@ -231,6 +232,11 @@ _CHOICE_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="bonus_value", size=_BONUS_VALUE_DIM),
     _stripe_descriptors.StripeSpec(name="becomes_playable", size=_BIRD_ID_DIM),
     _stripe_descriptors.StripeSpec(name="becomes_unplayable", size=_BIRD_ID_DIM),
+    # Last base stripe: a 1-bit pass-through, appended after the embedded
+    # becomes_* multi-hots so that adding it (v1.4 FRESH) shifts only the
+    # trailing conditional kept_multihot region — keeping the v1_3 compat shim
+    # trivial (see wingspan/compat/v1_3.py).
+    _stripe_descriptors.StripeSpec(name="resets_feeder", size=_RESETS_FEEDER_DIM),
 ]
 _CHOICE_SETUP_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="setup_agg", size=_SETUP_DIM),
@@ -256,6 +262,7 @@ _OFF_BONUS_ID = CHOICE_BASE_LAYOUT.offset_of("bonus_id")
 _OFF_BONUS_DELTA = CHOICE_BASE_LAYOUT.offset_of("bonus_delta")
 _OFF_GOAL_DELTA = CHOICE_BASE_LAYOUT.offset_of("goal_delta")
 _OFF_BONUS_VALUE = CHOICE_BASE_LAYOUT.offset_of("bonus_value")
+_OFF_RESETS_FEEDER = CHOICE_BASE_LAYOUT.offset_of("resets_feeder")
 _CHOICE_BASE_DIM = CHOICE_BASE_LAYOUT.total_size
 _OFF_SETUP = CHOICE_FULL_LAYOUT.offset_of(
     "setup_agg"
@@ -617,6 +624,10 @@ CHOICE_BECOMES_UNPLAYABLE_OFFSET: int = CHOICE_BASE_LAYOUT.offset_of(
     "becomes_unplayable"
 )
 CHOICE_BECOMES_UNPLAYABLE_DIM: int = _BIRD_ID_DIM
+# The v1.4 combined-gain reset flag (a 1-bit pass-through). Public so the v1_3
+# compat shim can strip it from a pre-1.4 choice vector.
+CHOICE_RESETS_FEEDER_OFFSET: int = _OFF_RESETS_FEEDER
+CHOICE_RESETS_FEEDER_DIM: int = _RESETS_FEEDER_DIM
 
 
 def trunk_input_dim(

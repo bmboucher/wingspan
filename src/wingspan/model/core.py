@@ -164,9 +164,11 @@ class PolicyValueNet(nn.Module):
         """The net class whose frozen geometry matches ``artifact_version``.
 
         v1.0 artifacts are routed to :class:`wingspan.compat.v1_0.PolicyValueNetV1_0`
-        (restores the old trunk-final-activation fallback). All later same-MAJOR
-        artifacts use the live ``PolicyValueNet``. ``check_artifact_compatible``
-        already refuses any different-MAJOR artifact.
+        (old trunk-final-activation fallback + ``becomes_unplayable`` and
+        ``resets_feeder`` stripes stripped); v1.1–1.3 artifacts to
+        :class:`wingspan.compat.v1_3.PolicyValueNetV1_3` (``resets_feeder`` stripped).
+        v1.4+ same-MAJOR artifacts use the live ``PolicyValueNet``.
+        ``check_artifact_compatible`` already refuses any different-MAJOR artifact.
         Used by every construction seam that must honor an artifact's era."""
         parsed = version.parse_version(artifact_version)
         if parsed.major == 1 and parsed.minor == 0:
@@ -174,6 +176,10 @@ class PolicyValueNet(nn.Module):
             from wingspan.compat import v1_0 as compat_v1_0
 
             return compat_v1_0.PolicyValueNetV1_0
+        if parsed.major == 1 and parsed.minor in (1, 2, 3):
+            from wingspan.compat import v1_3 as compat_v1_3
+
+            return compat_v1_3.PolicyValueNetV1_3
         return PolicyValueNet
 
     @classmethod

@@ -33,8 +33,24 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.3"
+MODEL_VERSION = "1.4"
 """The current artifact-compatibility version (the only place it is defined).
+
+1.4 is a **main-net** MINOR FRESH bump. It appends a 1-dim ``resets_feeder`` stripe
+as the last *base* choice-feature stripe (immediately after ``becomes_unplayable``,
+before the conditional setup stripes). The bit is set on a ``combine_gain_food``
+``FoodSubsetChoice`` whose selection rerolls the birdfeeder — a partial take that
+commits to a reset, or a full take that empties the feeder — so the model can tell a
+smaller-but-rerolls gain apart from a plain smaller gain (the ``gain_food`` count
+vector alone cannot). The main net's choice vector widens by 1, which
+``architecture_key`` detects via ``choice_dim`` and refuses old checkpoints cleanly.
+
+The **setup model is unchanged** (its choice encoding is independent of the main
+choice width), so setup artifacts stay loadable and there is no setup-side shim.
+v1.0–1.3 main-net artifacts are routed to compat shims: ``compat.v1_3`` strips the
+``resets_feeder`` column (keeps ``becomes_unplayable``), and ``compat.v1_0`` inherits
+it to compose both strips (v1.0 lacks both stripes). ``encoding_dims_for_era`` returns
+a ``choice_dim`` one narrower for every era with minor ≤ 3.
 
 1.3 is another **setup-artifact-only** MINOR FRESH bump. The separate setup model
 is restructured into a two-tower actor-critic mirroring the in-game

@@ -418,6 +418,39 @@ def raw_choice_stripe_layout(
         )
         end += layout.CHOICE_BECOMES_UNPLAYABLE_DIM
 
+    # ---- resets_feeder (v1.4+: 1-bit combined-gain reroll flag) ----
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="resets_feeder",
+            description=(
+                "Set when this combined food-gain option (a FoodSubsetChoice) "
+                "triggers a birdfeeder reroll — a partial take that commits to a "
+                "reset and re-pick, or a full take that empties the feeder. Zero "
+                "for every other choice."
+            ),
+            offset=layout.CHOICE_RESETS_FEEDER_OFFSET,
+            size=layout.CHOICE_RESETS_FEEDER_DIM,
+            encoding="binary",
+            value_range="{0, 1}",
+            notes=(
+                "Only ever set on a combine_gain_food FoodSubsetChoice; lets the "
+                "model tell a smaller-but-rerolls gain apart from a plain smaller "
+                "gain (the gain_food count vector alone cannot)."
+            ),
+            sub_fields=(
+                descriptors.SubFieldDescriptor(
+                    name="resets_feeder",
+                    description="This combined food gain rerolls the birdfeeder.",
+                    relative_offset=0,
+                    size=1,
+                    encoding="binary",
+                    value_range="{0, 1}",
+                ),
+            ),
+        )
+    )
+    end += layout.CHOICE_RESETS_FEEDER_DIM
+
     # ---- setup stripes (trailing; present only when the main model carries setup) ----
     if spec.include_setup:
         stripes.append(

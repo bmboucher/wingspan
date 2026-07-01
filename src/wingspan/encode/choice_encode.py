@@ -633,6 +633,11 @@ def _featurize_food_subset(
     # (1.0 per unit, so a single-unit subset is byte-identical to the one-hot).
     feat[layout._OFF_KIND + layout._KIND_FOOD] = 1.0
     _fill_gain_food_vector(feat, choice.plain, choice.choice_inv, choice.choice_seed)
+    # A subset whose selection rerolls the feeder (partial take, or a full take
+    # that empties it) carries the reset flag so the model reads the fresh re-pick
+    # rather than seeing only a lower food count.
+    if choice.resets_birdfeeder:
+        feat[layout._OFF_RESETS_FEEDER] = 1.0
     # becomes_playable: which hand birds the *whole* combined gain unlocks (a bird
     # needing two foods together lights up only when both are in this subset).
     if has_becomes_playable and isinstance(decision, decisions.GainFoodDecision):

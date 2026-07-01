@@ -237,9 +237,17 @@ class FoodSubsetChoice(Choice):
     ``from_choice_die``). For supply gains both are ``0``. The realized gain is
     ``plain`` plus ``choice_inv`` invertebrate and ``choice_seed`` seed.
 
-    Encoded as a count *vector* over the shared 7-slot ``gain_food`` stripe (no
-    shape change vs. the ``FoodChoice`` one-hot); a single-unit subset is
-    therefore byte-identical to the matching ``FoodChoice``."""
+    ``resets_birdfeeder`` marks a *feeder* subset whose selection triggers a
+    reroll: a partial take (fewer than the requested dice — the engine commits
+    to a reroll and lets the player re-pick from fresh dice) or a full take that
+    empties the feeder (the Rule-1 auto-reroll). Supply-gain subsets have no
+    feeder and leave it ``False``. It rides its own 1-slot ``resets_feeder``
+    choice stripe so the model can tell a smaller-but-rerolls gain apart from a
+    plain smaller gain (the ``gain_food`` count vector alone cannot).
+
+    Encoded as a count *vector* over the shared 7-slot ``gain_food`` stripe (the
+    ``FoodChoice`` one-hot's slots are unchanged); a single-unit subset that does
+    not reset is therefore byte-identical to the matching ``FoodChoice``."""
 
     # ``label`` defaults empty and is rendered lazily by ``display_label`` from
     # the typed fields below (a combined gain can enumerate many subsets but the
@@ -249,6 +257,7 @@ class FoodSubsetChoice(Choice):
     plain: state.FoodPool
     choice_inv: int = 0
     choice_seed: int = 0
+    resets_birdfeeder: bool = False
 
     def total_units(self) -> int:
         """How many food tokens this subset grants in total."""
@@ -265,7 +274,8 @@ class FoodSubsetChoice(Choice):
             parts.append(f"{self.choice_inv}{cards.Food.INVERTEBRATE.value}(choice)")
         if self.choice_seed:
             parts.append(f"{self.choice_seed}{cards.Food.SEED.value}(choice)")
-        return f"gain {'+'.join(parts) if parts else 'nothing'}"
+        summary = f"gain {'+'.join(parts) if parts else 'nothing'}"
+        return f"{summary} (resets feeder)" if self.resets_birdfeeder else summary
 
 
 class BoardTargetChoice(Choice):

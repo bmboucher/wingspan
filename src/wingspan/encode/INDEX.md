@@ -26,6 +26,10 @@ stripe offsets. Key exports:
 - `CHOICE_BECOMES_UNPLAYABLE_OFFSET`, `CHOICE_BECOMES_UNPLAYABLE_DIM` — offset and
   width of the v1.1 `becomes_unplayable` stripe (immediately after `becomes_playable`;
   180 dims, same space). v1.0 artifacts lack this stripe; see `wingspan.compat.v1_0`.
+- `CHOICE_RESETS_FEEDER_OFFSET`, `CHOICE_RESETS_FEEDER_DIM` — offset and width (1) of
+  the v1.4 `resets_feeder` stripe (the last *base* stripe, after `becomes_unplayable`;
+  set on a `combine_gain_food` `FoodSubsetChoice` that rerolls the birdfeeder). v1.0–1.3
+  artifacts lack it; see `wingspan.compat.v1_3`.
 - `_OFF_*` constants — the append-only offset chain (part of checkpoint format;
   reordering is a FRESH break).
 - Normalization scales: `_POINTS_SCALE`, `_FOOD_COST_SCALE`, `_WINGSPAN_SCALE`, etc.
@@ -55,9 +59,10 @@ v0.8+) uses the eggs-agnostic food baseline and `ignore_eggs=True` in
 eggs-included semantics. `_featurize_food_subset` (registered for
 `decisions.FoodSubsetChoice`, the `combine_gain_food` regime) fills the 7-slot
 `gain_food` stripe as a count vector via `_fill_gain_food_vector` (raw counts, so
-a single-unit subset is byte-identical to the `FoodChoice` one-hot) and the
-combined `becomes_playable` via `playability.newly_playable_after_foods` on the
-realized pool (`_combined_gain_pool`). No shape change — same stripe width.
+a non-resetting single-unit subset is byte-identical to the `FoodChoice` one-hot),
+the combined `becomes_playable` via `playability.newly_playable_after_foods` on the
+realized pool (`_combined_gain_pool`), and — when `choice.resets_birdfeeder` — the
+1-dim `resets_feeder` stripe added in v1.4 (a FRESH bump; see `wingspan.compat.v1_3`).
 
 ## Subpackage
 

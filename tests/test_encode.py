@@ -681,6 +681,33 @@ def test_food_subset_single_unit_byte_identical_to_food_choice():
     assert np.array_equal(subset_row, one_hot_row)
 
 
+def test_food_subset_reset_flag_lights_resets_feeder_stripe():
+    """resets_birdfeeder=True lights the resets_feeder stripe (and is the *only*
+    difference from an otherwise-identical non-resetting subset); the default
+    leaves it zero."""
+    eng, *_ = engine.Engine.create(seed=2)
+    decision = decisions.GainFoodDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.FoodSubsetChoice(
+                plain=state.FoodPool.from_dict({cards.Food.FISH: 1})
+            ),
+            decisions.FoodSubsetChoice(
+                plain=state.FoodPool.from_dict({cards.Food.FISH: 1}),
+                resets_birdfeeder=True,
+            ),
+        ],
+    )
+    no_reset, reset = encode.encode_choices(decision, eng.state)
+    assert no_reset[layout._OFF_RESETS_FEEDER] == 0.0
+    assert reset[layout._OFF_RESETS_FEEDER] == 1.0
+    assert np.array_equal(
+        np.delete(no_reset, layout._OFF_RESETS_FEEDER),
+        np.delete(reset, layout._OFF_RESETS_FEEDER),
+    )
+
+
 def test_main_action_choice_is_one_hot_in_stable_order():
     """A MainActionChoice is a one-hot over the four actions (never an index)."""
     eng, *_ = engine.Engine.create(seed=3)

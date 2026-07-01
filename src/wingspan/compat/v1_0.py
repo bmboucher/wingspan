@@ -15,17 +15,24 @@ stripe was appended to the base choice feature vector immediately after
 after encoding so the truncated vector matches the width the v1.0 choice encoder
 was built for.
 
-**Shim strategy.** :class:`PolicyValueNetV1_0` is a thin ``PolicyValueNet``
+**What changed in v1.4 (encoding).** A 1-dim ``resets_feeder`` stripe was appended
+as the last base choice stripe (after ``becomes_unplayable``). v1.0 artifacts
+predate it too, so this class inherits :class:`wingspan.compat.v1_3.PolicyValueNetV1_3`
+— its ``resets_feeder`` strip composes with the ``becomes_unplayable`` strip below
+via ``super()`` chaining. The compose is exact because ``becomes_unplayable``
+precedes ``resets_feeder``: stripping the trailing ``resets_feeder`` first leaves
+the ``becomes_unplayable`` offset unchanged.
+
+**Shim strategy.** :class:`PolicyValueNetV1_0` is a thin ``PolicyValueNetV1_3``
 subclass that overrides:
 
 * ``_build_trunk`` — reproduces the v1.0 trunk-final-activation fallback.
-* ``encode_choices`` — calls the live encoder (which produces the full v1.1
-  vector), then ``np.delete``s the ``becomes_unplayable`` columns so the
-  resulting array is the width the v1.0 choice encoder expects.
-* ``_choice_embed_offsets`` — returns ``becomes_unplayable=None`` so
-  ``_embed_choices`` skips that stripe; adjusts ``kept_multihot`` left by
-  ``CHOICE_BECOMES_UNPLAYABLE_DIM`` because the v1.0 artifacts never carried
-  the stripe in their stored choice vectors.
+* ``_build_choice_encoder`` / ``encode_choices`` / ``_choice_embed_offsets`` —
+  call ``super()`` (the v1_3 shim, which has already handled ``resets_feeder``)
+  and then additionally strip ``becomes_unplayable``: ``encode_choices``
+  ``np.delete``s its columns, ``_choice_embed_offsets`` returns
+  ``becomes_unplayable=None`` and shifts ``kept_multihot`` left by a further
+  ``CHOICE_BECOMES_UNPLAYABLE_DIM`` (both stripes were absent from v1.0 vectors).
 
 When ``trunk_final_activation`` is explicit (non-``None``) the two trunk branches
 are identical, so the shim is correct for all v1.0 artifacts.
@@ -45,12 +52,14 @@ import typing
 import numpy as np
 
 from wingspan import architecture, decisions, encode, state
+from wingspan.compat import v1_3
 from wingspan.model import core, mlp
 
 
-class PolicyValueNetV1_0(core.PolicyValueNet):
-    """``PolicyValueNet`` with v1.0 semantics: old trunk-final-activation
-    fallback plus ``becomes_unplayable`` stripe removed from choice encoding.
+class PolicyValueNetV1_0(v1_3.PolicyValueNetV1_3):
+    """``PolicyValueNet`` with v1.0 semantics: old trunk-final-activation fallback
+    plus both the ``becomes_unplayable`` (v1.1) and ``resets_feeder`` (v1.4, via the
+    inherited v1_3 shim) stripes removed from choice encoding.
     """
 
     def _build_trunk(
