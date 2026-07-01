@@ -68,6 +68,7 @@ def main_play(argv: list[str] | None = None) -> int:
         )
         split_setup_bonus = players.resolve_split_setup_bonus((config_a, config_b))
         split_setup_food = players.resolve_split_setup_food((config_a, config_b))
+        combine_gain_food = players.resolve_combine_gain_food((config_a, config_b))
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error loading agent: {exc}", file=sys.stderr)
         return 1
@@ -79,6 +80,8 @@ def main_play(argv: list[str] | None = None) -> int:
         if split_setup_food:
             regime_parts.append("food: split (GAIN/SPEND_FOOD)")
         regime = "  |  opening " + ", ".join(regime_parts) if regime_parts else ""
+        if combine_gain_food:
+            regime += "  |  food gains: combined (FoodSubset)"
         print(f"Seed: {seed}  |  P0: {args.p0}  vs  P1: {args.p1}{regime}")
 
     # Build one EventRecorder per run when any structured-log output is requested.
@@ -104,6 +107,7 @@ def main_play(argv: list[str] | None = None) -> int:
                 event_recorder=rec,
                 split_setup_bonus=split_setup_bonus,
                 split_setup_food=split_setup_food,
+                combine_gain_food=combine_gain_food,
             )
             scores = [player.final_score for player in eng.state.players]
             if not args.quiet:

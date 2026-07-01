@@ -114,6 +114,29 @@ def resolve_split_setup_food(
     return next(iter(flags), False)
 
 
+def resolve_combine_gain_food(
+    configs: typing.Sequence[config.TrainConfig | None],
+) -> bool:
+    """Whether the games should run the ``combine_gain_food`` regime (multi-die /
+    multi-token food gains — including the split-setup food keep — collapsed into
+    one combined ``FoodSubset`` decision instead of the sequential gain/discard
+    split), derived from the loaded checkpoints' configs so play mirrors how the
+    nets were trained. Config-free (human/random) seats express no preference;
+    with no AI seat at all the engine's default applies. Two checkpoints trained
+    under different regimes raise rather than silently mis-modelling one seat's
+    food gains."""
+    flags = {cfg.engine.combine_gain_food for cfg in configs if cfg is not None}
+    if len(flags) > 1:
+        raise ValueError(
+            "Checkpoints disagree on the combine_gain_food regime: one was "
+            "trained with multi-food gains collapsed into a single combined "
+            "subset decision, the other with the sequential gain/discard split. "
+            "The seats cannot mirror both in one game — pick checkpoints from "
+            "the same regime."
+        )
+    return next(iter(flags), False)
+
+
 ###### PRIVATE #######
 
 
