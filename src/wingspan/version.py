@@ -36,21 +36,36 @@ import pydantic
 MODEL_VERSION = "1.4"
 """The current artifact-compatibility version (the only place it is defined).
 
-1.4 is a **main-net** MINOR FRESH bump. It appends a 1-dim ``resets_feeder`` stripe
-as the last *base* choice-feature stripe (immediately after ``becomes_unplayable``,
-before the conditional setup stripes). The bit is set on a ``combine_gain_food``
-``FoodSubsetChoice`` whose selection rerolls the birdfeeder — a partial take that
-commits to a reset, or a full take that empties the feeder — so the model can tell a
-smaller-but-rerolls gain apart from a plain smaller gain (the ``gain_food`` count
-vector alone cannot). The main net's choice vector widens by 1, which
-``architecture_key`` detects via ``choice_dim`` and refuses old checkpoints cleanly.
+1.4 is a **main-net encoding** MINOR FRESH bump that lands two independent
+encoding changes together (both developed in parallel, folded into one era):
 
-The **setup model is unchanged** (its choice encoding is independent of the main
-choice width), so setup artifacts stay loadable and there is no setup-side shim.
-v1.0–1.3 main-net artifacts are routed to compat shims: ``compat.v1_3`` strips the
-``resets_feeder`` column (keeps ``becomes_unplayable``), and ``compat.v1_0`` inherits
-it to compose both strips (v1.0 lacks both stripes). ``encoding_dims_for_era`` returns
-a ``choice_dim`` one narrower for every era with minor ≤ 3.
+1. *State* — two 5-wide pass-through stripes are appended to the continuous state
+   prefix (immediately after ``food_opp``): ``hand_food_unlock_me`` and
+   ``tray_food_unlock_me`` — per food, the smallest count that would newly unlock a
+   hand / tray bird (see ``encode.playability.min_food_to_unlock``). This is the
+   first same-MAJOR change to alter the **state** width, which grows by 10.
+
+2. *Choice* — a 1-dim ``resets_feeder`` stripe is appended as the last *base*
+   choice-feature stripe (immediately after ``becomes_unplayable``, before the
+   conditional setup stripes). The bit is set on a ``combine_gain_food``
+   ``FoodSubsetChoice`` whose selection rerolls the birdfeeder — a partial take that
+   commits to a reset, or a full take that empties the feeder — so the model can tell
+   a smaller-but-rerolls gain apart from a plain smaller gain (the ``gain_food`` count
+   vector alone cannot). The choice vector widens by 1.
+
+``architecture_key`` detects both width changes (via ``state_dim`` / ``choice_dim``)
+and refuses old checkpoints cleanly. The **setup model is unchanged**, so setup
+artifacts stay loadable and there is no setup-side shim.
+
+Pre-1.4 artifacts are routed to ``wingspan.compat.v1_3.PolicyValueNetV1_3``, which
+strips **both** the two state stripes and the ``resets_feeder`` choice column from
+live-encoded vectors and freezes the pre-1.4 state- and choice-embed offsets.
+``compat.encoding_dims_for_era`` returns a ``state_dim`` (−10) and a ``choice_dim``
+(−1) narrower for every pre-1.4 same-MAJOR era (the state narrowing is its first
+state-dim branch). v1.0 artifacts route to ``compat.v1_0.PolicyValueNetV1_0``, which
+inherits ``PolicyValueNetV1_3`` (so it strips the state stripes and ``resets_feeder``
+too) and additionally strips the ``becomes_unplayable`` choice stripe and restores
+the old trunk-final activation fallback.
 
 1.3 is another **setup-artifact-only** MINOR FRESH bump. The separate setup model
 is restructured into a two-tower actor-critic mirroring the in-game

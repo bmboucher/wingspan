@@ -180,6 +180,48 @@ def _build_raw_state_stripes(
         )
     )
 
+    # ---- food distance to playable (hand / tray) ----
+    hand_unlock_off, unlock_size = _at("hand_food_unlock_me")
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="hand_food_unlock_me",
+            description=(
+                "Per food, the smallest count that would newly unlock one of my "
+                "hand birds (0 when none is unlockable by that food)."
+            ),
+            offset=hand_unlock_off,
+            size=unlock_size,
+            encoding="vector",
+            value_range="[0, ~1.3]",
+            notes=(
+                f"Food types in order: {food_names}. Open matching slot required, "
+                "egg cost ignored; full 2-for-1 affordability. Normalized ÷ 6."
+            ),
+            sub_fields=_food_sub_fields(),
+        )
+    )
+
+    tray_unlock_off, _ = _at("tray_food_unlock_me")
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="tray_food_unlock_me",
+            description=(
+                "Per food, the smallest count that would unlock a face-up tray "
+                "bird as if it were in my hand (0 when none is unlockable)."
+            ),
+            offset=tray_unlock_off,
+            size=unlock_size,
+            encoding="vector",
+            value_range="[0, ~1.3]",
+            notes=(
+                f"Food types in order: {food_names}. Same rule as "
+                "hand_food_unlock_me, scored against my own food + board. "
+                "Normalized ÷ 6."
+            ),
+            sub_fields=_food_sub_fields(),
+        )
+    )
+
     # ---- board continuous (mutable per-slot state) ----
     n_slots = state.N_HABITATS * state.ROW_SLOTS
     slot_dim = layout._SLOT_MUT_DIM  # 9: eggs, egg_cap, cached×5, tucked, activations

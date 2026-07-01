@@ -5,14 +5,13 @@
 
 A run carries its artifact era in ``RunConfig.encoding_version``: dims are
 era-routed from it, the net is constructed as the era's net class, and every
-artifact the run writes is stamped with it. At the 1.0 MAJOR bump the pre-1.0
-compat shims were dropped, so **1.0 is currently the only loadable era** — no 0.x
-artifact loads, and ``check_artifact_compatible`` refuses any different-MAJOR
-era. These tests therefore exercise the whole chain at the live era: the dims
-router, the version-routed net class, the configurator's seeding, and the
-loop's resume/collector seams all resolve to the live geometry, and a config
-pinned to a pre-1.0 era is refused. The next MINOR FRESH change re-introduces a
-superseded-era branch and the era-divergence assertions return.
+artifact the run writes is stamped with it. Since the v1.4 FRESH bump (the two
+food-unlock state stripes) there are superseded same-MAJOR eras again: 1.0-1.3
+route to compat net classes and derive a narrower state_dim than the live 1.4,
+while ``check_artifact_compatible`` still refuses any different-MAJOR or
+future-MINOR era. These tests exercise the whole chain — the dims router, the
+version-routed net class, the configurator's seeding, and the loop's
+resume/collector seams — and pin the era-divergence for the pre-1.4 shims.
 """
 
 from __future__ import annotations
@@ -163,13 +162,21 @@ def test_unknown_or_future_eras_are_rejected():
     )
 
 
-def test_encoding_dims_for_era_returns_live_dims():
-    """No pre-1.0 shims remain, so the dims router returns the live widths for
-    every parseable (compatible) version; a malformed string is rejected."""
+def test_encoding_dims_for_era_state_narrows_pre_1_4():
+    """The v1.4 bump narrows ``state_dim`` by the two food-unlock stripes (10) and
+    ``choice_dim`` by the ``resets_feeder`` stripe (1) for every pre-1.4 same-MAJOR
+    era; 0.x eras (untouched by the major-1 router branch) and the live era keep the
+    live widths. A malformed string is rejected."""
     spec = encode.spec_for(True)
-    live_dims = (encode.state_size(spec), encode.choice_feature_dim(spec))
-    for era in ("0.0", "0.1", "0.2", version.MODEL_VERSION):
-        assert compat.encoding_dims_for_era(era, spec) == live_dims
+    live_state = encode.state_size(spec)
+    live_choice = encode.choice_feature_dim(spec)
+    stripe_width = 2 * encode.STATE_FOOD_UNLOCK_DIM
+    for era in ("1.1", "1.2", "1.3"):
+        state_dim, choice_dim = compat.encoding_dims_for_era(era, spec)
+        assert live_state - state_dim == stripe_width
+        assert live_choice - choice_dim == encode.CHOICE_RESETS_FEEDER_DIM
+    for era in ("0.0", "0.2", version.MODEL_VERSION):
+        assert compat.encoding_dims_for_era(era, spec) == (live_state, live_choice)
     with pytest.raises(ValueError):
         compat.encoding_dims_for_era("garbage", spec)
     # The include-setup axis stays orthogonal to the era axis.
@@ -180,9 +187,15 @@ def test_encoding_dims_for_era_returns_live_dims():
     )
 
 
-def test_class_for_version_is_always_live():
-    """With the shims dropped, every parseable version routes to the live net
-    class; a malformed string is rejected."""
+def test_class_for_version_routes_pre_1_4_to_shims():
+    """Pre-1.4 same-MAJOR eras route to their compat net class (1.0 -> v1_0,
+    1.1-1.3 -> v1_3); 0.x and the live era route to the live net. A malformed
+    string is rejected."""
+    from wingspan.compat import v1_0, v1_3
+
+    assert model.PolicyValueNet.class_for_version("1.0") is v1_0.PolicyValueNetV1_0
+    for era in ("1.1", "1.2", "1.3"):
+        assert model.PolicyValueNet.class_for_version(era) is v1_3.PolicyValueNetV1_3
     for era in ("0.0", "0.2", version.MODEL_VERSION):
         assert model.PolicyValueNet.class_for_version(era) is model.PolicyValueNet
     with pytest.raises(ValueError):

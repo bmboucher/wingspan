@@ -158,6 +158,56 @@ def newly_playable_after_foods(
     ]
 
 
+def min_food_to_unlock(
+    player: state.Player,
+    candidates: list[cards.Bird],
+    *,
+    ignore_eggs: bool = True,
+) -> list[int]:
+    """Per-food smallest count that would newly unlock a candidate bird.
+
+    For each food in ``cards.ALL_FOODS`` order, the smallest ``n >= 1`` such that
+    adding ``n`` tokens of that food to ``player.food`` makes at least one
+    currently-unplayable ``candidates`` bird playable — an open matching habitat
+    slot is required, egg cost is dropped under ``ignore_eggs``. ``0`` for a food
+    when no candidate can be unlocked at all: either every candidate is already
+    playable, or every unplayable one is slot-blocked (food never helps a bird
+    with no open matching slot). ``candidates`` may be the hand or the face-up
+    tray (scored as if those cards were in hand); ``player.food`` is never
+    mutated. Affordability follows the full engine rule (1-for-1 matches, 2-for-1
+    substitution, wild), so once any unplayable-open bird exists every food
+    unlocks it at some finite amount — the stripe is then all-nonzero."""
+    already = set(
+        id(bird)
+        for bird in candidates
+        if _bird_playable(player, bird, ignore_eggs=ignore_eggs)
+    )
+    open_unplayable = [
+        bird
+        for bird in candidates
+        if id(bird) not in already
+        and any(player.can_play_in(habitat) for habitat in bird.habitats)
+    ]
+    if not open_unplayable:
+        return [0] * cards.N_FOODS
+
+    # A single food type covers its own specific slot 1-for-1 and any other slot
+    # (or wild) via 2-for-1, so 2 * effective_total tokens always suffice as a cap;
+    # affordability is monotonic in the pool, so the first hit is the minimum.
+    cap = 2 * max(bird.food_cost.effective_total for bird in open_unplayable)
+    result = [0] * cards.N_FOODS
+    for food_idx, food in enumerate(cards.ALL_FOODS):
+        for count in range(1, cap + 1):
+            extra = _food_pool_of(food, count)
+            if any(
+                _bird_playable(player, bird, extra_food=extra, ignore_eggs=ignore_eggs)
+                for bird in open_unplayable
+            ):
+                result[food_idx] = count
+                break
+    return result
+
+
 def newly_playable_after_egg(
     player: state.Player,
     n_eggs: int = 1,
@@ -389,8 +439,13 @@ def _pool_add(food_pool: state.FoodPool, extra: state.FoodPool) -> state.FoodPoo
 
 def _single_food_pool(food: cards.Food) -> state.FoodPool:
     """A FoodPool with exactly 1 of ``food`` and 0 of everything else."""
+    return _food_pool_of(food, 1)
+
+
+def _food_pool_of(food: cards.Food, count: int) -> state.FoodPool:
+    """A FoodPool with ``count`` of ``food`` and 0 of everything else."""
     counts = [0] * cards.N_FOODS
-    counts[cards.food_index(food)] = 1
+    counts[cards.food_index(food)] = count
     return state.FoodPool.model_construct(counts=counts)
 
 

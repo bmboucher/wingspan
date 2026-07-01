@@ -2,7 +2,7 @@
 
 Every persisted artifact (the dated `run_config_<stamp>.json` run descriptor and
 every `.pt` payload) is stamped with a `MAJOR.MINOR` **artifact version**
-(`wingspan.version.MODEL_VERSION`, currently **`1.2`**). This is distinct from
+(`wingspan.version.MODEL_VERSION`, currently **`1.4`**). This is distinct from
 the package release version (`wingspan.__version__`) — one tracks the codebase,
 the other the on-disk artifact format.
 
@@ -35,28 +35,64 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.4 — `resets_feeder` choice stripe (current)
+### v1.4 — food-unlock state stripes + `resets_feeder` choice stripe (current)
 
-A **main-net** FRESH bump. Under `combine_gain_food`, `actions.combined_feeder_gain`
-folds the birdfeeder reroll into the `FoodSubsetChoice` menu: a partial take (fewer
-than `n` dice), or a full take that empties the feeder, commits the engine to a
-reroll and re-pick. Previously such an option was byte-indistinguishable from a plain
-smaller gain — only a lower `gain_food` count. v1.4 adds a 1-dim `resets_feeder`
-stripe as the last *base* choice stripe (immediately after `becomes_unplayable`,
-before the conditional setup stripes); the engine sets
-`FoodSubsetChoice.resets_birdfeeder` and the featurizer lights the bit, so the model
-weighs the fresh re-pick against the smaller immediate gain.
+A **main-net encoding** MINOR FRESH bump that lands **two independent encoding
+changes together** (developed in parallel, folded into one era because no v1.4
+training runs existed yet). Both widen the main net; each is stripped for pre-1.4
+artifacts by the same `compat.v1_3` shim.
 
+**(a) Food-distance-to-playable state stripes** — the **first same-MAJOR change to
+alter the state vector width**. Two 5-wide pass-through stripes are appended to the
+continuous state prefix (immediately after `food_opp`):
+
+- `hand_food_unlock_me` — per food, the smallest count that would newly unlock a
+  bird in the POV player's **hand**.
+- `tray_food_unlock_me` — the same over the face-up **tray**, scored as if those
+  cards were in hand (against the POV player's own food + board).
+
+Both are computed by `engine.playability.min_food_to_unlock`: a bird is
+"unlockable" when it is currently unplayable for a food reason but has an open
+matching habitat slot (egg cost ignored); affordability uses the full engine rule
+(1-for-1, 2-for-1 substitution, wild). State width grows by 10.
+
+**(b) `resets_feeder` choice stripe.** Under `combine_gain_food`,
+`actions.combined_feeder_gain` folds the birdfeeder reroll into the
+`FoodSubsetChoice` menu: a partial take (fewer than `n` dice), or a full take that
+empties the feeder, commits the engine to a reroll and re-pick. Previously such an
+option was byte-indistinguishable from a plain smaller gain — only a lower
+`gain_food` count. v1.4 adds a 1-dim `resets_feeder` stripe as the last *base*
+choice stripe (immediately after `becomes_unplayable`, before the conditional setup
+stripes); the engine sets `FoodSubsetChoice.resets_birdfeeder` and the featurizer
+lights the bit. Choice width grows by 1.
+
+- **Shape change — encoding (FRESH).** Pre-1.4 state vectors are 10 dims narrower
+  and choice vectors 1 dim narrower. `compat.v1_3.PolicyValueNetV1_3` strips **both**
+  additions after live encoding (`np.delete`): the two state stripes (freezing the
+  pre-1.4 `StateEmbedOffsets` — `card_index` / `hand_multihot` / `decision_type` each
+  shifted left by 10) and the `resets_feeder` column (keeping `becomes_unplayable`,
+  shifting only `kept_multihot`). Its `_build_trunk` / `_build_choice_encoder` derive
+  the block widths from `self.spec` (live minus the stripes) via `_true_state_dim` /
+  `_true_choice_dim` rather than the passed dims, so the shim is correct whether the
+  constructor is handed era dims (the load path) or live dims (test default).
+  `encoding_dims_for_era` gains its **first state-dim branch**: for every pre-1.4
+  same-MAJOR era, `state_dim -= 10` and `choice_dim -= 1`.
 - **Setup net unaffected.** The setup model's choice encoding is independent of the
   main choice width, so setup artifacts stay loadable and there is no setup-side shim.
-- **Compat.** v1.1–1.3 main-net artifacts route to `compat.v1_3.PolicyValueNetV1_3`,
-  which strips the `resets_feeder` column (keeping `becomes_unplayable`) and shifts
-  only `kept_multihot`. v1.0 artifacts route to `compat.v1_0.PolicyValueNetV1_0`,
-  which now inherits `PolicyValueNetV1_3` to compose that strip with its own
-  `becomes_unplayable` strip (v1.0 lacks both). `encoding_dims_for_era` returns a
-  `choice_dim` one narrower for every era with minor ≤ 3.
-- **In-flight runs.** An era-pinned 1.0–1.3 run keeps training at its own era (no
-  `resets_feeder` signal) via the shim; only a fresh launch adopts v1.4.
+- **Routing.** `class_for_version` routes eras 1.1-1.3 to `PolicyValueNetV1_3`.
+  `PolicyValueNetV1_0` **inherits** `PolicyValueNetV1_3`, so v1.0 artifacts strip the
+  state stripes and `resets_feeder` too (they predate all three), on top of the v1.0
+  trunk-final fallback and `becomes_unplayable` choice-stripe removal — composed via
+  `super()` chaining and `_true_choice_dim` narrowing.
+- **No LFS fixture (deferred, as for v1.0).** No in-production v1.3 checkpoint was
+  preserved. `tests/test_compat_v1_3.py` instead builds a v1.3-era net, saves it
+  with a v1.3 stamp, and round-trip-loads it through the production
+  `players.loaders.load_policy_net` path (era dims → constructor → `load_state_dict`
+  → forward) — the load path a real checkpoint takes, which fails on any
+  double-subtraction of either stripe width.
+- **User action.** None for existing runs: a pre-1.4 run resumes era-pinned at its
+  own era (main net unchanged there, no new signals) via the shim. A run started on
+  1.4 gets both new signals.
 
 ### v1.3 — setup net → two-tower (state trunk + choice trunk)
 

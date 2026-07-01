@@ -128,6 +128,7 @@ _TRAY_SIZE_SCALE = 3.0
 _HAND_SIZE_SCALE = 10.0
 _BIRDFEEDER_COUNT_SCALE = 5.0
 _FOOD_INVENTORY_SCALE = 6.0
+_FOOD_UNLOCK_SCALE = 6.0  # smallest food count that would unlock a hand/tray bird
 _EXCHANGE_SCALE = 3.0  # accept-exchange paid/gained quantity normalizer
 _BONUS_VALUE_SCALE = 7.0  # max single-card bonus VP (Bird Feeder 8+: 7 VP)
 _ACTIVATIONS_SCALE = 4.0  # per-bird activations within a round rarely exceed this
@@ -542,6 +543,9 @@ _STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     ),
     _stripe_descriptors.StripeSpec(name="food_me", size=cards.N_FOODS),
     _stripe_descriptors.StripeSpec(name="food_opp", size=cards.N_FOODS),
+    # Per-food smallest count that would newly unlock a hand / tray bird (v1.4+).
+    _stripe_descriptors.StripeSpec(name="hand_food_unlock_me", size=cards.N_FOODS),
+    _stripe_descriptors.StripeSpec(name="tray_food_unlock_me", size=cards.N_FOODS),
     _stripe_descriptors.StripeSpec(name="board_me", size=_BOARD_CONT_STRIPE_DIM),
     _stripe_descriptors.StripeSpec(name="board_opp", size=_BOARD_CONT_STRIPE_DIM),
     _stripe_descriptors.StripeSpec(
@@ -600,6 +604,14 @@ _CONT_PREFIX_DIM = STATE_CONT_LAYOUT.offset_of("card_idx_block")
 OFF_CARD_INDEX = _CONT_PREFIX_DIM
 OFF_HAND_MULTIHOT: int = STATE_CONT_LAYOUT.offset_of("hand_multihot")
 OFF_DECISION_TYPE: int = STATE_CONT_LAYOUT.total_size
+
+# The two 5-wide food-distance-to-playable stripes (v1.4+): the smallest count of
+# each food that would newly unlock a hand / tray bird. Plain pass-through
+# features in the continuous prefix; the ``compat.v1_3`` shim slices them out of
+# pre-1.4 state vectors, so the offsets must stay contiguous.
+STATE_FOOD_UNLOCK_DIM: int = cards.N_FOODS
+STATE_HAND_FOOD_UNLOCK_OFFSET: int = STATE_CONT_LAYOUT.offset_of("hand_food_unlock_me")
+STATE_TRAY_FOOD_UNLOCK_OFFSET: int = STATE_CONT_LAYOUT.offset_of("tray_food_unlock_me")
 
 # Choice-vector card region the model embeds through the shared card table. The
 # bird-index column sits just before bonus_id; the board_hab / board_col one-hots

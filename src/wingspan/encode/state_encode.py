@@ -38,6 +38,8 @@ def encode_state(
         ),  # layout.N_PLAYER_TURNS + 1 (turn one-hot + first-player flag)
         _summary_food(me),  # 5
         _summary_food(opp),  # 5
+        _summary_hand_food_unlock(me),  # 5 — min food to unlock a hand bird
+        _summary_tray_food_unlock(state, me),  # 5 — min food to unlock a tray bird
         _board_slots_continuous(
             me
         ),  # layout._BOARD_CONT_STRIPE_DIM — per-slot mutable state
@@ -84,6 +86,33 @@ def _summary_food(player: state.Player) -> np.ndarray:
     return np.array(
         [player.food[food] / layout._FOOD_INVENTORY_SCALE for food in cards.ALL_FOODS],
         dtype=np.float32,
+    )
+
+
+def _summary_hand_food_unlock(player: state.Player) -> np.ndarray:
+    """Per-food smallest count that would newly unlock one of ``player``'s hand
+    birds (0 per food when none is unlockable by food). See
+    ``playability.min_food_to_unlock``."""
+    from wingspan.engine import playability
+
+    counts = playability.min_food_to_unlock(player, player.hand)
+    return np.array(
+        [count / layout._FOOD_UNLOCK_SCALE for count in counts], dtype=np.float32
+    )
+
+
+def _summary_tray_food_unlock(
+    game_state: state.GameState, player: state.Player
+) -> np.ndarray:
+    """Per-food smallest count that would unlock a face-up tray bird as if it were
+    in ``player``'s hand (scored against the POV player's own food + board). See
+    ``playability.min_food_to_unlock``."""
+    from wingspan.engine import playability
+
+    tray_birds = [bird for bird in game_state.tray if bird is not None]
+    counts = playability.min_food_to_unlock(player, tray_birds)
+    return np.array(
+        [count / layout._FOOD_UNLOCK_SCALE for count in counts], dtype=np.float32
     )
 
 

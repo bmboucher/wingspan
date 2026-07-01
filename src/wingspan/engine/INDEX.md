@@ -72,7 +72,10 @@ combinations). Used by both `actions.py` and the encoder.
 **`playability.py`** — Pure playability predicates over `state.Player`:
 `classify_hand_playability(player) -> (playable_now, egg_blocked)` (the two
 hand multi-hot sources), `newly_playable_after_food`, `newly_playable_after_egg`,
-`gainable_feeder_foods`, `newly_playable_after_feeder_food`, and
+`gainable_feeder_foods`, `newly_playable_after_feeder_food`,
+`min_food_to_unlock(player, candidates) -> list[int]` (per-food smallest count
+that would newly unlock a candidate bird — source of the v1.4
+`hand_food_unlock_me` / `tray_food_unlock_me` state stripes), and
 `setup_turn1_playable`. Imported **locally** inside encoder functions to keep
 `encode` engine-free at import time.
 

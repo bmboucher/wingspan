@@ -26,6 +26,11 @@ stripe offsets. Key exports:
 - `CHOICE_BECOMES_UNPLAYABLE_OFFSET`, `CHOICE_BECOMES_UNPLAYABLE_DIM` — offset and
   width of the v1.1 `becomes_unplayable` stripe (immediately after `becomes_playable`;
   180 dims, same space). v1.0 artifacts lack this stripe; see `wingspan.compat.v1_0`.
+- `STATE_HAND_FOOD_UNLOCK_OFFSET`, `STATE_TRAY_FOOD_UNLOCK_OFFSET`,
+  `STATE_FOOD_UNLOCK_DIM` — offsets and width (5 each) of the two v1.4
+  food-distance-to-playable **state** stripes (`hand_food_unlock_me`,
+  `tray_food_unlock_me`), contiguous in the continuous prefix right after
+  `food_opp`. Pre-1.4 artifacts lack them; see `wingspan.compat.v1_3`.
 - `CHOICE_RESETS_FEEDER_OFFSET`, `CHOICE_RESETS_FEEDER_DIM` — offset and width (1) of
   the v1.4 `resets_feeder` stripe (the last *base* stripe, after `becomes_unplayable`;
   set on a `combine_gain_food` `FoodSubsetChoice` that rerolls the birdfeeder). v1.0–1.3
@@ -36,11 +41,13 @@ stripe offsets. Key exports:
 
 **`state_encode.py`** — `encode_state(gs: GameState, spec) -> np.ndarray` and
 `state_size(spec) -> int`. Encodes the full perceived game state into a 1-D
-float vector (1119 dims as of v0.9; was 1155 in v0.6–v0.8): per-habitat board
-slots, tray, per-type cached food, birdfeeder, round goals (scored rounds zeroed),
-player hand + two playability multi-hots (`hand_playable_me`, `hand_playable_eggs_me`)
-via the hand encoder, one-hot round number, one-hot action cube counts, decision-type
-one-hot. The `hand_summary_me` stripe (10 dims) was removed in v0.9 — derived in-model
+float vector (1129 dims as of v1.4; 1119 in v0.9–v1.3; was 1155 in v0.6–v0.8):
+per-habitat board slots, tray, per-type cached food, the two v1.4 food-unlock
+stripes (`hand_food_unlock_me`, `tray_food_unlock_me` — see
+`engine.playability.min_food_to_unlock`), birdfeeder, round goals (scored rounds
+zeroed), player hand + two playability multi-hots (`hand_playable_me`,
+`hand_playable_eggs_me`) via the hand encoder, one-hot round number, one-hot
+action cube counts, decision-type one-hot. The `hand_summary_me` stripe (10 dims) was removed in v0.9 — derived in-model
 via `set_summary_from_multihot`; `board_summary_me/opp` compacted from 18→6 dims (only
 `row_length` + `total_eggs` per habitat); `misc_scalars` compacted from 4→2 dims (dropped
 round-goal VP scalars). Also exports per-aspect summary helpers (with `include_goal_pts`,

@@ -108,7 +108,14 @@ trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes when
 Worth remembering when reading the family sections: per-slot **egg counts and
 remaining capacity are not in the choice rows** — they ride the state vector's
 board stripes, as do the birdfeeder contents, the round goals, bonus progress,
-and the hand. A choice row carries only what distinguishes *this* candidate.
+and the hand. A choice row carries only what distinguishes *this* candidate. The
+state vector also carries two 5-wide **food-distance-to-playable** stripes (v1.4+,
+`hand_food_unlock_me` / `tray_food_unlock_me`): per food, the smallest amount that
+would newly unlock a currently-unplayable hand / tray bird (open matching slot
+required, egg cost ignored, full 2-for-1 affordability;
+`encode.playability.min_food_to_unlock`). Like the food-gain `becomes_playable`
+choice stripe, this tells a head how close a food gain is to enabling a play —
+but as a choice-independent state feature, computed once per decision.
 
 ---
 
