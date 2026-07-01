@@ -53,6 +53,7 @@ class _WorkerRoster(pydantic.BaseModel):
 
     specs: list[models.ParticipantSpec]
     device: str
+    regime: models.RegimeFlags
 
 
 def run_tournament(
@@ -61,6 +62,7 @@ def run_tournament(
     should_stop: StopCheck | None = None,
     *,
     in_process: bool = False,
+    regime: models.RegimeFlags | None = None,
 ) -> models.TournamentReport:
     """Play the whole round-robin and return the aggregated report.
 
@@ -68,13 +70,22 @@ def run_tournament(
     update shared dashboard state under the caller's lock); ``should_stop`` is
     polled to cancel the remainder early. ``in_process`` runs every game in this
     process (no pool) — the path tests use to stay fast.
+
+    ``regime`` is the setup/food engine regime every game runs under; when
+    omitted it is resolved from the competitors' training configs
+    (:func:`participants.resolve_regime_flags`), so every caller mirrors the
+    trained regime by construction. A resolved mismatch raises there — before
+    any game runs — rather than mid-worker. ``app`` pre-resolves it for a clean
+    CLI error, then passes it in.
     """
+    if regime is None:
+        regime = participants.resolve_regime_flags(cfg.participants)
     tasks = schedule.build_schedule(cfg.participants, cfg.games_per_pair, cfg.base_seed)
     device = torch.device(cfg.device)
     if in_process:
-        collected = _run_in_process(cfg, tasks, device, on_result, should_stop)
+        collected = _run_in_process(cfg, tasks, device, regime, on_result, should_stop)
     else:
-        collected = _run_parallel(cfg, tasks, on_result, should_stop)
+        collected = _run_parallel(cfg, tasks, regime, on_result, should_stop)
     return results.aggregate(cfg, collected)
 
 
@@ -83,6 +94,7 @@ def play_tournament_game(
     model_agents: dict[str, engine.Agent],
     task: models.GameTask,
     device: torch.device,
+    regime: models.RegimeFlags,
 ) -> models.GameResult:
     """Play one scheduled game and read out competitor A's result.
 
@@ -90,6 +102,8 @@ def play_tournament_game(
     random competitors are rebuilt (reseeded) per game so the mirror's two
     orientations still differ. Seats are assigned by ``task.a_seat``; the deal's
     own first player is read from the engine into ``a_was_start_player``.
+    ``regime`` selects the setup/food engine variant every game runs under, so
+    each net plays under the regime it was trained on.
     """
     agent_a = _agent_for(specs_by_id, model_agents, task.player_a_id, task, device)
     agent_b = _agent_for(specs_by_id, model_agents, task.player_b_id, task, device)
@@ -97,7 +111,13 @@ def play_tournament_game(
         (agent_a, agent_b) if task.a_seat == 0 else (agent_b, agent_a)
     )
     game = collect.new_engine(task.deal_seed)
-    engine.Engine.play_one_game(game.state, seats)
+    engine.Engine.play_one_game(
+        game.state,
+        seats,
+        split_setup_bonus=regime.split_setup_bonus,
+        split_setup_food=regime.split_setup_food,
+        combine_gain_food=regime.combine_gain_food,
+    )
 
     score0 = game.state.players[0].final_score or 0
     score1 = game.state.players[1].final_score or 0
@@ -121,6 +141,7 @@ def _run_in_process(
     cfg: models.TournamentConfig,
     tasks: typing.Sequence[models.GameTask],
     device: torch.device,
+    regime: models.RegimeFlags,
     on_result: ResultCallback | None,
     should_stop: StopCheck | None,
 ) -> list[models.GameResult]:
@@ -131,7 +152,7 @@ def _run_in_process(
     for task in tasks:
         if should_stop is not None and should_stop():
             break
-        result = play_tournament_game(specs_by_id, model_agents, task, device)
+        result = play_tournament_game(specs_by_id, model_agents, task, device, regime)
         collected.append(result)
         if on_result is not None:
             on_result(result)
@@ -141,11 +162,14 @@ def _run_in_process(
 def _run_parallel(
     cfg: models.TournamentConfig,
     tasks: typing.Sequence[models.GameTask],
+    regime: models.RegimeFlags,
     on_result: ResultCallback | None,
     should_stop: StopCheck | None,
 ) -> list[models.GameResult]:
     """Fan the games across a persistent worker pool, streaming completions."""
-    roster = _WorkerRoster(specs=list(cfg.participants), device=cfg.device)
+    roster = _WorkerRoster(
+        specs=list(cfg.participants), device=cfg.device, regime=regime
+    )
     pool = futures.ProcessPoolExecutor(
         max_workers=_default_worker_count(len(tasks)),
         initializer=_worker_init,
@@ -195,28 +219,32 @@ def _default_worker_count(n_tasks: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Worker-process state: one roster of competitor specs and a per-process cache of
-# the model agents this worker has loaded, populated by ``_worker_init``.
+# Worker-process state: one roster of competitor specs, the shared game regime,
+# and a per-process cache of the model agents this worker has loaded, all
+# populated by ``_worker_init``.
 
 _worker_specs: dict[str, models.ParticipantSpec] = {}
 _worker_model_agents: dict[str, engine.Agent] = {}
 _worker_device: torch.device | None = None
+_worker_regime: models.RegimeFlags | None = None
 
 
 def _worker_init(roster: _WorkerRoster) -> None:
     """Pin torch to one thread, silence stray logging, and stash the roster so
     each game just loads (and caches) the agents it needs."""
-    global _worker_specs, _worker_model_agents, _worker_device
+    global _worker_specs, _worker_model_agents, _worker_device, _worker_regime
     torch.set_num_threads(1)
     logging.getLogger().addHandler(logging.NullHandler())
     _worker_specs = {spec.id: spec for spec in roster.specs}
     _worker_model_agents = {}
     _worker_device = torch.device(roster.device)
+    _worker_regime = roster.regime
 
 
 def _worker_play(task: models.GameTask) -> models.GameResult:
     """Play one scheduled game under this worker's cached roster + nets."""
     assert _worker_device is not None, "worker not initialized"
+    assert _worker_regime is not None, "worker not initialized"
     return play_tournament_game(
-        _worker_specs, _worker_model_agents, task, _worker_device
+        _worker_specs, _worker_model_agents, task, _worker_device, _worker_regime
     )

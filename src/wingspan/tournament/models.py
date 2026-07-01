@@ -16,7 +16,7 @@ Public names (grouped by concern):
 
 *Configuration*
   :data:`DEFAULT_ELO_INIT`, :data:`DEFAULT_ELO_K`, :data:`DEFAULT_GAMES_PER_PAIR`,
-  :class:`TournamentConfig`
+  :class:`TournamentConfig`, :class:`RegimeFlags`
 
 *Results*
   :class:`GameResult`, :class:`SplitStats`, :class:`MatchupResult`,
@@ -169,6 +169,24 @@ class TournamentConfig(pydantic.BaseModel):
     def total_games(self) -> int:
         """Total games the tournament will play across every pair."""
         return self.n_pairs * self.games_per_pair
+
+
+class RegimeFlags(pydantic.BaseModel):
+    """The setup/food engine regimes every game in a tournament runs under.
+
+    Resolved once from the competitors' training configs (see
+    ``participants.resolve_regime_flags``) so each game mirrors how the nets
+    were trained — the tournament-wide analogue of the per-matchup resolution
+    ``wingspan play`` performs. Frozen so it ships to worker processes as
+    immutable pool ``initargs``. All-``False`` (the default) is the engine's own
+    default and the resolution for a config-free (random-only) field.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    split_setup_bonus: bool = False
+    split_setup_food: bool = False
+    combine_gain_food: bool = False
 
 
 # ---------------------------------------------------------------------------

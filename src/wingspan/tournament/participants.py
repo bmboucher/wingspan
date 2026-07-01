@@ -12,6 +12,11 @@ Discovery (:func:`discover_runs`) reuses the configurator's
 :func:`runs.inspect_run` to enumerate the active run plus every archived run
 under a base checkpoint directory, so the picker and the CLI offer the exact
 same "trained models on disk" the FLIGHT PLAN configurator manages.
+
+:func:`resolve_regime_flags` derives the setup/food engine regimes the games
+run under from the competitors' training configs (via the same
+``players.resolve_*`` functions ``wingspan play`` uses), so tournament games
+mirror how the nets were trained and mixed-regime fields are refused up front.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ import torch
 
 from wingspan import agents, engine, players, version
 from wingspan.tournament import models
-from wingspan.training import artifacts, policy, runmeta
+from wingspan.training import artifacts, config, policy, runmeta
 from wingspan.training.configure import runs
 
 
@@ -114,7 +119,42 @@ def load_player(
     return policy.greedy_agent(net, device)
 
 
+def resolve_regime_flags(
+    specs: typing.Sequence[models.ParticipantSpec],
+) -> models.RegimeFlags:
+    """The setup/food engine regimes the tournament's games must run under,
+    derived from every model competitor's stored :class:`~config.RunConfig` so
+    games mirror how the nets were trained — the tournament-wide analogue of the
+    per-matchup resolution ``wingspan play`` performs (the shared
+    ``players.resolve_*`` functions). ``RANDOM`` competitors carry no config and
+    express no preference; an all-random field resolves to the engine's default
+    (all flags off).
+
+    Raises ``ValueError`` when two competitors were trained under different
+    regimes: a game runs under exactly one regime, so mixed-regime seats cannot
+    share a faithful game and their scores are not comparable — the tournament
+    refuses rather than feeding one net decisions in a shape it never saw.
+    """
+    configs = [_config_for_spec(spec) for spec in specs]
+    return models.RegimeFlags(
+        split_setup_bonus=players.resolve_split_setup_bonus(configs),
+        split_setup_food=players.resolve_split_setup_food(configs),
+        combine_gain_food=players.resolve_combine_gain_food(configs),
+    )
+
+
 ###### PRIVATE #######
+
+
+def _config_for_spec(spec: models.ParticipantSpec) -> config.RunConfig | None:
+    """The ``RunConfig`` a model competitor was trained under, read from its
+    run-dir descriptor via the never-raising :func:`runs.inspect_run`. ``None``
+    for the ``RANDOM`` agent (no config) or a model whose config is unreadable
+    (it then expresses no regime preference, exactly as a config-free seat)."""
+    if spec.kind is not models.ParticipantKind.MODEL:
+        return None
+    assert spec.checkpoint_dir is not None, "a MODEL competitor needs a checkpoint dir"
+    return runs.inspect_run(spec.checkpoint_dir).train_config
 
 
 def _loadable(checkpoint_dir: str, summary: runs.RunSummary) -> bool:

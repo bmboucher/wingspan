@@ -69,7 +69,21 @@ def main(argv: list[str] | None = None) -> int:
         for name, reason in unloadable:
             term.print(f"  - {name}: {reason}")
         return 1
-    report = _run_quiet(cfg, term) if args.quiet else _run_live(cfg, term)
+
+    # Resolve the setup/food regime up front (like the load preflight above) so a
+    # mixed-regime field fails with a clean message here, before the dashboard or
+    # any game starts, rather than as a mid-worker traceback. The resolved flags
+    # are passed into the run so it does not re-resolve.
+    try:
+        regime = participants.resolve_regime_flags(cfg.participants)
+    except ValueError as error:
+        term.print(f"[red]{error}[/red]")
+        return 1
+    _print_regime_note(regime, term)
+
+    report = (
+        _run_quiet(cfg, term, regime) if args.quiet else _run_live(cfg, term, regime)
+    )
     if report is None:
         return 1
     _write_report(report, term)
@@ -120,7 +134,9 @@ def _unloadable_competitors(cfg: models.TournamentConfig) -> list[tuple[str, str
 
 
 def _run_live(
-    cfg: models.TournamentConfig, term: console.Console
+    cfg: models.TournamentConfig,
+    term: console.Console,
+    regime: models.RegimeFlags,
 ) -> models.TournamentReport | None:
     """Play the tournament on a worker thread while the main thread renders."""
     live_state = state_module.new_tournament_state(cfg)
@@ -136,7 +152,7 @@ def _run_live(
     def work() -> None:
         try:
             report = runner.run_tournament(
-                cfg, on_result=on_result, should_stop=stop_flag.is_set
+                cfg, on_result=on_result, should_stop=stop_flag.is_set, regime=regime
             )
         except (
             Exception
@@ -201,7 +217,9 @@ def _drive_dashboard(
 
 
 def _run_quiet(
-    cfg: models.TournamentConfig, term: console.Console
+    cfg: models.TournamentConfig,
+    term: console.Console,
+    regime: models.RegimeFlags,
 ) -> models.TournamentReport | None:
     """Play the tournament with no live UI, printing occasional progress."""
     term.print(
@@ -216,7 +234,7 @@ def _run_quiet(
         if done[0] % step == 0 or done[0] == cfg.total_games:
             term.print(f"  {done[0]}/{cfg.total_games} games")
 
-    return runner.run_tournament(cfg, on_result=on_result)
+    return runner.run_tournament(cfg, on_result=on_result, regime=regime)
 
 
 def _write_report(report: models.TournamentReport, term: console.Console) -> None:
@@ -266,6 +284,21 @@ def _event_text(result: models.GameResult) -> str:
             result.b_score - result.a_score,
         )
     return f"{winner} beat {loser} by {margin}"
+
+
+def _print_regime_note(regime: models.RegimeFlags, term: console.Console) -> None:
+    """Print the resolved non-default game regime before the run starts (mirrors
+    the ``wingspan play`` banner). A default all-off regime — the common case,
+    including any config-free random-only field — prints nothing."""
+    parts: list[str] = []
+    if regime.split_setup_bonus:
+        parts.append("opening bonus: split (CHOOSE_BONUS)")
+    if regime.split_setup_food:
+        parts.append("opening food: split (GAIN/SPEND_FOOD)")
+    if regime.combine_gain_food:
+        parts.append("food gains: combined (FoodSubset)")
+    if parts:
+        term.print(f"Game regime: {'  |  '.join(parts)}")
 
 
 def _resolve_device(device: str) -> str:
