@@ -354,14 +354,16 @@ def _progress_from_payload(payload: dict[str, typing.Any]) -> runstate.RunProgre
 
 def _archive_sources(path: pathlib.Path) -> list[pathlib.Path]:
     """The run's artifacts in crash-survivable relocation order (``last.pt``
-    last). Logs, stale temp files, and the dated process records are swept first,
-    then the history logs, model descriptor, and best / opponent snapshots, then
-    the resumable head."""
+    last). Logs, stale temp files, the dated process records, and the
+    target-milestone finals are swept first, then the history logs, model
+    descriptor, and best / opponent snapshots, then the resumable head."""
     sources: list[pathlib.Path] = []
     sources.extend(sorted(path.glob(artifacts.LOG_GLOB)))
     sources.extend(sorted(path.glob(artifacts.TMP_GLOB)))
     sources.extend(sorted(path.glob(artifacts.PROCESS_GLOB)))
     sources.extend(sorted(path.glob(artifacts.RUN_CONFIG_GLOB)))
+    sources.extend(sorted(path.glob(artifacts.FINAL_CKPT_GLOB)))
+    sources.extend(sorted(path.glob(artifacts.FINAL_EVAL_GLOB)))
     sources.extend(path / name for name in _SWEEP_BEFORE_LAST)
     sources.append(path / artifacts.LAST_CKPT)
     # De-dup (a glob could re-list a named artifact) while preserving order, and

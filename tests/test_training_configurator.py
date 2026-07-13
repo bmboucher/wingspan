@@ -243,6 +243,8 @@ def _write_checkpoint(
         (directory / artifacts.MODEL_CONFIG_JSON).write_text("{}", encoding="utf-8")
         (directory / "process_20260530-120000.json").write_text("{}", encoding="utf-8")
         (directory / "dashboard.log").write_text("log", encoding="utf-8")
+        (directory / artifacts.final_ckpt_name(4)).write_bytes(b"final")
+        (directory / artifacts.final_eval_name(4)).write_text("{}", encoding="utf-8")
         (directory / "_test.pt").write_bytes(b"scratch")  # unrelated, must survive
 
 
@@ -309,11 +311,17 @@ def test_archive_run_moves_artifacts_and_leaves_scratch(tmp_path: pathlib.Path):
     assert (archive_dir / artifacts.GAMES_LOG).exists()
     assert (archive_dir / artifacts.MODEL_CONFIG_JSON).exists()
     assert (archive_dir / "process_20260530-120000.json").exists()
+    # The target-milestone finals travel with their run — a final stranded in
+    # the live dir would lose its run association (and its setup.pt neighbor).
+    assert (archive_dir / artifacts.final_ckpt_name(4)).exists()
+    assert (archive_dir / artifacts.final_eval_name(4)).exists()
     # The live dir is now clean of run artifacts, but unrelated scratch survives.
     assert not (tmp_path / artifacts.LAST_CKPT).exists()
     assert not (tmp_path / artifacts.METRICS_LOG).exists()
     assert not (tmp_path / artifacts.GAMES_LOG).exists()
     assert not list(tmp_path.glob(artifacts.PROCESS_GLOB))
+    assert not list(tmp_path.glob(artifacts.FINAL_CKPT_GLOB))
+    assert not list(tmp_path.glob(artifacts.FINAL_EVAL_GLOB))
     assert (tmp_path / "_test.pt").exists()
     assert artifacts.LAST_CKPT in result.moved
 
@@ -342,8 +350,10 @@ def test_clear_run_deletes_artifacts(tmp_path: pathlib.Path):
     removed = runs.clear_run(str(tmp_path))
     assert artifacts.LAST_CKPT in removed
     assert artifacts.GAMES_LOG in removed and artifacts.MODEL_CONFIG_JSON in removed
+    assert artifacts.final_ckpt_name(4) in removed
     assert not (tmp_path / artifacts.LAST_CKPT).exists()
     assert not list(tmp_path.glob(artifacts.PROCESS_GLOB))
+    assert not list(tmp_path.glob(artifacts.FINAL_CKPT_GLOB))
     assert (tmp_path / "_test.pt").exists()
 
 

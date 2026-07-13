@@ -23,14 +23,17 @@ pytest.importorskip("torch")
 pytest.importorskip("rich")
 
 import rich.console as rich_console
+import torch
 
-from wingspan import decisions, version
+from wingspan import decisions, model, version
+from wingspan.players import loaders
 from wingspan.training import (
     artifacts,
     charts,
     config,
     dashboard,
     loop,
+    loop_target,
     metrics,
     runstate,
     sysmon,
@@ -341,6 +344,51 @@ def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     # leaving only this startup's run config file.
     assert (tmp_path / "games.jsonl").read_text() == ""
     assert len(list(tmp_path.glob(artifacts.RUN_CONFIG_GLOB))) == 1
+
+
+def test_target_milestone_final_checkpoint_loads(tmp_path: pathlib.Path):
+    """The target milestone writes ``final_<n>.pt`` with the same self-describing
+    payload as ``last.pt`` — era-stamped, so the play CLI's loader accepts it.
+
+    Regression: the milestone payload was hand-built without the ``version``
+    key, so a finished run's final checkpoint read as pre-versioning 0.0 and
+    refused to load under any 1.x code."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(
+            games_per_iter=2,
+            max_iterations=1,
+            target_iterations=1,
+            target_eval_games=2,
+            eval_every=1,
+            eval_games=2,
+            checkpoint_dir=str(tmp_path),
+        ),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                trunk_layers=(32, 32),
+                choice_layers=(32, 32),
+            )
+        ),
+        opponent=config.OpponentConfig(bootstrap_opponent="none"),
+    )
+    # Headless target handling (the cloud runner's mode): finalize the milestone
+    # and record "end" without waiting for a dashboard keypress.
+    training = loop.TrainingLoop(cfg, pause_at_target=False)
+    loop_target.handle_target_reached(training, iteration=0)
+    assert training.state.user_target_choice == "end"
+
+    final_path = tmp_path / artifacts.final_ckpt_name(1)
+    assert final_path.exists()
+    assert (tmp_path / artifacts.final_eval_name(1)).exists()
+    payload = torch.load(final_path, map_location="cpu", weights_only=False)
+    assert payload["version"] == cfg.encoding_version
+
+    # The play CLI's loader accepts the milestone checkpoint end-to-end, and the
+    # current-era artifact rebuilds as the live net class.
+    net, saved = loaders.load_policy_net(final_path, torch.device("cpu"))
+    assert isinstance(net, model.PolicyValueNet)
+    assert saved.encoding_version == cfg.encoding_version
 
 
 # ---------------------------------------------------------------------------

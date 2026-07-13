@@ -575,7 +575,7 @@ def _fresh_confirm(view: state.ConfiguratorState) -> state.ConfirmPrompt:
         f"  iter {iteration:04d} · {games:,} games · best {best}",
         "",
         "Archive moves it to archive/<label>/ — kept and recoverable.",
-        "Overwrite deletes last.pt / best.pt / metrics — unrecoverable.",
+        "Overwrite deletes last.pt / best.pt / final_*.pt / metrics — unrecoverable.",
     ]
     if view.working.encoding_version != version.MODEL_VERSION:
         lines.append(f"The new run starts at the current era {version.MODEL_VERSION}.")

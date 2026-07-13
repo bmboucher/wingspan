@@ -4,7 +4,10 @@
 
 Free functions whose first argument is a ``TrainingLoop`` instance handle the
 end-of-iteration commit, the main/best/setup checkpoint writes, game-history
-appending, and run teardown.  Atomic I/O primitives (``atomic_save``,
+appending, and run teardown.  ``checkpoint_payload`` is the single builder for
+the self-describing ``.pt`` payload, shared with ``loop_target``'s milestone
+checkpoint so the era stamp can never drift between the two save paths.
+Atomic I/O primitives (``atomic_save``,
 ``atomic_write_text``), seeding (``seed_everything``), and git metadata
 (``git_sha``) live here as parameter-free helpers used across several of the
 ``loop_*.py`` sibling modules.
@@ -119,17 +122,7 @@ def checkpoint(
             training_loop.state.best_win_rate = eval_result.win_rate
         # Snapshot the resumable progress so a later run picks up exactly here.
         progress = training_loop.state.to_progress()
-    payload: dict[str, object] = {
-        "config": training_loop.config.model_dump(),
-        "model": training_loop.net.state_dict(),
-        "optimizer": training_loop.optimizer.state_dict(),
-        "metrics": iter_metrics.model_dump(),
-        "progress": progress.model_dump(),
-        "git_sha": git_sha(),
-        # Stamped with the run's era, not the live MODEL_VERSION: an era-pinned
-        # run keeps writing artifacts that read as the era its tensors carry.
-        "version": training_loop.config.encoding_version,
-    }
+    payload = checkpoint_payload(training_loop, progress, iter_metrics)
     atomic_save(payload, training_loop._ckpt_dir / artifacts.LAST_CKPT)
     if improved and eval_result is not None:
         atomic_save(payload, training_loop._ckpt_dir / artifacts.BEST_CKPT)
@@ -159,6 +152,32 @@ def checkpoint(
         training_loop,
         loop_metrics.build_game_outcomes(records, iter_metrics.iteration),
     )
+
+
+def checkpoint_payload(
+    training_loop: "loop.TrainingLoop",
+    progress: runstate.RunProgress,
+    iter_metrics: metrics.IterationMetrics | None = None,
+) -> dict[str, object]:
+    """The self-describing payload every checkpoint write shares — ``last.pt`` /
+    ``best.pt`` here and the target-milestone ``final_<n>.pt`` in ``loop_target``
+    — so the save paths cannot drift. (A hand-built final payload once omitted
+    the ``version`` stamp, making the file read as pre-versioning ``0.0`` and
+    refuse to load.) ``iter_metrics`` is ``None`` when no completed-iteration
+    row is available; the loaders never require it."""
+    payload: dict[str, object] = {
+        "config": training_loop.config.model_dump(),
+        "model": training_loop.net.state_dict(),
+        "optimizer": training_loop.optimizer.state_dict(),
+        "progress": progress.model_dump(),
+        "git_sha": git_sha(),
+        # Stamped with the run's era, not the live MODEL_VERSION: an era-pinned
+        # run keeps writing artifacts that read as the era its tensors carry.
+        "version": training_loop.config.encoding_version,
+    }
+    if iter_metrics is not None:
+        payload["metrics"] = iter_metrics.model_dump()
+    return payload
 
 
 def append_game_history(

@@ -39,7 +39,8 @@ def handle_target_if_reached(
 
 def handle_target_reached(training_loop: "loop.TrainingLoop", iteration: int) -> None:
     """Execute the target-milestone sequence: checkpoint → eval → pause."""
-    # Step 1: save the final milestone checkpoint (same payload as last.pt).
+    # Step 1: save the final milestone checkpoint — the same self-describing
+    # payload as ``last.pt`` (one builder, so the version stamp cannot drift).
     final_name = artifacts.final_ckpt_name(iteration + 1)
     training_loop._ckpt_dir.mkdir(parents=True, exist_ok=True)
     with training_loop.lock:
@@ -49,13 +50,8 @@ def handle_target_reached(training_loop: "loop.TrainingLoop", iteration: int) ->
             f"→ saving {final_name}",
         )
         progress = training_loop.state.to_progress()
-    payload: dict[str, object] = {
-        "config": training_loop.config.model_dump(),
-        "model": training_loop.net.state_dict(),
-        "optimizer": training_loop.optimizer.state_dict(),
-        "progress": progress.model_dump(),
-        "git_sha": loop_checkpoint.git_sha(),
-    }
+        last_metrics = training_loop.state.last_iter
+    payload = loop_checkpoint.checkpoint_payload(training_loop, progress, last_metrics)
     loop_checkpoint.atomic_save(payload, training_loop._ckpt_dir / final_name)
     with training_loop.lock:
         training_loop.state.push_event(

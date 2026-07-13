@@ -60,6 +60,14 @@ LOG_GLOB = "*.log"
 # crash mid-write can leave one behind, so the archive sweep clears them too.
 TMP_GLOB = "*.tmp"
 
+# Globs matching the target-milestone artifacts (:func:`final_ckpt_name` /
+# :func:`final_eval_name` below). The archive sweep relocates them with the
+# rest of the run: a final left behind in the live dir would lose its
+# association with the run — and its ``setup.pt``, which the play CLI resolves
+# from the checkpoint's own directory.
+FINAL_CKPT_GLOB = "final_*.pt"
+FINAL_EVAL_GLOB = "final_eval_*.json"
+
 
 def final_ckpt_name(iteration: int) -> str:
     """Return the filename for a target-milestone final checkpoint.

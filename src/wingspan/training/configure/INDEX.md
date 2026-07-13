@@ -46,8 +46,10 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   architecture still matches it (Start resumes), the live `MODEL_VERSION`
   otherwise (a fresh run never inherits a stale era). The editor-side mirror
   of `loop_resume.adopt_checkpoint_era`.
-- `archive_run(run_dir, archive_dir)` — moves a run to an archive subdirectory.
-- `clear_run(run_dir)` — deletes checkpoints but keeps logs.
+- `archive_run(run_dir, label)` — moves the run's artifact set (logs, session
+  records, target-milestone `final_*.pt` / `final_eval_*.json`, history logs,
+  snapshots, then `last.pt` last) into `archive/<label>/`.
+- `clear_run(run_dir)` — deletes the same artifact set (the overwrite path).
 - `list_archives(archive_dir) -> list[RunSummary]`.
 
 **`user_defaults.py`** — The `[D] save defaults` persistence:

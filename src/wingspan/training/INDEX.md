@@ -71,7 +71,10 @@ top-level computed properties so call sites don't churn.
 filenames. Constants: `LAST_CKPT`, `BEST_CKPT`, `OPPONENT_CKPT`,
 `METRICS_LOG`, `GAMES_LOG`, `RUN_CONFIG_PREFIX` / `RUN_CONFIG_GLOB` (the unified
 ≥0.5 file), and the legacy `MODEL_CONFIG` / `PROCESS_JSON` / `PROCESS_GLOB`
-(read for ≤0.4 dirs). Used everywhere that writes or reads from a run directory.
+(read for ≤0.4 dirs). Target-milestone names via `final_ckpt_name(n)` /
+`final_eval_name(n)`, matched by `FINAL_CKPT_GLOB` / `FINAL_EVAL_GLOB` so the
+archive sweep relocates a run's finals with it. Used everywhere that writes or
+reads from a run directory.
 
 **`runmeta.py`** — The unified config file, the legacy sidecars (read-only for
 ≤0.4 dirs), and the era-routed descriptor reporting seam:
@@ -129,12 +132,19 @@ based on `config.device`. Returns accumulated steps and score breakdowns.
 for graduation. `load_opponent(loop)` — loads the opponent checkpoint with
 graceful FRESH restart on architecture mismatch.
 
-**`loop_target.py`** — `check_target(loop, iteration)`: milestone sequencing
-(checkpoint → eval → pause at user-configured target iteration).
+**`loop_target.py`** — `handle_target_if_reached(loop, iteration)`: milestone
+sequencing at the user-configured target iteration — `final_<n>.pt` (written
+via `loop_checkpoint.checkpoint_payload`, so it is the same era-stamped payload
+as `last.pt`) → `final_eval_<n>.json` → dashboard pause or headless end.
 
-**`loop_checkpoint.py`** — `commit_checkpoint(loop, iteration, result)`:
-atomic checkpoint write (LAST then BEST on improvement), games log append,
-seed advancement. `finish(loop)` — final checkpoint + cleanup.
+**`loop_checkpoint.py`** — `commit_iteration(loop, iter_metrics, stats,
+eval_result, records)`: end-of-iteration commit — opponent graduation /
+advancement, then `checkpoint(...)` (atomic LAST then BEST on improvement,
+metrics row, games log append, setup checkpoint). `checkpoint_payload(loop,
+progress, iter_metrics=None)` — the single self-describing `.pt` payload
+builder (config + weights + optimizer + progress + git SHA + the run-era
+`version` stamp), shared with `loop_target` so the save paths cannot drift.
+`finish(loop, phase)` — terminal phase + stop time.
 
 **`loop_metrics.py`** — Pure metrics aggregation: `aggregate_metrics(steps,
 outcomes) -> IterationMetrics`. No loop state; easy to test in isolation.
