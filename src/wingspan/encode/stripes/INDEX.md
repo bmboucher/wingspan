@@ -19,7 +19,10 @@ full vector layout without hard-coding field names.
 - `StripeDescriptor(name, dim, offset, sub_fields)` — one named block in the
   encoding vector; `sub_fields` makes it inspectable.
 - `VectorLayout(stripes, total_dim)` — the full ordered list of stripes for a
-  vector; exposes `offset_of(name) -> int`, `size_of(name) -> int`, and iteration.
+  vector; exposes `offset_of(name) -> int`, `size_of(name) -> int`, iteration, and
+  `without_stripes(names) -> VectorLayout` (drop named stripes, shifting later
+  offsets left — how era compat nets derive their era's layout from the live one,
+  mirroring the `np.delete` in their `encode_*` overrides).
 
 **`embed_rules.py`** — Post-embedding rewrite rules for state, choice, and setup
 vectors. `embed_layout(raw, rules, expected_total)` rewrites a raw `VectorLayout`

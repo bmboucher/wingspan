@@ -330,9 +330,12 @@ def _build_decision_options(
                 annotation.setup_feats[0], annotation.setup_encoding
             )
     elif annotation.state_vec is not None:
+        # The annotation's layout is the producing net's own (era-correct)
+        # geometry; None falls back to the live layout inside the extractor.
         state_stripes = encode_viewer.extract_state_stripes(
             annotation.state_vec,
             include_setup=annotation.include_setup or False,
+            vector_layout=annotation.state_layout,
         )
 
     # Per-option choice stripes and humanized labels.
@@ -349,6 +352,7 @@ def _build_decision_options(
             choice_stripes = encode_viewer.extract_choice_stripes(
                 annotation.choice_feats[idx],
                 include_setup=annotation.include_setup or False,
+                vector_layout=annotation.choice_layout,
             )
         options.append(
             models.DecisionOption(

@@ -64,7 +64,13 @@ import typing
 import numpy as np
 
 from wingspan import architecture, decisions, encode, state
+from wingspan.encode import stripes
 from wingspan.model import core
+
+# Layout names of the stripes this shim strips (their offsets/widths are the
+# ``encode.STATE_*`` / ``encode.CHOICE_RESETS_FEEDER_*`` constants used below).
+_V1_4_STATE_STRIPE_NAMES = ("hand_food_unlock_me", "tray_food_unlock_me")
+_V1_4_CHOICE_STRIPE_NAME = "resets_feeder"
 
 
 class PolicyValueNetV1_3(core.PolicyValueNet):
@@ -119,6 +125,15 @@ class PolicyValueNetV1_3(core.PolicyValueNet):
             hand_summary_end=live.hand_summary_end,
         )
 
+    def raw_state_stripe_layout(self) -> stripes.VectorLayout:
+        """The live state layout minus the two food-unlock stripes — the layout
+        of the (narrow) vector this shim's ``encode_state`` actually emits, so
+        consumers that decode recorded vectors (the game-log encoding viewer)
+        name the era's columns instead of the live ones."""
+        return (
+            super().raw_state_stripe_layout().without_stripes(_V1_4_STATE_STRIPE_NAMES)
+        )
+
     # --- choice: strip the resets_feeder stripe ---
 
     def _true_choice_dim(self) -> int:
@@ -169,4 +184,14 @@ class PolicyValueNetV1_3(core.PolicyValueNet):
             becomes_playable=live.becomes_playable,
             becomes_unplayable=live.becomes_unplayable,
             kept_multihot=kept,
+        )
+
+    def raw_choice_stripe_layout(self) -> stripes.VectorLayout:
+        """The live choice layout minus ``resets_feeder`` — the layout of the
+        (narrow) rows this shim's ``encode_choices`` actually emits (see
+        :meth:`raw_state_stripe_layout`)."""
+        return (
+            super()
+            .raw_choice_stripe_layout()
+            .without_stripes((_V1_4_CHOICE_STRIPE_NAME,))
         )

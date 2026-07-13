@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pydantic
 
+from wingspan.encode import stripes
 from wingspan.setup_model import architecture as setup_arch
 
 
@@ -27,16 +28,25 @@ class PolicyAnnotation(pydantic.BaseModel):
     of the option that was actually played.
 
     Main-net decisions populate ``state_vec``, ``choice_feats``,
-    ``include_setup``, and ``card_embed_dim`` for the encoding-viewer modal;
-    setup-net decisions instead populate ``setup_feats`` (one raw candidate
-    vector per choice) and ``setup_encoding`` (the :class:`SetupEncoding` that
-    describes their layout). The other group's fields are left ``None``."""
+    ``state_layout``, ``choice_layout``, ``include_setup``, and
+    ``card_embed_dim`` for the encoding-viewer modal; setup-net decisions
+    instead populate ``setup_feats`` (one raw candidate vector per choice) and
+    ``setup_encoding`` (the :class:`SetupEncoding` that describes their
+    layout). The other group's fields are left ``None``.
+
+    ``state_layout`` / ``choice_layout`` are the producing net's own raw stripe
+    layouts (``net.raw_state_stripe_layout()`` / ``net.raw_choice_stripe_layout()``)
+    — for a compat-era net these are its *era's* layouts, not the live ones, so
+    the viewer decodes the recorded vectors with the geometry that actually
+    wrote them."""
 
     probs: list[float]
     scores: list[float] | None = None
     chosen_idx: int
     state_vec: list[float] | None = None
     choice_feats: list[list[float]] | None = None
+    state_layout: stripes.VectorLayout | None = None
+    choice_layout: stripes.VectorLayout | None = None
     include_setup: bool | None = None
     card_embed_dim: int | None = None
     setup_feats: list[list[float]] | None = None

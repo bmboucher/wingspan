@@ -193,3 +193,93 @@ def test_stack_is_empty_after_game():
     _eng, rec = _make_engine_with_recorder(seed=17)
     # _open_stack is private but accessible for testing.
     assert len(rec._open_stack) == 0  # type: ignore[attr-defined]
+
+
+def test_record_decision_decodes_with_annotation_layouts():
+    """``record_decision`` decodes the annotation's vectors with the annotation's
+    own (era) layouts, so a compat-era seat's decision panels name the true
+    stripes — the game.html phantom-cards regression. The era vectors/layouts
+    here are derived exactly as the v1_3 shim derives them (live minus the v1.4
+    columns/stripes)."""
+    import numpy as np
+
+    from wingspan import decisions, encode
+    from wingspan import engine as engine_mod
+    from wingspan.encode import stripes
+    from wingspan.gamelog import models
+    from wingspan.gamelog import recorder as gamelog_recorder
+    from wingspan.players import decision_probe
+
+    eng, birds, *_ = engine_mod.Engine.create(seed=21)
+    hand = [birds[3], birds[7], birds[12]]
+    eng.state.players[0].hand = list(hand)
+    decision = decisions.MainActionDecision(
+        player_id=0,
+        prompt="",
+        choices=[
+            decisions.MainActionChoice(
+                label="gain food", action=decisions.MainAction.GAIN_FOOD
+            ),
+            decisions.MainActionChoice(
+                label="lay eggs", action=decisions.MainAction.LAY_EGGS
+            ),
+        ],
+    )
+
+    # Pre-1.4-width vectors plus their matching era layouts.
+    spec = encode.DEFAULT_SPEC
+    unlock_start = encode.STATE_HAND_FOOD_UNLOCK_OFFSET
+    unlock_width = 2 * encode.STATE_FOOD_UNLOCK_DIM
+    era_state = np.delete(
+        encode.encode_state(eng.state, decision),
+        slice(unlock_start, unlock_start + unlock_width),
+    )
+    state_layout = stripes.raw_state_stripe_layout(spec).without_stripes(
+        ("hand_food_unlock_me", "tray_food_unlock_me")
+    )
+    feeder_start = encode.CHOICE_RESETS_FEEDER_OFFSET
+    era_choices = np.delete(
+        encode.encode_choices(decision, eng.state),
+        slice(feeder_start, feeder_start + encode.CHOICE_RESETS_FEEDER_DIM),
+        axis=1,
+    )
+    choice_layout = stripes.raw_choice_stripe_layout(spec).without_stripes(
+        ("resets_feeder",)
+    )
+
+    probe = decision_probe.DecisionProbe()
+    probe.record_policy(
+        decision_probe.PolicyAnnotation(
+            probs=[0.6, 0.4],
+            scores=[1.0, 0.5],
+            chosen_idx=0,
+            state_vec=era_state.tolist(),
+            choice_feats=era_choices.tolist(),
+            state_layout=state_layout,
+            choice_layout=choice_layout,
+            include_setup=False,
+        )
+    )
+    rec = gamelog_recorder.EventRecorder(
+        probes=(probe, None), seat_configs=(None, None)
+    )
+    rec.begin_game()
+    rec.begin_phase("turn")
+    rec.begin_main_action(0)
+    rec.record_decision(eng, decision, decision.choices[0])
+
+    sub_events = rec.root.phases[-1].events[0].sub_events
+    decision_subs = [
+        sub for sub in sub_events if isinstance(sub, models.DecisionSubEvent)
+    ]
+    assert len(decision_subs) == 1
+    state_stripes = decision_subs[0].state_stripes
+    assert state_stripes is not None
+    hand_stripes = [s for s in state_stripes if s.name == "hand_multihot"]
+    assert hand_stripes, "hand_multihot missing from the decision's state panel"
+    label = hand_stripes[0].sub_fields[0].decoded_label
+    assert label is not None
+    for bird in hand:
+        assert bird.name in label, f"'{bird.name}' missing from: {label}"
+    assert decision_subs[0].options
+    assert all(opt.choice_stripes is not None for opt in decision_subs[0].options)

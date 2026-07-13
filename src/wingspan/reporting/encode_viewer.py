@@ -79,14 +79,21 @@ _BIRD_ATTR_BOOL_FIELDS: frozenset[str] = frozenset(
 def extract_state_stripes(
     vector: list[float],
     include_setup: bool,
+    vector_layout: stripes.VectorLayout | None = None,
 ) -> list[gamelog_models.EncodedStripe]:
     """Return non-zero stripe summaries for a flat state feature vector.
 
-    Uses :func:`~wingspan.encode.stripes.raw_state_stripe_layout` to get the
-    raw (pre-embedding) layout whose offsets match the ``encode_state`` output
-    directly, then delegates to :func:`_extract_nonzero_stripes`."""
-    spec = layout.EncodingSpec(include_setup=include_setup)
-    vector_layout = stripes.raw_state_stripe_layout(spec)
+    ``vector_layout`` must be the layout of the encoder that *produced*
+    ``vector`` — pass the producing net's ``raw_state_stripe_layout()`` so a
+    compat-era net's (narrower) vector decodes at its own era's offsets. When
+    ``None``, falls back to the live
+    :func:`~wingspan.encode.stripes.raw_state_stripe_layout`, which is only
+    correct for vectors written by the live encoder. Delegates to
+    :func:`_extract_nonzero_stripes`, which rejects a vector whose length does
+    not match the layout."""
+    if vector_layout is None:
+        spec = layout.EncodingSpec(include_setup=include_setup)
+        vector_layout = stripes.raw_state_stripe_layout(spec)
     return _extract_nonzero_stripes(
         np.array(vector, dtype=np.float32), vector_layout, include_setup
     )
@@ -95,13 +102,19 @@ def extract_state_stripes(
 def extract_choice_stripes(
     choice_vec: list[float],
     include_setup: bool,
+    vector_layout: stripes.VectorLayout | None = None,
 ) -> list[gamelog_models.EncodedStripe]:
     """Return non-zero stripe summaries for one row of the choice feature matrix.
 
-    Uses :func:`~wingspan.encode.stripes.raw_choice_stripe_layout` to get the
-    raw stripe layout, then delegates to :func:`_extract_nonzero_stripes`."""
-    spec = layout.EncodingSpec(include_setup=include_setup)
-    vector_layout = stripes.raw_choice_stripe_layout(spec)
+    ``vector_layout`` must be the layout of the encoder that *produced* the
+    row — pass the producing net's ``raw_choice_stripe_layout()`` so a
+    compat-era net's rows decode at its own era's offsets. When ``None``, falls
+    back to the live :func:`~wingspan.encode.stripes.raw_choice_stripe_layout`
+    (only correct for live-encoded rows). Delegates to
+    :func:`_extract_nonzero_stripes`."""
+    if vector_layout is None:
+        spec = layout.EncodingSpec(include_setup=include_setup)
+        vector_layout = stripes.raw_choice_stripe_layout(spec)
     return _extract_nonzero_stripes(
         np.array(choice_vec, dtype=np.float32), vector_layout, include_setup
     )
@@ -211,7 +224,19 @@ def _extract_nonzero_stripes(
     """Walk a VectorLayout and return an EncodedStripe for each non-zero stripe.
 
     Skips stripes with ``encoding == "complex"`` (learned embeddings) and any
-    stripe whose entire slice is within ``_ZERO_THRESHOLD`` of zero."""
+    stripe whose entire slice is within ``_ZERO_THRESHOLD`` of zero.
+
+    Raises :exc:`ValueError` when the vector's length does not match the
+    layout — decoding through mismatched offsets would silently attribute
+    every value past the divergence point to the wrong stripe (the classic
+    symptom of pairing a compat-era vector with the live layout)."""
+    if len(vector) != vector_layout.total_size:
+        raise ValueError(
+            f"vector length {len(vector)} != layout total_size "
+            f"{vector_layout.total_size} — the vector was produced by a "
+            "different encoding era than this layout describes; decode with "
+            "the producing net's own raw_*_stripe_layout()."
+        )
     result: list[gamelog_models.EncodedStripe] = []
     for stripe_desc in vector_layout.stripes:
         if stripe_desc.encoding == "complex":

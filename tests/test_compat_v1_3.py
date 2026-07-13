@@ -44,8 +44,11 @@ from wingspan import (
 )
 from wingspan.compat import v1_0 as compat_v1_0
 from wingspan.compat import v1_3 as compat_v1_3
+from wingspan.encode import stripes
+from wingspan.encode.stripes import descriptors
 from wingspan.model import core
 from wingspan.players import loaders
+from wingspan.reporting import encode_viewer
 from wingspan.training import config
 
 _STATE_STRIPE_WIDTH = 2 * encode.STATE_FOOD_UNLOCK_DIM  # both 5-wide state stripes
@@ -305,6 +308,119 @@ class TestV1_0InheritsPre1_4Strips:
     def test_v1_0_forward_pass_at_era_dims(self) -> None:
         eng, *_ = engine.Engine.create(seed=103)
         _forward(self._v1_0_era_net(), _decision(), eng.state)
+
+
+# ---------------------------------------------------------------------------
+# Era-owned raw stripe layouts (the game-log encoding viewer's decode seam)
+
+
+class TestEraStripeLayouts:
+    """Each net's ``raw_*_stripe_layout()`` must describe *its own* encoder's
+    output. Decoding a compat-era vector with the live layout silently shifts
+    every stripe past the removed columns (phantom hand birds, tray cards in
+    board slots — the game.html bug); these tests pin the era-owned layouts and
+    the viewer's use of them."""
+
+    def _v1_0_net(self) -> compat_v1_0.PolicyValueNetV1_0:
+        state_dim, choice_dim = compat.encoding_dims_for_era("1.0", encode.DEFAULT_SPEC)
+        return compat_v1_0.PolicyValueNetV1_0(
+            state_dim=state_dim, choice_dim=choice_dim, arch=_small_arch()
+        )
+
+    def test_without_stripes_shifts_offsets_and_total(self) -> None:
+        vl = descriptors.VectorLayout.from_stripe_specs(
+            [
+                descriptors.StripeSpec(name=name, size=size)
+                for name, size in (("a", 3), ("b", 5), ("c", 2), ("d", 4))
+            ]
+        )
+        out = vl.without_stripes(("b", "d"))
+        assert out.total_size == 5
+        assert [(s.name, s.offset, s.size) for s in out.stripes] == [
+            ("a", 0, 3),
+            ("c", 3, 2),
+        ]
+
+    def test_without_stripes_unknown_name_raises(self) -> None:
+        vl = descriptors.VectorLayout.from_stripe_specs(
+            [descriptors.StripeSpec(name="a", size=3)]
+        )
+        with pytest.raises(KeyError):
+            vl.without_stripes(("nope",))
+
+    def test_live_layouts_match_live_dims(self) -> None:
+        net = core.PolicyValueNet(arch=_small_arch())
+        assert net.raw_state_stripe_layout().total_size == encode.state_size(net.spec)
+        assert net.raw_choice_stripe_layout().total_size == encode.choice_feature_dim(
+            net.spec
+        )
+
+    def test_era_layout_dims_match_encoding_dims_for_era(self) -> None:
+        for era, net in (("1.3", _era_shim()), ("1.0", self._v1_0_net())):
+            state_dim, choice_dim = compat.encoding_dims_for_era(era, net.spec)
+            assert net.raw_state_stripe_layout().total_size == state_dim, era
+            assert net.raw_choice_stripe_layout().total_size == choice_dim, era
+
+    def test_era_layouts_match_encoder_output_widths(self) -> None:
+        eng, *_ = engine.Engine.create(seed=104)
+        decision = _decision()
+        for net in (_era_shim(), self._v1_0_net()):
+            state_vec = net.encode_state(eng.state, decision)
+            choice_rows = net.encode_choices(decision, eng.state)
+            assert net.raw_state_stripe_layout().total_size == state_vec.shape[0]
+            assert net.raw_choice_stripe_layout().total_size == choice_rows.shape[1]
+
+    def test_v1_3_layouts_drop_only_the_v1_4_stripes(self) -> None:
+        shim = _era_shim()
+        state_names = {s.name for s in shim.raw_state_stripe_layout().stripes}
+        assert "hand_food_unlock_me" not in state_names
+        assert "tray_food_unlock_me" not in state_names
+        choice_names = {s.name for s in shim.raw_choice_stripe_layout().stripes}
+        assert "resets_feeder" not in choice_names
+        assert "becomes_unplayable" in choice_names  # v1.1 stripe still present
+
+    def test_v1_0_choice_layout_also_drops_becomes_unplayable(self) -> None:
+        names = {s.name for s in self._v1_0_net().raw_choice_stripe_layout().stripes}
+        assert "becomes_unplayable" not in names
+        assert "resets_feeder" not in names
+        assert "becomes_playable" in names
+
+    def test_era_state_offsets_shift_left_past_removed_stripes(self) -> None:
+        shim = _era_shim()
+        live = stripes.raw_state_stripe_layout(shim.spec)
+        era = shim.raw_state_stripe_layout()
+        assert era.offset_of("food_me") == live.offset_of("food_me")
+        assert (
+            live.offset_of("hand_multihot") - era.offset_of("hand_multihot")
+            == _STATE_STRIPE_WIDTH
+        )
+        assert (
+            live.offset_of("decision_type") - era.offset_of("decision_type")
+            == _STATE_STRIPE_WIDTH
+        )
+
+    def test_era_vector_decodes_hand_via_own_layout(self) -> None:
+        """THE regression: a v1.3 net's state vector decoded through the net's
+        own layout names the actual hand; decoded through the live layout it
+        used to show phantom birds — now the width mismatch raises instead."""
+        eng, birds, *_ = engine.Engine.create(seed=105)
+        hand = [birds[8], birds[101], birds[152]]
+        eng.state.players[0].hand = list(hand)
+        shim = _era_shim()
+        vec = shim.encode_state(eng.state, _decision()).tolist()
+
+        result = encode_viewer.extract_state_stripes(
+            vec, include_setup=False, vector_layout=shim.raw_state_stripe_layout()
+        )
+        hand_stripes = [s for s in result if s.name == "hand_multihot"]
+        assert hand_stripes, "hand_multihot stripe missing"
+        label = hand_stripes[0].sub_fields[0].decoded_label
+        assert label is not None
+        for bird in hand:
+            assert bird.name in label, f"'{bird.name}' missing from: {label}"
+
+        with pytest.raises(ValueError, match="different encoding era"):
+            encode_viewer.extract_state_stripes(vec, include_setup=False)
 
 
 # ---------------------------------------------------------------------------

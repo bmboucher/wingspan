@@ -162,6 +162,35 @@ class VectorLayout(pydantic.BaseModel):
                 return stripe.size
         raise KeyError(f"No stripe named {name!r} in this VectorLayout")
 
+    def without_stripes(self, names: typing.Collection[str]) -> VectorLayout:
+        """A copy with the named stripes removed and later offsets shifted left.
+
+        Each surviving stripe's offset drops by the total width of the removed
+        stripes preceding it, so the result describes the original vector minus
+        the named columns — exactly how an era compat net's ``encode_*`` output
+        relates to the live encoder's (they ``np.delete`` those columns).
+        Sub-fields are untouched (their offsets are stripe-relative).
+
+        Raises :exc:`KeyError` if any name has no matching stripe (typo guard)."""
+        to_remove = set(names)
+        kept: list[StripeDescriptor] = []
+        removed_width = 0
+        for stripe in self.stripes:
+            if stripe.name in to_remove:
+                to_remove.discard(stripe.name)
+                removed_width += stripe.size
+                continue
+            kept.append(
+                stripe.model_copy(update={"offset": stripe.offset - removed_width})
+            )
+        if to_remove:
+            raise KeyError(
+                f"No stripe(s) named {sorted(to_remove)!r} in this VectorLayout"
+            )
+        return VectorLayout(
+            total_size=self.total_size - removed_width, stripes=tuple(kept)
+        )
+
 
 ###### PRIVATE #######
 

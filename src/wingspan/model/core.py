@@ -33,6 +33,7 @@ import torch
 from torch import nn
 
 from wingspan import architecture, decisions, encode, version
+from wingspan.encode import stripes
 from wingspan.model import hand_model, mlp
 
 if typing.TYPE_CHECKING:
@@ -223,6 +224,21 @@ class PolicyValueNet(nn.Module):
         net (see :meth:`encode_state`). Compat subclasses override this with
         their frozen era's encoder."""
         return encode.encode_choices(decision, game_state, self.spec)
+
+    def raw_state_stripe_layout(self) -> stripes.VectorLayout:
+        """The stripe layout describing this net's :meth:`encode_state` output.
+
+        The net owns its encoding, so it also owns the layout that names it:
+        anything decoding a vector this net produced (the game-log encoding
+        viewer) must use this layout, not the live one paired by hand. Compat
+        subclasses override it to remove the stripes their era predates, exactly
+        mirroring their ``encode_state`` column strips."""
+        return stripes.raw_state_stripe_layout(self.spec)
+
+    def raw_choice_stripe_layout(self) -> stripes.VectorLayout:
+        """The stripe layout describing one row of this net's
+        :meth:`encode_choices` output (see :meth:`raw_state_stripe_layout`)."""
+        return stripes.raw_choice_stripe_layout(self.spec)
 
     def forward(
         self,

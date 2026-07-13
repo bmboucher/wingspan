@@ -29,6 +29,14 @@ those must move with the era too (the 2026-06-10 / 2026-06-14 `_embed_state`
 bugs). Every state-embed offset `_embed_state` reads is consolidated into
 `model.StateEmbedOffsets`, which a shim overrides as one unit.
 
+**The layout descriptors are era geometry too.** Anything that *decodes* a
+vector an era net produced (the game-log encoding viewer) must use that era's
+stripe layout, so each shim also overrides `raw_state_stripe_layout` /
+`raw_choice_stripe_layout` — `super()`'s layout `.without_stripes(...)` the same
+names its `encode_*` deletes (the 2026-07-12 game.html phantom-cards bug: v1.3
+vectors decoded at live v1.4 offsets). A new FRESH stripe change must extend
+these overrides alongside the encoder strips.
+
 **Shims also back era-pinned training.** A resumed run carries
 `RunConfig.encoding_version` and keeps producing artifacts at its own era: the
 pipeline builds the era's net via `model.PolicyValueNet.class_for_version` and
@@ -58,8 +66,10 @@ same-MAJOR artifacts get the live widths.
   `encode_choices`, `_choice_embed_offsets`, `_build_choice_encoder`,
   `_true_choice_dim`. Both `_build_*` derive their block width from `self.spec` via
   the `_true_*_dim` helpers (not the passed dims), so the shim is correct under both
-  era-dim loads and live-dim test construction. Routes for eras 1.1-1.3 via
-  `class_for_version`.
+  era-dim loads and live-dim test construction. Also overrides
+  `raw_state_stripe_layout` / `raw_choice_stripe_layout` (live layout
+  `.without_stripes(...)` the same names) so decode consumers see the era's
+  offsets. Routes for eras 1.1-1.3 via `class_for_version`.
 
 **`v1_0.py`** — v1.0 artifact compat shim:
 - `PolicyValueNetV1_0` — subclass of `PolicyValueNetV1_3` (so it inherits the two
@@ -71,5 +81,6 @@ same-MAJOR artifacts get the live widths.
   state width), `_true_choice_dim` (narrows the inherited v1.3 width by a further
   `becomes_unplayable`, read polymorphically by the inherited `_build_choice_encoder`),
   `encode_choices`, and `_choice_embed_offsets` — the last two chain `super()` (the
-  v1_3 strip) then remove `becomes_unplayable`. Routes for era 1.0 via
-  `class_for_version`.
+  v1_3 strip) then remove `becomes_unplayable` — and `raw_choice_stripe_layout`
+  (the inherited v1.3 layout minus `becomes_unplayable`; the state layout is
+  inherited unchanged). Routes for era 1.0 via `class_for_version`.

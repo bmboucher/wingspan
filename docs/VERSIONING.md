@@ -444,6 +444,20 @@ offsets — card-index, hand, decision; the fourth, `hand_summary`, was retired
 with the distinct hand model, since the pooled-only main net no longer slices the
 hand-summary stripe out of its continuous trunk input.)
 
+And a third recurrence on 2026-07-12, this time on the *decode* side: the
+game-log HTML encoding viewer displayed recorded state vectors by walking the
+live `raw_state_stripe_layout`, so a v1.3 run's game rendered under v1.4 code
+showed every stripe past the food-unlock insertion point shifted 10 columns —
+phantom hand birds, the tray leaking into board slots, the decision-type bit
+decoding as a bird. The model itself was fine (its shim encoders are
+era-frozen); only the human-facing panel lied. The structural fix mirrors the
+embed-offsets one: the net owns layout descriptors too
+(`raw_state_stripe_layout` / `raw_choice_stripe_layout`, overridden per shim via
+`VectorLayout.without_stripes`), agents stamp them onto the `PolicyAnnotation`,
+and the viewer decodes with the stamped layout — plus a hard length check so a
+mismatched pairing raises instead of silently mis-labelling. A new FRESH stripe
+change must extend the shim's layout overrides alongside its encoder strips.
+
 ## The one accepted source of drift: the engine
 
 `engine.core.Engine` is shared by both players in a game and cannot fork its

@@ -20,6 +20,11 @@ the main actor-critic network. Key structure:
 - `PolicyValueNet.encode_state(gs, spec) -> Tensor` and
   `PolicyValueNet.encode_choices(gs, decision, spec) -> Tensor` — the sanctioned
   inference entry points; never pair the live encoder with a stale spec by hand.
+- `PolicyValueNet.raw_state_stripe_layout()` / `raw_choice_stripe_layout()` —
+  the `VectorLayout` describing this net's own `encode_*` output; compat-era
+  subclasses override them (`without_stripes` of the columns they delete), so
+  decode consumers (the game-log encoding viewer) never pair an era vector with
+  the live layout.
 - `PolicyValueNet.card_table() -> Tensor` — precomputes and caches the full
   card-feature matrix (all `N_BIRDS` embeddings); cached per forward pass
   (the card-table inference cache).

@@ -257,6 +257,8 @@ def _handle_main_decision[C: decisions.Choice](
         chosen_idx = policy.sample_index_from_probs(probs, n_choices, rng)
     if value_probe is not None:
         value_probe.record(value)
+        # The layouts come from the net itself so a compat-era net stamps its
+        # era's geometry — the viewer then decodes exactly what was encoded.
         value_probe.record_policy(
             decision_probe.PolicyAnnotation(
                 probs=probs.tolist(),
@@ -264,6 +266,8 @@ def _handle_main_decision[C: decisions.Choice](
                 chosen_idx=chosen_idx,
                 state_vec=state_vec.tolist(),
                 choice_feats=choice_feats.tolist(),
+                state_layout=net.raw_state_stripe_layout(),
+                choice_layout=net.raw_choice_stripe_layout(),
                 include_setup=net.include_setup,
                 card_embed_dim=net.card_embed_dim,
             )

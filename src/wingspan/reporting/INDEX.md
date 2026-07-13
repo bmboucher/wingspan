@@ -98,15 +98,20 @@ Imported lazily by the `GameLogHtml` instrumentation handler so its `engine`
 dependency stays off the import-time path.
 
 **`encode_viewer.py`** — extracts non-zero stripe summaries from raw encoder vectors for
-the HTML encoding-viewer modal. `extract_state_stripes(vector, include_setup)` and
-`extract_choice_stripes(choice_vec, include_setup)` decode main-net vectors using the
-appropriate `stripes.{state,choice}_stripe_layout(spec)` layout. For setup decisions,
+the HTML encoding-viewer modal. `extract_state_stripes(vector, include_setup,
+vector_layout=None)` and `extract_choice_stripes(choice_vec, include_setup,
+vector_layout=None)` decode main-net vectors using the passed layout — the producing
+net's own `raw_*_stripe_layout()`, era-correct for compat nets — falling back to the
+live `stripes.raw_{state,choice}_stripe_layout(spec)` when `None`. A vector whose
+length does not match the layout raises `ValueError` (mismatched-era decode would
+silently mis-attribute every stripe past the divergence point). For setup decisions,
 `extract_setup_context_stripes(vector, encoding)` and `extract_setup_candidate_stripes(vector,
 encoding)` decode a raw setup candidate vector using `setup_model.setup_stripe_layout(encoding)`,
 partitioned at `_SETUP_CONTEXT_STRIPES`: context stripes (tray, birdfeeder) go to the state
 panel; per-candidate stripes (kept cards, bonus, pricing) go to the choice panel. All functions
-skip all-zero and `encoding=="complex"` stripes. Called lazily from `game_log_capture.build_decision_item`
-to avoid the `engine` ↔ `reporting` import cycle. `extract_card_attr_stripes(bird) ->
+skip all-zero and `encoding=="complex"` stripes. Called lazily from
+`gamelog.recorder._build_decision_options` to keep the reporting stack off the
+recorder's import-time path. `extract_card_attr_stripes(bird) ->
 list[game_log_html.EncodedStripe]` — decodes the non-identity attribute sub-fields from
 `state_encode.card_feature_matrix()` for a single bird, producing named decoded labels
 (habitats, food_cost, nest, color, bonus_categories, power_exchange, scalar fields); the

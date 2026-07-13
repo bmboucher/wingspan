@@ -58,6 +58,9 @@ Key public methods:
 - `end_event()` — close the most-recently-opened event.
 - `record_decision(engine, decision, choice)` — reads the seat's `DecisionProbe`,
   builds a fully-annotated `DecisionSubEvent`, and appends it to the stack-top.
+  Stripe panels decode the annotation's recorded vectors with the annotation's
+  own `state_layout` / `choice_layout` (the producing net's era geometry);
+  the live layout is only a fallback for annotations that carry none.
 - `record_forced(engine, decision, choice)` — appends a `ForcedSubEvent`.
 - `record_round_goal(engine, round_idx, goal, counts, vps)` — appends a
   `RoundGoalEvent` to the current phase.

@@ -59,7 +59,12 @@ import numpy as np
 
 from wingspan import architecture, decisions, encode, state
 from wingspan.compat import v1_3
+from wingspan.encode import stripes
 from wingspan.model import core, mlp
+
+# Layout name of the v1.1 choice stripe this shim strips on top of the
+# inherited v1_3 strips (offset/width: ``encode.CHOICE_BECOMES_UNPLAYABLE_*``).
+_V1_1_CHOICE_STRIPE_NAME = "becomes_unplayable"
 
 
 class PolicyValueNetV1_0(v1_3.PolicyValueNetV1_3):
@@ -154,4 +159,15 @@ class PolicyValueNetV1_0(v1_3.PolicyValueNetV1_3):
             becomes_playable=live.becomes_playable,
             becomes_unplayable=None,
             kept_multihot=kept,
+        )
+
+    def raw_choice_stripe_layout(self) -> stripes.VectorLayout:
+        """The v1.3 era choice layout (live minus ``resets_feeder``) minus
+        ``becomes_unplayable`` — matching this shim's ``encode_choices`` output.
+        Composes via ``super()`` exactly like the encoder strip chain; the state
+        layout is inherited from ``PolicyValueNetV1_3`` unchanged."""
+        return (
+            super()
+            .raw_choice_stripe_layout()
+            .without_stripes((_V1_1_CHOICE_STRIPE_NAME,))
         )

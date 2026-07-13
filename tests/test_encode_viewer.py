@@ -8,7 +8,11 @@ are caught here rather than silently at runtime.
 
 from __future__ import annotations
 
+import numpy as np
+import pytest
+
 from wingspan import cards, decisions, encode, engine, state
+from wingspan.encode import stripes
 from wingspan.gamelog import models as gamelog_models
 from wingspan.reporting import encode_viewer
 
@@ -166,6 +170,58 @@ def test_decision_type_decoded_with_class_name():
     assert (
         "MainActionDecision" in sub.decoded_label
     ), f"Expected 'MainActionDecision' in: {sub.decoded_label}"
+
+
+# ---------------------------------------------------------------------------
+# extract_state_stripes — era-layout routing
+
+
+def test_extract_state_stripes_length_mismatch_raises():
+    """A vector narrower than the decode layout (a compat-era vector paired with
+    the live layout — the game.html phantom-cards bug) raises instead of silently
+    mis-attributing every stripe past the divergence point."""
+    vec = [0.0] * (encode.state_size() - 1)
+    with pytest.raises(ValueError, match="different encoding era"):
+        encode_viewer.extract_state_stripes(vec, include_setup=False)
+
+
+def test_extract_choice_stripes_length_mismatch_raises():
+    """Same guard on the choice side."""
+    vec = [0.0] * (encode.choice_feature_dim(encode.DEFAULT_SPEC) - 1)
+    with pytest.raises(ValueError, match="different encoding era"):
+        encode_viewer.extract_choice_stripes(vec, include_setup=False)
+
+
+def test_extract_state_stripes_era_layout_decodes_true_hand():
+    """A pre-1.4-width vector decodes correctly through a matching era layout.
+
+    The era vector and layout are derived exactly as the v1_3 compat shim
+    derives them (live encode minus the two food-unlock columns; live layout
+    minus the same two stripes), so this pins the viewer's ``vector_layout``
+    parameter without needing torch."""
+    eng, birds = _make_engine(seed=20)
+    hand = [birds[3], birds[7], birds[12]]
+    eng.state.players[0].hand = list(hand)
+
+    # Encode from an explicit player-0 decision so the POV matches the hand
+    # regardless of the seed's random start player.
+    live_vec = encode.encode_state(eng.state, _main_action_decision())
+    start = encode.STATE_HAND_FOOD_UNLOCK_OFFSET
+    width = 2 * encode.STATE_FOOD_UNLOCK_DIM
+    era_vec = np.delete(live_vec, slice(start, start + width))
+    era_layout = stripes.raw_state_stripe_layout(encode.DEFAULT_SPEC).without_stripes(
+        ("hand_food_unlock_me", "tray_food_unlock_me")
+    )
+
+    result = encode_viewer.extract_state_stripes(
+        era_vec.tolist(), include_setup=False, vector_layout=era_layout
+    )
+    hand_stripes = [s for s in result if s.name == "hand_multihot"]
+    assert hand_stripes, "hand_multihot stripe missing"
+    label = hand_stripes[0].sub_fields[0].decoded_label
+    assert label is not None
+    for bird in hand:
+        assert bird.name in label, f"'{bird.name}' missing from: {label}"
 
 
 # ---------------------------------------------------------------------------
