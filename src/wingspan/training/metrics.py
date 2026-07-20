@@ -258,6 +258,14 @@ class IterationMetrics(pydantic.BaseModel):
     setup_realized_margin_mean: float | None = None
     setup_samples_recorded: int | None = None
 
+    # Main net's effective entropy coefficient / dropout probability this
+    # iteration (``RunConfig.entropy_coef_at`` / ``dropout_p_at``). Always
+    # populated — constant at the config value when no anneal is configured.
+    # ``None`` default keeps old ``metrics.jsonl`` rows (written before these
+    # fields existed) parseable.
+    entropy_coef: float | None = None
+    dropout_p: float | None = None
+
 
 class GameOutcome(pydantic.BaseModel):
     """One finished self-play game's persisted summary — a single ``games.jsonl``

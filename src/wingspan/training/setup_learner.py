@@ -49,6 +49,7 @@ def actor_critic_update(
     samples: list[record.SetupSample],
     cfg: config.RunConfig,
     device: torch.device,
+    iteration: int = 0,
 ) -> metrics.SetupUpdateStats:
     """One on-policy REINFORCE + value-MSE + entropy pass over this iteration's
     freshly collected setup samples.
@@ -57,7 +58,10 @@ def actor_critic_update(
     the selected candidate and the full ``(K, feature_dim)`` feature matrix for
     all candidates in that deal (K = 504 bonus-included, or 252 split-bonus).
     Samples without these (e.g. from an earlier random-phase iteration) are
-    skipped. A single combined optimizer step covers the whole batch."""
+    skipped. A single combined optimizer step covers the whole batch.
+
+    The entropy coefficient is resolved from ``cfg.setup_entropy_coef_at(iteration)``
+    (constant unless ``cfg.training.setup.entropy_coef_final`` is set)."""
     # Filter to samples that carry actor-critic data.
     valid = [
         sample
@@ -99,7 +103,7 @@ def actor_critic_update(
     loss = (
         cfg.training.setup.pg_coef * pg_loss
         + cfg.training.setup.value_coef * value_loss
-        - cfg.training.setup.entropy_coef * entropy
+        - cfg.setup_entropy_coef_at(iteration) * entropy
     )
     optimizer.zero_grad()
     loss.backward()  # pyright: ignore[reportUnknownMemberType]

@@ -36,6 +36,7 @@ if typing.TYPE_CHECKING:
 def update_setup(
     training_loop: "loop.TrainingLoop",
     records: list[collect.GameRecord],
+    iteration: int = 0,
 ) -> metrics.SetupUpdateStats:
     """Run one actor-critic pass over this iteration's setup samples.
 
@@ -51,6 +52,7 @@ def update_setup(
         samples,
         training_loop.config,
         training_loop.device,
+        iteration,
     )
     with training_loop.lock:
         training_loop.state.push_event(

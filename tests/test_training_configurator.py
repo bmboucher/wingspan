@@ -1744,6 +1744,34 @@ def test_optional_float_field_steps_from_fallback():
     assert abs(float(result) - (global_dropout + spec.step)) < 1e-6
 
 
+def test_entropy_coef_final_steps_from_fallback():
+    """Nudging entropy_coef_final (an OptionalFloatField, off by default) when
+    unset steps from its fallback_attr (entropy_coef) — mirrors
+    test_optional_float_field_steps_from_fallback for the anneal field."""
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    spec = fields.spec_for("entropy_coef_final")
+    assert isinstance(spec, fields.OptionalFloatField)
+    assert spec.none_label == "off"
+
+    # Default is None ("off").
+    assert fields.read_field(cfg, spec) is None
+    assert fields.format_value(cfg, spec) == "off"
+
+    # Nudge right: should step from entropy_coef, then commit and round-trip.
+    base_entropy_coef = cfg.training.entropy_coef
+    advanced, error = fields.nudge(cfg, spec, 1)
+    assert error is None
+    result = fields.read_field(advanced, spec)
+    assert isinstance(result, (int, float))
+    assert abs(float(result) - (base_entropy_coef + spec.step)) < 1e-6
+    assert advanced.training.entropy_coef_final == pytest.approx(result)
+
+    # Nudging back to None ("off") via commit round-trips cleanly.
+    reset, error = fields.commit(advanced, spec, "none")
+    assert error is None
+    assert fields.read_field(reset, spec) is None
+
+
 def test_per_block_override_commit_roundtrip():
     """Committing a per-block activation stores it and leaves globals unchanged."""
     cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))

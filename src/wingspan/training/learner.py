@@ -82,6 +82,7 @@ def update(
     cfg: config.RunConfig,
     device: torch.device,
     imitation_phase: bool = False,
+    iteration: int = 0,
 ) -> UpdateStats:
     """Run one length-bucketed update over ``records``' steps.
 
@@ -89,15 +90,28 @@ def update(
     DAgger imitation mode) or the PPO / GAE reuse path based on
     ``cfg.training.policy_loss`` and ``cfg.training.reward_mode``.  The default
     config always dispatches to single-pass, preserving existing behaviour.
+
+    The entropy coefficient is resolved once from ``cfg.entropy_coef_at(iteration)``
+    (constant unless ``cfg.training.entropy_coef_final`` is set) and threaded into
+    every backward pass below, including each minibatch of a gradient-accumulated
+    update — so multi-epoch / multi-minibatch updates all see the same coefficient.
     """
     ppo = cfg.training.policy_loss is config.PolicyLoss.PPO
     gae = cfg.training.reward_mode is config.RewardMode.GAE
     minibatch_steps = cfg.training.update_minibatch_steps
     single_pass = imitation_phase or (not ppo and not gae)
+    entropy_coef = cfg.entropy_coef_at(iteration)
     if minibatch_steps > 0:
         if single_pass:
             return _update_single_pass_minibatched(
-                net, optimizer, records, cfg, device, imitation_phase, minibatch_steps
+                net,
+                optimizer,
+                records,
+                cfg,
+                device,
+                imitation_phase,
+                minibatch_steps,
+                entropy_coef,
             )
         return _update_reuse_minibatched(
             net,
@@ -107,12 +121,15 @@ def update(
             device,
             ppo=ppo,
             minibatch_steps=minibatch_steps,
+            entropy_coef=entropy_coef,
         )
     if single_pass:
         return _update_single_pass(
-            net, optimizer, records, cfg, device, imitation_phase
+            net, optimizer, records, cfg, device, imitation_phase, entropy_coef
         )
-    return _update_reuse(net, optimizer, records, cfg, device, ppo=ppo)
+    return _update_reuse(
+        net, optimizer, records, cfg, device, ppo=ppo, entropy_coef=entropy_coef
+    )
 
 
 ###### PRIVATE #######
@@ -150,7 +167,8 @@ def _update_single_pass(
     records: list[collect.GameRecord],
     cfg: config.RunConfig,
     device: torch.device,
-    imitation_phase: bool = False,
+    imitation_phase: bool,
+    entropy_coef: float,
 ) -> UpdateStats:
     """One length-bucketed REINFORCE / DAgger update (single backward pass).
 
@@ -219,7 +237,7 @@ def _update_single_pass(
         loss = (
             policy_loss_t
             + cfg.training.value_coef * value_loss
-            - cfg.training.entropy_coef * entropy_t
+            - entropy_coef * entropy_t
         )
         imitation_loss_t = torch.zeros(1, device=device)
 
@@ -253,6 +271,7 @@ def _update_reuse(
     cfg: config.RunConfig,
     device: torch.device,
     ppo: bool,
+    entropy_coef: float,
 ) -> UpdateStats:
     """PPO / GAE update with fixed advantages and optional epoch reuse.
 
@@ -337,7 +356,7 @@ def _update_reuse(
         loss = (
             policy_loss_t
             + cfg.training.value_coef * value_loss
-            - cfg.training.entropy_coef * entropy_t
+            - entropy_coef * entropy_t
         )
 
         optimizer.zero_grad()
@@ -588,6 +607,7 @@ def _update_single_pass_minibatched(
     device: torch.device,
     imitation_phase: bool,
     minibatch_steps: int,
+    entropy_coef: float,
 ) -> UpdateStats:
     """Gradient-accumulation variant of ``_update_single_pass``.
 
@@ -699,7 +719,7 @@ def _update_single_pass_minibatched(
             mb_loss = (mb_size / N) * (
                 policy_loss_mb
                 + cfg.training.value_coef * value_loss_mb
-                - cfg.training.entropy_coef * entropy_t_mb
+                - entropy_coef * entropy_t_mb
             )
 
         mb_loss.backward()  # pyright: ignore[reportUnknownMemberType]
@@ -742,6 +762,7 @@ def _update_reuse_minibatched(
     device: torch.device,
     ppo: bool,
     minibatch_steps: int,
+    entropy_coef: float,
 ) -> UpdateStats:
     """Gradient-accumulation variant of ``_update_reuse`` for PPO / GAE.
 
@@ -835,7 +856,7 @@ def _update_reuse_minibatched(
             mb_loss = (mb_size / N) * (
                 policy_loss_mb
                 + cfg.training.value_coef * value_loss_mb
-                - cfg.training.entropy_coef * entropy_t_mb
+                - entropy_coef * entropy_t_mb
             )
 
             mb_loss.backward()  # pyright: ignore[reportUnknownMemberType]

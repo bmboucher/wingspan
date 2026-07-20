@@ -547,7 +547,47 @@ def _health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
                 text.Text(verdict_text, style=verdict_color),
             )
         )
+    if last is not None:
+        rows.extend(_anneal_health_rows(state, last))
     return rows
+
+
+def _anneal_health_rows(
+    state: runstate.RunState, last: metrics.IterationMetrics
+) -> list[tuple[text.Text, ...]]:
+    """Entropy-coef / dropout-p rows, shown only when their anneal is configured
+    (``training.entropy_coef_final`` / ``training.dropout_final`` set)."""
+    rows: list[tuple[text.Text, ...]] = []
+    training = state.config.training
+    if training.entropy_coef_final is not None and last.entropy_coef is not None:
+        series = [
+            im.entropy_coef for im in state.history if im.entropy_coef is not None
+        ]
+        rows.append(
+            _anneal_row(
+                "entropy coef", last.entropy_coef, series, training.entropy_coef_final
+            )
+        )
+    if training.dropout_final is not None and last.dropout_p is not None:
+        series = [im.dropout_p for im in state.history if im.dropout_p is not None]
+        rows.append(
+            _anneal_row("dropout p", last.dropout_p, series, training.dropout_final)
+        )
+    return rows
+
+
+def _anneal_row(
+    name: str, value: float, series: list[float], final: float
+) -> tuple[text.Text, ...]:
+    """One TRAINING HEALTH row for an annealing knob: name, current value,
+    sparkline, and a dimmed "→ final" verdict (there is nothing to rate as
+    good/bad — the schedule is deterministic)."""
+    return (
+        text.Text(name, style=theme.TEXT_MUTED),
+        text.Text(f"{value:.4f}", style=theme.TEXT_PRIMARY),
+        text.Text(charts.sparkline(series, _SPARK_CELLS), style=theme.SPARK_COLOR),
+        text.Text(f"→ {final:g}", style=theme.TEXT_DIM2),
+    )
 
 
 def _perf_health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:

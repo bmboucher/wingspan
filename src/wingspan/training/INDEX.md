@@ -32,6 +32,11 @@ top-level computed properties so call sites don't churn.
   (`"reinforce"` | `"ppo"`), `ppo_clip_eps` (0.2), `ppo_reuse_epochs` (4),
   `gae_lambda` (0.95), and `setup: SetupTrainingConfig` (setup-net `lr`,
   candidate-generation `hand_combos`/`food_sets`, actor-critic loss weights).
+  Anneal targets (REGIME, all `None` = no anneal): `entropy_coef_final`,
+  `dropout_final` (main net; the initial is `architecture.main.dropout`), and
+  their mirrors `setup.entropy_coef_final` / `setup.dropout_final` (setup net;
+  initial is `architecture.setup.dropout`) — see `anneal()` and the
+  `*_at(iteration)` accessors below, and `docs/TRAINING.md` "Annealing schedules".
 - `opponent: OpponentConfig` — `bootstrap_opponent` (`"none"` | `"random"` |
   ckpt path; a path is CPU-only), `random_phase_win_rate`,
   `opponent_reset_win_rate`, `opponent_max_iterations`, `eval_ewma_alpha`.
@@ -54,10 +59,22 @@ top-level computed properties so call sites don't churn.
   `encoding_version` is the artifact era the run trains at (adopted from the run
   dir on resume, never user-edited); `state_dim` / `choice_dim` are era-routed
   from it. See "Training resume: era pinning" in `docs/VERSIONING.md`.
+- Anneal accessors, each `(iteration: int) -> float`: `entropy_coef_at`,
+  `dropout_p_at` (main net), `setup_entropy_coef_at`, `setup_dropout_p_at`
+  (setup net). All four delegate to the module-level `anneal(initial, final,
+  target_iterations, iteration) -> float` — a linear taper from `initial` at
+  iteration 0 to `final` at `run.target_iterations`, held constant beyond it;
+  passthrough to `initial` when `final` is `None` or `target_iterations` is 0.
+  Keyed to the *absolute* iteration counter, so the schedule survives resume
+  and advances through DAgger clone iterations unchanged.
 - `validate_launchable(cfg) -> list[str]` — launch-time only checks: checkpoint
-  bootstrap on cuda, setup schedule order, target > max iterations. Returns
-  human-readable problems; empty = safe to start. Called by the configurator's
-  `[S]tart` / `[N]ew` path and the headless launcher.
+  bootstrap on cuda, setup schedule order, target > max iterations, and four
+  anneal checks (any `*_final` set requires `target_iterations > 0`;
+  `dropout_final` / `setup.dropout_final` each require their build-time
+  `architecture.*.dropout > 0`; `dropout_final` additionally requires no
+  per-block dropout override on `architecture.main`). Returns human-readable
+  problems; empty = safe to start. Called by the configurator's `[S]tart` /
+  `[N]ew` path and the headless launcher.
 - `RunConfigFile` — the dated on-disk wrapper (`version`, `saved_at`,
   `started_at`, `git_sha`, `resumed`, `resumed_from_iteration`, `config`).
 - Module functions: `run_config_from_artifact(raw, artifact_version)`
@@ -149,6 +166,14 @@ builder (config + weights + optimizer + progress + git SHA + the run-era
 **`loop_metrics.py`** — Pure metrics aggregation: `aggregate_metrics(steps,
 outcomes) -> IterationMetrics`. No loop state; easy to test in isolation.
 
+**`loop_anneal.py`** — `apply_dropout_schedules(loop, iteration)`: called at the
+top of every `_run_iteration`; sweeps `loop.net` (and `loop._setup_net`, when
+active) to that iteration's `dropout_p_at` / `setup_dropout_p_at` value —
+no-op for a net whose `dropout_final` is unset. `set_dropout(net, p) -> int`:
+sets `.p` on every `nn.Dropout` submodule, returns the count changed (the
+entropy-coef anneal needs no such sweep — it threads through `learner.update`
+/ `setup_learner.actor_critic_update` as a plain float instead).
+
 ## Collection
 
 **`collect.py`** — `collect_game(net, opponent_net, config) -> CollectResult`:
@@ -204,9 +229,12 @@ one-step TD residual.
 
 ## Learning
 
-**`learner.py`** — `update(net, optimizer, records, cfg, device, imitation_phase=False)`:
-dispatches to one of two paths based on `cfg.training.policy_loss` and
-`cfg.training.reward_mode`:
+**`learner.py`** — `update(net, optimizer, records, cfg, device,
+imitation_phase=False, iteration=0)`: dispatches to one of two paths based on
+`cfg.training.policy_loss` and `cfg.training.reward_mode`. The entropy
+coefficient is resolved once via `cfg.entropy_coef_at(iteration)` and threaded
+into every backward pass below, including each minibatch of a
+gradient-accumulated update:
 - **Single-pass path** (`_update_single_pass`): today's length-bucketed REINFORCE
   with advantage normalization. Used when `policy_loss=REINFORCE` and
   `reward_mode ∈ {terminal_margin, decision_delta}`, and always during DAgger
@@ -254,10 +282,12 @@ the **policy head** (`policy_logits`) reads `state_enc ⊕ choice_enc`.
 `_embed_state` / `_embed_choice` are stripe-aware gathers that partition the
 embedded candidate (state stripes vs action stripes).
 
-**`setup_learner.py`** — `actor_critic_update(net, optimizer, samples, config, device)`:
-one REINFORCE + value-regression step. The baseline is `V(s)` (one forward per
-deal); the target is `returns.setup_return`; the advantage is whitened per-batch
-like the in-game learner, in a single combined optimizer step.
+**`setup_learner.py`** — `actor_critic_update(net, optimizer, samples, config,
+device, iteration=0)`: one REINFORCE + value-regression step. The baseline is
+`V(s)` (one forward per deal); the target is `returns.setup_return`; the
+advantage is whitened per-batch like the in-game learner, in a single combined
+optimizer step. The entropy coefficient is resolved via
+`config.setup_entropy_coef_at(iteration)`.
 
 ## Evaluation + metrics
 
@@ -270,7 +300,10 @@ charts to determine whether training has plateaued.
 
 **`metrics.py`** — Pydantic models: `ScoreBreakdown`, `FamilyCounts`,
 `EvalResult`, `IterationMetrics`, `GameOutcome`. `GameOutcome` is the JSONL
-row format for `games.jsonl`.
+row format for `games.jsonl`. `IterationMetrics.entropy_coef` /
+`.dropout_p` (`float | None`, default `None` for old rows) carry the main
+net's effective anneal-accessor values for that iteration — always populated
+on write, constant when no anneal is configured.
 
 **`metrics_log.py`** — `MetricsLog(path)`: cached reader for the append-only
 `metrics.jsonl` history. `load() -> list[IterationMetrics]`; re-reads only
@@ -284,7 +317,10 @@ Fields: `phase`, `iteration`, `best_win_rate`, `games_per_sec`, `recent_metrics`
 
 **`dashboard.py`** — `TrainingDashboard`: the five-band `rich` Layout
 (SYSTEM / FLIGHT PLAN / PROGRESS / CONVERGENCE / LOG) + per-region renderers.
-Reads from `RunState` on each refresh tick.
+Reads from `RunState` on each refresh tick. `_health_rows` appends an "entropy
+coef" / "dropout p" row to TRAINING HEALTH only when the corresponding
+`training.entropy_coef_final` / `dropout_final` is set, with a dimmed
+`→ {final}` verdict (deterministic schedule, nothing to rate as good/bad).
 
 **`theme.py`** — Palette (`WETLAND_*` color constants) and glyph constants
 ("wetland dawn" aesthetic). Imported by dashboard, charts, and configure.

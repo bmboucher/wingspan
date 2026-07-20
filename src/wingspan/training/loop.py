@@ -19,6 +19,7 @@ The per-concern logic is split across sibling modules:
 - ``loop_target``     — target-milestone sequence (checkpoint → eval → pause)
 - ``loop_checkpoint`` — commit, checkpoint write, finish; I/O + seed helpers
 - ``loop_metrics``    — pure metrics aggregation (no loop state)
+- ``loop_anneal``     — dropout-schedule sweep at the top of each iteration
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from wingspan import model
 from wingspan.training import (
     config,
     learner,
+    loop_anneal,
     loop_checkpoint,
     loop_collect,
     loop_eval,
@@ -261,6 +263,8 @@ class TrainingLoop:
             self.state.game_in_iter = 0
             self.state.iter_start_monotonic = time.monotonic()
 
+        loop_anneal.apply_dropout_schedules(self, iteration)
+
         setup_enabled = self.config.architecture.use_setup_model
         if setup_enabled:
             with self.lock:
@@ -302,6 +306,7 @@ class TrainingLoop:
             self.config,
             self.device,
             imitation_phase=imitation_phase,
+            iteration=iteration,
         )
         update_seconds = time.monotonic() - update_start
         with self.lock:
@@ -316,7 +321,9 @@ class TrainingLoop:
         # and the worker weights always carry this iteration's representations.
         loop_setup.sync_setup_embedders(self)
 
-        setup_stats = loop_setup.update_setup(self, records) if setup_enabled else None
+        setup_stats = (
+            loop_setup.update_setup(self, records, iteration) if setup_enabled else None
+        )
 
         eval_result, eval_seconds = loop_eval.maybe_evaluate(self, iteration)
 
@@ -339,6 +346,8 @@ class TrainingLoop:
             win_rate,
             setup_enabled,
             setup_stats,
+            self.config.entropy_coef_at(iteration),
+            self.config.dropout_p_at(iteration),
             imitation_phase=imitation_phase,
         )
         loop_checkpoint.commit_iteration(

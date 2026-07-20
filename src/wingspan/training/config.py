@@ -98,6 +98,24 @@ def _default_family_order() -> tuple[str, ...]:
     return tuple(family.value for family in decisions.ALL_DECISION_FAMILIES)
 
 
+def anneal(
+    initial: float, final: float | None, target_iterations: int, iteration: int
+) -> float:
+    """Linearly taper ``initial`` toward ``final`` by ``target_iterations``.
+
+    ``iteration`` 0 yields ``initial``; ``iteration >= target_iterations``
+    yields ``final`` (held constant beyond the horizon). Passthrough to
+    ``initial`` when ``final`` is ``None`` (no schedule configured) or when
+    ``target_iterations`` is 0 (no horizon to taper over).
+    """
+    if final is None or target_iterations <= 0:
+        return initial
+    if iteration >= target_iterations:
+        return final
+    progress = iteration / target_iterations
+    return initial + (final - initial) * progress
+
+
 # ---------------------------------------------------------------------------
 # Section sub-models
 # ---------------------------------------------------------------------------
@@ -370,6 +388,13 @@ class SetupTrainingConfig(pydantic.BaseModel):
     pg_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 1.0
     value_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.5
     entropy_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.01
+    # Anneal targets — REGIME (training-only, no MODEL_VERSION bump). None =
+    # no anneal, entropy_coef/architecture.setup.dropout stay constant. When
+    # set, the value linearly tapers from the initial (above / architecture)
+    # to this value by ``run.target_iterations``, then holds. See
+    # ``RunConfig.setup_entropy_coef_at`` / ``setup_dropout_p_at``.
+    entropy_coef_final: typing.Annotated[float, pydantic.Field(ge=0.0)] | None = None
+    dropout_final: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
 
 
 class TrainingConfig(pydantic.BaseModel):
@@ -378,6 +403,13 @@ class TrainingConfig(pydantic.BaseModel):
     lr: typing.Annotated[float, pydantic.Field(gt=0.0)] = 3e-4
     value_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.5
     entropy_coef: typing.Annotated[float, pydantic.Field(ge=0.0)] = 0.01
+    # Anneal targets — REGIME (training-only, no MODEL_VERSION bump). None =
+    # no anneal, entropy_coef/architecture.main.dropout stay constant. When
+    # set, the value linearly tapers from the initial (above / architecture)
+    # to this value by ``run.target_iterations``, then holds. See
+    # ``RunConfig.entropy_coef_at`` / ``dropout_p_at``.
+    entropy_coef_final: typing.Annotated[float, pydantic.Field(ge=0.0)] | None = None
+    dropout_final: typing.Annotated[float, pydantic.Field(ge=0.0, lt=1.0)] | None = None
     grad_clip: typing.Annotated[float, pydantic.Field(gt=0.0)] = 5.0
     score_norm: typing.Annotated[float, pydantic.Field(gt=0.0)] = 50.0
     reward_mode: RewardMode = RewardMode.TERMINAL_MARGIN
@@ -534,6 +566,60 @@ class RunConfig(pydantic.BaseModel):
         return (
             self.dagger_expert_checkpoint is not None
             and iteration < self.dagger.clone_iters
+        )
+
+    def entropy_coef_at(self, iteration: int) -> float:
+        """The main net's entropy-bonus coefficient at ``iteration``.
+
+        Tapers from ``training.entropy_coef`` to ``training.entropy_coef_final``
+        by ``run.target_iterations``, then holds. Constant when no final is set.
+        """
+        return anneal(
+            self.training.entropy_coef,
+            self.training.entropy_coef_final,
+            self.run.target_iterations,
+            iteration,
+        )
+
+    def dropout_p_at(self, iteration: int) -> float:
+        """The main net's dropout probability at ``iteration``.
+
+        Tapers from ``architecture.main.dropout`` to ``training.dropout_final``
+        by ``run.target_iterations``, then holds. Constant when no final is set.
+        """
+        return anneal(
+            self.architecture.main.dropout,
+            self.training.dropout_final,
+            self.run.target_iterations,
+            iteration,
+        )
+
+    def setup_entropy_coef_at(self, iteration: int) -> float:
+        """The setup net's entropy-bonus coefficient at ``iteration``.
+
+        Tapers from ``training.setup.entropy_coef`` to
+        ``training.setup.entropy_coef_final`` by ``run.target_iterations``, then
+        holds. Constant when no final is set.
+        """
+        return anneal(
+            self.training.setup.entropy_coef,
+            self.training.setup.entropy_coef_final,
+            self.run.target_iterations,
+            iteration,
+        )
+
+    def setup_dropout_p_at(self, iteration: int) -> float:
+        """The setup net's dropout probability at ``iteration``.
+
+        Tapers from ``architecture.setup.dropout`` to
+        ``training.setup.dropout_final`` by ``run.target_iterations``, then
+        holds. Constant when no final is set.
+        """
+        return anneal(
+            self.architecture.setup.dropout,
+            self.training.setup.dropout_final,
+            self.run.target_iterations,
+            iteration,
         )
 
     @property
@@ -757,6 +843,57 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
                 f"run.target_iterations must be ≤ max_iterations when both are > 0 "
                 f"(got {run.target_iterations} > {run.max_iterations})"
             )
+
+    # Annealing requires a taper horizon.
+    training = cfg.training
+    any_final_set = (
+        training.entropy_coef_final is not None
+        or training.dropout_final is not None
+        or training.setup.entropy_coef_final is not None
+        or training.setup.dropout_final is not None
+    )
+    if any_final_set and run.target_iterations == 0:
+        problems.append(
+            "an anneal *_final is set but run.target_iterations is 0 — "
+            "annealing requires a taper horizon"
+        )
+
+    # A dropout anneal needs Dropout modules to actually exist (they are only
+    # built when the corresponding build-time dropout > 0).
+    main_arch = cfg.architecture.main
+    if training.dropout_final is not None and main_arch.dropout == 0.0:
+        problems.append(
+            "training.dropout_final is set but architecture.main.dropout is 0.0 "
+            "— no Dropout modules are built to anneal"
+        )
+
+    # The main-net anneal sweeps one global probability; per-block overrides
+    # would silently diverge from the schedule.
+    if training.dropout_final is not None:
+        per_block_overrides = (
+            main_arch.card_dropout,
+            main_arch.hand_dropout,
+            main_arch.trunk_dropout,
+            main_arch.choice_dropout,
+        )
+        if any(override is not None for override in per_block_overrides):
+            problems.append(
+                "training.dropout_final is set but a per-block dropout override "
+                "(card/hand/trunk/choice_dropout) is set — the anneal sweeps one "
+                "global probability and would silently diverge from the override"
+            )
+
+    # Setup mirror of the build-time-dropout check.
+    setup_arch = cfg.architecture.setup
+    if (
+        cfg.architecture.use_setup_model
+        and training.setup.dropout_final is not None
+        and setup_arch.dropout == 0.0
+    ):
+        problems.append(
+            "training.setup.dropout_final is set but architecture.setup.dropout "
+            "is 0.0 — no Dropout modules are built to anneal"
+        )
 
     return problems
 

@@ -507,6 +507,8 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "lr": ("training", "lr"),
     "value_coef": ("training", "value_coef"),
     "entropy_coef": ("training", "entropy_coef"),
+    "entropy_coef_final": ("training", "entropy_coef_final"),
+    "dropout_final": ("training", "dropout_final"),
     "grad_clip": ("training", "grad_clip"),
     "score_norm": ("training", "score_norm"),
     "reward_mode": ("training", "reward_mode"),
@@ -527,6 +529,8 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "setup_pg_coef": ("training", "setup", "pg_coef"),
     "setup_value_coef": ("training", "setup", "value_coef"),
     "setup_entropy_coef": ("training", "setup", "entropy_coef"),
+    "setup_entropy_coef_final": ("training", "setup", "entropy_coef_final"),
+    "setup_dropout_final": ("training", "setup", "dropout_final"),
     # opponent section
     "bootstrap_opponent": ("opponent", "bootstrap_opponent"),
     "random_phase_win_rate": ("opponent", "random_phase_win_rate"),
@@ -942,6 +946,31 @@ FIELD_SPECS: list[FieldSpec] = [
         group_path=("TRAINING",),
         step=0.005,
         help="Entropy bonus that keeps the policy exploring; 0 disables it.",
+    ),
+    OptionalFloatField(
+        attr="entropy_coef_final",
+        label="entropy coef final",
+        group_path=("TRAINING",),
+        step=0.005,
+        fallback_attr="entropy_coef",
+        impact=ChangeImpact.REGIME,
+        none_label="off",
+        help="Anneal target for entropy coef: linearly tapers from entropy coef "
+        "to this value by run.target_iterations, then holds (None = no anneal, "
+        "constant). Training-only — never affects inference rehydration.",
+    ),
+    OptionalFloatField(
+        attr="dropout_final",
+        label="dropout final",
+        group_path=("TRAINING",),
+        step=0.05,
+        fallback_attr="dropout",
+        impact=ChangeImpact.REGIME,
+        none_label="off",
+        help="Anneal target for the main net's dropout probability: tapers from "
+        "MODEL ARCHITECTURE ▸ GLOBAL DEFAULTS ▸ dropout (which must be > 0, with "
+        "no per-block dropout override) to this value by run.target_iterations, "
+        "then holds (None = no anneal, constant). Training-only.",
     ),
     FloatField(
         attr="grad_clip",
@@ -1562,6 +1591,32 @@ FIELD_SPECS: list[FieldSpec] = [
         impact=ChangeImpact.REGIME,
         visible_when=_use_setup,
         help="Entropy-bonus weight for the setup actor-critic update; 0 disables.",
+    ),
+    OptionalFloatField(
+        attr="setup_entropy_coef_final",
+        label="entropy coef final",
+        group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
+        step=0.005,
+        fallback_attr="setup_entropy_coef",
+        impact=ChangeImpact.REGIME,
+        none_label="off",
+        visible_when=_use_setup,
+        help="Anneal target for the setup net's entropy coef: tapers from entropy "
+        "coef to this value by run.target_iterations, then holds (None = no "
+        "anneal, constant). Training-only.",
+    ),
+    OptionalFloatField(
+        attr="setup_dropout_final",
+        label="dropout final",
+        group_path=("MODEL ARCHITECTURE", "SETUP MODEL"),
+        step=0.05,
+        fallback_attr="setup_dropout",
+        impact=ChangeImpact.REGIME,
+        none_label="off",
+        visible_when=_use_setup,
+        help="Anneal target for the setup net's dropout probability: tapers from "
+        "dropout (which must be > 0) to this value by run.target_iterations, "
+        "then holds (None = no anneal, constant). Training-only.",
     ),
 ]
 

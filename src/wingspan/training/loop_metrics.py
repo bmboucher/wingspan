@@ -77,6 +77,8 @@ def build_iteration_metrics(
     win_rate: float | None,
     setup_enabled: bool,
     setup_stats: metrics.SetupUpdateStats | None,
+    entropy_coef: float,
+    dropout_p: float,
     imitation_phase: bool = False,
 ) -> metrics.IterationMetrics:
     """Aggregate one iteration's records + update stats into an :class:`~metrics.IterationMetrics` row."""
@@ -155,6 +157,8 @@ def build_iteration_metrics(
         imitation_loss=stats.imitation_loss if imitation_phase else None,
         clip_fraction=stats.clip_fraction,
         approx_kl=stats.approx_kl,
+        entropy_coef=entropy_coef,
+        dropout_p=dropout_p,
     )
 
 

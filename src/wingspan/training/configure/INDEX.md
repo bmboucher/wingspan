@@ -23,7 +23,12 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   in the configurator. Locked-in fields (`use_distinct_hand_model`,
   `tray_set_embedding`, `dagger_expert_checkpoint`) are absent; per-block
   activation/dropout/layernorm
-  overrides (14 fields) and `reward_basis` are present.
+  overrides (14 fields) and `reward_basis` are present. Anneal targets
+  (`OptionalFloatField`, `none_label="off"`): `entropy_coef_final` /
+  `dropout_final` in `TRAINING` (fallback to `entropy_coef` / the global
+  `dropout`), and `setup_entropy_coef_final` / `setup_dropout_final` in
+  `MODEL ARCHITECTURE ▸ SETUP MODEL` (fallback to their setup-net counterparts,
+  `visible_when=_use_setup`).
 - Five top-level sections: `RUN SETTINGS`, `COLLECTION`, `EVALUATION`,
   `TRAINING`, `MODEL ARCHITECTURE`. CLONING visible when bootstrap_opponent is a
   checkpoint path; RANDOM SETUP when bootstrap=="random" and use_setup_model;
