@@ -17,7 +17,10 @@ import typing
 
 from torch import nn
 
+from wingspan.training import config
+
 if typing.TYPE_CHECKING:
+    from wingspan import model
     from wingspan.training import loop
 
 
@@ -36,16 +39,60 @@ def apply_dropout_schedules(training_loop: "loop.TrainingLoop", iteration: int) 
 
     No-op for a net whose ``training.dropout_final`` / ``training.setup.dropout_final``
     is unset — non-annealing runs never mutate ``nn.Dropout.p`` after construction,
-    so they stay byte-identical to today's behaviour. Uniform sweep is exact for
-    the main net because ``validate_launchable`` forbids per-block dropout
-    overrides whenever the anneal is active; for the setup net it anneals every
-    Dropout module belonging to the setup-owned blocks (the frozen card/hand
-    embedder copies stay pinned to ``eval()`` by ``SetupNet.train()`` and carry
-    no Dropout of their own on that path).
+    so they stay byte-identical to today's behaviour.
     """
     cfg = training_loop.config
     if cfg.training.dropout_final is not None:
-        set_dropout(training_loop.net, cfg.dropout_p_at(iteration))
+        _anneal_main_net_dropout(training_loop.net, cfg, iteration)
     setup_net = training_loop._setup_net
     if cfg.training.setup.dropout_final is not None and setup_net is not None:
+        # The setup net has a single global dropout knob (no per-block
+        # overrides), so one uniform sweep is exact.
         set_dropout(setup_net, cfg.setup_dropout_p_at(iteration))
+
+
+def _anneal_main_net_dropout(
+    net: "model.PolicyValueNet", cfg: config.RunConfig, iteration: int
+) -> None:
+    """Sweep each of the main net's dropout-bearing blocks independently.
+
+    A per-block override (``architecture.main.card_dropout`` etc.) can start
+    from a different build-time value than the global ``architecture.main.dropout``,
+    so each block anneals from its *own* resolved initial toward the shared
+    ``training.dropout_final`` target instead of being snapped to one
+    globally-computed value. A block whose resolved initial is 0.0 never had
+    an ``nn.Dropout`` module built for it (``mlp.build_body`` / ``build_readout``
+    only construct one when ``p > 0``), so ``set_dropout`` silently finds
+    nothing there — the anneal is inert for that block rather than needing to
+    be forbidden at launch.
+    """
+    arch = cfg.arch
+    final = cfg.training.dropout_final
+    target_iterations = cfg.run.target_iterations
+
+    set_dropout(
+        net.card_encoder,
+        config.anneal(arch.card_dropout_resolved, final, target_iterations, iteration),
+    )
+    if arch.use_distinct_hand_model:
+        set_dropout(
+            net.hand_encoder,
+            config.anneal(
+                arch.hand_dropout_resolved, final, target_iterations, iteration
+            ),
+        )
+    set_dropout(
+        net.state_trunk,
+        config.anneal(arch.trunk_dropout_resolved, final, target_iterations, iteration),
+    )
+    set_dropout(
+        net.choice_encoder,
+        config.anneal(
+            arch.choice_dropout_resolved, final, target_iterations, iteration
+        ),
+    )
+    # Scorers and the value head have no per-block override — both always
+    # build at the global dropout.
+    global_p = config.anneal(arch.dropout, final, target_iterations, iteration)
+    set_dropout(net.scorers, global_p)
+    set_dropout(net.value_head, global_p)

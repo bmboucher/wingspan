@@ -582,10 +582,14 @@ class RunConfig(pydantic.BaseModel):
         )
 
     def dropout_p_at(self, iteration: int) -> float:
-        """The main net's dropout probability at ``iteration``.
+        """The main net's *global*-dropout blocks' probability at ``iteration``
+        — the representative value reported to metrics/the dashboard.
 
         Tapers from ``architecture.main.dropout`` to ``training.dropout_final``
         by ``run.target_iterations``, then holds. Constant when no final is set.
+        A per-block override (``card_dropout`` etc.) anneals independently from
+        its own resolved initial toward the same final — see
+        ``loop_anneal.apply_dropout_schedules``.
         """
         return anneal(
             self.architecture.main.dropout,
@@ -858,42 +862,12 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
             "annealing requires a taper horizon"
         )
 
-    # A dropout anneal needs Dropout modules to actually exist (they are only
-    # built when the corresponding build-time dropout > 0).
-    main_arch = cfg.architecture.main
-    if training.dropout_final is not None and main_arch.dropout == 0.0:
-        problems.append(
-            "training.dropout_final is set but architecture.main.dropout is 0.0 "
-            "— no Dropout modules are built to anneal"
-        )
-
-    # The main-net anneal sweeps one global probability; per-block overrides
-    # would silently diverge from the schedule.
-    if training.dropout_final is not None:
-        per_block_overrides = (
-            main_arch.card_dropout,
-            main_arch.hand_dropout,
-            main_arch.trunk_dropout,
-            main_arch.choice_dropout,
-        )
-        if any(override is not None for override in per_block_overrides):
-            problems.append(
-                "training.dropout_final is set but a per-block dropout override "
-                "(card/hand/trunk/choice_dropout) is set — the anneal sweeps one "
-                "global probability and would silently diverge from the override"
-            )
-
-    # Setup mirror of the build-time-dropout check.
-    setup_arch = cfg.architecture.setup
-    if (
-        cfg.architecture.use_setup_model
-        and training.setup.dropout_final is not None
-        and setup_arch.dropout == 0.0
-    ):
-        problems.append(
-            "training.setup.dropout_final is set but architecture.setup.dropout "
-            "is 0.0 — no Dropout modules are built to anneal"
-        )
+    # Note: a dropout anneal is never rejected for lacking Dropout modules to
+    # sweep — each block (card/hand/trunk/choice/scorers+value-head) anneals
+    # from its own resolved build-time dropout, and a block whose resolved
+    # dropout is 0.0 simply has no Dropout module to begin with (mlp.build_body
+    # / build_readout only construct one when p > 0), so the anneal is inert
+    # there rather than an error. See loop_anneal.apply_dropout_schedules.
 
     return problems
 

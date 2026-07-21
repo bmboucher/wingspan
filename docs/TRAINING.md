@@ -445,14 +445,19 @@ architecture.main.dropout = 0.05,    training.dropout_final = 0.01
 run.target_iterations = <N>
 ```
 
-The dropout anneal requires a nonzero *build-time* dropout
-(`architecture.main.dropout` / `architecture.setup.dropout` — `nn.Dropout`
-modules only exist when that is `> 0`) and, for the main net, no per-block
-dropout override (`card_dropout` / `hand_dropout` / `trunk_dropout` /
-`choice_dropout`) — the anneal sweeps one global probability across every
-`nn.Dropout` module each iteration (`loop_anneal.apply_dropout_schedules`).
-`validate_launchable` rejects a launch that violates either constraint, or
-that sets any `*_final` without a `target_iterations` horizon.
+For the main net, each dropout-bearing block (card/hand encoder, trunk, choice
+encoder, and the scorers+value-head pair) anneals from its *own* resolved
+build-time dropout toward the shared `training.dropout_final`
+(`loop_anneal.apply_dropout_schedules` / `_anneal_main_net_dropout`) — a
+per-block override (`card_dropout` / `hand_dropout` / `trunk_dropout` /
+`choice_dropout`) is not required to match `architecture.main.dropout`, and
+each block converges on the same final value at `run.target_iterations` even
+though they may start at different initials. A block whose resolved dropout is
+`0.0` (no override and the global is `0.0`, or an explicit `0.0` override)
+never had an `nn.Dropout` module built for it in the first place (`mlp`'s
+builders only construct one when `p > 0`), so the anneal is simply inert
+there — this is never a launch rejection. `validate_launchable` only rejects
+setting any `*_final` without a `target_iterations` horizon.
 
 Two semantics worth calling out:
 

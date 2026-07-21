@@ -68,11 +68,10 @@ top-level computed properties so call sites don't churn.
   Keyed to the *absolute* iteration counter, so the schedule survives resume
   and advances through DAgger clone iterations unchanged.
 - `validate_launchable(cfg) -> list[str]` — launch-time only checks: checkpoint
-  bootstrap on cuda, setup schedule order, target > max iterations, and four
-  anneal checks (any `*_final` set requires `target_iterations > 0`;
-  `dropout_final` / `setup.dropout_final` each require their build-time
-  `architecture.*.dropout > 0`; `dropout_final` additionally requires no
-  per-block dropout override on `architecture.main`). Returns human-readable
+  bootstrap on cuda, setup schedule order, target > max iterations, and the
+  anneal check (any `*_final` set requires `target_iterations > 0`). A dropout
+  anneal with no initial dropout to sweep — globally or on a specific block —
+  is never rejected; it is inert (see `loop_anneal.py`). Returns human-readable
   problems; empty = safe to start. Called by the configurator's `[S]tart` /
   `[N]ew` path and the headless launcher.
 - `RunConfigFile` — the dated on-disk wrapper (`version`, `saved_at`,
@@ -167,12 +166,20 @@ builder (config + weights + optimizer + progress + git SHA + the run-era
 outcomes) -> IterationMetrics`. No loop state; easy to test in isolation.
 
 **`loop_anneal.py`** — `apply_dropout_schedules(loop, iteration)`: called at the
-top of every `_run_iteration`; sweeps `loop.net` (and `loop._setup_net`, when
-active) to that iteration's `dropout_p_at` / `setup_dropout_p_at` value —
-no-op for a net whose `dropout_final` is unset. `set_dropout(net, p) -> int`:
-sets `.p` on every `nn.Dropout` submodule, returns the count changed (the
-entropy-coef anneal needs no such sweep — it threads through `learner.update`
-/ `setup_learner.actor_critic_update` as a plain float instead).
+top of every `_run_iteration`; no-op for a net whose `dropout_final` is unset.
+For the setup net (single global dropout knob, no per-block overrides) sweeps
+`loop._setup_net` uniformly to `setup_dropout_p_at`. For the main net,
+delegates to `_anneal_main_net_dropout(net, cfg, iteration)`, which sweeps each
+dropout-bearing block (card/hand encoder, trunk, choice encoder, scorers +
+value head) independently from *its own* resolved build-time dropout
+(`card_dropout_resolved` etc. on `cfg.arch`) toward `training.dropout_final` —
+a per-block override no longer has to match the global `architecture.main.dropout`
+for the anneal to apply. `set_dropout(net, p) -> int`: sets `.p` on every
+`nn.Dropout` submodule of the given block, returns the count changed (0 for a
+block whose resolved dropout was `0.0` at build time — no module exists to
+sweep, so the anneal is silently inert there). The entropy-coef anneal needs no
+such sweep — it threads through `learner.update` / `setup_learner.actor_critic_update`
+as a plain float instead.
 
 ## Collection
 

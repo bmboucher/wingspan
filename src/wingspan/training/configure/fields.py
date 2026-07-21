@@ -967,10 +967,13 @@ FIELD_SPECS: list[FieldSpec] = [
         fallback_attr="dropout",
         impact=ChangeImpact.REGIME,
         none_label="off",
-        help="Anneal target for the main net's dropout probability: tapers from "
-        "MODEL ARCHITECTURE ▸ GLOBAL DEFAULTS ▸ dropout (which must be > 0, with "
-        "no per-block dropout override) to this value by run.target_iterations, "
-        "then holds (None = no anneal, constant). Training-only.",
+        help="Anneal target for the main net's dropout probability: each block "
+        "(card/hand encoder, trunk, choice encoder, scorers+value head) tapers "
+        "from its own build-time dropout — MODEL ARCHITECTURE ▸ GLOBAL DEFAULTS "
+        "▸ dropout, or a per-block override when set — to this value by "
+        "run.target_iterations, then holds. A block with 0.0 dropout has no "
+        "Dropout module and is unaffected (None = no anneal, constant). "
+        "Training-only.",
     ),
     FloatField(
         attr="grad_clip",

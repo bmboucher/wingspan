@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+# (calls loop_anneal._anneal_main_net_dropout directly — deliberate)
 """Tests for the dropout / entropy-coef annealing schedules.
 
 Covers:
@@ -6,10 +8,17 @@ Covers:
   ``setup_dropout_p_at`` — the per-net accessors built on ``anneal``.
 * ``loop_anneal.set_dropout`` — the ``nn.Dropout`` sweep, for both the main net
   (incl. scorers + value head) and the setup net (frozen embedders stay eval()).
+* ``loop_anneal._anneal_main_net_dropout`` — each main-net block anneals from
+  its own resolved build-time dropout; a block with a 0.0 resolved dropout
+  (globally or via a per-block override) has no Dropout module to sweep and is
+  silently inert rather than rejected.
 * The effective coefficient actually reaches the loss in ``learner.update`` /
   ``setup_learner.actor_critic_update`` (an annealed run at its target iteration
   matches an equivalent constant-coefficient run).
-* ``validate_launchable`` — the four anneal-specific launch rejections.
+* ``validate_launchable`` — the sole anneal-specific launch rejection (a
+  ``*_final`` set without a ``target_iterations`` horizon). Dropout anneal
+  configs are never rejected for lacking Dropout modules to sweep, globally or
+  per-block.
 * Config round-trip: the accessors are a pure function of the (dumped and
   revalidated) config and the iteration argument.
 """
@@ -129,7 +138,9 @@ def test_accessors_are_constant_when_final_unset():
 # ---------------------------------------------------------------------------
 
 
-def _small_main_arch(dropout: float) -> architecture.ModelArchitecture:
+def _small_main_arch(
+    dropout: float, *, card_dropout: float | None = None
+) -> architecture.ModelArchitecture:
     return architecture.ModelArchitecture(
         trunk_layers=(8, 8),
         choice_layers=(8, 8),
@@ -138,6 +149,7 @@ def _small_main_arch(dropout: float) -> architecture.ModelArchitecture:
         card_embed_dim=4,
         card_encoder_layers=(8,),
         dropout=dropout,
+        card_dropout=card_dropout,
     )
 
 
@@ -162,6 +174,87 @@ def test_set_dropout_is_a_no_op_when_no_dropout_modules_exist():
     net = model.PolicyValueNet(arch=_small_main_arch(0.0))
     assert loop_anneal.set_dropout(net, 0.3) == 0
     assert not any(isinstance(m, torch.nn.Dropout) for m in net.modules())
+
+
+def _dropout_anneal_config(
+    *, dropout: float, card_dropout: float | None, dropout_final: float
+) -> config.RunConfig:
+    return config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(target_iterations=10),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(dropout=dropout, card_dropout=card_dropout)
+        ),
+        training=config.TrainingConfig(dropout_final=dropout_final),
+    )
+
+
+def test_anneal_main_net_dropout_ignores_blocks_with_zero_initial():
+    """global dropout=0, only card_dropout overridden nonzero: every other
+    block has no Dropout module at all and is left untouched."""
+    net = model.PolicyValueNet(arch=_small_main_arch(0.0, card_dropout=0.1))
+    cfg = _dropout_anneal_config(dropout=0.0, card_dropout=0.1, dropout_final=0.02)
+    other_blocks = [net.state_trunk, net.choice_encoder, net.value_head, *net.scorers]
+
+    loop_anneal._anneal_main_net_dropout(net, cfg, iteration=0)
+    card_dropouts = [
+        m for m in net.card_encoder.modules() if isinstance(m, torch.nn.Dropout)
+    ]
+    other_dropouts = [
+        m
+        for block in other_blocks
+        for m in block.modules()
+        if isinstance(m, torch.nn.Dropout)
+    ]
+    assert all(m.p == pytest.approx(0.1) for m in card_dropouts)
+    assert card_dropouts
+    assert other_dropouts == []
+
+    loop_anneal._anneal_main_net_dropout(net, cfg, iteration=10)
+    card_dropouts = [
+        m for m in net.card_encoder.modules() if isinstance(m, torch.nn.Dropout)
+    ]
+    assert all(m.p == pytest.approx(0.02) for m in card_dropouts)
+
+
+def test_anneal_main_net_dropout_each_block_anneals_from_its_own_initial():
+    """global dropout=0.05, card_dropout overridden to 0.1: the card block
+    tapers from its own 0.1, the rest taper from the global 0.05 — both
+    converge on the shared final rather than one snapping to the other's
+    initial."""
+    net = model.PolicyValueNet(arch=_small_main_arch(0.05, card_dropout=0.1))
+    cfg = _dropout_anneal_config(dropout=0.05, card_dropout=0.1, dropout_final=0.01)
+
+    loop_anneal._anneal_main_net_dropout(net, cfg, iteration=0)
+    card_dropouts = [
+        m for m in net.card_encoder.modules() if isinstance(m, torch.nn.Dropout)
+    ]
+    trunk_dropouts = [
+        m for m in net.state_trunk.modules() if isinstance(m, torch.nn.Dropout)
+    ]
+    assert all(m.p == pytest.approx(0.1) for m in card_dropouts)
+    assert all(m.p == pytest.approx(0.05) for m in trunk_dropouts)
+    assert trunk_dropouts
+
+    loop_anneal._anneal_main_net_dropout(net, cfg, iteration=5)
+    card_dropouts = [
+        m for m in net.card_encoder.modules() if isinstance(m, torch.nn.Dropout)
+    ]
+    trunk_dropouts = [
+        m for m in net.state_trunk.modules() if isinstance(m, torch.nn.Dropout)
+    ]
+    assert all(m.p == pytest.approx(0.055) for m in card_dropouts)
+    assert all(m.p == pytest.approx(0.03) for m in trunk_dropouts)
+
+    loop_anneal._anneal_main_net_dropout(net, cfg, iteration=10)
+    card_dropouts = [
+        m for m in net.card_encoder.modules() if isinstance(m, torch.nn.Dropout)
+    ]
+    trunk_dropouts = [
+        m for m in net.state_trunk.modules() if isinstance(m, torch.nn.Dropout)
+    ]
+    assert all(m.p == pytest.approx(0.01) for m in card_dropouts)
+    assert all(m.p == pytest.approx(0.01) for m in trunk_dropouts)
 
 
 def test_set_dropout_sweeps_setup_net_and_frozen_embedders_stay_eval():
@@ -314,17 +407,20 @@ def test_validate_launchable_anneal_without_target_flagged():
     assert any("target_iterations" in problem for problem in problems)
 
 
-def test_validate_launchable_dropout_final_without_base_dropout_flagged():
+def test_validate_launchable_dropout_final_without_base_dropout_is_clean():
+    """A global dropout of 0.0 with no per-block override means the anneal has
+    no Dropout module anywhere to act on — inert, not a launch rejection."""
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(target_iterations=100),
         training=config.TrainingConfig(dropout_final=0.01),
     )
-    problems = config.validate_launchable(cfg)
-    assert any("architecture.main.dropout" in problem for problem in problems)
+    assert config.validate_launchable(cfg) == []
 
 
-def test_validate_launchable_dropout_final_with_per_block_override_flagged():
+def test_validate_launchable_dropout_final_with_per_block_override_is_clean():
+    """A per-block override no longer conflicts with the anneal — each block
+    tapers from its own resolved initial (loop_anneal.apply_dropout_schedules)."""
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(target_iterations=100),
@@ -333,11 +429,10 @@ def test_validate_launchable_dropout_final_with_per_block_override_flagged():
         ),
         training=config.TrainingConfig(dropout_final=0.01),
     )
-    problems = config.validate_launchable(cfg)
-    assert any("per-block" in problem for problem in problems)
+    assert config.validate_launchable(cfg) == []
 
 
-def test_validate_launchable_setup_dropout_final_without_base_dropout_flagged():
+def test_validate_launchable_setup_dropout_final_without_base_dropout_is_clean():
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         run=config.RunSettings(target_iterations=100),
@@ -345,8 +440,7 @@ def test_validate_launchable_setup_dropout_final_without_base_dropout_flagged():
             setup=config.SetupTrainingConfig(dropout_final=0.01)
         ),
     )
-    problems = config.validate_launchable(cfg)
-    assert any("architecture.setup.dropout" in problem for problem in problems)
+    assert config.validate_launchable(cfg) == []
 
 
 def test_validate_launchable_fully_configured_anneal_is_clean():
