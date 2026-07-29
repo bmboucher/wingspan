@@ -118,6 +118,10 @@ Key members:
 - `request_stop()`, `stopped` — graceful shutdown signal.
 - `signal_target_response(choice, new_target)` — unblock from a target pause.
 - `self.net`, `self.optimizer`, `self.state (RunState)`, `self.lock (RLock)`.
+- `_run_iteration(iteration)` — six phases in order: collect → setup update
+  (on-policy, before the main update / embedder re-sync — `loop_setup.update_setup`)
+  → update (`learner.update`, then `loop_setup.sync_setup_embedders`) →
+  evaluate → measure → commit.
 
 **`loop_resume.py`** — `maybe_resume(loop)`: loads `LAST_CKPT` if present,
 validates `architecture_key` (alarm + fresh start on mismatch, including when
@@ -138,10 +142,22 @@ fail-fast on a bad path (no-op when expert is `None`).
 dispatches to `mp_collect.ProcessCollector` (CPU) or `batched_collect` (CUDA)
 based on `config.device`. Returns accumulated steps and score breakdowns.
 
-**`loop_setup.py`** — Setup-model lifecycle:
-`fit_setup_model(loop)` (offline fit on stored samples),
-`update_setup_model(loop, steps)` (on-policy MSE),
-`sync_setup_net(loop)` (copies weights to the opponent net).
+**`loop_setup.py`** — Setup-model lifecycle, free functions over `TrainingLoop`:
+`update_setup(loop, records, iteration)` — one on-policy actor-critic pass
+(`setup_learner.actor_critic_update`) over the iteration's setup samples,
+pushes the `SETUP AC` event, and updates `state.last_setup`. Called from
+`loop._run_iteration` right after collection, before the main update / embedder
+re-sync, so the update stays on-policy (`docs/TRAINING.md` §6.5).
+`build_setup_net(loop) -> (SetupNet, Optimizer)` — fresh net + optimizer over
+trainable params only. `sync_setup_embedders(loop)` — copies the main net's
+card/hand embedder weights into the setup net's frozen copies, then drops it to
+`eval()` (the cache-invalidation contract); called once after resume and once
+per iteration, deliberately *after* the setup update.
+`maybe_resume_setup(loop)` — restores `setup.pt` on a resumed run
+(architecture mismatch or unload failure falls back to a fresh net + alarm).
+`setup_architecture_matches(loop, payload)` — the resume gate's shape/config
+discriminator. `save_setup_checkpoint(loop)` — writes `setup.pt` (config +
+encoding + weights + optimizer + era version stamp).
 
 **`loop_eval.py`** — `run_eval(loop, iteration) -> EvalResult`: plays
 `config.eval_games` paired games vs the opponent net; checks win-rate threshold
@@ -162,8 +178,11 @@ builder (config + weights + optimizer + progress + git SHA + the run-era
 `version` stamp), shared with `loop_target` so the save paths cannot drift.
 `finish(loop, phase)` — terminal phase + stop time.
 
-**`loop_metrics.py`** — Pure metrics aggregation: `aggregate_metrics(steps,
-outcomes) -> IterationMetrics`. No loop state; easy to test in isolation.
+**`loop_metrics.py`** — Pure metrics aggregation: `build_iteration_metrics(iteration,
+total_games, records, stats, eval_result, collect_seconds, update_seconds,
+eval_seconds, win_rate, setup_enabled, setup_stats, entropy_coef, dropout_p,
+imitation_phase=False) -> IterationMetrics`. No loop state; easy to test in
+isolation.
 
 **`loop_anneal.py`** — `apply_dropout_schedules(loop, iteration)`: called at the
 top of every `_run_iteration`; no-op for a net whose `dropout_final` is unset.

@@ -184,11 +184,16 @@ class SetupUpdateStats(pydantic.BaseModel):
     Torch-free (plain floats / ints) so it lives here with the other metric
     records and can be carried on the live ``RunState`` and folded into
     ``IterationMetrics`` without pulling torch into the dashboard's read path. The
-    margin readouts are in points (the normalized regression target multiplied
-    back by ``score_norm``) so predicted and realized margins compare directly."""
+    margin readouts are in points: ``pred_margin_mean`` and ``target_margin_mean``
+    are the value head's prediction and the regression target it is pulled
+    toward (both the normalized return times ``score_norm``, so directly
+    comparable to each other); ``realized_margin_mean`` is the raw final margin,
+    which only coincides with the target under a terminal-margin, no-discount
+    setup."""
 
     loss: float  # mean MSE over the update's minibatches (normalized target)
     pred_margin_mean: float  # mean predicted margin in points
+    target_margin_mean: float  # mean regression target in points
     realized_margin_mean: float  # mean realized margin in points
     n_samples: int
     n_epochs: int
@@ -255,6 +260,7 @@ class IterationMetrics(pydantic.BaseModel):
     setup_phase: str | None = None
     setup_loss: float | None = None
     setup_pred_margin_mean: float | None = None
+    setup_target_margin_mean: float | None = None
     setup_realized_margin_mean: float | None = None
     setup_samples_recorded: int | None = None
 

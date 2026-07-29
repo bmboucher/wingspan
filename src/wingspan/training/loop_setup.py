@@ -40,8 +40,11 @@ def update_setup(
 ) -> metrics.SetupUpdateStats:
     """Run one actor-critic pass over this iteration's setup samples.
 
-    Returns a :class:`~metrics.SetupUpdateStats` with the loss and margin stats
-    for the dashboard. Returns an empty stats object when there are no samples.
+    Called from ``loop._run_iteration`` right after collection, before the
+    main net's update and the following embedder re-sync — so the update runs
+    on-policy (see ``setup_learner``'s module docstring). Returns a
+    :class:`~metrics.SetupUpdateStats` with the loss and margin stats for the
+    dashboard. Returns an empty stats object when there are no samples.
     """
     assert training_loop._setup_net is not None
     assert training_loop._setup_optimizer is not None
@@ -58,8 +61,9 @@ def update_setup(
         training_loop.state.push_event(
             runstate.EventKind.INFO,
             f"SETUP AC {stats.loss:.4f} · pred "
-            f"{stats.pred_margin_mean:+.1f} vs real "
-            f"{stats.realized_margin_mean:+.1f} ({stats.n_samples} samples)",
+            f"{stats.pred_margin_mean:+.1f} vs tgt "
+            f"{stats.target_margin_mean:+.1f} (real "
+            f"{stats.realized_margin_mean:+.1f} · {stats.n_samples} samples)",
         )
         training_loop.state.last_setup = stats
         training_loop.state.record_setup_trained(stats.n_samples)

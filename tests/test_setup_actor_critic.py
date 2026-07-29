@@ -6,6 +6,8 @@ gradient flow, and play_game_with_setup populating chosen_idx/all_candidates.
 
 from __future__ import annotations
 
+import copy
+
 import numpy as np
 import pytest
 import torch
@@ -176,6 +178,7 @@ def test_actor_critic_update_empty_samples():
     )
     assert stats.n_samples == 0
     assert stats.loss == 0.0
+    assert stats.target_margin_mean == 0.0
 
 
 def test_actor_critic_update_skips_samples_without_ac_data():
@@ -247,6 +250,70 @@ def test_actor_critic_update_groups_by_candidate_count():
     )
     assert stats.n_samples == 4
     assert np.isfinite(stats.loss)
+
+
+def test_update_forward_runs_in_eval_mode_deterministically():
+    """The actor-critic update forward must always run in ``eval()``, matching
+    the mode collection sampled under (``setup_learner``'s module docstring) —
+    regardless of the configured dropout. Pin this with a nonzero dropout (the
+    code default is ``0.0``, under which train() and eval() are indistinguishable)
+    and two structurally-identical nets updated on the same samples *without*
+    reseeding the RNG between calls: under the old train()-mode forward this
+    would fail, since net A's forward/backward already advances the global RNG
+    before net B's runs, so their dropout masks — and hence their losses and
+    post-step weights — would differ."""
+    arch = setup_model.SetupArchitecture(
+        head_layers=(16, 8), use_policy_head=True, dropout=0.3
+    )
+    cfg = _make_config()
+    torch.manual_seed(123)  # pyright: ignore[reportUnknownMemberType]
+    net_a = setup_net.SetupNet(arch=arch)
+    net_b = copy.deepcopy(net_a)
+    optimizer_a = torch.optim.Adam(
+        [p for p in net_a.parameters() if p.requires_grad], lr=1e-3
+    )
+    optimizer_b = torch.optim.Adam(
+        [p for p in net_b.parameters() if p.requires_grad], lr=1e-3
+    )
+    samples = [_make_ac_sample(seed=i, margin=float(i + 1)) for i in range(4)]
+
+    stats_a = setup_learner.actor_critic_update(
+        net_a, optimizer_a, samples, cfg, torch.device("cpu")
+    )
+    stats_b = setup_learner.actor_critic_update(
+        net_b, optimizer_b, samples, cfg, torch.device("cpu")
+    )
+
+    assert stats_a.loss == stats_b.loss
+    assert net_a.training is False
+    assert net_b.training is False
+    assert net_a.policy_head is not None
+    assert net_b.policy_head is not None
+    for key, tensor_a in net_a.policy_head.state_dict().items():
+        assert torch.equal(tensor_a, net_b.policy_head.state_dict()[key])
+    for key, tensor_a in net_a.value_head.state_dict().items():
+        assert torch.equal(tensor_a, net_b.value_head.state_dict()[key])
+
+
+def test_target_margin_mean_readout():
+    """``target_margin_mean`` is the regression target in points. Under the
+    default terminal-margin reward config the setup target reduces to
+    ``margin / score_norm``, so scaled back up by ``score_norm`` it equals the
+    mean realized margin exactly."""
+    cfg = _make_config()
+    net = _make_net(use_policy_head=True)
+    optimizer = torch.optim.Adam(
+        [p for p in net.parameters() if p.requires_grad], lr=1e-3
+    )
+    margins = [1.0, 2.0, 3.0, 4.0]
+    samples = [
+        _make_ac_sample(seed=i, margin=margin) for i, margin in enumerate(margins)
+    ]
+    stats = setup_learner.actor_critic_update(
+        net, optimizer, samples, cfg, torch.device("cpu")
+    )
+    assert stats.target_margin_mean == pytest.approx(sum(margins) / len(margins))
+    assert stats.target_margin_mean == pytest.approx(stats.realized_margin_mean)
 
 
 # ---------------------------------------------------------------------------

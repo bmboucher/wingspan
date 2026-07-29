@@ -250,12 +250,16 @@ class TrainingLoop:
 
     #### Iteration orchestration ####
 
-    # One training iteration -- the heart of the loop. Five phases run in order:
-    #   1. collect  -- self-play games into recorded forked decisions (loop_collect)
-    #   2. update   -- one length-bucketed REINFORCE step (learner.update)
-    #   3. evaluate -- periodic paired games vs the reference opponent (loop_eval)
-    #   4. measure  -- fold the above into one IterationMetrics row (loop_metrics)
-    #   5. commit   -- graduate/advance the opponent, checkpoint, log (loop_checkpoint)
+    # One training iteration -- the heart of the loop. Six phases run in order:
+    #   1. collect      -- self-play games into recorded forked decisions (loop_collect)
+    #   2. setup update -- on-policy actor-critic step over this iteration's setup
+    #                      samples, run before the main update / embedder re-sync
+    #                      below so its log-probs stay on-policy (loop_setup)
+    #   3. update       -- one length-bucketed REINFORCE step (learner.update),
+    #                      followed by the setup net's embedder re-sync
+    #   4. evaluate     -- periodic paired games vs the reference opponent (loop_eval)
+    #   5. measure      -- fold the above into one IterationMetrics row (loop_metrics)
+    #   6. commit       -- graduate/advance the opponent, checkpoint, log (loop_checkpoint)
     def _run_iteration(self, iteration: int) -> None:
         with self.lock:
             self.state.phase = runstate.Phase.COLLECTING
@@ -298,6 +302,18 @@ class TrainingLoop:
                 f"avg {loop_metrics.avg_points(records):.1f} pts/game"
                 + (" · DAgger clone" if imitation_phase else ""),
             )
+
+        # Setup update runs here, before the main net's update and the embedder
+        # re-sync below: at this point the setup net (trunks, heads, and its
+        # frozen embedder copies) is byte-identical to the broadcast collection
+        # sampled under, so the REINFORCE log-probs computed inside
+        # update_setup are on-policy. Updating after the re-sync trains against
+        # drifted weights and blows up the loss — see setup_learner's module
+        # docstring.
+        setup_stats = (
+            loop_setup.update_setup(self, records, iteration) if setup_enabled else None
+        )
+
         update_start = time.monotonic()
         stats = learner.update(
             self.net,
@@ -317,13 +333,10 @@ class TrainingLoop:
             )
 
         # Re-sync the setup net's frozen embedder copies to the just-updated main
-        # net before the setup update / checkpoint / next broadcast, so setup.pt
-        # and the worker weights always carry this iteration's representations.
+        # net, deliberately *after* the setup update above: this keeps setup.pt
+        # and the next iteration's broadcast carrying this iteration's
+        # representations, without perturbing the on-policy update itself.
         loop_setup.sync_setup_embedders(self)
-
-        setup_stats = (
-            loop_setup.update_setup(self, records, iteration) if setup_enabled else None
-        )
 
         eval_result, eval_seconds = loop_eval.maybe_evaluate(self, iteration)
 

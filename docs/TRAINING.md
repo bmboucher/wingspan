@@ -935,8 +935,30 @@ takes one combined optimizer step. Samples without `all_candidates` (e.g. an
 earlier random phase) are silently skipped — only on-policy MODEL_DRIVEN games
 contribute.
 
-**Margin readout.** The dashboard's predicted-vs-realized line now reports the
-mean `V(s) × score_norm` (the state value in points) against the realized margin.
+**On-policy ordering.** `loop._run_iteration` runs this update immediately
+after collection — before the main net's PPO update and the embedder re-sync
+that follows it — and the forward pass here runs with the net in `eval()`
+(dropout off, frozen embedder copies pinned). Both match the conditions
+collection sampled `chosen_idx` under, so the REINFORCE log-probs stay
+on-policy. Updating after the re-sync (drifted embedder weights) or under
+`train()` (dropout perturbing the log-probs) diverges the update-time log-probs
+from the sampling-time ones; once the policy sharpens, occasional exploratory
+picks get astronomically negative log-probs and the loss diverges (observed: a
+bootstrap-vs-checkpoint run with `reward_mode=gae` and a sub-1 discount hit
+loss −149 while `pred` stayed near 0 and `real` sat around −20 — see the "Margin
+readout" note below for why `pred` and `real` are not comparable in the first
+place).
+
+**Margin readout.** The dashboard's SETUP AC line reports three numbers in
+points: `pred` (mean `V(s) × score_norm`, the critic's prediction), `tgt` (mean
+`target × score_norm`, the regression target MSE actually pulls `pred`
+toward), and `real` (the raw realized final margin). `pred` and `tgt` are
+directly comparable — same units, same discounting — so they are what to watch
+to judge whether the critic is learning. `real` only coincides with `tgt` under
+a terminal-margin, undiscounted config; under `reward_mode=gae` with a discount
+below 1, the `t=0` setup target discounts away most of the late-game margin, so
+`pred`/`tgt` can sit near 0 while `real` stays large — that is expected, not a
+sign of a broken update.
 
 **The offline fit at `setup_train_iter` is unchanged.** It trains the value head
 via MSE on the bootstrap RANDOM_RECORD samples as before. The policy head first
@@ -954,6 +976,14 @@ Start with the defaults. Raise `setup_entropy_coef` (0.05–0.1) if the policy
 collapses to deterministic early; lower it once the policy is stable. The
 `setup_policy_temperature` parameter (default 0.5) still governs sampling
 independently of entropy regularization — they are complementary.
+
+**Setup dropout is inert for this update.** `architecture.setup.dropout` /
+`training.setup.dropout_final` remain valid, era-tracked config fields —
+`loop_anneal` still sweeps `SetupArchitecture.dropout` on schedule — but the
+actor-critic forward above always runs in `eval()` (see "On-policy ordering"),
+so dropout never actually perturbs it. Don't remove these fields on the
+strength of that: they stay meaningful config even though this particular
+update path ignores them.
 
 **This is a setup-FRESH change.** Toggling `setup_use_actor_critic` changes
 `SetupArchitecture.shape_key` and will invalidate any existing `setup.pt`,

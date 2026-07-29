@@ -148,6 +148,9 @@ def build_iteration_metrics(
         setup_pred_margin_mean=(
             setup_stats.pred_margin_mean if setup_stats is not None else None
         ),
+        setup_target_margin_mean=(
+            setup_stats.target_margin_mean if setup_stats is not None else None
+        ),
         setup_realized_margin_mean=(
             setup_stats.realized_margin_mean if setup_stats is not None else None
         ),

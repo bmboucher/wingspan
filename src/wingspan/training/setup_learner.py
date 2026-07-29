@@ -28,8 +28,21 @@ deal's K candidates, so read from row 0); the policy logits are forwarded per
 candidate-count group. A single combined backward/step covers the whole
 iteration, mirroring the in-game learner's single update.
 
+This update must stay **on-policy**: the caller (``loop._run_iteration``) runs
+it immediately after collection, before the main net's update or the next
+embedder sync, and the forward pass here runs in ``eval()`` — the same mode
+collection sampled in. Updating after a re-sync (drifted embedder weights) or
+under ``train()`` (dropout perturbing the log-probs) diverges the update-time
+log-probs from the sampling-time ones; with a sharpened policy that produced a
+runaway loss (observed: −149, with predicted margins stuck near 0). This is not
+byte-identical to collection in every respect — the sampling temperature
+(``policy_temperature``) differs from the ``T=1`` used for the pg log-probs
+here, and ``all_candidates`` round-trips through the fp16 collection IPC — but
+those are pre-existing, unrelated to this on-policy guarantee.
+
 Returns a :class:`SetupUpdateStats` whose margin readouts are in points so the
-dashboard can compare predicted (``V(s) × score_norm``) against realized margin.
+dashboard can compare predicted (``V(s) × score_norm``) against the regression
+target and the realized margin.
 """
 
 from __future__ import annotations
@@ -60,6 +73,12 @@ def actor_critic_update(
     Samples without these (e.g. from an earlier random-phase iteration) are
     skipped. A single combined optimizer step covers the whole batch.
 
+    The whole pass — critic and actor forwards alike — runs with the net in
+    ``eval()`` (dropout off, frozen embedders pinned, memoized detached card
+    table), matching the mode collection sampled in; see the module docstring
+    for why. The trainable trunks/heads keep full gradients under ``eval()``,
+    only dropout and the always-frozen embedders are affected.
+
     The entropy coefficient is resolved from ``cfg.setup_entropy_coef_at(iteration)``
     (constant unless ``cfg.training.setup.entropy_coef_final`` is set)."""
     # Filter to samples that carry actor-critic data.
@@ -71,7 +90,11 @@ def actor_critic_update(
     if not valid:
         return _empty_stats()
 
-    net.train()
+    # Safety net: the loop invariant already leaves the net in eval() after
+    # collection and after sync_setup_embedders, but pin it explicitly so a
+    # standalone call (e.g. from a test) can't accidentally update under train
+    # mode. Idempotent when the invariant already holds.
+    net.eval()
 
     # Critic V(s): one forward per deal over the state stripes. Row 0 of each
     # candidate matrix is canonical — its tray / feeder / goals / bonus-on-offer
@@ -84,8 +107,10 @@ def actor_critic_update(
         device=device,
     )  # (N,)
     value_loss = F.mse_loss(values, targets)
-    # Dashboard readout: mean predicted margin V(s) in points.
+    # Dashboard readout: mean predicted margin V(s) and the regression target
+    # it is pulled toward, both in points.
     pred_margin_mean = float(values.detach().mean()) * cfg.training.score_norm
+    target_margin_mean = float(targets.mean()) * cfg.training.score_norm
 
     # Globally-whitened advantage (the in-game learner's §3.3 normalization).
     # Biased std (``unbiased=False``) so a single-sample batch yields 0, not NaN.
@@ -110,10 +135,10 @@ def actor_critic_update(
     torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=cfg.training.grad_clip)
     optimizer.step()
 
-    net.eval()
     return metrics.SetupUpdateStats(
         loss=float(loss.detach()),
         pred_margin_mean=pred_margin_mean,
+        target_margin_mean=target_margin_mean,
         realized_margin_mean=float(np.mean([sample.margin for sample in valid])),
         n_samples=len(valid),
         n_epochs=1,
@@ -194,6 +219,7 @@ def _empty_stats() -> metrics.SetupUpdateStats:
     return metrics.SetupUpdateStats(
         loss=0.0,
         pred_margin_mean=0.0,
+        target_margin_mean=0.0,
         realized_margin_mean=0.0,
         n_samples=0,
         n_epochs=0,
