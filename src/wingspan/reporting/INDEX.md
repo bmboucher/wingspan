@@ -22,8 +22,11 @@ Birds tab payload builder. Lazy imports of `game_log_html` inside `bird_cell_inf
 **`html.py`** — `generate_html_report(descriptor: ModelConfig, out_path: Path)`:
 produces a self-contained HTML file with a full model summary including:
 architecture diagram (via `svg.py`), vector layout table (state + choice stripes
-from `encode.stripes`), parameter count breakdown, training config table, and a
-**Birds tab** (Model ↔ Birds toggle in the header; responsive grid of all 180
+from `encode.stripes`), a conditional **Board Token Vector** panel (rendered only
+when `param_report.board_attention` is not `None`, describing one board-attention
+token via `encode.stripes.board_token_stripe_layout`: the shared card embedding
+plus the 9 mutable per-slot scalars), parameter count breakdown, training config
+table, and a **Birds tab** (Model ↔ Birds toggle in the header; responsive grid of all 180
 core cards; click any card to open an `#enc-modal` showing that bird's non-identity
 attribute encoding stripes with named, decoded values).  Also
 `build_model_summary_html(descriptor, report) -> str` — the pure string
@@ -147,8 +150,10 @@ occupy the bottom two rows. `_resolve_geometry` stacks all four rows + three ban
 trunk bodies/labels are emitted alongside the `_conn_svg` renders in bodies-before-labels order so
 white halos mask crossing lines. Each block's activation rows use the resolved per-block activation.
 The diagram doubles as the report's navigation: input boxes carry `data-panel` attributes and
-parameter counts carry `data-params-block` attributes — the attention block uses `panel=None` and the
-bare pooling block has no input box, so the card-table-pooling default exposes four clickable panels
+parameter counts carry `data-params-block` attributes — the attention block's input box carries
+`data-panel="board"` (clickable, opening the Board Token Vector panel, only when
+`arch.use_board_attention` is True) and the bare pooling block has no input box, so the
+card-table-pooling default exposes five clickable panels — six when board attention is enabled
 (the `hand` panel is reachable only via the distinct multi-card encoder's input box).
 
 **`inspect_cli.py`** — `main_inspect(args)`: the `wingspan inspect` CLI handler.

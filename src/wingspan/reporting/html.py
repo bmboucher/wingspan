@@ -5,8 +5,9 @@ the full structure of a training run's network.  The architecture diagram
 (built by :mod:`wingspan.reporting.svg`) is the page's main menu: it is the only
 thing visible on load, and clicking one of its input boxes rolls out the
 matching vector's element-by-element breakdown below it (card features, card
-set, state, choice, and setup vectors — one panel at a time; clicking the
-active box again collapses it), while clicking any parameter count rolls out
+set, state, choice, and setup vectors, plus the board-attention token
+breakdown when board self-attention is enabled — one panel at a time;
+clicking the active box again collapses it), while clicking any parameter count rolls out
 the per-layer parameter table jumped to that block's rows.  A small inline
 script drives the panel switching; complex stripes (board slots, round-goal
 rounds) still drill down via HTML5 ``<details>``/``<summary>`` elements.
@@ -21,7 +22,7 @@ from __future__ import annotations
 import collections
 import html as html_lib
 
-from wingspan import architecture, cards, setup_model
+from wingspan import architecture, cards, encode, setup_model
 from wingspan.encode import stripes as encode_stripes
 from wingspan.reporting import card_view, encode_viewer, game_log_html
 from wingspan.reporting import svg as report_svg
@@ -36,6 +37,7 @@ _ACCENT_HAND = "#d946ef"
 _ACCENT_STATE = "#3b82f6"
 _ACCENT_CHOICE = "#22c55e"
 _ACCENT_SETUP = "#14b8a6"
+_ACCENT_BOARD = "#f59e0b"  # matches svg.py's _ACCENT_ATTN (BOARD ATTENTION block)
 _ACCENT_ARCH = "#a855f7"
 _ACCENT_PARAMS = "#f97316"
 
@@ -324,36 +326,55 @@ def generate_html_report(
         if use_setup_model
         else "not active this run — opening keep scored by the in-game policy"
     )
-    body = "\n".join(
+    sections = [
+        _arch_section(
+            arch,
+            param_report,
+            family_order,
+            setup_param=setup_param,
+            setup_arch=setup_arch,
+            use_setup_model=use_setup_model,
+        ),
+        _vector_section(
+            encode_stripes.card_feature_stripe_layout(),
+            report_svg.PANEL_CARD,
+            "Card Feature Vector",
+            _ACCENT_CARD,
+            input_note=(
+                "raw single-card encoder input — static attributes + "
+                "identity one-hot, one row of the shared card table"
+            ),
+        ),
+        _vector_section(
+            encode_stripes.hand_encoder_input_stripe_layout(),
+            report_svg.PANEL_HAND,
+            "Card Set Vector",
+            _ACCENT_HAND,
+            input_note=(
+                "raw multi-card encoder input — set multi-hot + summary "
+                "stats (own hand / setup keep / tray set)"
+            ),
+        ),
+    ]
+    if param_report.board_attention is not None:
+        sections.append(
+            _vector_section(
+                encode_stripes.board_token_stripe_layout(arch.card_embed_dim),
+                report_svg.PANEL_BOARD,
+                "Board Token Vector",
+                _ACCENT_BOARD,
+                input_note=(
+                    "one board-slot attention token — shared card-table row ⊕ "
+                    "mutable per-slot scalars"
+                ),
+                annotation=(
+                    f"{encode.SLOTS_PER_BOARD} tokens per board × 2 boards "
+                    "(own + opponent), attended separately"
+                ),
+            )
+        )
+    sections.extend(
         [
-            _arch_section(
-                arch,
-                param_report,
-                family_order,
-                setup_param=setup_param,
-                setup_arch=setup_arch,
-                use_setup_model=use_setup_model,
-            ),
-            _vector_section(
-                encode_stripes.card_feature_stripe_layout(),
-                report_svg.PANEL_CARD,
-                "Card Feature Vector",
-                _ACCENT_CARD,
-                input_note=(
-                    "raw single-card encoder input — static attributes + "
-                    "identity one-hot, one row of the shared card table"
-                ),
-            ),
-            _vector_section(
-                encode_stripes.hand_encoder_input_stripe_layout(),
-                report_svg.PANEL_HAND,
-                "Card Set Vector",
-                _ACCENT_HAND,
-                input_note=(
-                    "raw multi-card encoder input — set multi-hot + summary "
-                    "stats (own hand / setup keep / tray set)"
-                ),
-            ),
             _vector_section(
                 state_layout, report_svg.PANEL_STATE, "State Vector", _ACCENT_STATE
             ),
@@ -390,6 +411,7 @@ def generate_html_report(
             _params_section(param_report),
         ]
     )
+    body = "\n".join(sections)
     birds_catalog = _birds_payload()
     return _wrap(
         title=f"Model Summary — {html_lib.escape(run_name)}",

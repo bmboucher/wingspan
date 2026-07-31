@@ -11,6 +11,10 @@ match the trunk's first-``Linear`` input width.
 ``raw_state_stripe_layout`` returns the same layout without the post-embedding
 rewrite — sizes and offsets match the flat vector that ``encode_state`` produces
 (integer-index stripes at their raw widths, not ``card_embed_dim``).
+
+``board_token_stripe_layout`` documents a single board-attention input token
+(one board slot's card embedding concatenated with its mutable scalars) —
+only meaningful when ``use_board_attention`` is enabled.
 """
 
 from __future__ import annotations
@@ -89,6 +93,59 @@ def state_stripe_layout(
             n_playable_multihots=n_playable_multihots,
         ),
     )
+
+
+def board_token_stripe_layout(
+    card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
+) -> descriptors.VectorLayout:
+    """Build the stripe registry for one board-attention input token.
+
+    Describes a single token the board self-attention path feeds into
+    ``nn.MultiheadAttention`` (see
+    ``model.core._embed_state_board_attention``): the shared card-table
+    embedding row for the bird occupying this slot, concatenated with the
+    slot's 9 mutable scalars (see :func:`_slot_scalar_sub_fields`). This is
+    *one* token, not the full attention-output tensor — ``layout.SLOTS_PER_BOARD``
+    (15) such tokens make up one board, and both boards (own, opponent) are
+    attended separately.
+    """
+    scalar_bases = _slot_scalar_sub_fields()
+
+    stripes: list[descriptors.StripeDescriptor] = [
+        descriptors.StripeDescriptor(
+            name="card_embedding",
+            description="Shared card-table row for the bird occupying this slot.",
+            offset=0,
+            size=card_embed_dim,
+            encoding="card-embedding",
+            value_range="learned",
+            notes=(
+                "Looked up from the shared card embedding table by "
+                "bird_index + 1 (row 0 reserved for an empty slot) — the same "
+                "table backs card_idx_board, card_idx_tray, and hand_multihot."
+            ),
+        )
+    ]
+    stripes.extend(
+        descriptors.StripeDescriptor(
+            name=base.name,
+            description=base.description,
+            offset=card_embed_dim + base.relative_offset,
+            size=base.size,
+            encoding=base.encoding,
+            value_range=base.value_range,
+            notes=base.notes,
+        )
+        for base in scalar_bases
+    )
+
+    total = card_embed_dim + layout.SLOT_SCALAR_DIM
+    accumulated = sum(stripe.size for stripe in stripes)
+    assert accumulated == total, (
+        f"board-token stripes total {accumulated} but card_embed_dim "
+        f"({card_embed_dim}) + SLOT_SCALAR_DIM ({layout.SLOT_SCALAR_DIM}) = {total}"
+    )
+    return descriptors.VectorLayout(total_size=total, stripes=tuple(stripes))
 
 
 ###### PRIVATE #######
@@ -597,12 +654,13 @@ def _food_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
     )
 
 
-def _board_slot_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """All per-element sub-fields for a board continuous stripe.
+def _slot_scalar_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """The 9 mutable scalars carried by one board slot, in encoder order.
 
-    Iterates all 15 slots (3 habitats × 5 positions) in the same order the
-    encoder writes them. Each slot contributes 9 elements; the ``group`` field
-    names the slot so the HTML report can nest them.
+    Shared by :func:`_board_slot_sub_fields` (which repeats these across all 15
+    slots of a board's continuous stripe) and :func:`~state.board_token_stripe_layout`
+    (which describes one board-attention token) — the encoder writes the same
+    9 values in both places, so both consumers derive from this single list.
     """
     food_names = [food.value for food in cards.ALL_FOODS]
 
@@ -629,23 +687,44 @@ def _board_slot_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
         ),
     ]
 
+    return tuple(
+        descriptors.SubFieldDescriptor(
+            name=dim_name,
+            description=dim_desc,
+            relative_offset=dim_idx,
+            size=1,
+            encoding="scalar",
+            value_range="[0, ~1]",
+            notes=dim_notes,
+        )
+        for dim_idx, (dim_name, dim_desc, dim_notes) in enumerate(slot_dim_meta)
+    )
+
+
+def _board_slot_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """All per-element sub-fields for a board continuous stripe.
+
+    Iterates all 15 slots (3 habitats × 5 positions) in the same order the
+    encoder writes them. Each slot contributes 9 elements (from
+    :func:`_slot_scalar_sub_fields`); the ``group`` field names the slot so the
+    HTML report can nest them.
+    """
+    scalar_bases = _slot_scalar_sub_fields()
+
     sub_fields: list[descriptors.SubFieldDescriptor] = []
     slot_number = 0
     for habitat in cards.ALL_HABITATS:
         for position in range(state.ROW_SLOTS):
             group = f"slot_{habitat.value}_{position}"
             slot_base = slot_number * layout._SLOT_MUT_DIM
-            for dim_idx, (dim_name, dim_desc, dim_notes) in enumerate(slot_dim_meta):
+            for base in scalar_bases:
                 sub_fields.append(
-                    descriptors.SubFieldDescriptor(
-                        name=f"{habitat.value}_{position}.{dim_name}",
-                        description=dim_desc,
-                        relative_offset=slot_base + dim_idx,
-                        size=1,
-                        encoding="scalar",
-                        value_range="[0, ~1]",
-                        notes=dim_notes,
-                        group=group,
+                    base.model_copy(
+                        update={
+                            "name": f"{habitat.value}_{position}.{base.name}",
+                            "relative_offset": slot_base + base.relative_offset,
+                            "group": group,
+                        }
                     )
                 )
             slot_number += 1

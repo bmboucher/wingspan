@@ -12,7 +12,7 @@ full vector layout without hard-coding field names.
 
 **`__init__.py`** — re-exports `SubFieldDescriptor`, `StripeDescriptor`,
 `VectorLayout`, `state_stripe_layout`, `choice_stripe_layout`,
-`card_feature_stripe_layout`.
+`card_feature_stripe_layout`, `board_token_stripe_layout`.
 
 **`descriptors.py`** — Core data models:
 - `SubFieldDescriptor(name, dim, offset)` — one named feature slice within a stripe.
@@ -37,7 +37,11 @@ or `hand_embed_width` (distinct-encoder path); `tray` expands to
 **`state.py`** — `state_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder that assembles all state stripes in canonical order (board slots by
 habitat, tray, birdfeeder, food cache, round goals, hand summary). Each stripe
-builder is a private function returning a `StripeDescriptor`.
+builder is a private function returning a `StripeDescriptor`. Also
+`board_token_stripe_layout(card_embed_dim) -> VectorLayout` — describes one
+board-attention input token (the shared card embedding concatenated with the
+slot's 9 mutable scalars from `_slot_scalar_sub_fields`, also reused by
+`_board_slot_sub_fields` for the 135-sub-field `board_me`/`board_opp` stripes).
 
 **`choice.py`** — `choice_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder for the per-choice row stripes (decision-type one-hot, choice-type

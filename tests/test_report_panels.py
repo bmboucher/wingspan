@@ -4,9 +4,11 @@ Cover the two raw encoder-input stripe layouts (single-card features and the
 multi-card set input) staying in sync with the encode constants, and the
 diagram-as-menu HTML structure: the architecture section leading the page, the
 detail sections rendered as hidden panels, the SVG click hooks (``data-panel``
-on the input boxes — four by default, since the card-table hand-pooling block is
+on the input boxes — five by default, since the card-table hand-pooling block is
 drawn bare with no input box, ``data-params-block`` on the parameter counts), the
 parameter table's per-block jump anchors, and the nav losing its section tabs.
+A sixth panel — the board-token breakdown — becomes clickable only when board
+self-attention is enabled.
 """
 
 from __future__ import annotations
@@ -20,7 +22,10 @@ from wingspan.reporting import html as report  # noqa: E402
 # default the hand block pools the card table and is drawn bare (no input box),
 # so five of the six panels are clickable from the diagram (the two setup vectors
 # — state and choice — are each their own clickable input box); the "hand" panel
-# becomes clickable only with a distinct (learned) hand encoder.
+# becomes clickable only with a distinct (learned) hand encoder. A seventh panel,
+# "board" (the board-attention token breakdown), is only ever rendered — and only
+# ever clickable — when board self-attention is enabled; it is excluded from
+# these default-configuration tuples.
 _PANEL_IDS = ("card", "hand", "state", "choice", "setup_state", "setup_choice")
 _CLICKABLE_PANEL_IDS = ("card", "state", "choice", "setup_state", "setup_choice")
 _PARAMS_BLOCK_KEYS = ("embed", "trunk", "choice", "scorer", "value", "total")
@@ -66,6 +71,42 @@ def test_hand_encoder_layout_reuses_hand_summary_drilldown():
     summary = layout.stripes[-1]
     assert summary.name == "hand_summary"
     assert sum(sub_field.size for sub_field in summary.sub_fields) == summary.size
+
+
+def test_board_token_layout_matches_token_width():
+    layout = encode_stripes.board_token_stripe_layout(96)
+    assert layout.total_size == 96 + encode.SLOT_SCALAR_DIM
+    assert len(layout.stripes) == 1 + encode.SLOT_SCALAR_DIM
+    assert layout.stripes[0].name == "card_embedding"
+    assert layout.stripes[0].size == 96
+    expected_offset = 0
+    for stripe in layout.stripes:
+        assert stripe.offset == expected_offset
+        expected_offset += stripe.size
+    assert expected_offset == layout.total_size
+
+
+def test_board_token_scalars_match_board_stripe_sub_fields():
+    # Lock the state.py hoist: the board-token layout's 9 scalar stripes must
+    # describe the same 9 per-slot elements as the first slot's sub-fields in
+    # the raw state layout's board_me stripe (they now share one builder).
+    state_layout = encode_stripes.raw_state_stripe_layout()
+    board_me = next(s for s in state_layout.stripes if s.name == "board_me")
+    assert len(board_me.sub_fields) == 135
+    assert board_me.sub_fields[0].name == "forest_0.eggs"
+    assert board_me.sub_fields[-1].name == "wetland_4.activations"
+    for idx, sub_field in enumerate(board_me.sub_fields):
+        assert sub_field.relative_offset == idx
+
+    token_layout = encode_stripes.board_token_stripe_layout(96)
+    token_scalars = token_layout.stripes[1:]
+    first_slot_sub_fields = board_me.sub_fields[: encode.SLOT_SCALAR_DIM]
+    assert len(token_scalars) == len(first_slot_sub_fields)
+    for token_stripe, sub_field in zip(token_scalars, first_slot_sub_fields):
+        expected_name = sub_field.name.split(".", 1)[1]
+        assert token_stripe.name == expected_name
+        assert token_stripe.description == sub_field.description
+        assert token_stripe.notes == sub_field.notes
 
 
 def test_html_arch_section_leads_and_panels_start_hidden():
@@ -117,6 +158,9 @@ def test_svg_board_attention_absent_by_default():
     assert 'data-params-block="board attn"' not in html
     # data-panel count is the five clickable boxes (bare hand block has none).
     assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS)
+    assert 'data-panel="board"' not in html
+    assert "<div class='section panel' id='board' hidden>" not in html
+    assert "Board Token Vector" not in html
     # Bare pooling block uses the simplified title and no redundant lookup row.
     assert "MULTI-CARD POOLING" in html
     assert "card-table lookup" not in html
@@ -128,9 +172,12 @@ def test_svg_board_attention_present_when_enabled():
     assert 'data-params-block="board attn"' in html
     assert "id='params-block-board attn'" in html
     assert f"×{encode.N_BOARD_INDEX_SLOTS}" in html
-    # panel=None on the attention unit and a bare hand block — neither adds a
-    # data-panel beyond the five clickable input boxes.
-    assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS)
+    # The attention unit's input box is now clickable (panel="board"), adding
+    # one data-panel beyond the five default clickable input boxes.
+    assert html.count("data-panel=") == len(_CLICKABLE_PANEL_IDS) + 1
+    assert 'data-panel="board"' in html
+    assert "<div class='section panel' id='board' hidden>" in html
+    assert "Board Token Vector" in html
 
 
 def test_svg_distinct_hand_model_input_is_clickable():

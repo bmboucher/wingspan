@@ -56,6 +56,7 @@ PANEL_CHOICE = "choice"
 PANEL_SETUP = "setup"  # value-only fallback's single input box
 PANEL_SETUP_STATE = "setup_state"
 PANEL_SETUP_CHOICE = "setup_choice"
+PANEL_BOARD = "board"  # board-attention token breakdown; only drawn when enabled
 PANEL_PARAMS = "params"
 PARAMS_BLOCK_TOTAL = "total"
 
@@ -580,7 +581,7 @@ def _attention_unit(
             f"{encode.SLOTS_PER_BOARD} board-slot tokens × {token_width}-wide · "
             f"attended tokens re-folded into state input (trunk width unchanged)"
         ),
-        panel=None,
+        panel=PANEL_BOARD,
         params_key=block.label.lower(),
     )
 
