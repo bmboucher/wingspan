@@ -20,6 +20,9 @@ re-exported from ``layout`` / ``state_encode``.
 from wingspan.encode.choice_encode import encode_choices
 from wingspan.encode.layout import (
     BOARD_CONT_STRIPE_DIM,
+    BOARD_POSITION_COL_DIM,
+    BOARD_POSITION_DIM,
+    BOARD_POSITION_HAB_DIM,
     CARD_FEATURE_DIM,
     CHOICE_BECOMES_PLAYABLE_DIM,
     CHOICE_BECOMES_PLAYABLE_OFFSET,
@@ -81,6 +84,9 @@ from wingspan.encode.state_encode import (
 
 __all__ = [
     "BOARD_CONT_STRIPE_DIM",
+    "BOARD_POSITION_COL_DIM",
+    "BOARD_POSITION_DIM",
+    "BOARD_POSITION_HAB_DIM",
     "CARD_FEATURE_DIM",
     "CHOICE_BECOMES_PLAYABLE_DIM",
     "CHOICE_BECOMES_PLAYABLE_OFFSET",

@@ -35,6 +35,15 @@ stripe offsets. Key exports:
   the v1.4 `resets_feeder` stripe (the last *base* stripe, after `becomes_unplayable`;
   set on a `combine_gain_food` `FoodSubsetChoice` that rerolls the birdfeeder). v1.0–1.3
   artifacts lack it; see `wingspan.compat.v1_3`.
+- `SLOTS_PER_BOARD` (15), `SLOT_SCALAR_DIM` (9), `BOARD_CONT_STRIPE_DIM` (135),
+  `OFF_BOARD_ME`/`OFF_BOARD_OPP` — live-encoding-only aliases consumed by the
+  board self-attention path (`model.core`); a future FRESH shift must freeze
+  them into `StateEmbedOffsets` rather than growing new live-offset readers.
+- `BOARD_POSITION_HAB_DIM` (3), `BOARD_POSITION_COL_DIM` (5),
+  `BOARD_POSITION_DIM` (8) — width of the optional constant per-token position
+  block (`ModelArchitecture.board_attention_positions`); `trunk_input_dim(...,
+  board_position_dim=...)` accepts the resulting extra width (`0` when the flag
+  is off, the default).
 - `_OFF_*` constants — the append-only offset chain (part of checkpoint format;
   reordering is a FRESH break).
 - Normalization scales: `_POINTS_SCALE`, `_FOOD_COST_SCALE`, `_WINGSPAN_SCALE`, etc.

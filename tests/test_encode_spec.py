@@ -24,6 +24,15 @@ _SMALL = architecture.ModelArchitecture(
     value_layers=(),
     card_embed_dim=4,
 )
+_SMALL_ATTN_POSITIONS = architecture.ModelArchitecture(
+    trunk_layers=(8, 8),
+    choice_layers=(8, 8),
+    head_layers=(),
+    value_layers=(),
+    card_embed_dim=4,
+    use_board_attention=True,
+    board_attention_positions=True,
+)
 
 
 def test_default_spec_excludes_setup():
@@ -230,6 +239,43 @@ def test_state_layout_for_matches_param_report_trunk_in():
         )
         assert state_layout.total_size == expected_trunk_in
         assert sum(s.size for s in state_layout.stripes) == state_layout.total_size
+
+
+def test_state_layout_for_matches_param_report_trunk_in_with_board_attention_positions():
+    """state_layout_for().total_size equals trunk_input_dim(..., board_position_dim=...)
+    for a descriptor whose architecture has board_attention_positions on, and
+    param_report_for's board-attention block accounts for the wider token."""
+    spec = encode.EncodingSpec(include_setup=False)
+    descriptor = runmeta.ModelConfig(
+        run_name="t",
+        state_dim=encode.state_size(spec),
+        choice_dim=encode.choice_feature_dim(spec),
+        family_order=tuple(f.value for f in decisions.active_decision_families(False)),
+        architecture=_SMALL_ATTN_POSITIONS,
+        include_setup=False,
+        version=version.MODEL_VERSION,
+    )
+    state_layout = runmeta.state_layout_for(descriptor)
+    arch = descriptor.architecture
+    n_playable = encode.N_HAND_PLAYABLE_MULTIHOTS
+    expected_trunk_in = encode.trunk_input_dim(
+        descriptor.state_dim,
+        arch.card_embed_dim,
+        use_distinct_hand_model=arch.use_distinct_hand_model,
+        hand_embed_dim=arch.hand_embed_dim,
+        pooled_hand_width=arch.pooled_hand_width,
+        tray_set_embedding=arch.tray_set_embedding,
+        n_playable_multihots=n_playable,
+        board_position_dim=encode.BOARD_POSITION_DIM,
+    )
+    assert state_layout.total_size == expected_trunk_in
+    assert sum(s.size for s in state_layout.stripes) == state_layout.total_size
+
+    param_report = runmeta.param_report_for(descriptor)
+    assert param_report.board_attention is not None
+    # W = 4 (card_embed_dim) + 9 (slot_scalar_dim) + 8 (board_position_dim) = 21.
+    expected_attn_params = 2 * (4 * 21 * 21 + 4 * 21)
+    assert param_report.board_attention.total == expected_attn_params
 
 
 def test_choice_layout_for_matches_param_report_choice_in():

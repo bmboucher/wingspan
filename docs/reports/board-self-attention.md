@@ -1,10 +1,13 @@
 # Board Self-Attention Feasibility
 
-**Status: Board-only pass implemented.** `use_board_attention: bool = False` is now
-a configurable field in `ModelArchitecture` (REGIME — no `MODEL_VERSION` bump, no
-compat shim; see corrected classification below). Enable it in the configurator
-under MODEL ARCHITECTURE ▸ STATE TRUNK. The below analysis stands; sections marked
-✓DONE are reflected in the live code.
+**Status: Board-only pass implemented, including optional per-slot position
+features.** `use_board_attention: bool = False` and `board_attention_positions:
+bool = False` are both configurable fields on `ModelArchitecture` (both REGIME —
+no `MODEL_VERSION` bump, no compat shim; see corrected classification below).
+Enable them in the configurator under MODEL ARCHITECTURE ▸ STATE TRUNK
+(`board_attention_positions` requires `use_board_attention` and is hidden until
+it is on). The below analysis stands; sections marked ✓DONE are reflected in the
+live code.
 
 **Question:** Would a self-attention layer over the 15 board slots improve the
 model — and can the same mechanism be extended to the hand and tray as input
@@ -111,10 +114,15 @@ dims (`src/wingspan/encode/layout.py:427–434`, `architecture.py:88`).
 
 ```
 token_width = card_embed_dim + _SLOT_MUT_DIM = 64 + 9 = 73
+# with board_attention_positions=True:
+token_width = card_embed_dim + _SLOT_MUT_DIM + BOARD_POSITION_DIM = 64 + 9 + 8 = 81
 ```
 
 An empty slot contributes the embedding table's padding row (index 0 → a forced
-zero vector, `core.py:293–305`) plus all-zero mutable scalars.
+zero vector, `core.py:293–305`) plus all-zero mutable scalars — and, with
+positions on, a position block explicitly masked to zero for that slot (the
+constant buffer itself has no notion of occupancy, so the model masks it the
+same way `_apply_board_attention` masks the attention output).
 
 ---
 
@@ -149,13 +157,22 @@ independent 15-token passes is simpler and matches the current encoder topology.
   so they contribute nothing to the attention sums (see the variable-size
   discussion below) — without it, a board with 2 birds would let 13 learned-empty
   tokens dilute the signal.
-- **Positional encoding:** optional. Board slots have an implicit 2-D structure
-  (3 habitats × 5 columns) but the Wingspan rules treat slots as unordered within
-  a habitat (you fill from left to right, but the choice of *which* column is
-  irrelevant after placement). A learned positional embedding could distinguish
-  habitats (which *do* matter), but column position within a habitat probably
-  should not carry signal — so a per-habitat (not per-slot) position embedding is
-  the principled choice if any is used at all.
+- **Positional encoding:** ✓DONE (optional, `board_attention_positions`). Without
+  it, attention is fully permutation-equivariant over the 15 slots — the
+  *mixing* (which slots attend to which) cannot depend on habitat or column,
+  even though the downstream flatten step still knows which output vector came
+  from which slot. `board_attention_positions=True` concatenates a constant
+  8-dim block — a 3-dim habitat one-hot ⊕ a 5-dim column one-hot
+  (`encode.BOARD_POSITION_DIM`) — onto every token before attention, built once
+  as a non-persistent buffer (`model/core.py::_board_position_matrix`) and
+  masked to zero on empty slots so the "empty slot → exactly-zero token"
+  invariant holds. This supersedes the speculation above that column shouldn't
+  carry signal: concatenating a fixed one-hot ahead of a linear in-projection is
+  mathematically equivalent to a learned, row/col-factorized additive bias in
+  Q/K/V space, so including column costs nothing to *learn away* if it turns out
+  not to matter, while omitting it would foreclose the option entirely. Token
+  width becomes `73 + 8 = 81` (see the parameter-cost table below — `81 = 3⁴`
+  incidentally unlocks multi-head attention later, since `73` alone is prime).
 - **Depth:** one layer is likely sufficient; multiple stacked layers would be
   unusual at this token-count and could overfit given the small sequence length.
 
@@ -349,6 +366,22 @@ bottleneck discussed below. Counts verified empirically against
 
 Two boards (independent passes): 2 × 21,608 = **43,216 params**.
 
+**With `board_attention_positions=True`** (`embed_dim = 81`):
+
+| Component | Formula | Count |
+|-----------|---------|-------|
+| in_proj (Q, K, V combined) | `3 × 81 × 81 + 3 × 81` | 19,926 |
+| out_proj | `81 × 81 + 81` | 6,642 |
+| **One attention layer (one board)** | | **26,568** |
+
+Two boards: 2 × 26,568 = **53,136 params** — an extra 9,920 params (+0.96% of the
+current model total) over positions-off. The position block itself is a constant
+buffer (no learned parameters); the added cost is entirely the wider Q/K/V/out
+projections. Unlike the attention layer's own params, the trunk's first Linear
+also grows — `N_BOARD_INDEX_SLOTS × BOARD_POSITION_DIM = 240` more input dims
+(`encode.trunk_input_dim(..., board_position_dim=...)`), which dominates the
+total parameter delta at typical trunk widths.
+
 **Comparison to current model:**
 
 | | Params |
@@ -394,10 +427,33 @@ run identically. No encoding change → no FRESH classification. Per
 when they change architecture shapes, because they travel with the artifact.
 
 `ShapeKey` is defined at `src/wingspan/architecture.py:40–56`. The tuple is now
-**16 elements** (added `bool  # use_board_attention`), purely so a `True`-run
-refuses to resume `False`-weights and vice-versa — handled gracefully by the
-`architecture_key` gate (mismatch → fresh run, no crash). This is the same
-mechanism every other topology knob uses; none of them triggered a version bump.
+**17 elements** (added `bool  # use_board_attention`, then `bool  #
+board_attention_positions`), purely so a `True`-run refuses to resume
+`False`-weights and vice-versa — handled gracefully by the `architecture_key`
+gate (mismatch → fresh run, no crash). This is the same mechanism every other
+topology knob uses; none of them triggered a version bump.
+
+**`board_attention_positions` follows the identical reasoning.** The position
+block is a constant tensor built inside the model
+(`model/core.py::_board_position_matrix`) and never written into
+`encode_state`'s output — `encode_state` / `encode_choices` are byte-identical
+whether the flag is on or off, exactly like `use_board_attention` itself. It is
+config-carried, defaults `False`, and joins `ShapeKey` for the same
+refuse-instead-of-computing-garbage reason. `board_attention_positions=True`
+combined with `use_board_attention=False` is *not* rejected by a
+`@model_validator` on `ModelArchitecture` — that combination is simply inert
+(`_build_board_attention` returns before ever reading the flag, so no
+attention modules or position buffer are built either way) — because
+`RunConfig._check_architecture` forces the full architecture to assemble on
+*every* construction, including each single-field configurator commit; a hard
+reject would surface as a "commit rejected" error the instant a user toggles
+`use_board_attention` off while this was still on, before `reset_hidden_fields`
+gets a chance to clear it (`training/config.py` calls this the "Workstream E"
+lesson — the same class of bug previously hit `clone_iters` +
+`bootstrap_opponent`). The combination is instead flagged as a launch blocker
+by `config.validate_launchable`, and the configurator's `visible_when` +
+`reset_hidden_fields` machinery clears the field back to its default the
+moment `use_board_attention` is toggled off, so a user never sees it linger.
 
 A unified hand/tray variant would add at least one more flag (e.g.
 `card_attention_scope`) plus the hand cap `H_max` and the location-stripe width to
@@ -441,9 +497,10 @@ right bottleneck to address now.**
 
 ### ✓DONE Verdict / Experiment
 
-**Board-only attention is implemented.** Toggle `use_board_attention` in the
-configurator under MODEL ARCHITECTURE ▸ STATE TRUNK. No version bump is needed
-(REGIME classification; see above).
+**Board-only attention is implemented, with an optional position-aware variant.**
+Toggle `use_board_attention` in the configurator under MODEL ARCHITECTURE ▸ STATE
+TRUNK; once on, `board_attention_positions` becomes visible in the same group. No
+version bump is needed for either flag (REGIME classification; see above).
 
 **Experiment protocol:**
 1. Train two runs from the same random seed: `use_board_attention=False` (baseline)
@@ -453,6 +510,13 @@ configurator under MODEL ARCHITECTURE ▸ STATE TRUNK. No version bump is needed
 3. If the attended model reaches the baseline win rate with fewer games, or surpasses
    it, the inductive bias is paying off — and the unified hand/tray variant becomes
    worth its larger cost.
+4. **Position follow-up (only once step 3 shows signal):** train a third run with
+   `board_attention_positions=True` against the same seed and compare to the
+   plain-attention run. Since the position block only changes what the *attention
+   mixing* can condition on (the flatten step already preserves slot identity
+   downstream either way), a null result here would suggest the trunk's first
+   Linear layer was already recovering whatever positional information mattered
+   from the fixed flatten order — useful negative evidence either way.
 
 The location-tagged hand/tray unification remains a **second** experiment, attempted
 only if board attention shows signal. It relaxes the encoder's POV separation and is

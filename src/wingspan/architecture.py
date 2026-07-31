@@ -65,6 +65,7 @@ class ShapeKey(pydantic.BaseModel):
     hand_embed_width: int  # the *resolved* N, so None == explicit-equal
     tray_set_embedding: bool
     use_board_attention: bool
+    board_attention_positions: bool
     hand_pooling: HandPooling | None  # None when use_distinct_hand_model
 
 
@@ -191,6 +192,23 @@ class ModelArchitecture(pydantic.BaseModel):
     # identically with no compat shim. Joins ShapeKey so a True run won't try
     # to resume False weights (handled by the architecture_key gate, REGIME).
     use_board_attention: bool = False
+    # When True (meaningful only alongside ``use_board_attention``), each
+    # board-attention token additionally carries an 8-dim constant position
+    # block (3-dim habitat one-hot ⊕ 5-dim column one-hot) so attention mixing
+    # can condition on slot position instead of being fully permutation-
+    # equivariant over the 15 slots. Config-carried, default False → old
+    # artifacts rehydrate identically with no compat shim. Joins ShapeKey for
+    # the same reason as ``use_board_attention``. Deliberately NOT enforced by
+    # a ``@model_validator`` here: ``RunConfig._check_architecture`` forces
+    # ``self.arch`` to assemble on *every* construction, including each
+    # single-field configurator commit, so a hard reject here would surface as
+    # a "commit rejected" error the moment ``use_board_attention`` is toggled
+    # off while this is still on — before ``reset_hidden_fields`` gets a
+    # chance to clear it. When ``use_board_attention`` is False this flag is
+    # simply inert (``_build_board_attention`` returns before ever reading it),
+    # so nothing breaks by leaving it un-enforced at this layer; the combination
+    # is instead flagged as a launch blocker by ``config.validate_launchable``.
+    board_attention_positions: bool = False
 
     # Per-block between/final activation overrides plus dropout and LayerNorm
     # toggles. ``None`` means "inherit the matching global". Body blocks
@@ -281,6 +299,20 @@ class ModelArchitecture(pydantic.BaseModel):
     def trunk_embed_width(self) -> int:
         """The trunk's output width ``M`` — what the scorer and value heads consume."""
         return self.trunk_layers[-1]
+
+    @property
+    def board_attention_positions_active(self) -> bool:
+        """Whether the per-token position block is actually built and consumed.
+
+        ``board_attention_positions`` alone is inert when ``use_board_attention``
+        is ``False`` (``_build_board_attention`` returns before ever reading it) —
+        every caller that needs to know "is the extra ``BOARD_POSITION_DIM``
+        width really present" must check *both* flags, not
+        ``board_attention_positions`` in isolation. Centralized here as the
+        single source of truth so callers can't (re-)introduce the AND
+        incorrectly; kept torch- and encode-free (a bool, not a width) so this
+        module stays importable without pulling in ``encode``."""
+        return self.use_board_attention and self.board_attention_positions
 
     @property
     def hand_embed_width(self) -> int:
@@ -464,6 +496,10 @@ class ModelArchitecture(pydantic.BaseModel):
             hand_embed_width=self.hand_embed_width,
             tray_set_embedding=self.tray_set_embedding,
             use_board_attention=self.use_board_attention,
+            # The *active* value, not the raw field: with use_board_attention
+            # False, board_attention_positions is inert either way, and the two
+            # configs build byte-identical modules — they must share a shape_key.
+            board_attention_positions=self.board_attention_positions_active,
             # None when distinct (pooling inert) so old distinct artifacts'
             # keys are unaffected; the pooling mode only appears in the key
             # for the pooled path, where it determines the trunk input width.
@@ -552,6 +588,7 @@ def count_parameters(
     num_families: int,
     hand_feat_in: int = 0,
     slot_scalar_dim: int = 9,
+    board_position_dim: int = 0,
 ) -> ParamReport:
     """Analytic per-block parameter accounting for the network ``arch`` describes.
 
@@ -565,7 +602,10 @@ def count_parameters(
     ``hand_feat_in`` (``encode.HAND_ENCODER_INPUT_DIM``) must also be supplied so
     the HAND block's parameter count is correct. ``slot_scalar_dim`` (default 9)
     is the mutable-scalar count per board slot, passed explicitly so this function
-    stays encode-free.
+    stays encode-free. ``board_position_dim`` (default 0) is the width of the
+    per-token position block added when ``arch.board_attention_positions`` is set
+    (``encode.BOARD_POSITION_DIM`` = 8, otherwise 0) — also passed explicitly for
+    the same reason.
     """
     # The trunk ends at width M and the choice encoder at width N; the scorer
     # heads read the M+N concat and the value head reads the trunk's M alone,
@@ -592,9 +632,12 @@ def count_parameters(
     # Build the optional BOARD ATTENTION block. Each nn.MultiheadAttention with
     # embed_dim=W has: in_proj_weight[3W,W] + in_proj_bias[3W] + out_proj[W,W]
     # + out_proj.bias[W] = 4W² + 4W params. Two modules (own + opp) → 8W² + 8W.
+    # W includes the position block when board_attention_positions is set.
     board_attn_block: BlockParam | None = None
     if arch.use_board_attention:
         token_width = arch.card_embed_dim + slot_scalar_dim
+        if arch.board_attention_positions_active:
+            token_width += board_position_dim
         attn_params = 4 * token_width * token_width + 4 * token_width
         board_attn_block = BlockParam(
             label="BOARD ATTN",

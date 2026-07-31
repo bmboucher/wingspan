@@ -25,7 +25,10 @@ architecture diagram (via `svg.py`), vector layout table (state + choice stripes
 from `encode.stripes`), a conditional **Board Token Vector** panel (rendered only
 when `param_report.board_attention` is not `None`, describing one board-attention
 token via `encode.stripes.board_token_stripe_layout`: the shared card embedding
-plus the 9 mutable per-slot scalars), parameter count breakdown, training config
+plus the 9 mutable per-slot scalars, plus — when `arch.board_attention_positions`
+— the constant habitat/column position block, threaded through via
+`board_token_stripe_layout(..., board_attention_positions=arch.board_attention_positions)`),
+parameter count breakdown, training config
 table, and a **Birds tab** (Model ↔ Birds toggle in the header; responsive grid of all 180
 core cards; click any card to open an `#enc-modal` showing that bird's non-identity
 attribute encoding stripes with named, decoded values).  Also
@@ -138,7 +141,9 @@ connector bands between them. The **SINGLE-CARD ENCODER** is centered on the 960
 **MULTI-CARD POOLING** block (no I/O boxes, no "0 params" legend, drawn right-of-center at `_POOL_X`
 via `_draw_bare_unit` when the net pools the card table) or the full **MULTI-CARD ENCODER** (when
 `use_distinct_hand_model`) — plus **BOARD ATTENTION** in col 0 when `arch.use_board_attention` is
-True. The three card→{state,choice,setup} feeds share a **trunk** (`_trunk_svg`): a vertical stem at
+True (`_attention_unit` widens its displayed token width by `BOARD_POSITION_DIM` — 73→81 — and
+notes the trunk-width delta when `arch.board_attention_positions` is additionally set). The three
+card→{state,choice,setup} feeds share a **trunk** (`_trunk_svg`): a vertical stem at
 `_TRUNK_X` (gutter between the two consumer blocks), splitting in the cons band into labelled
 branches — State gets ×N_CARD_INDEX_SLOTS when attention off or ×TRAY_SIZE tray when on; Choice gets
 ×1 candidate; Setup gets ×TRAY_SIZE, dashed when inactive. The card→MULTI-CARD POOLING feed is a

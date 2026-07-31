@@ -33,15 +33,22 @@ set_width, *, use_distinct)`: `kept_cards` and optional `playable_kept_cards` /
 `turn1_playable` stripes expand to `set_width = pooled_hand_width` (pooling path)
 or `hand_embed_width` (distinct-encoder path); `tray` expands to
 `TRAY_SIZE × card_embed_dim` (per-slot rows only — no tray-set embedding).
+`state_embed_rules(..., use_board_attention, board_attention_positions)`: when
+`use_board_attention`, `board_me`/`board_opp` expand to their attention-output
+width (`SLOTS_PER_BOARD × (card_embed_dim + SLOT_SCALAR_DIM)`, `+
+BOARD_POSITION_DIM` per slot when `board_attention_positions` is additionally
+set) and `card_idx_board` is folded into them (`new_size=0`).
 
 **`state.py`** — `state_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder that assembles all state stripes in canonical order (board slots by
 habitat, tray, birdfeeder, food cache, round goals, hand summary). Each stripe
 builder is a private function returning a `StripeDescriptor`. Also
-`board_token_stripe_layout(card_embed_dim) -> VectorLayout` — describes one
-board-attention input token (the shared card embedding concatenated with the
-slot's 9 mutable scalars from `_slot_scalar_sub_fields`, also reused by
-`_board_slot_sub_fields` for the 135-sub-field `board_me`/`board_opp` stripes).
+`board_token_stripe_layout(card_embed_dim, *, board_attention_positions=False) ->
+VectorLayout` — describes one board-attention input token (the shared card
+embedding concatenated with the slot's 9 mutable scalars from
+`_slot_scalar_sub_fields`, also reused by `_board_slot_sub_fields` for the
+135-sub-field `board_me`/`board_opp` stripes); with `board_attention_positions`,
+appends a trailing `position_habitat` (3) + `position_column` (5) constant block.
 
 **`choice.py`** — `choice_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder for the per-choice row stripes (decision-type one-hot, choice-type

@@ -68,8 +68,9 @@ top-level computed properties so call sites don't churn.
   Keyed to the *absolute* iteration counter, so the schedule survives resume
   and advances through DAgger clone iterations unchanged.
 - `validate_launchable(cfg) -> list[str]` — launch-time only checks: checkpoint
-  bootstrap on cuda, setup schedule order, target > max iterations, and the
-  anneal check (any `*_final` set requires `target_iterations > 0`). A dropout
+  bootstrap on cuda, setup schedule order, target > max iterations, the anneal
+  check (any `*_final` set requires `target_iterations > 0`), and
+  `board_attention_positions` requiring `use_board_attention`. A dropout
   anneal with no initial dropout to sweep — globally or on a specific block —
   is never rejected; it is inert (see `loop_anneal.py`). Returns human-readable
   problems; empty = safe to start. Called by the configurator's `[S]tart` /

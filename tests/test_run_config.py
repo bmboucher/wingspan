@@ -263,3 +263,39 @@ def test_validate_launchable_clone_iters_with_checkpoint_validates():
     # Must not raise; dagger_active_at correctly returns True before clone_iters.
     assert cfg.dagger_active_at(0) is True
     assert config.validate_launchable(cfg) == []
+
+
+def test_validate_launchable_board_attention_positions_without_attention_flagged():
+    """board_attention_positions=True with use_board_attention=False is flagged.
+
+    Deliberately a launch-time check, not a ModelArchitecture validator (same
+    reasoning as Workstream E above): RunConfig._check_architecture forces the
+    full architecture to assemble on every single-field configurator commit, so
+    a hard reject here would break toggling use_board_attention off while this
+    was still on, before reset_hidden_fields gets a chance to clear it.
+    """
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_board_attention=False, board_attention_positions=True
+            )
+        ),
+    )
+    # Must not raise at construction.
+    assert cfg.architecture.main.board_attention_positions is True
+    problems = config.validate_launchable(cfg)
+    assert any("board_attention_positions" in problem for problem in problems)
+
+
+def test_validate_launchable_board_attention_positions_with_attention_ok():
+    """board_attention_positions=True with use_board_attention=True validates cleanly."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_board_attention=True, board_attention_positions=True
+            )
+        ),
+    )
+    assert config.validate_launchable(cfg) == []

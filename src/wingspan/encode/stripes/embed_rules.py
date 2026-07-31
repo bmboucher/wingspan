@@ -72,6 +72,7 @@ def state_embed_rules(
     *,
     use_distinct_hand_model: bool = False,
     use_board_attention: bool = False,
+    board_attention_positions: bool = False,
     hand_embed_dim: int | None = None,
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
@@ -87,7 +88,14 @@ def state_embed_rules(
     * ``card_idx_board`` is removed (``new_size=0``): the per-slot card lookup
       is already included in the attention-output blocks above.
 
-    The total is unchanged, so the ``embed_layout`` consistency check still holds.
+    When ``board_attention_positions`` is additionally ``True`` (requires
+    ``use_board_attention``), each slot's concat gains the constant
+    ``BOARD_POSITION_DIM``-wide position block, so ``board_me`` / ``board_opp``
+    expand to ``BOARD_SLOTS × (card_embed_dim + SLOT_SCALAR_DIM +
+    BOARD_POSITION_DIM)`` instead — the total grows by ``N_BOARD_INDEX_SLOTS *
+    BOARD_POSITION_DIM``. With attention off (or positions off), the total is
+    unchanged; the ``embed_layout`` consistency check enforces whichever total
+    the caller's ``trunk_input_dim(..., board_position_dim=...)`` call expects.
 
     ``n_playable_multihots`` is the count of extra playability multi-hot stripes
     that follow ``hand_multihot`` in the v0.6+ state vector.  Each is embedded
@@ -155,15 +163,23 @@ def state_embed_rules(
     if use_board_attention:
         slots_per_seat = layout.N_BOARD_INDEX_SLOTS // 2
         slot_scalar_dim = layout.SLOT_SCALAR_DIM  # 9 scalars per slot
-        attn_width = slots_per_seat * (card_embed_dim + slot_scalar_dim)
+        position_dim = layout.BOARD_POSITION_DIM if board_attention_positions else 0
+        token_width = card_embed_dim + slot_scalar_dim + position_dim
+        attn_width = slots_per_seat * token_width
+        position_note = (
+            f" + {position_dim}-dim constant habitat/column position block"
+            if board_attention_positions
+            else ""
+        )
         rules["board_me"] = _EmbedRule(
             new_size=attn_width,
             encoding="board-attention output",
             value_range="learned",
             notes=(
-                f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim})-dim "
-                "concat (card embedding + per-slot scalars) each, shaped for the "
-                "board-attention transformer."
+                f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim}"
+                f"{position_note})-dim concat (card embedding + per-slot scalars"
+                f"{' + position' if board_attention_positions else ''}) each, "
+                "shaped for the board-attention transformer."
             ),
         )
         rules["board_opp"] = _EmbedRule(
@@ -171,9 +187,10 @@ def state_embed_rules(
             encoding="board-attention output",
             value_range="learned",
             notes=(
-                f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim})-dim "
-                "concat (card embedding + per-slot scalars) each, shaped for the "
-                "board-attention transformer."
+                f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim}"
+                f"{position_note})-dim concat (card embedding + per-slot scalars"
+                f"{' + position' if board_attention_positions else ''}) each, "
+                "shaped for the board-attention transformer."
             ),
         )
         # card_idx_board is folded into the attention blocks above.

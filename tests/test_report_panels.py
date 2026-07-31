@@ -86,6 +86,26 @@ def test_board_token_layout_matches_token_width():
     assert expected_offset == layout.total_size
 
 
+def test_board_token_layout_with_positions_matches_token_width():
+    layout = encode_stripes.board_token_stripe_layout(
+        96, board_attention_positions=True
+    )
+    assert layout.total_size == 96 + encode.SLOT_SCALAR_DIM + encode.BOARD_POSITION_DIM
+    # 1 card-embedding stripe + 9 scalar stripes + 2 position stripes (hab, col).
+    assert len(layout.stripes) == 1 + encode.SLOT_SCALAR_DIM + 2
+    assert layout.stripes[0].name == "card_embedding"
+    assert layout.stripes[0].size == 96
+    assert layout.stripes[-2].name == "position_habitat"
+    assert layout.stripes[-2].size == encode.BOARD_POSITION_HAB_DIM
+    assert layout.stripes[-1].name == "position_column"
+    assert layout.stripes[-1].size == encode.BOARD_POSITION_COL_DIM
+    expected_offset = 0
+    for stripe in layout.stripes:
+        assert stripe.offset == expected_offset
+        expected_offset += stripe.size
+    assert expected_offset == layout.total_size
+
+
 def test_board_token_scalars_match_board_stripe_sub_fields():
     # Lock the state.py hoist: the board-token layout's 9 scalar stripes must
     # describe the same 9 per-slot elements as the first slot's sub-fields in
@@ -178,6 +198,18 @@ def test_svg_board_attention_present_when_enabled():
     assert 'data-panel="board"' in html
     assert "<div class='section panel' id='board' hidden>" in html
     assert "Board Token Vector" in html
+
+
+def test_svg_board_attention_positions_present_when_enabled():
+    html = _report_html_with_attention_positions()
+    assert "BOARD ATTENTION" in html
+    # token width = 64 (card_embed_dim) + 9 (scalars) + 8 (position) = 81.
+    assert "81-wide" in html
+    assert "trunk width +240 for the position blocks" in html
+    assert "Board Token Vector" in html
+    assert "constant habitat/column position block" in html
+    assert "position_habitat" in html
+    assert "position_column" in html
 
 
 def test_svg_distinct_hand_model_input_is_clickable():
@@ -323,6 +355,16 @@ def _report_html_with_attention() -> str:
     )
 
 
+def _report_html_with_attention_positions() -> str:
+    """Generate the model-summary HTML with board self-attention + positions."""
+    return _report_html_for_arch(
+        architecture.ModelArchitecture(
+            use_board_attention=True, board_attention_positions=True
+        ),
+        use_setup_model=True,
+    )
+
+
 def _report_html_with_distinct_hand() -> str:
     """Generate the model-summary HTML with a learned (distinct) hand encoder."""
     return _report_html_for_arch(
@@ -355,6 +397,9 @@ def _report_html_for_arch(
         family.value
         for family in decisions.active_decision_families(spec.include_setup)
     )
+    board_position_dim = (
+        encode.BOARD_POSITION_DIM if arch.board_attention_positions_active else 0
+    )
     param_report = architecture.count_parameters(
         arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
@@ -364,6 +409,7 @@ def _report_html_for_arch(
             use_distinct_hand_model=arch.use_distinct_hand_model,
             hand_embed_dim=arch.hand_embed_dim,
             tray_set_embedding=arch.tray_set_embedding,
+            board_position_dim=board_position_dim,
         ),
         choice_in=encode.choice_input_dim(
             choice_dim, arch.card_embed_dim, include_setup=spec.include_setup
@@ -371,6 +417,7 @@ def _report_html_for_arch(
         num_families=len(family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
         slot_scalar_dim=encode.SLOT_SCALAR_DIM,
+        board_position_dim=board_position_dim,
     )
     return report.generate_html_report(
         encode_stripes.state_stripe_layout(spec, arch.card_embed_dim),

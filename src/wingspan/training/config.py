@@ -183,6 +183,16 @@ class MainNetArchitecture(pydantic.BaseModel):
     # When True, each player's 15 board slots are attended over as tokens before
     # the trunk. Config-carried; default False so old checkpoints load unchanged.
     use_board_attention: bool = False
+    # When True (meaningful only alongside use_board_attention), each
+    # board-attention token gains a constant habitat/column position block.
+    # Config-carried; default False. No validator here, nor on
+    # ModelArchitecture — a hard reject would surface as a "commit rejected"
+    # error the moment use_board_attention is toggled off while this is still
+    # on (RunConfig._check_architecture forces the full architecture to
+    # assemble on every single-field commit, before reset_hidden_fields gets a
+    # chance to clear this field). The combination is instead flagged as a
+    # launch blocker by config.validate_launchable.
+    board_attention_positions: bool = False
 
     # Per-block between/final activation overrides plus dropout and LayerNorm
     # toggles. None = inherit matching global. card/hand/choice _final default to
@@ -699,6 +709,7 @@ class RunConfig(pydantic.BaseModel):
             hand_pooling=main.hand_pooling,
             tray_set_embedding=main.tray_set_embedding,
             use_board_attention=main.use_board_attention,
+            board_attention_positions=main.board_attention_positions,
             card_between_activation=main.card_between_activation,
             card_final_activation=main.card_final_activation,
             card_dropout=main.card_dropout,
@@ -869,6 +880,17 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
     # / build_readout only construct one when p > 0), so the anneal is inert
     # there rather than an error. See loop_anneal.apply_dropout_schedules.
 
+    # board_attention_positions is meaningless without use_board_attention (the
+    # position block is concatenated onto board-attention tokens). Deliberately
+    # a launch-time check, not a ModelArchitecture validator — see the field's
+    # comment on MainNetArchitecture.
+    main = cfg.architecture.main
+    if main.board_attention_positions and not main.use_board_attention:
+        problems.append(
+            "board_attention_positions requires use_board_attention "
+            "(the position block is concatenated onto board-attention tokens)"
+        )
+
     return problems
 
 
@@ -1038,6 +1060,7 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "hand_pooling",
         "tray_set_embedding",
         "use_board_attention",
+        "board_attention_positions",
     }
     setup_arch_keys = {
         "setup_trunk_layers": "trunk_layers",

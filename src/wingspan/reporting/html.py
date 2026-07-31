@@ -357,15 +357,23 @@ def generate_html_report(
         ),
     ]
     if param_report.board_attention is not None:
+        position_note = (
+            " ⊕ constant habitat/column position block"
+            if arch.board_attention_positions_active
+            else ""
+        )
         sections.append(
             _vector_section(
-                encode_stripes.board_token_stripe_layout(arch.card_embed_dim),
+                encode_stripes.board_token_stripe_layout(
+                    arch.card_embed_dim,
+                    board_attention_positions=arch.board_attention_positions_active,
+                ),
                 report_svg.PANEL_BOARD,
                 "Board Token Vector",
                 _ACCENT_BOARD,
                 input_note=(
                     "one board-slot attention token — shared card-table row ⊕ "
-                    "mutable per-slot scalars"
+                    f"mutable per-slot scalars{position_note}"
                 ),
                 annotation=(
                     f"{encode.SLOTS_PER_BOARD} tokens per board × 2 boards "

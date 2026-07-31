@@ -1831,6 +1831,54 @@ def test_ppo_fields_visibility():
         assert spec.visible_when(ppo_cfg)
 
 
+def test_board_attention_positions_visibility():
+    """board_attention_positions is visible only when use_board_attention is True."""
+    off_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(use_board_attention=False)
+        ),
+    )
+    on_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(use_board_attention=True)
+        ),
+    )
+    spec = fields.spec_for("board_attention_positions")
+    assert spec.visible_when is not None
+    assert not spec.visible_when(off_cfg)
+    assert spec.visible_when(on_cfg)
+
+
+def test_reset_hidden_fields_clears_board_attention_positions_when_toggled_off():
+    """reset_hidden_fields resets board_attention_positions to its factory
+    default once use_board_attention is off, so hidden state never lingers
+    when the user re-enables board attention later."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_board_attention=True, board_attention_positions=True
+            )
+        ),
+    )
+    assert cfg.architecture.main.board_attention_positions is True
+
+    # Simulate the configurator's edit step (attention flipped off) before
+    # reset_hidden_fields runs — neither MainNetArchitecture nor
+    # ModelArchitecture reject this transient combination (it is instead
+    # caught as a launch blocker by config.validate_launchable), so this
+    # constructs without error.
+    data = cfg.model_dump()
+    data["architecture"]["main"]["use_board_attention"] = False
+    flipped = config.RunConfig.model_validate(data)
+    assert flipped.architecture.main.board_attention_positions is True
+
+    cleaned = fields.reset_hidden_fields(flipped)
+    assert cleaned.architecture.main.board_attention_positions is False
+
+
 def test_gae_fields_visibility():
     """GAE-specific fields appear only in GAE mode; reward_discount appears in delta+GAE."""
     gae_cfg = config.RunConfig(

@@ -558,6 +558,14 @@ def _attention_unit(
     one per seat's 15 board slots, drawn in col 0 between the encoder row and
     the consumer row."""
     token_width = arch.card_embed_dim + encode.SLOT_SCALAR_DIM
+    if arch.board_attention_positions_active:
+        token_width += encode.BOARD_POSITION_DIM
+    width_note = (
+        "trunk width unchanged"
+        if not arch.board_attention_positions_active
+        else f"trunk width +{encode.N_BOARD_INDEX_SLOTS * encode.BOARD_POSITION_DIM} "
+        "for the position blocks"
+    )
     return _Unit(
         x=_SVG_COL_X[0],
         accent=_ACCENT_ATTN,
@@ -579,7 +587,7 @@ def _attention_unit(
             f"Board Self-Attention · {_count_text(block.total)} params · "
             f"two single-head nn.MultiheadAttention modules, one per seat · "
             f"{encode.SLOTS_PER_BOARD} board-slot tokens × {token_width}-wide · "
-            f"attended tokens re-folded into state input (trunk width unchanged)"
+            f"attended tokens re-folded into state input ({width_note})"
         ),
         panel=PANEL_BOARD,
         params_key=block.label.lower(),

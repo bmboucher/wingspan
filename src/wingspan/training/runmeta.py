@@ -263,6 +263,9 @@ def build_model_summary_html(
 def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
     """The per-layer / per-block parameter accounting for ``descriptor``'s net."""
     arch = descriptor.architecture
+    board_position_dim = (
+        encode.BOARD_POSITION_DIM if arch.board_attention_positions_active else 0
+    )
     # The live (1.0) geometry: the full card-feature encoder, both hand-playability
     # multi-hots, and the compacted state vector — which derives the 10-dim hand
     # summary in-model rather than carrying it inline (``hand_summary_in_state``).
@@ -278,10 +281,13 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
             pooled_hand_width=arch.pooled_hand_width,
             tray_set_embedding=arch.tray_set_embedding,
             n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            board_position_dim=board_position_dim,
         ),
         choice_in=choice_input_dim_for(descriptor),
         num_families=len(descriptor.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
+        slot_scalar_dim=encode.SLOT_SCALAR_DIM,
+        board_position_dim=board_position_dim,
     )
 
 
@@ -294,6 +300,7 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
         arch.card_embed_dim,
         use_distinct_hand_model=arch.use_distinct_hand_model,
         use_board_attention=arch.use_board_attention,
+        board_attention_positions=arch.board_attention_positions,
         hand_embed_dim=arch.hand_embed_dim,
         pooled_hand_width=arch.pooled_hand_width,
         tray_set_embedding=arch.tray_set_embedding,

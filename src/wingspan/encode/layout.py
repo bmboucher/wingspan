@@ -496,6 +496,15 @@ SLOTS_PER_BOARD: int = _SLOTS_PER_BOARD  # 15 — slots on one player's board
 SLOT_SCALAR_DIM: int = _SLOT_MUT_DIM  # 9 — mutable scalars per board slot
 BOARD_CONT_STRIPE_DIM: int = _BOARD_CONT_STRIPE_DIM  # 135 — 15 × 9
 
+# Optional per-token position block for the board self-attention path
+# (``ModelArchitecture.board_attention_positions``): a habitat one-hot plus a
+# column one-hot, concatenated onto each of the 15 board tokens so attention
+# mixing can condition on slot position. Same live-encoding-only caveat as the
+# aliases above.
+BOARD_POSITION_HAB_DIM: int = state.N_HABITATS  # 3
+BOARD_POSITION_COL_DIM: int = state.ROW_SLOTS  # 5
+BOARD_POSITION_DIM: int = BOARD_POSITION_HAB_DIM + BOARD_POSITION_COL_DIM  # 8
+
 # The public face-up tray carries no continuous block at all: a tray bird has no
 # mutable per-slot state, and its static attributes ride the shared card table via
 # the card-index block. The stripe is therefore empty.
@@ -652,6 +661,7 @@ def trunk_input_dim(
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
     n_playable_multihots: int = 0,
+    board_position_dim: int = 0,
 ) -> int:
     """The state trunk's first-``Linear`` input width: the flat ``state_dim`` with
     the card-index block and the hand multi-hot replaced by their shared-embedding
@@ -681,6 +691,14 @@ def trunk_input_dim(
     state and re-embedded through the same path, adding one set-embedding-wide
     vector per block.
 
+    ``board_position_dim`` is the width of the per-token position block the board
+    self-attention path concatenates onto each of the ``N_BOARD_INDEX_SLOTS`` board
+    tokens (``BOARD_POSITION_DIM`` when ``ModelArchitecture.board_attention_positions``
+    is set, ``0`` otherwise — the default). Unlike the other embedding swaps above,
+    this is *added* width: the position block has no flat-state counterpart to
+    subtract, since it is a constant derived from slot index rather than a stripe
+    read out of the state vector.
+
     This is the single source of truth for the post-embedding width (used by both
     ``model.PolicyValueNet`` and the configurator's parameter accounting)."""
     if use_distinct_hand_model:
@@ -705,6 +723,7 @@ def trunk_input_dim(
         base -= HAND_SUMMARY_DIM
     if tray_set_embedding:
         base += hand_width
+    base += N_BOARD_INDEX_SLOTS * board_position_dim
     return base
 
 

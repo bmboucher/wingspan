@@ -44,6 +44,22 @@ the main actor-critic network. Key structure:
   `_embed_choices` loops over whichever stripes are non-None, summing each through
   the shared card table, then splices out all card-index / multi-hot regions and
   concatenates the rest with the resulting embeddings.
+- Board self-attention (`arch.use_board_attention`, optional): `board_attn_me` /
+  `board_attn_opp` — two independent single-head `nn.MultiheadAttention` modules,
+  one per seat, each over that seat's 15 board-slot tokens (`card_embed_dim ⊕ 9`
+  mutable scalars, `token_dim=73` by default). `_embed_state_board_attention`
+  builds the token sequences, `_apply_board_attention` (module-level) runs masked
+  self-attention with a residual (empty slots stay exactly zero via
+  `key_padding_mask` + an explicit `masked_fill`), and the flattened outputs
+  replace the standard per-slot card lookups + board continuous stripes.
+  `arch.board_attention_positions` (optional, requires `use_board_attention`)
+  concatenates a third, constant block onto every token — `board_position`, a
+  non-persistent `[15, BOARD_POSITION_DIM]` habitat-one-hot ⊕ column-one-hot
+  buffer built by the module-level `_board_position_matrix()` — so attention
+  *mixing* (otherwise fully permutation-equivariant over the 15 slots) can
+  condition on slot position; masked to zero on empty slots like the rest of the
+  token. Both flags are REGIME (config-carried, join `ShapeKey`); see
+  `docs/reports/board-self-attention.md`.
 
 **`mlp.py`** — Shared MLP building blocks used by both the policy net and the
 setup net so they produce byte-identical stacks from the same width list:

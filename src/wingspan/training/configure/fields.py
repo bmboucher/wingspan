@@ -579,6 +579,11 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "hand_embed_dim": ("architecture", "main", "hand_embed_dim"),
     "hand_pooling": ("architecture", "main", "hand_pooling"),
     "use_board_attention": ("architecture", "main", "use_board_attention"),
+    "board_attention_positions": (
+        "architecture",
+        "main",
+        "board_attention_positions",
+    ),
     # architecture.main per-block overrides
     "card_between_activation": ("architecture", "main", "card_between_activation"),
     "card_final_activation": ("architecture", "main", "card_final_activation"),
@@ -1179,6 +1184,21 @@ FIELD_SPECS: list[FieldSpec] = [
         "this first pass. Config-carried REGIME topology — but forces a fresh run "
         "(architecture_key changes) since weights differ with attention on vs off. "
         "Default False; old checkpoints load unchanged.",
+    ),
+    ChoiceField(
+        attr="board_attention_positions",
+        label="board attention positions",
+        group_path=("MODEL ARCHITECTURE", "STATE TRUNK"),
+        choices=["True", "False"],
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.architecture.main.use_board_attention,
+        help="When True (requires board attention), each board-attention token "
+        "additionally carries a constant 8-dim position block (3-dim habitat "
+        "one-hot ⊕ 5-dim column one-hot), so attention mixing can condition on "
+        "slot position instead of being fully permutation-equivariant over the "
+        "15 slots. Config-carried REGIME topology — but forces a fresh run "
+        "(architecture_key changes). Default False; old checkpoints load unchanged. "
+        "Hidden (and reset to False) when board attention is off.",
     ),
     # MODEL ARCHITECTURE ▸ CHOICE ENCODER
     LayersField(

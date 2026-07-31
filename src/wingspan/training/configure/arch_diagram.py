@@ -1148,6 +1148,13 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
     """The working config's main-net parameter accounting (per layer / block /
     total)."""
     cfg = view.working
+    # Read the flag off cfg.arch (a full ModelArchitecture), not
+    # cfg.architecture.main — the static/era-routed adapter's _StaticMain only
+    # mirrors the subset of MainNetArchitecture fields read directly here, and
+    # .arch is the one attribute both RunConfig and _StaticConfig expose.
+    board_position_dim = (
+        encode.BOARD_POSITION_DIM if cfg.arch.board_attention_positions_active else 0
+    )
     return architecture.count_parameters(
         cfg.arch,
         card_feat_in=encode.CARD_FEATURE_DIM,
@@ -1155,6 +1162,8 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
         choice_in=_choice_in(cfg),
         num_families=len(cfg.family_order),
         hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
+        slot_scalar_dim=encode.SLOT_SCALAR_DIM,
+        board_position_dim=board_position_dim,
     )
 
 
@@ -1163,6 +1172,11 @@ def _trunk_in(cfg: config.RunConfig) -> int:
     knob threaded. Passes ``n_playable_multihots=N_HAND_PLAYABLE_MULTIHOTS`` for
     live configs (the state vector includes two 180-dim playability stripes that
     the model embeds rather than passing through as continuous features)."""
+    # See _param_report: read off cfg.arch, not cfg.architecture.main, so this
+    # also works for the static/era-routed _StaticConfig adapter.
+    board_position_dim = (
+        encode.BOARD_POSITION_DIM if cfg.arch.board_attention_positions_active else 0
+    )
     return encode.trunk_input_dim(
         cfg.state_dim,
         cfg.architecture.main.card_embed_dim,
@@ -1171,6 +1185,7 @@ def _trunk_in(cfg: config.RunConfig) -> int:
         pooled_hand_width=cfg.arch.pooled_hand_width,
         tray_set_embedding=cfg.architecture.main.tray_set_embedding,
         n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+        board_position_dim=board_position_dim,
     )
 
 

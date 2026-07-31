@@ -111,6 +111,9 @@ class PolicyValueNet(nn.Module):
     # Optional attention modules, registered only when use_board_attention is on.
     board_attn_me: nn.MultiheadAttention
     board_attn_opp: nn.MultiheadAttention
+    # Optional constant position block, registered only when
+    # board_attention_positions is also on. Shape [SLOTS_PER_BOARD, BOARD_POSITION_DIM].
+    board_position: torch.Tensor
 
     def __init__(
         self,
@@ -387,17 +390,28 @@ class PolicyValueNet(nn.Module):
             )
 
     def _build_board_attention(self, arch: architecture.ModelArchitecture) -> None:
-        """Register ``board_attn_me`` and ``board_attn_opp`` (conditional).
+        """Register ``board_attn_me`` and ``board_attn_opp`` (conditional), and
+        the optional constant ``board_position`` block.
 
         When ``use_board_attention`` is on, two independent
         ``nn.MultiheadAttention`` modules are registered — one for the active
         player's board, one for the opponent's — each operating over 15 token
-        slots of width ``card_embed_dim + SLOT_SCALAR_DIM``. Single-head only for
-        this first pass (73 = prime for the default 64+9 token width; multi-head
-        would require a projection)."""
+        slots of width ``card_embed_dim + SLOT_SCALAR_DIM`` (``+
+        BOARD_POSITION_DIM`` when ``board_attention_positions`` is also on, in
+        which case the constant ``[15, 8]`` habitat/column one-hot buffer is
+        also registered — non-persistent like ``card_summary_matrix``, so it is
+        rebuilt from scratch on load rather than saved). Single-head only for
+        this first pass: 73 is prime for the default 64+9 token width (81 = 3⁴
+        with positions added) — multi-head would require a projection either
+        way."""
         if not arch.use_board_attention:
             return
         token_dim = arch.card_embed_dim + encode.SLOT_SCALAR_DIM
+        if arch.board_attention_positions_active:
+            token_dim += encode.BOARD_POSITION_DIM
+            self.register_buffer(
+                "board_position", _board_position_matrix(), persistent=False
+            )
         self.board_attn_me = nn.MultiheadAttention(
             embed_dim=token_dim, num_heads=1, batch_first=True
         )
@@ -427,6 +441,9 @@ class PolicyValueNet(nn.Module):
         # continuous feed when building the trunk. In live v0.9+ it is derived
         # in-model so both fields are 0 and no subtraction is needed.
         hand_summary_in_state = offsets.hand_summary_end > offsets.hand_summary
+        board_position_dim = (
+            encode.BOARD_POSITION_DIM if arch.board_attention_positions_active else 0
+        )
         trunk_in_dim = encode.trunk_input_dim(
             state_dim,
             arch.card_embed_dim,
@@ -436,6 +453,7 @@ class PolicyValueNet(nn.Module):
             pooled_hand_width=arch.pooled_hand_width,
             tray_set_embedding=arch.tray_set_embedding,
             n_playable_multihots=n_extra,
+            board_position_dim=board_position_dim,
         )
         self.state_trunk, _ = mlp.build_body(
             trunk_in_dim,
@@ -577,8 +595,10 @@ class PolicyValueNet(nn.Module):
 
         When ``use_board_attention`` is on the work is delegated to
         :meth:`_embed_state_board_attention` which runs self-attention over each
-        player's 15 board slots before flattening — the total width is identical
-        to the non-attention path, so ``trunk_input_dim`` is unchanged."""
+        player's 15 board slots before flattening — with ``board_attention_positions``
+        off the total width is identical to the non-attention path (``trunk_input_dim``
+        unchanged); with it on, ``trunk_input_dim`` accounts for the added
+        per-token position block."""
         offsets = self._state_embed_offsets()
         if self.arch.use_board_attention:
             return self._embed_state_board_attention(state, card_table, offsets)
@@ -639,14 +659,18 @@ class PolicyValueNet(nn.Module):
     ) -> torch.Tensor:
         """Board-attention branch of ``_embed_state``.
 
-        Constructs 15-token sequences for each player's board
-        (token = card_embed ⊕ 9 mutable scalars), applies masked self-attention
-        with a residual, then concatenates the flattened outputs in place of
-        the standard per-slot card lookups + board-stripe continuous dims. The
-        total output width is identical to the non-attention path — the two
-        board continuous stripes (270 dims) are excised from ``continuous`` and
-        re-folded into the flattened tokens (15×(E+9) each = 270 dims in total
-        per board), keeping ``trunk_input_dim`` unchanged."""
+        Constructs 15-token sequences for each player's board (token =
+        card_embed ⊕ 9 mutable scalars, plus a constant ⊕ 8-dim habitat/column
+        position block when ``board_attention_positions`` is on), applies masked
+        self-attention with a residual, then concatenates the flattened outputs
+        in place of the standard per-slot card lookups + board-stripe continuous
+        dims. The two board continuous stripes (270 dims) are excised from
+        ``continuous`` and re-folded into the flattened tokens (15×W each per
+        board, W = E+9 normally or E+9+8 with positions on) — with positions off
+        the total output width is identical to the non-attention path
+        (``trunk_input_dim`` unchanged); with positions on it grows by
+        ``N_BOARD_INDEX_SLOTS * BOARD_POSITION_DIM`` = 240, which
+        ``trunk_input_dim(..., board_position_dim=...)`` accounts for."""
         off_index = offsets.card_index
         off_hand = offsets.hand_multihot
         off_decision = offsets.decision_type
@@ -677,17 +701,30 @@ class PolicyValueNet(nn.Module):
             :, off_bopp : off_bopp + encode.BOARD_CONT_STRIPE_DIM
         ].reshape(state.shape[0], encode.SLOTS_PER_BOARD, encode.SLOT_SCALAR_DIM)
 
-        # Tokens = [card_embed ⊕ scalars]: [B, 15, E+9].
-        own_tokens = torch.cat([own_card_emb, own_scalars], dim=-1)
-        opp_tokens = torch.cat([opp_card_emb, opp_scalars], dim=-1)
-
         # Empty-slot masks: True = padding slot (card_idx == 0).
         own_empty = card_idx[:, : encode.SLOTS_PER_BOARD] == 0
         opp_empty = (
             card_idx[:, encode.SLOTS_PER_BOARD : encode.N_BOARD_INDEX_SLOTS] == 0
         )
 
-        # Apply attention and residual; flatten to [B, 15*(E+9)].
+        # Tokens = [card_embed ⊕ scalars] or, with board_attention_positions,
+        # [card_embed ⊕ scalars ⊕ position]: [B, 15, W]. The position block is a
+        # per-slot constant (habitat one-hot ⊕ column one-hot) shared by both
+        # boards, masked to zero on empty slots — card_emb and scalars are
+        # already zero there (card table row 0 + zero-written scalars), so this
+        # keeps the "empty slot -> exactly-zero token" invariant
+        # ``_apply_board_attention``'s residual/NaN-guard relies on.
+        if self.arch.board_attention_positions_active:
+            position = self.board_position.unsqueeze(0).expand(state.shape[0], -1, -1)
+            own_position = position.masked_fill(own_empty.unsqueeze(-1), 0.0)
+            opp_position = position.masked_fill(opp_empty.unsqueeze(-1), 0.0)
+            own_tokens = torch.cat([own_card_emb, own_scalars, own_position], dim=-1)
+            opp_tokens = torch.cat([opp_card_emb, opp_scalars, opp_position], dim=-1)
+        else:
+            own_tokens = torch.cat([own_card_emb, own_scalars], dim=-1)
+            opp_tokens = torch.cat([opp_card_emb, opp_scalars], dim=-1)
+
+        # Apply attention and residual; flatten to [B, 15*W].
         own_flat = _apply_board_attention(self.board_attn_me, own_tokens, own_empty)
         opp_flat = _apply_board_attention(self.board_attn_opp, opp_tokens, opp_empty)
 
@@ -914,6 +951,22 @@ class PolicyValueNet(nn.Module):
 ###### MODULE-LEVEL HELPERS ######
 
 
+def _board_position_matrix() -> torch.Tensor:
+    """The constant ``[SLOTS_PER_BOARD, BOARD_POSITION_DIM]`` position block.
+
+    Row ``slot`` is a habitat one-hot (``BOARD_POSITION_HAB_DIM``) concatenated
+    with a column one-hot (``BOARD_POSITION_COL_DIM``), for ``slot = hab_idx *
+    ROW_SLOTS + col`` — the same habitat-major order the encoder writes board
+    slots in (``cards.ALL_HABITATS``). Shared by both boards; callers mask rows
+    to zero for empty slots before concatenating onto the card/scalar token."""
+    matrix = torch.zeros(encode.SLOTS_PER_BOARD, encode.BOARD_POSITION_DIM)
+    for slot in range(encode.SLOTS_PER_BOARD):
+        habitat, column = divmod(slot, encode.BOARD_POSITION_COL_DIM)
+        matrix[slot, habitat] = 1.0
+        matrix[slot, encode.BOARD_POSITION_HAB_DIM + column] = 1.0
+    return matrix
+
+
 def _apply_board_attention(
     attn: nn.MultiheadAttention,
     tokens: torch.Tensor,
@@ -923,12 +976,15 @@ def _apply_board_attention(
 
     Args:
         attn:   the ``nn.MultiheadAttention`` module for this player's board.
-        tokens: ``(B, 15, E+9)`` — one token per slot (card embed ⊕ scalars).
-                Empty slots have zero-vector tokens (``card_pad_mask`` + zero scalars).
+        tokens: ``(B, 15, W)`` — one token per slot (card embed ⊕ scalars, plus
+                a masked constant position block when
+                ``board_attention_positions`` is on). Empty slots have
+                zero-vector tokens (``card_pad_mask`` + zero scalars + masked
+                position).
         empty:  ``(B, 15)`` bool, True = empty slot (card_idx == 0).
 
     Returns:
-        ``(B, 15*(E+9))`` — attended+residual tokens, flattened.
+        ``(B, 15*W)`` — attended+residual tokens, flattened.
 
     The NaN guard: when ALL 15 slots in a row are empty (common at game start),
     ``key_padding_mask=empty`` would make every key masked, causing ``softmax``

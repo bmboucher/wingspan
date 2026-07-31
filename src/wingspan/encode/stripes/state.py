@@ -46,6 +46,7 @@ def state_stripe_layout(
     *,
     use_distinct_hand_model: bool = False,
     use_board_attention: bool = False,
+    board_attention_positions: bool = False,
     hand_embed_dim: int | None = None,
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
@@ -64,20 +65,34 @@ def state_stripe_layout(
     tray stripe by one derived set embedding (3·M + N). When ``use_board_attention``
     is True, ``board_me`` / ``board_opp`` each show as their attention-output width
     and ``card_idx_board`` is folded into them (see :func:`~embed_rules.state_embed_rules`).
-    ``n_playable_multihots`` is the number of extra playability multi-hot stripes
-    (``hand_playable_me``, ``hand_playable_eggs_me``) that follow ``hand_multihot``
-    in the v0.6+ state vector; each is embedded at the same width as the hand
-    embedding. (The model concatenates the embeddings after the continuous features;
-    here they keep their encoding-order position.) Only the trailing decision-type one-hot's
-    width depends on ``spec``.
+    ``board_attention_positions`` (meaningful only alongside ``use_board_attention``
+    — inert, not rejected, when it is False) further widens those two stripes by
+    the constant per-token position block (``layout.BOARD_POSITION_DIM``).
+    ``n_playable_multihots`` is the number of extra
+    playability multi-hot stripes (``hand_playable_me``, ``hand_playable_eggs_me``)
+    that follow ``hand_multihot`` in the v0.6+ state vector; each is embedded at the
+    same width as the hand embedding. (The model concatenates the embeddings after
+    the continuous features; here they keep their encoding-order position.) Only the
+    trailing decision-type one-hot's width depends on ``spec``.
     """
     raw = _build_raw_state_stripes(spec)
+    # board_attention_positions is inert without use_board_attention (mirrors
+    # ModelArchitecture.board_attention_positions_active) — state_embed_rules
+    # below already nests this AND internally when building board_me/board_opp's
+    # rule, but the expected_total passed to embed_layout must match, so the
+    # same AND is required here too.
+    board_position_dim = (
+        layout.BOARD_POSITION_DIM
+        if (use_board_attention and board_attention_positions)
+        else 0
+    )
     return embed_rules.embed_layout(
         raw,
         embed_rules.state_embed_rules(
             card_embed_dim,
             use_distinct_hand_model=use_distinct_hand_model,
             use_board_attention=use_board_attention,
+            board_attention_positions=board_attention_positions,
             hand_embed_dim=hand_embed_dim,
             pooled_hand_width=pooled_hand_width,
             tray_set_embedding=tray_set_embedding,
@@ -91,12 +106,15 @@ def state_stripe_layout(
             pooled_hand_width=pooled_hand_width,
             tray_set_embedding=tray_set_embedding,
             n_playable_multihots=n_playable_multihots,
+            board_position_dim=board_position_dim,
         ),
     )
 
 
 def board_token_stripe_layout(
     card_embed_dim: int = _DEFAULT_CARD_EMBED_DIM,
+    *,
+    board_attention_positions: bool = False,
 ) -> descriptors.VectorLayout:
     """Build the stripe registry for one board-attention input token.
 
@@ -108,6 +126,12 @@ def board_token_stripe_layout(
     *one* token, not the full attention-output tensor — ``layout.SLOTS_PER_BOARD``
     (15) such tokens make up one board, and both boards (own, opponent) are
     attended separately.
+
+    When ``board_attention_positions`` is True (``ModelArchitecture.board_attention_positions``),
+    the token gains a trailing constant position block: a
+    ``BOARD_POSITION_HAB_DIM``-wide habitat one-hot then a
+    ``BOARD_POSITION_COL_DIM``-wide column one-hot, zeroed on empty slots (see
+    ``model.core._build_board_attention``'s ``board_position`` buffer).
     """
     scalar_bases = _slot_scalar_sub_fields()
 
@@ -140,10 +164,51 @@ def board_token_stripe_layout(
     )
 
     total = card_embed_dim + layout.SLOT_SCALAR_DIM
+    if board_attention_positions:
+        position_off = card_embed_dim + layout.SLOT_SCALAR_DIM
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name="position_habitat",
+                description="Constant habitat one-hot for this slot.",
+                offset=position_off,
+                size=layout.BOARD_POSITION_HAB_DIM,
+                encoding="one-hot",
+                value_range="{0, 1}",
+                notes=(
+                    "Habitats in order: "
+                    f"{', '.join(h.value for h in cards.ALL_HABITATS)}. "
+                    "Not a learned embedding — a fixed constant per slot, "
+                    "zeroed (along with position_column) on empty slots."
+                ),
+            )
+        )
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name="position_column",
+                description="Constant column one-hot for this slot.",
+                offset=position_off + layout.BOARD_POSITION_HAB_DIM,
+                size=layout.BOARD_POSITION_COL_DIM,
+                encoding="one-hot",
+                value_range="{0, 1}",
+                notes=(
+                    f"{state.ROW_SLOTS} columns, left to right. Not a learned "
+                    "embedding — a fixed constant per slot, zeroed (along with "
+                    "position_habitat) on empty slots."
+                ),
+            )
+        )
+        total += layout.BOARD_POSITION_DIM
+
     accumulated = sum(stripe.size for stripe in stripes)
     assert accumulated == total, (
         f"board-token stripes total {accumulated} but card_embed_dim "
-        f"({card_embed_dim}) + SLOT_SCALAR_DIM ({layout.SLOT_SCALAR_DIM}) = {total}"
+        f"({card_embed_dim}) + SLOT_SCALAR_DIM ({layout.SLOT_SCALAR_DIM}) "
+        + (
+            f"+ BOARD_POSITION_DIM ({layout.BOARD_POSITION_DIM}) "
+            if board_attention_positions
+            else ""
+        )
+        + f"= {total}"
     )
     return descriptors.VectorLayout(total_size=total, stripes=tuple(stripes))
 
