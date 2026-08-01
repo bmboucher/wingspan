@@ -193,6 +193,12 @@ class MainNetArchitecture(pydantic.BaseModel):
     # chance to clear this field). The combination is instead flagged as a
     # launch blocker by config.validate_launchable.
     board_attention_positions: bool = False
+    # Attention head count for both board-attention modules (meaningful only
+    # alongside use_board_attention). Config-carried; default 1 reproduces the
+    # original single-head modules exactly (see architecture.py's mirror
+    # comment for the pad/slice contract). Same not-enforced-here reasoning as
+    # board_attention_positions: config.validate_launchable is the blocker.
+    board_attention_heads: typing.Annotated[int, pydantic.Field(ge=1)] = 1
 
     # Per-block between/final activation overrides plus dropout and LayerNorm
     # toggles. None = inherit matching global. card/hand/choice _final default to
@@ -710,6 +716,7 @@ class RunConfig(pydantic.BaseModel):
             tray_set_embedding=main.tray_set_embedding,
             use_board_attention=main.use_board_attention,
             board_attention_positions=main.board_attention_positions,
+            board_attention_heads=main.board_attention_heads,
             card_between_activation=main.card_between_activation,
             card_final_activation=main.card_final_activation,
             card_dropout=main.card_dropout,
@@ -891,6 +898,15 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
             "(the position block is concatenated onto board-attention tokens)"
         )
 
+    # board_attention_heads is meaningless without use_board_attention (there
+    # is no attention module to split into heads). Same launch-time-only
+    # reasoning as the check above.
+    if main.board_attention_heads != 1 and not main.use_board_attention:
+        problems.append(
+            "board_attention_heads is set but use_board_attention is off "
+            "(there is no board-attention module to split into heads)"
+        )
+
     return problems
 
 
@@ -1061,6 +1077,7 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "tray_set_embedding",
         "use_board_attention",
         "board_attention_positions",
+        "board_attention_heads",
     }
     setup_arch_keys = {
         "setup_trunk_layers": "trunk_layers",

@@ -584,6 +584,7 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
         "main",
         "board_attention_positions",
     ),
+    "board_attention_heads": ("architecture", "main", "board_attention_heads"),
     # architecture.main per-block overrides
     "card_between_activation": ("architecture", "main", "card_between_activation"),
     "card_final_activation": ("architecture", "main", "card_final_activation"),
@@ -1180,10 +1181,11 @@ FIELD_SPECS: list[FieldSpec] = [
         impact=ChangeImpact.FRESH,
         help="When True, each player's 15 board slots are attended over as tokens "
         "(card_embed ⊕ 9 mutable scalars) before the trunk, using two independent "
-        "MultiheadAttention modules (own board + opponent board). Single-head for "
-        "this first pass. Config-carried REGIME topology — but forces a fresh run "
-        "(architecture_key changes) since weights differ with attention on vs off. "
-        "Default False; old checkpoints load unchanged.",
+        "MultiheadAttention modules (own board + opponent board). Head count set "
+        "by board attention heads (visible once enabled). Config-carried REGIME "
+        "topology — but forces a fresh run (architecture_key changes) since "
+        "weights differ with attention on vs off. Default False; old checkpoints "
+        "load unchanged.",
     ),
     ChoiceField(
         attr="board_attention_positions",
@@ -1199,6 +1201,25 @@ FIELD_SPECS: list[FieldSpec] = [
         "15 slots. Config-carried REGIME topology — but forces a fresh run "
         "(architecture_key changes). Default False; old checkpoints load unchanged. "
         "Hidden (and reset to False) when board attention is off.",
+    ),
+    IntField(
+        attr="board_attention_heads",
+        label="board attention heads",
+        group_path=("MODEL ARCHITECTURE", "STATE TRUNK"),
+        unit="heads",
+        step=1,
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.architecture.main.use_board_attention,
+        help="Number of attention heads per board-attention module. The natural "
+        "token width (73, or 81 with positions) rarely divides the head count, "
+        "so tokens are zero-padded to the next multiple before attention and "
+        "the output sliced back — trunk input width never changes; parameters "
+        "grow only by the padding. 1 (default) reproduces the original "
+        "single-head modules exactly. Fresh run when changed: even when the "
+        "padded width leaves every tensor shape identical (e.g. 3 heads at the "
+        "81-wide positions token), weights trained under one head count compute "
+        "a different function under another. Hidden (and reset to 1) when "
+        "board attention is off.",
     ),
     # MODEL ARCHITECTURE ▸ CHOICE ENCODER
     LayersField(

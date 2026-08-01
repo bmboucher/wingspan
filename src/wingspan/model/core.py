@@ -400,10 +400,12 @@ class PolicyValueNet(nn.Module):
         BOARD_POSITION_DIM`` when ``board_attention_positions`` is also on, in
         which case the constant ``[15, 8]`` habitat/column one-hot buffer is
         also registered — non-persistent like ``card_summary_matrix``, so it is
-        rebuilt from scratch on load rather than saved). Single-head only for
-        this first pass: 73 is prime for the default 64+9 token width (81 = 3⁴
-        with positions added) — multi-head would require a projection either
-        way."""
+        rebuilt from scratch on load rather than saved). The true token width
+        (73, or 81 with positions) rarely divides ``board_attention_heads`` —
+        73 is prime, 81 = 3⁴ — so each module is built at the zero-padded
+        ``architecture.board_attention_embed_dim`` width instead; the pad never
+        leaves the attention step (``_apply_board_attention`` slices back to
+        the true width), so this is the only place the padded width appears."""
         if not arch.use_board_attention:
             return
         token_dim = arch.card_embed_dim + encode.SLOT_SCALAR_DIM
@@ -412,11 +414,13 @@ class PolicyValueNet(nn.Module):
             self.register_buffer(
                 "board_position", _board_position_matrix(), persistent=False
             )
+        num_heads = arch.board_attention_heads_active
+        embed_dim = architecture.board_attention_embed_dim(token_dim, num_heads)
         self.board_attn_me = nn.MultiheadAttention(
-            embed_dim=token_dim, num_heads=1, batch_first=True
+            embed_dim=embed_dim, num_heads=num_heads, batch_first=True
         )
         self.board_attn_opp = nn.MultiheadAttention(
-            embed_dim=token_dim, num_heads=1, batch_first=True
+            embed_dim=embed_dim, num_heads=num_heads, batch_first=True
         )
 
     def _build_trunk(
@@ -975,7 +979,9 @@ def _apply_board_attention(
     """Masked self-attention with residual over one player's 15 board slots.
 
     Args:
-        attn:   the ``nn.MultiheadAttention`` module for this player's board.
+        attn:   the ``nn.MultiheadAttention`` module for this player's board,
+                built at ``architecture.board_attention_embed_dim(W, heads)`` —
+                possibly wider than ``W`` when ``heads`` doesn't divide it.
         tokens: ``(B, 15, W)`` — one token per slot (card embed ⊕ scalars, plus
                 a masked constant position block when
                 ``board_attention_positions`` is on). Empty slots have
@@ -984,19 +990,39 @@ def _apply_board_attention(
         empty:  ``(B, 15)`` bool, True = empty slot (card_idx == 0).
 
     Returns:
-        ``(B, 15*W)`` — attended+residual tokens, flattened.
+        ``(B, 15*W)`` — attended+residual tokens at the true width ``W``,
+        flattened (never the padded width — see below).
 
     The NaN guard: when ALL 15 slots in a row are empty (common at game start),
     ``key_padding_mask=empty`` would make every key masked, causing ``softmax``
     over ``-inf`` → NaN.  We clone the mask and unmask slot 0 as a dummy key for
     those rows. Because the dummy token is a zero vector the attention output for
     those rows is ≈ 0; the subsequent ``masked_fill`` and the zero token ensure
-    the residual is exactly 0 for every empty slot either way."""
+    the residual is exactly 0 for every empty slot either way.
+
+    Multi-head padding: when ``attn.embed_dim`` (``E``) exceeds the true token
+    width ``W``, ``tokens`` is zero-padded to ``E`` right before attention and
+    the output sliced back to ``W`` right after — the pad never escapes this
+    function, so every caller-visible shape (and the trunk input it feeds)
+    stays at ``W``. Padding a zero (empty-slot) token keeps it zero, so the
+    empty-slot invariant above is unaffected by the pad. The pad is equivalent
+    to a learned ``W -> E`` projection folded into ``attn``'s own ``in_proj``
+    for free: the extra ``in_proj`` columns always see zero input (inert, not
+    noise) and the corresponding ``out_proj`` rows are the ones sliced away."""
     # Guard: unmask slot 0 as dummy key for fully-empty boards.
     safe = empty.clone()
     safe[empty.all(1), 0] = False
 
-    out, _ = attn(tokens, tokens, tokens, key_padding_mask=safe, need_weights=False)
+    # Zero-pad to the module's (possibly wider) embed_dim; attend; slice back.
+    # torch leaves nn.MultiheadAttention.__init__'s embed_dim param unannotated,
+    # so the assigned self.embed_dim infers as Unknown under strict pyright —
+    # the cast bridges that single weakly-typed attribute read.
+    true_width = tokens.shape[-1]
+    embed_dim = typing.cast(int, attn.embed_dim)
+    pad = embed_dim - true_width
+    padded = nn.functional.pad(tokens, (0, pad)) if pad else tokens
+    out, _ = attn(padded, padded, padded, key_padding_mask=safe, need_weights=False)
+    out = out[..., :true_width]
 
     # Zero contributions from empty query slots (they attended the dummy key).
     out = out.masked_fill(empty.unsqueeze(-1), 0.0)

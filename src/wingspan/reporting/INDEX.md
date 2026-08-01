@@ -142,7 +142,11 @@ connector bands between them. The **SINGLE-CARD ENCODER** is centered on the 960
 via `_draw_bare_unit` when the net pools the card table) or the full **MULTI-CARD ENCODER** (when
 `use_distinct_hand_model`) — plus **BOARD ATTENTION** in col 0 when `arch.use_board_attention` is
 True (`_attention_unit` widens its displayed token width by `BOARD_POSITION_DIM` — 73→81 — and
-notes the trunk-width delta when `arch.board_attention_positions` is additionally set). The three
+notes the trunk-width delta when `arch.board_attention_positions` is additionally set; its tooltip
+also names the module's `nn.MultiheadAttention` head count — "single-head" when
+`board_attention_heads_active` is 1, else `"N-head"` — and, when the token width doesn't divide
+the head count, the zero-padded `embed_dim` it was built at via
+`architecture.board_attention_embed_dim`). The three
 card→{state,choice,setup} feeds share a **trunk** (`_trunk_svg`): a vertical stem at
 `_TRUNK_X` (gutter between the two consumer blocks), splitting in the cons band into labelled
 branches — State gets ×N_CARD_INDEX_SLOTS when attention off or ×TRAY_SIZE tray when on; Choice gets

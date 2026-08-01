@@ -66,6 +66,11 @@ class ShapeKey(pydantic.BaseModel):
     tray_set_embedding: bool
     use_board_attention: bool
     board_attention_positions: bool
+    # Must be in the key even where padded shapes coincide: an 81-wide token
+    # (positions on) pads to 81 at both 1 and 3 heads (81 = 3⁴), so the two
+    # configs share an identical state_dict yet compute a different function —
+    # the resume gate has to key on the head count itself, not just the shape.
+    board_attention_heads: int
     hand_pooling: HandPooling | None  # None when use_distinct_hand_model
 
 
@@ -209,6 +214,19 @@ class ModelArchitecture(pydantic.BaseModel):
     # so nothing breaks by leaving it un-enforced at this layer; the combination
     # is instead flagged as a launch blocker by ``config.validate_launchable``.
     board_attention_positions: bool = False
+    # Attention head count for both board-attention modules (meaningful only
+    # alongside ``use_board_attention``). The natural token width (73, or 81
+    # with positions) rarely divides the head count, so ``_build_board_attention``
+    # pads the token to ``board_attention_embed_dim(token_width, heads)`` before
+    # attention and ``_apply_board_attention`` slices back to the true width —
+    # the pad is internal to the attention step, so trunk input width never
+    # changes. Config-carried, default 1 → old artifacts rehydrate the original
+    # single-head modules exactly (pad 0, REGIME, no compat shim). Joins
+    # ShapeKey via the active value for the same not-enforced-here reason as
+    # ``board_attention_positions``: a hard reject would fire mid-configurator-
+    # commit before ``reset_hidden_fields`` clears it back to 1, so the
+    # combination is instead a ``config.validate_launchable`` blocker.
+    board_attention_heads: typing.Annotated[int, pydantic.Field(ge=1)] = 1
 
     # Per-block between/final activation overrides plus dropout and LayerNorm
     # toggles. ``None`` means "inherit the matching global". Body blocks
@@ -313,6 +331,17 @@ class ModelArchitecture(pydantic.BaseModel):
         incorrectly; kept torch- and encode-free (a bool, not a width) so this
         module stays importable without pulling in ``encode``."""
         return self.use_board_attention and self.board_attention_positions
+
+    @property
+    def board_attention_heads_active(self) -> int:
+        """The head count actually built and consumed, mirroring
+        ``board_attention_positions_active``: ``board_attention_heads`` alone is
+        inert when ``use_board_attention`` is ``False``, so every caller that
+        needs the true head count (``shape_key``, ``count_parameters``,
+        ``_build_board_attention``) must resolve through here rather than
+        reading the raw field, which may carry a stale non-1 value left over
+        from before attention was toggled off."""
+        return self.board_attention_heads if self.use_board_attention else 1
 
     @property
     def hand_embed_width(self) -> int:
@@ -500,6 +529,11 @@ class ModelArchitecture(pydantic.BaseModel):
             # False, board_attention_positions is inert either way, and the two
             # configs build byte-identical modules — they must share a shape_key.
             board_attention_positions=self.board_attention_positions_active,
+            # The active value: with use_board_attention False, a stale
+            # non-1 board_attention_heads is inert either way, and the two
+            # configs must share a shape_key. See board_attention_heads's
+            # own comment for why the raw field alone is insufficient.
+            board_attention_heads=self.board_attention_heads_active,
             # None when distinct (pooling inert) so old distinct artifacts'
             # keys are unaffected; the pooling mode only appears in the key
             # for the pooled path, where it determines the trunk input width.
@@ -579,6 +613,23 @@ class ParamReport(pydantic.BaseModel):
         return sum(block.total for block in self.blocks)
 
 
+def board_attention_embed_dim(token_width: int, num_heads: int) -> int:
+    """The padded token width ``nn.MultiheadAttention`` actually attends over.
+
+    ``token_width`` (73, or 81 with ``board_attention_positions``) rarely
+    divides ``num_heads``, so the token is zero-padded up to the next multiple
+    before attention and the output sliced back to ``token_width`` after —
+    the pad never leaves the attention step, so trunk input width is
+    unaffected. Padding is equivalent to a learned ``token_width -> embed_dim``
+    projection folded into the attention module's own ``in_proj`` for free:
+    the pad columns of ``in_proj`` see constant zero input (so they're inert,
+    not a source of noise) and the corresponding ``out_proj`` rows are sliced
+    away, while every head still splits learned q/k/v of the real signal — no
+    head ever attends over only padding. ``num_heads=1`` always returns
+    ``token_width`` unchanged (pad 0), reproducing the original module."""
+    return token_width + (-token_width % num_heads)
+
+
 def count_parameters(
     arch: ModelArchitecture,
     *,
@@ -630,15 +681,22 @@ def count_parameters(
         )
 
     # Build the optional BOARD ATTENTION block. Each nn.MultiheadAttention with
-    # embed_dim=W has: in_proj_weight[3W,W] + in_proj_bias[3W] + out_proj[W,W]
-    # + out_proj.bias[W] = 4W² + 4W params. Two modules (own + opp) → 8W² + 8W.
-    # W includes the position block when board_attention_positions is set.
+    # embed_dim=E has: in_proj_weight[3E,E] + in_proj_bias[3E] + out_proj[E,E]
+    # + out_proj.bias[E] = 4E² + 4E params. Two modules (own + opp) → 8E² + 8E.
+    # E is the *padded* embed dim (board_attention_embed_dim), not the true
+    # token width W: head counts that don't divide W add dead in_proj columns
+    # / sliced out_proj rows, so params grow with the pad even though the
+    # trunk-visible width stays W. W includes the position block when
+    # board_attention_positions is set.
     board_attn_block: BlockParam | None = None
     if arch.use_board_attention:
         token_width = arch.card_embed_dim + slot_scalar_dim
         if arch.board_attention_positions_active:
             token_width += board_position_dim
-        attn_params = 4 * token_width * token_width + 4 * token_width
+        embed_dim = board_attention_embed_dim(
+            token_width, arch.board_attention_heads_active
+        )
+        attn_params = 4 * embed_dim * embed_dim + 4 * embed_dim
         board_attn_block = BlockParam(
             label="BOARD ATTN",
             layers=(),

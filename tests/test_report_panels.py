@@ -212,6 +212,15 @@ def test_svg_board_attention_positions_present_when_enabled():
     assert "position_column" in html
 
 
+def test_svg_board_attention_heads_present_when_enabled():
+    html = _report_html_with_attention_heads()
+    assert "BOARD ATTENTION" in html
+    # token width = 64 (card_embed_dim) + 9 (scalars) = 73; heads=2 pads to 74.
+    assert "2-head" in html
+    assert "zero-padded to 74" in html
+    assert "single-head" not in html
+
+
 def test_svg_distinct_hand_model_input_is_clickable():
     # With a learned (distinct) hand encoder the multi-card encoder is a full
     # block with its own input box, so the "hand" panel becomes clickable and
@@ -360,6 +369,16 @@ def _report_html_with_attention_positions() -> str:
     return _report_html_for_arch(
         architecture.ModelArchitecture(
             use_board_attention=True, board_attention_positions=True
+        ),
+        use_setup_model=True,
+    )
+
+
+def _report_html_with_attention_heads() -> str:
+    """Generate the model-summary HTML with board self-attention at heads=2."""
+    return _report_html_for_arch(
+        architecture.ModelArchitecture(
+            use_board_attention=True, board_attention_heads=2
         ),
         use_setup_model=True,
     )

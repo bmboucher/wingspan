@@ -554,9 +554,10 @@ def _trunk_unit(
 def _attention_unit(
     arch: architecture.ModelArchitecture, block: architecture.BlockParam
 ) -> _Unit:
-    """Board self-attention block: two single-head MultiheadAttention modules,
-    one per seat's 15 board slots, drawn in col 0 between the encoder row and
-    the consumer row."""
+    """Board self-attention block: two MultiheadAttention modules, one per
+    seat's 15 board slots — single-head by default, or multi-head over a
+    zero-padded token when ``board_attention_heads`` > 1 — drawn in col 0
+    between the encoder row and the consumer row."""
     token_width = arch.card_embed_dim + encode.SLOT_SCALAR_DIM
     if arch.board_attention_positions_active:
         token_width += encode.BOARD_POSITION_DIM
@@ -565,6 +566,20 @@ def _attention_unit(
         if not arch.board_attention_positions_active
         else f"trunk width +{encode.N_BOARD_INDEX_SLOTS * encode.BOARD_POSITION_DIM} "
         "for the position blocks"
+    )
+    num_heads = arch.board_attention_heads_active
+    embed_dim = architecture.board_attention_embed_dim(token_width, num_heads)
+    # Keep the literal single-head phrasing byte-stable for the (heads=1)
+    # default so existing reports/tests are unaffected by this feature.
+    heads_phrase = (
+        "two single-head nn.MultiheadAttention modules"
+        if num_heads == 1
+        else f"two {num_heads}-head nn.MultiheadAttention modules"
+    )
+    width_phrase = (
+        f"{token_width}-wide"
+        if embed_dim == token_width
+        else f"{token_width}-wide (zero-padded to {embed_dim} for the head split)"
     )
     return _Unit(
         x=_SVG_COL_X[0],
@@ -585,8 +600,8 @@ def _attention_unit(
         out_count=encode.N_BOARD_INDEX_SLOTS,
         tooltip=(
             f"Board Self-Attention · {_count_text(block.total)} params · "
-            f"two single-head nn.MultiheadAttention modules, one per seat · "
-            f"{encode.SLOTS_PER_BOARD} board-slot tokens × {token_width}-wide · "
+            f"{heads_phrase}, one per seat · "
+            f"{encode.SLOTS_PER_BOARD} board-slot tokens × {width_phrase} · "
             f"attended tokens re-folded into state input ({width_note})"
         ),
         panel=PANEL_BOARD,

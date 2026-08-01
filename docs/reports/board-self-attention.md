@@ -1,13 +1,14 @@
 # Board Self-Attention Feasibility
 
 **Status: Board-only pass implemented, including optional per-slot position
-features.** `use_board_attention: bool = False` and `board_attention_positions:
-bool = False` are both configurable fields on `ModelArchitecture` (both REGIME —
-no `MODEL_VERSION` bump, no compat shim; see corrected classification below).
+features and multi-head attention.** `use_board_attention: bool = False`,
+`board_attention_positions: bool = False`, and `board_attention_heads: int = 1`
+are all configurable fields on `ModelArchitecture` (all three REGIME — no
+`MODEL_VERSION` bump, no compat shim; see corrected classification below).
 Enable them in the configurator under MODEL ARCHITECTURE ▸ STATE TRUNK
-(`board_attention_positions` requires `use_board_attention` and is hidden until
-it is on). The below analysis stands; sections marked ✓DONE are reflected in the
-live code.
+(`board_attention_positions` and `board_attention_heads` both require
+`use_board_attention` and are hidden until it is on). The below analysis
+stands; sections marked ✓DONE are reflected in the live code.
 
 **Question:** Would a self-attention layer over the 15 board slots improve the
 model — and can the same mechanism be extended to the hand and tray as input
@@ -171,8 +172,10 @@ independent 15-token passes is simpler and matches the current encoder topology.
   mathematically equivalent to a learned, row/col-factorized additive bias in
   Q/K/V space, so including column costs nothing to *learn away* if it turns out
   not to matter, while omitting it would foreclose the option entirely. Token
-  width becomes `73 + 8 = 81` (see the parameter-cost table below — `81 = 3⁴`
-  incidentally unlocks multi-head attention later, since `73` alone is prime).
+  width becomes `73 + 8 = 81` (see the parameter-cost table below — multi-head
+  attention (`board_attention_heads`) is implemented via zero-padding regardless
+  of width, but `81 = 3⁴` is notable as the one case where several head counts —
+  1, 3, 9, 27, 81 — divide it exactly and pad zero).
 - **Depth:** one layer is likely sufficient; multiple stacked layers would be
   unusual at this token-count and could overfit given the small sequence length.
 
@@ -350,13 +353,28 @@ a new mechanism.
 
 ## Parameter and compute cost
 
-Using `embed_dim = token_width = 73`. PyTorch's `nn.MultiheadAttention` splits
-`embed_dim` across heads, so the head count does not change the parameter total —
-but it requires `embed_dim % num_heads == 0`, and **73 is prime**, so multi-head
-only works after projecting the token to a head-divisible width (e.g. 64 or 72).
-A single head works at 73 directly; any multi-head variant implies the projection
-bottleneck discussed below. Counts verified empirically against
-`nn.MultiheadAttention(embed_dim=73, num_heads=1)`:
+Using `embed_dim = token_width = 73` for the single-head (default) case.
+PyTorch's `nn.MultiheadAttention` splits `embed_dim` evenly across heads, so it
+requires `embed_dim % num_heads == 0` — and **73 is prime**, so multi-head only
+works at a wider `embed_dim`.
+
+**✓DONE — implemented as zero-padding, not a learned projection.**
+`architecture.board_attention_embed_dim(token_width, num_heads)` pads up to the
+next multiple of `num_heads` (`board_attention_heads` on
+`ModelArchitecture`/`MainNetArchitecture`, default 1); `_apply_board_attention`
+zero-pads the token immediately before calling the module and slices the
+output back to `token_width` immediately after, so the pad never leaves that
+one function — trunk input width is unaffected either way. This is equivalent
+to a learned `token_width -> embed_dim` projection folded into the attention
+module's own `in_proj` for free: the extra `in_proj` columns always see zero
+input (inert, not a source of noise) and the corresponding `out_proj` rows are
+exactly the ones sliced away, while every head still splits learned q/k/v of
+the real signal — no head ever attends over only padding. A dedicated
+projection layer would compose into a single linear transform anyway, so
+nothing is gained by making it a separate module. `num_heads=1` always returns
+`token_width` unchanged (pad 0), reproducing the original module exactly —
+this is why the flag is REGIME (see below). Counts verified empirically
+against `nn.MultiheadAttention(embed_dim=73, num_heads=1)`:
 
 | Component | Formula | Count |
 |-----------|---------|-------|
@@ -381,6 +399,34 @@ projections. Unlike the attention layer's own params, the trunk's first Linear
 also grows — `N_BOARD_INDEX_SLOTS × BOARD_POSITION_DIM = 240` more input dims
 (`encode.trunk_input_dim(..., board_position_dim=...)`), which dominates the
 total parameter delta at typical trunk widths.
+
+**✓DONE — with `board_attention_heads > 1`** (zero-padded `embed_dim`, per module
+`4·E² + 4·E`; two boards double it, same base formula as above). At `W = 73`
+(positions off):
+
+| `board_attention_heads` | Padded `E` | Params/module | Δ vs. 1-head |
+|---|---|---|---|
+| 1 | 73 (no pad) | 21,608 | — |
+| 2 | 74 | 22,200 | +592 |
+| 4 | 76 | 23,408 | +1,800 |
+| 8 | 80 | 25,920 | +4,312 |
+
+At `W = 81` (`board_attention_positions=True`) — `81 = 3⁴`, so `heads=3` (or 9,
+27, 81) divides it exactly and pads **zero**:
+
+| `board_attention_heads` | Padded `E` | Params/module | Δ vs. 1-head |
+|---|---|---|---|
+| 1 | 81 (no pad) | 26,568 | — |
+| 3 | 81 (no pad) | 26,568 | 0 |
+| 2 | 82 | 27,224 | +656 |
+
+The `heads=3`-at-`W=81` row is exactly why `board_attention_heads` must join
+`ShapeKey` **as its own field**, not derived from the padded shape: it produces
+a state_dict byte-identical in every tensor shape to `heads=1` (every
+`nn.MultiheadAttention` parameter shape depends only on `embed_dim`, never
+`num_heads`), yet computes a different function (a 3-way q/k/v split vs. a
+single head) — shape equality alone would wrongly let the resume gate treat
+them as compatible.
 
 **Comparison to current model:**
 
@@ -426,11 +472,12 @@ run identically. No encoding change → no FRESH classification. Per
 `docs/VERSIONING.md` (lines 394–406), config-carried topology flags are REGIME even
 when they change architecture shapes, because they travel with the artifact.
 
-`ShapeKey` is defined at `src/wingspan/architecture.py:40–56`. The tuple is now
-**17 elements** (added `bool  # use_board_attention`, then `bool  #
-board_attention_positions`), purely so a `True`-run refuses to resume
-`False`-weights and vice-versa — handled gracefully by the `architecture_key`
-gate (mismatch → fresh run, no crash). This is the same mechanism every other
+`ShapeKey` is defined at `src/wingspan/architecture.py:36`. The class now carries
+**19 fields**, three of them from board attention (`use_board_attention: bool`
+and `board_attention_positions: bool` from the earlier board-only pass,
+`board_attention_heads: int` added here), purely so a mismatched run refuses to
+resume another's weights — handled gracefully by the `architecture_key` gate
+(mismatch → fresh run, no crash). This is the same mechanism every other
 topology knob uses; none of them triggered a version bump.
 
 **`board_attention_positions` follows the identical reasoning.** The position
@@ -454,6 +501,27 @@ lesson — the same class of bug previously hit `clone_iters` +
 by `config.validate_launchable`, and the configurator's `visible_when` +
 `reset_hidden_fields` machinery clears the field back to its default the
 moment `use_board_attention` is toggled off, so a user never sees it linger.
+
+**`board_attention_heads` follows the same config-carried reasoning, with one
+extra wrinkle.** The head count changes no tensor shape by itself — every
+`nn.MultiheadAttention` parameter shape depends only on `embed_dim`, never
+`num_heads` — so `ShapeKey` cannot infer incompatibility from shapes alone at a
+pad-free width (`board_attention_positions=True` puts `embed_dim = 81 = 3⁴`,
+which `heads=1` and `heads=3` both reach with zero padding; see the parameter
+table above). `ShapeKey` therefore carries `board_attention_heads` (via
+`board_attention_heads_active`, mirroring `board_attention_positions_active`)
+as its own field rather than deriving it from any width. Default 1
+(config-carried, REGIME, no compat shim) — `_build_board_attention` reproduces
+the exact single-head module when unset — and the same not-a-`ModelArchitecture`-
+validator, launch-blocker-instead reasoning applies (`config.validate_launchable`
+rejects `board_attention_heads != 1` without `use_board_attention`). **One
+downgrade caveat:** the rehydration guarantee is forward-only (an old *config*
+loads safely under later code); it promises nothing about running a newer
+`heads > 1` artifact under an *older checkout* that predates this field
+entirely — at a pad-free width that older single-head code would load the
+state_dict without error (the shapes coincide) and silently compute the wrong
+function, so this is a hazard only for a code downgrade, never a normal
+forward-compatible load.
 
 A unified hand/tray variant would add at least one more flag (e.g.
 `card_attention_scope`) plus the hand cap `H_max` and the location-stripe width to
@@ -497,10 +565,11 @@ right bottleneck to address now.**
 
 ### ✓DONE Verdict / Experiment
 
-**Board-only attention is implemented, with an optional position-aware variant.**
-Toggle `use_board_attention` in the configurator under MODEL ARCHITECTURE ▸ STATE
-TRUNK; once on, `board_attention_positions` becomes visible in the same group. No
-version bump is needed for either flag (REGIME classification; see above).
+**Board-only attention is implemented, with optional position-aware and
+multi-head variants.** Toggle `use_board_attention` in the configurator under
+MODEL ARCHITECTURE ▸ STATE TRUNK; once on, `board_attention_positions` and
+`board_attention_heads` both become visible in the same group. No version bump
+is needed for any of the three flags (REGIME classification; see above).
 
 **Experiment protocol:**
 1. Train two runs from the same random seed: `use_board_attention=False` (baseline)

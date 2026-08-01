@@ -69,11 +69,12 @@ top-level computed properties so call sites don't churn.
   and advances through DAgger clone iterations unchanged.
 - `validate_launchable(cfg) -> list[str]` — launch-time only checks: checkpoint
   bootstrap on cuda, setup schedule order, target > max iterations, the anneal
-  check (any `*_final` set requires `target_iterations > 0`), and
-  `board_attention_positions` requiring `use_board_attention`. A dropout
-  anneal with no initial dropout to sweep — globally or on a specific block —
-  is never rejected; it is inert (see `loop_anneal.py`). Returns human-readable
-  problems; empty = safe to start. Called by the configurator's `[S]tart` /
+  check (any `*_final` set requires `target_iterations > 0`), and both
+  `board_attention_positions` and `board_attention_heads != 1` requiring
+  `use_board_attention`. A dropout anneal with no initial dropout to sweep —
+  globally or on a specific block — is never rejected; it is inert (see
+  `loop_anneal.py`). Returns human-readable problems; empty = safe to start.
+  Called by the configurator's `[S]tart` /
   `[N]ew` path and the headless launcher.
 - `RunConfigFile` — the dated on-disk wrapper (`version`, `saved_at`,
   `started_at`, `git_sha`, `resumed`, `resumed_from_iteration`, `config`).

@@ -299,3 +299,45 @@ def test_validate_launchable_board_attention_positions_with_attention_ok():
         ),
     )
     assert config.validate_launchable(cfg) == []
+
+
+def test_validate_launchable_board_attention_heads_without_attention_flagged():
+    """board_attention_heads != 1 with use_board_attention=False is flagged,
+    mirroring the board_attention_positions launch-time check above (same
+    reasoning: RunConfig._check_architecture forces the full architecture to
+    assemble on every commit, so a hard reject would fire mid-configurator-edit
+    before reset_hidden_fields clears the field back to 1)."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_board_attention=False, board_attention_heads=2
+            )
+        ),
+    )
+    # Must not raise at construction.
+    assert cfg.architecture.main.board_attention_heads == 2
+    problems = config.validate_launchable(cfg)
+    assert any("board_attention_heads" in problem for problem in problems)
+
+    # heads=1 (the default) is never flagged even with attention off.
+    cfg_default = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(use_board_attention=False)
+        ),
+    )
+    assert config.validate_launchable(cfg_default) == []
+
+
+def test_validate_launchable_board_attention_heads_with_attention_ok():
+    """board_attention_heads=2 with use_board_attention=True validates cleanly."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_board_attention=True, board_attention_heads=2
+            )
+        ),
+    )
+    assert config.validate_launchable(cfg) == []
