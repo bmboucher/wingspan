@@ -94,6 +94,11 @@ class _WorkerArch(pydantic.BaseModel):
     # the worker rebuilds its net with a matching spec so its encoded vectors and
     # head count line up with the broadcast weights.
     include_setup: bool = True
+    # Seat count the run trains at (``encode.EncodingSpec.num_players``); the
+    # worker's spec must match so its encoded vectors line up with the
+    # broadcast weights. Harmless at the current default of 2 — threaded now
+    # so a later stage's N>=3 training pipeline needs no mp_collect changes.
+    num_players: int = 2
     # Setup-model shape + generation knobs a worker needs to build its local
     # setup net and random generator. Absent (``setup_enabled=False``) when the
     # run does not use the setup model.
@@ -192,6 +197,7 @@ class ProcessCollector:
             choice_dim=cfg.choice_dim,
             arch=cfg.arch,
             include_setup=cfg.encoding_spec.include_setup,
+            num_players=cfg.num_players,
             setup_enabled=cfg.architecture.use_setup_model,
             setup_arch=cfg.setup_arch if cfg.architecture.use_setup_model else None,
             setup_encoding=cfg.setup_encoding,
@@ -509,7 +515,9 @@ def _build_worker_net(arch: _WorkerArch) -> model.PolicyValueNet:
         state_dim=arch.state_dim,
         choice_dim=arch.choice_dim,
         arch=arch.arch,
-        spec=encode.EncodingSpec(include_setup=arch.include_setup),
+        spec=encode.EncodingSpec(
+            include_setup=arch.include_setup, num_players=arch.num_players
+        ),
     )
 
 

@@ -78,8 +78,8 @@ def state_stripe_layout(
     raw = _build_raw_state_stripes(spec)
     # board_attention_positions is inert without use_board_attention (mirrors
     # ModelArchitecture.board_attention_positions_active) — state_embed_rules
-    # below already nests this AND internally when building board_me/board_opp's
-    # rule, but the expected_total passed to embed_layout must match, so the
+    # below already nests this AND internally when building the board stripes'
+    # rules, but the expected_total passed to embed_layout must match, so the
     # same AND is required here too.
     board_position_dim = (
         layout.BOARD_POSITION_DIM
@@ -97,6 +97,7 @@ def state_stripe_layout(
             pooled_hand_width=pooled_hand_width,
             tray_set_embedding=tray_set_embedding,
             n_playable_multihots=n_playable_multihots,
+            num_players=spec.num_players,
         ),
         layout.trunk_input_dim(
             raw.total_size,
@@ -107,6 +108,8 @@ def state_stripe_layout(
             tray_set_embedding=tray_set_embedding,
             n_playable_multihots=n_playable_multihots,
             board_position_dim=board_position_dim,
+            n_card_index_slots=layout.n_card_index_slots(spec),
+            n_board_index_slots=layout.n_board_index_slots(spec),
         ),
     )
 
@@ -229,21 +232,25 @@ def _build_raw_state_stripes(
     vector that ``encode_state`` produces.
 
     Offsets and sizes for all continuous stripes are derived from
-    :data:`~wingspan.encode.layout.STATE_CONT_LAYOUT` — the single authoritative
-    source.  Only the spec-dependent ``decision_type`` stripe at the end requires
-    its own size computation."""
+    :func:`~wingspan.encode.layout.state_cont_layout` (``spec``) — the single
+    authoritative source. At ``spec.num_players >= 3`` this also includes the
+    ``turn_position`` stripe and each per-opponent replica
+    (``food_opp2``, ``board_opp2``, ``board_summary_opp2``,
+    ``opp_bonus_count2``/``opp_hand_size2``, ...), named the same way the live
+    encoder's ``STATE_CONT_LAYOUT`` names them. Only the spec-dependent
+    ``decision_type`` stripe at the end requires its own size computation."""
     from wingspan.encode import state_encode
 
     total = state_encode.state_size(spec)
+    cont_layout = layout.state_cont_layout(spec)
     food_names = ", ".join(f.value for f in cards.ALL_FOODS)
     habitat_names = ", ".join(h.value for h in cards.ALL_HABITATS)
+    n_players = spec.num_players
+    opponent_indices = range(1, n_players)  # clockwise 1..num_players-1
 
     # Derive offset and size from the authoritative continuous layout by stripe name.
     def _at(name: str) -> tuple[int, int]:
-        return (
-            layout.STATE_CONT_LAYOUT.offset_of(name),
-            layout.STATE_CONT_LAYOUT.size_of(name),
-        )
+        return (cont_layout.offset_of(name), cont_layout.size_of(name))
 
     stripes: list[descriptors.StripeDescriptor] = []
 
@@ -273,6 +280,29 @@ def _build_raw_state_stripes(
         )
     )
 
+    # ---- turn position (N>=3 only) ----
+    if n_players >= 3:
+        tp_off, tp_size = _at("turn_position")
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name="turn_position",
+                description=(
+                    "My clockwise seating offset from this round's first-to-act "
+                    "seat (N>=3 only)."
+                ),
+                offset=tp_off,
+                size=tp_size,
+                encoding="one-hot",
+                value_range="{0, 1}",
+                notes=(
+                    f"{n_players}-wide one-hot. offset = "
+                    "(me.id - (start_player + round_idx)) % num_players — the same "
+                    "rotation engine.core.Engine._play_round computes for turn "
+                    "order."
+                ),
+            )
+        )
+
     # ---- food inventory ----
     food_off_me, food_size = _at("food_me")
     stripes.append(
@@ -288,19 +318,22 @@ def _build_raw_state_stripes(
         )
     )
 
-    food_off_opp, _ = _at("food_opp")
-    stripes.append(
-        descriptors.StripeDescriptor(
-            name="food_opp",
-            description="Opponent food inventory, one element per food type.",
-            offset=food_off_opp,
-            size=food_size,
-            encoding="vector",
-            value_range="[0, ~1.7]",
-            notes=f"Food types in order: {food_names}. Normalized ÷ 6.",
-            sub_fields=_food_sub_fields(),
+    for k in opponent_indices:
+        food_off_opp, _ = _at(f"food_opp{layout._opponent_suffix(k)}")
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name=f"food_opp{layout._opponent_suffix(k)}",
+                description=_opponent_description(
+                    "Opponent food inventory, one element per food type.", k
+                ),
+                offset=food_off_opp,
+                size=food_size,
+                encoding="vector",
+                value_range="[0, ~1.7]",
+                notes=f"Food types in order: {food_names}. Normalized ÷ 6.",
+                sub_fields=_food_sub_fields(),
+            )
         )
-    )
 
     # ---- food distance to playable (hand / tray) ----
     hand_unlock_off, unlock_size = _at("hand_food_unlock_me")
@@ -369,19 +402,22 @@ def _build_raw_state_stripes(
         )
     )
 
-    board_off_opp, _ = _at("board_opp")
-    stripes.append(
-        descriptors.StripeDescriptor(
-            name="board_opp",
-            description="Mutable per-slot board state for the opponent's board.",
-            offset=board_off_opp,
-            size=board_size,
-            encoding="complex",
-            value_range="[0, ~1]",
-            notes=_board_notes,
-            sub_fields=_board_slot_sub_fields(),
+    for k in opponent_indices:
+        board_off_opp, _ = _at(f"board_opp{layout._opponent_suffix(k)}")
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name=f"board_opp{layout._opponent_suffix(k)}",
+                description=_opponent_description(
+                    "Mutable per-slot board state for this opponent's board.", k
+                ),
+                offset=board_off_opp,
+                size=board_size,
+                encoding="complex",
+                value_range="[0, ~1]",
+                notes=_board_notes,
+                sub_fields=_board_slot_sub_fields(),
+            )
         )
-    )
 
     # ---- board summary (aggregate per-habitat stats, compacted in v0.9) ----
     _board_summary_notes = (
@@ -405,19 +441,24 @@ def _build_raw_state_stripes(
         )
     )
 
-    bs_off_opp, _ = _at("board_summary_opp")
-    stripes.append(
-        descriptors.StripeDescriptor(
-            name="board_summary_opp",
-            description="Aggregate per-habitat row statistics for the opponent's board (row_length, total_eggs).",
-            offset=bs_off_opp,
-            size=bs_size,
-            encoding="vector",
-            value_range="[0, ~1]",
-            notes=_board_summary_notes,
-            sub_fields=_board_summary_sub_fields(),
+    for k in opponent_indices:
+        bs_off_opp, _ = _at(f"board_summary_opp{layout._opponent_suffix(k)}")
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name=f"board_summary_opp{layout._opponent_suffix(k)}",
+                description=_opponent_description(
+                    "Aggregate per-habitat row statistics for this opponent's "
+                    "board (row_length, total_eggs).",
+                    k,
+                ),
+                offset=bs_off_opp,
+                size=bs_size,
+                encoding="vector",
+                value_range="[0, ~1]",
+                notes=_board_summary_notes,
+                sub_fields=_board_summary_sub_fields(),
+            )
         )
-    )
 
     # hand_summary_me removed at the 0.9 compaction (the 1.0 baseline): the distinct
     # hand encoder derives the 10-dim summary in-model from the hand multi-hot via
@@ -478,32 +519,43 @@ def _build_raw_state_stripes(
     )
 
     # ---- opponent aggregate counts ----
-    # "opp_bonus_count" / "opp_hand_size" in layout; renamed here for display consistency.
-    opp_bonus_off, opp_bonus_size = _at("opp_bonus_count")
-    stripes.append(
-        descriptors.StripeDescriptor(
-            name="bonus_count_opp",
-            description="Number of bonus cards the opponent holds (identity hidden).",
-            offset=opp_bonus_off,
-            size=opp_bonus_size,
-            encoding="scalar",
-            value_range="[0, ~1]",
-            notes="Normalized ÷ 5.",
+    # "opp_bonus_count" / "opp_hand_size" in layout; renamed here for display
+    # consistency (and suffixed per opponent at N>=3, matching the layout names).
+    for k in opponent_indices:
+        opp_bonus_off, opp_bonus_size = _at(
+            f"opp_bonus_count{layout._opponent_suffix(k)}"
         )
-    )
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name=f"bonus_count_opp{layout._opponent_suffix(k)}",
+                description=_opponent_description(
+                    "Number of bonus cards this opponent holds (identity hidden).",
+                    k,
+                ),
+                offset=opp_bonus_off,
+                size=opp_bonus_size,
+                encoding="scalar",
+                value_range="[0, ~1]",
+                notes="Normalized ÷ 5.",
+            )
+        )
 
-    opp_hand_off, opp_hand_size = _at("opp_hand_size")
-    stripes.append(
-        descriptors.StripeDescriptor(
-            name="hand_size_opp",
-            description="Number of bird cards in the opponent's hand (contents hidden).",
-            offset=opp_hand_off,
-            size=opp_hand_size,
-            encoding="scalar",
-            value_range="[0, ~1]",
-            notes="Normalized ÷ 10.",
+    for k in opponent_indices:
+        opp_hand_off, opp_hand_size = _at(f"opp_hand_size{layout._opponent_suffix(k)}")
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name=f"hand_size_opp{layout._opponent_suffix(k)}",
+                description=_opponent_description(
+                    "Number of bird cards in this opponent's hand (contents hidden).",
+                    k,
+                ),
+                offset=opp_hand_off,
+                size=opp_hand_size,
+                encoding="scalar",
+                value_range="[0, ~1]",
+                notes="Normalized ÷ 10.",
+            )
         )
-    )
 
     # ---- birdfeeder ----
     bf_off, bf_size = _at("birdfeeder")
@@ -548,8 +600,13 @@ def _build_raw_state_stripes(
     )
 
     # ---- round-goal state (all four rounds) ----
-    goal_slot = layout._ROUND_GOAL_SLOT_DIM  # MAX_GOAL_CATEGORIES + 3 = 23
+    goal_slot = layout.round_goal_slot_dim(spec)  # MAX_GOAL_CATEGORIES + 2 + (N-1)
     rg_off, rg_size = _at("round_goals")
+    other_counts_note = (
+        "opp_count (normalized ÷ 5)"
+        if n_players == 2
+        else f"other_counts[0:{n_players - 1}] (clockwise from POV, normalized ÷ 5)"
+    )
     stripes.append(
         descriptors.StripeDescriptor(
             name="round_goals",
@@ -561,34 +618,36 @@ def _build_raw_state_stripes(
             notes=(
                 f"4 rounds × {goal_slot} values. Per round: "
                 f"category_one_hot[0:{layout.MAX_GOAL_CATEGORIES}] ({layout.MAX_GOAL_CATEGORIES} dims), "
-                "my_count (normalized ÷ 5), opp_count (normalized ÷ 5), "
+                f"my_count (normalized ÷ 5), {other_counts_note}, "
                 "placement_vp (normalized ÷ 10). "
                 "Scored (passed) rounds are zeroed in v0.9+ — their counts/VP are "
                 "frozen history no longer relevant to future decisions."
             ),
-            sub_fields=_round_goals_sub_fields(),
+            sub_fields=_round_goals_sub_fields(spec),
         )
     )
 
     # ---- card-identity index block ----
-    # "card_idx_block" in layout spans board then tray slots; split here for viewer clarity.
+    # "card_idx_block" in layout spans board (every seat) then tray slots; split
+    # here for viewer clarity.
     card_base, _ = _at("card_idx_block")
-    n_board_idx = layout.N_BOARD_INDEX_SLOTS  # 2 * 15 = 30
+    n_board_idx = layout.n_board_index_slots(spec)  # num_players * 15
     stripes.append(
         descriptors.StripeDescriptor(
             name="card_idx_board",
             description=(
-                "Bird indices for all board slots (my board then opponent's), "
-                "looked up in the shared card embedding table."
+                "Bird indices for all board slots (my board, then each "
+                "opponent's clockwise), looked up in the shared card embedding "
+                "table."
             ),
             offset=card_base,
             size=n_board_idx,
             encoding="integer-index",
             value_range=f"int 0–{cards.n_birds()}",
             notes=(
-                f"{n_board_idx} integer indices ({state.N_HABITATS * state.ROW_SLOTS} me + "
-                f"{state.N_HABITATS * state.ROW_SLOTS} opp). "
-                "bird_index + 1; 0 = empty slot."
+                f"{n_board_idx} integer indices ({state.N_HABITATS * state.ROW_SLOTS} "
+                f"me + {state.N_HABITATS * state.ROW_SLOTS} per opponent × "
+                f"{n_players - 1} opponent(s)). bird_index + 1; 0 = empty slot."
             ),
         )
     )
@@ -679,7 +738,7 @@ def _build_raw_state_stripes(
                 f"One-hot encoding of which Decision subclass is being resolved "
                 f"({decision_dim} classes)."
             ),
-            offset=layout.STATE_CONT_LAYOUT.total_size,
+            offset=cont_layout.total_size,
             size=decision_dim,
             encoding="one-hot",
             value_range="{0, 1}",
@@ -691,13 +750,23 @@ def _build_raw_state_stripes(
         )
     )
 
-    assert layout.STATE_CONT_LAYOUT.total_size + decision_dim == total, (
-        f"STATE_CONT_LAYOUT.total_size ({layout.STATE_CONT_LAYOUT.total_size}) + "
+    assert cont_layout.total_size + decision_dim == total, (
+        f"state_cont_layout(spec).total_size ({cont_layout.total_size}) + "
         f"decision_dim ({decision_dim}) = "
-        f"{layout.STATE_CONT_LAYOUT.total_size + decision_dim} "
+        f"{cont_layout.total_size + decision_dim} "
         f"but state_size(spec) returns {total} — layout.py is out of sync"
     )
     return descriptors.VectorLayout(total_size=total, stripes=tuple(stripes))
+
+
+def _opponent_description(base_description: str, clockwise_index: int) -> str:
+    """Append a "(opponent k, clockwise from POV)" qualifier to a per-opponent
+    stripe's description when there is more than one opponent to distinguish
+    (N>=3); returns ``base_description`` unchanged at N=2, where the qualifier
+    would be redundant (there is only one opponent)."""
+    if clockwise_index == 1:
+        return base_description
+    return f"{base_description} (opponent {clockwise_index}, clockwise from me)"
 
 
 #### State sub-field builders ####
@@ -905,8 +974,8 @@ def _turn_state_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
             encoding="binary",
             value_range="{0, 1}",
             notes=(
-                "Derived as: me.id == (start_player + round_idx) % 2. "
-                "Flips every round."
+                "Derived as: me.id == (start_player + round_idx) % num_players. "
+                "Rotates every round."
             ),
         ),
     )
@@ -940,15 +1009,19 @@ def _misc_scalars_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
     )
 
 
-def _round_goals_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """16 logical sub-field groups for the round-goals stripe (4 rounds × 4 groups).
+def _round_goals_sub_fields(
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+) -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """Logical sub-field groups for the round-goals stripe (4 rounds × 4 groups).
 
-    Each round contributes a category one-hot block (size 20) plus three
-    individual scalars for my count, opponent count, and current placement VP.
-    """
+    Each round contributes a category one-hot block (size 20), my count, the
+    other seats' counts (clockwise from POV — one sub-field at N=2, matching
+    today's ``opp_count``; ``spec.num_players - 1`` at N>=3), and the current
+    placement VP."""
+    slot_dim = layout.round_goal_slot_dim(spec)
     sub_fields: list[descriptors.SubFieldDescriptor] = []
     for round_idx in range(layout._NUM_ROUNDS):
-        base = round_idx * layout._ROUND_GOAL_SLOT_DIM
+        base = round_idx * slot_dim
         group = f"round_{round_idx}"
         sub_fields.append(
             descriptors.SubFieldDescriptor(
@@ -980,23 +1053,40 @@ def _round_goals_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
                 group=group,
             )
         )
-        sub_fields.append(
-            descriptors.SubFieldDescriptor(
-                name=f"round_{round_idx}.opp_count",
-                description=f"Round {round_idx}: opponent's current count toward the goal.",
-                relative_offset=base + layout._ROUND_GOAL_OPP_COUNT,
-                size=1,
-                encoding="scalar",
-                value_range="[0, ~1]",
-                notes="Normalized ÷ 5.",
-                group=group,
+        if spec.num_players == 2:
+            sub_fields.append(
+                descriptors.SubFieldDescriptor(
+                    name=f"round_{round_idx}.opp_count",
+                    description=f"Round {round_idx}: opponent's current count toward the goal.",
+                    relative_offset=base + layout._ROUND_GOAL_OPP_COUNT,
+                    size=1,
+                    encoding="scalar",
+                    value_range="[0, ~1]",
+                    notes="Normalized ÷ 5.",
+                    group=group,
+                )
             )
-        )
+        else:
+            sub_fields.append(
+                descriptors.SubFieldDescriptor(
+                    name=f"round_{round_idx}.other_counts",
+                    description=(
+                        f"Round {round_idx}: every other seat's current count "
+                        "toward the goal, clockwise from me."
+                    ),
+                    relative_offset=base + layout._ROUND_GOAL_OPP_COUNT,
+                    size=spec.num_players - 1,
+                    encoding="vector",
+                    value_range="[0, ~1]",
+                    notes="Normalized ÷ 5.",
+                    group=group,
+                )
+            )
         sub_fields.append(
             descriptors.SubFieldDescriptor(
                 name=f"round_{round_idx}.placement_vp",
                 description=f"Round {round_idx}: VP I would receive at my current standing.",
-                relative_offset=base + layout._ROUND_GOAL_VP,
+                relative_offset=base + layout.round_goal_vp_offset(spec),
                 size=1,
                 encoding="scalar",
                 value_range="[0, ~1]",

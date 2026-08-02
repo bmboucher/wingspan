@@ -419,6 +419,39 @@ every artifact and *did* take a FRESH `MODEL_VERSION` bump + `compat.v1_3` shim.
 Config-carried *behavior* behind a flag is REGIME; a new *stripe* is FRESH no matter
 how narrow its trigger.
 
+### `num_players`: a third pattern — config-carried, shape-changing, still no bump
+
+`ArchitectureConfig.num_players` / `EncodingSpec.num_players` /
+`ModelArchitecture.num_players` (3-4 player support, default **2**) is a third
+pattern, distinct from both cases above. Like `combine_gain_food` it is
+config-carried and default-reproducing: the field travels in the frozen
+`RunConfig`/`model_config.json`, defaults to 2, and at the default every dim,
+offset, stripe name, and encoded value is byte-identical to the pre-`num_players`
+encoding (proved by `tests/test_encoding_golden_n2.py`'s per-decision hash replay
+and the frozen stripe table in `tests/test_encoding_layout_nplayers.py`) — so N=2
+needs no `MODEL_VERSION` bump and no compat shim, exactly like
+`combine_gain_food`. But unlike `combine_gain_food`, a *non-default* value **does**
+change tensor shape: `state_dim`/`choice_dim` grow with per-opponent stripe
+replicas (`food_opp2`, `board_opp2`, ...), a `turn_position` state stripe, and a
+`player_select` choice stripe (all N>=3-only), and the board-attention path's
+input-facing Linears widen accordingly. This is the `use_board_attention` /
+`board_attention_heads` precedent: `num_players` joins `ShapeKey` (via
+`ModelArchitecture.num_players`) and `architecture_key` (via
+`ArchitectureConfig.state_dim`/`choice_dim`, which move with it), so a mismatched
+seat count refuses cleanly through the existing resume/load gates — never a
+silent shape coincidence.
+
+The consequence for compat: **N>=3 artifacts are fresh nets, forever, never
+compat-shimmed.** Every existing compat era (`v1_0`, `v1_3`, and every future
+`v1_<N>`) predates `num_players` by construction — no historical checkpoint ever
+set it to anything but the implicit 2 — so `compat.encoding_dims_for_era` raises
+`version.IncompatibleArtifactError` outright for `spec.num_players != 2` rather
+than attempting to freeze a shape no shim will ever need to reproduce. This is
+also why `training.config.validate_launchable` carries a *temporary* blocker on
+`num_players > 2` (removed once the training pipeline itself is seat-count-generic,
+tracked in the N-player plan's later stages): the encoding and model layers accept
+N>=3 today, but nothing downstream has been asked to *train* one yet.
+
 A shape-preserving code-carried change is the dangerous case: it loads without
 complaint and silently misbehaves. The 2026-06-10 `_embed_state` bug was exactly
 this — a v0.2 net fed its 771-dim vector but sliced it with the live 790-dim

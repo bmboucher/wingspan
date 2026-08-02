@@ -65,7 +65,18 @@ def encoding_dims_for_era(
     ``CHOICE_RESETS_FEEDER_DIM`` (1) less. v1.0 additionally predates the v1.1
     ``becomes_unplayable`` choice stripe, so its ``choice_dim`` drops a further
     ``CHOICE_BECOMES_UNPLAYABLE_DIM`` (180). Raises ``ValueError`` for a malformed
-    version string."""
+    version string, and :class:`wingspan.version.IncompatibleArtifactError` when
+    ``spec.num_players != 2`` — every superseded (pre-live) era predates N-player
+    support by definition: ``num_players`` is a config-carried, default-2 field
+    that was introduced alongside the live encoder, so no compat-era spec can
+    honestly claim a different seat count (see the ``num_players`` entry in
+    ``docs/VERSIONING.md``)."""
+    if spec.num_players != 2:
+        raise version.IncompatibleArtifactError(
+            f"encoding era {artifact_version!r} predates N-player support "
+            f"(spec.num_players={spec.num_players}) — compat-shimmed eras are "
+            "2-player only; N>=3 encodings are fresh-net-only, never shimmed"
+        )
     parsed = version.parse_version(artifact_version)
     state_dim = encode.state_size(spec)
     choice_dim = encode.choice_feature_dim(spec)

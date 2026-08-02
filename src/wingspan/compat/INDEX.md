@@ -52,7 +52,11 @@ Narrows the dims by every stripe added after the artifact's era. For every pre-1
 same-MAJOR era: `state_dim -= 10` (the two food-unlock stripes — the **first**
 state-dim branch) and `choice_dim -= 1` (the `resets_feeder` stripe). v1.0
 additionally drops the 180-dim `becomes_unplayable` stripe from `choice_dim`. Later
-same-MAJOR artifacts get the live widths.
+same-MAJOR artifacts get the live widths. Raises
+`version.IncompatibleArtifactError` outright when `spec.num_players != 2` —
+every superseded era predates N-player support by construction, so no shim
+ever needs to reproduce an N>=3 shape (`docs/VERSIONING.md`'s `num_players`
+entry).
 
 **`v1_3.py`** — pre-1.4 geometry compat shim:
 - `PolicyValueNetV1_3` — `PolicyValueNet` subclass that reverses **both** v1.4

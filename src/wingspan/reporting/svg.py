@@ -554,17 +554,20 @@ def _trunk_unit(
 def _attention_unit(
     arch: architecture.ModelArchitecture, block: architecture.BlockParam
 ) -> _Unit:
-    """Board self-attention block: two MultiheadAttention modules, one per
-    seat's 15 board slots — single-head by default, or multi-head over a
-    zero-padded token when ``board_attention_heads`` > 1 — drawn in col 0
-    between the encoder row and the consumer row."""
+    """Board self-attention block: two MultiheadAttention modules — one for
+    the POV player's 15 board slots, one shared across every opponent's board
+    (called once per opponent, same weights each time, so the module count
+    never grows with ``arch.num_players``) — single-head by default, or
+    multi-head over a zero-padded token when ``board_attention_heads`` > 1 —
+    drawn in col 0 between the encoder row and the consumer row."""
     token_width = arch.card_embed_dim + encode.SLOT_SCALAR_DIM
     if arch.board_attention_positions_active:
         token_width += encode.BOARD_POSITION_DIM
+    n_board_index_slots = arch.num_players * encode.SLOTS_PER_BOARD
     width_note = (
         "trunk width unchanged"
         if not arch.board_attention_positions_active
-        else f"trunk width +{encode.N_BOARD_INDEX_SLOTS * encode.BOARD_POSITION_DIM} "
+        else f"trunk width +{n_board_index_slots * encode.BOARD_POSITION_DIM} "
         "for the position blocks"
     )
     num_heads = arch.board_attention_heads_active
@@ -586,7 +589,11 @@ def _attention_unit(
         accent=_ACCENT_ATTN,
         title="BOARD ATTENTION",
         rows=(
-            _OpRow(kind=_OpKind.LINEAR, label="self-attention ×2 boards", params=None),
+            _OpRow(
+                kind=_OpKind.LINEAR,
+                label=f"self-attention ×{arch.num_players} boards",
+                params=None,
+            ),
             _OpRow(
                 kind=_OpKind.LINEAR,
                 label=f"{encode.SLOTS_PER_BOARD} tokens · {token_width}-wide",
@@ -595,12 +602,13 @@ def _attention_unit(
         ),
         sigma_text=_count_text(block.total),
         in_label="board tokens",
-        in_count=encode.N_BOARD_INDEX_SLOTS,
+        in_count=n_board_index_slots,
         out_label="attended tokens",
-        out_count=encode.N_BOARD_INDEX_SLOTS,
+        out_count=n_board_index_slots,
         tooltip=(
             f"Board Self-Attention · {_count_text(block.total)} params · "
-            f"{heads_phrase}, one per seat · "
+            f"{heads_phrase} — one for the POV board, one shared across every "
+            f"opponent board · "
             f"{encode.SLOTS_PER_BOARD} board-slot tokens × {width_phrase} · "
             f"attended tokens re-folded into state input ({width_note})"
         ),

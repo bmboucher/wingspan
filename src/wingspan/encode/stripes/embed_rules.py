@@ -1,3 +1,6 @@
+# pyright: reportPrivateUsage=false
+# (reads the shared, package-private layout constants — same intra-package
+# coupling convention as stripes/state.py and stripes/choice.py)
 """Post-embedding rewrite rules for card-index / identity stripes.
 
 ``_embed_layout`` rewrites a raw :class:`~descriptors.VectorLayout` into the
@@ -77,25 +80,34 @@ def state_embed_rules(
     pooled_hand_width: int | None = None,
     tray_set_embedding: bool = False,
     n_playable_multihots: int = 0,
+    num_players: int = 2,
 ) -> dict[str, _EmbedRule]:
     """The card-index / hand stripes of the state vector, at embedded width.
+
+    ``num_players`` (default 2, the checkpoint-compat anchor) sizes the board
+    portion of the card-index block and, when ``use_board_attention``, the set
+    of per-opponent board-attention stripe names.
 
     When ``use_board_attention`` is ``True`` the raw per-slot board and board-index
     stripes are folded into attention-output blocks:
 
-    * ``board_me`` / ``board_opp`` each expand to ``BOARD_SLOTS × (card_embed_dim +
-      SLOT_SCALAR_DIM)`` — one concat-of-card-embed-and-scalars vector per slot.
+    * ``board_me`` expands to ``BOARD_SLOTS × (card_embed_dim + SLOT_SCALAR_DIM)``
+      — one concat-of-card-embed-and-scalars vector per slot — and every
+      opponent board stripe (``board_opp``, ``board_opp2``, ... one per
+      opponent clockwise) expands identically: they all describe the SAME
+      shared ``board_attn_opp`` module applied per-opponent (no new modules,
+      no new state_dict keys — see ``model.core``).
     * ``card_idx_board`` is removed (``new_size=0``): the per-slot card lookup
       is already included in the attention-output blocks above.
 
     When ``board_attention_positions`` is additionally ``True`` (requires
     ``use_board_attention``), each slot's concat gains the constant
-    ``BOARD_POSITION_DIM``-wide position block, so ``board_me`` / ``board_opp``
-    expand to ``BOARD_SLOTS × (card_embed_dim + SLOT_SCALAR_DIM +
-    BOARD_POSITION_DIM)`` instead — the total grows by ``N_BOARD_INDEX_SLOTS *
-    BOARD_POSITION_DIM``. With attention off (or positions off), the total is
-    unchanged; the ``embed_layout`` consistency check enforces whichever total
-    the caller's ``trunk_input_dim(..., board_position_dim=...)`` call expects.
+    ``BOARD_POSITION_DIM``-wide position block, so each board stripe expands to
+    ``BOARD_SLOTS × (card_embed_dim + SLOT_SCALAR_DIM + BOARD_POSITION_DIM)``
+    instead — the total grows by ``n_board_index_slots * BOARD_POSITION_DIM``.
+    With attention off (or positions off), the total is unchanged; the
+    ``embed_layout`` consistency check enforces whichever total the caller's
+    ``trunk_input_dim(..., board_position_dim=...)`` call expects.
 
     ``n_playable_multihots`` is the count of extra playability multi-hot stripes
     that follow ``hand_multihot`` in the v0.6+ state vector.  Each is embedded
@@ -103,7 +115,7 @@ def state_embed_rules(
     multi-hot (``hand_width``).  Pass ``N_HAND_PLAYABLE_MULTIHOTS`` for live-era
     artifacts; 0 for pre-0.6 compat layouts that lack these stripes.
     """
-    n_board = layout.N_BOARD_INDEX_SLOTS
+    n_board = num_players * layout.SLOTS_PER_BOARD
     tray = state.TRAY_SIZE
     hand = layout.HAND_MULTIHOT_DIM
     if use_distinct_hand_model:
@@ -161,7 +173,7 @@ def state_embed_rules(
             ),
         )
     if use_board_attention:
-        slots_per_seat = layout.N_BOARD_INDEX_SLOTS // 2
+        slots_per_seat = layout.SLOTS_PER_BOARD
         slot_scalar_dim = layout.SLOT_SCALAR_DIM  # 9 scalars per slot
         position_dim = layout.BOARD_POSITION_DIM if board_attention_positions else 0
         token_width = card_embed_dim + slot_scalar_dim + position_dim
@@ -171,34 +183,35 @@ def state_embed_rules(
             if board_attention_positions
             else ""
         )
+        board_stripe_notes = (
+            f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim}"
+            f"{position_note})-dim concat (card embedding + per-slot scalars"
+            f"{' + position' if board_attention_positions else ''}) each, "
+            "shaped for the board-attention transformer."
+        )
         rules["board_me"] = _EmbedRule(
             new_size=attn_width,
             encoding="board-attention output",
             value_range="learned",
-            notes=(
-                f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim}"
-                f"{position_note})-dim concat (card embedding + per-slot scalars"
-                f"{' + position' if board_attention_positions else ''}) each, "
-                "shaped for the board-attention transformer."
-            ),
+            notes=board_stripe_notes,
         )
-        rules["board_opp"] = _EmbedRule(
-            new_size=attn_width,
-            encoding="board-attention output",
-            value_range="learned",
-            notes=(
-                f"{slots_per_seat} board slots → one ({card_embed_dim}+{slot_scalar_dim}"
-                f"{position_note})-dim concat (card embedding + per-slot scalars"
-                f"{' + position' if board_attention_positions else ''}) each, "
-                "shaped for the board-attention transformer."
-            ),
-        )
+        # Every opponent board stripe (board_opp, board_opp2, ... one per
+        # opponent clockwise) is folded identically: they all describe the
+        # SAME shared board_attn_opp module applied per-opponent, not one
+        # module each (see model.core._embed_state_board_attention).
+        for k in range(1, num_players):
+            rules[f"board_opp{layout._opponent_suffix(k)}"] = _EmbedRule(
+                new_size=attn_width,
+                encoding="board-attention output",
+                value_range="learned",
+                notes=board_stripe_notes,
+            )
         # card_idx_board is folded into the attention blocks above.
         rules["card_idx_board"] = _EmbedRule(
             new_size=0,
             encoding="folded",
             value_range="-",
-            notes="Folded into board_me / board_opp attention-output blocks.",
+            notes="Folded into board_me / board_opp(N) attention-output blocks.",
         )
     if tray_set_embedding:
         rules["card_idx_tray"] = _EmbedRule(

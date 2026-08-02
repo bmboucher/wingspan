@@ -79,9 +79,10 @@ The family → decision-class map (head order = `ALL_DECISION_FAMILIES`):
 
 ## 1. The choice vector at a glance
 
-One uniform row per candidate (`encode/layout.py`); base width **509**, plus the
-trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes when
-`include_setup` (**693**). The live stripes, in offset order:
+One uniform row per candidate (`encode/layout.py`); base width **509** at the
+default `num_players=2` (512 at N=3, 513 at N=4 — the `player_select` stripe
+below), plus the trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes
+when `include_setup` (**693** at N=2). The live stripes, in offset order:
 
 | Stripe | Width | Contents | Filled for |
 |---|---|---|---|
@@ -102,6 +103,7 @@ trailing 4-dim `setup_agg` and 180-dim `kept_multihot` stripes when
 | `becomes_playable` | 180 | hand birds that transition from not-playable to playable as a direct result of the food or eggs this choice grants. **Food-gain path (v0.8+):** baseline is `playable_now ∪ playable_if_eggs`; `_bird_playable` is called with `ignore_eggs=True` — open slot + food-affordable is enough, egg cost is not checked. **Egg-gain path:** unchanged — baseline is `playable_now`, full `_bird_playable`. Exact on `FoodChoice` (`GainFoodDecision`); optimistic best-case on `PayCostChoice` skip_optional and on `GAIN_FOOD`/`LAY_EGGS` `MainActionChoice` rows. Zero on `BoardTargetChoice` (`LayEggDecision`) and all non-gain rows. Embedded through the shared card table (same as `hand_multihot`). | gain-bearing rows: food picks, accept-exchange rows with `gained_food_count > 0` or `gained_egg_count > 0`, `GAIN_FOOD` and `LAY_EGGS` main-action rows |
 | `becomes_unplayable` | 180 | currently-playable hand birds that lose playability as a direct result of the food, eggs, or board slot this choice spends. Symmetric counterpart to `becomes_playable`; uses `playable_now` as the baseline (birds fully playable before the choice). **Optimistic** for under-specified removals: a bird survives iff at least one way to remove the tokens still leaves it food-affordable. Exact on `FoodPaymentChoice` (payment multiset known) and `FoodChoice` (`SpendFoodDecision`/`SpendFoodForEggDecision`, −1 token). **Optimistic** on `PayCostChoice` with `paid_food_count > 0` (type unknown). **Full-play** on `PlayBirdChoice` (−1 slot in played habitat, −`next_egg_cost` eggs, −food payment — optimistic over payment alternatives). **Egg-loss** on `BoardTargetChoice` (`RemoveEggDecision`, `is_pay`): −1 egg to `total_eggs`. Zero on `MainActionChoice`, `SetupChoice`, gain-only rows, and every row type not listed. Never populated for the bird being played/paid-for (excluded from its own row's baseline). Embedded through the shared card table (one `card_embed_dim` embedding, summed). Added in **v1.1**; v1.0 artifacts lack this stripe — the `wingspan.compat.v1_0` shim strips it. | spend-bearing rows: `PlayBirdChoice`, `FoodPaymentChoice`, `FoodChoice` (spend context), `BoardTargetChoice` (`RemoveEggDecision`), `PayCostChoice` with food or egg payment |
 | `resets_feeder` | 1 | 1 if this combined food-gain option rerolls the birdfeeder — a partial take (fewer than `n` dice → committed reset + re-pick) or a full take that empties the feeder — so the model can tell a smaller-but-rerolls gain apart from a plain smaller gain (the `gain_food` count vector alone cannot). The last *base* stripe (after `becomes_unplayable`, before the trailing setup stripes). Added in **v1.4**; v1.0–1.3 artifacts lack it — the `wingspan.compat.v1_3` shim strips it, and `v1_0` inherits that strip. | `combine_gain_food` `FoodSubsetChoice` rows only |
+| `player_select` | N (`spec.num_players`) | one-hot of which seat this row names, relative to the deciding player: `(choice.player_id − decision.player_id) % N`. Present **only when `num_players >= 3`** — appended after `resets_feeder`, before the trailing setup stripes, so it does not exist at N=2 and every other offset above is unaffected. The existing `special.is_self` bit is unchanged and still marks the deciding player's own row at every N. | `PlayerIdChoice` rows (`BirdPowerPickGainOrderDecision`, the Hummingbird food-order pick) when `num_players >= 3` |
 | `setup_agg` | 4 | kept-subset aggregates: Σpoints, Σfood-cost, Σegg-limit, kept count | setup keeps only (`include_setup`) |
 | `kept_multihot` | 180 | multi-hot of the specific kept birds, summed through the shared card table (the kept set is unordered — the single-candidate `bird_id` column stays zero on setup rows) | setup keeps only (`include_setup`) |
 
@@ -116,6 +118,21 @@ required, egg cost ignored, full 2-for-1 affordability;
 `encode.playability.min_food_to_unlock`). Like the food-gain `becomes_playable`
 choice stripe, this tells a head how close a food gain is to enabling a play —
 but as a choice-independent state feature, computed once per decision.
+
+**N-player state context (`num_players >= 3` only).** A `turn_position` one-hot
+(width N) rides the state vector immediately after `turn_state`: the POV player's
+clockwise seating offset from this round's first-to-act seat, `(me.id −
+(start_player + round_idx)) % N` — the same rotation `engine.core.Engine._play_round`
+computes for turn order. Every per-opponent state stripe (`food_opp`, `board_me`
+carrying `board_opp`/`board_opp2`/…, `board_summary_opp`, `opp_bonus_count`,
+`opp_hand_size`) repeats once per opponent, clockwise from the POV player,
+immediately after its singular sibling — so at N=2 each group is exactly the
+familiar single stripe. The `round_goals` stripe's per-round slot widens its
+opponent-count block from 1 to N−1 entries (`RoundGoalStanding.other_counts`,
+clockwise); `card_idx_block` grows to cover every seat's board. See
+`docs/VERSIONING.md`'s `num_players` entry for the versioning story (config-carried,
+default-reproducing, no `MODEL_VERSION` bump — N>=3 nets are fresh, never
+compat-shimmed).
 
 ---
 

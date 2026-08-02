@@ -27,6 +27,7 @@ See CLAUDE.md "Checkpoint compatibility policy".
 
 from __future__ import annotations
 
+import functools
 import typing
 
 import pydantic
@@ -34,7 +35,7 @@ import pydantic
 from wingspan import cards, decisions, state
 
 # ---------------------------------------------------------------------------
-# Encoding spec — the one config-driven axis of the encoders' shape.
+# Encoding spec — the two config-driven axes of the encoders' shape.
 
 
 class EncodingSpec(pydantic.BaseModel):
@@ -46,27 +47,53 @@ class EncodingSpec(pydantic.BaseModel):
     fallback that scores the opening with the main net); ``False`` drops all
     three, because the opening is handled by the separate setup model.
 
-    The field defaults to ``False`` so a bare spec matches the default training
-    config (``TrainConfig.use_setup_model=True`` ⇒ the main net excludes setup):
-    bare ``PolicyValueNet()`` / ``encode_state()`` calls and a configured default
-    run then agree on the shape. A run derives its spec from
-    ``spec_for(use_setup_model)``. Frozen so it is hashable (it keys the cached
-    size functions below) and serializable into ``model_config.json``."""
+    ``num_players`` selects the seat count the encoding is built for. It
+    defaults to **2** so a bare spec reproduces every dim, offset, stripe name,
+    and value byte-identically to the pre-N-player encoding: N=2 output is the
+    checkpoint-compat anchor and every existing constant in this module is that
+    anchor's literal value (see ``docs/VERSIONING.md``'s ``num_players``
+    changelog entry). N>=3 layouts add stripes freely (per-opponent replicas,
+    plus a ``turn_position`` state stripe and a ``player_select`` choice
+    stripe) — those nets are fresh by construction and are never
+    compat-shimmed, mirroring the ``combine_gain_food`` / ``use_board_attention``
+    precedent of a config-carried, default-reproducing field.
+
+    The field defaults to ``False`` / ``2`` so a bare spec matches the default
+    training config (``TrainConfig.use_setup_model=True`` ⇒ the main net
+    excludes setup; ``ArchitectureConfig.num_players=2``): bare
+    ``PolicyValueNet()`` / ``encode_state()`` calls and a configured default run
+    then agree on the shape. A run derives its spec from
+    ``spec_for(use_setup_model, num_players)``. Frozen so it is hashable (it
+    keys the cached layout functions below) and serializable into
+    ``model_config.json``."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     include_setup: bool = False
+    num_players: typing.Annotated[int, pydantic.Field(ge=2, le=5)] = 2
+
+    def __hash__(self) -> int:
+        """Explicit override: pydantic's ``frozen=True`` already generates a
+        value-based ``__hash__`` at runtime, but its stub declares
+        ``BaseModel.__hash__`` unconditionally, so strict pyright does not see
+        the override and flags every ``@functools.lru_cache``-keyed call below
+        as non-``Hashable``. Kept in sync with ``EncodingSpec``'s two fields —
+        update this if a third field is ever added."""
+        return hash((self.include_setup, self.num_players))
 
 
 # The default spec matches a default run (``use_setup_model=True`` ⇒ setup
-# excluded from the main net); bare encoder / model calls use it.
+# excluded from the main net; ``num_players=2``); bare encoder / model calls
+# use it.
 DEFAULT_SPEC = EncodingSpec()
 
 
-def spec_for(use_setup_model: bool) -> EncodingSpec:
-    """The encoding spec implied by a run's ``use_setup_model`` flag: the main
-    model includes setup exactly when the separate setup model is *off*."""
-    return EncodingSpec(include_setup=not use_setup_model)
+def spec_for(use_setup_model: bool, num_players: int = 2) -> EncodingSpec:
+    """The encoding spec implied by a run's ``use_setup_model`` flag and seat
+    count: the main model includes setup exactly when the separate setup model
+    is *off*, at the given ``num_players`` (default 2, the checkpoint-compat
+    anchor)."""
+    return EncodingSpec(include_setup=not use_setup_model, num_players=num_players)
 
 
 # Deferred until after DEFAULT_SPEC is defined: stripes.choice accesses
@@ -178,6 +205,8 @@ _GOAL_DELTA_VP = 1  # within-slot: VP delta (÷ _ROUND_GOAL_POINTS_SCALE)
 _BONUS_VALUE_DIM = 5  # candidate bonus card's value to the deciding player (below)
 _SETUP_DIM = 4  # setup kept-subset aggregates (only when include_setup)
 _RESETS_FEEDER_DIM = 1  # 1 if this combined food-gain subset rerolls the birdfeeder
+# ``player_select`` width equals ``spec.num_players`` (only present at N>=3);
+# no fixed dim constant since it is spec-sized, unlike every stripe above.
 
 # The board_target stripe is a per-board-slot block: 4 scalars repeated over
 # every board slot. Per slot: lay_eggs, pay_eggs, cached_total (all food types
@@ -216,6 +245,12 @@ _KEPT_MULTIHOT_DIM = _BIRD_ID_DIM  # setup kept-set multi-hot (only when include
 # conditional setup_agg and kept_multihot stripes trail everything — so the
 # card-region offset the model slices on stays invariant to ``include_setup``
 # (the trailing kept_multihot region is by construction the row's final columns).
+#
+# ``player_select`` (N>=3 only) is appended after ``resets_feeder`` — the last
+# base stripe — and before the conditional setup stripes, so it shifts nothing
+# at N=2 (the stripe is simply absent) and the setup stripes stay the row's
+# final columns at every N.
+_PLAYER_SELECT_STRIPE_NAME = "player_select"
 _CHOICE_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="kind", size=_KIND_DIM),
     _stripe_descriptors.StripeSpec(name="gain_food", size=_GAIN_FOOD_DIM),
@@ -243,12 +278,53 @@ _CHOICE_SETUP_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="setup_agg", size=_SETUP_DIM),
     _stripe_descriptors.StripeSpec(name="kept_multihot", size=_KEPT_MULTIHOT_DIM),
 ]
-CHOICE_BASE_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
-    _CHOICE_STRIPE_SPECS
-)
-CHOICE_FULL_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
-    _CHOICE_STRIPE_SPECS + _CHOICE_SETUP_STRIPE_SPECS
-)
+
+
+def _choice_base_stripe_specs(
+    spec: EncodingSpec,
+) -> list[_stripe_descriptors.StripeSpec]:
+    """The base (non-setup) choice stripe specs for ``spec``: the fixed
+    ``_CHOICE_STRIPE_SPECS`` chain, plus a trailing ``player_select`` one-hot
+    (width ``spec.num_players``) when ``spec.num_players >= 3`` — absent at
+    N=2, so the base chain is byte-identical to the pre-N-player layout."""
+    specs = list(_CHOICE_STRIPE_SPECS)
+    if spec.num_players >= 3:
+        specs.append(
+            _stripe_descriptors.StripeSpec(
+                name=_PLAYER_SELECT_STRIPE_NAME, size=spec.num_players
+            )
+        )
+    return specs
+
+
+@functools.lru_cache
+def choice_base_layout(
+    spec: EncodingSpec = DEFAULT_SPEC,
+) -> _stripe_descriptors.VectorLayout:
+    """The auto-computed base (non-setup) choice layout for ``spec``. Cached —
+    ``spec`` is frozen/hashable — since every choice row of a run shares one
+    layout. ``CHOICE_BASE_LAYOUT`` is this function's ``DEFAULT_SPEC`` (N=2)
+    result, kept as a module constant so existing readers are untouched."""
+    return _stripe_descriptors.VectorLayout.from_stripe_specs(
+        _choice_base_stripe_specs(spec)
+    )
+
+
+@functools.lru_cache
+def choice_full_layout(
+    spec: EncodingSpec = DEFAULT_SPEC,
+) -> _stripe_descriptors.VectorLayout:
+    """The auto-computed full (base + setup) choice layout for ``spec``. See
+    :func:`choice_base_layout`."""
+    return _stripe_descriptors.VectorLayout.from_stripe_specs(
+        _choice_base_stripe_specs(spec) + _CHOICE_SETUP_STRIPE_SPECS
+    )
+
+
+# DEFAULT_SPEC (N=2) anchors — every existing reader of these two names keeps
+# working untouched; live spec-aware callers use the cached functions above.
+CHOICE_BASE_LAYOUT = choice_base_layout(DEFAULT_SPEC)
+CHOICE_FULL_LAYOUT = choice_full_layout(DEFAULT_SPEC)
 _OFF_KIND = CHOICE_BASE_LAYOUT.offset_of("kind")
 _OFF_GAIN_FOOD = CHOICE_BASE_LAYOUT.offset_of("gain_food")
 _OFF_PAY = CHOICE_BASE_LAYOUT.offset_of("pay")
@@ -265,6 +341,17 @@ _OFF_GOAL_DELTA = CHOICE_BASE_LAYOUT.offset_of("goal_delta")
 _OFF_BONUS_VALUE = CHOICE_BASE_LAYOUT.offset_of("bonus_value")
 _OFF_RESETS_FEEDER = CHOICE_BASE_LAYOUT.offset_of("resets_feeder")
 _CHOICE_BASE_DIM = CHOICE_BASE_LAYOUT.total_size
+
+
+def off_player_select(spec: EncodingSpec = DEFAULT_SPEC) -> int | None:
+    """Offset of the ``player_select`` choice stripe for ``spec``, or ``None``
+    at N=2 where the stripe does not exist (mirrors the other Optional-offset
+    accessors in ``model.core``'s embed-offset seams)."""
+    if spec.num_players < 3:
+        return None
+    return choice_base_layout(spec).offset_of(_PLAYER_SELECT_STRIPE_NAME)
+
+
 _OFF_SETUP = CHOICE_FULL_LAYOUT.offset_of(
     "setup_agg"
 )  # trailing; present iff include_setup
@@ -511,28 +598,59 @@ BOARD_POSITION_DIM: int = BOARD_POSITION_HAB_DIM + BOARD_POSITION_COL_DIM  # 8
 _TRAY_CONT_STRIPE_DIM = 0
 
 # Round-goal state stripe: all four rounds, each = category one-hot
-# (MAX_GOAL_CATEGORIES) + my count + opponent count + current placement VP.
+# (MAX_GOAL_CATEGORIES) + my count + the other seats' counts (clockwise from
+# POV) + current placement VP. At N=2 the "other seats" block is exactly one
+# slot (today's single opponent count).
 _NUM_ROUNDS = len(state.ROUND_GOAL_PAYOUTS)
 _ROUND_GOAL_MY_COUNT = MAX_GOAL_CATEGORIES
+# Start of the (num_players - 1)-wide opponent-count block (clockwise from
+# POV); at N=2 it is exactly one slot, so this doubles as "the" opponent count
+# offset for the pre-N-player anchor.
 _ROUND_GOAL_OPP_COUNT = MAX_GOAL_CATEGORIES + 1
-_ROUND_GOAL_VP = MAX_GOAL_CATEGORIES + 2
-_ROUND_GOAL_SLOT_DIM = MAX_GOAL_CATEGORIES + 3
-_ROUND_GOALS_STRIPE_DIM = _NUM_ROUNDS * _ROUND_GOAL_SLOT_DIM
+_ROUND_GOAL_VP = MAX_GOAL_CATEGORIES + 2  # N=2 anchor value of round_goal_vp_offset()
+_ROUND_GOAL_SLOT_DIM = (
+    MAX_GOAL_CATEGORIES + 3
+)  # N=2 anchor value of round_goal_slot_dim()
+_ROUND_GOALS_STRIPE_DIM = _NUM_ROUNDS * _ROUND_GOAL_SLOT_DIM  # N=2 anchor
+
+
+def round_goal_vp_offset(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Offset of the placement-VP scalar within one round-goal slot for
+    ``spec``: after the category one-hot, my count, and the
+    ``spec.num_players - 1``-wide opponent-count block. At N=2 this equals
+    ``_ROUND_GOAL_VP`` (22), the checkpoint-compat anchor."""
+    return _ROUND_GOAL_OPP_COUNT + (spec.num_players - 1)
+
+
+def round_goal_slot_dim(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Width of one round-goal slot for ``spec``: the category one-hot, my
+    count, the ``spec.num_players - 1`` other seats' counts (clockwise from
+    POV), and the placement VP. At N=2 this equals ``_ROUND_GOAL_SLOT_DIM``
+    (23)."""
+    return round_goal_vp_offset(spec) + 1
+
+
+def round_goals_stripe_dim(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Total width of the ``round_goals`` state stripe for ``spec`` (all
+    ``_NUM_ROUNDS`` rounds). At N=2 this equals ``_ROUND_GOALS_STRIPE_DIM``
+    (92)."""
+    return _NUM_ROUNDS * round_goal_slot_dim(spec)
 
 
 # ---------------------------------------------------------------------------
 # Model-facing flat-vector layout for the shared card embedding.
 #
 # encode_state groups every per-slot card *identity* into one contiguous block of
-# integer indices (board me 15, board opp 15, tray 3), each ``bird_index + 1``
-# with 0 meaning "empty slot". The model gathers this block, looks the indices up
-# in a single shared ``nn.Embedding`` (padding row 0), and concatenates the result
-# with the continuous features. The hand is carried as a multi-hot the model
-# mean-pools through the same embedding weight. These offsets are the contract the
-# model splits on; the decision-type one-hot stays the final state stripe.
+# integer indices (board me 15, each opponent board 15 clockwise, tray 3), each
+# ``bird_index + 1`` with 0 meaning "empty slot". The model gathers this block,
+# looks the indices up in a single shared ``nn.Embedding`` (padding row 0), and
+# concatenates the result with the continuous features. The hand is carried as a
+# multi-hot the model mean-pools through the same embedding weight. These offsets
+# are the contract the model splits on; the decision-type one-hot stays the final
+# state stripe.
 
-N_BOARD_INDEX_SLOTS = 2 * _SLOTS_PER_BOARD  # POV board + opponent board
-N_CARD_INDEX_SLOTS = N_BOARD_INDEX_SLOTS + state.TRAY_SIZE
+N_BOARD_INDEX_SLOTS = 2 * _SLOTS_PER_BOARD  # N=2 anchor: POV board + opponent board
+N_CARD_INDEX_SLOTS = N_BOARD_INDEX_SLOTS + state.TRAY_SIZE  # N=2 anchor
 HAND_MULTIHOT_DIM = _BIRD_ID_DIM
 N_HAND_PLAYABLE_MULTIHOTS = 2
 """Number of extra hand-playability multi-hot stripes appended after ``hand_multihot``
@@ -540,59 +658,192 @@ in the state vector: ``hand_playable_me`` (playable right now) and
 ``hand_playable_eggs_me`` (egg-blocked but food/slot ready). Pre-0.6 artifacts
 have 0 extra stripes; the compat shim freezes the offsets at the old values."""
 
+
+def n_board_index_slots(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Width of the card-index block's board portion for ``spec``: every
+    seat's board (POV, then each opponent clockwise) — ``spec.num_players *
+    SLOTS_PER_BOARD``. At N=2 this equals ``N_BOARD_INDEX_SLOTS`` (30)."""
+    return spec.num_players * _SLOTS_PER_BOARD
+
+
+def n_card_index_slots(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Total width of the ``card_idx_block`` state stripe for ``spec``: every
+    seat's board plus the public tray. At N=2 this equals ``N_CARD_INDEX_SLOTS``
+    (33)."""
+    return n_board_index_slots(spec) + state.TRAY_SIZE
+
+
 # Per-habitat fields retained in the v0.9 compacted board-summary (row_length +
 # total_eggs). Pre-0.9 shims used 6 fields; this constant keeps the live width
 # explicit and avoids a magic 2 in the stripe spec below.
 _BOARD_SUMMARY_FIELDS_PER_HABITAT = 2
 
-_STATE_CONT_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
-    _stripe_descriptors.StripeSpec(
-        name="turn_state",
-        size=N_PLAYER_TURNS + 1,  # 26-dim player-turn one-hot + is_first_player flag
-    ),
-    _stripe_descriptors.StripeSpec(name="food_me", size=cards.N_FOODS),
-    _stripe_descriptors.StripeSpec(name="food_opp", size=cards.N_FOODS),
+
+def _opponent_suffix(clockwise_index: int) -> str:
+    """The name suffix an opponent-replicated stripe uses for the
+    ``clockwise_index``-th opponent (1-based; 1 = the nearest opponent,
+    clockwise from the POV player). Index 1 keeps the plain pre-N-player name
+    (``food_opp``, ``board_opp``, ...) unchanged; index 2+ appends the index
+    (``food_opp2``, ``food_opp3``, ...) — so a 2-player spec's single
+    iteration reproduces the original unsuffixed stripe name exactly."""
+    return "" if clockwise_index == 1 else str(clockwise_index)
+
+
+def _state_cont_stripe_specs(
+    spec: EncodingSpec,
+) -> list[_stripe_descriptors.StripeSpec]:
+    """The state continuous-prefix stripe specs for ``spec``.
+
+    At N=2 (``spec.num_players == 2``) this reproduces the pre-N-player
+    literal chain byte-for-byte: no ``turn_position`` stripe, and each
+    per-opponent group's single ``range(1, 2)`` iteration yields exactly the
+    original unsuffixed stripe. At N>=3 it additionally inserts, in place:
+
+    * a ``turn_position`` one-hot (width ``spec.num_players``) immediately
+      after ``turn_state``;
+    * for each opponent ``k = 2..spec.num_players - 1`` clockwise, a suffixed
+      replica directly after its ``k = 1`` (unsuffixed) stripe — covers
+      ``food_opp``, ``board_opp``, ``board_summary_opp``, ``opp_bonus_count``,
+      and ``opp_hand_size``;
+    * ``round_goals`` and ``card_idx_block`` grow in place via
+      :func:`round_goals_stripe_dim` / :func:`n_card_index_slots` (their
+      per-spec sizes already cover every seat, so they stay single stripes
+      rather than splitting into per-opponent ones).
+    """
+    n = spec.num_players
+    specs: list[_stripe_descriptors.StripeSpec] = [
+        _stripe_descriptors.StripeSpec(
+            name="turn_state",
+            size=N_PLAYER_TURNS
+            + 1,  # 26-dim player-turn one-hot + is_first_player flag
+        ),
+    ]
+    if n >= 3:
+        specs.append(_stripe_descriptors.StripeSpec(name="turn_position", size=n))
+    specs.append(_stripe_descriptors.StripeSpec(name="food_me", size=cards.N_FOODS))
+    specs.extend(
+        _stripe_descriptors.StripeSpec(
+            name=f"food_opp{_opponent_suffix(k)}", size=cards.N_FOODS
+        )
+        for k in range(1, n)
+    )
     # Per-food smallest count that would newly unlock a hand / tray bird (v1.4+).
-    _stripe_descriptors.StripeSpec(name="hand_food_unlock_me", size=cards.N_FOODS),
-    _stripe_descriptors.StripeSpec(name="tray_food_unlock_me", size=cards.N_FOODS),
-    _stripe_descriptors.StripeSpec(name="board_me", size=_BOARD_CONT_STRIPE_DIM),
-    _stripe_descriptors.StripeSpec(name="board_opp", size=_BOARD_CONT_STRIPE_DIM),
-    _stripe_descriptors.StripeSpec(
-        name="board_summary_me",
-        size=state.N_HABITATS * _BOARD_SUMMARY_FIELDS_PER_HABITAT,
-    ),
-    _stripe_descriptors.StripeSpec(
-        name="board_summary_opp",
-        size=state.N_HABITATS * _BOARD_SUMMARY_FIELDS_PER_HABITAT,
-    ),
+    # POV-only — no per-opponent replica (hidden information).
+    specs.append(
+        _stripe_descriptors.StripeSpec(name="hand_food_unlock_me", size=cards.N_FOODS)
+    )
+    specs.append(
+        _stripe_descriptors.StripeSpec(name="tray_food_unlock_me", size=cards.N_FOODS)
+    )
+    specs.append(
+        _stripe_descriptors.StripeSpec(name="board_me", size=_BOARD_CONT_STRIPE_DIM)
+    )
+    specs.extend(
+        _stripe_descriptors.StripeSpec(
+            name=f"board_opp{_opponent_suffix(k)}", size=_BOARD_CONT_STRIPE_DIM
+        )
+        for k in range(1, n)
+    )
+    specs.append(
+        _stripe_descriptors.StripeSpec(
+            name="board_summary_me",
+            size=state.N_HABITATS * _BOARD_SUMMARY_FIELDS_PER_HABITAT,
+        )
+    )
+    specs.extend(
+        _stripe_descriptors.StripeSpec(
+            name=f"board_summary_opp{_opponent_suffix(k)}",
+            size=state.N_HABITATS * _BOARD_SUMMARY_FIELDS_PER_HABITAT,
+        )
+        for k in range(1, n)
+    )
     # hand_summary_me removed at the 0.9 compaction (carried into the 1.0
     # baseline): derived in-model from hand_multihot via set_summary_from_multihot
     # (same mechanism as the playability + tray-set stripes). No pre-1.0 shim
     # restores it — every loadable artifact already omits the inline stripe.
-    _stripe_descriptors.StripeSpec(name="bonus_progress", size=4 * _BONUS_ID_DIM),
-    _stripe_descriptors.StripeSpec(name="opp_bonus_count", size=1),
-    _stripe_descriptors.StripeSpec(name="opp_hand_size", size=1),
-    _stripe_descriptors.StripeSpec(name="birdfeeder", size=7),
-    _stripe_descriptors.StripeSpec(
-        name="misc_scalars",
-        size=2,  # tray size + deck size (goal pts removed in v0.9)
-    ),
-    _stripe_descriptors.StripeSpec(name="round_goals", size=_ROUND_GOALS_STRIPE_DIM),
-    _stripe_descriptors.StripeSpec(name="card_idx_block", size=N_CARD_INDEX_SLOTS),
-    _stripe_descriptors.StripeSpec(name="hand_multihot", size=HAND_MULTIHOT_DIM),
-    _stripe_descriptors.StripeSpec(name="hand_playable_me", size=HAND_MULTIHOT_DIM),
-    _stripe_descriptors.StripeSpec(
-        name="hand_playable_eggs_me", size=HAND_MULTIHOT_DIM
-    ),
-]
-STATE_CONT_LAYOUT = _stripe_descriptors.VectorLayout.from_stripe_specs(
-    _STATE_CONT_STRIPE_SPECS
-)
+    specs.append(
+        _stripe_descriptors.StripeSpec(name="bonus_progress", size=4 * _BONUS_ID_DIM)
+    )
+    specs.extend(
+        _stripe_descriptors.StripeSpec(
+            name=f"opp_bonus_count{_opponent_suffix(k)}", size=1
+        )
+        for k in range(1, n)
+    )
+    specs.extend(
+        _stripe_descriptors.StripeSpec(
+            name=f"opp_hand_size{_opponent_suffix(k)}", size=1
+        )
+        for k in range(1, n)
+    )
+    specs.append(_stripe_descriptors.StripeSpec(name="birdfeeder", size=7))
+    specs.append(
+        _stripe_descriptors.StripeSpec(
+            name="misc_scalars",
+            size=2,  # tray size + deck size (goal pts removed in v0.9)
+        )
+    )
+    specs.append(
+        _stripe_descriptors.StripeSpec(
+            name="round_goals", size=round_goals_stripe_dim(spec)
+        )
+    )
+    specs.append(
+        _stripe_descriptors.StripeSpec(
+            name="card_idx_block", size=n_card_index_slots(spec)
+        )
+    )
+    specs.append(
+        _stripe_descriptors.StripeSpec(name="hand_multihot", size=HAND_MULTIHOT_DIM)
+    )
+    specs.append(
+        _stripe_descriptors.StripeSpec(name="hand_playable_me", size=HAND_MULTIHOT_DIM)
+    )
+    specs.append(
+        _stripe_descriptors.StripeSpec(
+            name="hand_playable_eggs_me", size=HAND_MULTIHOT_DIM
+        )
+    )
+    return specs
+
+
+@functools.lru_cache
+def state_cont_layout(
+    spec: EncodingSpec = DEFAULT_SPEC,
+) -> _stripe_descriptors.VectorLayout:
+    """The auto-computed state continuous-prefix layout for ``spec`` (decision-type
+    excluded). Cached — ``spec`` is frozen/hashable — since every state vector of a
+    run shares one layout. ``STATE_CONT_LAYOUT`` is this function's ``DEFAULT_SPEC``
+    (N=2) result, kept as a module constant so existing readers are untouched."""
+    return _stripe_descriptors.VectorLayout.from_stripe_specs(
+        _state_cont_stripe_specs(spec)
+    )
+
+
+# DEFAULT_SPEC (N=2) anchor — every existing reader of this name keeps working
+# untouched; live spec-aware callers use state_cont_layout(spec) directly.
+STATE_CONT_LAYOUT = state_cont_layout(DEFAULT_SPEC)
+
+
+def off_board(spec: EncodingSpec, seat_offset: int) -> int:
+    """Offset of the ``seat_offset``-th seat's board continuous scalar stripe in
+    ``spec``'s state vector: 0 = the POV player's board, 1..``spec.num_players - 1``
+    = each opponent clockwise. The per-seat board stripes (``board_me``,
+    ``board_opp``, ``board_opp2``, ...) are laid out contiguously by
+    :func:`_state_cont_stripe_specs`, so this is a fixed stride off ``board_me``'s
+    offset. Used by the board self-attention path (``model.core``), which attends
+    every seat's board, not just the POV/nearest-opponent pair ``OFF_BOARD_ME`` /
+    ``OFF_BOARD_OPP`` cover."""
+    return (
+        state_cont_layout(spec).offset_of("board_me")
+        + seat_offset * _BOARD_CONT_STRIPE_DIM
+    )
+
 
 # Offsets of the two 135-dim per-board continuous stripes within the state vector.
 # Used by the board self-attention path (model/core.py) to slice the mutable
 # scalars for each player's 15 slots. Live-encoding only — same era-seam caveat
-# as SLOTS_PER_BOARD / SLOT_SCALAR_DIM above.
+# as SLOTS_PER_BOARD / SLOT_SCALAR_DIM above. N=2 anchors of off_board(spec, ·).
 OFF_BOARD_ME: int = STATE_CONT_LAYOUT.offset_of("board_me")
 OFF_BOARD_OPP: int = STATE_CONT_LAYOUT.offset_of("board_opp")
 
@@ -606,9 +857,30 @@ HAND_SUMMARY_OFFSET: int = 343
 # The raw input width of the hand encoder: multi-hot identity + summary stats.
 HAND_ENCODER_INPUT_DIM = HAND_MULTIHOT_DIM + HAND_SUMMARY_DIM
 
+
+def off_card_index(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Offset of the ``card_idx_block`` stripe in ``spec``'s state vector — the
+    continuous prefix's boundary. At N=2 this equals ``OFF_CARD_INDEX``."""
+    return state_cont_layout(spec).offset_of("card_idx_block")
+
+
+def off_hand_multihot(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Offset of the ``hand_multihot`` stripe in ``spec``'s state vector. At
+    N=2 this equals ``OFF_HAND_MULTIHOT``."""
+    return state_cont_layout(spec).offset_of("hand_multihot")
+
+
+def off_decision_type(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Offset of the trailing decision-type one-hot in ``spec``'s state vector
+    — the continuous prefix's total width. At N=2 this equals
+    ``OFF_DECISION_TYPE``."""
+    return state_cont_layout(spec).total_size
+
+
 # Continuous prefix preceding the card-index block; ``card_idx_block`` and
 # ``hand_multihot`` are included in STATE_CONT_LAYOUT for offset arithmetic,
-# but the prefix boundary is the start of ``card_idx_block``.
+# but the prefix boundary is the start of ``card_idx_block``. N=2 anchors of
+# the off_*(spec) accessors above.
 _CONT_PREFIX_DIM = STATE_CONT_LAYOUT.offset_of("card_idx_block")
 OFF_CARD_INDEX = _CONT_PREFIX_DIM
 OFF_HAND_MULTIHOT: int = STATE_CONT_LAYOUT.offset_of("hand_multihot")
@@ -662,6 +934,8 @@ def trunk_input_dim(
     tray_set_embedding: bool = False,
     n_playable_multihots: int = 0,
     board_position_dim: int = 0,
+    n_card_index_slots: int = N_CARD_INDEX_SLOTS,
+    n_board_index_slots: int = N_BOARD_INDEX_SLOTS,
 ) -> int:
     """The state trunk's first-``Linear`` input width: the flat ``state_dim`` with
     the card-index block and the hand multi-hot replaced by their shared-embedding
@@ -692,12 +966,18 @@ def trunk_input_dim(
     vector per block.
 
     ``board_position_dim`` is the width of the per-token position block the board
-    self-attention path concatenates onto each of the ``N_BOARD_INDEX_SLOTS`` board
+    self-attention path concatenates onto each of the ``n_board_index_slots`` board
     tokens (``BOARD_POSITION_DIM`` when ``ModelArchitecture.board_attention_positions``
     is set, ``0`` otherwise — the default). Unlike the other embedding swaps above,
     this is *added* width: the position block has no flat-state counterpart to
     subtract, since it is a constant derived from slot index rather than a stripe
     read out of the state vector.
+
+    ``n_card_index_slots`` / ``n_board_index_slots`` default to the N=2 module
+    constants (``N_CARD_INDEX_SLOTS`` / ``N_BOARD_INDEX_SLOTS``) so every existing
+    caller — including every compat-era path, which is always 2-player — is
+    unchanged; an N-player-aware caller passes ``encode.n_card_index_slots(spec)``
+    / ``encode.n_board_index_slots(spec)`` instead.
 
     This is the single source of truth for the post-embedding width (used by both
     ``model.PolicyValueNet`` and the configurator's parameter accounting)."""
@@ -709,11 +989,11 @@ def trunk_input_dim(
         )
     base = (
         state_dim
-        - N_CARD_INDEX_SLOTS  # index columns -> per-slot embeddings
+        - n_card_index_slots  # index columns -> per-slot embeddings
         - HAND_MULTIHOT_DIM  # hand multi-hot -> one hand embedding
         - n_playable_multihots
         * HAND_MULTIHOT_DIM  # extra playability multi-hots removed
-        + N_CARD_INDEX_SLOTS * card_embed_dim
+        + n_card_index_slots * card_embed_dim
         + hand_width
         + n_playable_multihots * hand_width  # each embedded as a card set
     )
@@ -723,7 +1003,7 @@ def trunk_input_dim(
         base -= HAND_SUMMARY_DIM
     if tray_set_embedding:
         base += hand_width
-    base += N_BOARD_INDEX_SLOTS * board_position_dim
+    base += n_board_index_slots * board_position_dim
     return base
 
 
@@ -824,17 +1104,19 @@ def num_families(spec: EncodingSpec = DEFAULT_SPEC) -> int:
 
 
 def choice_feature_dim(spec: EncodingSpec = DEFAULT_SPEC) -> int:
-    """Width of one choice feature row for ``spec``: the fixed base plus the
-    trailing ``setup_agg`` + ``kept_multihot`` stripes when ``include_setup``."""
-    return _CHOICE_BASE_DIM + (
+    """Width of one choice feature row for ``spec``: the (spec-sized) base —
+    which includes the N>=3-only ``player_select`` stripe — plus the trailing
+    ``setup_agg`` + ``kept_multihot`` stripes when ``include_setup``."""
+    return choice_base_layout(spec).total_size + (
         _SETUP_DIM + _KEPT_MULTIHOT_DIM if spec.include_setup else 0
     )
 
 
 def state_feature_dim(spec: EncodingSpec = DEFAULT_SPEC) -> int:
-    """Length of the state vector for ``spec``: the fixed prefix through the
-    card / hand blocks plus the (spec-sized) trailing decision-type one-hot."""
-    return OFF_DECISION_TYPE + decision_type_dim(spec)
+    """Length of the state vector for ``spec``: the (spec-sized) continuous
+    prefix through the card / hand blocks plus the (spec-sized) trailing
+    decision-type one-hot."""
+    return state_cont_layout(spec).total_size + decision_type_dim(spec)
 
 
 def choice_layout(
@@ -842,13 +1124,8 @@ def choice_layout(
 ) -> _stripe_descriptors.VectorLayout:
     """The auto-computed choice stripe layout for ``spec``."""
     if spec.include_setup:
-        return CHOICE_FULL_LAYOUT
-    return CHOICE_BASE_LAYOUT
-
-
-def state_cont_layout() -> _stripe_descriptors.VectorLayout:
-    """The auto-computed state continuous-prefix layout (decision-type excluded)."""
-    return STATE_CONT_LAYOUT
+        return choice_full_layout(spec)
+    return choice_base_layout(spec)
 
 
 def card_attr_layout() -> _stripe_descriptors.VectorLayout:

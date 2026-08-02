@@ -198,7 +198,9 @@ def expected_encoding_key(
     same router ``config.TrainConfig._sync_encoding_dims`` derives from), built
     over the descriptor's own spec. The family-head order is unchanged between
     eras, so it is live-derived."""
-    spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
+    spec = encode.EncodingSpec(
+        include_setup=descriptor.include_setup, num_players=descriptor.num_players
+    )
     family_order = tuple(
         family.value
         for family in decisions.active_decision_families(spec.include_setup)

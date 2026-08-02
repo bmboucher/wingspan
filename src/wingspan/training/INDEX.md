@@ -22,8 +22,10 @@ top-level computed properties so call sites don't churn.
 - `architecture: ArchitectureConfig` — topology + encoding-shape toggles +
   era-synced dims. `main: MainNetArchitecture` (trunk/choice/head widths, card +
   hand encoders), `setup: SetupNetArchitecture`, the `use_setup_model` /
-  `split_setup_*` toggles, and the era-synced `encoding_version` / `state_dim` /
-  `choice_dim` / `family_order`.
+  `split_setup_*` / `num_players` (seats per game; default 2, ge=2 le=5, FRESH —
+  joins `ShapeKey`; `validate_launchable` temporarily blocks `num_players > 2`
+  until the training pipeline is seat-count-generic) toggles, and the era-synced
+  `encoding_version` / `state_dim` / `choice_dim` / `family_order`.
 - `run: RunSettings` — `games_per_iter`, `max_iterations`, `target_iterations`,
   `eval_every`, `eval_games`, `checkpoint_dir`, `run_name`, `resume`, `history_len`.
 - `training: TrainingConfig` — `lr`, `value_coef`, `entropy_coef`, `grad_clip`,
@@ -101,6 +103,7 @@ reads from a run directory.
   legacy writers, and `read_run_config` raises `FileNotFoundError` on ≤0.4 dirs.
 - `ModelConfig` — the in-memory weight-compat descriptor; carries `run_name`,
   `state_dim`, `choice_dim`, `family_order`, `architecture`, `include_setup`,
+  `num_players` (default 2 — pre-Stage-2 descriptors rehydrate identically),
   `version`. `read_model_config(dir) -> ModelConfig` **dispatches on presence**:
   derived from `run_config_<stamp>.json` when one exists, else read from the
   legacy `model_config.json` (with compat shims by version).

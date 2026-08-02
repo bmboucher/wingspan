@@ -545,6 +545,7 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "use_setup_model": ("architecture", "use_setup_model"),
     "split_setup_bonus": ("architecture", "split_setup_bonus"),
     "split_setup_food": ("architecture", "split_setup_food"),
+    "num_players": ("architecture", "num_players"),
     # architecture.main section
     "trunk_layers": ("architecture", "main", "trunk_layers"),
     "choice_layers": ("architecture", "main", "choice_layers"),
@@ -1460,6 +1461,21 @@ FIELD_SPECS: list[FieldSpec] = [
         help="Scorer head activation after the final Linear(·,1) (inherit = use global final; none = bare logit). Resumable.",
     ),
     # MODEL ARCHITECTURE ▸ GLOBAL DEFAULTS
+    IntField(
+        attr="num_players",
+        label="players",
+        group_path=("MODEL ARCHITECTURE", "GLOBAL DEFAULTS"),
+        unit="seats",
+        step=1,
+        impact=ChangeImpact.FRESH,
+        help="Players per game this network trains and plays at. A net trains "
+        "at one fixed seat count; changing it forces a fresh run "
+        "(architecture_key changes — state/choice dims and, with board "
+        "attention on, the shared opponent-board module's input width all "
+        "move together). 2 (default) reproduces every pre-N-player dim/offset "
+        "byte-for-byte. N>=3 training is not yet launchable — see the launch "
+        "blocker if you try.",
+    ),
     ChoiceField(
         attr="between_activation",
         label="between activation",

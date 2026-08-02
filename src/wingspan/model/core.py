@@ -142,6 +142,12 @@ class PolicyValueNet(nn.Module):
             num_families = len(decisions.active_decision_families(spec.include_setup))
         if arch is None:
             arch = architecture.ModelArchitecture()
+        if arch.num_players != spec.num_players:
+            raise ValueError(
+                f"arch.num_players ({arch.num_players}) != spec.num_players "
+                f"({spec.num_players}) — the topology and the encoding it is "
+                "built to read must agree on seat count."
+            )
         self.spec = spec
         self.include_setup = spec.include_setup
         self.state_dim = state_dim
@@ -204,7 +210,10 @@ class PolicyValueNet(nn.Module):
             choice_dim=descriptor.choice_dim,
             num_families=len(descriptor.family_order),
             arch=descriptor.architecture,
-            spec=encode.EncodingSpec(include_setup=descriptor.include_setup),
+            spec=encode.EncodingSpec(
+                include_setup=descriptor.include_setup,
+                num_players=descriptor.num_players,
+            ),
         )
 
     def encode_state(
@@ -458,6 +467,8 @@ class PolicyValueNet(nn.Module):
             tray_set_embedding=arch.tray_set_embedding,
             n_playable_multihots=n_extra,
             board_position_dim=board_position_dim,
+            n_card_index_slots=encode.n_card_index_slots(self.spec),
+            n_board_index_slots=encode.n_board_index_slots(self.spec),
         )
         self.state_trunk, _ = mlp.build_body(
             trunk_in_dim,
@@ -559,9 +570,9 @@ class PolicyValueNet(nn.Module):
         must move with the era (see ``docs/VERSIONING.md`` and
         ``compat/INDEX.md``)."""
         return StateEmbedOffsets(
-            card_index=encode.OFF_CARD_INDEX,
-            hand_multihot=encode.OFF_HAND_MULTIHOT,
-            decision_type=encode.OFF_DECISION_TYPE,
+            card_index=encode.off_card_index(self.spec),
+            hand_multihot=encode.off_hand_multihot(self.spec),
+            decision_type=encode.off_decision_type(self.spec),
             hand_summary=0,  # removed in v0.9; derived in-model
             hand_summary_end=0,
         )
@@ -663,74 +674,95 @@ class PolicyValueNet(nn.Module):
     ) -> torch.Tensor:
         """Board-attention branch of ``_embed_state``.
 
-        Constructs 15-token sequences for each player's board (token =
-        card_embed ⊕ 9 mutable scalars, plus a constant ⊕ 8-dim habitat/column
-        position block when ``board_attention_positions`` is on), applies masked
-        self-attention with a residual, then concatenates the flattened outputs
-        in place of the standard per-slot card lookups + board-stripe continuous
-        dims. The two board continuous stripes (270 dims) are excised from
-        ``continuous`` and re-folded into the flattened tokens (15×W each per
-        board, W = E+9 normally or E+9+8 with positions on) — with positions off
-        the total output width is identical to the non-attention path
-        (``trunk_input_dim`` unchanged); with positions on it grows by
-        ``N_BOARD_INDEX_SLOTS * BOARD_POSITION_DIM`` = 240, which
-        ``trunk_input_dim(..., board_position_dim=...)`` accounts for."""
+        Constructs 15-token sequences for the POV board and each opponent's
+        board clockwise (token = card_embed ⊕ 9 mutable scalars, plus a constant
+        ⊕ 8-dim habitat/column position block when ``board_attention_positions``
+        is on), applies masked self-attention with a residual, then concatenates
+        the flattened outputs in place of the standard per-slot card lookups +
+        board-stripe continuous dims. The POV board runs through
+        ``board_attn_me``; EVERY opponent board runs through the SAME shared
+        ``board_attn_opp`` module (called once per opponent) — no new modules,
+        no new state_dict keys as ``arch.num_players`` grows, and at N=2 this is
+        exactly the old own/opponent pair. The ``arch.num_players`` board
+        continuous stripes (``board_me`` + one per opponent, contiguous, see
+        ``encode.off_board``) are excised from ``continuous`` and re-folded into
+        the flattened tokens (15×W each board, W = E+9 normally or E+9+8 with
+        positions on) — with positions off the total output width is identical
+        to the non-attention path (``trunk_input_dim`` unchanged); with
+        positions on it grows by ``n_board_index_slots * BOARD_POSITION_DIM``,
+        which ``trunk_input_dim(..., board_position_dim=...)`` accounts for."""
         off_index = offsets.card_index
         off_hand = offsets.hand_multihot
         off_decision = offsets.decision_type
+        num_players = self.arch.num_players
+        slots = encode.SLOTS_PER_BOARD
 
-        # Card-index block: [B, 33] — own 0..14, opp 15..29, tray 30..32.
+        # Card-index block: [B, n_card_index_slots] — me 0..14, opp1 15..29,
+        # opp2 30..44, ..., tray the trailing TRAY_SIZE columns.
         card_idx = (
             state[:, off_index:off_hand].long().clamp_(0, encode.HAND_MULTIHOT_DIM)
         )
+        n_board_idx = num_players * slots
 
-        # Per-slot card table lookups — [B, 33, E], NOT flattened yet.
+        # Per-slot card table lookups — [B, n_card_index_slots, E], NOT flattened yet.
         slot_emb_all = card_table[card_idx]
-        own_card_emb = slot_emb_all[:, : encode.SLOTS_PER_BOARD]
-        opp_card_emb = slot_emb_all[
-            :, encode.SLOTS_PER_BOARD : encode.N_BOARD_INDEX_SLOTS
-        ]
-        tray_flat = slot_emb_all[:, encode.N_BOARD_INDEX_SLOTS :].reshape(
-            state.shape[0], -1
-        )
+        own_card_emb = slot_emb_all[:, :slots]
+        tray_flat = slot_emb_all[:, n_board_idx:].reshape(state.shape[0], -1)
 
-        # Mutable per-slot scalars [B, 15, 9] for each player.
-        off_bme = encode.OFF_BOARD_ME
-        off_bopp = encode.OFF_BOARD_OPP
-        board_end = off_bopp + encode.BOARD_CONT_STRIPE_DIM
+        # Mutable per-slot scalars [B, 15, 9] for the POV board; the board
+        # region (POV + every opponent) is contiguous, so its end is a fixed
+        # stride off the POV board's offset.
+        off_bme = encode.off_board(self.spec, 0)
+        board_end = off_bme + num_players * encode.BOARD_CONT_STRIPE_DIM
         own_scalars = state[
             :, off_bme : off_bme + encode.BOARD_CONT_STRIPE_DIM
-        ].reshape(state.shape[0], encode.SLOTS_PER_BOARD, encode.SLOT_SCALAR_DIM)
-        opp_scalars = state[
-            :, off_bopp : off_bopp + encode.BOARD_CONT_STRIPE_DIM
-        ].reshape(state.shape[0], encode.SLOTS_PER_BOARD, encode.SLOT_SCALAR_DIM)
+        ].reshape(state.shape[0], slots, encode.SLOT_SCALAR_DIM)
+        own_empty = card_idx[:, :slots] == 0
 
-        # Empty-slot masks: True = padding slot (card_idx == 0).
-        own_empty = card_idx[:, : encode.SLOTS_PER_BOARD] == 0
-        opp_empty = (
-            card_idx[:, encode.SLOTS_PER_BOARD : encode.N_BOARD_INDEX_SLOTS] == 0
+        # The per-slot constant position block (habitat one-hot ⊕ column
+        # one-hot), shared by every board and masked to zero on empty slots —
+        # card_emb and scalars are already zero there (card table row 0 +
+        # zero-written scalars), so this keeps the "empty slot -> exactly-zero
+        # token" invariant ``_apply_board_attention``'s residual/NaN-guard
+        # relies on. Computed once and reused for the POV board and every
+        # opponent board.
+        position = (
+            self.board_position.unsqueeze(0).expand(state.shape[0], -1, -1)
+            if self.arch.board_attention_positions_active
+            else None
         )
 
-        # Tokens = [card_embed ⊕ scalars] or, with board_attention_positions,
-        # [card_embed ⊕ scalars ⊕ position]: [B, 15, W]. The position block is a
-        # per-slot constant (habitat one-hot ⊕ column one-hot) shared by both
-        # boards, masked to zero on empty slots — card_emb and scalars are
-        # already zero there (card table row 0 + zero-written scalars), so this
-        # keeps the "empty slot -> exactly-zero token" invariant
-        # ``_apply_board_attention``'s residual/NaN-guard relies on.
-        if self.arch.board_attention_positions_active:
-            position = self.board_position.unsqueeze(0).expand(state.shape[0], -1, -1)
-            own_position = position.masked_fill(own_empty.unsqueeze(-1), 0.0)
-            opp_position = position.masked_fill(opp_empty.unsqueeze(-1), 0.0)
-            own_tokens = torch.cat([own_card_emb, own_scalars, own_position], dim=-1)
-            opp_tokens = torch.cat([opp_card_emb, opp_scalars, opp_position], dim=-1)
-        else:
-            own_tokens = torch.cat([own_card_emb, own_scalars], dim=-1)
-            opp_tokens = torch.cat([opp_card_emb, opp_scalars], dim=-1)
+        def _tokens(
+            card_emb: torch.Tensor, scalars: torch.Tensor, empty: torch.Tensor
+        ) -> torch.Tensor:
+            if position is None:
+                return torch.cat([card_emb, scalars], dim=-1)
+            return torch.cat(
+                [card_emb, scalars, position.masked_fill(empty.unsqueeze(-1), 0.0)],
+                dim=-1,
+            )
 
-        # Apply attention and residual; flatten to [B, 15*W].
+        own_tokens = _tokens(own_card_emb, own_scalars, own_empty)
         own_flat = _apply_board_attention(self.board_attn_me, own_tokens, own_empty)
-        opp_flat = _apply_board_attention(self.board_attn_opp, opp_tokens, opp_empty)
+
+        # Every opponent board, clockwise, through the SAME shared
+        # board_attn_opp module — one call per opponent, sharing weights.
+        opp_flats: list[torch.Tensor] = []
+        for seat_offset in range(1, num_players):
+            opp_card_emb = slot_emb_all[
+                :, seat_offset * slots : (seat_offset + 1) * slots
+            ]
+            opp_off = encode.off_board(self.spec, seat_offset)
+            opp_scalars = state[
+                :, opp_off : opp_off + encode.BOARD_CONT_STRIPE_DIM
+            ].reshape(state.shape[0], slots, encode.SLOT_SCALAR_DIM)
+            opp_empty = (
+                card_idx[:, seat_offset * slots : (seat_offset + 1) * slots] == 0
+            )
+            opp_tokens = _tokens(opp_card_emb, opp_scalars, opp_empty)
+            opp_flats.append(
+                _apply_board_attention(self.board_attn_opp, opp_tokens, opp_empty)
+            )
 
         # Hand multi-hot and any extra playability multi-hots.
         hand_multihot, extra_multihots = self._extract_hand_blocks(
@@ -779,7 +811,7 @@ class PolicyValueNet(nn.Module):
 
         if not self.arch.tray_set_embedding:
             return torch.cat(
-                [continuous, own_flat, opp_flat, tray_flat, hand_emb, *extra_embs],
+                [continuous, own_flat, *opp_flats, tray_flat, hand_emb, *extra_embs],
                 dim=-1,
             )
 
@@ -788,7 +820,7 @@ class PolicyValueNet(nn.Module):
             [
                 continuous,
                 own_flat,
-                opp_flat,
+                *opp_flats,
                 tray_flat,
                 tray_set_emb,
                 hand_emb,
@@ -871,7 +903,7 @@ class PolicyValueNet(nn.Module):
 
     def _embed_tray_set(self, card_idx: torch.Tensor) -> torch.Tensor:
         """Embed the tray cards as a card set through the shared hand encoder."""
-        tray_idx = card_idx[:, encode.N_BOARD_INDEX_SLOTS :]
+        tray_idx = card_idx[:, encode.n_board_index_slots(self.spec) :]
         tray_multihot = hand_model.multihot_from_indices(
             tray_idx, encode.HAND_MULTIHOT_DIM
         )

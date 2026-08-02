@@ -148,10 +148,22 @@ def encode_choices(
         - layout.CHOICE_BECOMES_UNPLAYABLE_DIM
     )
     feats = np.zeros((n_choices, row_dim), dtype=np.float32)
+    off_player_select = layout.off_player_select(spec)
     for i, choice in enumerate(decision.choices):
         _featurize_choice(
             feats[i], decision, choice, state, baselines, has_becomes_playable
         )
+        # player_select (N>=3 only): filled here, once, rather than duplicated
+        # into every PlayerIdChoice featurizer — the existing is_self bit in
+        # _featurize_player_id is unrelated and stays untouched.
+        if off_player_select is not None and isinstance(
+            choice, decisions.PlayerIdChoice
+        ):
+            feats[
+                i,
+                off_player_select
+                + (choice.player_id - decision.player_id) % spec.num_players,
+            ] = 1.0
     return feats
 
 

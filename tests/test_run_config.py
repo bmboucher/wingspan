@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import pathlib
 
+import pydantic
 import pytest
 
 pytest.importorskip("torch")
@@ -341,3 +342,51 @@ def test_validate_launchable_board_attention_heads_with_attention_ok():
         ),
     )
     assert config.validate_launchable(cfg) == []
+
+
+def test_validate_launchable_num_players_2_ok():
+    """The default num_players=2 is never flagged."""
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    assert config.validate_launchable(cfg) == []
+
+
+def test_validate_launchable_num_players_above_2_temporarily_blocked():
+    """num_players > 2 is a TEMPORARY blocker (removed in Stage 3): encoding
+    and model construction support N>=3 today, but the training pipeline
+    (collect/learner/evaluate) does not yet."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(num_players=3),
+    )
+    problems = config.validate_launchable(cfg)
+    assert any("num_players" in problem for problem in problems)
+
+
+def test_constructing_compat_era_with_num_players_3_raises_validation_error():
+    """Directly constructing an era-pinned (non-live encoding_version) config
+    with num_players=3 fails cleanly as a pydantic.ValidationError — not an
+    uncaught wingspan.version.IncompatibleArtifactError, which would crash the
+    configurator's live-editing flow (configure.fields._validated_update only
+    catches ValidationError)."""
+    with pytest.raises(pydantic.ValidationError, match="num_players"):
+        config.ArchitectureConfig(encoding_version="1.3", num_players=3)
+
+
+def test_validate_launchable_compat_era_with_num_players_3_blocked():
+    """Defense-in-depth twin of the ValidationError above: a config that
+    somehow reaches validate_launchable with this combo anyway (built via
+    model_copy, which bypasses validators) is still refused at launch time.
+    Uses model_copy from an artifact-rehydrated era-pinned config (mirroring
+    test_flat_config_adopts_the_payload_stamp) since direct construction is
+    already rejected by _sync_dims (see the ValidationError test above)."""
+    pinned = config.run_config_from_artifact(
+        {"encoding_version": "1.3"}, version.MODEL_VERSION
+    )
+    assert pinned.encoding_version == "1.3"
+    stale = pinned.model_copy(
+        update={
+            "architecture": pinned.architecture.model_copy(update={"num_players": 3})
+        }
+    )
+    problems = config.validate_launchable(stale)
+    assert any("num_players" in problem and "1.3" in problem for problem in problems)

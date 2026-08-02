@@ -10,7 +10,9 @@ config, runmeta, and the version checker can import it without torch.
 **`__init__.py`** — re-exports `PolicyValueNet`.
 
 **`core.py`** — `PolicyValueNet(arch: ModelArchitecture, spec: EncodingSpec)`:
-the main actor-critic network. Key structure:
+the main actor-critic network. Constructor raises `ValueError` when
+`arch.num_players != spec.num_players` — the topology and the encoding it
+reads must agree on seat count. Key structure:
 - Shared trunk MLP: `state_dim → trunk_layers → M`.
 - Choice encoder MLP: `choice_dim → choice_layers → N`.
 - Concatenated scorer input: `M + N` → per-family head → logits.
@@ -45,30 +47,45 @@ the main actor-critic network. Key structure:
   the shared card table, then splices out all card-index / multi-hot regions and
   concatenates the rest with the resulting embeddings.
 - Board self-attention (`arch.use_board_attention`, optional): `board_attn_me` /
-  `board_attn_opp` — two independent `nn.MultiheadAttention` modules, one per
-  seat, each over that seat's 15 board-slot tokens (`card_embed_dim ⊕ 9` mutable
-  scalars, `token_dim=73` by default). `arch.board_attention_heads` (default 1)
-  sets the head count for both modules; since the true token width (73, or 81
-  with positions) rarely divides it, `architecture.board_attention_embed_dim`
+  `board_attn_opp` — exactly two `nn.MultiheadAttention` modules, always,
+  regardless of `arch.num_players`. `board_attn_me` attends the POV player's 15
+  board-slot tokens; `board_attn_opp` is *shared* across every opponent board —
+  called once per opponent, clockwise (`range(1, arch.num_players)`), reusing
+  the same weights each time, not one module per opponent. At N=2 this is
+  exactly the historical own/opponent pair. Each token is `card_embed_dim ⊕ 9`
+  mutable scalars (`token_dim=73` by default). `arch.board_attention_heads`
+  (default 1) sets the head count for both modules; since the true token width
+  (73, or 81 with positions) rarely divides it, `architecture.board_attention_embed_dim`
   pads the module's `embed_dim` up to the next multiple — `_apply_board_attention`
   zero-pads the token right before calling the module and slices the output back
   to `token_dim` right after, so the pad never escapes that one function (trunk
   input width is unaffected either way). `_embed_state_board_attention` builds
-  the token sequences, `_apply_board_attention` (module-level) runs masked
-  self-attention with a residual (empty slots stay exactly zero via
-  `key_padding_mask` + an explicit `masked_fill`, unaffected by the pad since a
-  zero token stays zero when padded), and the flattened outputs replace the
-  standard per-slot card lookups + board continuous stripes.
+  the token sequences (using `encode.off_board(spec, seat_offset)` to locate
+  each seat's continuous scalar block — the per-seat board stripes are
+  contiguous, so this is a fixed stride off the POV board's offset),
+  `_apply_board_attention` (module-level) runs masked self-attention with a
+  residual (empty slots stay exactly zero via `key_padding_mask` + an explicit
+  `masked_fill`, unaffected by the pad since a zero token stays zero when
+  padded), and the flattened outputs (`own_flat`, then `*opp_flats` in
+  clockwise order) replace the standard per-slot card lookups + board
+  continuous stripes. Because no new modules are registered as `num_players`
+  grows, an N=3 board-attention net's `state_dict` key SET is identical to an
+  N=2 net's at the same topology — only the input-facing `state_trunk.0` /
+  `choice_encoder.0` `Linear` shapes differ (pinned by
+  `tests/test_model_nplayers.py`).
   `arch.board_attention_positions` (optional, requires `use_board_attention`)
   concatenates a third, constant block onto every token — `board_position`, a
   non-persistent `[15, BOARD_POSITION_DIM]` habitat-one-hot ⊕ column-one-hot
   buffer built by the module-level `_board_position_matrix()` — so attention
   *mixing* (otherwise fully permutation-equivariant over the 15 slots) can
   condition on slot position; masked to zero on empty slots like the rest of the
-  token. All three flags are REGIME (config-carried, join `ShapeKey` —
-  `board_attention_heads` via its own field since padded shapes can coincide
-  across head counts while the module still computes a different function); see
-  `docs/reports/board-self-attention.md`.
+  token. All these flags (plus `arch.num_players` itself) are REGIME/config-carried
+  and join `ShapeKey` (`board_attention_heads` via its own field since padded
+  shapes can coincide across head counts while the module still computes a
+  different function; `num_players` likewise, since state_dim/choice_dim alone
+  could in principle coincide across an unrelated topology change); see
+  `docs/reports/board-self-attention.md` and `docs/VERSIONING.md`'s
+  `num_players` entry.
 
 **`mlp.py`** — Shared MLP building blocks used by both the policy net and the
 setup net so they produce byte-identical stacks from the same width list:

@@ -72,6 +72,12 @@ class ShapeKey(pydantic.BaseModel):
     # the resume gate has to key on the head count itself, not just the shape.
     board_attention_heads: int
     hand_pooling: HandPooling | None  # None when use_distinct_hand_model
+    # Explicit even though it is implied by state_dim/choice_dim in practice
+    # (a different seat count widens both): the coinciding-shape hazard the
+    # comment above documents for board_attention_heads applies here too, and
+    # an explicit field makes the resume gate's refusal reason legible instead
+    # of an incidental side effect of the dims disagreeing.
+    num_players: int
 
 
 class ActivationName(enum.StrEnum):
@@ -190,12 +196,26 @@ class ModelArchitecture(pydantic.BaseModel):
     # Defaults to False for new runs (REGIME change from the old True default —
     # saved configs carry their own value, so existing checkpoints are unaffected).
     tray_set_embedding: bool = False
+    # Seat count this network trains and plays at. Config-carried (lives in
+    # model_config.json / the embedded RunConfig), default **2** so a bare
+    # ModelArchitecture() reproduces every pre-N-player dim, offset, stripe
+    # name, and value byte-identically — the checkpoint-compat anchor,
+    # mirroring the ``use_board_attention`` no-bump precedent immediately
+    # below: config-carried and default-reproducing, so no MODEL_VERSION bump
+    # or compat shim is needed. Joins ShapeKey so a mismatched seat count
+    # refuses cleanly through the existing architecture_key gate rather than
+    # feeding an N=3 board into an N=2 trunk. N>=3 layouts are fresh-net-only
+    # forever — never compat-shimmed (see docs/VERSIONING.md).
+    num_players: typing.Annotated[int, pydantic.Field(ge=2, le=5)] = 2
     # When True, each player's 15 board slots are attended over as tokens
     # (card_embed_dim + 9 scalars wide) before the state trunk, using two
-    # independent nn.MultiheadAttention modules (one per seat). Config-carried
-    # (lives in model_config.json), default False → old artifacts rehydrate
-    # identically with no compat shim. Joins ShapeKey so a True run won't try
-    # to resume False weights (handled by the architecture_key gate, REGIME).
+    # nn.MultiheadAttention modules — one for the POV board (``board_attn_me``),
+    # one shared across every opponent board (``board_attn_opp``, applied once
+    # per opponent — no new modules, no new state_dict keys as num_players
+    # grows). Config-carried (lives in model_config.json), default False → old
+    # artifacts rehydrate identically with no compat shim. Joins ShapeKey so a
+    # True run won't try to resume False weights (handled by the
+    # architecture_key gate, REGIME).
     use_board_attention: bool = False
     # When True (meaningful only alongside ``use_board_attention``), each
     # board-attention token additionally carries an 8-dim constant position
@@ -538,6 +558,7 @@ class ModelArchitecture(pydantic.BaseModel):
             # keys are unaffected; the pooling mode only appears in the key
             # for the pooled path, where it determines the trunk input width.
             hand_pooling=None if self.use_distinct_hand_model else self.hand_pooling,
+            num_players=self.num_players,
         )
 
 

@@ -118,6 +118,24 @@ def test_nudge_steps_and_clamps():
     assert error is not None and stepped.training.lr == low.training.lr
 
 
+def test_num_players_field_commits_and_nudges():
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    num_players = fields.spec_for("num_players")
+    assert isinstance(num_players, fields.IntField)
+    assert fields.format_value(cfg, num_players) == "2"
+
+    committed, error = fields.commit(cfg, num_players, "3")
+    assert error is None and committed.architecture.num_players == 3
+    assert committed.state_dim == 1299
+
+    up, error = fields.nudge(cfg, num_players, 1)
+    assert error is None and up.architecture.num_players == 3
+
+    # Out-of-range values are rejected by the model's Field(ge=2, le=5) bound.
+    rejected, error = fields.commit(cfg, num_players, "1")
+    assert error is not None and rejected.architecture.num_players == 2
+
+
 def test_nudge_cycles_choice():
     cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
     device = fields.spec_for("device")
@@ -660,7 +678,12 @@ def _arch_state(
         data = base.model_dump()
         arch_data: dict[str, object] = data.get("architecture", {})  # type: ignore[assignment]
         main_data: dict[str, object] = arch_data.get("main", {})  # type: ignore[assignment]
-        arch_top_keys = {"use_setup_model", "split_setup_bonus", "split_setup_food"}
+        arch_top_keys = {
+            "use_setup_model",
+            "split_setup_bonus",
+            "split_setup_food",
+            "num_players",
+        }
         for key, value in overrides.items():
             if key in arch_top_keys:
                 arch_data[key] = value
@@ -734,6 +757,16 @@ def test_arch_diagram_all_blocks_present():
         "DECISION",
     ):
         assert block in out
+
+
+def test_arch_diagram_renders_at_num_players_3():
+    """The diagram's trunk/choice input-width computation (_trunk_in /
+    _choice_in) must not crash when num_players=3 widens state_dim/choice_dim
+    — the _StaticMain-adapter-style gotcha noted in arch_diagram._trunk_in:
+    it must read num_players off cfg.arch, not cfg.encoding_spec, so it also
+    works for wingspan-inspect's era-routed static adapter."""
+    out = _box_diagram(_arch_state(num_players=3))
+    assert "STATE TRUNK" in out and "CHOICE ENC" in out
 
 
 def test_arch_diagram_setup_box_toggles():
@@ -1316,6 +1349,30 @@ def test_save_defaults_roundtrip_and_exclusions(tmp_path: pathlib.Path):
     assert loaded.train_config.misc.device == "cpu"
     # The era is never persisted: a loaded config is always at the live version.
     assert loaded.train_config.encoding_version == version.MODEL_VERSION
+
+
+def test_save_defaults_roundtrip_keeps_num_players(tmp_path: pathlib.Path):
+    """num_players is an ordinary reusable hyperparameter (like trunk_layers),
+    not a per-run identity/era field, so it is NOT in EXCLUDED_FIELDS and
+    survives the save/load round-trip."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(checkpoint_dir=str(tmp_path / "ckpt"), run_name="n3"),
+        architecture=config.ArchitectureConfig(num_players=3),
+    )
+    assert "num_players" not in user_defaults.EXCLUDED_FIELDS
+    user_defaults.save_defaults(cfg, directory=tmp_path)
+
+    current = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(
+            checkpoint_dir=str(tmp_path / "other"), run_name="fresh"
+        ),
+    )
+    loaded = user_defaults.load_defaults(current, directory=tmp_path)
+    assert loaded.warning is None and loaded.train_config is not None
+    assert loaded.train_config.architecture.num_players == 3
+    assert loaded.train_config.num_players == 3
 
 
 def test_load_defaults_missing_file_is_empty(tmp_path: pathlib.Path):

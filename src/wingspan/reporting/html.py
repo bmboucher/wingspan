@@ -376,8 +376,10 @@ def generate_html_report(
                     f"mutable per-slot scalars{position_note}"
                 ),
                 annotation=(
-                    f"{encode.SLOTS_PER_BOARD} tokens per board × 2 boards "
-                    "(own + opponent), attended separately"
+                    f"{encode.SLOTS_PER_BOARD} tokens per board × {arch.num_players} "
+                    "boards (own + every opponent clockwise), attended separately — "
+                    "own via board_attn_me, every opponent via the one shared "
+                    "board_attn_opp"
                 ),
             )
         )

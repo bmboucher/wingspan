@@ -1173,10 +1173,14 @@ def _trunk_in(cfg: config.RunConfig) -> int:
     live configs (the state vector includes two 180-dim playability stripes that
     the model embeds rather than passing through as continuous features)."""
     # See _param_report: read off cfg.arch, not cfg.architecture.main, so this
-    # also works for the static/era-routed _StaticConfig adapter.
+    # also works for the static/era-routed _StaticConfig adapter — same reason
+    # num_players is read off cfg.arch.num_players (present on both the live
+    # RunConfig.arch and _StaticConfig.arch) rather than cfg.encoding_spec
+    # (RunConfig-only; _StaticConfig has no such property).
     board_position_dim = (
         encode.BOARD_POSITION_DIM if cfg.arch.board_attention_positions_active else 0
     )
+    n_players_spec = encode.EncodingSpec(num_players=cfg.arch.num_players)
     return encode.trunk_input_dim(
         cfg.state_dim,
         cfg.architecture.main.card_embed_dim,
@@ -1186,6 +1190,8 @@ def _trunk_in(cfg: config.RunConfig) -> int:
         tray_set_embedding=cfg.architecture.main.tray_set_embedding,
         n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
         board_position_dim=board_position_dim,
+        n_card_index_slots=encode.n_card_index_slots(n_players_spec),
+        n_board_index_slots=encode.n_board_index_slots(n_players_spec),
     )
 
 

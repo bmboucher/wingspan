@@ -9,6 +9,8 @@ reports its length. All the per-aspect summary helpers live below.
 
 from __future__ import annotations
 
+import typing
+
 import numpy as np
 
 from wingspan import cards, state
@@ -24,47 +26,74 @@ def encode_state(
 
     If ``decision`` is ``None`` we fall back to ``state.current_player`` and
     leave the decision-type stripe zero — useful for value-only inference or
-    tests. ``spec`` selects the config-driven shape; only the trailing
-    decision-type one-hot's width varies with it. Returns a float32 array of
+    tests. ``spec`` selects the config-driven shape: the trailing decision-type
+    one-hot's width varies with ``include_setup``, and at ``num_players >= 3``
+    a ``turn_position`` stripe is inserted after ``turn_state`` and every
+    per-opponent stripe group (food / board / board summary / bonus count /
+    hand size) repeats once per opponent, clockwise from the POV player. At
+    ``num_players == 2`` every part below is emitted exactly as before — one
+    opponent, one iteration, byte-identical output. Returns a float32 array of
     length ``state_size(spec)``.
     """
     pov = decision.player_id if decision is not None else state.current_player
     me = state.players[pov]
-    opp = state.players[1 - pov] if len(state.players) > 1 else me
+    opponents = state.opponents_clockwise(pov)
+    assert len(state.players) == spec.num_players, (
+        f"encode_state: game has {len(state.players)} players but spec "
+        f"expects num_players={spec.num_players}"
+    )
 
     parts: list[np.ndarray] = [
         _summary_turn_state(
             state, me
         ),  # layout.N_PLAYER_TURNS + 1 (turn one-hot + first-player flag)
-        _summary_food(me),  # 5
-        _summary_food(opp),  # 5
-        _summary_hand_food_unlock(me),  # 5 — min food to unlock a hand bird
-        _summary_tray_food_unlock(state, me),  # 5 — min food to unlock a tray bird
-        _board_slots_continuous(
-            me
-        ),  # layout._BOARD_CONT_STRIPE_DIM — per-slot mutable state
-        _board_slots_continuous(
-            opp
-        ),  # layout._BOARD_CONT_STRIPE_DIM — opponent (public)
-        _summary_board(me),  # N_HABITATS*2 — row_length + total_eggs per habitat
-        _summary_board(opp),  # N_HABITATS*2 — row_length + total_eggs per habitat
-        # hand_summary_me removed in v0.9 — derived in-model from hand_multihot
-        _bonus_progress(
-            me
-        ),  # 4 * layout._BONUS_ID_DIM — held + count + stepped + linear
-        _opp_bonus_count(opp),  # 1 — opponent bonus-card count (hidden identity)
-        np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32),
-        _summary_birdfeeder(state),  # 7 (5 food faces + choice dice + reset flag)
-        _summary_misc_scalars(state, me, opp),  # 2 (tray size, deck size)
-        _round_goals_all_rounds(state, me),  # layout._ROUND_GOALS_STRIPE_DIM
-        _card_index_block(me, opp, state),  # layout.N_CARD_INDEX_SLOTS — board+tray ids
-        _hand_identity(me),  # layout.HAND_MULTIHOT_DIM — multi-hot of my hand
-        _hand_playable(me),  # layout.HAND_MULTIHOT_DIM — playable right now
-        _hand_playable_eggs(me),  # layout.HAND_MULTIHOT_DIM — egg-blocked but ready
-        _encode_decision_type(
-            decision, spec
-        ),  # layout.decision_type_dim(spec) (stays last)
     ]
+    if spec.num_players >= 3:
+        parts.append(_turn_position(state, me))  # spec.num_players — clockwise offset
+    parts.append(_summary_food(me))  # 5
+    parts.extend(_summary_food(opponent) for opponent in opponents)  # 5 each
+    parts.append(_summary_hand_food_unlock(me))  # 5 — min food to unlock a hand bird
+    parts.append(
+        _summary_tray_food_unlock(state, me)
+    )  # 5 — min food to unlock a tray bird
+    parts.append(
+        _board_slots_continuous(me)
+    )  # layout._BOARD_CONT_STRIPE_DIM — per-slot mutable state
+    parts.extend(
+        _board_slots_continuous(opponent) for opponent in opponents
+    )  # layout._BOARD_CONT_STRIPE_DIM each — public
+    parts.append(
+        _summary_board(me)
+    )  # N_HABITATS*2 — row_length + total_eggs per habitat
+    parts.extend(
+        _summary_board(opponent) for opponent in opponents
+    )  # N_HABITATS*2 each
+    # hand_summary_me removed in v0.9 — derived in-model from hand_multihot
+    parts.append(
+        _bonus_progress(me)
+    )  # 4 * layout._BONUS_ID_DIM — held + count + stepped + linear
+    parts.extend(
+        _opp_bonus_count(opponent) for opponent in opponents
+    )  # 1 each — hidden identity
+    parts.extend(
+        _opp_hand_size(opponent) for opponent in opponents
+    )  # 1 each — hidden contents
+    parts.append(_summary_birdfeeder(state))  # 7 (5 food faces + choice dice + reset)
+    parts.append(_summary_misc_scalars(state))  # 2 (tray size, deck size)
+    parts.append(
+        _round_goals_all_rounds(state, me, spec)
+    )  # layout.round_goals_stripe_dim(spec)
+    parts.append(
+        _card_index_block(me, opponents, state)
+    )  # layout.n_card_index_slots(spec) — board+tray ids
+    parts.append(_hand_identity(me))  # layout.HAND_MULTIHOT_DIM — multi-hot of my hand
+    parts.append(_hand_playable(me))  # layout.HAND_MULTIHOT_DIM — playable right now
+    parts.append(
+        _hand_playable_eggs(me)
+    )  # layout.HAND_MULTIHOT_DIM — egg-blocked but ready
+    parts.append(
+        _encode_decision_type(decision, spec)
+    )  # layout.decision_type_dim(spec) (stays last)
     return np.concatenate(parts).astype(np.float32)
 
 
@@ -277,6 +306,13 @@ def _opp_bonus_count(opp: state.Player) -> np.ndarray:
     )
 
 
+def _opp_hand_size(opp: state.Player) -> np.ndarray:
+    """Opponent hand size as a single scalar. The *contents* of the opponent's
+    hand are hidden information, so only how many cards they hold is
+    observable."""
+    return np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32)
+
+
 def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
     """Dense, normalized view of a bird's immutable card attributes — the rich
     ``N`` half of each board/tray slot's ``(identity one-hot, attributes)``
@@ -424,17 +460,23 @@ def card_summary_matrix() -> np.ndarray:
 
 
 def _card_index_block(
-    me: state.Player, opp: state.Player, game_state: state.GameState
+    me: state.Player,
+    opponents: typing.Sequence[state.Player],
+    game_state: state.GameState,
 ) -> np.ndarray:
     """Contiguous integer card indices the model looks up in its shared card
-    table: both boards' positional slots (POV then opponent) followed by the
-    ``TRAY_SIZE`` public tray slots. Each entry is ``bird_index + 1`` for an
-    occupied slot and 0 for an empty one (the card table's zeroed padding row).
-    Board and tray slots are both positional: tray slot 0 is the left card,
-    slot 2 is the right card."""
-    vec = np.zeros(layout.N_CARD_INDEX_SLOTS, dtype=np.float32)
+    table: every seat's board positional slots (POV then each opponent
+    clockwise) followed by the ``TRAY_SIZE`` public tray slots. Each entry is
+    ``bird_index + 1`` for an occupied slot and 0 for an empty one (the card
+    table's zeroed padding row). Board and tray slots are both positional:
+    tray slot 0 is the left card, slot 2 is the right card. Width is
+    ``(1 + len(opponents)) * SLOTS_PER_BOARD + TRAY_SIZE`` —
+    ``layout.n_card_index_slots(spec)`` for a spec matching this game's seat
+    count."""
+    n_card_slots = (1 + len(opponents)) * layout._SLOTS_PER_BOARD + state.TRAY_SIZE
+    vec = np.zeros(n_card_slots, dtype=np.float32)
     offset = 0
-    for player in (me, opp):
+    for player in (me, *opponents):
         for hab_idx, habitat in enumerate(cards.ALL_HABITATS):
             for slot, pb in enumerate(player.board[habitat]):
                 if slot >= state.ROW_SLOTS:
@@ -449,17 +491,26 @@ def _card_index_block(
 
 
 def _round_goals_all_rounds(
-    game_state: state.GameState, me: state.Player, *, zero_passed_rounds: bool = True
+    game_state: state.GameState,
+    me: state.Player,
+    spec: layout.EncodingSpec = layout.DEFAULT_SPEC,
+    *,
+    zero_passed_rounds: bool = True,
 ) -> np.ndarray:
     """All four round-goal slots from ``me``'s POV.
 
-    Each slot = goal category one-hot + my count + opponent count + placement VP.
-    When ``zero_passed_rounds=True`` (default, v0.9+), slots for already-scored
-    rounds stay all-zero (noise suppression). When ``False`` (pre-0.9 shims),
-    all rounds are filled (the historical behavior)."""
+    Each slot = goal category one-hot + my count + the other seats' counts
+    (clockwise from POV, ``spec.num_players - 1`` wide — Stage 1's
+    ``RoundGoalStanding.other_counts`` guarantee) + placement VP. At N=2 the
+    other-seats block is exactly one slot, so this reproduces today's single
+    opponent-count value byte-for-byte. When ``zero_passed_rounds=True``
+    (default, v0.9+), slots for already-scored rounds stay all-zero (noise
+    suppression). When ``False`` (pre-0.9 shims), all rounds are filled (the
+    historical behavior)."""
     from wingspan.engine import scoring
 
-    vec = np.zeros(layout._ROUND_GOALS_STRIPE_DIM, dtype=np.float32)
+    slot_dim = layout.round_goal_slot_dim(spec)
+    vec = np.zeros(layout._NUM_ROUNDS * slot_dim, dtype=np.float32)
     for round_idx in range(layout._NUM_ROUNDS):
         if round_idx >= len(game_state.round_goals):
             break
@@ -467,7 +518,7 @@ def _round_goals_all_rounds(
         # useful signal for future decisions.
         if zero_passed_rounds and round_idx < len(game_state.scored_goals):
             continue
-        base = round_idx * layout._ROUND_GOAL_SLOT_DIM
+        base = round_idx * slot_dim
         goal = game_state.round_goals[round_idx]
         if goal.category in layout._GOAL_CATEGORIES:
             vec[base + layout._GOAL_CATEGORIES.index(goal.category)] = 1.0
@@ -475,12 +526,13 @@ def _round_goals_all_rounds(
         vec[base + layout._ROUND_GOAL_MY_COUNT] = (
             standing.count / layout._GOAL_COUNT_SCALE
         )
-        vec[base + layout._ROUND_GOAL_OPP_COUNT] = (
-            standing.opp_count / layout._GOAL_COUNT_SCALE
-        )
-        vec[base + layout._ROUND_GOAL_VP] = (
-            standing.vp / layout._ROUND_GOAL_POINTS_SCALE
-        )
+        other_counts_base = base + layout._ROUND_GOAL_OPP_COUNT
+        for seat_offset, other_count in enumerate(standing.other_counts):
+            vec[other_counts_base + seat_offset] = (
+                other_count / layout._GOAL_COUNT_SCALE
+            )
+        vp_off = base + layout.round_goal_vp_offset(spec)
+        vec[vp_off] = standing.vp / layout._ROUND_GOAL_POINTS_SCALE
     return vec
 
 
@@ -519,38 +571,36 @@ def _summary_turn_state(game_state: state.GameState, me: state.Player) -> np.nda
         )
         out[player_turn] = 1.0
 
-    # Is-first-player flag: 1.0 when me goes first this round.
+    # Is-first-player flag: 1.0 when me goes first this round. ``% len(players)``
+    # (not a literal 2) matches the N-player round rotation in
+    # ``engine.core.Engine._play_round``; byte-identical at N=2.
     out[layout.N_PLAYER_TURNS] = float(
-        me.id == (game_state.start_player + game_state.round_idx) % 2
+        me.id
+        == (game_state.start_player + game_state.round_idx) % len(game_state.players)
     )
     return out
 
 
-def _summary_misc_scalars(
-    game_state: state.GameState,
-    me: state.Player,
-    opp: state.Player,
-    *,
-    include_goal_pts: bool = False,
-) -> np.ndarray:
-    """Miscellaneous scalars stripe.
+def _turn_position(game_state: state.GameState, me: state.Player) -> np.ndarray:
+    """``len(game_state.players)``-wide one-hot (N>=3 only) of the POV player's
+    clockwise offset from this round's first-to-act seat — the same rotation
+    ``engine.core.Engine._play_round`` computes for turn order. Emitted right
+    after ``turn_state`` in the state vector."""
+    n = len(game_state.players)
+    out = np.zeros(n, dtype=np.float32)
+    first = (game_state.start_player + game_state.round_idx) % n
+    out[(me.id - first) % n] = 1.0
+    return out
 
-    Default (v0.9+): 2 dims — tray size, deck size. When ``include_goal_pts=True``
-    (pre-0.9 shims): 4 dims — my round-goal VP, opponent VP, tray, deck."""
+
+def _summary_misc_scalars(game_state: state.GameState) -> np.ndarray:
+    """Miscellaneous scalars stripe: tray size, deck size (v0.9+, 2 dims;
+    N-independent — round-goal VP is fully captured by the round_goals
+    stripe)."""
     tray_size = (
         sum(1 for bird in game_state.tray if bird is not None) / layout._TRAY_SIZE_SCALE
     )
     deck_size = len(game_state.bird_deck) / layout._DECK_SIZE_SCALE
-    if include_goal_pts:
-        return np.array(
-            [
-                me.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
-                opp.round_goal_points / layout._ROUND_GOAL_POINTS_SCALE,
-                tray_size,
-                deck_size,
-            ],
-            dtype=np.float32,
-        )
     return np.array([tray_size, deck_size], dtype=np.float32)
 
 

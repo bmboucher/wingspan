@@ -10,13 +10,39 @@ stripe offset, normalization scale, and feature dim is part of the artifact form
 
 **`layout.py`** — The single source of truth for all feature dimensions and
 stripe offsets. Key exports:
-- `EncodingSpec(include_setup: bool)` — frozen config-driven shape descriptor;
-  controls whether `SetupDecision` rows are included in the main model's
-  choice head or delegated to the separate setup model.
-- `spec_for(use_setup_model: bool) -> EncodingSpec` — derive spec from run config.
+- `EncodingSpec(include_setup: bool, num_players: int = 2)` — frozen
+  config-driven shape descriptor. `include_setup` controls whether
+  `SetupDecision` rows are included in the main model's choice head or
+  delegated to the separate setup model. `num_players` (ge=2, le=5, default
+  **2**) selects the seat count the encoding is built for — the checkpoint-compat
+  anchor; N=2 output is byte-identical to the pre-N-player encoding (dims,
+  offsets, stripe names, values). Carries an explicit `__hash__` (pydantic's
+  `frozen=True` already generates one at runtime, but strict pyright doesn't
+  see it, so every `@functools.lru_cache`-keyed layout function below would
+  otherwise be flagged as non-`Hashable`).
+- `spec_for(use_setup_model: bool, num_players: int = 2) -> EncodingSpec` —
+  derive spec from run config.
 - `state_feature_dim(spec) -> int`, `choice_feature_dim(spec) -> int`,
   `decision_type_dim(spec) -> int`, `num_families(spec) -> int` — spec-dependent
   totals consumed by `model.core.PolicyValueNet` at construction time.
+- `state_cont_layout(spec)`, `choice_base_layout(spec)`, `choice_full_layout(spec)`
+  — `functools.lru_cache`d, spec-parameterized stripe-layout builders (replace
+  the pre-N-player module-literal stripe-spec lists). `STATE_CONT_LAYOUT` /
+  `CHOICE_BASE_LAYOUT` / `CHOICE_FULL_LAYOUT` remain module constants — each is
+  simply that function's `DEFAULT_SPEC` (N=2) result, so every pre-existing
+  reader is untouched.
+- N-player accessors — spec-aware counterparts of the N=2 module constants
+  below, each equal to its constant when called on `DEFAULT_SPEC`:
+  `n_board_index_slots(spec)`,
+  `n_card_index_slots(spec)`, `off_card_index(spec)`, `off_hand_multihot(spec)`,
+  `off_decision_type(spec)`, `off_board(spec, seat_offset)` (0 = POV, 1..N−1 =
+  each opponent clockwise — generalizes `OFF_BOARD_ME`/`OFF_BOARD_OPP`),
+  `off_player_select(spec) -> int | None` (`None` at N=2), `round_goal_slot_dim(spec)`,
+  `round_goal_vp_offset(spec)`, `round_goals_stripe_dim(spec)`. Live code (model,
+  encoders, runmeta reporting, the configurator) uses these; every compat-era
+  path keeps passing the bare N=2 constants (the accessors' defaults), since
+  compat artifacts are always 2-player (`compat.encoding_dims_for_era` refuses
+  otherwise).
 - `N_ROUNDS: int = 4` — one-hot dimension for round number (v0.3+).
 - `MAX_ACTION_CUBES: int = 8` — one-hot dimension minus 1 for cube counts (v0.3+).
 - `N_HAND_PLAYABLE_MULTIHOTS: int = 2` — number of playability-filtered hand
@@ -47,12 +73,17 @@ stripe offsets. Key exports:
 - `_OFF_*` constants — the append-only offset chain (part of checkpoint format;
   reordering is a FRESH break).
 - Normalization scales: `_POINTS_SCALE`, `_FOOD_COST_SCALE`, `_WINGSPAN_SCALE`, etc.
+- `trunk_input_dim(..., n_card_index_slots=N_CARD_INDEX_SLOTS, n_board_index_slots=N_BOARD_INDEX_SLOTS)`
+  — the two new kwargs default to the N=2 module constants (every existing
+  caller, including every compat-era path, is unchanged); an N-player-aware
+  caller passes `n_card_index_slots(spec)` / `n_board_index_slots(spec)`.
 
-**`state_encode.py`** — `encode_state(gs: GameState, spec) -> np.ndarray` and
+**`state_encode.py`** — `encode_state(gs: GameState, decision, spec) -> np.ndarray` and
 `state_size(spec) -> int`. Encodes the full perceived game state into a 1-D
-float vector (1129 dims as of v1.4; 1119 in v0.9–v1.3; was 1155 in v0.6–v0.8):
-per-habitat board slots, tray, per-type cached food, the two v1.4 food-unlock
-stripes (`hand_food_unlock_me`, `tray_food_unlock_me` — see
+float vector (1129 dims at N=2 as of v1.4; 1299 at N=3, 1467 at N=4 — see
+`docs/VERSIONING.md`'s `num_players` entry; was 1119 in v0.9–v1.3, 1155 in
+v0.6–v0.8): per-habitat board slots, tray, per-type cached food, the two v1.4
+food-unlock stripes (`hand_food_unlock_me`, `tray_food_unlock_me` — see
 `engine.playability.min_food_to_unlock`), birdfeeder, round goals (scored rounds
 zeroed), player hand + two playability multi-hots (`hand_playable_me`,
 `hand_playable_eggs_me`) via the hand encoder, one-hot round number, one-hot
@@ -61,6 +92,10 @@ via `set_summary_from_multihot`; `board_summary_me/opp` compacted from 18→6 di
 `row_length` + `total_eggs` per habitat); `misc_scalars` compacted from 4→2 dims (dropped
 round-goal VP scalars). Also exports per-aspect summary helpers (with `include_goal_pts`,
 `full_stats`, `zero_passed_rounds` flags) used by the v0.8 compat shim and the dashboard.
+At `spec.num_players >= 3`, `encode_state` inserts a `turn_position` one-hot
+after `turn_state` and loops `GameState.opponents_clockwise` (Stage 1) to
+repeat every per-opponent stripe group once per opponent — at N=2 the single
+iteration reproduces the pre-N-player output byte-for-byte.
 
 **`choice_encode.py`** — `encode_choices(gs, decision, spec, *, has_becomes_playable=True, food_playable_ignores_eggs=True) -> np.ndarray`
 (shape `[n_choices, choice_dim]`). One row per offered choice; each row is the
@@ -79,6 +114,11 @@ a non-resetting single-unit subset is byte-identical to the `FoodChoice` one-hot
 the combined `becomes_playable` via `playability.newly_playable_after_foods` on the
 realized pool (`_combined_gain_pool`), and — when `choice.resets_birdfeeder` — the
 1-dim `resets_feeder` stripe added in v1.4 (a FRESH bump; see `wingspan.compat.v1_3`).
+At `spec.num_players >= 3`, `encode_choices` fills the `player_select` stripe at
+one site (not per-featurizer) for every `decisions.PlayerIdChoice` row: a
+`spec.num_players`-wide one-hot at `(choice.player_id − decision.player_id) %
+spec.num_players`. Absent at N=2 (`layout.off_player_select(spec)` is `None`);
+the existing `special.is_self` bit in `_featurize_player_id` is untouched.
 
 ## Subpackage
 

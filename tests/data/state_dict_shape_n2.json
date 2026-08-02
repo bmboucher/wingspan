@@ -1,0 +1,198 @@
+{
+  "card_encoder.0.weight": [
+    4,
+    225
+  ],
+  "card_encoder.0.bias": [
+    4
+  ],
+  "state_trunk.0.weight": [
+    8,
+    715
+  ],
+  "state_trunk.0.bias": [
+    8
+  ],
+  "choice_encoder.0.weight": [
+    8,
+    170
+  ],
+  "choice_encoder.0.bias": [
+    8
+  ],
+  "scorers.0.0.weight": [
+    4,
+    16
+  ],
+  "scorers.0.0.bias": [
+    4
+  ],
+  "scorers.0.2.weight": [
+    1,
+    4
+  ],
+  "scorers.0.2.bias": [
+    1
+  ],
+  "scorers.1.0.weight": [
+    4,
+    16
+  ],
+  "scorers.1.0.bias": [
+    4
+  ],
+  "scorers.1.2.weight": [
+    1,
+    4
+  ],
+  "scorers.1.2.bias": [
+    1
+  ],
+  "scorers.2.0.weight": [
+    4,
+    16
+  ],
+  "scorers.2.0.bias": [
+    4
+  ],
+  "scorers.2.2.weight": [
+    1,
+    4
+  ],
+  "scorers.2.2.bias": [
+    1
+  ],
+  "scorers.3.0.weight": [
+    4,
+    16
+  ],
+  "scorers.3.0.bias": [
+    4
+  ],
+  "scorers.3.2.weight": [
+    1,
+    4
+  ],
+  "scorers.3.2.bias": [
+    1
+  ],
+  "scorers.4.0.weight": [
+    4,
+    16
+  ],
+  "scorers.4.0.bias": [
+    4
+  ],
+  "scorers.4.2.weight": [
+    1,
+    4
+  ],
+  "scorers.4.2.bias": [
+    1
+  ],
+  "scorers.5.0.weight": [
+    4,
+    16
+  ],
+  "scorers.5.0.bias": [
+    4
+  ],
+  "scorers.5.2.weight": [
+    1,
+    4
+  ],
+  "scorers.5.2.bias": [
+    1
+  ],
+  "scorers.6.0.weight": [
+    4,
+    16
+  ],
+  "scorers.6.0.bias": [
+    4
+  ],
+  "scorers.6.2.weight": [
+    1,
+    4
+  ],
+  "scorers.6.2.bias": [
+    1
+  ],
+  "scorers.7.0.weight": [
+    4,
+    16
+  ],
+  "scorers.7.0.bias": [
+    4
+  ],
+  "scorers.7.2.weight": [
+    1,
+    4
+  ],
+  "scorers.7.2.bias": [
+    1
+  ],
+  "scorers.8.0.weight": [
+    4,
+    16
+  ],
+  "scorers.8.0.bias": [
+    4
+  ],
+  "scorers.8.2.weight": [
+    1,
+    4
+  ],
+  "scorers.8.2.bias": [
+    1
+  ],
+  "scorers.9.0.weight": [
+    4,
+    16
+  ],
+  "scorers.9.0.bias": [
+    4
+  ],
+  "scorers.9.2.weight": [
+    1,
+    4
+  ],
+  "scorers.9.2.bias": [
+    1
+  ],
+  "scorers.10.0.weight": [
+    4,
+    16
+  ],
+  "scorers.10.0.bias": [
+    4
+  ],
+  "scorers.10.2.weight": [
+    1,
+    4
+  ],
+  "scorers.10.2.bias": [
+    1
+  ],
+  "scorers.11.0.weight": [
+    4,
+    16
+  ],
+  "scorers.11.0.bias": [
+    4
+  ],
+  "scorers.11.2.weight": [
+    1,
+    4
+  ],
+  "scorers.11.2.bias": [
+    1
+  ],
+  "value_head.0.weight": [
+    1,
+    8
+  ],
+  "value_head.0.bias": [
+    1
+  ]
+}

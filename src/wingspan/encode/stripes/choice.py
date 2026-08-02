@@ -451,6 +451,31 @@ def raw_choice_stripe_layout(
     )
     end += layout.CHOICE_RESETS_FEEDER_DIM
 
+    # ---- player_select (N>=3 only: width spec.num_players) ----
+    off_player_select = layout.off_player_select(spec)
+    if off_player_select is not None:
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name="player_select",
+                description=(
+                    "One-hot of which seat this PlayerIdChoice option names, "
+                    "relative to the deciding player (N>=3 only)."
+                ),
+                offset=off_player_select,
+                size=spec.num_players,
+                encoding="one-hot",
+                value_range="{0, 1}",
+                notes=(
+                    f"{spec.num_players}-wide one-hot at "
+                    "(choice.player_id - decision.player_id) % num_players. "
+                    "Zero for every non-PlayerIdChoice row. At N=2 this stripe "
+                    "does not exist — the special/is_self bit alone "
+                    "distinguishes the two PlayerIdChoice rows."
+                ),
+            )
+        )
+        end += spec.num_players
+
     # ---- setup stripes (trailing; present only when the main model carries setup) ----
     if spec.include_setup:
         stripes.append(

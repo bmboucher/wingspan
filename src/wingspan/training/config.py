@@ -327,6 +327,14 @@ class ArchitectureConfig(pydantic.BaseModel):
     use_setup_model: bool = True
     split_setup_bonus: bool = True
     split_setup_food: bool = True
+    # Seat count this run trains/plays at. Config-carried, default **2** so a
+    # bare ArchitectureConfig() reproduces every pre-N-player dim byte-for-byte
+    # (the checkpoint-compat anchor) — mirrors the ``use_setup_model`` /
+    # ``combine_gain_food`` no-bump precedent: config-carried and
+    # default-reproducing, so N=2 needs no MODEL_VERSION bump. N>=3 is a FRESH
+    # (architecture_key-changing) run; ``validate_launchable`` temporarily
+    # blocks N>=3 launches until the training pipeline (Stage 3) supports them.
+    num_players: typing.Annotated[int, pydantic.Field(ge=2, le=5)] = 2
 
     # Era-synced descriptor (derived, not freely editable).
     encoding_version: str = version.MODEL_VERSION
@@ -349,18 +357,32 @@ class ArchitectureConfig(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _sync_dims(self) -> "ArchitectureConfig":
-        """Keep dims and family order in lockstep with ``use_setup_model`` and
-        ``encoding_version``. See ``TrainConfig._sync_encoding_dims`` docs."""
-        spec = encode.spec_for(self.use_setup_model)
+        """Keep dims and family order in lockstep with ``use_setup_model``,
+        ``num_players``, and ``encoding_version``. See
+        ``TrainConfig._sync_encoding_dims`` docs."""
+        spec = encode.spec_for(self.use_setup_model, self.num_players)
         if self.encoding_version == version.MODEL_VERSION:
             self.state_dim = encode.state_size(spec)
             self.choice_dim = encode.choice_feature_dim(spec)
         else:
             from wingspan import compat  # noqa: PLC0415 — see live-era note
 
-            self.state_dim, self.choice_dim = compat.encoding_dims_for_era(
-                self.encoding_version, spec
-            )
+            try:
+                self.state_dim, self.choice_dim = compat.encoding_dims_for_era(
+                    self.encoding_version, spec
+                )
+            except version.IncompatibleArtifactError as error:
+                # Re-raise as a plain ValueError so pydantic wraps it into the
+                # usual ValidationError: this validator runs on every
+                # configurator commit (config.RunConfig.model_validate inside
+                # configure.fields._validated_update), which only catches
+                # ValidationError — letting IncompatibleArtifactError escape
+                # here would crash the live-editing flow instead of showing a
+                # friendly inline error. validate_launchable's num_players ×
+                # encoding_version blocker is the defense-in-depth twin of
+                # this check for configs built via a non-validating path
+                # (e.g. model_copy).
+                raise ValueError(str(error)) from error
         self.family_order = tuple(
             family.value
             for family in decisions.active_decision_families(spec.include_setup)
@@ -653,8 +675,17 @@ class RunConfig(pydantic.BaseModel):
 
     @property
     def encoding_spec(self) -> encode.EncodingSpec:
-        """The state/choice encoding spec implied by ``use_setup_model``."""
-        return encode.spec_for(self.architecture.use_setup_model)
+        """The state/choice encoding spec implied by ``use_setup_model`` and
+        ``num_players``."""
+        return encode.spec_for(
+            self.architecture.use_setup_model, self.architecture.num_players
+        )
+
+    @property
+    def num_players(self) -> int:
+        """Seat count this run trains/plays at (delegates to
+        ``architecture.num_players``)."""
+        return self.architecture.num_players
 
     @property
     def split_setup_bonus_active(self) -> bool:
@@ -698,6 +729,7 @@ class RunConfig(pydantic.BaseModel):
                 for family in active
             )
         return architecture.ModelArchitecture(
+            num_players=self.architecture.num_players,
             trunk_layers=main.trunk_layers,
             choice_layers=main.choice_layers,
             head_layers=main.head_layers,
@@ -905,6 +937,33 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
         problems.append(
             "board_attention_heads is set but use_board_attention is off "
             "(there is no board-attention module to split into heads)"
+        )
+
+    # TEMPORARY (Stage 2 of the N-player plan): the training pipeline
+    # (collect / learner / evaluate) still assumes 2 seats throughout.
+    # Encoding, model construction, and config threading all support N>=3
+    # today; only the training loop itself does not yet. Remove this blocker
+    # in Stage 3 once collect/learner/evaluate are seat-count-generic.
+    if cfg.architecture.num_players > 2:
+        problems.append(
+            f"num_players={cfg.architecture.num_players} — the N-player "
+            "training pipeline lands in a later stage; only num_players=2 "
+            "can launch today (encoding/model support exists, training does not)"
+        )
+
+    # A superseded (non-live) encoding era is always 2-player: compat shims
+    # derive their dims from a spec that never had N>=3 to freeze, and
+    # compat.encoding_dims_for_era refuses num_players != 2 outright for any
+    # pre-live era. Catch it here too so the launch-time message is specific
+    # to num_players rather than a generic dims-mismatch error.
+    if (
+        cfg.architecture.encoding_version != version.MODEL_VERSION
+        and cfg.architecture.num_players != 2
+    ):
+        problems.append(
+            f"num_players={cfg.architecture.num_players} is incompatible with "
+            f"encoding_version={cfg.architecture.encoding_version!r} — "
+            "compat-era artifacts are 2-player only"
         )
 
     return problems

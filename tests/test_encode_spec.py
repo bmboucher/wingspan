@@ -11,7 +11,17 @@ that invariant and the round-trip through ``model_config.json``.
 
 from __future__ import annotations
 
-from wingspan import architecture, decisions, encode, model, version  # noqa: E402
+import pydantic
+import pytest
+
+from wingspan import (  # noqa: E402
+    architecture,
+    compat,
+    decisions,
+    encode,
+    model,
+    version,
+)
 from wingspan.encode import layout, stripes  # noqa: E402
 from wingspan.training import config, runmeta  # noqa: E402
 
@@ -303,3 +313,79 @@ def test_config_syncs_dims_to_use_setup_model_and_is_fresh_on_toggle():
     assert off.choice_dim == encode.choice_feature_dim(_INCLUDE)
     # Toggling use_setup_model now reshapes the main net, so it is a FRESH change.
     assert on.architecture_key != off.architecture_key
+
+
+#### num_players ####
+
+
+def test_config_syncs_dims_to_num_players():
+    n3 = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(num_players=3),
+    )
+    assert n3.state_dim == 1299
+    assert n3.choice_dim == 512
+    assert n3.num_players == 3
+    assert n3.arch.num_players == 3
+    assert n3.encoding_spec.num_players == 3
+
+
+def test_num_players_defaults_to_2():
+    default = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    assert default.architecture.num_players == 2
+    assert default.num_players == 2
+    assert default.state_dim == encode.state_size(_EXCLUDE)
+    assert default.choice_dim == encode.choice_feature_dim(_EXCLUDE)
+
+
+def test_num_players_is_fresh_and_joins_shape_key():
+    n2 = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(num_players=2),
+    )
+    n3 = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(num_players=3),
+    )
+    assert n2.architecture_key != n3.architecture_key
+    assert n2.arch.shape_key.num_players == 2
+    assert n3.arch.shape_key.num_players == 3
+    assert n2.arch.shape_key != n3.arch.shape_key
+
+
+def test_num_players_out_of_range_rejected():
+    for bad in (1, 6):
+        with pytest.raises(pydantic.ValidationError):
+            config.ArchitectureConfig(num_players=bad)
+
+
+def test_rehydration_defaults_num_players_absent_parses_to_2():
+    """A config dict that predates ``num_players`` (the keys deleted from a
+    default dump, simulating a pre-Stage-2 run_config_<stamp>.json) parses
+    back to num_players=2 and its architecture_key equals a fresh default
+    config's — the resume-protection proof (alongside the untouched
+    test_era_pinned_resume.py). Both sides recompute their architecture_key
+    under *current* code, so a pre-Stage-2 run and a fresh default run still
+    agree — even though the key's own repr now includes num_players and so
+    differs from what it would have printed before this change."""
+    default = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    data = default.model_dump()
+    del data["architecture"]["num_players"]
+    assert "num_players" not in data["architecture"]
+
+    reconstituted = config.RunConfig.model_validate(data)
+    assert reconstituted.architecture.num_players == 2
+    assert reconstituted.architecture_key == default.architecture_key
+
+
+def test_compat_era_refuses_num_players_3():
+    """A superseded (non-live) encoding era can never be N-player: every
+    compat-shimmed era predates num_players by construction."""
+    with pytest.raises(version.IncompatibleArtifactError):
+        compat.encoding_dims_for_era("1.3", encode.EncodingSpec(num_players=3))
+    # num_players=2 at the same era is unaffected (existing 2P resume path).
+    dims = compat.encoding_dims_for_era("1.3", encode.EncodingSpec(num_players=2))
+    assert dims == (
+        encode.state_size(_EXCLUDE) - 10,
+        encode.choice_feature_dim(_EXCLUDE) - 1,
+    )

@@ -60,6 +60,12 @@ class ModelConfig(pydantic.BaseModel):
     architecture: architecture.ModelArchitecture
     # Whether the main net carries the opening (``encode.EncodingSpec.include_setup``).
     include_setup: bool
+    # Seat count the run trains/plays at (mirrors ``architecture.num_players``,
+    # alongside ``include_setup`` above — both are encoding-spec facts kept as
+    # top-level descriptor fields rather than requiring every reader to reach
+    # into ``architecture``). Defaults to 2 so pre-N-player descriptors
+    # rehydrate identically — the checkpoint-compat anchor.
+    num_players: int = 2
     # The artifact-compatibility version the run was written at; defaults so
     # files that predate the field read as the pre-versioning era ("0.0").
     version: str = version.PRE_VERSIONING_VERSION
@@ -263,6 +269,7 @@ def build_model_summary_html(
 def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
     """The per-layer / per-block parameter accounting for ``descriptor``'s net."""
     arch = descriptor.architecture
+    spec = _spec_for(descriptor)
     board_position_dim = (
         encode.BOARD_POSITION_DIM if arch.board_attention_positions_active else 0
     )
@@ -282,6 +289,8 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
             tray_set_embedding=arch.tray_set_embedding,
             n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
             board_position_dim=board_position_dim,
+            n_card_index_slots=encode.n_card_index_slots(spec),
+            n_board_index_slots=encode.n_board_index_slots(spec),
         ),
         choice_in=choice_input_dim_for(descriptor),
         num_families=len(descriptor.family_order),
@@ -294,7 +303,7 @@ def param_report_for(descriptor: ModelConfig) -> architecture.ParamReport:
 def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
     """The post-embedding state stripe registry for ``descriptor``."""
     arch = descriptor.architecture
-    spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
+    spec = _spec_for(descriptor)
     return encode_stripes.state_stripe_layout(
         spec,
         arch.card_embed_dim,
@@ -310,7 +319,7 @@ def state_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
 
 def choice_layout_for(descriptor: ModelConfig) -> encode_stripes.VectorLayout:
     """The post-embedding choice stripe registry for ``descriptor``."""
-    spec = encode.EncodingSpec(include_setup=descriptor.include_setup)
+    spec = _spec_for(descriptor)
     return encode_stripes.choice_stripe_layout(
         spec,
         descriptor.architecture.card_embed_dim,
@@ -371,6 +380,16 @@ def write_session_record(
 ###### PRIVATE #######
 
 
+def _spec_for(descriptor: ModelConfig) -> encode.EncodingSpec:
+    """The :class:`encode.EncodingSpec` a descriptor's report helpers encode
+    against — both ``include_setup`` and ``num_players`` are top-level
+    descriptor fields (see :class:`ModelConfig`'s docstring) so a report built
+    from an N=3 descriptor derives N=3 geometry, not the live default."""
+    return encode.EncodingSpec(
+        include_setup=descriptor.include_setup, num_players=descriptor.num_players
+    )
+
+
 def _descriptor_for(cfg: config.RunConfig) -> ModelConfig:
     """The :class:`ModelConfig` descriptor for ``cfg``, stamped at the run's
     artifact era — the single construction every writer and reporter shares."""
@@ -382,6 +401,7 @@ def _descriptor_for(cfg: config.RunConfig) -> ModelConfig:
         family_order=arch_cfg.family_order,
         architecture=cfg.arch,
         include_setup=cfg.encoding_spec.include_setup,
+        num_players=cfg.num_players,
         version=arch_cfg.encoding_version,
     )
 
