@@ -42,10 +42,23 @@ def test_both_hummingbirds_are_implemented():
         assert cards.EffectKind.UNIMPLEMENTED not in kinds, name
 
 
-def _setup_state(seed: int = 0):
+def _setup_state(seed: int = 0, num_players: int = 2):
     birds, bonuses, goals = cards.load_all()
     rng = random.Random(seed)
-    return state.new_game(rng, birds, bonuses, goals)
+    return state.new_game(rng, birds, bonuses, goals, num_players=num_players)
+
+
+def _take_first_decline_reset[C: decisions.Choice](
+    decision: decisions.Decision[C],
+) -> C:
+    """Decline any optional single-face reset; otherwise take the first
+    offered choice. Shared scripted-agent building block for the tests below
+    that don't care which specific die / order / food is picked."""
+    if isinstance(decision, decisions.ResetBirdfeederDecision):
+        for choice in decision.choices:
+            if isinstance(choice, decisions.SkipChoice):
+                return typing.cast(C, choice)
+    return typing.cast(C, decision.choices[0])
 
 
 def test_each_player_gains_die_credits_both_players_in_chosen_order():
@@ -152,16 +165,6 @@ def test_each_player_gains_die_refills_empty_feeder():
 
     order_decisions_seen: list[decisions.BirdPowerPickGainOrderDecision] = []
 
-    def take_first_decline_reset[C: decisions.Choice](
-        decision: decisions.Decision[C],
-    ) -> C:
-        # Decline any optional single-face reset; otherwise take the first die.
-        if isinstance(decision, decisions.ResetBirdfeederDecision):
-            for choice in decision.choices:
-                if isinstance(choice, decisions.SkipChoice):
-                    return typing.cast(C, choice)
-        return typing.cast(C, decision.choices[0])
-
     def agent_p0[C: decisions.Choice](
         _engine: engine.Engine,
         decision: decisions.Decision[C],
@@ -169,13 +172,13 @@ def test_each_player_gains_die_refills_empty_feeder():
         if isinstance(decision, decisions.BirdPowerPickGainOrderDecision):
             order_decisions_seen.append(decision)
             return typing.cast(C, decision.choices[0])
-        return take_first_decline_reset(decision)
+        return _take_first_decline_reset(decision)
 
     def agent_p1[C: decisions.Choice](
         _engine: engine.Engine,
         decision: decisions.Decision[C],
     ) -> C:
-        return take_first_decline_reset(decision)
+        return _take_first_decline_reset(decision)
 
     eng = engine.Engine(gs, agents=[agent_p0, agent_p1])
     powers.apply_effect(eng, agent_p0, p0, pb, carrier.habitats[0], eff, "play")
@@ -338,3 +341,181 @@ def test_each_player_gains_die_skips_order_pick_when_uncontested():
         ("p0", decisions.GainFoodDecision),
         ("p1", decisions.GainFoodDecision),
     ]
+
+
+# ---------------------------------------------------------------------------
+# N-player gate (3 players): distinct_faces() >= 2, or dice scarcer than
+# seats, widens the order pick to every seat; otherwise the active player
+# auto-starts exactly as at 2 players.
+
+
+def _accept_veto[C: decisions.Choice](decision: decisions.Decision[C]) -> C:
+    """Accept the all-players veto gate (gap #16) when offered; otherwise
+    decline any reset and take the first available choice."""
+    if isinstance(decision, decisions.AcceptExchangeDecision):
+        return typing.cast(
+            C,
+            next(c for c in decision.choices if isinstance(c, decisions.PayCostChoice)),
+        )
+    return _take_first_decline_reset(decision)
+
+
+def _accept_veto_agent[C: decisions.Choice](
+    _engine: engine.Engine, decision: decisions.Decision[C]
+) -> C:
+    """An ``Agent``-shaped wrapper over :func:`_accept_veto`, for seats with
+    no test-specific behavior beyond accepting the veto / declining resets /
+    taking the first offered choice."""
+    return _accept_veto(decision)
+
+
+def _record_order_choices(
+    decision: decisions.Decision[typing.Any], sink: list[int]
+) -> None:
+    """If ``decision`` is the order pick, record the candidate player ids
+    into ``sink`` (mutated in place). Takes the untyped ``Decision[Any]``
+    shape — rather than narrowing a generic caller's own ``decision: Decision[C]``
+    in place — so the isinstance check here can't widen that caller's return
+    type into a union at its post-call join point."""
+    if isinstance(decision, decisions.BirdPowerPickGainOrderDecision):
+        sink.extend(choice.player_id for choice in decision.choices)
+
+
+def test_each_player_gains_die_n3_two_or_more_faces_offers_all_seats():
+    """At 3 players, 2 distinct feeder faces already widen the order pick to
+    every seat (matching the 2-player ``distinct_faces() == 2`` case)."""
+    gs = _setup_state(seed=0, num_players=3)
+    for food in gs.birdfeeder.counts:
+        gs.birdfeeder.counts[food] = 0
+    gs.birdfeeder.choice_dice = 0
+    gs.birdfeeder.counts[cards.Food.SEED] = 2
+    gs.birdfeeder.counts[cards.Food.FRUIT] = 2
+
+    p0, p1, p2 = gs.players
+    gs.current_player = p0.id
+    carrier = next(
+        bird for bird in cards.load_all()[0] if bird.name == "Anna's Hummingbird"
+    )
+    pb = state.PlayedBird(bird=carrier)
+    eff = cards.Effect(
+        kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
+    )
+
+    order_choices_seen: list[int] = []
+
+    def agent_p0[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        _record_order_choices(decision, order_choices_seen)
+        return _accept_veto(decision)
+
+    eng = engine.Engine(gs, agents=[agent_p0, _accept_veto_agent, _accept_veto_agent])
+    powers.apply_effect(eng, agent_p0, p0, pb, carrier.habitats[0], eff, "play")
+
+    assert order_choices_seen == [p0.id, p1.id, p2.id]
+
+
+def test_each_player_gains_die_n3_same_face_scarce_dice_offers_all_seats():
+    """At 3 players, a single-face feeder with FEWER dice than seats (2 dice,
+    3 players) still widens the order pick — someone is guaranteed to gain
+    nothing, so who goes last matters even though there is nothing to reset
+    over (the 2-player gate would auto-resolve this: 1 face is <= 1)."""
+    gs = _setup_state(seed=0, num_players=3)
+    for food in gs.birdfeeder.counts:
+        gs.birdfeeder.counts[food] = 0
+    gs.birdfeeder.choice_dice = 0
+    gs.birdfeeder.counts[cards.Food.SEED] = 2  # 1 face, 2 dice < 3 players
+
+    p0, p1, p2 = gs.players
+    gs.current_player = p0.id
+    carrier = next(
+        bird for bird in cards.load_all()[0] if bird.name == "Anna's Hummingbird"
+    )
+    pb = state.PlayedBird(bird=carrier)
+    eff = cards.Effect(
+        kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
+    )
+
+    order_choices_seen: list[int] = []
+
+    def agent_p0[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        _record_order_choices(decision, order_choices_seen)
+        return _accept_veto(decision)
+
+    eng = engine.Engine(gs, agents=[agent_p0, _accept_veto_agent, _accept_veto_agent])
+    powers.apply_effect(eng, agent_p0, p0, pb, carrier.habitats[0], eff, "play")
+
+    assert order_choices_seen == [p0.id, p1.id, p2.id]
+
+
+def test_each_player_gains_die_n3_same_face_plentiful_dice_auto_starts():
+    """At 3 players, a single-face feeder with at least as many dice as seats
+    (4 dice, 3 players) auto-starts the active player, exactly like the
+    2-player 1-face case — no order decision is ever presented.
+
+    Uses the invertebrate/seed *choice* face rather than a single plain food:
+    a choice face is still exactly 1 distinct face (``distinct_faces() ==
+    1``, so the order gate sees the uncontested case), but it offers 2
+    gainable foods, so each seat's ``GainFoodDecision`` stays a genuine fork
+    instead of being auto-resolved by ``Engine.ask``'s single-choice guard —
+    otherwise this test could not tell "auto-started, not asked" apart from
+    "asked, but forced" for the gain-order assertion below."""
+    gs = _setup_state(seed=0, num_players=3)
+    for food in gs.birdfeeder.counts:
+        gs.birdfeeder.counts[food] = 0
+    gs.birdfeeder.choice_dice = 4  # 1 face (the choice face), 4 dice >= 3 players
+
+    p0, p1, p2 = gs.players
+    gs.current_player = p0.id
+    carrier = next(
+        bird for bird in cards.load_all()[0] if bird.name == "Anna's Hummingbird"
+    )
+    pb = state.PlayedBird(bird=carrier)
+    eff = cards.Effect(
+        kind=cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER, amount=1
+    )
+
+    queried: list[tuple[int, type]] = []
+
+    def agent_p0[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        queried.append((p0.id, type(decision)))
+        return _accept_veto(decision)
+
+    def agent_p1[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        queried.append((p1.id, type(decision)))
+        return _take_first_decline_reset(decision)
+
+    def agent_p2[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        queried.append((p2.id, type(decision)))
+        return _take_first_decline_reset(decision)
+
+    eng = engine.Engine(gs, agents=[agent_p0, agent_p1, agent_p2])
+    powers.apply_effect(eng, agent_p0, p0, pb, carrier.habitats[0], eff, "play")
+
+    order_queries = [
+        entry
+        for entry in queried
+        if entry[1] is decisions.BirdPowerPickGainOrderDecision
+    ]
+    assert (
+        not order_queries
+    ), f"order decision presented with scarce/uncontested dice: {order_queries}"
+
+    # Active player gains before either opponent, in clockwise order.
+    gain_order = [
+        seat for seat, dtype in queried if dtype is decisions.GainFoodDecision
+    ]
+    assert gain_order == [p0.id, p1.id, p2.id]

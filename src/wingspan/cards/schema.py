@@ -355,7 +355,7 @@ class EndRoundGoal(pydantic.BaseModel):
     appears on; the two goals sharing a ``tile_id`` are the two sides of the
     same tile. The placement payout is intentionally not stored here: it depends
     on which round the goal is scored in, not on the goal card itself — see
-    ``state.ROUND_GOAL_PAYOUTS_2P`` and ``engine.scoring.score_round_goal``."""
+    ``state.ROUND_GOAL_PAYOUTS`` and ``engine.scoring.score_round_goal``."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 

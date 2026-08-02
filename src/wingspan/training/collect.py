@@ -154,8 +154,7 @@ def play_game(
         player_breakdown(eng.state.players[0]),
         player_breakdown(eng.state.players[1]),
     )
-    score_0, score_1 = breakdowns[0].total, breakdowns[1].total
-    winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
+    winner = scoring.determine_winner(eng.state.players)
     return GameRecord(
         steps=recorded,
         breakdowns=breakdowns,
@@ -273,9 +272,8 @@ def play_game_with_setup(
         player_breakdown(eng.state.players[0]),
         player_breakdown(eng.state.players[1]),
     )
-    score_0, score_1 = breakdowns[0].total, breakdowns[1].total
-    winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
-    totals = (score_0, score_1)
+    winner = scoring.determine_winner(eng.state.players)
+    totals = (breakdowns[0].total, breakdowns[1].total)
     final_ts = timestamps.final_timestamp(eng.state.turn_counter)
     setup_samples = [
         _build_setup_sample(

@@ -62,6 +62,8 @@ or `BirdChoice` decisions as appropriate.
 the board that award food or points.
 
 **`predator_repeat.py`** — Handlers for predator-attack and repeat-action powers:
-`PREDATOR`, `REPEAT_BROWN`, `ACTIVATE_ANOTHER`. `PREDATOR` presents a
-`PlayerIdChoice` to select the target; `REPEAT_BROWN` re-dispatches another
+`PREDATOR`, `REPEAT_BROWN`, `ACTIVATE_ANOTHER`. `PREDATOR` draws a prey card
+from the deck and compares its wingspan to the hunting bird's cap — it never
+targets a player (no `PlayerIdChoice`); a successful hunt fires
+`reactors.trigger_pink_predator_success`. `REPEAT_BROWN` re-dispatches another
 bird's power.

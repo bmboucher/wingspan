@@ -965,14 +965,14 @@ def _fill_goal_delta(
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     player = game_state.players[player_id]
-    opp = game_state.players[1 - player_id]
+    others = game_state.opponents_clockwise(player_id)
 
     for goal_idx, goal in enumerate(game_state.round_goals):
         if goal_idx < len(game_state.scored_goals):
             continue
-        payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
+        payouts = state.ROUND_GOAL_PAYOUTS[goal_idx]
         count_delta, vp_delta = scoring.goal_vp_delta_for_bird(
-            player, opp, goal, bird, payout
+            player, others, goal, bird, payouts
         )
         _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
 
@@ -993,13 +993,13 @@ def _fill_goal_delta_for_egg(
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     player = game_state.players[player_id]
-    opp = game_state.players[1 - player_id]
+    others = game_state.opponents_clockwise(player_id)
     for goal_idx, goal in enumerate(game_state.round_goals):
         if goal_idx < len(game_state.scored_goals):
             continue
-        payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
+        payouts = state.ROUND_GOAL_PAYOUTS[goal_idx]
         count_delta, vp_delta = scoring.goal_vp_delta_for_egg(
-            player, opp, goal, habitat, played_bird, payout, delta_eggs
+            player, others, goal, habitat, played_bird, payouts, delta_eggs
         )
         _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
 
@@ -1018,13 +1018,13 @@ def _fill_goal_delta_for_move(
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     player = game_state.players[player_id]
-    opp = game_state.players[1 - player_id]
+    others = game_state.opponents_clockwise(player_id)
     for goal_idx, goal in enumerate(game_state.round_goals):
         if goal_idx < len(game_state.scored_goals):
             continue
-        payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
+        payouts = state.ROUND_GOAL_PAYOUTS[goal_idx]
         count_delta, vp_delta = scoring.goal_vp_delta_for_move(
-            player, opp, goal, from_habitat, to_habitat, played_bird, payout
+            player, others, goal, from_habitat, to_habitat, played_bird, payouts
         )
         _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
 
@@ -1043,13 +1043,13 @@ def _fill_goal_delta_best_case(
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     player = game_state.players[player_id]
-    opp = game_state.players[1 - player_id]
+    others = game_state.opponents_clockwise(player_id)
     for goal_idx, goal in enumerate(game_state.round_goals):
         if goal_idx < len(game_state.scored_goals):
             continue
-        payout = state.ROUND_GOAL_PAYOUTS_2P[goal_idx]
+        payouts = state.ROUND_GOAL_PAYOUTS[goal_idx]
         count_delta, vp_delta = scoring.goal_best_case_for_eggs(
-            player, opp, goal, payout, n_eggs
+            player, others, goal, payouts, n_eggs
         )
         _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
 

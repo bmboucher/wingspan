@@ -50,14 +50,30 @@ def _h_each_player_gains_die_choose_order(
             engine.log(f"  {bird.name}: [{player.name}] skipped activation")
             return
 
-    # Going first is strictly best unless the feeder shows exactly two faces.
-    # With >2 faces neither seat can reset, so maximize our own selection by
-    # going first; with <=1 face either seat could reset, so grab first pick.
-    # Only the exactly-two-faces case is a genuine situational tradeoff worth
-    # asking the model: going first guarantees one visible face, going second
-    # leaves the reset available to us. Offering a single candidate in the other
-    # cases lets Engine.ask auto-resolve it (no model call, no recorded step).
-    starters = st.players if st.birdfeeder.distinct_faces() == 2 else [player]
+    # At 2 players, going first is strictly best unless the feeder shows
+    # exactly two faces. With >2 faces neither seat can reset, so maximize our
+    # own selection by going first; with <=1 face either seat could reset, so
+    # grab first pick. Only the exactly-two-faces case is a genuine
+    # situational tradeoff worth asking the model: going first guarantees one
+    # visible face, going second leaves the reset available to us. Offering a
+    # single candidate in the other cases lets Engine.ask auto-resolve it (no
+    # model call, no recorded step).
+    #
+    # At 3+ players the same "going first risks nothing, going later risks
+    # everything" shape widens on two axes: any 2+ distinct faces (not just
+    # exactly 2) means later seats can't rely on a reset ever resetting *for
+    # them specifically* before their turn comes, and a feeder with fewer
+    # dice than seats means going late risks the feeder running dry before it
+    # is your turn at all. Either condition makes the pick order-sensitive
+    # enough to route through the model instead of auto-resolving.
+    if n_players == 2:
+        starters = st.players if st.birdfeeder.distinct_faces() == 2 else [player]
+    else:
+        starters = (
+            st.players
+            if st.birdfeeder.distinct_faces() >= 2 or st.birdfeeder.total() < n_players
+            else [player]
+        )
     start_ch = engine.ask(
         agent,
         decisions.BirdPowerPickGainOrderDecision(
@@ -120,12 +136,13 @@ def _h_all_players_lay_egg_on_nest(
     # main round.
     #
     # Sequence:
-    #   1. P0 AcceptExchangeDecision — veto the whole power (ledger shows
-    #      min(2, own_eligible) for P0 and eligible-opponent count).
+    #   1. Active player's AcceptExchangeDecision — veto the whole power
+    #      (ledger shows min(2, own_eligible) for the active player and
+    #      eligible-opponent count).
     #   2. Non-active players in turn order — anti-egg-goal gate each one.
-    #   3. P0's mandatory base LayEggDecision.
-    #   4. P0's extra layings — mandatory unless anti-egg-goal is active;
-    #      each excludes the previous egg's target (gap #13a/b/c).
+    #   3. Active player's mandatory base LayEggDecision.
+    #   4. Active player's extra layings — mandatory unless anti-egg-goal is
+    #      active; each excludes the previous egg's target (gap #13a/b/c).
     st = engine.state
     bird = pb.bird
     assert eff.nest is not None, "ALL_PLAYERS_LAY_EGG_ON_NEST requires nest"
@@ -165,8 +182,8 @@ def _h_all_players_lay_egg_on_nest(
         )
     )
 
-    # Step 1: P0 veto — commit to activating or cancel for everyone.
-    p0_commit = engine.ask(
+    # Step 1: active player veto — commit to activating or cancel for everyone.
+    activation_commit = engine.ask(
         agent,
         decisions.AcceptExchangeDecision(
             player_id=player.id,
@@ -181,21 +198,22 @@ def _h_all_players_lay_egg_on_nest(
             ],
         ),
     )
-    if isinstance(p0_commit, decisions.SkipChoice):
+    if isinstance(activation_commit, decisions.SkipChoice):
         engine.log(f"  {bird.name}: [{player.name}] skipped activation")
         return
 
     anti_egg_goal = st.round_goals[st.round_idx].category == "birds_no_eggs"
 
-    # Step 2: non-active players, in turn order from P0+1.
+    # Step 2: non-active players, in clockwise turn order from the active player.
     _other_players_lay_optional(
         engine, player, nest, bird, anti_egg_goal, active_idx, n_players
     )
 
-    # Step 3: P0's mandatory base egg.
+    # Step 3: active player's mandatory base egg.
     last_laid = dispatch.lay_one_egg_on_nest(engine, player, nest, label=bird.name)
 
-    # Step 4: P0's extra eggs — each excludes the previous target (gap #13a).
+    # Step 4: active player's extra eggs — each excludes the previous target
+    # (gap #13a).
     _active_player_extra_eggs(
         engine, agent, player, nest, bird, extra_for_self, anti_egg_goal, last_laid
     )

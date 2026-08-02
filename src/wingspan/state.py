@@ -52,12 +52,25 @@ EGG_COSTS = (0, 1, 1, 2, 2)
 # without a separate "row full" branch.
 FULL_ROW_EGG_COST = 99
 
-# Round-goal placement payouts for a 2-player game, indexed by round (0..3) as
-# ``(1st_place_vp, 2nd_place_vp)``. The printed goal board pays more in later
-# rounds. The payout belongs to the round slot, not the goal card. A player
-# whose category count is 0 does not place and scores nothing (see
-# ``engine.scoring.score_round_goal``).
-ROUND_GOAL_PAYOUTS_2P = ((4, 1), (5, 2), (6, 3), (7, 4))
+# Round-goal placement payouts, indexed by round (0..3) as
+# ``(1st_place_vp, 2nd_place_vp, 3rd_place_vp)`` — the printed green goal
+# board's full three-place column (only the top 3 places ever pay; a rank
+# past 3rd pays 0). The printed board pays more in later rounds. The payout
+# belongs to the round slot, not the goal card. A player whose category
+# count is 0 does not place and scores nothing (see
+# ``engine.scoring.score_round_goal`` / ``engine.scoring.placement_payouts``).
+ROUND_GOAL_PAYOUTS: tuple[tuple[int, int, int], ...] = (
+    (4, 1, 0),
+    (5, 2, 1),
+    (6, 3, 2),
+    (7, 4, 3),
+)
+
+# Player-count bounds new_game validates against. Core-set Wingspan supports
+# 1-5 players; this simulator targets competitive multi-agent play, so the
+# floor is 2. The ceiling matches the printed box (5 players).
+MIN_PLAYERS = 2
+MAX_PLAYERS = 5
 
 # ---------------------------------------------------------------------------
 # default_factory helpers
@@ -134,10 +147,10 @@ class GameState(pydantic.BaseModel):
     # ``(start_player + r) % len(players)``.
     start_player: int = 0
     round_idx: int  # 0..3
-    # 1-based global turn count across both seats (2×(8+7+6+5) = 52 per game),
-    # incremented by the engine at the start of every turn. 0 for the whole
-    # setup window, including the deferred bonus/food resolution that runs
-    # before round 1.
+    # 1-based global turn count across every seat (num_players×(8+7+6+5) =
+    # num_players×26 per game — 52 at the 2-player default), incremented by
+    # the engine at the start of every turn. 0 for the whole setup window,
+    # including the deferred bonus/food resolution that runs before round 1.
     turn_counter: int = 0
     bird_deck: list[cards.Bird]  # remaining
     bird_discard: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
@@ -188,8 +201,17 @@ class GameState(pydantic.BaseModel):
 
     # ----- helpers ------------------------------------------------------
 
-    def opponent(self) -> Player:
-        return self.players[1 - self.current_player]
+    def opponents_clockwise(self, from_id: int | None = None) -> list[Player]:
+        """The other players, in clockwise turn order starting immediately
+        after ``from_id`` (default: ``current_player``).
+
+        ``[players[(from_id + k) % len(players)] for k in range(1, n)]`` —
+        the canonical opponent ordering every N-player-aware reader (round-
+        goal standings, the encoder's per-opponent stripes, pink reactors)
+        shares. At 2 players this is always the single opponent seat."""
+        pov = self.current_player if from_id is None else from_id
+        n = len(self.players)
+        return [self.players[(pov + offset) % n] for offset in range(1, n)]
 
     def me(self) -> Player:
         return self.players[self.current_player]
@@ -242,17 +264,37 @@ def new_game(
     birds: list[cards.Bird],
     bonuses: list[cards.BonusCard],
     goals: list[cards.EndRoundGoal],
-    player_names: tuple[str, str] = ("P0", "P1"),
+    player_names: tuple[str, ...] | None = None,
+    num_players: int = 2,
 ) -> GameState:
-    """Shuffle the decks, deal an empty board for two players, and return a
-    ready-to-play ``GameState``. Side effects: rerolls the birdfeeder."""
+    """Shuffle the decks, deal an empty board for ``num_players`` players, and
+    return a ready-to-play ``GameState``. Side effects: rerolls the birdfeeder.
+
+    ``player_names`` defaults to ``("P0", "P1", ..., f"P{num_players - 1}")``
+    when omitted (``None``); when given explicitly, its length must equal
+    ``num_players``. ``num_players`` must fall within
+    ``[MIN_PLAYERS, MAX_PLAYERS]``. Raises ``ValueError`` on either
+    mismatch."""
+    if not MIN_PLAYERS <= num_players <= MAX_PLAYERS:
+        raise ValueError(
+            f"num_players must be between {MIN_PLAYERS} and {MAX_PLAYERS} "
+            f"(got {num_players})"
+        )
+    names = (
+        player_names if player_names is not None else _default_player_names(num_players)
+    )
+    if len(names) != num_players:
+        raise ValueError(
+            f"player_names has {len(names)} entries but num_players={num_players}"
+        )
+
     deck = list(birds)
     rng.shuffle(deck)
     bonus_deck = list(bonuses)
     rng.shuffle(bonus_deck)
     round_goals = _select_round_goals(rng, goals)
 
-    players = [Player(id=i, name=player_names[i]) for i in range(2)]
+    players = [Player(id=i, name=names[i]) for i in range(num_players)]
     start_player = rng.randint(0, len(players) - 1)
     state = GameState(
         rng=rng,
@@ -720,6 +762,12 @@ GameState.model_rebuild()
 
 
 _N_ROUND_GOALS = 4
+
+
+def _default_player_names(num_players: int) -> tuple[str, ...]:
+    """The default seat names ``new_game`` uses when ``player_names`` is
+    omitted: ``("P0", "P1", ..., f"P{num_players - 1}")``."""
+    return tuple(f"P{i}" for i in range(num_players))
 
 
 def _select_round_goals(

@@ -214,20 +214,27 @@ printed points, eggs laid on them, and bonus/goal eligibility.
 > "Each player gains 1 [die] from the birdfeeder, starting with the player of your choice."
 
 - **When:** on each activation of the bird's row.
-- **Option to activate?** **Yes** — because the opponent also gains a die, the
+- **Option to activate?** **Yes** — because every opponent also gains a die, the
   active player first gets a `skip_optional` veto. The accept row carries
-  `gained_food_count=1` (own die) and `opp_gained_food_count=1` (opponent's die).
+  `gained_food_count=1` (own die) and `opp_gained_food_count=n_players-1`
+  (every opponent's die, aggregated — see `decisions.PayCostChoice`).
   Declining skips the whole power.
 - **Subsequent choices (on accept), in order:**
-  1. **Order pick (gated on `distinct_faces() == 2`).** When the birdfeeder shows
-     exactly two distinct faces the active player gets a `misc_rare` decision
-     choosing which player gains first. In all other cases (>2 or ≤1 face) going
-     first is strictly optimal — with >2 faces neither player can reset and we
-     want maximum selection; with ≤1 face either player could reset and we want
-     first pick — so the active player auto-starts with no model call.
-  2. In that order, each player — using *their own* agent — goes through the reset
-     check and then a `gain_food` pick of one die from the feeder. Going first
-     matters when the feeder holds contested faces.
+  1. **Order pick.** At 2 players, gated on `distinct_faces() == 2` exactly as
+     before: when the birdfeeder shows exactly two distinct faces the active
+     player gets a `misc_rare` decision choosing who gains first; in all other
+     cases (>2 or ≤1 face) going first is strictly optimal, so the active
+     player auto-starts with no model call. At 3+ players the gate widens on
+     two axes: it fires whenever the feeder shows **2 or more** distinct faces
+     (not just exactly 2 — with more seats to serve, a later seat can no
+     longer rely on a reset happening *before its own turn*), or whenever the
+     feeder holds **fewer dice than seats** (someone is guaranteed to gain
+     nothing, so who goes last matters). Otherwise (all-same face and dice
+     ≥ seats) the active player auto-starts, same as 2P.
+  2. In turn order starting from the chosen starter, each player — using
+     *their own* agent — goes through the reset check and then a `gain_food`
+     pick of one die from the feeder. Going earlier matters more as the
+     feeder holds fewer contested faces or fewer dice than seats remaining.
 
 ---
 
@@ -501,23 +508,36 @@ Wilson's Snipe** (all brown) — identical text:
 > "Draw [card] equal to the number of players +1. Starting with you and proceeding clockwise, each player selects 1 of those cards and places it in their hand. You keep the extra card."
 
 - **When:** once, when played.
-- **Option to activate?** **Yes** — a `skip_optional` decision first, with the
-  ledger "draw 3 cards, pass 2 to opponent, receive 1 back" (net: you +2 cards,
-  opponent +1). Declining skips the whole power.
-- **Subsequent choices (2-player), in order:**
-  1. Three cards are drawn from the deck into your hand.
-  2. You pass cards to the opponent until only one of the drawn cards remains with
-     you: two `discard_bird` picks choosing which drawn card to give away each time.
-     (Equivalently: you keep 1 of the 3.)
-  3. The opponent, holding the 2 passed cards, returns all but one: one
-     `discard_bird` pick (their agent) choosing which card to send back to you.
-  4. The returned card re-enters your hand. Net result: you kept your favorite of
-     the 3 plus whichever of the other two the opponent liked less; the opponent
-     kept one.
+- **Option to activate?** **Yes** — a `skip_optional` decision first. At 2
+  players the ledger reads "draw 3 cards, pass 2 to opponent, receive 1 back"
+  (net: you +2 cards, opponent +1) — the exact printed-rule wording, unchanged
+  from before N-player support. At 3+ players the ledger generalizes to "draw
+  `n_players+1` cards, draft clockwise (you keep 2, each opponent 1)" (net:
+  you +2, each opponent +1). Declining skips the whole power.
+- **Subsequent choices, in order:** draw `n_players + 1` cards from the deck
+  into your hand, then draft them clockwise so you end with exactly 2 net
+  cards and every opponent ends with exactly 1:
+  1. `n_players + 1` cards are drawn from the deck into your hand.
+  2. You pass cards onward until only one of the drawn cards remains with you
+     (`n_players` `discard_bird` picks choosing which drawn card to give away
+     each time — 2 picks at the 2-player default). Equivalently: you keep 1 of
+     the `n_players + 1`.
+  3. Each opponent, in turn, receives the passed pile into hand and (using
+     *their own* agent) passes all-but-one card onward via `discard_bird`
+     picks, keeping exactly one. At 2 players there is exactly one opponent
+     and exactly one such pick — the printed rule's "returns 1 card" step.
+  4. Whatever survives the last opponent (at most one card) re-enters your
+     hand. Net result at 2 players: you kept your favorite of the 3 plus
+     whichever of the other two the opponent liked less; the opponent kept
+     one. At N players the same shape drafts around the whole table: you keep
+     your favorite, and each opponent clockwise keeps whichever card survives
+     to reach them.
   (The deck never runs short — when it empties, the discard pile is shuffled back
   in automatically. The handler's fewer-cards fallback exists only as a defensive
   guard for total exhaustion, all 180 cards simultaneously held/played/tucked,
-  which does not occur in practice.)
+  which does not occur in practice. A short deck degrades gracefully: a
+  1-card pile is kept by its holder without an ask, and an empty pile skips
+  every seat still downstream.)
 
 ---
 

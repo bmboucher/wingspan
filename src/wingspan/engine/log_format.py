@@ -41,12 +41,14 @@ def log_game_setup(engine: "core.Engine") -> None:
     engine.log(f"Birdfeeder: {gs.birdfeeder.format()}")
     engine.log("")
 
-    # All four round goals with their per-round 2P payouts (1st/2nd VP).
+    # All four round goals with their per-round top-2 payouts (1st/2nd VP).
+    # The 2-player log line only ever shows the top 2 places, so index into
+    # the (now 3-wide) payout tuple rather than destructuring all of it.
     engine.log("Round Goals:")
     for round_idx, (goal, payout) in enumerate(
-        zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS_2P)
+        zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS)
     ):
-        first, second = payout
+        first, second = payout[0], payout[1]
         engine.log(f"  Round {round_idx + 1} ({first}/{second} VP): {goal.description}")
 
 

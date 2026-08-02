@@ -135,9 +135,11 @@ class PlayerPanel(pydantic.BaseModel):
 
 
 class RoundGoalInfo(pydantic.BaseModel):
-    """One of the four round goals with its 2-player payout, scored flag,
-    projected per-player VPs, and qualifying counts (counts are shown in the bar
-    chart; VP payouts are shown as a sub-label)."""
+    """One of the four round goals with its top-2 (1st/2nd place) payout,
+    scored flag, projected per-player VPs, and qualifying counts (counts are
+    shown in the bar chart; VP payouts are shown as a sub-label). This is a
+    2-seat reporting shape — ``p0``/``p1`` only — independent of how many
+    places the underlying payout ladder (``state.ROUND_GOAL_PAYOUTS``) pays."""
 
     round_num: int
     description: str

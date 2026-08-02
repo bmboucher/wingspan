@@ -129,21 +129,22 @@ class Engine:
     @staticmethod
     def create(
         seed: int = 0,
+        num_players: int = 2,
     ) -> tuple[
         Engine, list[cards.Bird], list[cards.BonusCard], list[cards.EndRoundGoal]
     ]:
-        """Construct a fresh ``Engine`` with seeded RNG, returning the engine
-        plus the full card catalog so callers can introspect coverage,
-        inspect specific cards, etc."""
+        """Construct a fresh ``Engine`` with seeded RNG for ``num_players``
+        players, returning the engine plus the full card catalog so callers
+        can introspect coverage, inspect specific cards, etc."""
         birds, bonuses, goals = cards.load_all()
         rng = random.Random(seed)
-        gs = state.new_game(rng, birds, bonuses, goals)
+        gs = state.new_game(rng, birds, bonuses, goals, num_players=num_players)
         return Engine(gs), birds, bonuses, goals
 
     @staticmethod
     def play_one_game(
         gs: state.GameState,
-        agents: tuple[Agent, Agent],
+        agents: typing.Sequence[Agent],
         instrumentation: dispatcher.Instrumentation | None = None,
         event_recorder: gamelog_recorder.AnyRecorder | None = None,
         *,
@@ -201,7 +202,7 @@ class Engine:
     @staticmethod
     def play_one_game_with_setups(
         gs: state.GameState,
-        agents: tuple[Agent, Agent],
+        agents: typing.Sequence[Agent],
         choose_setups: SetupChooser,
         instrumentation: dispatcher.Instrumentation | None = None,
         event_recorder: gamelog_recorder.AnyRecorder | None = None,
@@ -583,8 +584,8 @@ class Engine:
     # ------------------------------------------------------------------
 
     def _play_round(self, round_idx: int, agents: typing.Sequence[Agent]) -> None:
-        """Reset per-round state, log the goal, then alternate turns until
-        both players have spent every action cube."""
+        """Reset per-round state, log the goal, then rotate turns clockwise
+        until every player has spent every action cube."""
         self.state.round_idx = round_idx
         for player in self.state.players:
             player.action_cubes_left = state.ROUND_CUBES[round_idx]
@@ -599,12 +600,14 @@ class Engine:
         self.log_global(f"Round goal: {self.state.round_goals[round_idx].description}")
         self.instrumentation.round_start(engine=self, round_num=round_idx)
         self.events.begin_phase("round")
-        # Turn order rotates each round off the randomly-chosen first player;
-        # both players hold equal cubes, so a strict alternation drains them
-        # evenly. ``current_player`` is set immediately before each turn so the
+        # Turn order rotates each round off the randomly-chosen first player,
+        # then proceeds clockwise (player.id ascending, wrapping); every seat
+        # holds equal cubes, so a strict round-robin drains them evenly.
+        # ``current_player`` is set immediately before each turn so the
         # acting player and ``agents[idx]`` never desync.
-        first = (self.state.start_player + round_idx) % len(self.state.players)
-        order = (first, 1 - first)
+        n_players = len(self.state.players)
+        first = (self.state.start_player + round_idx) % n_players
+        order = tuple((first + k) % n_players for k in range(n_players))
         while any(player.action_cubes_left > 0 for player in self.state.players):
             for idx in order:
                 if self.state.players[idx].action_cubes_left > 0:

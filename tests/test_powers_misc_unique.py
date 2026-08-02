@@ -32,11 +32,12 @@ def _make_engine_with_bird(
     power_text: str,
     color: cards.PowerColor = cards.PowerColor.WHITE,
     agents: list[engine.Agent] | None = None,
+    num_players: int = 2,
 ) -> tuple[engine.Engine, state.PlayedBird]:
     """Build a near-empty engine and stage a played bird carrying ``power_text``."""
     birds, bonuses, goals = cards.load_all()
     rng = random.Random(0)
-    gs = state.new_game(rng, birds, bonuses, goals)
+    gs = state.new_game(rng, birds, bonuses, goals, num_players=num_players)
     eng = engine.Engine(gs, agents=agents) if agents is not None else engine.Engine(gs)
     template = next(candidate for candidate in birds if candidate.color == color)
     bird = template.model_copy(
@@ -621,6 +622,114 @@ def test_draw_n_plus_one_draft_empty_deck_no_op():
     powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
     assert p0.hand == []
     assert gs.players[1].hand == []
+
+
+_OYSTERCATCHER_POWER_TEXT = (
+    "Draw [card] equal to the number of players +1. Starting with you and "
+    "proceeding clockwise, each player selects 1 of those cards and places "
+    "it in their hand. You keep the extra card."
+)
+
+
+def _count_discard_asks(
+    decision: decisions.Decision[typing.Any], counts: dict[int, int]
+) -> None:
+    """Tally one more ``BirdPowerDiscardFromHandDecision`` ask for its
+    deciding seat. Takes the untyped ``Decision[Any]`` shape (rather than
+    narrowing a generic caller's own ``decision: Decision[C]`` in place) so
+    the isinstance check below can't widen that caller's return type into a
+    union at its post-call join point."""
+    if isinstance(decision, decisions.BirdPowerDiscardFromHandDecision):
+        counts[decision.player_id] += 1
+
+
+def test_draw_n_plus_one_draft_n3_distribution_active_plus2_each_opp_plus1():
+    """At 3 players: active ends +2 net, every opponent ends +1 net, and the
+    deck drops by exactly n_players + 1 (4) — the clockwise draft generalizes
+    the printed 2-player pass-and-return without changing the net shape."""
+    eng, pb = _make_engine_with_bird(_OYSTERCATCHER_POWER_TEXT, num_players=3)
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1, p2 = gs.players
+    p0.hand = []
+    p1.hand = []
+    p2.hand = []
+    deck_before = len(gs.bird_deck)
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        # Always pick the first offered card/choice.
+        return decision.choices[0]
+
+    eng.agents = [agent, agent, agent]
+    powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
+
+    assert len(p0.hand) == 2
+    assert len(p1.hand) == 1
+    assert len(p2.hand) == 1
+    assert len(gs.bird_deck) == deck_before - 4
+
+
+def test_draw_n_plus_one_draft_n3_ask_counts_per_seat():
+    """Ask-count shape at N=3: the active player passes 3 times (keeping 1 of
+    4 drawn cards); the pile of 3 reaching the first opponent costs 2 asks
+    (they keep 1); the pile of 2 reaching the second opponent costs 1 ask
+    (they keep 1); the final leftover card (1) returns to the active player
+    with no further ask."""
+    eng, pb = _make_engine_with_bird(_OYSTERCATCHER_POWER_TEXT, num_players=3)
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1, p2 = gs.players
+    p0.hand = []
+    p1.hand = []
+    p2.hand = []
+
+    ask_counts: dict[int, int] = {0: 0, 1: 0, 2: 0}
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        _count_discard_asks(decision, ask_counts)
+        return decision.choices[0]
+
+    eng.agents = [agent, agent, agent]
+    powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
+
+    assert ask_counts == {0: 3, 1: 2, 2: 1}
+
+
+def test_draw_n_plus_one_draft_n3_short_deck_degrades_gracefully():
+    """Only 2 cards are drawable (a short deck, n_players + 1 = 4 requested):
+    the active player keeps 1 and passes 1 onward; the first opponent keeps a
+    1-card pile with no ask (short-deck edges degrade gracefully, mirroring
+    the 2-player empty-pile guard); the second opponent, downstream of the
+    now-empty pile, gets nothing."""
+    eng, pb = _make_engine_with_bird(_OYSTERCATCHER_POWER_TEXT, num_players=3)
+    gs = eng.state
+    gs.current_player = 0
+    p0, p1, p2 = gs.players
+    p0.hand = []
+    p1.hand = []
+    p2.hand = []
+    gs.bird_deck = gs.bird_deck[:2]
+    gs.bird_discard = []
+
+    def agent[C: decisions.Choice](
+        _engine: engine.Engine,
+        decision: decisions.Decision[C],
+    ) -> C:
+        return decision.choices[0]
+
+    eng.agents = [agent, agent, agent]
+    powers.dispatch_power(eng, agent, p0, pb, cards.Habitat.WETLAND, "play")
+
+    assert len(p0.hand) == 1
+    assert len(p1.hand) == 1
+    assert len(p2.hand) == 0
+    assert gs.bird_deck == []
 
 
 # ---------------------------------------------------------------------------

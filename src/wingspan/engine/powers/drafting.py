@@ -48,14 +48,25 @@ def _h_draw_n_plus_one_draft(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    # American Oystercatcher (2-player): draw 3 cards into the active player's
-    # hand. Active player (P0) passes 2 to the opponent (P1) via discard
-    # decisions, then P1 returns 1. P0 ends with 2 net cards; P1 ends with 1.
-    # Uses while-loops so edge cases (fewer cards drawn than expected) resolve
-    # without crashing: fewer cards → fewer passes → fewer returns.
+    # American Oystercatcher: draw (#players + 1) cards into the active
+    # player's hand, then draft them clockwise so the active player ends
+    # with exactly 2 net cards and every opponent ends with exactly 1. At 2
+    # players this is the familiar pass-and-return: the active player passes
+    # 2 of the 3 drawn cards to the lone opponent, who returns 1 of them.
+    # Uses while-loops throughout so edge cases (fewer cards drawn than
+    # expected) resolve without crashing: fewer cards → fewer passes/asks.
     st = engine.state
     bird = pb.bird
     n_players = len(st.players)
+
+    # The printed 2-player ledger text is preserved verbatim; n>=3 uses
+    # generalized wording (the mechanic itself is identical in shape, just
+    # drafted around more seats).
+    veto_label = (
+        "draw 3 cards, pass 2 to opponent, receive 1 back"
+        if n_players == 2
+        else f"draw {n_players + 1} cards, draft clockwise (you keep 2, each opponent 1)"
+    )
 
     # Skip-optional: power is always optional.
     skip_ch = engine.ask(
@@ -65,9 +76,9 @@ def _h_draw_n_plus_one_draft(
             prompt=f"[{player.name}] activate {bird.name}?",
             choices=[
                 decisions.PayCostChoice(
-                    label="draw 3 cards, pass 2 to opponent, receive 1 back",
+                    label=veto_label,
                     gained_card_count=2,
-                    opp_gained_card_count=1,
+                    opp_gained_card_count=n_players - 1,
                 ),
                 decisions.SkipChoice(label="skip"),
             ],
@@ -77,7 +88,7 @@ def _h_draw_n_plus_one_draft(
         engine.log(f"  {bird.name}: skipped")
         return
 
-    # Draw (#players + 1) cards into P0's hand.
+    # Draw (#players + 1) cards into the active player's hand.
     drawn: list[cards.Bird] = []
     for _ in range(n_players + 1):
         drawn_card = st.draw_bird()
@@ -104,7 +115,8 @@ def _draft_pass_loop(
     bird: cards.Bird,
     drawn: list[cards.Bird],
 ) -> list[cards.Bird]:
-    """P0 discards all-but-one drawn card into a pass pile for P1.
+    """The active player discards all-but-one drawn card into a pass pile
+    for the clockwise draft that follows.
 
     Returns the cards passed (empty when nothing was passed, which signals the
     caller to skip the return loop)."""
@@ -136,32 +148,57 @@ def _draft_return_loop(
     pass_pile: list[cards.Bird],
     n_players: int,
 ) -> None:
-    """P1 receives the pass pile, returns all-but-one card back to P0."""
+    """Draft ``pass_pile`` clockwise from ``player``: each opponent in turn
+    receives the pile into hand and passes all-but-one card onward (asking
+    *their own* agent), keeping exactly one; whatever remains after the last
+    opponent (at most one card) returns to ``player``.
+
+    At 2 players this is ask-for-ask and card-for-card identical to the
+    original pass-and-return: the lone opponent receives both cards, is
+    asked once, and returns the untaken card. Short-deck edges degrade
+    gracefully: a 1-card pile is kept by its holder without an ask, and an
+    empty pile ends the draft early for every seat still downstream."""
     st = engine.state
-    opponent = st.players[(player.id + 1) % n_players]
-    for passed_card in pass_pile:
-        opponent.hand.append(passed_card)
+    pile = list(pass_pile)
+    for offset in range(1, n_players):
+        if not pile:
+            return
+        opponent = st.players[(player.id + offset) % n_players]
+        opponent.hand.extend(pile)
 
-    returnable = list(pass_pile)
-    cards_to_return: list[cards.Bird] = []
-    while len(returnable) > 1:
-        return_ch = engine.ask(
-            engine.agent_for(opponent),
-            decisions.BirdPowerDiscardFromHandDecision(
-                player_id=opponent.id,
-                prompt=f"[{opponent.name}] return a card to {player.name} ({bird.name})",
-                choices=[
-                    decisions.BirdChoice(label=candidate.name, bird=candidate)
-                    for candidate in returnable
-                ],
-            ),
-        )
-        opponent.hand.remove(return_ch.bird)
-        returnable.remove(return_ch.bird)
-        cards_to_return.append(return_ch.bird)
-        engine.log(f"  {bird.name}: [{opponent.name}] returns {return_ch.bird.name}")
+        returnable = list(pile)
+        next_pile: list[cards.Bird] = []
+        while len(returnable) > 1:
+            prompt = (
+                f"[{opponent.name}] return a card to {player.name} ({bird.name})"
+                if n_players == 2
+                else f"[{opponent.name}] pass a card onward ({bird.name})"
+            )
+            pass_ch = engine.ask(
+                engine.agent_for(opponent),
+                decisions.BirdPowerDiscardFromHandDecision(
+                    player_id=opponent.id,
+                    prompt=prompt,
+                    choices=[
+                        decisions.BirdChoice(label=candidate.name, bird=candidate)
+                        for candidate in returnable
+                    ],
+                ),
+            )
+            opponent.hand.remove(pass_ch.bird)
+            returnable.remove(pass_ch.bird)
+            next_pile.append(pass_ch.bird)
+            if n_players == 2:
+                engine.log(
+                    f"  {bird.name}: [{opponent.name}] returns {pass_ch.bird.name}"
+                )
+            else:
+                engine.log(
+                    f"  {bird.name}: [{opponent.name}] passes {pass_ch.bird.name} onward"
+                )
+        pile = next_pile
 
-    for returned_card in cards_to_return:
+    for returned_card in pile:
         player.hand.append(returned_card)
         engine.log(f"  {bird.name}: [{player.name}] receives back {returned_card.name}")
 

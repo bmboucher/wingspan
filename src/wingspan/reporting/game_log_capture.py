@@ -427,9 +427,11 @@ def _round_goal_infos(gs: state.GameState) -> list[game_log_html.RoundGoalInfo]:
     """All four round goals with payouts, scored flags, VP projections, and counts."""
     infos: list[game_log_html.RoundGoalInfo] = []
     for round_idx, (goal, payout) in enumerate(
-        zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS_2P)
+        zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS)
     ):
-        first_vp, second_vp = payout
+        # RoundGoalInfo only ever surfaced the top 2 places; index rather than
+        # destructure the (now 3-wide) payout tuple to keep that unchanged.
+        first_vp, second_vp = payout[0], payout[1]
 
         p0_standing = scoring.round_goal_standing_for_round(
             gs, gs.players[0], round_idx

@@ -46,6 +46,7 @@ import torch
 import torch.nn.functional as F
 
 from wingspan import agents, decisions, encode, engine, model
+from wingspan.engine import scoring
 from wingspan.training import collect, policy, steps, timestamps
 
 if typing.TYPE_CHECKING:
@@ -309,8 +310,7 @@ def _play_one_game(
         collect.player_breakdown(eng.state.players[0]),
         collect.player_breakdown(eng.state.players[1]),
     )
-    score_0, score_1 = breakdowns[0].total, breakdowns[1].total
-    winner = 0 if score_0 > score_1 else (1 if score_1 > score_0 else -1)
+    winner = scoring.determine_winner(eng.state.players)
     return collect.GameRecord(
         steps=recorded,
         breakdowns=breakdowns,

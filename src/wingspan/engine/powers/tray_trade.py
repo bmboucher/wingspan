@@ -152,7 +152,7 @@ def _fewest_habitat_gate(
     if len(player.board[habitat]) != fewest:
         engine.log(
             f"  {bird.name}: [{player.name}] has more {habitat.value} birds"
-            f" than opponent; power auto-skipped"
+            f" than the fewest; power auto-skipped"
         )
         return None
 

@@ -28,6 +28,7 @@ import yaml
 
 from wingspan import engine, players, state
 from wingspan.agents import display
+from wingspan.engine import scoring
 from wingspan.gamelog import recorder as gamelog_recorder
 from wingspan.gamelog import render_text as gamelog_render_text
 from wingspan.instrumentation import config as instrumentation_config
@@ -110,9 +111,11 @@ def main_play(argv: list[str] | None = None) -> int:
                 combine_gain_food=combine_gain_food,
             )
             scores = [player.final_score for player in eng.state.players]
+            winner = scoring.determine_winner(eng.state.players)
             if not args.quiet:
+                winner_label = "tie" if winner == -1 else eng.state.players[winner].name
                 print(
-                    f"Game {game_idx + 1}: scores={scores}, "
+                    f"Game {game_idx + 1}: scores={scores}, winner={winner_label}, "
                     f"log lines={len(eng.state.log)}"
                 )
 

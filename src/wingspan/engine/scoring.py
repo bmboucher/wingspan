@@ -12,45 +12,120 @@ if typing.TYPE_CHECKING:
     from wingspan.engine import core
 
 
+def placement_payouts(
+    counts: typing.Sequence[int], payouts: typing.Sequence[int]
+) -> list[int]:
+    """Award each seat's placement VP from its category ``counts`` against a
+    round's payout ladder (``payouts[0]`` = 1st place, ``payouts[1]`` = 2nd,
+    ...). The shared kernel behind round-goal scoring at any player count.
+
+    Ranks ``counts`` descending; a count of 0 never places (scores 0 and
+    occupies no place — the seats behind it move up to fill the gap). A
+    k-way tie of equal, nonzero counts occupies places ``p..p+k-1`` together
+    and each tied seat takes the floor of those places' combined payout,
+    ``sum(effective_payouts[p:p+k]) // k`` — ``effective_payouts[i]`` is
+    ``payouts[i]`` when in range, else 0 (a place past the end of the payout
+    ladder scores nothing; only the top 3 places pay on the printed round-goal
+    board). Reduces exactly to the legacy 2-player rule: the higher count
+    takes 1st, the lower takes 2nd (or 0 if it is 0), and a tie splits the
+    floor of 1st + 2nd."""
+    vps = [0] * len(counts)
+    ranked_seats = sorted(
+        (seat for seat, count in enumerate(counts) if count > 0),
+        key=lambda seat: counts[seat],
+        reverse=True,
+    )
+    place = 0
+    idx = 0
+    while idx < len(ranked_seats):
+        tied_seats = [ranked_seats[idx]]
+        tied_count = counts[ranked_seats[idx]]
+        idx += 1
+        while idx < len(ranked_seats) and counts[ranked_seats[idx]] == tied_count:
+            tied_seats.append(ranked_seats[idx])
+            idx += 1
+        n_tied = len(tied_seats)
+        pool = sum(
+            payouts[place_idx] if place_idx < len(payouts) else 0
+            for place_idx in range(place, place + n_tied)
+        )
+        share = pool // n_tied
+        for seat in tied_seats:
+            vps[seat] = share
+        place += n_tied
+    return vps
+
+
+def winners(players: typing.Sequence[state.Player]) -> list[int]:
+    """The id(s) of the game's winner(s), per the official Wingspan tiebreak:
+    the highest ``final_score``, and among those tied, the most unused food
+    remaining in personal supply (``Player.total_food()`` — cached food sitting
+    on birds, ``PlayedBird.cached_food``, does not count). Returns every id
+    still tied after both tiebreaks — more than one entry is a genuine shared
+    victory (see :func:`determine_winner`)."""
+    top_score = max(player.final_score or 0 for player in players)
+    score_leaders = [
+        player for player in players if (player.final_score or 0) == top_score
+    ]
+    top_food = max(player.total_food() for player in score_leaders)
+    return [player.id for player in score_leaders if player.total_food() == top_food]
+
+
+def determine_winner(players: typing.Sequence[state.Player]) -> int:
+    """The single winner's id, or ``-1`` when the game ends in a genuine
+    shared victory (:func:`winners` still returns more than one id after the
+    score and food tiebreaks — the official rulebook's final word: a tie
+    truly shared)."""
+    winner_ids = winners(players)
+    return winner_ids[0] if len(winner_ids) == 1 else -1
+
+
 class RoundGoalStanding(pydantic.BaseModel):
     """A player's standing on one round goal: their category ``count``, the
-    opponent's ``opp_count``, the ``place`` that count earns versus the
-    opponent (ties share 1st), and the ``vp`` that place awards. Live values
-    for an unscored round; frozen at-scoring values for a scored one (see
+    ``other_counts`` of every other seat (clockwise from this player, see
+    ``GameState.opponents_clockwise``), the ``place`` that count earns (1 +
+    the number of other seats with a strictly greater count — ties share a
+    place), and the ``vp`` that place awards. Live values for an unscored
+    round; frozen at-scoring values for a scored one (see
     :func:`round_goal_standing_for_round`)."""
 
     count: int
-    opp_count: int
+    other_counts: list[int]
     place: int
     vp: int
 
+    @property
+    def opp_count(self) -> int:
+        """The best (highest) other seat's count.
+
+        A derived read-only view for the pre-N-player callers that only ever
+        cared about a single opponent (``encode.state_encode``,
+        ``agents.display``) — kept so they read correctly at any player
+        count without themselves needing to know about ``other_counts``."""
+        return max(self.other_counts, default=0)
+
 
 def score_round_goal(engine: "core.Engine", round_idx: int) -> None:
-    """Award round-goal VP based on each player's category count. The payout
-    scales by round (``state.ROUND_GOAL_PAYOUTS_2P``): in a 2P game the higher
-    count takes 1st-place VP and the lower takes 2nd. Tied players split 1st and
-    2nd, each taking the floor of the combined payout (the official tie rule).
-    A player whose count is 0 does not place and scores nothing. The outcome is
-    frozen onto ``GameState.scored_goals`` — a scored round's standings never
-    change again, however the boards evolve."""
+    """Award round-goal VP based on each player's category count, via
+    :func:`placement_payouts` against the round's payout ladder
+    (``state.ROUND_GOAL_PAYOUTS[round_idx]``): the highest count takes 1st
+    place VP, ties share the floor of their combined places' payouts, and a
+    count of 0 never places (scores nothing). The outcome is frozen onto
+    ``GameState.scored_goals`` — a scored round's standings never change
+    again, however the boards evolve."""
     goal = engine.state.round_goals[round_idx]
-    counts = [eval_goal(player, goal) for player in engine.state.players]
-    first, second = state.ROUND_GOAL_PAYOUTS_2P[round_idx]
-    count_0, count_1 = counts
-    vp_0 = _placement_vp(count_0, count_1, first, second)
-    vp_1 = _placement_vp(count_1, count_0, first, second)
+    players = engine.state.players
+    counts = [eval_goal(player, goal) for player in players]
+    vps = placement_payouts(counts, state.ROUND_GOAL_PAYOUTS[round_idx])
     engine.log_global(
-        f"Round {round_idx + 1} goal '{goal.category}' counts: {counts}"
-        f" → VP: [{vp_0}, {vp_1}]"
+        f"Round {round_idx + 1} goal '{goal.category}' counts: {counts}" f" → VP: {vps}"
     )
-    engine.state.players[0].round_goal_points += vp_0
-    engine.state.players[1].round_goal_points += vp_1
+    for player, vp in zip(players, vps):
+        player.round_goal_points += vp
     engine.state.scored_goals.append(
-        state.RoundGoalResult(counts=list(counts), vp_awarded=[vp_0, vp_1])
+        state.RoundGoalResult(counts=list(counts), vp_awarded=list(vps))
     )
-    engine.events.record_round_goal(
-        engine, round_idx, goal.category, counts, [vp_0, vp_1]
-    )
+    engine.events.record_round_goal(engine, round_idx, goal.category, counts, vps)
     engine.instrumentation.round_goal_scored(
         engine=engine, round_num=round_idx, goal=goal, counts=counts
     )
@@ -72,36 +147,31 @@ def round_goal_standing_for_round(
     For a round that has already been scored, the standing is read verbatim
     from the frozen ``GameState.scored_goals`` record — a scored goal's counts
     and VP never change again. For an unscored round it is the live standing,
-    mirroring the 2-player payout rule in :func:`score_round_goal` without
-    mutating any state: the higher category count takes 1st, the lower takes
-    2nd, a tie splits the two places (floored), and a count of 0 does not place
-    (0 VP). Assumes ``round_idx`` indexes an in-play goal (``0 <= round_idx <
-    len(game_state.round_goals)``)."""
+    mirroring :func:`score_round_goal`'s placement rule without mutating any
+    state. ``other_counts`` lists every other seat's count, clockwise from
+    ``player`` (``GameState.opponents_clockwise``). Assumes ``round_idx``
+    indexes an in-play goal (``0 <= round_idx < len(game_state.round_goals)``)."""
+    others = game_state.opponents_clockwise(player.id)
     if round_idx < len(game_state.scored_goals):
         result = game_state.scored_goals[round_idx]
         my_count = result.counts[player.id]
-        opp_count = max(
-            count for seat, count in enumerate(result.counts) if seat != player.id
-        )
+        other_counts = [result.counts[other.id] for other in others]
         return RoundGoalStanding(
             count=my_count,
-            opp_count=opp_count,
-            place=1 if my_count >= opp_count else 2,
+            other_counts=other_counts,
+            place=1 + sum(1 for count in other_counts if count > my_count),
             vp=result.vp_awarded[player.id],
         )
     goal = game_state.round_goals[round_idx]
     my_count = eval_goal(player, goal)
-    opp_count = max(
-        (eval_goal(other, goal) for other in game_state.players if other is not player),
-        default=0,
-    )
-    first, second = state.ROUND_GOAL_PAYOUTS_2P[round_idx]
-    place = 1 if my_count >= opp_count else 2
+    other_counts = [eval_goal(other, goal) for other in others]
+    place = 1 + sum(1 for count in other_counts if count > my_count)
+    vp = _my_placement_vp(my_count, other_counts, state.ROUND_GOAL_PAYOUTS[round_idx])
     return RoundGoalStanding(
         count=my_count,
-        opp_count=opp_count,
+        other_counts=other_counts,
         place=place,
-        vp=_placement_vp(my_count, opp_count, first, second),
+        vp=vp,
     )
 
 
@@ -145,20 +215,21 @@ def goal_count_delta_for_bird(bird: cards.Bird, category: str) -> int:
 
 def goal_vp_delta_for_bird(
     player: state.Player,
-    opp: state.Player,
+    others: typing.Sequence[state.Player],
     goal: cards.EndRoundGoal,
     bird: cards.Bird,
-    payout: tuple[int, int],
+    payouts: typing.Sequence[int],
 ) -> tuple[int, int]:
     """Return ``(count_delta, vp_delta)`` for playing ``bird`` against ``goal``.
 
-    ``vp_delta`` is the change in 2P placement VP at current standings.
-    Both values are 0 when the bird cannot affect this goal category."""
+    ``vp_delta`` is the change in placement VP versus every seat in
+    ``others`` at current standings. Both values are 0 when the bird cannot
+    affect this goal category."""
     count_delta = goal_count_delta_for_bird(bird, goal.category)
     before_count = eval_goal(player, goal)
-    opp_count = eval_goal(opp, goal)
-    old_vp = _placement_vp(before_count, opp_count, payout[0], payout[1])
-    new_vp = _placement_vp(before_count + count_delta, opp_count, payout[0], payout[1])
+    other_counts = [eval_goal(other, goal) for other in others]
+    old_vp = _my_placement_vp(before_count, other_counts, payouts)
+    new_vp = _my_placement_vp(before_count + count_delta, other_counts, payouts)
     return count_delta, new_vp - old_vp
 
 
@@ -214,23 +285,24 @@ def goal_count_delta_for_egg(
 
 def goal_vp_delta_for_egg(
     player: state.Player,
-    opp: state.Player,
+    others: typing.Sequence[state.Player],
     goal: cards.EndRoundGoal,
     habitat: cards.Habitat,
     played_bird: state.PlayedBird,
-    payout: tuple[int, int],
+    payouts: typing.Sequence[int],
     delta_eggs: int,
 ) -> tuple[int, int]:
     """Return ``(count_delta, vp_delta)`` for an egg event against ``goal`` —
     the egg analogue of :func:`goal_vp_delta_for_bird`. ``vp_delta`` is the
-    change in 2P placement VP at current standings."""
+    change in placement VP versus every seat in ``others`` at current
+    standings."""
     count_delta = goal_count_delta_for_egg(
         player, habitat, played_bird, goal.category, delta_eggs
     )
     before_count = eval_goal(player, goal)
-    opp_count = eval_goal(opp, goal)
-    old_vp = _placement_vp(before_count, opp_count, payout[0], payout[1])
-    new_vp = _placement_vp(before_count + count_delta, opp_count, payout[0], payout[1])
+    other_counts = [eval_goal(other, goal) for other in others]
+    old_vp = _my_placement_vp(before_count, other_counts, payouts)
+    new_vp = _my_placement_vp(before_count + count_delta, other_counts, payouts)
     return count_delta, new_vp - old_vp
 
 
@@ -274,12 +346,12 @@ def goal_count_delta_for_move(
 
 def goal_vp_delta_for_move(
     player: state.Player,
-    opp: state.Player,
+    others: typing.Sequence[state.Player],
     goal: cards.EndRoundGoal,
     from_habitat: cards.Habitat,
     to_habitat: cards.Habitat,
     played_bird: state.PlayedBird,
-    payout: tuple[int, int],
+    payouts: typing.Sequence[int],
 ) -> tuple[int, int]:
     """Return ``(count_delta, vp_delta)`` for a bird move against ``goal`` —
     the move analogue of :func:`goal_vp_delta_for_bird`."""
@@ -287,17 +359,17 @@ def goal_vp_delta_for_move(
         player, from_habitat, to_habitat, played_bird, goal.category
     )
     before_count = eval_goal(player, goal)
-    opp_count = eval_goal(opp, goal)
-    old_vp = _placement_vp(before_count, opp_count, payout[0], payout[1])
-    new_vp = _placement_vp(before_count + count_delta, opp_count, payout[0], payout[1])
+    other_counts = [eval_goal(other, goal) for other in others]
+    old_vp = _my_placement_vp(before_count, other_counts, payouts)
+    new_vp = _my_placement_vp(before_count + count_delta, other_counts, payouts)
     return count_delta, new_vp - old_vp
 
 
 def goal_best_case_for_eggs(
     player: state.Player,
-    opp: state.Player,
+    others: typing.Sequence[state.Player],
     goal: cards.EndRoundGoal,
-    payout: tuple[int, int],
+    payouts: typing.Sequence[int],
     n_eggs: int,
 ) -> tuple[int, int]:
     """Optimistic ``(count_delta, vp_delta)`` bound for a *commitment* to lay
@@ -316,9 +388,9 @@ def goal_best_case_for_eggs(
     the per-target rows price the realized delta exactly."""
     count_delta = _best_case_egg_count_delta(player, goal.category, n_eggs)
     before_count = eval_goal(player, goal)
-    opp_count = eval_goal(opp, goal)
-    old_vp = _placement_vp(before_count, opp_count, payout[0], payout[1])
-    new_vp = _placement_vp(before_count + count_delta, opp_count, payout[0], payout[1])
+    other_counts = [eval_goal(other, goal) for other in others]
+    old_vp = _my_placement_vp(before_count, other_counts, payouts)
+    new_vp = _my_placement_vp(before_count + count_delta, other_counts, payouts)
     return count_delta, new_vp - old_vp
 
 
@@ -524,20 +596,17 @@ def bonus_linear_value(player: state.Player, bc: cards.BonusCard) -> float:
 ###### PRIVATE #######
 
 
-def _placement_vp(my_count: int, opp_count: int, first: int, second: int) -> int:
-    """VP one player earns on a 2P round goal given both category counts. A
-    count of 0 never places (scores 0). Otherwise the higher count earns
-    ``first`` and the lower earns ``second``; on a tie the two players occupy
-    1st and 2nd place together, so each takes the floor of the combined payout
-    (the official rulebook tie rule) — e.g. round 1 pays ``(4 + 1) // 2 == 2``
-    to each tied player."""
-    if my_count == 0:
-        return 0
-    if my_count > opp_count:
-        return first
-    if my_count < opp_count:
-        return second
-    return (first + second) // 2
+def _my_placement_vp(
+    my_count: int,
+    other_counts: typing.Sequence[int],
+    payouts: typing.Sequence[int],
+) -> int:
+    """The deciding player's placement VP given their own category count and
+    every other seat's count — the shared pricer behind the goal-delta
+    helpers above, each of which calls this once for the "before" count and
+    once for the "after" count. A thin wrapper over :func:`placement_payouts`
+    that reads off the first (the deciding player's own) slot."""
+    return placement_payouts([my_count, *other_counts], payouts)[0]
 
 
 def _count_birds_in(habitat: cards.Habitat) -> typing.Callable[[state.Player], int]:

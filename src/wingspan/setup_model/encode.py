@@ -62,7 +62,7 @@ from wingspan.setup_model import candidates
 # already pins, reused so the setup model's goal stripes line up with it.
 SETUP_GOAL_DIM = encode.MAX_GOAL_CATEGORIES
 # The four rounds' goals are encoded as four independent one-hots.
-_NUM_SETUP_GOALS = len(state.ROUND_GOAL_PAYOUTS_2P)
+_NUM_SETUP_GOALS = len(state.ROUND_GOAL_PAYOUTS)
 # Birdfeeder block: one count per food plus the invertebrate/seed choice die.
 _FEEDER_DIM = cards.N_FOODS + 1
 

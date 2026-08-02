@@ -102,11 +102,19 @@ class PayCostChoice(Choice):
     The terms form a symmetric ``pay -> gain`` ledger over the game's
     resources (cards, food, eggs, bird plays). The deciding player's own flows
     are the ``paid_*`` / ``gained_*`` fields; the ``opp_gained_*`` fields capture
-    what a shared-benefit power additionally grants the *opponent* (e.g. an
-    optional "each player gains food" trade), so the skip-optional head can weigh
-    that the trade also helps the opponent. The opponent only ever *receives* in
-    such powers, so there are no opp-pay fields. Most fields are 0 for any given
-    exchange.
+    what a shared-benefit power additionally grants *every other seat combined*
+    (e.g. an optional "each player gains food" trade), so the skip-optional
+    head can weigh that the trade also helps the rest of the table. At N
+    players a producer fills ``opp_gained_*`` with the *total* across all
+    ``n_players - 1`` opponents (e.g. "each player gains 1 die" sets
+    ``opp_gained_food_count = n_players - 1``), not a per-opponent breakdown —
+    the ledger is deliberately lossy about *which* opponent benefits how much;
+    only the aggregate the skip-optional judgment needs is carried. A
+    genuinely per-opponent ledger (1×k paid/gained pairs instead of today's
+    k×1-aggregated-to-1×1) is accepted future work, not needed for the
+    skip/accept judgment this Choice serves. The opponent(s) only ever
+    *receive* in such powers, so there are no opp-pay fields. Most fields are
+    0 for any given exchange.
 
     Distinct from ``FoodChoice`` because the agent isn't picking *which* food;
     they're confirming the offered exchange. The human-readable ``label`` names

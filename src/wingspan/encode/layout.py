@@ -512,7 +512,7 @@ _TRAY_CONT_STRIPE_DIM = 0
 
 # Round-goal state stripe: all four rounds, each = category one-hot
 # (MAX_GOAL_CATEGORIES) + my count + opponent count + current placement VP.
-_NUM_ROUNDS = len(state.ROUND_GOAL_PAYOUTS_2P)
+_NUM_ROUNDS = len(state.ROUND_GOAL_PAYOUTS)
 _ROUND_GOAL_MY_COUNT = MAX_GOAL_CATEGORIES
 _ROUND_GOAL_OPP_COUNT = MAX_GOAL_CATEGORIES + 1
 _ROUND_GOAL_VP = MAX_GOAL_CATEGORIES + 2

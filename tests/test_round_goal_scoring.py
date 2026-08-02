@@ -4,7 +4,7 @@ The 2-player round-goal payout scales by round and follows the printed rule:
 the higher category count takes 1st-place VP, the lower takes 2nd, equal counts
 share 1st place, and a player whose count is 0 does not place (scores nothing).
 These tests pin each of those cases per round so the round-indexed payout table
-in ``state.ROUND_GOAL_PAYOUTS_2P`` and the 0-count rule stay correct.
+in ``state.ROUND_GOAL_PAYOUTS`` and the 0-count rule stay correct.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def test_zero_count_player_always_scores_zero():
     the round or the opponent's count. An opponent with >0 takes an uncontested
     1st; when both players are at 0, neither scores."""
     for round_idx in range(4):
-        win_vp = state.ROUND_GOAL_PAYOUTS_2P[round_idx][0]
+        win_vp = state.ROUND_GOAL_PAYOUTS[round_idx][0]
         for opp_count in (0, 1, 5):
             opp_vp = win_vp if opp_count > 0 else 0
             assert _score(0, opp_count, round_idx) == (0, opp_vp)
@@ -72,7 +72,9 @@ def test_tie_splits_first_and_second_rounded_down():
     players occupy 1st and 2nd together, so each scores the floor of the
     combined payout — regardless of the (shared) count value."""
     for round_idx in range(4):
-        first, second = state.ROUND_GOAL_PAYOUTS_2P[round_idx]
+        # Only the top-2 places matter for a 2-player tie; index rather than
+        # destructure the (now 3-wide) payout tuple.
+        first, second = state.ROUND_GOAL_PAYOUTS[round_idx][:2]
         tie_vp = (first + second) // 2
         for count in (1, 3, 5):
             p0_vp, p1_vp = _score(count, count, round_idx)

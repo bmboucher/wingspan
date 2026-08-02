@@ -20,8 +20,9 @@ scoring) lives in sibling modules as free functions whose first argument is the
   collapse multi-food gains into one combined subset decision.
 - `Engine.create(seed) -> (Engine, birds, bonuses, goals)` — static factory that
   instantiates a fresh game from a seed.
-- `Engine.play_one_game(gs, agents, instrumentation, split_setup_bonus) -> Engine`
-  — static entry point for a complete game.
+- `Engine.play_one_game(gs, agents: Sequence[Agent], instrumentation, split_setup_bonus) -> Engine`
+  — static entry point for a complete game. `agents` is indexed by `Player.id`
+  (length must match `len(gs.players)`), not fixed at 2.
 - `Engine.ask[C](agent, decision) -> C` — validates the agent's answer against
   `decision.choices`; auto-picks single-choice decisions; fires instrumentation
   callbacks. Never bypass `ask` — constructing a `Choice` directly skips validation.
@@ -54,15 +55,26 @@ bypassing `gain_feeder_die`'s mid-take reroll), and `combined_supply_gain(engine
 agent, player, n, *, per_food_capacity, prompt)` (the ravens' supply gain and the
 setup keep — multisets within a per-food capacity).
 
-**`reactors.py`** — Pink (between-turns) reactor hooks: `trigger_pink_lay_eggs_reactors(engine,
-trigger_player_id)`, `trigger_pink_play_bird_reactors(engine, trigger_player_id)`,
-`trigger_pink_gain_food_reactors(engine, trigger_player_id)`. Each iterates all
-players' boards and fires any bird whose pink power matches the trigger event.
-See `docs/BIRDS.md` for the reactive power taxonomy.
+**`reactors.py`** — Pink (between-turns) reactor hooks, each taking the
+triggering player by reference (not id) and firing every OTHER player's
+matching pink birds in clockwise order from the trigger: `trigger_pink_lay_eggs_reactors(engine,
+active_player: state.Player)`, `trigger_pink_play_bird_reactors(engine,
+active_player: state.Player, played_habitat)`, `trigger_pink_gain_food_reactors(engine,
+active_player: state.Player, gained_foods)`, `trigger_pink_predator_success(engine,
+hunter_player: state.Player)` (fires opposing `PINK_PREDATOR_FEEDER` birds after
+a successful `PREDATOR_HUNT` / `ROLL_NOT_IN_FEEDER_CACHE`). See `docs/BIRDS.md`
+for the reactive power taxonomy.
 
-**`scoring.py`** — `score_round_goal(gs, goal) -> list[int]` (2-player payouts)
-and `final_scoring(gs) -> dict[str, ScoreBreakdown]`. Bonus-card scoring lives
-here too; each `BonusCard.scoring_rule` is dispatched through a registry.
+**`scoring.py`** — `score_round_goal(engine, round_idx) -> None` awards each
+round's goal VP via `placement_payouts(counts, payouts) -> list[int]` (the
+N-player placement kernel: ranks counts descending, a count of 0 never places,
+ties split the floor of their combined places' payouts) against
+`state.ROUND_GOAL_PAYOUTS[round_idx]`. `winners(players) -> list[int]` /
+`determine_winner(players) -> int` are the shared game-winner kernel (highest
+`final_score`, ties broken by most unused supply food; `determine_winner`
+returns -1 for a genuine shared victory). `final_scoring(engine) -> None` sets
+each `Player.final_score`. Bonus-card scoring lives here too; each
+`BonusCard.scoring_rule` is dispatched through a registry.
 
 **`helpers.py`** — Pure utility functions with no side effects:
 `cost_meets(food_pool, cost) -> bool` and
