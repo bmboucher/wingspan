@@ -72,6 +72,7 @@ def collect_games(
         should_stop=training_loop._stop.is_set,
         vs_random=vs_random,
         combine_gain_food=training_loop.config.engine.combine_gain_food,
+        num_players=training_loop.config.num_players,
     )
 
 
@@ -136,6 +137,7 @@ def collect_with_setup_sequential(
             split_setup_food=training_loop.config.split_setup_food_active,
             setup_greedy=training_loop.config.training.setup.policy_greedy,
             combine_gain_food=training_loop.config.engine.combine_gain_food,
+            num_players=training_loop.config.num_players,
         )
         records.append(record)
         record_collected_game(training_loop, record)

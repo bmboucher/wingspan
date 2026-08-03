@@ -75,17 +75,20 @@ def collect_games(
     max_concurrent: int = _MAX_CONCURRENT_GAMES,
     vs_random: bool = False,
     combine_gain_food: bool = False,
+    num_players: int = 2,
 ) -> list[collect.GameRecord]:
     """Play ``len(seeds)`` games concurrently with batched inference — self-play,
-    or (when ``vs_random``) the net at seat 0 against the random agent.
+    or (when ``vs_random``) the net at seat 0 against the random agent at every
+    other seat.
 
     Games run in waves of at most ``max_concurrent`` threads; within a wave
     every game's policy forward pass is batched together (in the ``vs_random``
-    phase only the net's seat-0 queries route through the server — seat 1 picks
-    randomly off-server). Returns the finished records in ``seeds`` order.
-    ``on_game_done`` fires once per game as it completes (from a worker thread,
-    serialized), and ``should_stop`` is polled between waves so a stop request
-    halts before launching more games (games already in flight finish)."""
+    phase only the net's seat-0 queries route through the server — the other
+    seats pick randomly off-server). Returns the finished records in ``seeds``
+    order. ``on_game_done`` fires once per game as it completes (from a worker
+    thread, serialized), and ``should_stop`` is polled between waves so a stop
+    request halts before launching more games (games already in flight
+    finish)."""
     server = _BatchInferenceServer(net, device)
     server.start()
     results: list[collect.GameRecord | None] = [None] * len(seeds)
@@ -107,6 +110,7 @@ def collect_games(
                 done_lock,
                 vs_random,
                 combine_gain_food,
+                num_players,
             )
     finally:
         server.stop()
@@ -254,6 +258,7 @@ def _run_wave(
     done_lock: threading.Lock,
     vs_random: bool,
     combine_gain_food: bool,
+    num_players: int,
 ) -> None:
     """Play one wave of games (one thread each) to completion."""
 
@@ -261,7 +266,13 @@ def _run_wave(
         server.register()
         try:
             record = _play_one_game(
-                net, device, server, seeds[slot], vs_random, combine_gain_food
+                net,
+                device,
+                server,
+                seeds[slot],
+                vs_random,
+                combine_gain_food,
+                num_players,
             )
         finally:
             server.unregister()
@@ -287,29 +298,30 @@ def _play_one_game(
     seed: int,
     vs_random: bool,
     combine_gain_food: bool = False,
+    num_players: int = 2,
 ) -> collect.GameRecord:
     """Play a single game whose policy queries route through the shared batch
     server. Mirrors :func:`collect.play_game` exactly apart from the batched
     inference path: self-play by default, or — when ``vs_random`` — the net's
-    recording agent at seat 0 against an off-server random agent at seat 1."""
-    eng = collect.new_engine(seed)
+    recording agent at seat 0 against an off-server random agent at every
+    other seat."""
+    eng = collect.new_engine(seed, num_players)
     recorded: list[steps.Step] = []
     sample_rng = random.Random(seed ^ _SAMPLE_RNG_SALT)
     net_agent = _batched_recording_agent(server, sample_rng, recorded)
-    agent_a, agent_b = (
-        (net_agent, agents.random_agent(random.Random(seed ^ _OPPONENT_RNG_SALT)))
-        if vs_random
-        else (net_agent, net_agent)
-    )
+    if vs_random:
+        opponent_agent = agents.random_agent(random.Random(seed ^ _OPPONENT_RNG_SALT))
+        seat_agents: list[engine.Agent] = [net_agent] + [opponent_agent] * (
+            num_players - 1
+        )
+    else:
+        seat_agents = [net_agent] * num_players
     engine.Engine.play_one_game(
-        eng.state, (agent_a, agent_b), combine_gain_food=combine_gain_food
+        eng.state, seat_agents, combine_gain_food=combine_gain_food
     )
     timestamps.finalize_timestamps(recorded)
 
-    breakdowns = (
-        collect.player_breakdown(eng.state.players[0]),
-        collect.player_breakdown(eng.state.players[1]),
-    )
+    breakdowns = tuple(collect.player_breakdown(player) for player in eng.state.players)
     winner = scoring.determine_winner(eng.state.players)
     return collect.GameRecord(
         steps=recorded,

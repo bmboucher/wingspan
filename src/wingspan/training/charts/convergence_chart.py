@@ -145,20 +145,22 @@ def _winrate_block(
     meaningfully exceed either) and the floor is the visible-window minimum
     rounded down to a ``geometry.WINRATE_FLOOR_STEP_PCT`` step, capped at
     ``geometry.WINRATE_FLOOR_CAP_PCT`` — the floor can rise again as old low
-    points scroll off the left edge. Segments above 50% are drawn in green;
-    segments below 50% are drawn in red. A solid dim-red horizontal line marks
-    the 50% level when it falls within the chart range."""
+    points scroll off the left edge. Segments above the neutral win rate
+    (100/num_players — 50% at 2 players) are drawn in green; segments below it
+    are drawn in red. A solid dim-red horizontal line marks that neutral level
+    when it falls within the chart range."""
     plot_cols = max(1, width - geometry.CHART_GUTTER_W)
     it_lo, it_hi = convergence.score_margin_window(history)
+    neutral_pct = 100.0 / state.config.num_players
     ewma_all = convergence.winrate_ewma_points(
-        history, state.config.opponent.eval_ewma_alpha
+        history, state.config.opponent.eval_ewma_alpha, neutral_pct
     )
     ewma = [pt for pt in ewma_all if pt[0] >= it_lo]
 
     # Dynamic floor/ceiling: floor from visible-window min so the axis zooms in
     # when win rates are high and can rise again as old lows scroll off; ceiling
     # from the max of the graduation and opponent-advance thresholds.  Series 0 =
-    # red (below 50%, higher canvas priority), series 1 = green (above 50%).
+    # red (below neutral, higher canvas priority), series 1 = green (above neutral).
     v_lo = _winrate_v_lo(ewma)
     v_hi = _winrate_v_hi(state)
 
@@ -172,7 +174,7 @@ def _winrate_block(
         it_hi=it_hi,
         v_lo=v_lo,
         v_hi=v_hi,
-        threshold=50.0,
+        threshold=neutral_pct,
     )
     beacon = _beacon_cell(canvas, ewma, it_lo, it_hi, v_lo, v_hi)
 
@@ -182,9 +184,9 @@ def _winrate_block(
         if threshold > v_lo
         else None
     )
-    fifty_row = (
-        round((1.0 - (50.0 - v_lo) / (v_hi - v_lo)) * (rows - 1))
-        if v_lo < 50.0
+    neutral_row = (
+        round((1.0 - (neutral_pct - v_lo) / (v_hi - v_lo)) * (rows - 1))
+        if v_lo < neutral_pct
         else None
     )
     challenger_markers = convergence.marker_columns(
@@ -205,7 +207,7 @@ def _winrate_block(
         theme.CHALLENGER_MARK,
         setup_markers,
         theme.SETUP_MARK,
-        baseline_row=fifty_row,
+        baseline_row=neutral_row,
         baseline_color=theme.FIFTY_PCT_LINE,
     )
     return [_winrate_title(state, width), *grid, *_axis_two(it_lo, it_hi, plot_cols)]

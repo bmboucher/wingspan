@@ -23,6 +23,7 @@ class RunStatus(pydantic.BaseModel):
     run_name: str
     phase: str  # runstate.Phase value (collecting / evaluating / done / ...)
     training_phase: str  # runstate.TrainingPhase value (random_opponent / self_play)
+    num_players: int = 2  # seats per game this run trains at
     iteration: int  # 0-based index of the current/last iteration
     completed_iterations: int  # iterations fully finished (0 before the first)
     target_iterations: int
@@ -71,6 +72,7 @@ def build_status(
         run_name=run_name,
         phase=state.phase.value,
         training_phase=state.training_phase.value,
+        num_players=state.config.num_players,
         iteration=state.iteration,
         completed_iterations=completed,
         target_iterations=state.target_iterations,

@@ -272,11 +272,12 @@ def _config_at_era(
 def validate_bootstrap_opponent(training_loop: "loop.TrainingLoop") -> None:
     """Load the bootstrap checkpoint once at startup to fail fast on bad paths.
 
-    A missing file, a corrupt payload, or an incompatible encoding layout all
-    raise immediately so the run never starts a multi-hour training session
-    against an opponent it cannot load.  Resumes re-validate on every session
-    startup because ``_WorkerArch`` is rebuilt from config each time (the path
-    is not persisted in the run checkpoint).
+    A missing file, a corrupt payload, an incompatible encoding layout, or a
+    seat count that does not match this run's ``num_players`` all raise
+    immediately so the run never starts a multi-hour training session against
+    an opponent it cannot load.  Resumes re-validate on every session startup
+    because ``_WorkerArch`` is rebuilt from config each time (the path is not
+    persisted in the run checkpoint).
     """
     path = training_loop.config.bootstrap_opponent_checkpoint
     if path is None:
@@ -287,6 +288,13 @@ def validate_bootstrap_opponent(training_loop: "loop.TrainingLoop") -> None:
     import wingspan.players.loaders as loaders  # noqa: PLC0415
 
     net, saved = loaders.load_policy_net(pathlib.Path(path), torch.device("cpu"))
+    if saved.num_players != training_loop.config.num_players:
+        raise ValueError(
+            f"bootstrap opponent checkpoint {path!r} was trained at "
+            f"num_players={saved.num_players}, but this run trains at "
+            f"num_players={training_loop.config.num_players} — a bootstrap "
+            "opponent must match the run's seat count"
+        )
     logging.info(
         "Bootstrap opponent loaded: path=%s state_dim=%d choice_dim=%d",
         path,
@@ -300,9 +308,10 @@ def validate_dagger_expert(training_loop: "loop.TrainingLoop") -> None:
     """Load the DAgger expert checkpoint once at startup to fail fast on bad paths.
 
     Mirrors :func:`validate_bootstrap_opponent`: a missing file, corrupt payload,
-    or incompatible encoding layout raises immediately.  The expert may be a
-    different architecture/era than the student — ``load_policy_net`` handles
-    era-routing — so only basic load-ability is verified here.
+    incompatible encoding layout, or a seat count that does not match this run's
+    ``num_players`` all raise immediately.  The expert may be a different
+    architecture/era than the student — ``load_policy_net`` handles era-routing —
+    so beyond the seat-count check, only basic load-ability is verified here.
     """
     path = training_loop.config.dagger_expert_checkpoint
     if path is None:
@@ -310,6 +319,13 @@ def validate_dagger_expert(training_loop: "loop.TrainingLoop") -> None:
     import wingspan.players.loaders as loaders  # noqa: PLC0415
 
     net, saved = loaders.load_policy_net(pathlib.Path(path), torch.device("cpu"))
+    if saved.num_players != training_loop.config.num_players:
+        raise ValueError(
+            f"DAgger expert checkpoint {path!r} was trained at "
+            f"num_players={saved.num_players}, but this run trains at "
+            f"num_players={training_loop.config.num_players} — a DAgger "
+            "expert must match the run's seat count"
+        )
     logging.info(
         "DAgger expert loaded: path=%s state_dim=%d choice_dim=%d clone_iters=%d",
         path,

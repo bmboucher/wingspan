@@ -123,15 +123,33 @@ class FamilyCounts(pydantic.BaseModel):
         return list(zip(decisions.ALL_DECISION_FAMILIES, self.counts))
 
 
+class EvalGameOutcome(pydantic.BaseModel):
+    """One held-out eval game's result: the net's margin and win credit.
+
+    ``margin`` is the net seat's score minus the *best* other seat's score
+    (reduces to own − the single opponent at 2 players). ``win_credit`` is
+    ``1.0`` when the net's seat is the sole winner (:func:`wingspan.engine.
+    scoring.winners`), ``1/k`` when it shares a ``k``-way victory, else
+    ``0.0`` — at 2 players this is the legacy "tie counts as half a win"
+    convention, except a score tie can now resolve to a sole winner via the
+    official food-supply tiebreak (the accepted 2P engine drift), so a
+    ``margin == 0`` game is no longer automatically ``0.5`` credit."""
+
+    margin: float
+    win_credit: float
+
+
 class EvalResult(pydantic.BaseModel):
     """Outcome of a paired-game evaluation against the reference opponent (TRAINING.md §7.3).
 
-    ``win_rate`` and its ``ci95`` half-width use the normal approximation
-    ``p ± 1.96·√(p(1−p)/n)``; ties count as half a win. ``mean_margin`` is the
-    average score margin (policy − opponent) across the held-out games.
-    ``opponent_generation`` tags which reference opponent the eval was played
-    against (0 = the random agent; >0 = a frozen past self), so the dashboard's
-    EWMA can reset to a fresh trend each time the opponent is advanced.
+    ``win_rate`` is the mean :class:`EvalGameOutcome.win_credit` across the
+    held-out games (ties/shared victories already fractional per-game); its
+    ``ci95`` half-width uses the normal approximation ``p ± 1.96·√(p(1−p)/n)``.
+    ``mean_margin`` is the average score margin (policy − best other seat)
+    across the held-out games. ``opponent_generation`` tags which reference
+    opponent the eval was played against (0 = the random agent; >0 = a frozen
+    past self), so the dashboard's EWMA can reset to a fresh trend each time
+    the opponent is advanced.
     """
 
     n_games: int
@@ -172,9 +190,9 @@ class ProduceStats(pydantic.BaseModel):
     winner_breakdown: ScoreBreakdown  # avg split of the winning seat only
     decisions: float  # avg trainable decisions per game
     decisions_std: float  # σ of trainable decisions per game
-    margin: float  # avg signed margin (player0 − player1); ~0 by symmetry
+    margin: float  # avg signed margin (seat0 − best other seat); ~0 by symmetry
     margin_std: float  # σ of the signed margin
-    abs_margin: float  # avg winning margin |player0 − player1|
+    abs_margin: float  # avg winning margin |seat0 − best other seat|
     abs_margin_std: float  # σ of the winning margin
 
 
@@ -222,19 +240,19 @@ class IterationMetrics(pydantic.BaseModel):
 
     # averaged outcomes over this iteration's player-games
     avg_self_score: float  # mean final score per player-game
-    avg_margin: float  # mean (player0 − player1); ~0 by self-play symmetry
+    avg_margin: float  # mean (seat0 − best other seat); ~0 by self-play symmetry
     avg_breakdown: ScoreBreakdown
     avg_decisions: float  # mean trainable decisions per game
 
     # Winner-conditioned + dispersion outcomes.
     # Mean score split of the winning seat, over decided (non-tie) games:
     avg_winner_breakdown: ScoreBreakdown
-    avg_abs_margin: float  # mean |player0 − player1| (winning margin)
+    avg_abs_margin: float  # mean |seat0 − best other seat| (winning margin)
     # Per-cycle dispersion: the population σ over this iteration's games
     # (n = games_this_iter). The dashboard EWMA-folds these and divides by
     # √games_per_iter for the 95% CI it shows on the IN-GAME PERFORMANCE stats.
-    margin_std: float  # σ of the signed margin (player0 − player1)
-    abs_margin_std: float  # σ of the winning margin |player0 − player1|
+    margin_std: float  # σ of the signed margin (seat0 − best other seat)
+    abs_margin_std: float  # σ of the winning margin |seat0 − best other seat|
     decisions_std: float  # σ of trainable decisions per game
 
     family_counts: FamilyCounts  # decisions seen this iteration, per family
@@ -288,9 +306,9 @@ class GameOutcome(pydantic.BaseModel):
 
     iteration: int
     seed: int
-    winner: int  # winning seat (0 or 1), or -1 for a tie
+    winner: int  # winning seat (0..N-1), or -1 for a shared victory
     decisions: int  # trainable (multi-option) decisions recorded this game
-    breakdowns: tuple[ScoreBreakdown, ScoreBreakdown]  # per-seat final split
+    breakdowns: tuple[ScoreBreakdown, ...]  # per-seat final split
     family_counts: FamilyCounts  # decisions routed to each judgment-family head
 
 
@@ -308,8 +326,8 @@ class FinalEvalStats(pydantic.BaseModel):
     avg_breakdown: ScoreBreakdown
     avg_winner_breakdown: ScoreBreakdown
     decisions_per_game: float
-    mean_margin: float  # avg abs(seat0 score − seat1 score)
-    self_play_win_rate: float  # wins by seat 0 (~0.5 by symmetry)
+    mean_margin: float  # avg (top score − runner-up score); = |s0−s1| at 2 players
+    self_play_win_rate: float  # wins by seat 0 (~0.5 at 2 players, ~1/N generally)
     at_iteration: int
 
 

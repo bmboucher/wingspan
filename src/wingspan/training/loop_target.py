@@ -74,6 +74,7 @@ def handle_target_reached(training_loop: "loop.TrainingLoop", iteration: int) ->
         n_games=n_eval,
         seed=training_loop.config.misc.seed + iteration * 1000,
         at_iteration=iteration + 1,
+        num_players=training_loop.config.num_players,
         on_progress=_on_progress,
         split_setup_bonus=training_loop.config.split_setup_bonus_active,
         split_setup_food=training_loop.config.split_setup_food_active,

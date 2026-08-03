@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import itertools
 import random
+import typing
 
 import numpy as np
 
@@ -37,8 +38,8 @@ from wingspan.setup_model import candidates, encode
 
 # Per-seat dealt input: the five dealt cards and the two dealt bonus cards.
 type SeatDeal = tuple[list[cards.Bird], list[cards.BonusCard]]
-# A joint setup: the seat-0 and seat-1 decided keeps for one game.
-type JointSetup = tuple[candidates.SetupCandidate, candidates.SetupCandidate]
+# A joint setup: every seat's decided keep for one game, in seat order.
+type JointSetup = tuple[candidates.SetupCandidate, ...]
 
 
 class RandomSetupGenerator:
@@ -63,18 +64,21 @@ class RandomSetupGenerator:
     def generate(
         self,
         rng: random.Random,
-        dealt: tuple[SeatDeal, SeatDeal],
+        dealt: typing.Sequence[SeatDeal],
         context: encode.SetupContext,
     ) -> list[JointSetup]:
-        """Sample up to ``tuples_per_batch`` joint setups over a fixed deal."""
+        """Sample up to ``tuples_per_batch`` joint setups over a fixed deal.
+
+        Cross-products every seat's sampled candidates (``itertools.product``
+        over ``len(dealt)`` per-seat candidate lists), so each joint tuple has
+        exactly one candidate per seat, in seat order."""
         tray = [bird for bird in context.tray_birds if bird is not None]
         joint: list[JointSetup] = []
         for _ in range(self.hand_combos):
-            cands_0 = self._seat_candidates(rng, dealt[0], tray)
-            cands_1 = self._seat_candidates(rng, dealt[1], tray)
-            for cand_0 in cands_0:
-                for cand_1 in cands_1:
-                    joint.append((cand_0, cand_1))
+            per_seat_candidates = [
+                self._seat_candidates(rng, seat_deal, tray) for seat_deal in dealt
+            ]
+            joint.extend(itertools.product(*per_seat_candidates))
         if len(joint) <= self.tuples_per_batch:
             return joint
         return rng.sample(joint, self.tuples_per_batch)

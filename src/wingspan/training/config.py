@@ -939,18 +939,6 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
             "(there is no board-attention module to split into heads)"
         )
 
-    # TEMPORARY (Stage 2 of the N-player plan): the training pipeline
-    # (collect / learner / evaluate) still assumes 2 seats throughout.
-    # Encoding, model construction, and config threading all support N>=3
-    # today; only the training loop itself does not yet. Remove this blocker
-    # in Stage 3 once collect/learner/evaluate are seat-count-generic.
-    if cfg.architecture.num_players > 2:
-        problems.append(
-            f"num_players={cfg.architecture.num_players} — the N-player "
-            "training pipeline lands in a later stage; only num_players=2 "
-            "can launch today (encoding/model support exists, training does not)"
-        )
-
     # A superseded (non-live) encoding era is always 2-player: compat shims
     # derive their dims from a spec that never had N>=3 to freeze, and
     # compat.encoding_dims_for_era refuses num_players != 2 outright for any

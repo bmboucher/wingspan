@@ -73,6 +73,7 @@ def maybe_evaluate(
             training_loop.device,
             training_loop.config.eval_pairs,
             eval_seed,
+            num_players=training_loop.config.num_players,
             opponent_generation=training_loop.state.opponent_generation,
             on_progress=lambda done, total: record_eval_progress(
                 training_loop, done, total
@@ -246,7 +247,12 @@ def load_opponent(training_loop: "loop.TrainingLoop") -> None:
     """Restore the frozen opponent from ``opponent.pt`` on resume.
 
     If it is missing or unreadable, fall back to the random agent (generation
-    0) so the run stays consistent rather than evaluating against nothing.
+    0) so the run stays consistent rather than evaluating against nothing. A
+    saved opponent trained at a different seat count is refused the same way,
+    but with a distinct alarm naming both counts — ``opponent.pt`` is only
+    ever written by this same run (``save_opponent``), so a mismatch here
+    means a foreign or hand-edited file was dropped into the checkpoint
+    directory.
     """
     path = training_loop._ckpt_dir / artifacts.OPPONENT_CKPT
     try:
@@ -254,9 +260,6 @@ def load_opponent(training_loop: "loop.TrainingLoop") -> None:
             "dict[str, typing.Any]",
             torch.load(path, map_location=training_loop.device, weights_only=False),
         )
-        opponent = clone_net(training_loop)
-        opponent.load_state_dict(payload["model"])
-        opponent.eval()
     except Exception:  # noqa: BLE001 — a missing/corrupt opponent resets to random
         training_loop.state.opponent_generation = 0
         training_loop.state.push_event(
@@ -264,4 +267,42 @@ def load_opponent(training_loop: "loop.TrainingLoop") -> None:
             f"could not read {artifacts.OPPONENT_CKPT} — opponent reset to random",
         )
         return
+
+    saved_num_players = _opponent_payload_num_players(payload)
+    if saved_num_players != training_loop.config.num_players:
+        training_loop.state.opponent_generation = 0
+        training_loop.state.push_event(
+            runstate.EventKind.ALARM,
+            f"{artifacts.OPPONENT_CKPT} trained at num_players={saved_num_players} "
+            f"!= this run's num_players={training_loop.config.num_players} — "
+            "opponent reset to random",
+        )
+        return
+
+    try:
+        opponent = clone_net(training_loop)
+        opponent.load_state_dict(payload["model"])
+        opponent.eval()
+    except Exception:  # noqa: BLE001 — a corrupt opponent resets to random
+        training_loop.state.opponent_generation = 0
+        training_loop.state.push_event(
+            runstate.EventKind.ALARM,
+            f"could not read {artifacts.OPPONENT_CKPT} — opponent reset to random",
+        )
+        return
     training_loop._opponent_net = opponent
+
+
+def _opponent_payload_num_players(payload: dict[str, typing.Any]) -> int:
+    """The seat count an ``opponent.pt`` payload's embedded config was trained
+    at, defaulting to 2 for pre-N-player payloads whose config predates the
+    field."""
+    raw_config = payload.get("config")
+    if not isinstance(raw_config, dict):
+        return 2
+    raw_config = typing.cast("dict[str, typing.Any]", raw_config)
+    raw_architecture = raw_config.get("architecture")
+    if not isinstance(raw_architecture, dict):
+        return 2
+    raw_architecture = typing.cast("dict[str, typing.Any]", raw_architecture)
+    return int(raw_architecture.get("num_players", 2))

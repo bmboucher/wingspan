@@ -45,11 +45,12 @@ def pop_std(sum_sq: float, mean: float, n: int) -> float:
 
 
 def avg_points(records: list[collect.GameRecord]) -> float:
-    """Mean final score across both seats of every game in a collected batch."""
+    """Mean final score across every seat of every game in a collected batch."""
     if not records:
         return 0.0
-    total = sum(rec.breakdowns[0].total + rec.breakdowns[1].total for rec in records)
-    return total / (2 * len(records))
+    total = sum(breakdown.total for rec in records for breakdown in rec.breakdowns)
+    player_games = sum(len(rec.breakdowns) for rec in records)
+    return total / player_games if player_games else 0.0
 
 
 def collection_win_rate(records: list[collect.GameRecord]) -> float:
@@ -93,12 +94,18 @@ def build_iteration_metrics(
     margin_sq_sum = 0.0
     abs_margin_sum = 0.0
     self_score_sum = 0.0
+    total_player_games = 0
 
-    # Accumulate per-game stats into totals for normalization below.
+    # Accumulate per-game stats into totals for normalization below. Each
+    # record's own breakdown count is its seat count, so the batch is
+    # self-describing even if a run's num_players ever changed mid-history.
     for record in records:
-        sum_breakdown = sum_breakdown + record.breakdowns[0] + record.breakdowns[1]
-        self_score_sum += record.breakdowns[0].total + record.breakdowns[1].total
-        margin = record.breakdowns[0].total - record.breakdowns[1].total
+        for breakdown in record.breakdowns:
+            sum_breakdown = sum_breakdown + breakdown
+            self_score_sum += breakdown.total
+        total_player_games += len(record.breakdowns)
+        scores = [breakdown.total for breakdown in record.breakdowns]
+        margin = scores[0] - max(scores[1:])
         margin_sum += margin
         margin_sq_sum += margin * margin
         abs_margin_sum += abs(margin)
@@ -110,7 +117,7 @@ def build_iteration_metrics(
         total_steps_sq += steps * steps
         family = family + family_counts(record)
 
-    player_games = max(2 * n_games, 1)
+    player_games = max(total_player_games, 1)
     games = max(n_games, 1)
     margin_mean = margin_sum / games
     abs_margin_mean = abs_margin_sum / games

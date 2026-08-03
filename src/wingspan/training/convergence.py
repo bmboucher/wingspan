@@ -25,10 +25,11 @@ from wingspan.training.charts import geometry
 
 # When the win-rate / margin EWMA crosses into a new challenger regime, the chart
 # snaps to a neutral baseline at the change marker before climbing again — a
-# freshly frozen opponent is an even match, so a new challenger starts at a 50%
-# win-rate and a 0 margin. This makes the line drop vertically at the marker
-# rather than sloping across the eval-gap to the first new-challenger point.
-_WIN_RATE_RESET_PCT = 50.0
+# freshly frozen opponent is an even match, so a new challenger starts at the
+# neutral win-rate (100/num_players — 50% at 2 players, the default below) and
+# a 0 margin. This makes the line drop vertically at the marker rather than
+# sloping across the eval-gap to the first new-challenger point.
+_DEFAULT_NEUTRAL_WIN_RATE_PCT = 50.0
 _MARGIN_RESET = 0.0
 
 
@@ -99,15 +100,18 @@ def setup_transition_iterations(
 
 
 def winrate_ewma_points(
-    history: list[metrics.IterationMetrics], alpha: float
+    history: list[metrics.IterationMetrics],
+    alpha: float,
+    neutral_win_rate_pct: float = _DEFAULT_NEUTRAL_WIN_RATE_PCT,
 ) -> list[tuple[int, float]]:
     """The EWMA-smoothed win-rate (percent) per win-rate-bearing iteration: the
     eval win-rate where an eval ran, else the random-opponent bootstrap phase's
     collection win-rate vs random. Whenever the regime changes — each reference
     opponent advance, and the bootstrap → self-play graduation — the EWMA snaps to
-    the neutral baseline (50%) at the change marker, then climbs from there as
-    evals against the new challenger land, so the curve drops vertically at the
-    sawtooth instead of carrying the old regime's saturated rate forward."""
+    ``neutral_win_rate_pct`` (100/num_players; 50% at 2 players, the default) at
+    the change marker, then climbs from there as evals against the new
+    challenger land, so the curve drops vertically at the sawtooth instead of
+    carrying the old regime's saturated rate forward."""
     points: list[tuple[int, float]] = []
     ewma: float | None = None
     regime: tuple[str, int] | None = None
@@ -123,8 +127,8 @@ def winrate_ewma_points(
         elif item_regime != regime:
             # Drop vertically at the change marker (the previous point's
             # iteration), then re-seed the EWMA at the baseline and climb.
-            points.append((prev_iter, _WIN_RATE_RESET_PCT))
-            ewma = alpha * win_pct + (1.0 - alpha) * _WIN_RATE_RESET_PCT
+            points.append((prev_iter, neutral_win_rate_pct))
+            ewma = alpha * win_pct + (1.0 - alpha) * neutral_win_rate_pct
             regime = item_regime
         else:
             ewma = alpha * win_pct + (1.0 - alpha) * ewma

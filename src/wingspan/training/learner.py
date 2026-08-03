@@ -426,18 +426,16 @@ def _gae_flatten(
     end_bonus = cfg.training.end_game_bonus
 
     for record in records:
-        score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
+        scores = [breakdown.total for breakdown in record.breakdowns]
 
         # Terminal values (shared with _terminal_margin_returns / _decision_delta_returns).
-        terminal = returns.terminal_values(
-            score_0, score_1, record.winner, end_bonus, basis
-        )
+        terminal = returns.terminal_values(scores, record.winner, end_bonus, basis)
 
         n_record_steps = len(record.steps)
         out_adv = [0.0] * n_record_steps
         out_vt = [0.0] * n_record_steps
 
-        for player_id in (0, 1):
+        for player_id in range(len(record.breakdowns)):
             indices = [
                 i for i, step in enumerate(record.steps) if step.player_id == player_id
             ]
@@ -509,15 +507,15 @@ def _terminal_margin_returns(
 ) -> list[float]:
     """The end-of-game value from each step's player POV, broadcast to every step.
 
-    With ``MARGIN`` basis, value = own − opponent score; seats get opposite signs.
-    ``end_game_bonus`` is added/subtracted symmetrically (``returns.terminal_values``).
-    With ``OWN_SCORE`` basis, value = player's own absolute score; both seats
-    are positive and ``end_game_bonus`` is added only to the winner's score."""
-    score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
-    terminal_0, terminal_1 = returns.terminal_values(
-        score_0, score_1, record.winner, end_game_bonus, basis
-    )
-    per_pov = (terminal_0 / score_norm, terminal_1 / score_norm)
+    With ``MARGIN`` basis, value = own score − best other seat's score (margin
+    vs the strongest opponent); seats get seat-specific signs (opposite at 2
+    players). ``end_game_bonus`` is added for the winner and subtracted for
+    every other seat (``returns.terminal_values``). With ``OWN_SCORE`` basis,
+    value = player's own absolute score; every seat is positive and
+    ``end_game_bonus`` is added only to the winner's score."""
+    scores = [breakdown.total for breakdown in record.breakdowns]
+    terminal = returns.terminal_values(scores, record.winner, end_game_bonus, basis)
+    per_pov = tuple(value / score_norm for value in terminal)
     return [per_pov[step.player_id] for step in record.steps]
 
 
@@ -540,17 +538,15 @@ def _decision_delta_returns(
 
     ``end_game_bonus`` is folded into the terminal checkpoint before the
     backward sweep so it discounts back through all prior decisions."""
-    score_0, score_1 = record.breakdowns[0].total, record.breakdowns[1].total
+    scores = [breakdown.total for breakdown in record.breakdowns]
 
     # Terminal value for each seat (the final ``v`` in the checkpoint sequence).
-    terminal = returns.terminal_values(
-        score_0, score_1, record.winner, end_game_bonus, basis
-    )
+    terminal = returns.terminal_values(scores, record.winner, end_game_bonus, basis)
 
     # Returns land back in record order, so route each player's discounted
     # returns through the global step index they were computed from.
     out: list[float] = [0.0] * len(record.steps)
-    for player_id in (0, 1):
+    for player_id in range(len(record.breakdowns)):
         indices = [
             i for i, step in enumerate(record.steps) if step.player_id == player_id
         ]

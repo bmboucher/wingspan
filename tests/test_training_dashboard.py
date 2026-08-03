@@ -520,6 +520,72 @@ def test_training_phase_round_trips_through_progress():
     assert restored.training_phase is runstate.TrainingPhase.RANDOM_OPPONENT
 
 
+def test_record_game_n3_aggregates_best_other_margin():
+    """``record_game`` generalizes to N seats: ``cum_player_games`` sums every
+    breakdown (not a hardcoded +2), and the margin is seat 0's total minus
+    the BEST other seat's total — not a fixed neighbor. Seat 1 (25 pts, not
+    seat 2's adjacent-in-turn-order 15) must be the "opponent" the margin is
+    computed against."""
+    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    state = runstate.new_run_state(cfg)
+    family = metrics.FamilyCounts()
+    breakdowns = (
+        metrics.ScoreBreakdown(birds=10.0),
+        metrics.ScoreBreakdown(birds=25.0),  # the strongest "other" seat
+        metrics.ScoreBreakdown(birds=15.0),
+    )
+    state.record_game(breakdowns, decisions_seen=90, family=family, winner=1)
+
+    assert state.cum_games == 1
+    assert state.cum_player_games == 3
+    assert state.cum_breakdown.total == 10.0 + 25.0 + 15.0
+    assert state.cum_margin_sum == 10.0 - 25.0
+    assert state.cum_abs_margin_sum == 25.0 - 10.0
+    assert state.cum_winner_breakdown == breakdowns[1]
+    assert state.cum_decided_games == 1
+
+
+def test_runstate_progress_still_parses_pre_nplayer_shaped_dict():
+    """A hand-built dict shaped like an in-flight 2-player run's persisted
+    ``RunProgress`` (only fields that existed before Stage 3, at plausible
+    values — ``cum_player_games`` following the old ``2 * cum_games``
+    invariant) still validates. Stage 3 renamed no persisted field and
+    changed no persisted shape — only ``record_game``'s in-memory call
+    signature — so an in-flight 2P run resumes byte-compatibly."""
+    legacy_dict = {
+        "iteration": 42,
+        "total_games": 84,
+        "total_decisions": 5000,
+        "elapsed_seconds": 123.4,
+        "cum_breakdown": {
+            "birds": 10.0,
+            "eggs": 2.0,
+            "cached": 1.0,
+            "tucked": 0.5,
+            "goals": 3.0,
+            "bonus": 1.5,
+        },
+        "cum_player_games": 168,  # = 2 * cum_games, the pre-N-player invariant
+        "cum_games": 84,
+        "cum_decisions": 5000,
+        "cum_decisions_sq": 300000.0,
+        "cum_family": {"counts": [0] * len(metrics.FamilyCounts().counts)},
+        "cum_margin_sum": 50.0,
+        "cum_margin_sq": 900.0,
+        "cum_abs_margin_sum": 60.0,
+        "cum_winner_breakdown": {"birds": 12.0},
+        "cum_decided_games": 70,
+        "opponent_generation": 2,
+        "training_phase": "self_play",
+    }
+    restored = runstate.RunProgress.model_validate(legacy_dict)
+    assert restored.iteration == 42
+    assert restored.cum_player_games == 168
+    assert restored.cum_games == 84
+    assert restored.opponent_generation == 2
+    assert restored.training_phase is runstate.TrainingPhase.SELF_PLAY
+
+
 def test_training_loop_bootstrap_collects_vs_random(tmp_path: pathlib.Path):
     # A graduation bar of 1.0 keeps the single iteration in the bootstrap phase;
     # the assertions below hold whether or not it happens to graduate.

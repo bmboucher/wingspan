@@ -8,7 +8,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from wingspan import model
-from wingspan.training import evaluate
+from wingspan.training import evaluate, metrics
 
 
 def test_summarize_eval_empty_margins_returns_zero_result():
@@ -22,9 +22,17 @@ def test_summarize_eval_empty_margins_returns_zero_result():
 
 
 def test_summarize_eval_computes_correct_statistics():
-    """Win (positive margin) = 1 pt, tie = 0.5, loss = 0; CI ≥ 0; mean margin is exact."""
-    # margins=[10, -5, 0]: wins = 1 + 0 + 0.5 = 1.5, win_rate = 0.5
-    result = evaluate.summarize_eval([10, -5, 0], opponent_generation=0)
+    """win_rate is the mean win_credit (1.0 win / 0.5 tie / 0.0 loss here); CI
+    >= 0; mean margin is exact."""
+    # win_credits=[1.0, 0.0, 0.5]: mean = 1.5 / 3 = 0.5
+    result = evaluate.summarize_eval(
+        [
+            metrics.EvalGameOutcome(margin=10, win_credit=1.0),
+            metrics.EvalGameOutcome(margin=-5, win_credit=0.0),
+            metrics.EvalGameOutcome(margin=0, win_credit=0.5),
+        ],
+        opponent_generation=0,
+    )
     assert result.n_games == 3
     assert abs(result.win_rate - 0.5) < 1e-6
     assert result.ci95 >= 0.0

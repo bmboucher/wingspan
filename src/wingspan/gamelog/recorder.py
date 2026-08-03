@@ -39,6 +39,14 @@ _SETUP_SLOT_KEEP = 0
 _SETUP_SLOT_BONUS = 1
 _SETUP_SLOT_FOOD = 2
 
+# TEMPORARY (Stage 3 of the N-player plan): gamelog reporting (this recorder,
+# the HTML/plaintext renderers, the CSV/JSON exporters under
+# ``wingspan.reporting``) is still hardcoded to exactly two seats. Removed in
+# Stage 4 once gamelog/reporting are made seat-count-generic. Training is
+# unaffected in the meantime — collection/eval always play through the no-op
+# ``EMPTY`` recorder below, never a real ``EventRecorder``.
+_MAX_SUPPORTED_PLAYERS = 2
+
 
 class EventRecorder:
     """The structured event tree emitter, a separate engine collaborator.
@@ -54,19 +62,23 @@ class EventRecorder:
       - ``record_*`` appends to the stack-top's ``sub_events``; if the stack is
         empty, a :class:`~models.LooseEvent` is auto-created and appended to the
         current phase first.
+
+    2-player only for now (see ``_MAX_SUPPORTED_PLAYERS``) — constructing one
+    for a wider ``probes`` / ``seat_configs`` raises.
     """
 
     def __init__(
         self,
-        probes: tuple[
-            decision_probe.DecisionProbe | None,
-            decision_probe.DecisionProbe | None,
-        ],
-        seat_configs: tuple[
-            train_config.TrainConfig | None,
-            train_config.TrainConfig | None,
-        ],
+        probes: tuple[decision_probe.DecisionProbe | None, ...],
+        seat_configs: tuple[train_config.TrainConfig | None, ...],
     ) -> None:
+        if (
+            len(probes) > _MAX_SUPPORTED_PLAYERS
+            or len(seat_configs) > _MAX_SUPPORTED_PLAYERS
+        ):
+            raise ValueError(
+                "gamelog recording is 2-player-only until the reporting stage lands"
+            )
         self._probes = probes
         self._seat_configs = seat_configs
         self.root: models.GameEventTree = models.GameEventTree()

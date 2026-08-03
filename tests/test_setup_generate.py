@@ -56,3 +56,26 @@ def test_generate_one_is_legal():
     )
     keep = generator.generate_one(random.Random(1), dealt[0], context)
     _assert_legal(keep, dealt[0])
+
+
+def test_generate_n3_product_yields_length_3_joint_setups():
+    """``generate()`` cross-products every seat's candidates via
+    ``itertools.product`` over N per-seat deals — at 3 seats each
+    ``JointSetup`` has exactly one candidate per seat, in seat order."""
+    birds, bonuses, goals = cards.load_all()
+    game_state = state.new_game(random.Random(30), birds, bonuses, goals, num_players=3)
+    context = setup_encode.SetupContext.from_state(game_state)
+    seat0: SeatDeal = (list(birds[:5]), list(bonuses[:2]))
+    seat1: SeatDeal = (list(birds[5:10]), list(bonuses[2:4]))
+    seat2: SeatDeal = (list(birds[10:15]), list(bonuses[4:6]))
+    dealt = (seat0, seat1, seat2)
+
+    generator = generate.RandomSetupGenerator(
+        hand_combos=4, food_sets=2, tuples_per_batch=12
+    )
+    joint = generator.generate(random.Random(30), dealt, context)
+    assert 0 < len(joint) <= 12
+    for joint_setup in joint:
+        assert len(joint_setup) == 3
+        for seat_idx, seat_keep in enumerate(joint_setup):
+            _assert_legal(seat_keep, dealt[seat_idx])

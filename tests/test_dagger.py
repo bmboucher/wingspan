@@ -11,7 +11,8 @@ Covers:
 5. Learner RL phase: ``imitation_loss == 0.0`` in normal (non-imitation) mode.
 6. Empty-bucket guard: all-``None`` ``expert_probs`` steps do not crash the learner
    in imitation mode (``has_expert.sum()`` is clamped to 1).
-7. ``validate_dagger_expert`` fail-fast on a missing file and no-op on ``'none'``.
+7. ``validate_dagger_expert`` fail-fast on a missing file, a seat-count
+   mismatch, and no-op on ``'none'``.
 8. ``BootstrapField`` parse / format round-trip for the DAgger expert field.
 """
 
@@ -374,3 +375,34 @@ def test_validate_dagger_expert_succeeds_on_valid_checkpoint(
         config = expert_cfg
 
     loop_resume.validate_dagger_expert(_FakeLoop())  # type: ignore[arg-type]
+
+
+def test_validate_dagger_expert_raises_on_num_players_mismatch(
+    tmp_path: pathlib.Path,
+) -> None:
+    """``validate_dagger_expert`` raises when the expert checkpoint was trained
+    at a different seat count than this run, naming both counts.
+
+    The expert net's architecture is internally self-consistent, so it loads
+    without error on its own — nothing else catches the mismatch, and an
+    unguarded expert would silently misencode a live N-seat ``GameState``
+    instead of crashing.
+    """
+    expert_cfg = _small_cfg(tmp_path)  # num_players=2 (default)
+    expert_net = _small_net(expert_cfg)
+    ckpt_path = tmp_path / "expert.pt"
+    _save_checkpoint(expert_net, expert_cfg, ckpt_path)
+
+    run_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(checkpoint_dir=str(tmp_path)),
+        architecture=config.ArchitectureConfig(num_players=3),
+        opponent=config.OpponentConfig(bootstrap_opponent=str(ckpt_path)),
+        dagger=config.DaggerConfig(clone_iters=5),
+    )
+
+    class _FakeLoop:
+        config = run_cfg
+
+    with pytest.raises(ValueError, match=r"num_players=2.*num_players=3"):
+        loop_resume.validate_dagger_expert(_FakeLoop())  # type: ignore[arg-type]

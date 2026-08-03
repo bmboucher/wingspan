@@ -49,6 +49,24 @@ def _small_net(cfg: config.TrainConfig) -> model.PolicyValueNet:
     return net
 
 
+def _small_config_n3(tmp_path: pathlib.Path) -> config.TrainConfig:
+    """The 3-seat twin of ``_small_config`` for the single N-player pool test
+    below — every field otherwise matches so the small net stays cheap."""
+    return config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        run=config.RunSettings(checkpoint_dir=str(tmp_path)),
+        architecture=config.ArchitectureConfig(
+            num_players=3,
+            main=config.MainNetArchitecture(
+                trunk_layers=_SMALL_LAYERS,
+                choice_layers=_SMALL_LAYERS,
+                card_embed_dim=_SMALL_CARD_EMBED_DIM,
+                card_encoder_layers=_SMALL_CARD_ENCODER_LAYERS,
+            ),
+        ),
+    )
+
+
 def test_process_collector_plays_games(tmp_path: pathlib.Path) -> None:
     device = torch.device("cpu")
     cfg = _small_config(tmp_path)
@@ -86,6 +104,32 @@ def test_process_collector_same_seed_is_deterministic(tmp_path: pathlib.Path) ->
 
     decision_sequences = {tuple(step.chosen_idx for step in r.steps) for r in records}
     assert len(decision_sequences) == 1, "same seed produced diverging games"
+
+
+def test_process_collector_n3_games_and_eval(tmp_path: pathlib.Path) -> None:
+    """One N=3 worker-pool spawn covers both collection and eval: every
+    worker builds its local net at 3 seats (``_WorkerArch.num_players``),
+    self-play records steps for all three seats, and eval rotates the net
+    through all three seats of each deal (``n_games = num_players *
+    n_pairs``). The pool is expensive, so this is the *one* new N-player
+    spawn test the plan budgets."""
+    device = torch.device("cpu")
+    cfg = _small_config_n3(tmp_path)
+    net = _small_net(cfg)
+    collector = mp_collect.ProcessCollector(cfg, num_workers=2)
+    try:
+        records = collector.collect_games(net, device, [401, 402])
+        result = collector.evaluate_games(net, None, device, n_pairs=1, seed=11)
+    finally:
+        collector.close()
+
+    assert len(records) == 2
+    for record in records:
+        assert len(record.breakdowns) == 3
+        assert {step.player_id for step in record.steps} <= {0, 1, 2}
+        assert record.winner in (-1, 0, 1, 2)
+    assert result.n_games == 3  # num_players * n_pairs
+    assert 0.0 <= result.win_rate <= 1.0
 
 
 def test_process_collector_empty_seeds(tmp_path: pathlib.Path) -> None:

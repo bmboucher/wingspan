@@ -350,16 +350,17 @@ def test_validate_launchable_num_players_2_ok():
     assert config.validate_launchable(cfg) == []
 
 
-def test_validate_launchable_num_players_above_2_temporarily_blocked():
-    """num_players > 2 is a TEMPORARY blocker (removed in Stage 3): encoding
-    and model construction support N>=3 today, but the training pipeline
-    (collect/learner/evaluate) does not yet."""
+def test_validate_launchable_num_players_above_2_no_longer_blocked():
+    """Stage 3: num_players > 2 at the live encoding era launches cleanly —
+    the temporary Stage-2 blocker is gone now that collect/learner/evaluate
+    are seat-count-generic. The compat-era × num_players blocker (a
+    different, permanent check) is covered separately below."""
     cfg = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
         architecture=config.ArchitectureConfig(num_players=3),
     )
     problems = config.validate_launchable(cfg)
-    assert any("num_players" in problem for problem in problems)
+    assert not any("num_players" in problem for problem in problems)
 
 
 def test_constructing_compat_era_with_num_players_3_raises_validation_error():

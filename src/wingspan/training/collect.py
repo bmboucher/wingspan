@@ -1,6 +1,6 @@
 """Self-play data collection.
 
-Plays one full self-play game where both seats consult the same network, and
+Plays one full self-play game where every seat consults the same network, and
 records every multi-option decision as a :class:`wingspan.training.steps.Step` (state
 features, candidate features, chosen index, player id, judgment-family head
 index). After the game it reads each player's final board into a
@@ -54,14 +54,14 @@ _CONTINUATION_SALT = 0x27D4EB2F
 
 class GameRecord(pydantic.BaseModel):
     """One finished self-play game: its recorded steps plus the per-player
-    final score breakdown, the winner (0, 1, or -1 for a tie), and the
-    board-shuffle ``seed`` that produced it (carried so the persisted per-game
-    history row stays independently reproducible)."""
+    final score breakdown, the winner (0..N-1, or -1 for a shared victory),
+    and the board-shuffle ``seed`` that produced it (carried so the persisted
+    per-game history row stays independently reproducible)."""
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
     steps: list[training_steps.Step]
-    breakdowns: tuple[metrics.ScoreBreakdown, metrics.ScoreBreakdown]
+    breakdowns: tuple[metrics.ScoreBreakdown, ...]
     winner: int
     seed: int
     # Setup-model samples recorded this game (one per net-controlled seat, only
@@ -77,8 +77,8 @@ class GameRecord(pydantic.BaseModel):
     final_timestamp: float = 0.0
 
     @property
-    def scores(self) -> tuple[int, int]:
-        return (round(self.breakdowns[0].total), round(self.breakdowns[1].total))
+    def scores(self) -> tuple[int, ...]:
+        return tuple(round(breakdown.total) for breakdown in self.breakdowns)
 
 
 class SetupGameSpec(pydantic.BaseModel):
@@ -119,14 +119,16 @@ def play_game(
     opponent_agent: engine.Agent | None = None,
     expert_net: model.PolicyValueNet | None = None,
     combine_gain_food: bool = False,
+    num_players: int = 2,
 ) -> GameRecord:
     """Play one game and return its recorded transitions + scores.
 
-    With ``opponent_agent`` omitted this is ordinary self-play: both seats
-    consult the policy and every multi-option decision is recorded. With an
+    With ``opponent_agent`` omitted this is ordinary self-play: every seat
+    consults the policy and every multi-option decision is recorded. With an
     ``opponent_agent`` (the random-opponent bootstrap phase), the net plays
-    seat 0 and ``opponent_agent`` plays seat 1; only the net's decisions are
-    recorded, since the opponent's off-policy moves are not trained on.
+    seat 0 and ``opponent_agent`` plays *every other* seat; only the net's
+    decisions are recorded, since the opponent's off-policy moves are not
+    trained on.
 
     ``expert_net`` is the frozen DAgger expert (a prior checkpoint, possibly a
     different architecture/era).  When provided, each recorded step's
@@ -136,24 +138,23 @@ def play_game(
 
     ``combine_gain_food`` collapses multi-token food gains into one combined
     subset decision (the ``combine_gain_food`` regime).
+
+    ``num_players`` is the game's seat count (default 2).
     """
-    eng = new_engine(seed)
+    eng = new_engine(seed, num_players)
     recorded: list[training_steps.Step] = []
     net_agent = _recording_agent(net, device, rng, recorded, expert_net)
-    agent_a, agent_b = (
-        (net_agent, net_agent)
+    seat_agents: list[engine.Agent] = (
+        [net_agent] * num_players
         if opponent_agent is None
-        else (net_agent, opponent_agent)
+        else [net_agent] + [opponent_agent] * (num_players - 1)
     )
     engine.Engine.play_one_game(
-        eng.state, (agent_a, agent_b), combine_gain_food=combine_gain_food
+        eng.state, seat_agents, combine_gain_food=combine_gain_food
     )
     timestamps.finalize_timestamps(recorded)
 
-    breakdowns = (
-        player_breakdown(eng.state.players[0]),
-        player_breakdown(eng.state.players[1]),
-    )
+    breakdowns = tuple(player_breakdown(player) for player in eng.state.players)
     winner = scoring.determine_winner(eng.state.players)
     return GameRecord(
         steps=recorded,
@@ -177,30 +178,34 @@ def play_game_with_setup(
     setup_greedy: bool = False,
     expert_net: model.PolicyValueNet | None = None,
     combine_gain_food: bool = False,
+    num_players: int = 2,
 ) -> GameRecord:
     """Play one game whose setups are chosen externally (the setup-model path).
 
     The in-game decisions are still recorded for the main net exactly as in
     :func:`play_game`; the setup phase is bypassed (no ``SetupDecision`` is ever
     asked) and resolved by the setup net per ``spec``. Per net-controlled seat
-    (seat 0 always; seat 1 too in self-play) a ``SetupSample`` is recorded with
-    ``chosen_idx`` and ``all_candidates`` filled in for actor-critic training.
+    (every seat in self-play; seat 0 only in the bootstrap phase) a
+    ``SetupSample`` is recorded with ``chosen_idx`` and ``all_candidates``
+    filled in for actor-critic training.
 
     ``split_setup_bonus`` defers each net seat's bonus pick out of the setup keep
     (its candidate carries ``bonus_card=None``) to the engine's in-game
     ``CHOOSE_BONUS`` head; a random-opponent seat keeps its generator-chosen bonus.
 
     ``split_setup_food`` defers each net seat's food pick to sequential in-game
-    GAIN_FOOD/SPEND_FOOD decisions after the card-keep is applied."""
-    eng = new_engine(spec.deal_seed)
+    GAIN_FOOD/SPEND_FOOD decisions after the card-keep is applied.
+
+    ``num_players`` is the game's seat count (default 2)."""
+    eng = new_engine(spec.deal_seed, num_players)
     main_rng = random.Random(spec.continuation_seed)
     recorded: list[training_steps.Step] = []
     net_agent = _recording_agent(net, device, main_rng, recorded, expert_net)
     if opponent_agent is None:
-        agent_a, agent_b = net_agent, net_agent
-        net_seats = (0, 1)
+        seat_agents: list[engine.Agent] = [net_agent] * num_players
+        net_seats: tuple[int, ...] = tuple(range(num_players))
     else:
-        agent_a, agent_b = net_agent, opponent_agent
+        seat_agents = [net_agent] + [opponent_agent] * (num_players - 1)
         net_seats = (0,)
 
     setup_rng = random.Random(spec.deal_seed ^ _SETUP_RNG_SALT)
@@ -261,19 +266,16 @@ def play_game_with_setup(
 
     engine.Engine.play_one_game_with_setups(
         eng.state,
-        (agent_a, agent_b),
+        seat_agents,
         choose_setups,
         split_setup_food=split_setup_food,
         combine_gain_food=combine_gain_food,
     )
     timestamps.finalize_timestamps(recorded)
 
-    breakdowns = (
-        player_breakdown(eng.state.players[0]),
-        player_breakdown(eng.state.players[1]),
-    )
+    breakdowns = tuple(player_breakdown(player) for player in eng.state.players)
     winner = scoring.determine_winner(eng.state.players)
-    totals = (breakdowns[0].total, breakdowns[1].total)
+    totals = tuple(breakdown.total for breakdown in breakdowns)
     final_ts = timestamps.final_timestamp(eng.state.turn_counter)
     setup_samples = [
         _build_setup_sample(
@@ -306,7 +308,7 @@ def _build_setup_sample(
     all_candidates: np.ndarray | None,
     *,
     recorded: list[training_steps.Step],
-    totals: tuple[float, float],
+    totals: typing.Sequence[float],
     winner: int,
     iteration: int,
     final_timestamp: float,
@@ -315,19 +317,25 @@ def _build_setup_sample(
     sequence so the learner can reproduce the in-game return at the ``t=0`` setup
     anchor (``returns.setup_return``) under any reward mode / discount / basis.
 
+    ``totals`` is every seat's final score, in seat order; the sample's
+    ``opp_total`` field carries the *best other* seat's total (``max`` over
+    every seat but this one — reduces to the single opponent's total at 2
+    players).
+
     The setup keep itself scores nothing at ``t=0`` (``v=0``); the discounted
     return is built from the seat's subsequent in-game ``margin_before`` /
     ``score_before`` snapshots plus the terminal value."""
     seat_steps = [step for step in recorded if step.player_id == seat]
-    won = 1 if winner == seat else (-1 if winner == (1 - seat) else 0)
+    won = 1 if winner == seat else (-1 if winner >= 0 else 0)
+    best_other_total = max(total for j, total in enumerate(totals) if j != seat)
     return setup_model.SetupSample(
         features=chosen_features,
-        margin=totals[seat] - totals[1 - seat],
+        margin=totals[seat] - best_other_total,
         iteration=iteration,
         chosen_idx=chosen_idx,
         all_candidates=all_candidates,
         own_total=totals[seat],
-        opp_total=totals[1 - seat],
+        opp_total=best_other_total,
         won=won,
         margin_checkpoints=[step.margin_before for step in seat_steps],
         score_checkpoints=[step.score_before for step in seat_steps],
@@ -337,15 +345,20 @@ def _build_setup_sample(
 
 
 def running_margin(game: state.GameState, player_id: int) -> float:
-    """``player_id``'s live score margin (own − opponent) if the game ended now.
+    """``player_id``'s live score margin (own − best other seat) if the game
+    ended now.
 
     Recorded as each :class:`training_steps.Step`'s ``margin_before`` and
     differenced into the per-decision ``decision_delta`` return with
     ``MARGIN`` basis (``learner._flatten``). Shared by both recording agents
-    so the sequential and batched collectors snapshot the margin identically."""
+    so the sequential and batched collectors snapshot the margin identically.
+    At 2 players this is exactly own − the single opponent's score."""
     own = scoring.running_score(game.players[player_id])
-    opponent = scoring.running_score(game.players[1 - player_id])
-    return float(own - opponent)
+    best_other = max(
+        scoring.running_score(opponent)
+        for opponent in game.opponents_clockwise(player_id)
+    )
+    return float(own - best_other)
 
 
 def running_own_score(game: state.GameState, player_id: int) -> float:
@@ -373,10 +386,17 @@ def player_breakdown(player: state.Player) -> metrics.ScoreBreakdown:
     )
 
 
-def new_engine(seed: int) -> engine.Engine:
-    """Construct a fresh game engine on a seeded shuffle of the cached catalog."""
+def new_engine(seed: int, num_players: int = 2) -> engine.Engine:
+    """Construct a fresh game engine on a seeded shuffle of the cached catalog,
+    at ``num_players`` seats (default 2)."""
     birds, bonuses, goals = _catalog()
-    game = state.new_game(random.Random(seed), list(birds), list(bonuses), list(goals))
+    game = state.new_game(
+        random.Random(seed),
+        list(birds),
+        list(bonuses),
+        list(goals),
+        num_players=num_players,
+    )
     return engine.Engine(game)
 
 
@@ -496,7 +516,7 @@ def _choose_setups(
     defer_food: bool = False,
     setup_greedy: bool = False,
 ) -> list[_KeepResult]:
-    """Decide both seats' setups for one game.
+    """Decide every seat's setup for one game.
 
     The setup net scores each net seat's candidates with policy-head logits
     (actor-critic selection); any random-opponent seat draws a food-aware random
@@ -513,7 +533,7 @@ def _choose_setups(
     learner can compute a REINFORCE gradient at training time."""
     assert setup_policy_net is not None, "model-driven setup needs a setup net"
     keeps: list[_KeepResult] = []
-    for seat in (0, 1):
+    for seat in range(len(dealt)):
         dealt_cards, dealt_bonus = dealt[seat]
         if seat in net_seats:
             # Build a seat-specific context with this seat's bonus cards so the

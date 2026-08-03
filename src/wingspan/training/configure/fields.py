@@ -1473,8 +1473,8 @@ FIELD_SPECS: list[FieldSpec] = [
         "(architecture_key changes — state/choice dims and, with board "
         "attention on, the shared opponent-board module's input width all "
         "move together). 2 (default) reproduces every pre-N-player dim/offset "
-        "byte-for-byte. N>=3 training is not yet launchable — see the launch "
-        "blocker if you try.",
+        "byte-for-byte. N>=3 trains through the same pipeline; only a "
+        "compat (non-live) encoding era stays 2-player only.",
     ),
     ChoiceField(
         attr="between_activation",

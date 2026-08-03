@@ -23,9 +23,11 @@ top-level computed properties so call sites don't churn.
   era-synced dims. `main: MainNetArchitecture` (trunk/choice/head widths, card +
   hand encoders), `setup: SetupNetArchitecture`, the `use_setup_model` /
   `split_setup_*` / `num_players` (seats per game; default 2, ge=2 le=5, FRESH —
-  joins `ShapeKey`; `validate_launchable` temporarily blocks `num_players > 2`
-  until the training pipeline is seat-count-generic) toggles, and the era-synced
-  `encoding_version` / `state_dim` / `choice_dim` / `family_order`.
+  joins `ShapeKey`; the whole training pipeline — collect / learner / evaluate —
+  is seat-count-generic, so `validate_launchable` only blocks `num_players != 2`
+  paired with a compat (non-live) `encoding_version`, since a superseded era
+  never had N>=3 to freeze) toggles, and the era-synced `encoding_version` /
+  `state_dim` / `choice_dim` / `family_order`.
 - `run: RunSettings` — `games_per_iter`, `max_iterations`, `target_iterations`,
   `eval_every`, `eval_games`, `checkpoint_dir`, `run_name`, `resume`, `history_len`.
 - `training: TrainingConfig` — `lr`, `value_coef`, `entropy_coef`, `grad_clip`,
@@ -141,7 +143,8 @@ agree (era-pinned resume across a FRESH change), and re-keys any *fresh*
 launch at the live `MODEL_VERSION` so a new run never inherits a stale era
 (`docs/VERSIONING.md`). `validate_dagger_expert(loop)` — called on `__init__`
 after `validate_bootstrap_opponent`; loads the DAgger expert checkpoint to
-fail-fast on a bad path (no-op when expert is `None`).
+fail-fast on a bad path or a seat count that does not match `num_players`
+(no-op when expert is `None`).
 
 **`loop_collect.py`** — `run_collection(loop, iteration) -> CollectResult`:
 dispatches to `mp_collect.ProcessCollector` (CPU) or `batched_collect` (CUDA)
@@ -295,11 +298,16 @@ gradient-accumulated update:
   terminal-value computation to `returns.terminal_values`.
 
 **`returns.py`** — the shared, torch-free training-return kernel both learners
-call. `winner_bonus(winner, end_game_bonus)` and
-`terminal_values(score_0, score_1, winner, end_game_bonus, basis)` give a game's
-per-seat terminal value; `setup_return(own, opp, won, margin_checkpoints,
+call. `seat_winner_bonus(seat, winner, end_game_bonus)` and
+`terminal_values(scores, winner, end_game_bonus, basis) -> tuple[float, ...]`
+give every seat's terminal value from a `scores` sequence (in seat order);
+with `MARGIN` basis each seat's value is its own score minus the *best* other
+seat's score, `+bonus` to the sole winner and `-bonus` to every other seat
+(reduces exactly to the legacy 2-seat `(s0-s1+b0, s1-s0-b0)` formula at 2
+players). `setup_return(own_total, best_other_total, won, margin_checkpoints,
 score_checkpoints, decision_times, final_timestamp, training)` evaluates the
-in-game return at the seat's `t=0` setup decision, so the setup critic trains on
+in-game return at the seat's `t=0` setup decision (`best_other_total` is the
+caller-computed `max` over every opponent), so the setup critic trains on
 the same target as the main learner. `ADV_STD_EPS` is the shared
 advantage-whitening epsilon.
 
@@ -322,19 +330,31 @@ optimizer step. The entropy coefficient is resolved via
 
 ## Evaluation + metrics
 
-**`evaluate.py`** — `evaluate_vs_opponent(net, opponent_net, config) -> EvalResult`:
-plays `n` paired games (each pair swaps seats) and computes win rate + 95% CI.
+**`evaluate.py`** — `evaluate_vs_opponent(net, opponent_net, device, n_pairs, seed,
+num_players=2, ...) -> EvalResult`: plays `n_pairs` deals, rotating the net
+through every one of `num_players` seats per deal (`n_games = num_players *
+n_pairs`; the classic mirrored pair at the default), and computes win rate
+(mean `metrics.EvalGameOutcome.win_credit` — fractional on a shared victory)
++ 95% CI. `play_eval_game(..., num_players=2, ...) -> metrics.EvalGameOutcome`
+is the per-game unit (margin = net seat's score − best other seat's score;
+`win_credit` via `scoring.winners`); `summarize_eval(outcomes,
+opponent_generation) -> EvalResult` is the shared statistics roll-up both the
+sequential and `mp_collect` process-parallel paths call.
 
 **`convergence.py`** — `series_slope(values, window)` and
 `axis_window(values, window_frac)`: windowed math used by the convergence
 charts to determine whether training has plateaued.
 
 **`metrics.py`** — Pydantic models: `ScoreBreakdown`, `FamilyCounts`,
-`EvalResult`, `IterationMetrics`, `GameOutcome`. `GameOutcome` is the JSONL
-row format for `games.jsonl`. `IterationMetrics.entropy_coef` /
-`.dropout_p` (`float | None`, default `None` for old rows) carry the main
-net's effective anneal-accessor values for that iteration — always populated
-on write, constant when no anneal is configured.
+`EvalGameOutcome`, `EvalResult`, `IterationMetrics`, `GameOutcome`.
+`EvalGameOutcome(margin, win_credit)` is one held-out eval game's result (the
+unit `evaluate.play_eval_game` returns and `summarize_eval` rolls up into
+`EvalResult.win_rate` / `.mean_margin`). `GameOutcome.breakdowns:
+tuple[ScoreBreakdown, ...]` is the JSONL row format for `games.jsonl`, one
+entry per seat. `IterationMetrics.entropy_coef` / `.dropout_p` (`float |
+None`, default `None` for old rows) carry the main net's effective
+anneal-accessor values for that iteration — always populated on write,
+constant when no anneal is configured.
 
 **`metrics_log.py`** — `MetricsLog(path)`: cached reader for the append-only
 `metrics.jsonl` history. `load() -> list[IterationMetrics]`; re-reads only
@@ -343,6 +363,10 @@ new lines on subsequent calls.
 **`runstate.py`** — `RunState`: the shared live snapshot the dashboard reads.
 Fields: `phase`, `iteration`, `best_win_rate`, `games_per_sec`, `recent_metrics`,
 `target_event` (for the pause prompt). Protected by `TrainingLoop.lock`.
+`record_game(breakdowns: Sequence[ScoreBreakdown], decisions_seen, family,
+winner)` folds one finished game into the cumulative aggregates — seat-count
+generic (`cum_player_games += len(breakdowns)`; margin = seat0 total − best
+other seat's total, identical to the legacy 2-seat formula at 2 players).
 
 ## Dashboard + theme
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import enum
 import time
+import typing
 
 import pydantic
 
@@ -195,16 +196,16 @@ class RunState(pydantic.BaseModel):
     cum_breakdown: metrics.ScoreBreakdown = pydantic.Field(
         default_factory=metrics.ScoreBreakdown
     )
-    cum_player_games: int = 0  # = 2 * cum_games (one breakdown per seat)
+    cum_player_games: int = 0  # = num_players * cum_games (one breakdown per seat)
     cum_games: int = 0
     cum_decisions: int = 0
     cum_decisions_sq: float = 0.0  # Σ (decisions per game)^2, for a length σ
     cum_family: metrics.FamilyCounts = pydantic.Field(
         default_factory=metrics.FamilyCounts
     )
-    cum_margin_sum: float = 0.0  # Σ (player0 − player1)
-    cum_margin_sq: float = 0.0  # Σ (player0 − player1)^2
-    cum_abs_margin_sum: float = 0.0  # Σ |player0 − player1| (winning margin)
+    cum_margin_sum: float = 0.0  # Σ (seat0 − best other seat)
+    cum_margin_sq: float = 0.0  # Σ (seat0 − best other seat)^2
+    cum_abs_margin_sum: float = 0.0  # Σ |seat0 − best other seat| (winning margin)
     cum_winner_breakdown: metrics.ScoreBreakdown = pydantic.Field(
         default_factory=metrics.ScoreBreakdown
     )  # Σ winning-seat score split over decided games
@@ -273,21 +274,23 @@ class RunState(pydantic.BaseModel):
 
     def record_game(
         self,
-        breakdowns: tuple[metrics.ScoreBreakdown, metrics.ScoreBreakdown],
+        breakdowns: typing.Sequence[metrics.ScoreBreakdown],
         decisions_seen: int,
         family: metrics.FamilyCounts,
         winner: int,
     ) -> None:
         """Fold one finished game into the cumulative aggregates. ``winner`` is
-        the winning seat (0 or 1, or -1 for a tie) so the winning-seat score
-        split can be aggregated alongside the all-seats one."""
-        self.cum_breakdown = self.cum_breakdown + breakdowns[0] + breakdowns[1]
-        self.cum_player_games += 2
+        the winning seat (0..N-1, or -1 for a shared victory) so the
+        winning-seat score split can be aggregated alongside the all-seats one."""
+        for breakdown in breakdowns:
+            self.cum_breakdown = self.cum_breakdown + breakdown
+        self.cum_player_games += len(breakdowns)
         self.cum_games += 1
         self.cum_decisions += decisions_seen
         self.cum_decisions_sq += decisions_seen * decisions_seen
         self.cum_family = self.cum_family + family
-        margin = breakdowns[0].total - breakdowns[1].total
+        scores = [breakdown.total for breakdown in breakdowns]
+        margin = scores[0] - max(scores[1:])
         self.cum_margin_sum += margin
         self.cum_margin_sq += margin * margin
         self.cum_abs_margin_sum += abs(margin)
@@ -349,12 +352,14 @@ class RunState(pydantic.BaseModel):
     def time_remaining_seconds(self) -> float | None:
         """Estimated seconds until ``target_iterations`` is reached.
 
-        During the RANDOM_OPPONENT bootstrap phase the estimate uses half the
-        current random-phase iteration rate (self-play is ~2× slower, so we
-        assume the transition happens "now" and the rest runs at the slower
-        rate). After graduation the estimate tracks the actual self-play rate.
-        Returns ``None`` while the rate is still unknown (< 2 iterations
-        recorded) and 0.0 once the target is reached.
+        During the RANDOM_OPPONENT bootstrap phase the estimate uses the
+        current random-phase iteration rate divided by ``num_players``
+        (self-play consults the net on every seat instead of just one, so it
+        is roughly ``num_players``× slower; we assume the transition happens
+        "now" and the rest runs at that slower rate). After graduation the
+        estimate tracks the actual self-play rate. Returns ``None`` while the
+        rate is still unknown (< 2 iterations recorded) and 0.0 once the
+        target is reached.
         """
         if self.target_iterations <= 0:
             return None
@@ -366,7 +371,9 @@ class RunState(pydantic.BaseModel):
             if self.random_phase_iter_count < 2 or self.random_phase_seconds <= 0:
                 return None
             # Assume the rest runs at the (slower) self-play rate.
-            rate = (self.random_phase_iter_count / self.random_phase_seconds) / 2.0
+            rate = (
+                self.random_phase_iter_count / self.random_phase_seconds
+            ) / self.config.num_players
         else:
             if self.self_play_iter_count < 2 or self.self_play_seconds <= 0:
                 return None

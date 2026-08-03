@@ -96,8 +96,8 @@ class _WorkerArch(pydantic.BaseModel):
     include_setup: bool = True
     # Seat count the run trains at (``encode.EncodingSpec.num_players``); the
     # worker's spec must match so its encoded vectors line up with the
-    # broadcast weights. Harmless at the current default of 2 — threaded now
-    # so a later stage's N>=3 training pipeline needs no mp_collect changes.
+    # broadcast weights, and every worker-side game/eval call below is built
+    # at this seat count.
     num_players: int = 2
     # Setup-model shape + generation knobs a worker needs to build its local
     # setup net and random generator. Absent (``setup_enabled=False``) when the
@@ -356,6 +356,7 @@ class ProcessCollector:
         opponent_is_random = opponent_net is None
         if opponent_net is not None:
             self._broadcast_opponent(opponent_net, opponent_generation)
+        num_players = self._arch.num_players
         tasks = [
             _EvalTask(
                 weights_path=str(self._weights_path),
@@ -367,18 +368,21 @@ class ProcessCollector:
                 net_seat=net_seat,
             )
             for pair in range(n_pairs)
-            for net_seat in (0, 1)
+            for net_seat in range(num_players)
         ]
 
-        n_games = 2 * n_pairs
-        margins: list[int] = []
+        n_games = num_players * n_pairs
+        outcomes: list[metrics.EvalGameOutcome] = []
         for future in futures.as_completed(
             [pool.submit(_worker_eval, task) for task in tasks]
         ):
-            margins.append(future.result())
+            margin, win_credit = future.result()
+            outcomes.append(
+                metrics.EvalGameOutcome(margin=margin, win_credit=win_credit)
+            )
             if on_progress is not None:
-                on_progress(len(margins), n_games)
-        return evaluate.summarize_eval(margins, opponent_generation)
+                on_progress(len(outcomes), n_games)
+        return evaluate.summarize_eval(outcomes, opponent_generation)
 
     def terminate(self) -> None:
         """Forcibly kill all worker processes immediately, abandoning any in-flight
@@ -569,6 +573,11 @@ def _bootstrap_opponent_agent(arch: _WorkerArch, seed: int) -> engine.Agent | No
     to the random agent.  The function-level import breaks the circular
     dependency: ``loaders`` imports from ``wingspan.agents``, which would form
     a cycle if imported at module level here.
+
+    Refuses a checkpoint trained at a different seat count than this run — a
+    defense-in-depth twin of ``loop_resume.validate_bootstrap_opponent``'s
+    startup check, for workers spawned without going through
+    ``TrainingLoop.__init__`` (e.g. a bare ``ProcessCollector`` in a test).
     """
     if arch.bootstrap_opponent_checkpoint is None:
         return None
@@ -579,10 +588,17 @@ def _bootstrap_opponent_agent(arch: _WorkerArch, seed: int) -> engine.Agent | No
     import wingspan.players.loaders as loaders  # noqa: PLC0415
     import wingspan.training.policy as policy  # noqa: PLC0415
 
-    policy_net, _ = loaders.load_policy_net(
+    policy_net, saved_config = loaders.load_policy_net(
         pathlib.Path(arch.bootstrap_opponent_checkpoint),
         torch.device("cpu"),
     )
+    if saved_config.num_players != arch.num_players:
+        raise ValueError(
+            f"bootstrap opponent checkpoint {arch.bootstrap_opponent_checkpoint!r} "
+            f"was trained at num_players={saved_config.num_players}, but this run "
+            f"trains at num_players={arch.num_players} — a bootstrap opponent must "
+            "match the run's seat count"
+        )
     return policy.greedy_agent(policy_net, torch.device("cpu"))
 
 
@@ -593,6 +609,11 @@ def _dagger_expert_net(arch: _WorkerArch) -> model.PolicyValueNet | None:
     expert is kept as a full net so ``policy_probs`` can compute its soft
     distribution.  The expert may be a different architecture/era than the
     student — ``load_policy_net`` handles the era-routing.
+
+    Refuses a checkpoint trained at a different seat count than this run — a
+    defense-in-depth twin of ``loop_resume.validate_dagger_expert``'s startup
+    check, for workers spawned without going through ``TrainingLoop.__init__``
+    (e.g. a bare ``ProcessCollector`` in a test).
     """
     global _worker_dagger_expert_net
     if arch.dagger_expert_checkpoint is None:
@@ -603,10 +624,17 @@ def _dagger_expert_net(arch: _WorkerArch) -> model.PolicyValueNet | None:
     # ``_bootstrap_opponent_agent``).
     import wingspan.players.loaders as loaders  # noqa: PLC0415
 
-    expert_net, _ = loaders.load_policy_net(
+    expert_net, saved_config = loaders.load_policy_net(
         pathlib.Path(arch.dagger_expert_checkpoint),
         torch.device("cpu"),
     )
+    if saved_config.num_players != arch.num_players:
+        raise ValueError(
+            f"DAgger expert checkpoint {arch.dagger_expert_checkpoint!r} was "
+            f"trained at num_players={saved_config.num_players}, but this run "
+            f"trains at num_players={arch.num_players} — a DAgger expert must "
+            "match the run's seat count"
+        )
     expert_net.eval()
     _worker_dagger_expert_net = expert_net
     return _worker_dagger_expert_net
@@ -641,6 +669,7 @@ def _worker_play(task: _GameTask) -> collect.GameRecord:
             opponent,
             expert_net,
             combine_gain_food=arch.combine_gain_food,
+            num_players=arch.num_players,
         )
     )
 
@@ -689,14 +718,17 @@ def _worker_play_setup(task: _SetupGameTask) -> collect.GameRecord:
             setup_greedy=_worker_setup_greedy,
             expert_net=expert_net,
             combine_gain_food=arch.combine_gain_food,
+            num_players=arch.num_players,
         )
     )
 
 
-def _worker_eval(task: _EvalTask) -> int:
-    """Play one greedy held-out eval game and return the policy's score margin.
-    Reuses :func:`evaluate.play_eval_game`, so the worker produces the same
-    margin the sequential path would for this ``(pair_seed, net_seat)``."""
+def _worker_eval(task: _EvalTask) -> tuple[float, float]:
+    """Play one greedy held-out eval game and return its ``(margin,
+    win_credit)`` — kept as a plain picklable tuple for the IPC hop; the main
+    process wraps it into a :class:`metrics.EvalGameOutcome`. Reuses
+    :func:`evaluate.play_eval_game`, so the worker produces the same result
+    the sequential path would for this ``(pair_seed, net_seat)``."""
     net = _worker_net
     device = _worker_device
     arch = _worker_arch
@@ -704,16 +736,18 @@ def _worker_eval(task: _EvalTask) -> int:
     assert arch is not None, "worker arch not initialized"
     _maybe_reload_weights(net, device, task.weights_path, task.weights_version)
     opponent = _ensure_worker_opponent(task, device)
-    return evaluate.play_eval_game(
+    outcome = evaluate.play_eval_game(
         net,
         opponent,
         device,
         task.pair_seed,
         task.net_seat,
+        num_players=arch.num_players,
         split_setup_bonus=arch.split_setup_bonus,
         split_setup_food=arch.split_setup_food,
         combine_gain_food=arch.combine_gain_food,
     )
+    return (outcome.margin, outcome.win_credit)
 
 
 def _compact(record: collect.GameRecord) -> collect.GameRecord:
