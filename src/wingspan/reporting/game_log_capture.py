@@ -110,16 +110,15 @@ class RawTimelinePoint(pydantic.BaseModel):
     """One recorded decision's raw data for the timeline chart.
 
     Populated by :func:`extract_timeline_points` from the event tree, before
-    timestamp finalization. ``value_pov`` is the critic's output for the
-    deciding player's POV (divided by ``score_norm``); ``None`` when no net
-    backed that seat."""
+    timestamp finalization. ``scores`` is the live per-seat score list (seat
+    order); ``value_pov`` is the critic's output for the deciding player's own
+    POV (divided by ``score_norm``); ``None`` when no net backed that seat."""
 
     player_id: int
     margin_before: float
     provisional_timestamp: float
     family_idx: int
-    score_p0: int
-    score_p1: int
+    scores: list[int]
     phase_index: int
     value_pov: float | None = None
 
@@ -128,16 +127,22 @@ def build_timeline(
     *,
     engine: core.Engine,
     raw_points: list[RawTimelinePoint],
-    seat_configs: tuple[
-        train_config.TrainConfig | None, train_config.TrainConfig | None
-    ],
+    seat_configs: tuple[train_config.TrainConfig | None, ...],
 ) -> list[game_log_html.TimelinePoint]:
     """Finalize timestamps and compute per-decision chart coordinates.
 
     Reads the game's final scores from ``engine`` and each seat's
     ``reward_mode`` to compute the target line so it matches the training
-    signal the critic was actually trained on.  Returns an empty list when
-    ``raw_points`` is empty (game with no decisions)."""
+    signal the critic was actually trained on. ``seat_configs`` is one entry
+    per seat (any table size); a seat beyond what the caller supplied is
+    treated as config-free (score-only degradation, exactly like ``None``).
+    Returns an empty list when ``raw_points`` is empty (game with no
+    decisions).
+
+    ``value_return`` / ``target_return`` on the result are each seat's own
+    point of view — that seat's margin vs the *best* other seat — not
+    projected onto any other seat's axis, so they generalize past 2 players
+    without a designated "reference" seat."""
     from wingspan.training import config as train_config
     from wingspan.training import timestamps
 
@@ -150,32 +155,34 @@ def build_timeline(
     final_ts = timestamps.finalize_provisional_timestamps(provisional_ts, family_idxs)
     game_end_ts = timestamps.final_timestamp(engine.state.turn_counter)
 
-    # Terminal value for each seat under each reward_basis.
-    final_score_p0 = engine.state.players[0].final_score or 0
-    final_score_p1 = engine.state.players[1].final_score or 0
-    terminal_margin = (
-        float(final_score_p0 - final_score_p1),
-        float(final_score_p1 - final_score_p0),
-    )
-    terminal_own_score = (float(final_score_p0), float(final_score_p1))
+    # Terminal value for each seat under each reward_basis (own POV: margin vs
+    # the best other seat, reducing to own-minus-opponent at 2 players).
+    num_seats = len(engine.state.players)
+    final_scores = [player.final_score or 0 for player in engine.state.players]
+    terminal_margin = [
+        float(
+            final_scores[seat]
+            - max(other for idx, other in enumerate(final_scores) if idx != seat)
+        )
+        for seat in range(num_seats)
+    ]
+    terminal_own_score = [float(score) for score in final_scores]
 
     # Build a {index: target_raw} map (raw = before / score_norm division),
     # matching the actual training signal for each seat's reward_mode.
     target_raw: dict[int, float] = {}
-    for player_id in (0, 1):
-        cfg = seat_configs[player_id]
+    for seat in range(num_seats):
+        cfg = _seat_config(seat_configs, seat)
         if cfg is None:
             continue
-        indices = [i for i, pt in enumerate(raw_points) if pt.player_id == player_id]
+        indices = [i for i, pt in enumerate(raw_points) if pt.player_id == seat]
         if not indices:
             continue
 
         basis = cfg.training.reward_basis
         own_score_basis = basis is train_config.RewardBasis.OWN_SCORE
         terminal = (
-            terminal_own_score[player_id]
-            if own_score_basis
-            else terminal_margin[player_id]
+            terminal_own_score[seat] if own_score_basis else terminal_margin[seat]
         )
 
         # terminal_margin: critic target is the flat end-of-game value broadcast
@@ -187,12 +194,7 @@ def build_timeline(
 
         # decision_delta: critic target telescopes toward 0 at the end.
         if own_score_basis:
-            checkpoints = [
-                float(
-                    raw_points[i].score_p0 if player_id == 0 else raw_points[i].score_p1
-                )
-                for i in indices
-            ]
+            checkpoints = [float(raw_points[i].scores[seat]) for i in indices]
         else:
             checkpoints = [raw_points[i].margin_before for i in indices]
         checkpoints.append(terminal)
@@ -204,33 +206,40 @@ def build_timeline(
         for position, idx in enumerate(indices):
             target_raw[idx] = raw_returns[position]
 
-    # Assemble TimelinePoint objects (value/target are P0-relative future returns, in VP).
+    # Assemble TimelinePoint objects. value/target are each seat's own-POV
+    # future return, in VP — no cross-seat resigning (see docstring above).
     result: list[game_log_html.TimelinePoint] = []
     for idx, (pt, ts) in enumerate(zip(raw_points, final_ts)):
-        cfg = seat_configs[pt.player_id]
+        cfg = _seat_config(seat_configs, pt.player_id)
         score_norm = cfg.training.score_norm if cfg is not None else 1.0
-        sign = 1 if pt.player_id == 0 else -1
 
         value_return: float | None = None
         if pt.value_pov is not None and cfg is not None:
-            value_return = sign * pt.value_pov * score_norm
+            value_return = pt.value_pov * score_norm
 
-        target_return: float | None = None
-        if idx in target_raw:
-            target_return = sign * target_raw[idx]
+        target_return: float | None = target_raw.get(idx)
 
         result.append(
             game_log_html.TimelinePoint(
                 timestamp=ts,
                 player_id=pt.player_id,
-                score_p0=pt.score_p0,
-                score_p1=pt.score_p1,
+                scores=pt.scores,
                 phase_index=pt.phase_index,
-                value_return_p0=value_return,
-                target_return_p0=target_return,
+                value_return=value_return,
+                target_return=target_return,
             )
         )
     return result
+
+
+def _seat_config(
+    seat_configs: tuple[train_config.TrainConfig | None, ...], seat: int
+) -> train_config.TrainConfig | None:
+    """The training config for ``seat``, or ``None`` when absent — a
+    config-free seat, or a seat beyond what the caller supplied (e.g. an
+    unconfigured :class:`~wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler`).
+    """
+    return seat_configs[seat] if seat < len(seat_configs) else None
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +252,7 @@ def build_report(
     phases: list[game_log_html.PhaseRecord],
     tree: gamelog_models.GameEventTree,
     seed: int | None,
-    matchup: tuple[str, str] | None,
+    matchup: tuple[str, ...] | None,
     timeline: list[game_log_html.TimelinePoint] | None = None,
 ) -> game_log_html.GameLogReport:
     """Assemble the HTML game-log report from phase snapshots and the event tree.
@@ -424,7 +433,8 @@ def _bonus_card_info(
 
 
 def _round_goal_infos(gs: state.GameState) -> list[game_log_html.RoundGoalInfo]:
-    """All four round goals with payouts, scored flags, VP projections, and counts."""
+    """All four round goals with payouts, scored flags, and per-seat VP
+    projections / qualifying counts (seat order)."""
     infos: list[game_log_html.RoundGoalInfo] = []
     for round_idx, (goal, payout) in enumerate(
         zip(gs.round_goals[:4], state.ROUND_GOAL_PAYOUTS)
@@ -433,14 +443,10 @@ def _round_goal_infos(gs: state.GameState) -> list[game_log_html.RoundGoalInfo]:
         # destructure the (now 3-wide) payout tuple to keep that unchanged.
         first_vp, second_vp = payout[0], payout[1]
 
-        p0_standing = scoring.round_goal_standing_for_round(
-            gs, gs.players[0], round_idx
-        )
-        p1_standing = (
-            scoring.round_goal_standing_for_round(gs, gs.players[1], round_idx)
-            if len(gs.players) > 1
-            else None
-        )
+        standings = [
+            scoring.round_goal_standing_for_round(gs, player, round_idx)
+            for player in gs.players
+        ]
         infos.append(
             game_log_html.RoundGoalInfo(
                 round_num=round_idx + 1,
@@ -448,10 +454,8 @@ def _round_goal_infos(gs: state.GameState) -> list[game_log_html.RoundGoalInfo]:
                 first_vp=first_vp,
                 second_vp=second_vp,
                 scored=len(gs.scored_goals) > round_idx,
-                p0_vp=p0_standing.vp,
-                p1_vp=p1_standing.vp if p1_standing is not None else 0,
-                p0_count=p0_standing.count,
-                p1_count=p1_standing.count if p1_standing is not None else 0,
+                vps=[standing.vp for standing in standings],
+                counts=[standing.count for standing in standings],
             )
         )
     return infos
@@ -629,8 +633,7 @@ def _collect_decision_points(
                     margin_before=sub.margin_before,
                     provisional_timestamp=prov_ts,
                     family_idx=sub.family_idx,
-                    score_p0=sub.score_p0,
-                    score_p1=sub.score_p1,
+                    scores=sub.scores,
                     phase_index=phase_idx,
                     value_pov=sub.value,
                 )

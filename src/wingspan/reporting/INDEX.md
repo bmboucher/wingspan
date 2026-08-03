@@ -40,11 +40,16 @@ report). `render_game_log_html(report: GameLogReport) -> str` /
 `write_game_log_html(report, out_path)` produce a self-contained, asset-free
 page that replays one `wingspan play` game phase-by-phase: a sticky state panel
 (3x5 board grids, hands, tray, food, scores, bonus cards, round goals), prev/next
-arrows, a `P0 / P1 / both` seat toggle, a collapsible decision log, and a
-**Timeline modal** (button opens two stacked SVG panels: top = per-player VP over
-game-clock time, bottom = P0-relative future return (per-seat critic prediction vs
-per-seat discounted-return target, each seat shown as a separate dashed line)
-with the realized margin as context). The decision log
+arrows, a per-seat view toggle (`P0 / Both / P1` at 2 seats — literal ids
+unchanged from before N-player support; `All / P0 / P1 / ...` at 3+ seats, see
+`_view_toggle_html`), a collapsible decision log, and a **Timeline modal**
+(button opens three stacked SVG panels: top = per-seat VP over game-clock time,
+bottom = each seat's own-POV future return (per-seat critic prediction vs
+per-seat discounted-return target — that seat's margin vs its best other seat,
+not projected onto any other seat's axis), third = seat 0's realized margin vs
+each seat's per-move advantage). Seats 0/1 keep their literal hand-picked
+colors; seats 2-4 get three more hues from `_SEAT_PALETTES`, generated into CSS
+by `_seat_css_rules()` (up to 5 seats, matching `state.MAX_PLAYERS`). The decision log
 renders four item kinds from `PhaseRecord.log_items: list[LogItem]`: collapsible
 `"decision"` boxes (with option bars scaled to max-probability, `+#.#` scores,
 and the selected option highlighted); non-collapsible `"forced"` outcome boxes;
@@ -58,12 +63,17 @@ client-side by an inline script.
 
 **`game_log_csv.py`** — CSV export for the timeline data embedded in a game log.
 `timeline_to_csv(report: GameLogReport) -> str` renders `report.timeline` as a
-header-plus-rows CSV: one row per `TimelinePoint`, with the critic and training-target
-columns sparse (only the moving seat's pair is filled; the other seat's cells are blank),
-exactly mirroring the bottom panel of the timeline chart.  All critic / target values are
-**P0-relative future-return margins in VP**.  `timeline_csv_data_uri(report) -> str`
-wraps the CSV as a `data:text/csv;charset=utf-8;base64,…` URI for use as a download-link
-`href`.  The module depends only on the stdlib (`base64`, `csv`, `io`) and references
+header-plus-rows CSV: one row per `TimelinePoint`, with dynamically-generated
+per-seat columns (`score_p0..score_p{n-1}`, `p0_critic_value..p{n-1}_critic_value`,
+`p0_target_value..p{n-1}_target_value`, derived from `len(report.player_names)` —
+reproduces today's exact 2-seat header byte-for-byte at `n == 2`). The critic and
+training-target columns are sparse (only the moving seat's cell is filled; every
+other seat's cell is blank), exactly mirroring the bottom panel of the timeline
+chart.  All critic / target values are **each seat's own future-return margin vs
+its best other seat, in VP** — not projected onto any other seat's axis.
+`timeline_csv_data_uri(report) -> str` wraps the CSV as a
+`data:text/csv;charset=utf-8;base64,…` URI for use as a download-link `href`. The
+module depends only on the stdlib (`base64`, `csv`, `io`) and references
 `GameLogReport` under `TYPE_CHECKING` to avoid a runtime import cycle.
 
 **`game_log_capture.py`** — the engine-aware half of the game-log feature.
@@ -93,12 +103,14 @@ to populate `log_items`.
 
 `extract_timeline_points(tree) -> list[RawTimelinePoint]` DFS-walks all
 `DecisionSubEvent`s in recording order to collect the timeline scalars
-(`value`, `turn_counter`, `setup_slot`, `family_idx`, `score_p0`, `score_p1`,
-`margin_before`).
+(`value`, `turn_counter`, `setup_slot`, `family_idx`, `scores`, `margin_before`).
 
 `build_timeline(engine, raw_points, seat_configs)` finalizes provisional
-per-decision timestamps and computes P0-relative future-return chart coordinates
-for value/target lines, reusing `timestamps.discounted_future_returns`.
+per-decision timestamps and computes each seat's own-POV future-return chart
+coordinates for its value/target lines (that seat's margin vs its best other
+seat — no cross-seat resigning), reusing `timestamps.discounted_future_returns`.
+`seat_configs` is a variadic per-seat tuple; a seat beyond what the caller
+supplied is treated as config-free (score-only degradation).
 
 Imported lazily by the `GameLogHtml` instrumentation handler so its `engine`
 dependency stays off the import-time path.

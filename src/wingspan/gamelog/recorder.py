@@ -39,14 +39,6 @@ _SETUP_SLOT_KEEP = 0
 _SETUP_SLOT_BONUS = 1
 _SETUP_SLOT_FOOD = 2
 
-# TEMPORARY (Stage 3 of the N-player plan): gamelog reporting (this recorder,
-# the HTML/plaintext renderers, the CSV/JSON exporters under
-# ``wingspan.reporting``) is still hardcoded to exactly two seats. Removed in
-# Stage 4 once gamelog/reporting are made seat-count-generic. Training is
-# unaffected in the meantime — collection/eval always play through the no-op
-# ``EMPTY`` recorder below, never a real ``EventRecorder``.
-_MAX_SUPPORTED_PLAYERS = 2
-
 
 class EventRecorder:
     """The structured event tree emitter, a separate engine collaborator.
@@ -63,8 +55,8 @@ class EventRecorder:
         empty, a :class:`~models.LooseEvent` is auto-created and appended to the
         current phase first.
 
-    2-player only for now (see ``_MAX_SUPPORTED_PLAYERS``) — constructing one
-    for a wider ``probes`` / ``seat_configs`` raises.
+    ``probes`` / ``seat_configs`` are per-seat tuples, one entry per player in
+    seat order — any table size the engine supports (2..5 seats).
     """
 
     def __init__(
@@ -72,13 +64,6 @@ class EventRecorder:
         probes: tuple[decision_probe.DecisionProbe | None, ...],
         seat_configs: tuple[train_config.TrainConfig | None, ...],
     ) -> None:
-        if (
-            len(probes) > _MAX_SUPPORTED_PLAYERS
-            or len(seat_configs) > _MAX_SUPPORTED_PLAYERS
-        ):
-            raise ValueError(
-                "gamelog recording is 2-player-only until the reporting stage lands"
-            )
         self._probes = probes
         self._seat_configs = seat_configs
         self.root: models.GameEventTree = models.GameEventTree()
@@ -218,8 +203,7 @@ class EventRecorder:
         value_pov, annotation = probe.take() if probe is not None else (None, None)
 
         gs = engine.state
-        score_p0 = scoring.running_score(gs.players[0])
-        score_p1 = scoring.running_score(gs.players[1])
+        scores = [scoring.running_score(player) for player in gs.players]
 
         # Encode the setup-window slot for timestamp reconstruction in reporting.
         turn_counter = gs.turn_counter
@@ -250,11 +234,11 @@ class EventRecorder:
         ) and isinstance(choice, decisions_module.BonusCardChoice):
             _stamp_setup_bonus(self._open_stack, choice)
 
-        margin_before = (
-            float(score_p0 - score_p1)
-            if decision.player_id == 0
-            else float(score_p1 - score_p0)
-        )
+        own_score = scores[decision.player_id]
+        other_scores = [
+            score for idx, score in enumerate(scores) if idx != decision.player_id
+        ]
+        margin_before = float(own_score - max(other_scores))
         sub_event = models.DecisionSubEvent(
             player_id=decision.player_id,
             outcome_text=humanize.humanize_outcome(decision, choice, gs),
@@ -264,8 +248,7 @@ class EventRecorder:
             turn_counter=turn_counter,
             setup_slot=setup_slot,
             family_idx=decisions_module.family_index_for(type(decision)),
-            score_p0=score_p0,
-            score_p1=score_p1,
+            scores=scores,
             margin_before=margin_before,
         )
         self._stack_top().sub_events.append(sub_event)

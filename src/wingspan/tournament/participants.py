@@ -130,12 +130,19 @@ def resolve_regime_flags(
     express no preference; an all-random field resolves to the engine's default
     (all flags off).
 
+    Also refuses (:func:`_check_two_seat_only`) any competitor trained at a
+    seat count other than 2: tournament scheduling and Elo are 2-seat-only for
+    now (N-seat tournament play is deferred scope), so a 3+-player checkpoint
+    cannot be seated here even though it can play a regular ``wingspan play``
+    game.
+
     Raises ``ValueError`` when two competitors were trained under different
     regimes: a game runs under exactly one regime, so mixed-regime seats cannot
     share a faithful game and their scores are not comparable — the tournament
     refuses rather than feeding one net decisions in a shape it never saw.
     """
     configs = [_config_for_spec(spec) for spec in specs]
+    _check_two_seat_only(specs, configs)
     return models.RegimeFlags(
         split_setup_bonus=players.resolve_split_setup_bonus(configs),
         split_setup_food=players.resolve_split_setup_food(configs),
@@ -144,6 +151,23 @@ def resolve_regime_flags(
 
 
 ###### PRIVATE #######
+
+
+def _check_two_seat_only(
+    specs: typing.Sequence[models.ParticipantSpec],
+    configs: typing.Sequence[config.RunConfig | None],
+) -> None:
+    """Refuse a competitor trained at a seat count other than 2.
+
+    Tournament scheduling (mirrored-pair deals, Elo) is built around exactly
+    two seats; N-seat tournament play is explicitly deferred scope. A
+    config-free (``RANDOM``) competitor carries no seat-count preference."""
+    for spec, cfg in zip(specs, configs):
+        if cfg is not None and cfg.num_players != 2:
+            raise ValueError(
+                f"the tournament is 2-seat for now; participant {spec.display_name} "
+                f"was trained at num_players={cfg.num_players}"
+            )
 
 
 def _config_for_spec(spec: models.ParticipantSpec) -> config.RunConfig | None:

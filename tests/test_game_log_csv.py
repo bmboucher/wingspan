@@ -16,9 +16,10 @@ from wingspan.reporting import game_log_csv, game_log_html
 
 def _make_report(
     points: list[game_log_html.TimelinePoint],
+    player_names: list[str] | None = None,
 ) -> game_log_html.GameLogReport:
     return game_log_html.GameLogReport(
-        player_names=["Alice", "Bob"],
+        player_names=player_names if player_names is not None else ["Alice", "Bob"],
         phases=[],
         timeline=points,
     )
@@ -54,11 +55,10 @@ class TestTimelineToCsv:
         point = game_log_html.TimelinePoint(
             timestamp=1.0,
             player_id=0,
-            score_p0=10,
-            score_p1=8,
+            scores=[10, 8],
             phase_index=3,
-            value_return_p0=2.5,
-            target_return_p0=3.0,
+            value_return=2.5,
+            target_return=3.0,
         )
         report = _make_report([point])
         rows = _parse_csv(game_log_csv.timeline_to_csv(report))
@@ -79,11 +79,10 @@ class TestTimelineToCsv:
         point = game_log_html.TimelinePoint(
             timestamp=2.33,
             player_id=1,
-            score_p0=12,
-            score_p1=15,
+            scores=[12, 15],
             phase_index=7,
-            value_return_p0=-1.5,
-            target_return_p0=-2.0,
+            value_return=-1.5,
+            target_return=-2.0,
         )
         report = _make_report([point])
         rows = _parse_csv(game_log_csv.timeline_to_csv(report))
@@ -96,15 +95,14 @@ class TestTimelineToCsv:
         assert row[9] == "-2.0"  # p1_target_value filled
 
     def test_none_values_render_as_blank(self) -> None:
-        """A decision with no trained net (value_return_p0=None) still emits scores."""
+        """A decision with no trained net (value_return=None) still emits scores."""
         point = game_log_html.TimelinePoint(
             timestamp=0.0,
             player_id=0,
-            score_p0=5,
-            score_p1=5,
+            scores=[5, 5],
             phase_index=0,
-            value_return_p0=None,
-            target_return_p0=None,
+            value_return=None,
+            target_return=None,
         )
         report = _make_report([point])
         rows = _parse_csv(game_log_csv.timeline_to_csv(report))
@@ -121,8 +119,7 @@ class TestTimelineToCsv:
             game_log_html.TimelinePoint(
                 timestamp=float(i),
                 player_id=i % 2,
-                score_p0=i,
-                score_p1=i,
+                scores=[i, i],
                 phase_index=i,
             )
             for i in range(5)
@@ -133,17 +130,50 @@ class TestTimelineToCsv:
         for i, row in enumerate(rows[1:]):
             assert row[0] == str(float(i)), f"row {i} has wrong timestamp"
 
+    def test_three_seat_header_and_columns(self) -> None:
+        """At 3 seats the header grows a score_p2 / p2_critic_value /
+        p2_target_value column, and a seat-2 decision routes into them."""
+        point = game_log_html.TimelinePoint(
+            timestamp=1.0,
+            player_id=2,
+            scores=[4, 6, 9],
+            phase_index=0,
+            value_return=1.25,
+            target_return=1.5,
+        )
+        report = _make_report([point], player_names=["Alice", "Bob", "Cleo"])
+        rows = _parse_csv(game_log_csv.timeline_to_csv(report))
+        assert rows[0] == [
+            "timestamp",
+            "phase_index",
+            "player_id",
+            "player_name",
+            "score_p0",
+            "score_p1",
+            "score_p2",
+            "p0_critic_value",
+            "p1_critic_value",
+            "p2_critic_value",
+            "p0_target_value",
+            "p1_target_value",
+            "p2_target_value",
+        ]
+        row = rows[1]
+        assert row[3] == "Cleo"
+        assert row[4:7] == ["4", "6", "9"]
+        assert row[7:10] == ["", "", "1.25"]  # only seat 2's critic cell filled
+        assert row[10:13] == ["", "", "1.5"]  # only seat 2's target cell filled
+
 
 class TestTimelineCsvDataUri:
     def test_round_trip(self) -> None:
         point = game_log_html.TimelinePoint(
             timestamp=1.5,
             player_id=0,
-            score_p0=7,
-            score_p1=3,
+            scores=[7, 3],
             phase_index=2,
-            value_return_p0=4.0,
-            target_return_p0=4.5,
+            value_return=4.0,
+            target_return=4.5,
         )
         report = _make_report([point])
         uri = game_log_csv.timeline_csv_data_uri(report)
@@ -165,8 +195,7 @@ class TestIntegration:
         point = game_log_html.TimelinePoint(
             timestamp=1.0,
             player_id=0,
-            score_p0=10,
-            score_p1=8,
+            scores=[10, 8],
             phase_index=1,
         )
         report = _make_report([point])

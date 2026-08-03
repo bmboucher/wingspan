@@ -1,10 +1,13 @@
 # Wingspan
 
-A simulator and reinforcement-learning training pipeline for the **core-set,
-two-player** board game [Wingspan](https://stonemaiergames.com/games/wingspan/).
-You can play a full game from the terminal, run quick automated games for logs or
-debugging, watch a trained network play (against itself, a frozen past self, or a
-random agent), and train a neural-network agent by self-play while watching it
+A simulator and reinforcement-learning training pipeline for the **core-set**
+board game [Wingspan](https://stonemaiergames.com/games/wingspan/), supporting
+**2-4 players**. A given trained network plays at exactly the seat count it was
+trained at (`num_players`, a per-run config field); `wingspan play` seats any
+mix of human, random, and AI players up to that count. You can play a full
+game from the terminal, run quick automated games for logs or debugging, watch
+a trained network play (against itself, a frozen past self, or a random
+agent), and train a neural-network agent by self-play while watching it
 improve on a live dashboard.
 
 ## Setup
@@ -30,13 +33,18 @@ CPU is the supported path.)
 ## Play games
 
 One command runs every matchup — interactive play, quick automated games, and
-trained-AI matches. Set each seat with `--p0` / `--p1`; the value is `human`
-(interactive play in the terminal), `random` (the uniform-random agent), a
-named checkpoint (`last`, `best`, or `opponent`, resolved against
-`--checkpoint-dir`), a path to a `.pt` file, or a run directory (its `last.pt`
-is seated). The default matchup is `last` vs `last` — the most recent trained
-model playing itself — so the bare command needs a trained model (see **Train
-an agent**); use `--p0 human --p1 random` to play without one:
+trained-AI matches. Set each seat with `--p0` / `--p1` / `--p2` / `--p3`; the
+value is `human` (interactive play in the terminal), `random` (the
+uniform-random agent), a named checkpoint (`last`, `best`, or `opponent`,
+resolved against `--checkpoint-dir`), a path to a `.pt` file, or a run
+directory (its `last.pt` is seated). `--p0` / `--p1` are always active
+(2-seat default); `--p2` / `--p3` add a 3rd / 4th seat and must be filled
+contiguously (`--p3` without `--p2` is rejected). A trained checkpoint can
+only be seated at the table size it was trained at (`num_players`) — mixing,
+say, a 2-player checkpoint into a 3-seat table is refused up front. The
+default matchup is `last` vs `last` — the most recent trained model playing
+itself — so the bare command needs a trained model (see **Train an agent**);
+use `--p0 human --p1 random` to play without one:
 
 ```
 wingspan play                                 # latest trained model vs itself
@@ -48,6 +56,7 @@ wingspan play --p0 best --p1 opponent --games 10        # best vs the frozen lad
 wingspan play --p0 best --p1 best --greedy --log ai.log # best vs itself, argmax play
 wingspan play --p0 runs/exp/last.pt --p1 random         # a checkpoint by path
 wingspan play --p0 best --p1 best --html game.html      # navigable HTML game-log viewer
+wingspan play --p0 random --p1 random --p2 random --html game.html  # 3-seat random game, HTML log
 ```
 
 A `human` seat gets a numbered menu for every choice the rules require — pick a
@@ -59,13 +68,16 @@ log into a move-by-move readout of what the network was "thinking", and
 N` plays a series (game *i* deals with `--seed + i`), `--log` writes the full
 action-by-action log per game, and `--quiet` suppresses the per-game summary.
 `--html FILE` additionally writes a self-contained HTML viewer that replays the
-game one phase/turn at a time — prev/next arrows, a `P0 / P1 / both` seat toggle,
-3x5 board grids pinned at the top, and a collapsible decision log beneath (for a
+game one phase/turn at a time — prev/next arrows, a per-seat view toggle
+(`P0 / Both / P1` at 2 seats, `All / P0 / P1 / ...` at 3+ seats), 3x5 board
+grids pinned at the top, and a collapsible decision log beneath (for a
 `--games` series the game index is inserted before the extension, `game.html ->
-game.0.html`).  The **Timeline** modal (opened via the toolbar button) shows score
-lines and per-seat critic/target return lines; it includes a **⬇ CSV** download
-link that yields one row per in-game decision with columns for timestamp,
-player, scores, and per-seat critic/target values (P0-relative VP margins).
+game.0.html`).  The **Timeline** modal (opened via the toolbar button) shows
+per-seat score lines and per-seat critic/target return lines; it includes a
+**⬇ CSV** download link that yields one row per in-game decision with columns
+for timestamp, player, per-seat scores, and per-seat critic/target values
+(each seat's own future-return margin vs its best other seat, in VP — not
+projected onto any other seat's axis).
 
 ## Train an agent
 
@@ -134,6 +146,12 @@ dashboard (skipped with `--quiet`) shows Elo ratings and W-L-T updating as
 games finish; **q** / Ctrl+C stops after the current games complete. The final
 standings and the full JSON report are written to `--out`
 (`tournament_report.json` by default).
+
+The tournament is **2-seat only for now**: N-seat scheduling and Elo are
+deferred scope, so a checkpoint trained at `num_players != 2` is refused with
+a clear error rather than being silently seated. 3-4 player checkpoints still
+play fine through `wingspan play`; only the round-robin tournament format is
+restricted.
 
 ## Installed commands
 

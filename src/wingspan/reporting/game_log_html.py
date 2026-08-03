@@ -4,10 +4,13 @@ Where :mod:`wingspan.reporting.html` documents a trained *network*, this module
 renders one *game*: a navigable, phase-by-phase replay of the detailed log the
 engine already produces. The page shows exactly one phase (a setup block, a
 round banner, or a single player turn) at a time, with prev/next arrows; a
-``P0 / P1 / both`` toggle at the top controls navigation only (all boards
-always show both players); the current game state (3x5 board grids, hands,
-tray, birdfeeder, scores, round goals, bonus cards) is shown at the top of the
-page, and the turn's decision narration sits in a collapsible panel beneath.
+per-seat view toggle at the top controls navigation only (all boards always
+show every player) — ``P0 / Both / P1`` at 2 seats (the literal ids/labels
+unchanged from before N-player support), ``All / P0 / P1 / ...`` at 3+ seats
+(see :func:`_view_toggle_html`); the current game state (3x5 board grids,
+hands, tray, birdfeeder, scores, round goals, bonus cards) is shown at the top
+of the page, and the turn's decision narration sits in a collapsible panel
+beneath.
 
 The data model here holds **primitives only** — every field is a string, int,
 or a small nested model of strings/ints — so this module depends on nothing in
@@ -35,6 +38,73 @@ from wingspan.reporting import game_log_csv
 # Number of board columns per habitat row — the viewer always draws this many
 # cells so the board reads as a fixed 3x5 grid (empty slots shown hollow).
 BOARD_COLUMNS = 5
+
+# Maximum seats the generated per-seat CSS/JS covers (matches state.MAX_PLAYERS).
+_MAX_SEATS = 5
+
+
+class _SeatPalette(pydantic.BaseModel):
+    """One seat's color set for the generated per-seat CSS: bar charts
+    (round-goal / point-source panels), decision-box theming, the decision
+    option-bar fill, the note left-border, and the timeline chart's identity
+    line color (reused for that seat's value/target/advantage lines too — see
+    the timeline JS's per-seat color arrays)."""
+
+    identity: str
+    di_bg: str
+    di_text: str
+    di_border: str
+    di_bar_fill: str
+    note_border: str
+
+
+# Seats 0/1 reproduce today's literal colors unchanged (the N=2 byte-identity
+# anchor). Seats 2-4 add three more hues (amber, violet, teal) distinguishable
+# from each other, from p0/p1's blue/red, and from the green used elsewhere in
+# this UI for "active/selected" (so a new seat's color never reads as a status
+# highlight).
+_SEAT_PALETTES: tuple[_SeatPalette, ...] = (
+    _SeatPalette(
+        identity="#93c5fd",
+        di_bg="#1e3a5f",
+        di_text="#93c5fd",
+        di_border="#1e4a7f",
+        di_bar_fill="#facc15",
+        note_border="#3b82f6",
+    ),
+    _SeatPalette(
+        identity="#fca5a5",
+        di_bg="#3f1515",
+        di_text="#fca5a5",
+        di_border="#5a1f1f",
+        di_bar_fill="#fb923c",
+        note_border="#ef4444",
+    ),
+    _SeatPalette(
+        identity="#fcd34d",
+        di_bg="#4a3510",
+        di_text="#fcd34d",
+        di_border="#6b4d17",
+        di_bar_fill="#fcd34d",
+        note_border="#f59e0b",
+    ),
+    _SeatPalette(
+        identity="#c4b5fd",
+        di_bg="#2e1f52",
+        di_text="#c4b5fd",
+        di_border="#4c3a7a",
+        di_bar_fill="#c4b5fd",
+        note_border="#8b5cf6",
+    ),
+    _SeatPalette(
+        identity="#5eead4",
+        di_bg="#0f3d3a",
+        di_text="#5eead4",
+        di_border="#155e56",
+        di_bar_fill="#5eead4",
+        note_border="#14b8a6",
+    ),
+)
 
 
 class LogItemCategory(enum.StrEnum):
@@ -136,20 +206,18 @@ class PlayerPanel(pydantic.BaseModel):
 
 class RoundGoalInfo(pydantic.BaseModel):
     """One of the four round goals with its top-2 (1st/2nd place) payout,
-    scored flag, projected per-player VPs, and qualifying counts (counts are
-    shown in the bar chart; VP payouts are shown as a sub-label). This is a
-    2-seat reporting shape — ``p0``/``p1`` only — independent of how many
-    places the underlying payout ladder (``state.ROUND_GOAL_PAYOUTS``) pays."""
+    scored flag, and per-seat projected VPs / qualifying counts (``vps`` /
+    ``counts``, both in seat order — counts are shown in the bar chart, VP
+    payouts as a sub-label), independent of how many places the underlying
+    payout ladder (``state.ROUND_GOAL_PAYOUTS``) pays."""
 
     round_num: int
     description: str
     first_vp: int
     second_vp: int
     scored: bool
-    p0_vp: int = 0
-    p1_vp: int = 0
-    p0_count: int = 0
-    p1_count: int = 0
+    vps: list[int] = []
+    counts: list[int] = []
 
 
 class LogItem(pydantic.BaseModel):
@@ -200,33 +268,35 @@ class TimelinePoint(pydantic.BaseModel):
     """One decision's snapshot for the modal timeline chart.
 
     Coordinates are primitives so the instance serialises cleanly into the
-    page's embedded JSON. ``value_return_p0`` and ``target_return_p0`` are the
-    P0-relative return in victory-point units:
+    page's embedded JSON. ``scores`` is the live per-seat score list (seat
+    order). ``value_return`` and ``target_return`` are the *deciding seat's
+    own* return in victory-point units — that seat's margin vs the best other
+    seat, not projected onto any other seat's axis:
 
-    * ``value_return_p0`` — the critic's predicted return at this decision.
-    * ``target_return_p0`` — the training target the critic is trained to match.
-      Shape depends on the seat's ``reward_mode``: a flat constant at the
-      terminal margin for ``terminal_margin`` (the critic converges onto it near
-      game end as outcome uncertainty resolves); a discounted future return
-      telescoping toward 0 for ``decision_delta``.
+    * ``value_return`` — the critic's predicted return at this decision, from
+      the deciding seat's own point of view.
+    * ``target_return`` — the training target the critic is trained to match,
+      same point of view. Shape depends on the seat's ``reward_mode``: a flat
+      constant at the terminal margin for ``terminal_margin`` (the critic
+      converges onto it near game end as outcome uncertainty resolves); a
+      discounted future return telescoping toward 0 for ``decision_delta``.
 
     Both are ``None`` when the deciding seat has no trained net (random/human).
     """
 
     timestamp: float
     player_id: int
-    score_p0: int
-    score_p1: int
+    scores: list[int]
     phase_index: int
-    value_return_p0: float | None = None
-    target_return_p0: float | None = None
+    value_return: float | None = None
+    target_return: float | None = None
 
 
 class GameLogReport(pydantic.BaseModel):
     """The whole game: matchup metadata plus every phase in play order."""
 
     seed: int | None = None
-    matchup: tuple[str, str] | None = None
+    matchup: tuple[str, ...] | None = None
     player_names: list[str]
     final_scores: list[int] | None = None
     phases: list[PhaseRecord]
@@ -254,16 +324,21 @@ def render_game_log_html(report: GameLogReport) -> str:
     """Render ``report`` to a single self-contained HTML document (no assets).
 
     The report is embedded as JSON and drawn entirely client-side by the inline
-    script, so the same string is valid whether saved to disk or served."""
+    script, so the same string is valid whether saved to disk or served. The
+    seat-view toggle is the one piece of chrome rendered server-side (rather
+    than generated by the inline script) so it stays byte-identical to the
+    pre-N-player markup at 2 seats — see :func:`_view_toggle_html`."""
     title = _page_title(report)
     payload = _embed_json(report)
     csv_uri = game_log_csv.timeline_csv_data_uri(report)
+    view_toggle = _view_toggle_html(len(report.player_names))
     return _DOCUMENT.format(
         title=title,
-        css=_CSS,
+        css=_CSS + "\n" + _seat_css_rules(),
         payload=payload,
         script=_SCRIPT,
         csv_uri=csv_uri,
+        view_toggle=view_toggle,
     )
 
 
@@ -278,12 +353,62 @@ def write_game_log_html(report: GameLogReport, out_path: pathlib.Path) -> None:
 
 def _page_title(report: GameLogReport) -> str:
     """A short ``<title>`` / header line: the matchup and seed when known."""
-    if report.matchup is not None:
-        matchup = f"{report.matchup[0]} vs {report.matchup[1]}"
-    else:
-        matchup = " vs ".join(report.player_names)
+    matchup = " vs ".join(
+        report.matchup if report.matchup is not None else report.player_names
+    )
     seed = "" if report.seed is None else f" — seed {report.seed}"
     return f"Wingspan game log: {matchup}{seed}"
+
+
+def _view_toggle_html(num_seats: int) -> str:
+    """The topbar's seat-view toggle buttons.
+
+    At 2 seats reproduces today's literal markup exactly — ``data-view``
+    values ``p0`` / ``both`` / ``p1``, ``both`` pre-selected — for back-compat
+    with existing consumers keyed on those ids. At 3+ seats the group button
+    generalizes to ``all`` (still pre-selected) followed by one ``Just P{i}``
+    button per seat. The click handler in ``_SCRIPT`` reads ``data-view`` off
+    whatever buttons are present, so no script change is needed for either
+    shape."""
+    if num_seats == 2:
+        return (
+            '<button data-view="p0">Just P0</button>\n'
+            '      <button data-view="both" class="active">Both</button>\n'
+            '      <button data-view="p1">Just P1</button>'
+        )
+    seat_buttons = "\n      ".join(
+        f'<button data-view="p{seat}">Just P{seat}</button>'
+        for seat in range(num_seats)
+    )
+    return (
+        '<button data-view="all" class="active">All</button>\n' f"      {seat_buttons}"
+    )
+
+
+def _seat_css_rules() -> str:
+    """Generated per-seat CSS for seats 2-4 (bars, decision boxes, notes,
+    decision option-bar fill, and the timeline chart's per-seat line colors).
+    Seats 0/1 keep their literal hand-written rules in ``_CSS`` unchanged."""
+    rules: list[str] = []
+    for seat in range(2, _MAX_SEATS):
+        palette = _SEAT_PALETTES[seat]
+        rules.append(
+            f".bar.p{seat} {{ background: {palette.identity}; }}\n"
+            f".di.p{seat} summary, .di.p{seat}.forced {{ "
+            f"background: {palette.di_bg}; color: {palette.di_text}; "
+            f"border-color: {palette.di_border}; }}\n"
+            f".di.p{seat} .di-bar-fill {{ background: {palette.di_bar_fill}; }}\n"
+            f".note.p{seat} {{ border-left-color: {palette.note_border}; }}\n"
+            f".chart-line-p{seat} {{ fill: none; stroke: {palette.identity}; "
+            f"stroke-width: 2; }}\n"
+            f".chart-line-value-p{seat} {{ fill: none; stroke: {palette.identity}; "
+            f"stroke-width: 2; }}\n"
+            f".chart-line-target-p{seat} {{ fill: none; stroke: {palette.identity}; "
+            f"stroke-width: 1.5; stroke-dasharray: 5,3; }}\n"
+            f".chart-line-adv-p{seat} {{ fill: none; stroke: {palette.identity}; "
+            f"stroke-width: 2; }}"
+        )
+    return "\n".join(rules)
 
 
 def _embed_json(report: GameLogReport) -> str:
@@ -325,9 +450,7 @@ _DOCUMENT = """\
     <span class="spacer"></span>
     <button id="timeline-btn" title="Open game timeline chart">Timeline</button>
     <div class="toggle" id="view-toggle" role="group" aria-label="Seat view">
-      <button data-view="p0">Just P0</button>
-      <button data-view="both" class="active">Both</button>
-      <button data-view="p1">Just P1</button>
+      {view_toggle}
     </div>
   </div>
   <div id="phase-title" class="phase-title"></div>
@@ -336,7 +459,7 @@ _DOCUMENT = """\
   <div id="chart-dialog">
     <div id="chart-header">
       <span id="chart-title">Game Timeline</span>
-      <a id="chart-csv" href="{csv_uri}" download="timeline.csv" title="Download timeline data as CSV (critic/target values are P0-relative VP)">⬇ CSV</a>
+      <a id="chart-csv" href="{csv_uri}" download="timeline.csv" title="Download timeline data as CSV (critic/target values are each seat's own margin vs its best other seat, in VP)">⬇ CSV</a>
       <button id="chart-close" title="Close (Esc)">✕</button>
     </div>
     <div id="chart-body">
@@ -902,16 +1025,17 @@ function handPanelHtml(phase) {
 
 function goalsPanelHtml(phase) {
   const cols = phase.round_goals.map(g => {
-    const max = Math.max(g.p0_count, g.p1_count, 1);
-    const h0 = Math.round(g.p0_count / max * 60);
-    const h1 = Math.round(g.p1_count / max * 60);
+    const counts = g.counts || [];
+    const max = Math.max(...counts, 1);
+    const bars = counts.map((count, seat) => {
+      const h = Math.round(count / max * 60);
+      return '<div class="bar p' + seat + '" style="height:' + h + 'px"></div>';
+    }).join('');
+    const vals = counts.map(count => '<span>' + count + '</span>').join('');
     const check = g.scored ? ' ✓' : '';
     return '<div class="goal-col">'
-      + '<div class="bar-vals"><span>' + g.p0_count + '</span><span>' + g.p1_count + '</span></div>'
-      + '<div class="bar-pair">'
-      +   '<div class="bar p0" style="height:' + h0 + 'px"></div>'
-      +   '<div class="bar p1" style="height:' + h1 + 'px"></div>'
-      + '</div>'
+      + '<div class="bar-vals">' + vals + '</div>'
+      + '<div class="bar-pair">' + bars + '</div>'
       + '<div class="bar-axis"></div>'
       + '<div class="goal-desc">R' + g.round_num + check + '<br>' + esc(g.description) + '</div>'
       + '<div class="goal-pay-sm">(' + g.first_vp + '/' + g.second_vp + ' VP)</div>'
@@ -997,9 +1121,8 @@ function nextMatchingPhase(from, delta) {
     const phase = DATA.phases[idx];
     if (phase.kind === 'game_start') { idx += delta; continue; }
     if (phase.kind !== 'turn') return idx;
-    if (view === 'both') return idx;
-    if (view === 'p0' && phase.active_player_id === 0) return idx;
-    if (view === 'p1' && phase.active_player_id === 1) return idx;
+    if (view === 'both' || view === 'all') return idx;
+    if (view === 'p' + phase.active_player_id) return idx;
     idx += delta;
   }
   return from;
@@ -1050,7 +1173,7 @@ function fitStatePanel() {
 }
 
 function renderLogItem(item) {
-  const seat = item.player_id === 0 ? 'p0' : item.player_id === 1 ? 'p1' : 'global';
+  const seat = item.player_id != null ? 'p' + item.player_id : 'global';
   const tag = item.player_id != null ? '<span class="di-tag">[P' + item.player_id + ']</span> ' : '';
   const headerText = tag + applyFoodEmoji(esc(item.text));
 
@@ -1341,89 +1464,94 @@ function renderPanel(svg, pts, xMin, xRange, yMin, yRange, lines, yZero, labels)
   }
 }
 
+// Per-seat CSS classes for the timeline chart's three panels. Seats 0/1 keep
+// today's literal class names (including P0's unsuffixed 'chart-line-value' /
+// 'chart-line-target'); seats 2-4 follow the 'chart-line-{role}-p{seat}'
+// pattern throughout (see _seat_css_rules in game_log_html.py).
+const VALUE_CLASS  = ['chart-line-value',  'chart-line-value-p1',  'chart-line-value-p2',  'chart-line-value-p3',  'chart-line-value-p4'];
+const TARGET_CLASS = ['chart-line-target', 'chart-line-target-p1', 'chart-line-target-p2', 'chart-line-target-p3', 'chart-line-target-p4'];
+const ADV_CLASS    = ['chart-line-adv-p0', 'chart-line-adv-p1',    'chart-line-adv-p2',    'chart-line-adv-p3',    'chart-line-adv-p4'];
+
+function numSeats() {
+  return (DATA.player_names && DATA.player_names.length) || 2;
+}
+
+function marginVsBestOther(scores, seat) {
+  const others = scores.filter((_, idx) => idx !== seat);
+  return scores[seat] - Math.max(...others);
+}
+
 function renderChart() {
   const tl = DATA.timeline || [];
   if (!tl.length) return;
+  const n = numSeats();
 
   const tMin = Math.min(...tl.map(p => p.timestamp));
   const tMax = Math.max(...tl.map(p => p.timestamp));
   const tRange = tMax - tMin || 1;
 
-  // --- Top panel: P0 / P1 scores ---
+  // --- Top panel: per-seat scores ---
   const topSvg = document.getElementById('chart-svg-top');
-  const allScores = tl.flatMap(p => [p.score_p0, p.score_p1]);
+  const allScores = tl.flatMap(p => p.scores);
   const sMin = Math.max(0, Math.min(...allScores) - 2);
   const sMax = Math.max(...allScores) + 2;
   const sRange = sMax - sMin || 1;
 
-  renderPanel(topSvg, tl, tMin, tRange, sMin, sRange, [
-    {data: tl.map(p => [p.timestamp, p.score_p0]), cls: 'chart-line-p0'},
-    {data: tl.map(p => [p.timestamp, p.score_p1]), cls: 'chart-line-p1'},
-  ], null, [
-    {cls: 'chart-line-p0', label: 'P0 score (VP)'},
-    {cls: 'chart-line-p1', label: 'P1 score (VP)'},
-  ]);
+  const scoreLines = [];
+  const scoreLabels = [];
+  for (let seat = 0; seat < n; seat++) {
+    const cls = 'chart-line-p' + seat;
+    scoreLines.push({data: tl.map(p => [p.timestamp, p.scores[seat]]), cls});
+    scoreLabels.push({cls, label: 'P' + seat + ' score (VP)'});
+  }
+  renderPanel(topSvg, tl, tMin, tRange, sMin, sRange, scoreLines, null, scoreLabels);
 
-  // --- Bottom panel: P0-relative future return (critic prediction vs target only) ---
+  // --- Bottom panel: each seat's own-POV future return (critic prediction vs
+  // target — that seat's margin vs its best other seat, not projected onto
+  // any other seat's axis; see TimelinePoint's docstring) ---
   const bottomSvg = document.getElementById('chart-svg-bottom');
-  const valueP0 = tl.filter(p => p.player_id === 0 && p.value_return_p0 !== null)
-                    .map(p => [p.timestamp, p.value_return_p0]);
-  const valueP1 = tl.filter(p => p.player_id === 1 && p.value_return_p0 !== null)
-                    .map(p => [p.timestamp, p.value_return_p0]);
-  const targetP0 = tl.filter(p => p.player_id === 0 && p.target_return_p0 !== null)
-                     .map(p => [p.timestamp, p.target_return_p0]);
-  const targetP1 = tl.filter(p => p.player_id === 1 && p.target_return_p0 !== null)
-                     .map(p => [p.timestamp, p.target_return_p0]);
-
-  const allMargins = [
-    ...valueP0.map(([, v]) => v),
-    ...valueP1.map(([, v]) => v),
-    ...targetP0.map(([, v]) => v),
-    ...targetP1.map(([, v]) => v),
-  ];
+  const marginLines = [];
+  const marginLabels = [];
+  const allMargins = [];
+  for (let seat = 0; seat < n; seat++) {
+    const value = tl.filter(p => p.player_id === seat && p.value_return !== null)
+                    .map(p => [p.timestamp, p.value_return]);
+    const target = tl.filter(p => p.player_id === seat && p.target_return !== null)
+                     .map(p => [p.timestamp, p.target_return]);
+    allMargins.push(...value.map(([, v]) => v), ...target.map(([, v]) => v));
+    if (value.length) {
+      marginLines.push({data: value, cls: VALUE_CLASS[seat]});
+      marginLabels.push({cls: VALUE_CLASS[seat], label: 'P' + seat + ' critic return'});
+    }
+    if (target.length) {
+      marginLines.push({data: target, cls: TARGET_CLASS[seat]});
+      marginLabels.push({cls: TARGET_CLASS[seat], label: 'P' + seat + ' target'});
+    }
+  }
   const mMin = allMargins.length ? Math.min(...allMargins) - 2 : -2;
   const mMax = allMargins.length ? Math.max(...allMargins) + 2 :  2;
-  const mRange = mMax - mMin || 1;
+  renderPanel(bottomSvg, tl, tMin, tRange, mMin, mMax - mMin || 1, marginLines, 0, marginLabels);
 
-  const marginLines = [];
-  if (valueP0.length)  marginLines.push({data: valueP0,  cls: 'chart-line-value'});
-  if (valueP1.length)  marginLines.push({data: valueP1,  cls: 'chart-line-value-p1'});
-  if (targetP0.length) marginLines.push({data: targetP0, cls: 'chart-line-target'});
-  if (targetP1.length) marginLines.push({data: targetP1, cls: 'chart-line-target-p1'});
-
-  const marginLabels = [];
-  if (valueP0.length)  marginLabels.push({cls: 'chart-line-value',      label: 'P0 critic return'});
-  if (valueP1.length)  marginLabels.push({cls: 'chart-line-value-p1',   label: 'P1 critic return'});
-  if (targetP0.length) marginLabels.push({cls: 'chart-line-target',     label: 'P0 target'});
-  if (targetP1.length) marginLabels.push({cls: 'chart-line-target-p1',  label: 'P1 target'});
-
-  renderPanel(bottomSvg, tl, tMin, tRange, mMin, mRange, marginLines, 0, marginLabels);
-
-  // --- Third panel: realized P0−P1 margin vs per-move advantage (target − critic) ---
+  // --- Third panel: seat 0's realized margin-vs-best-other, plus each seat's
+  // per-move advantage (target − critic) ---
   const thirdSvg = document.getElementById('chart-svg-third');
-  const realized = tl.map(p => [p.timestamp, p.score_p0 - p.score_p1]);
-  const hasAdv = p => p.value_return_p0 !== null && p.target_return_p0 !== null;
-  const advP0 = tl.filter(p => p.player_id === 0 && hasAdv(p))
-                  .map(p => [p.timestamp, p.target_return_p0 - p.value_return_p0]);
-  const advP1 = tl.filter(p => p.player_id === 1 && hasAdv(p))
-                  .map(p => [p.timestamp, p.target_return_p0 - p.value_return_p0]);
-
-  const allAdv = [
-    ...realized.map(([, v]) => v),
-    ...advP0.map(([, v]) => v),
-    ...advP1.map(([, v]) => v),
-  ];
-  const aMin = Math.min(...allAdv) - 2;
-  const aMax = Math.max(...allAdv) + 2;
-  const aRange = aMax - aMin || 1;
+  const realized = tl.map(p => [p.timestamp, marginVsBestOther(p.scores, 0)]);
+  const hasAdv = p => p.value_return !== null && p.target_return !== null;
 
   const advLines  = [{data: realized, cls: 'chart-line-realized'}];
-  const advLabels = [{cls: 'chart-line-realized', label: 'Realized P0−P1 (VP)'}];
-  if (advP0.length) { advLines.push({data: advP0, cls: 'chart-line-adv-p0'});
-                      advLabels.push({cls: 'chart-line-adv-p0', label: 'P0 advantage'}); }
-  if (advP1.length) { advLines.push({data: advP1, cls: 'chart-line-adv-p1'});
-                      advLabels.push({cls: 'chart-line-adv-p1', label: 'P1 advantage'}); }
-
-  renderPanel(thirdSvg, tl, tMin, tRange, aMin, aRange, advLines, 0, advLabels);
+  const advLabels = [{cls: 'chart-line-realized', label: 'P0 realized margin (VP)'}];
+  const allAdv = realized.map(([, v]) => v);
+  for (let seat = 0; seat < n; seat++) {
+    const adv = tl.filter(p => p.player_id === seat && hasAdv(p))
+                  .map(p => [p.timestamp, p.target_return - p.value_return]);
+    if (adv.length) {
+      advLines.push({data: adv, cls: ADV_CLASS[seat]});
+      advLabels.push({cls: ADV_CLASS[seat], label: 'P' + seat + ' advantage'});
+      allAdv.push(...adv.map(([, v]) => v));
+    }
+  }
+  const aMin = Math.min(...allAdv) - 2;
+  const aMax = Math.max(...allAdv) + 2;
+  renderPanel(thirdSvg, tl, tMin, tRange, aMin, aMax - aMin || 1, advLines, 0, advLabels);
 }
 """

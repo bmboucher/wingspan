@@ -114,8 +114,10 @@ class DecisionSubEvent(SubEvent):
     seat at this decision (``None`` for random/human seats); ``turn_counter`` and
     ``setup_slot`` together locate the decision on the game clock (see
     :mod:`wingspan.training.timestamps`); ``family_idx`` identifies the decision
-    type for timestamp interpolation; ``score_p0`` / ``score_p1`` / ``margin_before``
-    are the live scores and relative margin used by the target-line computation."""
+    type for timestamp interpolation; ``scores`` is the live per-seat score list
+    (seat order) and ``margin_before`` is the deciding seat's own margin — its
+    score minus the *best* other seat's score — both used by the target-line
+    computation."""
 
     outcome_text: str
     options: list[DecisionOption] = []
@@ -125,8 +127,7 @@ class DecisionSubEvent(SubEvent):
     turn_counter: int = 0
     setup_slot: int | None = None  # 0=keep, 1=bonus, 2=food; None means in-turn
     family_idx: int = 0
-    score_p0: int = 0
-    score_p1: int = 0
+    scores: list[int] = []
     margin_before: float = 0.0
 
 

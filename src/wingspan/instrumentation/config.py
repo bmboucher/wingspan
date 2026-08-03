@@ -49,7 +49,7 @@ class RunContext(pydantic.BaseModel):
     output_dir: pathlib.Path
     run_name: str
     seed: int
-    matchup: tuple[str, str] | None = None
+    matchup: tuple[str, ...] | None = None
     worker_id: int | None = None
 
 

@@ -60,6 +60,13 @@ constructor. AI policy agents record a `PolicyAnnotation` on the `DecisionProbe`
 after every genuine decision (after `chosen_idx` is resolved), enabling the HTML
 viewer's decision-box option bars.
 
+`resolve_num_players(configs, seat_count)` — every trained seat's
+`num_players` must equal the table's actual seat count (config-free
+human/random seats express no preference); raises `ValueError` naming the
+offending seat, its trained count, and the table size. Called by `wingspan
+play` after the per-seat agents are built, alongside the other `resolve_*`
+regime checks.
+
 Log annotation format (text log, unchanged): `[P#] <DecisionType> | N choices |
 [greedy] | head:<family>` followed by indented choice lines (4 spaces). The
 chose-line reads `[P#] chose: <label> (xx.xxx%)`. All log lines use

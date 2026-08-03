@@ -1,11 +1,14 @@
-"""The unified ``wingspan play`` entry point: any seats, 1..N games, optional logs.
+"""The unified ``wingspan play`` entry point: 2-4 seats, 1..N games, optional logs.
 
-Each seat is set with ``--p0`` / ``--p1`` using the shared player-spec grammar
-(``human`` / ``random`` / ``last`` / ``best`` / ``opponent`` / a ``.pt`` path /
-a run directory — see ``wingspan.players``), so interactive play, quick
-random-vs-random games, and trained-AI matchups all run through one command.
-The default matchup is ``last`` vs ``last``: the most recent trained model
-playing itself.
+Each seat is set with ``--p0`` / ``--p1`` / ``--p2`` / ``--p3`` using the shared
+player-spec grammar (``human`` / ``random`` / ``last`` / ``best`` / ``opponent``
+/ a ``.pt`` path / a run directory — see ``wingspan.players``), so interactive
+play, quick random-vs-random games, and trained-AI matchups all run through one
+command. Seats fill contiguously from ``--p0``: the table size is the count of
+provided seats (2 by default; 3 or 4 when ``--p2`` / ``--p3`` are given).
+``--p3`` without ``--p2`` is rejected at the argument-parsing stage. The
+default matchup is ``last`` vs ``last``: the most recent trained model playing
+itself.
 
 When a seat is AI-driven, every genuine decision is annotated in the game log
 with the policy's ranked probability distribution (see ``players.factory``),
@@ -44,32 +47,44 @@ def main_play(argv: list[str] | None = None) -> int:
     """Run one or more games between any mix of seats, optionally writing logs.
 
     Returns a process exit code: 0 on success, 1 if a seat spec cannot be
-    resolved (missing checkpoint, encoding-incompatible network, or a regime
-    mismatch between two checkpoints)."""
-    args = _build_parser().parse_args(argv)
+    resolved (missing checkpoint, encoding-incompatible network, a regime
+    mismatch between checkpoints, or a checkpoint trained at a different seat
+    count than the table)."""
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.p3 is not None and args.p2 is None:
+        parser.error(
+            "--p3 given without --p2 — seats fill contiguously from --p0 "
+            "(e.g. --p0/--p1/--p2/--p3, not skipping --p2)."
+        )
+    seat_specs = [args.p0, args.p1]
+    if args.p2 is not None:
+        seat_specs.append(args.p2)
+    if args.p3 is not None:
+        seat_specs.append(args.p3)
+    num_seats = len(seat_specs)
 
     seed = args.seed if args.seed is not None else random.randint(0, 1 << 30)
     rng = random.Random(seed)
     checkpoint_dir = pathlib.Path(args.checkpoint_dir)
     device = torch.device(args.device)
 
-    # Resolve both seats up front so a bad checkpoint (or a regime mismatch
-    # between two checkpoints) fails before any game runs, with a clean message
-    # rather than a mid-game traceback.
-    probe_0 = decision_probe.DecisionProbe()
-    probe_1 = decision_probe.DecisionProbe()
+    # Resolve every seat up front so a bad checkpoint (or a regime/seat-count
+    # mismatch between checkpoints) fails before any game runs, with a clean
+    # message rather than a mid-game traceback.
+    probes = tuple(decision_probe.DecisionProbe() for _ in range(num_seats))
     try:
-        spec_a = players.parse_player_spec(args.p0, checkpoint_dir)
-        spec_b = players.parse_player_spec(args.p1, checkpoint_dir)
-        agent_a, config_a = players.build_agent(
-            spec_a, device, rng, args.greedy, value_probe=probe_0
-        )
-        agent_b, config_b = players.build_agent(
-            spec_b, device, rng, args.greedy, value_probe=probe_1
-        )
-        split_setup_bonus = players.resolve_split_setup_bonus((config_a, config_b))
-        split_setup_food = players.resolve_split_setup_food((config_a, config_b))
-        combine_gain_food = players.resolve_combine_gain_food((config_a, config_b))
+        specs = [players.parse_player_spec(raw, checkpoint_dir) for raw in seat_specs]
+        seat_results = [
+            players.build_agent(spec, device, rng, args.greedy, value_probe=probe)
+            for spec, probe in zip(specs, probes)
+        ]
+        seat_agents = [agent for agent, _ in seat_results]
+        seat_configs = tuple(train_cfg for _, train_cfg in seat_results)
+        split_setup_bonus = players.resolve_split_setup_bonus(seat_configs)
+        split_setup_food = players.resolve_split_setup_food(seat_configs)
+        combine_gain_food = players.resolve_combine_gain_food(seat_configs)
+        players.resolve_num_players(seat_configs, num_seats)
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error loading agent: {exc}", file=sys.stderr)
         return 1
@@ -83,27 +98,32 @@ def main_play(argv: list[str] | None = None) -> int:
         regime = "  |  opening " + ", ".join(regime_parts) if regime_parts else ""
         if combine_gain_food:
             regime += "  |  food gains: combined (FoodSubset)"
-        print(f"Seed: {seed}  |  P0: {args.p0}  vs  P1: {args.p1}{regime}")
+        matchup_desc = "  vs  ".join(
+            f"P{seat}: {raw}" for seat, raw in enumerate(seat_specs)
+        )
+        print(f"Seed: {seed}  |  {matchup_desc}{regime}")
 
     # Build one EventRecorder per run when any structured-log output is requested.
     # The recorder reads each seat's DecisionProbe so decision boxes get
     # probability bars and encoding-viewer stripes.
     rec = (
         gamelog_recorder.EventRecorder(
-            probes=(probe_0, probe_1),
-            seat_configs=(config_a, config_b),
+            probes=probes,
+            seat_configs=seat_configs,
         )
         if (args.html or args.log)
         else gamelog_recorder.EMPTY
     )
 
-    instrumentation = _open_instrumentation(args, seed, (config_a, config_b))
+    instrumentation = _open_instrumentation(args, seed, seat_specs, seat_configs)
     try:
         for game_idx in range(args.games):
-            eng, _, _, _ = engine.Engine.create(seed=seed + game_idx)
+            eng, _, _, _ = engine.Engine.create(
+                seed=seed + game_idx, num_players=num_seats
+            )
             engine.Engine.play_one_game(
                 eng.state,
-                (agent_a, agent_b),
+                seat_agents,
                 instrumentation=instrumentation,
                 event_recorder=rec,
                 split_setup_bonus=split_setup_bonus,
@@ -140,11 +160,12 @@ def main_play(argv: list[str] | None = None) -> int:
                     if not args.quiet:
                         print(f"  debug-log -> {debug_path}")
                 else:
-                    _write_split_logs(debug_path, eng.state.log_entries)
+                    _write_split_logs(debug_path, eng.state.log_entries, num_seats)
                     if not args.quiet:
-                        print(
-                            f"  debug-log -> {debug_path}_p0.log, {debug_path}_p1.log"
+                        split_paths = ", ".join(
+                            f"{debug_path}_p{seat}.log" for seat in range(num_seats)
                         )
+                        print(f"  debug-log -> {split_paths}")
 
             if args.html and not args.quiet:
                 # The HTML file itself is written by the instrumentation handler on
@@ -162,9 +183,12 @@ def main_play(argv: list[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """The ``play`` argument parser. ``--p0`` / ``--p1`` each take a player
-    spec: ``human``, ``random``, a named checkpoint (``last`` / ``best`` /
-    ``opponent``), a path to a ``.pt`` file, or a run directory."""
+    """The ``play`` argument parser. ``--p0`` / ``--p1`` / ``--p2`` / ``--p3``
+    each take a player spec: ``human``, ``random``, a named checkpoint
+    (``last`` / ``best`` / ``opponent``), a path to a ``.pt`` file, or a run
+    directory. ``--p0`` / ``--p1`` are always active (2-seat default); ``--p2``
+    / ``--p3`` add a 3rd / 4th seat and must be filled contiguously — ``--p3``
+    without ``--p2`` is rejected by :meth:`argparse.ArgumentParser.error`."""
     parser = argparse.ArgumentParser(
         prog="wingspan play",
         description="Play Wingspan games between any mix of human, random, "
@@ -197,8 +221,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Path to write a navigable HTML game-log viewer (one phase/turn at "
-        "a time, P0/P1/both toggle, 3x5 board grids). For a --games series the "
-        "game index is inserted before the extension (out.html -> out.0.html).",
+        "a time, a per-seat view toggle, 3x5 board grids). For a --games series "
+        "the game index is inserted before the extension (out.html -> out.0.html).",
     )
     parser.add_argument(
         "--collate",
@@ -209,6 +233,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--p0", type=str, default="last", help=spec_help % "0")
     parser.add_argument("--p1", type=str, default="last", help=spec_help % "1")
+    parser.add_argument(
+        "--p2",
+        type=str,
+        default=None,
+        help=(spec_help % "2")
+        + " Omit for a 2-seat game; seats fill contiguously from --p0.",
+    )
+    parser.add_argument(
+        "--p3",
+        type=str,
+        default=None,
+        help=(spec_help % "3")
+        + " Requires --p2 (seats fill contiguously); omit for a 2- or 3-seat game.",
+    )
     parser.add_argument(
         "--checkpoint-dir",
         type=str,
@@ -263,9 +301,8 @@ _HTML_HANDLER_EVENTS = (
 def _open_instrumentation(
     args: argparse.Namespace,
     seed: int,
-    seat_configs: (
-        tuple[train_config.TrainConfig | None, train_config.TrainConfig | None] | None
-    ) = None,
+    seat_specs: typing.Sequence[str],
+    seat_configs: tuple[train_config.TrainConfig | None, ...] | None = None,
 ) -> dispatcher.Instrumentation:
     """Build and open the event-callback router for this run.
 
@@ -274,8 +311,9 @@ def _open_instrumentation(
     router when neither flag is given. The caller must ``close`` whatever this
     returns when the run ends.
 
-    When ``seat_configs`` is supplied (the normal ``play`` path), it is injected
-    into the HTML handler via
+    ``seat_specs`` is the raw ``--pN`` string per seat, used for the run
+    context's ``matchup``. When ``seat_configs`` is supplied (the normal
+    ``play`` path), it is injected into the HTML handler via
     :meth:`~wingspan.instrumentation.handlers.game_log_html.GameLogHtmlHandler.configure_timeline`
     so the timeline chart can render value/target lines."""
     if args.instrument is None and args.html is None:
@@ -317,7 +355,7 @@ def _open_instrumentation(
             output_dir=out_dir,
             run_name="play",
             seed=seed,
-            matchup=(str(args.p0), str(args.p1)),
+            matchup=tuple(str(raw) for raw in seat_specs),
         )
     )
     return instrumentation
@@ -364,15 +402,17 @@ def _write_log(path: str, lines: list[str]) -> None:
             log_file.write(display.strip_ansi(line) + "\n")
 
 
-def _write_split_logs(base_path: str, entries: list[state.LogEntry]) -> None:
+def _write_split_logs(
+    base_path: str, entries: list[state.LogEntry], num_players: int
+) -> None:
     """Write per-player log files from structured log entries.
 
-    Produces ``<base_path>_p0.log`` and ``<base_path>_p1.log``.  Each file
-    contains all entries attributed to that player (``player_id == N``) plus
-    all global entries (``player_id is None``), preserving the original
-    interleaved order.  This gives each player a coherent perspective on the
-    game without the other player's private decision annotations."""
-    for player_idx in (0, 1):
+    Produces ``<base_path>_p0.log`` .. ``<base_path>_p{num_players - 1}.log``.
+    Each file contains all entries attributed to that player (``player_id ==
+    N``) plus all global entries (``player_id is None``), preserving the
+    original interleaved order.  This gives each player a coherent perspective
+    on the game without any other player's private decision annotations."""
+    for player_idx in range(num_players):
         player_path = f"{base_path}_p{player_idx}.log"
         with open(player_path, "w", encoding="utf-8") as log_file:
             for entry in entries:

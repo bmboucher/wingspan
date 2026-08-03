@@ -5,7 +5,9 @@ own `INDEX.md`; load only the one(s) relevant to the area you're working in.
 
 ## What's modelled
 
-- **Core set, two players, no automa:** 180 birds, 26 bonus cards, 16 end-of-round goals.
+- **Core set, 2-4 players (per-run seat count), no automa:** 180 birds, 26 bonus
+  cards, 16 end-of-round goals. `num_players` is a per-training-run config
+  field — a given network trains and plays at exactly one fixed seat count.
 - Every bird's "when played / when activated / between turns" power is handled
   by a small library of generic power patterns. All core-set birds are covered;
   anything a future pattern doesn't yet recognise falls back to a logged no-op

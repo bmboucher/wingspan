@@ -40,14 +40,20 @@ Three sub-event shapes:
 
 | Class | Field | Rendered as |
 |-------|-------|-------------|
-| `DecisionSubEvent` | `outcome_text`, `options`, `state_stripes`, `value`, `turn_counter`, `setup_slot`, `family_idx`, `score_p0`, `score_p1`, `margin_before` | `→ text` (plaintext) / collapsible decision box with option bars (HTML) |
+| `DecisionSubEvent` | `outcome_text`, `options`, `state_stripes`, `value`, `turn_counter`, `setup_slot`, `family_idx`, `scores`, `margin_before` | `→ text` (plaintext) / collapsible decision box with option bars (HTML) |
 | `ForcedSubEvent` | `text` | `! text` (plaintext) / non-collapsible "forced" box (HTML) |
 | `NoteSubEvent` | `text` | bare text (plaintext) / muted "note" box (HTML) |
 
 `DecisionSubEvent` carries all timeline scalars so the timeline chart derives
 from the tree (no parallel data structure).  `turn_counter` + `setup_slot`
 together give the provisional timestamp (reconstructed in `reporting.game_log_capture`);
-`family_idx` identifies the decision type for interpolation.
+`family_idx` identifies the decision type for interpolation.  `scores` is the
+live per-seat score list in seat order (any table size); `margin_before` is
+the deciding seat's own margin — its score minus the *best* other seat's
+score, reducing to the legacy own-minus-opponent value at 2 seats.  Game logs
+are regenerable reporting artifacts, not covered by the model-rehydration
+guarantee (`docs/VERSIONING.md`) — this schema can change freely across
+versions.
 
 ## Phase structure
 

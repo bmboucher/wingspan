@@ -17,6 +17,7 @@ package: seating a trained model pulls in torch and the training stack.
 from wingspan.players.factory import (
     build_agent,
     resolve_combine_gain_food,
+    resolve_num_players,
     resolve_split_setup_bonus,
     resolve_split_setup_food,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "load_setup_net",
     "parse_player_spec",
     "resolve_combine_gain_food",
+    "resolve_num_players",
     "resolve_split_setup_bonus",
     "resolve_split_setup_food",
 ]

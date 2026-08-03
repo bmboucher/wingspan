@@ -254,13 +254,12 @@ class _TimelineCapture(
         probe = self._probes[decision.player_id]
         value_pov = probe.take() if probe is not None else None
         gs = engine.state
-        score_p0 = scoring.running_score(gs.players[0])
-        score_p1 = scoring.running_score(gs.players[1])
-        margin = (
-            float(score_p0 - score_p1)
-            if decision.player_id == 0
-            else float(score_p1 - score_p0)
-        )
+        scores = [scoring.running_score(player) for player in gs.players]
+        own_score = scores[decision.player_id]
+        other_scores = [
+            score for idx, score in enumerate(scores) if idx != decision.player_id
+        ]
+        margin = float(own_score - max(other_scores))
         self._raw_timeline.append(
             game_log_capture.RawTimelinePoint(
                 player_id=decision.player_id,
@@ -269,8 +268,7 @@ class _TimelineCapture(
                     decision, gs.turn_counter
                 ),
                 family_idx=decisions.family_index_for(type(decision)),
-                score_p0=score_p0,
-                score_p1=score_p1,
+                scores=scores,
                 phase_index=len(self._phases) - 1,
                 value_pov=value_pov,
             )
@@ -340,8 +338,7 @@ def test_handler_timeline_scores_are_non_negative():
     indicates the capture code is computing something wrong."""
     _, capture = _run_with_capture(seed=77)
     for point in capture._raw_timeline:
-        assert point.score_p0 >= 0, f"negative score_p0 at {point}"
-        assert point.score_p1 >= 0, f"negative score_p1 at {point}"
+        assert all(score >= 0 for score in point.scores), f"negative score at {point}"
 
 
 def test_handler_timeline_player_ids_are_valid():
@@ -394,24 +391,24 @@ def test_build_timeline_value_and_target_none_without_configs():
         seat_configs=(None, None),
     )
     for point in timeline:
-        assert point.value_return_p0 is None
-        assert point.target_return_p0 is None
+        assert point.value_return is None
+        assert point.target_return is None
 
 
 def test_build_timeline_returns_exclude_realized():
-    """``value_return_p0`` and ``target_return_p0`` are the bare P0-relative
-    discounted future return (``decision_delta`` mode), not ``realized + return``.
+    """``value_return`` and ``target_return`` are the bare own-POV discounted
+    future return (``decision_delta`` mode), not ``realized + return``.
 
     At γ=1 the target telescopes to ``terminal − margin_before`` (not flat),
-    and the critic return equals ``sign · value_pov · score_norm`` with no
-    realized margin term added.  The key bug symptom was a flat target line;
-    asserting two distinct values catches any regression that re-adds ``realized``."""
+    and the critic return equals ``value_pov · score_norm`` with no realized
+    margin term added.  The key bug symptom was a flat target line; asserting
+    two distinct values catches any regression that re-adds ``realized``."""
     eng, *_ = engine.Engine.create(seed=1)
     eng.state.players[0].final_score = 10
     eng.state.players[1].final_score = 4
     eng.state.turn_counter = 52
 
-    # Two P0 decisions with non-zero score_p0/score_p1 so realized ≠ 0.
+    # Two P0 decisions with non-zero scores so realized ≠ 0.
     main_family = _main_family()
     raw_points = [
         game_log_capture.RawTimelinePoint(
@@ -419,8 +416,7 @@ def test_build_timeline_returns_exclude_realized():
             margin_before=3.0,
             provisional_timestamp=1.0,
             family_idx=main_family,
-            score_p0=5,
-            score_p1=2,
+            scores=[5, 2],
             phase_index=0,
             value_pov=1.0,
         ),
@@ -429,8 +425,7 @@ def test_build_timeline_returns_exclude_realized():
             margin_before=7.0,
             provisional_timestamp=2.0,
             family_idx=main_family,
-            score_p0=8,
-            score_p1=1,
+            scores=[8, 1],
             phase_index=0,
             value_pov=-0.5,
         ),
@@ -448,24 +443,32 @@ def test_build_timeline_returns_exclude_realized():
         seat_configs=(cfg, None),
     )
 
-    # Critic return = sign · value_pov · score_norm (no realized term).
-    assert math.isclose(timeline[0].value_return_p0 or 0.0, 1.0 * 2.0)
-    assert math.isclose(timeline[1].value_return_p0 or 0.0, -0.5 * 2.0)
+    # Critic return = value_pov · score_norm (no realized term, no resigning:
+    # both points are P0's own decisions, so this is unchanged from the
+    # pre-N-player P0-relative convention).
+    assert math.isclose(timeline[0].value_return or 0.0, 1.0 * 2.0)
+    assert math.isclose(timeline[1].value_return or 0.0, -0.5 * 2.0)
 
     # At γ=1 target telescopes to terminal − margin_before = 6 − margin_before.
-    assert math.isclose(timeline[0].target_return_p0 or 0.0, 6.0 - 3.0)
-    assert math.isclose(timeline[1].target_return_p0 or 0.0, 6.0 - 7.0)
+    assert math.isclose(timeline[0].target_return or 0.0, 6.0 - 3.0)
+    assert math.isclose(timeline[1].target_return or 0.0, 6.0 - 7.0)
 
     # The two values must differ — a flat line is the bug's symptom.
-    assert timeline[0].target_return_p0 != timeline[1].target_return_p0
+    assert timeline[0].target_return != timeline[1].target_return
 
 
 def test_build_timeline_terminal_margin_flat_target():
-    """In ``terminal_margin`` mode the target is constant at the final margin.
+    """In ``terminal_margin`` mode the target is constant at the final margin,
+    from each deciding seat's *own* point of view — no cross-seat resigning.
 
-    All decisions, regardless of ``margin_before``, get the same P0-relative
-    target: the terminal point delta (P0 minus P1).  Including a P1 decision
-    verifies the sign flip still yields the same P0-relative constant."""
+    P0's target is its own terminal margin (10 − 4 = 6.0, unchanged from the
+    pre-N-player convention, since P0's own POV always was the reference
+    axis). P1's target is *P1's own* terminal margin (4 − 10 = −6.0) — the
+    negative of what the old P0-relative convention showed, because that
+    convention re-signed every non-P0 seat's numbers onto P0's axis. This is a
+    deliberate behavior change for non-zero-seat rows (see docs/GAMELOG.md and
+    the N-player plan's Stage 4): each seat's own prediction is now shown in
+    its own natural frame instead of projected onto seat 0's."""
     eng, *_ = engine.Engine.create(seed=1)
     eng.state.players[0].final_score = 10
     eng.state.players[1].final_score = 4
@@ -478,8 +481,7 @@ def test_build_timeline_terminal_margin_flat_target():
             margin_before=3.0,
             provisional_timestamp=1.0,
             family_idx=main_family,
-            score_p0=5,
-            score_p1=2,
+            scores=[5, 2],
             phase_index=0,
             value_pov=1.0,
         ),
@@ -488,8 +490,7 @@ def test_build_timeline_terminal_margin_flat_target():
             margin_before=2.0,
             provisional_timestamp=2.0,
             family_idx=main_family,
-            score_p0=6,
-            score_p1=3,
+            scores=[6, 3],
             phase_index=0,
             value_pov=0.5,
         ),
@@ -507,9 +508,10 @@ def test_build_timeline_terminal_margin_flat_target():
         seat_configs=(cfg, cfg),
     )
 
-    # Both decisions get the flat P0-relative terminal: 10 − 4 = 6.0.
-    assert math.isclose(timeline[0].target_return_p0 or 0.0, 6.0)
-    assert math.isclose(timeline[1].target_return_p0 or 0.0, 6.0)
+    # P0's own-POV terminal margin: 10 − 4 = 6.0.
+    assert math.isclose(timeline[0].target_return or 0.0, 6.0)
+    # P1's own-POV terminal margin: 4 − 10 = −6.0 (own POV, not P0-relative).
+    assert math.isclose(timeline[1].target_return or 0.0, -6.0)
 
 
 def test_build_timeline_empty_for_no_decisions():

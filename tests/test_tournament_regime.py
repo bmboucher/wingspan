@@ -88,6 +88,37 @@ def test_disagreeing_model_configs_raise(monkeypatch: pytest.MonkeyPatch) -> Non
         )
 
 
+def test_n3_trained_participant_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tournament play is 2-seat-only for now: a participant trained at
+    num_players=3 is refused with a clear message rather than silently seated
+    at the tournament's 2-seat table."""
+    three_player = config.RunConfig(
+        architecture=config.ArchitectureConfig(num_players=3)
+    )
+    _patch_configs(monkeypatch, {"a": three_player})
+
+    with pytest.raises(ValueError, match="2-seat") as excinfo:
+        participants.resolve_regime_flags([_model_spec("a", "a")])
+    assert "num_players=3" in str(excinfo.value)
+
+
+def test_n3_trained_participant_refused_even_when_others_agree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The seat-count guard fires even when the regime flags would otherwise
+    agree — it is checked independently of split_setup_bonus/food agreement."""
+    two_player = config.RunConfig()
+    three_player = config.RunConfig(
+        architecture=config.ArchitectureConfig(num_players=3)
+    )
+    _patch_configs(monkeypatch, {"a": two_player, "b": three_player})
+
+    with pytest.raises(ValueError, match="2-seat"):
+        participants.resolve_regime_flags(
+            [_model_spec("a", "a"), _model_spec("b", "b")]
+        )
+
+
 def test_run_tournament_forwards_regime_to_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

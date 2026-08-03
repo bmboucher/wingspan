@@ -67,11 +67,11 @@ class GameLogHtmlHandler(
     )
     _output_dir: pathlib.Path = pydantic.PrivateAttr(default_factory=pathlib.Path)
     _seed: int | None = pydantic.PrivateAttr(default=None)
-    _matchup: tuple[str, str] | None = pydantic.PrivateAttr(default=None)
+    _matchup: tuple[str, ...] | None = pydantic.PrivateAttr(default=None)
     _game_index: int = pydantic.PrivateAttr(default=0)
-    _seat_configs: tuple[
-        train_config.TrainConfig | None, train_config.TrainConfig | None
-    ] = pydantic.PrivateAttr(default=(None, None))
+    _seat_configs: tuple[train_config.TrainConfig | None, ...] = pydantic.PrivateAttr(
+        default=()
+    )
 
     # ----- lifecycle ------------------------------------------------------
 
@@ -154,14 +154,13 @@ class GameLogHtmlHandler(
 
     def configure_timeline(
         self,
-        seat_configs: tuple[
-            train_config.TrainConfig | None, train_config.TrainConfig | None
-        ],
+        seat_configs: tuple[train_config.TrainConfig | None, ...],
     ) -> None:
         """Inject per-seat training configs for the timeline chart.
 
-        Must be called before any game starts. Without this call the timeline
-        shows score lines only and decision boxes omit option bars."""
+        ``seat_configs`` is one entry per seat, in seat order (any table
+        size). Must be called before any game starts. Without this call the
+        timeline shows score lines only and decision boxes omit option bars."""
         self._seat_configs = seat_configs
 
     ###### PRIVATE #######

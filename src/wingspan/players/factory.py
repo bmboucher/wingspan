@@ -137,6 +137,27 @@ def resolve_combine_gain_food(
     return next(iter(flags), False)
 
 
+def resolve_num_players(
+    configs: typing.Sequence[config.TrainConfig | None], seat_count: int
+) -> None:
+    """Verify every trained seat's ``num_players`` matches the table size.
+
+    A checkpoint's network is shaped for the exact seat count it was trained
+    at (state/choice vector widths, per-opponent stripes), so seating it at a
+    table of a different size would silently feed it a shape it never saw.
+    Config-free (human/random) seats express no preference. Raises
+    ``ValueError`` naming the offending seat, its trained player count, and
+    the table's actual seat count."""
+    for seat_idx, cfg in enumerate(configs):
+        if cfg is not None and cfg.num_players != seat_count:
+            raise ValueError(
+                f"Seat {seat_idx} was trained at num_players={cfg.num_players}, "
+                f"but this table has {seat_count} seats. A checkpoint's network "
+                "shape is fixed to the seat count it was trained at, so it "
+                "cannot be seated at a different table size."
+            )
+
+
 ###### PRIVATE #######
 
 

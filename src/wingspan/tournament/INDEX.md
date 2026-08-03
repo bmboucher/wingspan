@@ -30,7 +30,10 @@ game runs under, shipped to workers as pool `initargs`.
   `RunConfig` (via the same `players.resolve_*` functions `wingspan play` uses)
   so games mirror how the nets were trained; random competitors express no
   preference. Raises `ValueError` when two competitors were trained under
-  different regimes (they cannot share a faithful game).
+  different regimes (they cannot share a faithful game), or when a competitor
+  was trained at a seat count other than 2 (`_check_two_seat_only` —
+  tournament play is 2-seat-only for now; N-seat scheduling/Elo is deferred
+  scope).
 
 **`schedule.py`** — `build_schedule(config, specs) -> list[models.GameTask]`:
 generates the complete list of head-to-head pairings (each ordered pair plays

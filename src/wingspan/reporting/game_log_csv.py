@@ -5,12 +5,19 @@ The timeline modal in the HTML viewer is backed by a list of
 captured per decision.  This module projects that list into a CSV that can be
 downloaded directly from the modal without leaving the page.
 
-The CSV rows mirror the chart's two interleaved per-seat series: each decision
+The CSV rows mirror the chart's interleaved per-seat series: each decision
 records the critic value and training target only for the seat that just moved
-(the other seat's columns are blank), which matches exactly what the bottom SVG
-panel plots.  All critic / target values are **P0-relative future-return
-margins in VP** (the P1 net's prediction is already sign-flipped to P0-relative
-before being stored in :attr:`TimelinePoint.value_return_p0`).
+(every other seat's columns are blank), which matches exactly what the bottom
+SVG panel plots.  All critic / target values are **each seat's own future-
+return margin vs its best other seat, in VP** — not projected onto any other
+seat's axis (see :class:`~wingspan.reporting.game_log_html.TimelinePoint`).
+
+Columns are generated dynamically from the report's seat count
+(``len(report.player_names)``): ``score_p0 .. score_p{n-1}``, then
+``p0_critic_value .. p{n-1}_critic_value``, then
+``p0_target_value .. p{n-1}_target_value`` — reproducing today's exact 2-seat
+header (``score_p0``, ``score_p1``, ``p0_critic_value``, ``p1_critic_value``,
+``p0_target_value``, ``p1_target_value``) byte-for-byte at ``n == 2``.
 
 Public API:
   :func:`timeline_to_csv` — GameLogReport → CSV string
@@ -27,31 +34,22 @@ import typing
 if typing.TYPE_CHECKING:
     from wingspan.reporting import game_log_html
 
-_CSV_HEADER: list[str] = [
-    "timestamp",
-    "phase_index",
-    "player_id",
-    "player_name",
-    "score_p0",
-    "score_p1",
-    "p0_critic_value",
-    "p1_critic_value",
-    "p0_target_value",
-    "p1_target_value",
-]
+# Columns preceding the dynamically-generated per-seat score/critic/target blocks.
+_FIXED_HEADER: list[str] = ["timestamp", "phase_index", "player_id", "player_name"]
 
 
 def timeline_to_csv(report: game_log_html.GameLogReport) -> str:
     """Render ``report.timeline`` as a CSV string (UTF-8, header + one row per decision).
 
     Critic and target columns are sparse: each row fills only the moving
-    player's pair of cells; the other seat's cells are empty strings.  ``None``
+    seat's pair of cells; every other seat's cells are empty strings.  ``None``
     values (forced / setup decisions, or a seat without a trained net) also
     render as empty cells.
     """
+    num_seats = len(report.player_names)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(_CSV_HEADER)
+    writer.writerow(_csv_header(num_seats))
 
     for point in report.timeline:
         player_name = (
@@ -59,18 +57,12 @@ def timeline_to_csv(report: game_log_html.GameLogReport) -> str:
             if point.player_id < len(report.player_names)
             else str(point.player_id)
         )
-
-        # Route value/target into the moving seat's column; leave the other blank.
-        if point.player_id == 0:
-            p0_critic = "" if point.value_return_p0 is None else point.value_return_p0
-            p1_critic = ""
-            p0_target = "" if point.target_return_p0 is None else point.target_return_p0
-            p1_target = ""
-        else:
-            p0_critic = ""
-            p1_critic = "" if point.value_return_p0 is None else point.value_return_p0
-            p0_target = ""
-            p1_target = "" if point.target_return_p0 is None else point.target_return_p0
+        score_cells: list[int | str] = [
+            point.scores[seat] if seat < len(point.scores) else ""
+            for seat in range(num_seats)
+        ]
+        critic_cells = _sparse_cells(point.player_id, point.value_return, num_seats)
+        target_cells = _sparse_cells(point.player_id, point.target_return, num_seats)
 
         writer.writerow(
             [
@@ -78,16 +70,38 @@ def timeline_to_csv(report: game_log_html.GameLogReport) -> str:
                 point.phase_index,
                 point.player_id,
                 player_name,
-                point.score_p0,
-                point.score_p1,
-                p0_critic,
-                p1_critic,
-                p0_target,
-                p1_target,
+                *score_cells,
+                *critic_cells,
+                *target_cells,
             ]
         )
 
     return buf.getvalue()
+
+
+###### PRIVATE #######
+
+
+def _csv_header(num_seats: int) -> list[str]:
+    """The CSV header for ``num_seats`` seats: fixed columns, then per-seat
+    score / critic / target blocks (each block in seat order)."""
+    return [
+        *_FIXED_HEADER,
+        *(f"score_p{seat}" for seat in range(num_seats)),
+        *(f"p{seat}_critic_value" for seat in range(num_seats)),
+        *(f"p{seat}_target_value" for seat in range(num_seats)),
+    ]
+
+
+def _sparse_cells(
+    moving_seat: int, value: float | None, num_seats: int
+) -> list[float | str]:
+    """One cell per seat: ``value`` in the moving seat's column (or ``""`` when
+    ``value`` is ``None``), ``""`` in every other seat's column."""
+    return [
+        (value if value is not None else "") if seat == moving_seat else ""
+        for seat in range(num_seats)
+    ]
 
 
 def timeline_csv_data_uri(report: game_log_html.GameLogReport) -> str:
