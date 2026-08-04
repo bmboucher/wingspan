@@ -1984,6 +1984,54 @@ def test_reset_hidden_fields_clears_board_attention_heads_when_toggled_off():
     assert cleaned.architecture.main.board_attention_heads == 1
 
 
+def test_board_attention_shared_visibility():
+    """board_attention_shared is visible only when use_board_attention is True."""
+    off_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(use_board_attention=False)
+        ),
+    )
+    on_cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(use_board_attention=True)
+        ),
+    )
+    spec = fields.spec_for("board_attention_shared")
+    assert spec.visible_when is not None
+    assert not spec.visible_when(off_cfg)
+    assert spec.visible_when(on_cfg)
+
+
+def test_reset_hidden_fields_clears_board_attention_shared_when_toggled_off():
+    """reset_hidden_fields resets board_attention_shared to its factory default
+    (False) once use_board_attention is off, so hidden state never lingers
+    when the user re-enables board attention later."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_board_attention=True, board_attention_shared=True
+            )
+        ),
+    )
+    assert cfg.architecture.main.board_attention_shared is True
+
+    # Simulate the configurator's edit step (attention flipped off) before
+    # reset_hidden_fields runs — neither MainNetArchitecture nor
+    # ModelArchitecture reject this transient combination (it is instead
+    # caught as a launch blocker by config.validate_launchable), so this
+    # constructs without error.
+    data = cfg.model_dump()
+    data["architecture"]["main"]["use_board_attention"] = False
+    flipped = config.RunConfig.model_validate(data)
+    assert flipped.architecture.main.board_attention_shared is True
+
+    cleaned = fields.reset_hidden_fields(flipped)
+    assert cleaned.architecture.main.board_attention_shared is False
+
+
 def test_gae_fields_visibility():
     """GAE-specific fields appear only in GAE mode; reward_discount appears in delta+GAE."""
     gae_cfg = config.RunConfig(

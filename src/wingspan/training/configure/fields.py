@@ -586,6 +586,7 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
         "board_attention_positions",
     ),
     "board_attention_heads": ("architecture", "main", "board_attention_heads"),
+    "board_attention_shared": ("architecture", "main", "board_attention_shared"),
     # architecture.main per-block overrides
     "card_between_activation": ("architecture", "main", "card_between_activation"),
     "card_final_activation": ("architecture", "main", "card_final_activation"),
@@ -1181,12 +1182,33 @@ FIELD_SPECS: list[FieldSpec] = [
         choices=["True", "False"],
         impact=ChangeImpact.FRESH,
         help="When True, each player's 15 board slots are attended over as tokens "
-        "(card_embed ⊕ 9 mutable scalars) before the trunk, using two independent "
-        "MultiheadAttention modules (own board + opponent board). Head count set "
-        "by board attention heads (visible once enabled). Config-carried REGIME "
-        "topology — but forces a fresh run (architecture_key changes) since "
-        "weights differ with attention on vs off. Default False; old checkpoints "
-        "load unchanged.",
+        "(card_embed ⊕ 9 mutable scalars) before the trunk. By default two "
+        "independent MultiheadAttention modules do the scoring — one for the "
+        "POV board, one shared across every opponent board; 'board attention "
+        "shared' (visible once enabled) ties them into a single module instead. "
+        "Head count set by board attention heads (visible once enabled). "
+        "Config-carried REGIME topology — but forces a fresh run "
+        "(architecture_key changes) since weights differ with attention on vs "
+        "off. Default False; old checkpoints load unchanged.",
+    ),
+    ChoiceField(
+        attr="board_attention_shared",
+        label="board attention shared",
+        group_path=("MODEL ARCHITECTURE", "STATE TRUNK"),
+        choices=["True", "False"],
+        impact=ChangeImpact.FRESH,
+        visible_when=lambda cfg: cfg.architecture.main.use_board_attention,
+        help="When True (requires board attention), a single MultiheadAttention "
+        "module scores every board — the POV board and every opponent board — "
+        "instead of the default pair (one POV module, one shared across every "
+        "opponent). Every board is public information, so board evaluation is "
+        "one function: tying the weights trains it on every seat's experience, "
+        "and the trunk learns the self/other sign downstream from the fixed "
+        "concat order. Halves the BOARD ATTN parameter count and pins the "
+        "module count at 1 for any seat count. Config-carried REGIME topology "
+        "— but forces a fresh run (architecture_key changes). Default False; "
+        "old checkpoints load the historical pair unchanged. Hidden (and reset "
+        "to False) when board attention is off.",
     ),
     ChoiceField(
         attr="board_attention_positions",

@@ -145,6 +145,14 @@ player attend to `(grassland, col 1)` of the opponent, but mixes self-state with
 opponent-state in a way the current architecture keeps separated. Starting with two
 independent 15-token passes is simpler and matches the current encoder topology.
 
+**Weight sharing is a third, orthogonal axis.** Separate-vs-joint (above) is a
+question about the *token sequence* — how many tokens one attention call
+attends over. Whether the POV and opponent passes read one module's shared
+*parameters*, or two independently-learned modules, is a separate question:
+implemented sharing (✓DONE, `board_attention_shared`, see below) keeps the
+passes exactly as separate as chosen above — 15 tokens each, no cross-board
+attention — and ties only the parameters, not the token sequence.
+
 ### Attention layer
 
 - **Input:** `[B, 15, 73]` (or `[B, 30, 73]` for the joint variant).
@@ -526,6 +534,112 @@ forward-compatible load.
 A unified hand/tray variant would add at least one more flag (e.g.
 `card_attention_scope`) plus the hand cap `H_max` and the location-stripe width to
 the shape signature — still REGIME for the same reason.
+
+---
+
+## ✓DONE Shared board-attention weights
+
+**Collapses the own/opponent pair into one shared module.**
+`board_attention_shared: bool = False` (mirrored on
+`training.config.MainNetArchitecture`) is the new flag; its resolver property
+`board_attention_shared_active = use_board_attention and board_attention_shared`
+mirrors `board_attention_positions_active` / `board_attention_heads_active`
+exactly — every consumer resolves through it, never the raw field.
+
+**Rationale: every board is public, so it is one function, not two.** POV and
+opponent boards are the same kind of object wearing different labels —
+nothing about a board's state is hidden from either player, so "how good is
+this board" should be a single learned function rather than two
+independently-trained copies. The unshared pair (`board_attn_me` /
+`board_attn_opp`) starves each copy of half the training signal: across a
+batch of games, `board_attn_me` only ever sees POV boards and `board_attn_opp`
+only ever sees opponent boards, so neither benefits from what the other has
+learned about the same kind of position. Sharing lets one module see every
+seat's boards, doubling its effective training signal per step, since board
+evaluation itself does not need to differ by seat. The sign a board should
+carry (favorable because it's mine, unfavorable because it's my opponent's)
+is not the attention module's job either way: it is learned downstream by the
+trunk, which reads the flattened per-board blocks at fixed concat positions
+(`own_flat`, then `opp_flats` in seat order) and can and does weight those
+positions differently in its first `Linear`. **No POV marker token is added**
+to the shared module's input — the concat position already carries that
+signal exactly where the trunk needs it, so duplicating it into the token
+would be redundant.
+
+**Naming: a distinct third module, not an alias — because of a specific
+`state_dict` hazard.** The shared path registers a new attribute, `board_attn`,
+rather than aliasing `self.board_attn_opp = self.board_attn_me`. Aliasing
+looks harmless but isn't: `nn.Module.state_dict()` does not dedupe two
+attribute names bound to the same submodule instance — it walks the module
+tree by name, so it would emit both `board_attn_me.*` and `board_attn_opp.*`
+keys, pointing at identical tensors. A checkpoint saved that way would
+`load_state_dict(strict=True)` cleanly into an *unshared* net, since the key
+sets match exactly — silently leaving the unshared net's two modules
+initialized to the same weights, with no error raised at all, and no way to
+tell after the fact that they started as one tied module rather than two
+independently-initialized ones. (`parameters()` *does* dedupe shared
+submodules, so even a param-count regression test would pass over this bug.)
+Registering the shared path under its own name instead makes the two modes'
+key sets **disjoint** — `{board_attn.*}` vs. `{board_attn_me.*,
+board_attn_opp.*}` — so a cross-mode `load_state_dict(strict=True)` fails
+with both missing keys *and* unexpected keys, the loudest error torch can
+give.
+
+**Parameter count halves.** Using the same `attn_params = 4·E² + 4·E` per
+module as the unshared case (`E` = the padded `embed_dim` from
+`architecture.board_attention_embed_dim`), `architecture.count_parameters`
+now scales the BOARD ATTN block by `1 if arch.board_attention_shared_active
+else 2` in place of the previous unconditional `2` — one module's worth of
+parameters instead of two, at every `board_attention_heads` /
+`board_attention_positions` combination.
+
+**Module count stays fixed at any `num_players`.** The N-player
+simplification carries over unchanged: shared or not, the number of
+`nn.MultiheadAttention` modules never grows with the number of opponents —
+one module when shared, the historical two when not, regardless of whether
+there are 1, 2, or 3 opponents at the table. Only the input-facing
+`state_trunk.0` / `choice_encoder.0` `Linear` shapes move with `num_players`,
+exactly as in the unshared case.
+
+**Classification: REGIME, the same precedent as its siblings.**
+`board_attention_shared` is config-carried (travels in the frozen
+`RunConfig`), defaults `False` so every existing artifact rehydrates the
+historical unshared pair unchanged, and joins `ShapeKey` via
+`board_attention_shared_active` — exactly the `use_board_attention` /
+`board_attention_positions` / `board_attention_heads` pattern above. No
+`MODEL_VERSION` bump, no compat shim, no LFS fixture set. Verified directly:
+`compat.v1_3.PolicyValueNetV1_3` subclasses `core.PolicyValueNet`, and
+`compat.v1_0.PolicyValueNetV1_0` subclasses `v1_3.PolicyValueNetV1_3` in turn
+— neither overrides `_build_board_attention` nor
+`_embed_state_board_attention`, so at the default `False` both stay
+byte-identical to today's shims. `configurator_defaults.json` seeds `true` so
+all *new* runs start shared; existing artifacts are untouched and keep
+loading unshared.
+
+*A note on terminology: the configurator marks this field
+`impact=ChangeImpact.FRESH`, since toggling it on a resumed run forces a
+fresh run (it changes `architecture_key`). This does not contradict the
+REGIME classification above — the two words answer different questions. The
+configurator's `ChangeImpact.FRESH` means an in-progress run's weights cannot
+survive the edit, the same reason toggling `card_embed_dim` carries that
+impact. This file's REGIME means no `MODEL_VERSION` bump and no compat shim
+— the artifact-format question, not the resume question. A field can need a
+fresh run to take effect while needing no versioning machinery to load, and
+`board_attention_shared` is exactly that case, like every other `ShapeKey`
+member before it.*
+
+**Rehydration is forward-only, and this is the good failure mode.** The
+guarantee only ever promised that an *old* config loads safely under *later*
+code — it says nothing about a shared artifact opened by a checkout that
+predates this field entirely. That checkout has no `board_attn` attribute to
+load into, so `load_state_dict` fails immediately on the unrecognized
+`board_attn.*` keys: loud, immediate, and impossible to mistake for a healthy
+load. Contrast the `board_attention_heads` downgrade hazard above, where a
+pad-free width lets an old single-head checkout load a multi-head artifact's
+`state_dict` *without* error and silently compute the wrong function. Sharing
+fails the safe way — the naming choice above (a disjoint key set) is exactly
+what turns what could have been a silent mismatch into a load-time crash
+instead.
 
 ---
 

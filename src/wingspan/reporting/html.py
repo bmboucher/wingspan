@@ -362,6 +362,12 @@ def generate_html_report(
             if arch.board_attention_positions_active
             else ""
         )
+        board_module_note = (
+            "every board through the one shared board_attn"
+            if arch.board_attention_shared_active
+            else "own via board_attn_me, every opponent via the one shared "
+            "board_attn_opp"
+        )
         sections.append(
             _vector_section(
                 encode_stripes.board_token_stripe_layout(
@@ -378,8 +384,7 @@ def generate_html_report(
                 annotation=(
                     f"{encode.SLOTS_PER_BOARD} tokens per board × {arch.num_players} "
                     "boards (own + every opponent clockwise), attended separately — "
-                    "own via board_attn_me, every opponent via the one shared "
-                    "board_attn_opp"
+                    + board_module_note
                 ),
             )
         )

@@ -38,11 +38,14 @@ or `hand_embed_width` (distinct-encoder path); `tray` expands to
 (`SLOTS_PER_BOARD × (card_embed_dim + SLOT_SCALAR_DIM)`, `+ BOARD_POSITION_DIM`
 per slot when `board_attention_positions` is additionally set), and so does
 *every* opponent board stripe (`board_opp`, `board_opp2`, ... one per opponent
-clockwise, per `num_players`) — they all describe the SAME shared
-`board_attn_opp` module applied per-opponent (`model.core`), not one module
-each. `card_idx_board` is folded into them (`new_size=0`). `num_players`
-also sizes `card_idx_board`'s board portion (`n_board = num_players *
-SLOTS_PER_BOARD`) on the non-attention path.
+clockwise, per `num_players`) — they all describe the same module applied
+once per opponent board (`model.core`): `board_attn_opp` by default, or the
+single shared `board_attn` under `board_attention_shared`, never one module
+per opponent either way. Stripe SIZES are identical in both modes — sharing
+changes which module computes the block, not its width. `card_idx_board` is
+folded into them (`new_size=0`). `num_players` also sizes `card_idx_board`'s
+board portion (`n_board = num_players * SLOTS_PER_BOARD`) on the non-attention
+path.
 
 **`state.py`** — `state_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder that assembles all state stripes in canonical order (board slots by

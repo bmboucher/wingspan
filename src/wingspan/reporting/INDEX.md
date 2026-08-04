@@ -155,9 +155,13 @@ via `_draw_bare_unit` when the net pools the card table) or the full **MULTI-CAR
 `use_distinct_hand_model`) — plus **BOARD ATTENTION** in col 0 when `arch.use_board_attention` is
 True (`_attention_unit` widens its displayed token width by `BOARD_POSITION_DIM` — 73→81 — and
 notes the trunk-width delta when `arch.board_attention_positions` is additionally set; its tooltip
-also names the module's `nn.MultiheadAttention` head count — "single-head" when
-`board_attention_heads_active` is 1, else `"N-head"` — and, when the token width doesn't divide
-the head count, the zero-padded `embed_dim` it was built at via
+also names the module COUNT alongside the head count: "one single-head
+nn.MultiheadAttention module — shared by the POV board and every opponent board"
+when `board_attention_shared_active`, vs. the default "two single-head
+nn.MultiheadAttention modules — one for the POV board, one shared across every
+opponent board" when not (either wording swaps `"single-head"` for `"N-head"`
+when `board_attention_heads_active` is not 1) — and, when the token width
+doesn't divide the head count, the zero-padded `embed_dim` it was built at via
 `architecture.board_attention_embed_dim`). The three
 card→{state,choice,setup} feeds share a **trunk** (`_trunk_svg`): a vertical stem at
 `_TRUNK_X` (gutter between the two consumer blocks), splitting in the cons band into labelled

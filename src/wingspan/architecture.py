@@ -71,6 +71,10 @@ class ShapeKey(pydantic.BaseModel):
     # configs share an identical state_dict yet compute a different function —
     # the resume gate has to key on the head count itself, not just the shape.
     board_attention_heads: int
+    # Also the *active* value (see ``shape_key``): with attention off the flag
+    # is inert either way and both configs build byte-identical (i.e. no)
+    # modules, so they must share a key.
+    board_attention_shared: bool
     hand_pooling: HandPooling | None  # None when use_distinct_hand_model
     # Explicit even though it is implied by state_dim/choice_dim in practice
     # (a different seat count widens both): the coinciding-shape hazard the
@@ -247,6 +251,23 @@ class ModelArchitecture(pydantic.BaseModel):
     # commit before ``reset_hidden_fields`` clears it back to 1, so the
     # combination is instead a ``config.validate_launchable`` blocker.
     board_attention_heads: typing.Annotated[int, pydantic.Field(ge=1)] = 1
+    # When True (meaningful only alongside ``use_board_attention``), a *single*
+    # ``board_attn`` module scores every board — the POV board and every
+    # opponent board — instead of the separate ``board_attn_me`` /
+    # ``board_attn_opp`` pair. Every board is fully public information, so "how
+    # good is this board" is one function, not two: tying the weights lets one
+    # module learn it from every seat's experience, and the trunk learns the
+    # sign (positive for self, negative for other) downstream from the fixed
+    # concat order of the flattened per-board blocks — no POV marker token is
+    # added. Halves the BOARD ATTN parameter count and pins the module count at
+    # 1 for any ``num_players``. Config-carried, default False → old artifacts
+    # rehydrate the historical pair identically with no compat shim (REGIME).
+    # Joins ShapeKey via the active value. Deliberately NOT enforced by a
+    # ``@model_validator`` for the same reason as ``board_attention_positions``
+    # (a hard reject would fire mid-configurator-commit before
+    # ``reset_hidden_fields`` clears it); ``config.validate_launchable`` is the
+    # blocker instead.
+    board_attention_shared: bool = False
 
     # Per-block between/final activation overrides plus dropout and LayerNorm
     # toggles. ``None`` means "inherit the matching global". Body blocks
@@ -362,6 +383,20 @@ class ModelArchitecture(pydantic.BaseModel):
         reading the raw field, which may carry a stale non-1 value left over
         from before attention was toggled off."""
         return self.board_attention_heads if self.use_board_attention else 1
+
+    @property
+    def board_attention_shared_active(self) -> bool:
+        """Whether a single shared board-attention module is actually built.
+
+        Mirrors ``board_attention_positions_active``: ``board_attention_shared``
+        alone is inert when ``use_board_attention`` is ``False``
+        (``_build_board_attention`` returns before ever reading it), so every
+        caller that needs to know which modules really exist (``shape_key``,
+        ``count_parameters``, ``_build_board_attention``,
+        ``_board_attention_modules``) must resolve through here rather than
+        reading the raw field, which may carry a stale ``True`` left over from
+        before attention was toggled off."""
+        return self.use_board_attention and self.board_attention_shared
 
     @property
     def hand_embed_width(self) -> int:
@@ -554,6 +589,10 @@ class ModelArchitecture(pydantic.BaseModel):
             # configs must share a shape_key. See board_attention_heads's
             # own comment for why the raw field alone is insufficient.
             board_attention_heads=self.board_attention_heads_active,
+            # The active value, for the same reason: with use_board_attention
+            # False a stale True is inert and the two configs build identical
+            # modules, so they must share a shape_key.
+            board_attention_shared=self.board_attention_shared_active,
             # None when distinct (pooling inert) so old distinct artifacts'
             # keys are unaffected; the pooling mode only appears in the key
             # for the pooled path, where it determines the trunk input width.
@@ -703,7 +742,9 @@ def count_parameters(
 
     # Build the optional BOARD ATTENTION block. Each nn.MultiheadAttention with
     # embed_dim=E has: in_proj_weight[3E,E] + in_proj_bias[3E] + out_proj[E,E]
-    # + out_proj.bias[E] = 4E² + 4E params. Two modules (own + opp) → 8E² + 8E.
+    # + out_proj.bias[E] = 4E² + 4E params. Two modules (own + opp) → 8E² + 8E;
+    # one shared module (``board_attention_shared``) → 4E² + 4E, half the count
+    # at any seat count.
     # E is the *padded* embed dim (board_attention_embed_dim), not the true
     # token width W: head counts that don't divide W add dead in_proj columns
     # / sliced out_proj rows, so params grow with the pad even though the
@@ -718,11 +759,13 @@ def count_parameters(
             token_width, arch.board_attention_heads_active
         )
         attn_params = 4 * embed_dim * embed_dim + 4 * embed_dim
+        # One shared module scores every board; otherwise the own/opp pair.
+        n_attn_modules = 1 if arch.board_attention_shared_active else 2
         board_attn_block = BlockParam(
             label="BOARD ATTN",
             layers=(),
             multiplier=1,
-            extra=2 * attn_params,  # own board + opp board
+            extra=n_attn_modules * attn_params,
         )
 
     return ParamReport(

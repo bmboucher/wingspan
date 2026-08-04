@@ -74,6 +74,7 @@
         "hand_pooling": "concat_max_sum",
         "tray_set_embedding": false,
         "use_board_attention": true,
+        "board_attention_shared": true,
         "card_between_activation": "none",
         "card_final_activation": "none",
         "card_dropout": null,

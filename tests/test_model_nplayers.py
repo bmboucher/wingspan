@@ -6,7 +6,9 @@ default net's ``state_dict`` shape table pinned against a committed fixture),
 while N=3/4 nets must construct, forward, and — with board attention on —
 share their *state_dict key set* with an N=2 net at the same topology (only
 the input-facing Linear shapes differ, since every opponent board attends
-through the one shared ``board_attn_opp`` module).
+through the shared attention module(s): the default ``board_attn_me`` /
+``board_attn_opp`` pair, or — under ``board_attention_shared`` — the single
+``board_attn`` module that scores every board, POV and opponent alike).
 """
 
 from __future__ import annotations
@@ -37,7 +39,10 @@ _N_CHOICES = 4
 
 
 def _tiny_arch(
-    num_players: int, *, use_board_attention: bool = False
+    num_players: int,
+    *,
+    use_board_attention: bool = False,
+    shared: bool = False,
 ) -> architecture.ModelArchitecture:
     """A deliberately tiny architecture — fast to build/forward, but wide
     enough to exercise every block (card/trunk/choice/scorer/value, plus
@@ -51,14 +56,20 @@ def _tiny_arch(
         card_encoder_layers=(),
         num_players=num_players,
         use_board_attention=use_board_attention,
+        board_attention_shared=shared,
     )
 
 
 def _net(
-    num_players: int, *, use_board_attention: bool = False
+    num_players: int,
+    *,
+    use_board_attention: bool = False,
+    shared: bool = False,
 ) -> model.PolicyValueNet:
     spec = encode.EncodingSpec(num_players=num_players)
-    arch = _tiny_arch(num_players, use_board_attention=use_board_attention)
+    arch = _tiny_arch(
+        num_players, use_board_attention=use_board_attention, shared=shared
+    )
     return model.PolicyValueNet(arch=arch, spec=spec)
 
 
@@ -154,37 +165,81 @@ def test_net_forwards_on_a_real_encoded_n3_decision():
 
 
 # ---------------------------------------------------------------------------
-# Board attention: shared board_attn_opp keeps the state_dict key SET fixed
-# across N
+# Board attention: the attention module(s) keep the state_dict key SET fixed
+# across N, whether shared (one board_attn) or not (board_attn_me /
+# board_attn_opp)
 
 
-def test_board_attention_state_dict_key_set_identical_across_n():
-    net2 = _net(2, use_board_attention=True)
-    net3 = _net(3, use_board_attention=True)
-    net4 = _net(4, use_board_attention=True)
+@pytest.mark.parametrize(
+    "shared, expected_modules",
+    [
+        (False, {"board_attn_me", "board_attn_opp"}),
+        (True, {"board_attn"}),
+    ],
+)
+def test_board_attention_state_dict_key_set_identical_across_n(
+    shared: bool, expected_modules: set[str]
+):
+    net2 = _net(2, use_board_attention=True, shared=shared)
+    net3 = _net(3, use_board_attention=True, shared=shared)
+    net4 = _net(4, use_board_attention=True, shared=shared)
     keys2 = set(net2.state_dict().keys())
     keys3 = set(net3.state_dict().keys())
     keys4 = set(net4.state_dict().keys())
     assert keys2 == keys3 == keys4
-    # No new modules: exactly board_attn_me / board_attn_opp, at every N.
-    attn_keys = {key for key in keys2 if key.startswith("board_attn_")}
-    assert {key.split(".")[0] for key in attn_keys} == {
-        "board_attn_me",
-        "board_attn_opp",
-    }
+    # No new modules at any N: exactly the expected module set, shared or not.
+    attn_keys = {key for key in keys2 if key.startswith("board_attn")}
+    assert {key.split(".")[0] for key in attn_keys} == expected_modules
 
 
-def test_board_attention_only_input_facing_linears_change_shape_with_n():
-    net2 = _net(2, use_board_attention=True)
-    net3 = _net(3, use_board_attention=True)
+@pytest.mark.parametrize("shared", [False, True])
+def test_board_attention_only_input_facing_linears_change_shape_with_n(shared: bool):
+    net2 = _net(2, use_board_attention=True, shared=shared)
+    net3 = _net(3, use_board_attention=True, shared=shared)
     sd2, sd3 = net2.state_dict(), net3.state_dict()
     differing = {key for key in sd2 if sd2[key].shape != sd3[key].shape}
     assert differing == {"state_trunk.0.weight", "choice_encoder.0.weight"}
-    # The shared board_attn_opp module's own parameters are shape-identical —
-    # it is genuinely one module reused per opponent, not resized.
+    # The shared attention module(s)' own parameters are shape-identical
+    # across N — genuinely one module (or one shared pair) reused per
+    # opponent, not resized. No trailing underscore: "board_attn" (shared
+    # mode) must match too, not just "board_attn_me"/"board_attn_opp".
     for key in sd2:
-        if key.startswith("board_attn_"):
+        if key.startswith("board_attn"):
             assert sd2[key].shape == sd3[key].shape, key
+
+
+@pytest.mark.parametrize("num_players", [2, 3, 4, 5])
+def test_shared_board_attention_registers_one_module_at_every_n(num_players: int):
+    """The N-player simplification: under board_attention_shared exactly one
+    board_attn module is registered as a direct child of the net, regardless
+    of seat count.
+
+    named_children() (direct children only), not named_modules(): the latter
+    would also descend into nn.MultiheadAttention's own internal out_proj
+    submodule ("board_attn.out_proj"), which also starts with the
+    "board_attn" prefix and would make this check assert nothing useful."""
+    net = _net(num_players, use_board_attention=True, shared=True)
+    assert [
+        name for name, _ in net.named_children() if name.startswith("board_attn")
+    ] == ["board_attn"]
+
+
+@pytest.mark.parametrize("num_players", [3, 4])
+def test_shared_board_attention_forward_runs_at_n3_and_n4(num_players: int):
+    """The shared board_attn module is invoked num_players times per forward
+    pass (once for the POV board, once per opponent) — mirrors
+    test_board_attention_n3_forward_runs at N=3 and N=4."""
+    net = _net(num_players, use_board_attention=True, shared=True).eval()
+    spec = encode.EncodingSpec(num_players=num_players)
+    batch = 2
+    state_t = torch.zeros(batch, encode.state_size(spec))
+    choices_t = torch.zeros(batch, _N_CHOICES, encode.choice_feature_dim(spec))
+    mask = torch.ones(batch, _N_CHOICES)
+    family_idx = torch.zeros(batch, dtype=torch.long)
+    with torch.no_grad():
+        logits, value = net(state_t, choices_t, mask, family_idx)
+    assert torch.isfinite(logits).all()
+    assert torch.isfinite(value).all()
 
 
 def test_board_attention_n3_forward_runs():

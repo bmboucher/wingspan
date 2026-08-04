@@ -221,6 +221,30 @@ def test_svg_board_attention_heads_present_when_enabled():
     assert "single-head" not in html
 
 
+def test_svg_board_attention_shared_present_when_enabled():
+    html = _report_html_with_attention_shared()
+    # Fragments asserted separately: the phrasing joins them with an em dash
+    # (" — ") that may be HTML-escaped, so it is never itself asserted.
+    assert "one single-head nn.MultiheadAttention module" in html
+    assert "two single-head nn.MultiheadAttention modules" not in html
+    assert "shared by the POV board and every opponent board" in html
+    assert "board_attn_me" not in html
+    assert "one shared weight set for every seat" in html
+
+
+def test_svg_board_attention_default_module_phrasing_unchanged():
+    """This feature must not churn the default (unshared) attention report
+    prose — the existing test_svg_board_attention_heads_present_when_enabled
+    already pins "single-head" not in html for the heads=2 case; this pins the
+    heads=1 default phrasing and confirms the shared-only aria-label suffix is
+    absent."""
+    html = _report_html_with_attention()
+    assert "two single-head nn.MultiheadAttention modules" in html
+    assert "one for the POV board, one shared across every opponent board" in html
+    assert "board_attn_me" in html
+    assert "one shared weight set for every seat" not in html
+
+
 def test_svg_distinct_hand_model_input_is_clickable():
     # With a learned (distinct) hand encoder the multi-card encoder is a full
     # block with its own input box, so the "hand" panel becomes clickable and
@@ -379,6 +403,16 @@ def _report_html_with_attention_heads() -> str:
     return _report_html_for_arch(
         architecture.ModelArchitecture(
             use_board_attention=True, board_attention_heads=2
+        ),
+        use_setup_model=True,
+    )
+
+
+def _report_html_with_attention_shared() -> str:
+    """Generate the model-summary HTML with a single shared board-attention module."""
+    return _report_html_for_arch(
+        architecture.ModelArchitecture(
+            use_board_attention=True, board_attention_shared=True
         ),
         use_setup_model=True,
     )

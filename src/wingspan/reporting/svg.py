@@ -554,12 +554,14 @@ def _trunk_unit(
 def _attention_unit(
     arch: architecture.ModelArchitecture, block: architecture.BlockParam
 ) -> _Unit:
-    """Board self-attention block: two MultiheadAttention modules — one for
-    the POV player's 15 board slots, one shared across every opponent's board
-    (called once per opponent, same weights each time, so the module count
-    never grows with ``arch.num_players``) — single-head by default, or
-    multi-head over a zero-padded token when ``board_attention_heads`` > 1 —
-    drawn in col 0 between the encoder row and the consumer row."""
+    """Board self-attention block: one shared ``board_attn`` module scoring
+    every board (under ``board_attention_shared``), or two independent
+    MultiheadAttention modules — one for the POV player's 15 board slots, one
+    shared across every opponent's board (called once per opponent, same
+    weights each time, so the module count never grows with
+    ``arch.num_players``) — single-head by default, or multi-head over a
+    zero-padded token when ``board_attention_heads`` > 1 — drawn in col 0
+    between the encoder row and the consumer row."""
     token_width = arch.card_embed_dim + encode.SLOT_SCALAR_DIM
     if arch.board_attention_positions_active:
         token_width += encode.BOARD_POSITION_DIM
@@ -574,10 +576,16 @@ def _attention_unit(
     embed_dim = architecture.board_attention_embed_dim(token_width, num_heads)
     # Keep the literal single-head phrasing byte-stable for the (heads=1)
     # default so existing reports/tests are unaffected by this feature.
+    head_word = "single-head" if num_heads == 1 else f"{num_heads}-head"
     heads_phrase = (
-        "two single-head nn.MultiheadAttention modules"
-        if num_heads == 1
-        else f"two {num_heads}-head nn.MultiheadAttention modules"
+        f"one {head_word} nn.MultiheadAttention module"
+        if arch.board_attention_shared_active
+        else f"two {head_word} nn.MultiheadAttention modules"
+    )
+    role_phrase = (
+        "shared by the POV board and every opponent board"
+        if arch.board_attention_shared_active
+        else "one for the POV board, one shared across every opponent board"
     )
     width_phrase = (
         f"{token_width}-wide"
@@ -607,8 +615,7 @@ def _attention_unit(
         out_count=n_board_index_slots,
         tooltip=(
             f"Board Self-Attention · {_count_text(block.total)} params · "
-            f"{heads_phrase} — one for the POV board, one shared across every "
-            f"opponent board · "
+            f"{heads_phrase} — {role_phrase} · "
             f"{encode.SLOTS_PER_BOARD} board-slot tokens × {width_phrase} · "
             f"attended tokens re-folded into state input ({width_note})"
         ),
@@ -1796,6 +1803,8 @@ def _svg_root(
             f"; board self-attention over each seat's {encode.SLOTS_PER_BOARD} "
             f"board slots before the State Encoder"
         )
+        if arch.board_attention_shared_active:
+            aria += " (one shared weight set for every seat)"
     marker = (
         '<defs><marker id="arr" viewBox="0 0 10 10" refX="8.5" refY="5" '
         'markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">'

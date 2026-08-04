@@ -199,6 +199,13 @@ class MainNetArchitecture(pydantic.BaseModel):
     # comment for the pad/slice contract). Same not-enforced-here reasoning as
     # board_attention_positions: config.validate_launchable is the blocker.
     board_attention_heads: typing.Annotated[int, pydantic.Field(ge=1)] = 1
+    # When True (meaningful only alongside use_board_attention), a single
+    # board_attn module scores every board instead of the board_attn_me /
+    # board_attn_opp pair — halves the BOARD ATTN parameter count and pins
+    # the module count at 1 for any seat count. Config-carried; default False
+    # reproduces the historical pair exactly. Same not-enforced-here reasoning
+    # as board_attention_positions: config.validate_launchable is the blocker.
+    board_attention_shared: bool = False
 
     # Per-block between/final activation overrides plus dropout and LayerNorm
     # toggles. None = inherit matching global. card/hand/choice _final default to
@@ -749,6 +756,7 @@ class RunConfig(pydantic.BaseModel):
             use_board_attention=main.use_board_attention,
             board_attention_positions=main.board_attention_positions,
             board_attention_heads=main.board_attention_heads,
+            board_attention_shared=main.board_attention_shared,
             card_between_activation=main.card_between_activation,
             card_final_activation=main.card_final_activation,
             card_dropout=main.card_dropout,
@@ -939,6 +947,15 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
             "(there is no board-attention module to split into heads)"
         )
 
+    # board_attention_shared is meaningless without use_board_attention (there
+    # are no board-attention modules to share). Same launch-time-only reasoning
+    # as the checks above.
+    if main.board_attention_shared and not main.use_board_attention:
+        problems.append(
+            "board_attention_shared is set but use_board_attention is off "
+            "(there are no board-attention modules to share)"
+        )
+
     # A superseded (non-live) encoding era is always 2-player: compat shims
     # derive their dims from a spec that never had N>=3 to freeze, and
     # compat.encoding_dims_for_era refuses num_players != 2 outright for any
@@ -1125,6 +1142,7 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
         "use_board_attention",
         "board_attention_positions",
         "board_attention_heads",
+        "board_attention_shared",
     }
     setup_arch_keys = {
         "setup_trunk_layers": "trunk_layers",

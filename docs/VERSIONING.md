@@ -435,11 +435,16 @@ change tensor shape: `state_dim`/`choice_dim` grow with per-opponent stripe
 replicas (`food_opp2`, `board_opp2`, ...), a `turn_position` state stripe, and a
 `player_select` choice stripe (all N>=3-only), and the board-attention path's
 input-facing Linears widen accordingly. This is the `use_board_attention` /
-`board_attention_heads` precedent: `num_players` joins `ShapeKey` (via
-`ModelArchitecture.num_players`) and `architecture_key` (via
-`ArchitectureConfig.state_dim`/`choice_dim`, which move with it), so a mismatched
-seat count refuses cleanly through the existing resume/load gates — never a
-silent shape coincidence.
+`board_attention_heads` / `board_attention_shared` precedent: `num_players`
+joins `ShapeKey` (via `ModelArchitecture.num_players`) and `architecture_key`
+(via `ArchitectureConfig.state_dim`/`choice_dim`, which move with it), so a
+mismatched seat count refuses cleanly through the existing resume/load gates —
+never a silent shape coincidence. (Each field `ShapeKey` picks up this way —
+most recently `board_attention_shared` — is safe to add as a *required* field
+rather than a defaulted one: a `ShapeKey` is only ever constructed from a live
+`ModelArchitecture` and compared with `==`, never serialized to disk on its
+own; it would become its own compat surface only if something ever wrote one
+out directly.)
 
 The consequence for compat: **N>=3 artifacts are fresh nets, forever, never
 compat-shimmed.** Every existing compat era (`v1_0`, `v1_3`, and every future

@@ -94,9 +94,10 @@ def state_embed_rules(
     * ``board_me`` expands to ``BOARD_SLOTS × (card_embed_dim + SLOT_SCALAR_DIM)``
       — one concat-of-card-embed-and-scalars vector per slot — and every
       opponent board stripe (``board_opp``, ``board_opp2``, ... one per
-      opponent clockwise) expands identically: they all describe the SAME
-      shared ``board_attn_opp`` module applied per-opponent (no new modules,
-      no new state_dict keys — see ``model.core``).
+      opponent clockwise) expands identically: they all describe the same
+      module applied per-opponent — ``board_attn_opp``, or the single shared
+      ``board_attn`` under ``board_attention_shared`` (no new modules, no new
+      state_dict keys — see ``model.core``).
     * ``card_idx_board`` is removed (``new_size=0``): the per-slot card lookup
       is already included in the attention-output blocks above.
 
@@ -197,8 +198,9 @@ def state_embed_rules(
         )
         # Every opponent board stripe (board_opp, board_opp2, ... one per
         # opponent clockwise) is folded identically: they all describe the
-        # SAME shared board_attn_opp module applied per-opponent, not one
-        # module each (see model.core._embed_state_board_attention).
+        # same module applied per-opponent, not one module each —
+        # board_attn_opp, or the single shared board_attn under
+        # board_attention_shared (see model.core._embed_state_board_attention).
         for k in range(1, num_players):
             rules[f"board_opp{layout._opponent_suffix(k)}"] = _EmbedRule(
                 new_size=attn_width,

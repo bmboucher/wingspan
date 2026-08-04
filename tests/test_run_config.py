@@ -344,6 +344,41 @@ def test_validate_launchable_board_attention_heads_with_attention_ok():
     assert config.validate_launchable(cfg) == []
 
 
+def test_validate_launchable_board_attention_shared_without_attention_flagged():
+    """board_attention_shared=True with use_board_attention=False is flagged,
+    mirroring the board_attention_positions/board_attention_heads launch-time
+    checks above (same reasoning: RunConfig._check_architecture forces the
+    full architecture to assemble on every single-field configurator commit,
+    so a hard reject here would break toggling use_board_attention off while
+    this was still on, before reset_hidden_fields gets a chance to clear it).
+    """
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_board_attention=False, board_attention_shared=True
+            )
+        ),
+    )
+    # Must not raise at construction.
+    assert cfg.architecture.main.board_attention_shared is True
+    problems = config.validate_launchable(cfg)
+    assert any("no board-attention modules to share" in problem for problem in problems)
+
+
+def test_validate_launchable_board_attention_shared_with_attention_ok():
+    """board_attention_shared=True with use_board_attention=True validates cleanly."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(device="cpu"),
+        architecture=config.ArchitectureConfig(
+            main=config.MainNetArchitecture(
+                use_board_attention=True, board_attention_shared=True
+            )
+        ),
+    )
+    assert config.validate_launchable(cfg) == []
+
+
 def test_validate_launchable_num_players_2_ok():
     """The default num_players=2 is never flagged."""
     cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))

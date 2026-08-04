@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
-# (white-box tests access _board_position_matrix / _apply_board_attention to
-# verify the empty-slot-token-exactly-zero invariant directly)
+# (white-box tests access _board_position_matrix / _apply_board_attention /
+# _board_attention_modules / _embed_state to verify invariants directly)
 """Board self-attention layer (``use_board_attention``) unit tests.
 
 Covers the forward pass (including fully-empty boards at game start), parameter
@@ -9,6 +9,8 @@ trunk-input-width invariance, and the save/reload round-trip.
 """
 
 from __future__ import annotations
+
+import typing
 
 import pydantic
 import pytest
@@ -25,7 +27,11 @@ _N_CHOICES = 4
 
 
 def _arch(
-    use_board_attention: bool, positions: bool = False, heads: int = 1
+    use_board_attention: bool,
+    positions: bool = False,
+    heads: int = 1,
+    *,
+    shared: bool = False,
 ) -> architecture.ModelArchitecture:
     return architecture.ModelArchitecture(
         trunk_layers=(64, 64),
@@ -38,13 +44,20 @@ def _arch(
         use_board_attention=use_board_attention,
         board_attention_positions=positions,
         board_attention_heads=heads,
+        board_attention_shared=shared,
     )
 
 
 def _net(
-    use_board_attention: bool, positions: bool = False, heads: int = 1
+    use_board_attention: bool,
+    positions: bool = False,
+    heads: int = 1,
+    *,
+    shared: bool = False,
 ) -> core.PolicyValueNet:
-    return core.PolicyValueNet(arch=_arch(use_board_attention, positions, heads)).eval()
+    return core.PolicyValueNet(
+        arch=_arch(use_board_attention, positions, heads, shared=shared)
+    ).eval()
 
 
 def _zero_state(batch: int = 2):
@@ -743,3 +756,418 @@ def test_heads_zero_rejected() -> None:
     """board_attention_heads=0 is rejected by the ge=1 Field constraint."""
     with pytest.raises(pydantic.ValidationError):
         architecture.ModelArchitecture(board_attention_heads=0)
+
+
+# ---------------------------------------------------------------------------
+# board_attention_shared tests
+
+
+def test_forward_no_nan_empty_boards_shared() -> None:
+    """Forward pass on fully-empty boards (game start) with a shared board-
+    attention module must produce finite outputs, mirroring
+    test_forward_no_nan_empty_boards."""
+    net = _net(use_board_attention=True, shared=True)
+    state, choices, mask, family_idx = _inputs(batch=3)
+    with torch.no_grad():
+        logits, value = net(state, choices, mask, family_idx)
+    assert logits.shape == (3, _N_CHOICES)
+    assert value.shape == (3,)
+    assert torch.isfinite(logits).all(), "logits contain NaN/inf"
+    assert torch.isfinite(value).all(), "value contains NaN/inf"
+
+
+def test_forward_no_nan_partial_boards_shared() -> None:
+    """Forward with a non-trivial state (non-zero card indices) and a shared
+    board-attention module is also NaN-free, mirroring
+    test_forward_no_nan_partial_boards."""
+    net = _net(use_board_attention=True, shared=True)
+    state, choices, mask, family_idx = _inputs(batch=2)
+    state[:, encode.OFF_CARD_INDEX + 0] = 1.0
+    state[:, encode.OFF_CARD_INDEX + 1] = 2.0
+    with torch.no_grad():
+        logits, value = net(state, choices, mask, family_idx)
+    assert torch.isfinite(logits).all()
+    assert torch.isfinite(value).all()
+
+
+def test_shared_net_has_only_the_shared_module() -> None:
+    """With board_attention_shared=True the net registers a single board_attn
+    module and neither of the unshared board_attn_me / board_attn_opp pair."""
+    net = _net(use_board_attention=True, shared=True)
+    assert hasattr(net, "board_attn")
+    assert isinstance(net.board_attn, torch.nn.MultiheadAttention)
+    assert not hasattr(net, "board_attn_me")
+    assert not hasattr(net, "board_attn_opp")
+
+
+def test_shared_state_dict_key_set_is_disjoint_from_unshared() -> None:
+    """The payoff of the distinct-name decision: the shared net's board_attn*
+    state_dict keys and the unshared net's board_attn_me*/board_attn_opp* keys
+    never overlap, so a strict-mode cross-mode load fails loudly with BOTH
+    missing and unexpected keys instead of silently reusing a stale copy.
+
+    state_dict() does not dedupe shared submodules, so aliasing
+    board_attn_opp = board_attn_me under sharing would still emit both key
+    sets and let a shared checkpoint strict-load into an unshared net (or vice
+    versa) silently — registering a genuinely distinct name is what makes that
+    cross-mode load fail loudly instead."""
+    shared_net = _net(use_board_attention=True, shared=True)
+    unshared_net = _net(use_board_attention=True)
+
+    shared_keys = {
+        key for key in shared_net.state_dict() if key.startswith("board_attn")
+    }
+    unshared_keys = {
+        key for key in unshared_net.state_dict() if key.startswith("board_attn")
+    }
+    # Disjoint by construction: "board_attn.*" vs "board_attn_me.*"/"board_attn_opp.*".
+    assert shared_keys.isdisjoint(unshared_keys)
+
+    with pytest.raises(RuntimeError):
+        shared_net.load_state_dict(unshared_net.state_dict())
+    with pytest.raises(RuntimeError):
+        unshared_net.load_state_dict(shared_net.state_dict())
+
+
+def test_shared_param_count_matches_accounting() -> None:
+    """The actual parameter count of the shared attention net equals
+    count_parameters, mirroring test_param_count_matches_accounting."""
+    arch_shared = _arch(use_board_attention=True, shared=True)
+    net = core.PolicyValueNet(arch=arch_shared)
+    actual = sum(p.numel() for p in net.parameters())
+
+    spec = encode.DEFAULT_SPEC
+    report = architecture.count_parameters(
+        arch_shared,
+        card_feat_in=encode.CARD_FEATURE_DIM,
+        trunk_in=encode.trunk_input_dim(
+            encode.state_size(spec),
+            arch_shared.card_embed_dim,
+            use_distinct_hand_model=arch_shared.use_distinct_hand_model,
+            hand_embed_dim=arch_shared.hand_embed_dim,
+            tray_set_embedding=arch_shared.tray_set_embedding,
+            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+        ),
+        choice_in=encode.choice_input_dim(
+            encode.CHOICE_FEATURE_DIM,
+            arch_shared.card_embed_dim,
+            pooled_hand_width=arch_shared.pooled_hand_width,
+        ),
+        num_families=encode.num_families(spec),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
+        slot_scalar_dim=encode.SLOT_SCALAR_DIM,
+    )
+    assert actual == report.total, (
+        f"actual {actual} != accounting {report.total} "
+        f"(board_attention block: {report.board_attention})"
+    )
+
+
+def test_shared_halves_board_attention_params() -> None:
+    """Sharing halves the BOARD ATTN parameter count at the same topology: one
+    module (4E²+4E) instead of the own/opp pair (2·(4E²+4E)), mirroring the
+    closing assertions of test_param_count_matches_accounting_with_positions."""
+    spec = encode.DEFAULT_SPEC
+
+    def _board_attn_report(
+        arch: architecture.ModelArchitecture,
+    ) -> architecture.ParamReport:
+        return architecture.count_parameters(
+            arch,
+            card_feat_in=encode.CARD_FEATURE_DIM,
+            trunk_in=encode.trunk_input_dim(
+                encode.state_size(spec),
+                arch.card_embed_dim,
+                use_distinct_hand_model=arch.use_distinct_hand_model,
+                hand_embed_dim=arch.hand_embed_dim,
+                tray_set_embedding=arch.tray_set_embedding,
+                n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            ),
+            choice_in=encode.choice_input_dim(
+                encode.CHOICE_FEATURE_DIM,
+                arch.card_embed_dim,
+                pooled_hand_width=arch.pooled_hand_width,
+            ),
+            num_families=encode.num_families(spec),
+            hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
+            slot_scalar_dim=encode.SLOT_SCALAR_DIM,
+        )
+
+    unshared = _board_attn_report(_arch(use_board_attention=True))
+    shared = _board_attn_report(_arch(use_board_attention=True, shared=True))
+    assert unshared.board_attention is not None
+    assert shared.board_attention is not None
+    assert unshared.board_attention.total == 2 * shared.board_attention.total
+    # W = 64 (card_embed_dim) + 9 (slot_scalar_dim) = 73.
+    assert shared.board_attention.total == 4 * 73 * 73 + 4 * 73 == 21_608
+
+
+def test_shared_param_count_with_positions_and_heads() -> None:
+    """Sharing composes with positions and heads: the three _active resolvers
+    (board_attention_positions_active, board_attention_heads_active,
+    board_attention_shared_active) all apply simultaneously, mirroring
+    test_param_count_matches_accounting_with_positions."""
+    arch = _arch(True, positions=True, heads=2, shared=True)
+    net = core.PolicyValueNet(arch=arch)
+    actual = sum(p.numel() for p in net.parameters())
+
+    spec = encode.DEFAULT_SPEC
+    report = architecture.count_parameters(
+        arch,
+        card_feat_in=encode.CARD_FEATURE_DIM,
+        trunk_in=encode.trunk_input_dim(
+            encode.state_size(spec),
+            arch.card_embed_dim,
+            use_distinct_hand_model=arch.use_distinct_hand_model,
+            hand_embed_dim=arch.hand_embed_dim,
+            tray_set_embedding=arch.tray_set_embedding,
+            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            board_position_dim=encode.BOARD_POSITION_DIM,
+        ),
+        choice_in=encode.choice_input_dim(
+            encode.CHOICE_FEATURE_DIM,
+            arch.card_embed_dim,
+            pooled_hand_width=arch.pooled_hand_width,
+        ),
+        num_families=encode.num_families(spec),
+        hand_feat_in=encode.HAND_ENCODER_INPUT_DIM,
+        slot_scalar_dim=encode.SLOT_SCALAR_DIM,
+        board_position_dim=encode.BOARD_POSITION_DIM,
+    )
+    assert actual == report.total, (
+        f"actual {actual} != accounting {report.total} "
+        f"(board_attention block: {report.board_attention})"
+    )
+    assert report.board_attention is not None
+    # W = 64 (card_embed_dim) + 9 (slot_scalar_dim) + 8 (board_position_dim) = 81;
+    # heads=2 pads 81 -> 82.
+    assert report.board_attention.total == 4 * 82 * 82 + 4 * 82 == 27_224
+
+
+def test_shared_module_embed_dim_and_heads() -> None:
+    """The shared board_attn module is built at the same padded embed_dim as
+    the unshared pair — 73-wide/1 head at heads=1, 74-wide/2 heads at heads=2
+    — mirroring test_attention_modules_padded_embed_dim_and_heads."""
+    net_single = _net(use_board_attention=True, shared=True)
+    assert typing.cast(int, net_single.board_attn.embed_dim) == 73
+    assert net_single.board_attn.num_heads == 1
+
+    net_heads = _net(use_board_attention=True, heads=2, shared=True)
+    assert typing.cast(int, net_heads.board_attn.embed_dim) == 74
+    assert net_heads.board_attn.num_heads == 2
+
+
+def test_trunk_input_width_invariant_with_shared() -> None:
+    """The trunk's first-Linear in_features is identical across attention-off,
+    attention-on, and attention-on+shared — sharing changes only the BOARD
+    ATTN block, never the trunk-visible width, mirroring
+    test_trunk_input_width_invariant."""
+    net_base = core.PolicyValueNet(arch=_arch(False))
+    net_attn = core.PolicyValueNet(arch=_arch(True))
+    net_shared = core.PolicyValueNet(arch=_arch(True, shared=True))
+    first_base = next(net_base.state_trunk.children())
+    first_attn = next(net_attn.state_trunk.children())
+    first_shared = next(net_shared.state_trunk.children())
+    assert isinstance(first_base, torch.nn.Linear)
+    assert isinstance(first_attn, torch.nn.Linear)
+    assert isinstance(first_shared, torch.nn.Linear)
+    assert first_base.in_features == first_attn.in_features == first_shared.in_features
+
+
+def test_shape_key_differs_with_shared() -> None:
+    """shape_key must differ between shared and unshared (both attention-on)."""
+    assert _arch(True, shared=True).shape_key != _arch(True).shape_key
+
+
+def test_architecture_key_incompatible_with_shared() -> None:
+    """architecture_key (the resume gate) must be incompatible between shared
+    and unshared, mirroring test_architecture_key_incompatible_with_positions."""
+    from wingspan.training import config as train_config
+
+    cfg_attn = train_config.RunConfig(
+        architecture=train_config.ArchitectureConfig(
+            main=train_config.MainNetArchitecture(use_board_attention=True)
+        )
+    )
+    cfg_shared = train_config.RunConfig(
+        architecture=train_config.ArchitectureConfig(
+            main=train_config.MainNetArchitecture(
+                use_board_attention=True, board_attention_shared=True
+            )
+        )
+    )
+    assert cfg_attn.architecture_key != cfg_shared.architecture_key
+
+
+def test_save_reload_roundtrip_shared() -> None:
+    """Save and reload the shared attention net; flag must survive and
+    state_dict loads, mirroring test_save_reload_roundtrip."""
+    net = core.PolicyValueNet(arch=_arch(True, shared=True))
+    state_dict = net.state_dict()
+
+    arch_json = _arch(True, shared=True).model_dump()
+    arch_loaded = architecture.ModelArchitecture(**arch_json)
+    assert arch_loaded.board_attention_shared is True
+    assert arch_loaded.shape_key == _arch(True, shared=True).shape_key
+
+    net2 = core.PolicyValueNet(arch=arch_loaded)
+    net2.load_state_dict(state_dict)
+    state, choices, mask, family_idx = _inputs()
+    with torch.no_grad():
+        logits, value = net2.eval()(state, choices, mask, family_idx)
+    assert torch.isfinite(logits).all()
+    assert torch.isfinite(value).all()
+
+
+def test_old_config_without_shared_field_rebuilds_the_pair() -> None:
+    """A config dict predating board_attention_shared (the key entirely
+    absent, simulating a pre-this-feature model_config.json) must rehydrate to
+    shared=False and build the original board_attn_me/board_attn_opp pair —
+    the REGIME/no-shim claim that old artifacts load unchanged, mirroring
+    test_old_config_without_heads_field_rebuilds_single_head. No MODEL_VERSION
+    bump or compat shim is needed for this field."""
+    arch_json = _arch(True).model_dump()
+    del arch_json["board_attention_shared"]
+    assert "board_attention_shared" not in arch_json
+
+    arch_loaded = architecture.ModelArchitecture(**arch_json)
+    assert arch_loaded.board_attention_shared is False
+
+    net = core.PolicyValueNet(arch=arch_loaded)
+    assert hasattr(net, "board_attn_me")
+    assert hasattr(net, "board_attn_opp")
+    assert not hasattr(net, "board_attn")
+
+
+def test_shared_inert_without_attention() -> None:
+    """board_attention_shared=True with use_board_attention=False is inert:
+    board_attention_shared_active is False, the architecture shares its
+    shape_key with the plain (attention-off) config, and the built net has
+    none of the attention modules — mirroring
+    test_inert_heads_share_shape_key_with_plain_off /
+    test_positions_without_attention_is_inert_not_rejected."""
+    arch = _arch(False, shared=True)
+    assert arch.board_attention_shared_active is False
+    assert arch.shape_key == _arch(False).shape_key
+
+    net = core.PolicyValueNet(arch=arch).eval()
+    assert not hasattr(net, "board_attn")
+    assert not hasattr(net, "board_attn_me")
+    assert not hasattr(net, "board_attn_opp")
+
+
+# The semantic proof: a shared module scores a board the same regardless of
+# seat, and that symmetry propagates end-to-end through _embed_state; the
+# contrast tests show neither claim holds for the unshared own/opp pair.
+
+
+def _identical_board_tokens(
+    batch: int = 2, token_width: int = 64 + encode.SLOT_SCALAR_DIM
+):
+    """One [B, 15, W] board-token batch with every slot filled (no empties).
+
+    Unannotated: ``torch`` arrives via ``pytest.importorskip`` (an ``Any``)."""
+    torch.manual_seed(0)
+    return torch.randn(batch, encode.SLOTS_PER_BOARD, token_width)
+
+
+def test_shared_module_scores_identical_boards_identically() -> None:
+    """Under sharing, attn_pov and attn_opp are literally the same module
+    object, so the same board tokens score identically whichever "seat" they
+    are passed through as — the same board scores the same no matter whose
+    seat it is, which is the whole point of the flag."""
+    net = _net(True, shared=True)
+    attn_pov, attn_opp = net._board_attention_modules()
+    assert attn_pov is attn_opp
+
+    batch = 2
+    tokens = _identical_board_tokens(batch=batch)
+    empty = torch.zeros(batch, encode.SLOTS_PER_BOARD, dtype=torch.bool)
+    with torch.no_grad():
+        pov_out = core._apply_board_attention(attn_pov, tokens, empty)
+        opp_out = core._apply_board_attention(attn_opp, tokens, empty)
+    assert torch.allclose(pov_out, opp_out)
+
+
+def test_separate_modules_score_identical_boards_differently() -> None:
+    """The contrast case proving
+    test_shared_module_scores_identical_boards_identically has teeth: with
+    independent (unshared) modules, attn_pov is not attn_opp, and the SAME
+    board tokens score differently depending on which module processes them."""
+    net = _net(True)
+    attn_pov, attn_opp = net._board_attention_modules()
+    assert attn_pov is not attn_opp
+
+    batch = 2
+    tokens = _identical_board_tokens(batch=batch)
+    empty = torch.zeros(batch, encode.SLOTS_PER_BOARD, dtype=torch.bool)
+    with torch.no_grad():
+        pov_out = core._apply_board_attention(attn_pov, tokens, empty)
+        opp_out = core._apply_board_attention(attn_opp, tokens, empty)
+    assert not torch.allclose(pov_out, opp_out)
+
+
+def _state_with_boards(first_ids: range, second_ids: range):
+    """A zero state with seat-0 and seat-1 board card indices written.
+
+    Board card indices live in the card-index block: seat 0 occupies slots
+    0..14 and seat 1 slots 15..29 (see ``model.core``). Every other field —
+    including the per-slot continuous scalars — stays zero, so the two boards
+    differ ONLY in which cards they hold.
+
+    Unannotated: ``torch`` arrives via ``pytest.importorskip`` (an ``Any``)."""
+    state = _zero_state(1)
+    for i, card_id in enumerate(first_ids):
+        state[:, encode.OFF_CARD_INDEX + i] = float(card_id)
+    for i, card_id in enumerate(second_ids):
+        state[:, encode.OFF_CARD_INDEX + encode.SLOTS_PER_BOARD + i] = float(card_id)
+    return state
+
+
+def test_shared_embed_state_is_symmetric_under_board_swap() -> None:
+    """End-to-end proof: with a shared board_attn module, swapping which seat
+    holds which board content permutes but does not change the embedded
+    state's values.
+
+    Board content reaches _embed_state's output ONLY through the two
+    flattened attention blocks (own_flat then opp_flats) — the board
+    continuous stripes and the board card-index block are both excised from
+    the continuous prefix. With one shared module scoring every board
+    identically, "score this board" is the same function of board content
+    whichever seat calls it, so swapping the two boards' seats merely
+    exchanges two adjacent equal-width blocks in the flattened output — a
+    permutation of bit-identical values, not a change in the values
+    themselves. This also demonstrates the encoder is seat-agnostic: the same
+    board content in seat 0 and seat 1 yields the same tokens."""
+    net = _net(True, shared=True)
+    board_a = range(1, 16)
+    board_b = range(16, 31)
+
+    with torch.no_grad():
+        emb = net._embed_state(_state_with_boards(board_a, board_b), net.card_table())
+        emb_swapped = net._embed_state(
+            _state_with_boards(board_b, board_a), net.card_table()
+        )
+    assert torch.allclose(
+        emb.flatten().sort().values, emb_swapped.flatten().sort().values
+    )
+
+
+def test_separate_modules_embed_state_is_not_symmetric_under_board_swap() -> None:
+    """Contrast case for test_shared_embed_state_is_symmetric_under_board_swap:
+    with independent board_attn_me / board_attn_opp modules, own_flat(board)
+    and opp_flat(board) are different functions of the same board content, so
+    swapping which seat holds which board is not a mere permutation of the
+    embedded state's values."""
+    net = _net(True)
+    board_a = range(1, 16)
+    board_b = range(16, 31)
+
+    with torch.no_grad():
+        emb = net._embed_state(_state_with_boards(board_a, board_b), net.card_table())
+        emb_swapped = net._embed_state(
+            _state_with_boards(board_b, board_a), net.card_table()
+        )
+    assert not torch.allclose(
+        emb.flatten().sort().values, emb_swapped.flatten().sort().values
+    )

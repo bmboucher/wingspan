@@ -109,6 +109,11 @@ class PolicyValueNet(nn.Module):
     card_pad_mask: torch.Tensor
     card_summary_matrix: torch.Tensor
     # Optional attention modules, registered only when use_board_attention is on.
+    # The shared name and the own/opp pair are mutually exclusive and
+    # deliberately disjoint, so a bare state_dict names its own mode and a
+    # cross-mode load_state_dict fails loudly (missing AND unexpected keys)
+    # instead of silently reusing a stale copy.
+    board_attn: nn.MultiheadAttention
     board_attn_me: nn.MultiheadAttention
     board_attn_opp: nn.MultiheadAttention
     # Optional constant position block, registered only when
@@ -399,19 +404,23 @@ class PolicyValueNet(nn.Module):
             )
 
     def _build_board_attention(self, arch: architecture.ModelArchitecture) -> None:
-        """Register ``board_attn_me`` and ``board_attn_opp`` (conditional), and
-        the optional constant ``board_position`` block.
+        """Register the board-attention module(s) (conditional), and the
+        optional constant ``board_position`` block.
 
-        When ``use_board_attention`` is on, two independent
-        ``nn.MultiheadAttention`` modules are registered — one for the active
-        player's board, one for the opponent's — each operating over 15 token
-        slots of width ``card_embed_dim + SLOT_SCALAR_DIM`` (``+
-        BOARD_POSITION_DIM`` when ``board_attention_positions`` is also on, in
-        which case the constant ``[15, 8]`` habitat/column one-hot buffer is
-        also registered — non-persistent like ``card_summary_matrix``, so it is
-        rebuilt from scratch on load rather than saved). The true token width
-        (73, or 81 with positions) rarely divides ``board_attention_heads`` —
-        73 is prime, 81 = 3⁴ — so each module is built at the zero-padded
+        When ``use_board_attention`` is on, either a single ``board_attn``
+        module (under ``board_attention_shared``, scoring the POV board and
+        every opponent board alike) or two independent ones (``board_attn_me``
+        for the POV board, ``board_attn_opp`` shared across every opponent
+        board) are registered — never more, whatever ``num_players`` is. The
+        two naming groups are deliberately disjoint so a state_dict names its
+        own mode. Each module operates over 15 token slots of width
+        ``card_embed_dim + SLOT_SCALAR_DIM`` (``+ BOARD_POSITION_DIM`` when
+        ``board_attention_positions`` is also on, in which case the constant
+        ``[15, 8]`` habitat/column one-hot buffer is also registered —
+        non-persistent like ``card_summary_matrix``, so it is rebuilt from
+        scratch on load rather than saved). The true token width (73, or 81
+        with positions) rarely divides ``board_attention_heads`` — 73 is prime,
+        81 = 3⁴ — so each module is built at the zero-padded
         ``architecture.board_attention_embed_dim`` width instead; the pad never
         leaves the attention step (``_apply_board_attention`` slices back to
         the true width), so this is the only place the padded width appears."""
@@ -425,12 +434,17 @@ class PolicyValueNet(nn.Module):
             )
         num_heads = arch.board_attention_heads_active
         embed_dim = architecture.board_attention_embed_dim(token_dim, num_heads)
-        self.board_attn_me = nn.MultiheadAttention(
-            embed_dim=embed_dim, num_heads=num_heads, batch_first=True
-        )
-        self.board_attn_opp = nn.MultiheadAttention(
-            embed_dim=embed_dim, num_heads=num_heads, batch_first=True
-        )
+
+        def _attention_module() -> nn.MultiheadAttention:
+            return nn.MultiheadAttention(
+                embed_dim=embed_dim, num_heads=num_heads, batch_first=True
+            )
+
+        if arch.board_attention_shared_active:
+            self.board_attn = _attention_module()
+            return
+        self.board_attn_me = _attention_module()
+        self.board_attn_opp = _attention_module()
 
     def _build_trunk(
         self, state_dim: int, arch: architecture.ModelArchitecture
@@ -666,6 +680,20 @@ class PolicyValueNet(nn.Module):
             [continuous, slot_emb, tray_set_emb, hand_emb, *extra_embs], dim=-1
         )
 
+    def _board_attention_modules(
+        self,
+    ) -> tuple[nn.MultiheadAttention, nn.MultiheadAttention]:
+        """The ``(pov, opponent)`` board-attention modules for this pass.
+
+        Under ``board_attention_shared`` both entries are the *same*
+        ``board_attn`` object — one weight set learns "how good is a board"
+        from every seat's experience; otherwise they are the historical
+        ``board_attn_me`` / ``board_attn_opp`` pair. Keeping the branch here
+        means the read side has exactly one place that knows the two modes."""
+        if self.arch.board_attention_shared_active:
+            return self.board_attn, self.board_attn
+        return self.board_attn_me, self.board_attn_opp
+
     def _embed_state_board_attention(
         self,
         state: torch.Tensor,
@@ -679,11 +707,14 @@ class PolicyValueNet(nn.Module):
         ⊕ 8-dim habitat/column position block when ``board_attention_positions``
         is on), applies masked self-attention with a residual, then concatenates
         the flattened outputs in place of the standard per-slot card lookups +
-        board-stripe continuous dims. The POV board runs through
-        ``board_attn_me``; EVERY opponent board runs through the SAME shared
-        ``board_attn_opp`` module (called once per opponent) — no new modules,
-        no new state_dict keys as ``arch.num_players`` grows, and at N=2 this is
-        exactly the old own/opponent pair. The ``arch.num_players`` board
+        board-stripe continuous dims. Under ``board_attention_shared`` a single
+        ``board_attn`` module scores the POV board and every opponent board
+        alike; otherwise the POV board runs through ``board_attn_me`` and EVERY
+        opponent board runs through the SAME shared ``board_attn_opp`` module
+        (called once per opponent). Either way: no new modules, no new
+        state_dict keys as ``arch.num_players`` grows, and self/other sign is
+        carried entirely by the fixed concat order of the flattened blocks,
+        never by a marker token. The ``arch.num_players`` board
         continuous stripes (``board_me`` + one per opponent, contiguous, see
         ``encode.off_board``) are excised from ``continuous`` and re-folded into
         the flattened tokens (15×W each board, W = E+9 normally or E+9+8 with
@@ -742,11 +773,13 @@ class PolicyValueNet(nn.Module):
                 dim=-1,
             )
 
+        attn_pov, attn_opp = self._board_attention_modules()
         own_tokens = _tokens(own_card_emb, own_scalars, own_empty)
-        own_flat = _apply_board_attention(self.board_attn_me, own_tokens, own_empty)
+        own_flat = _apply_board_attention(attn_pov, own_tokens, own_empty)
 
-        # Every opponent board, clockwise, through the SAME shared
-        # board_attn_opp module — one call per opponent, sharing weights.
+        # Every opponent board, clockwise, through the SAME opponent module —
+        # one call per opponent, sharing weights (and, under
+        # board_attention_shared, the very same module as the POV board).
         opp_flats: list[torch.Tensor] = []
         for seat_offset in range(1, num_players):
             opp_card_emb = slot_emb_all[
@@ -760,9 +793,7 @@ class PolicyValueNet(nn.Module):
                 card_idx[:, seat_offset * slots : (seat_offset + 1) * slots] == 0
             )
             opp_tokens = _tokens(opp_card_emb, opp_scalars, opp_empty)
-            opp_flats.append(
-                _apply_board_attention(self.board_attn_opp, opp_tokens, opp_empty)
-            )
+            opp_flats.append(_apply_board_attention(attn_opp, opp_tokens, opp_empty))
 
         # Hand multi-hot and any extra playability multi-hots.
         hand_multihot, extra_multihots = self._extract_hand_blocks(
