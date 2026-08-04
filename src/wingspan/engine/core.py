@@ -116,10 +116,12 @@ class Engine:
         self.instrumentation: dispatcher.Instrumentation = (
             instrumentation if instrumentation is not None else dispatcher.EMPTY
         )
-        # The structured event-tree emitter. Defaults to the shared no-op
-        # ``EMPTY`` so uninstrumented games pay nothing.
+        # The structured event-tree emitter. Defaults to a fresh no-op recorder
+        # so uninstrumented games pay nothing.
         self.events: gamelog_recorder.AnyRecorder = (
-            event_recorder if event_recorder is not None else gamelog_recorder.EMPTY
+            event_recorder
+            if event_recorder is not None
+            else gamelog_recorder.null_recorder()
         )
 
     # ------------------------------------------------------------------
@@ -373,11 +375,13 @@ class Engine:
             for pb in row:
                 pb.pink_fired = False
         self.instrumentation.turn_start(engine=self, player=player)
-        self.events.begin_phase("turn")
+        turn_idx = state.ROUND_CUBES[self.state.round_idx] - player.action_cubes_left
+        self.events.begin_phase(
+            "turn", round_idx=self.state.round_idx, turn_idx=turn_idx
+        )
         # Print the turn header first so it anchors the block, then the state
         # summary, then ask for the main action (which logs the AI distribution)
         # so the decision lines always follow their context header.
-        turn_idx = state.ROUND_CUBES[self.state.round_idx] - player.action_cubes_left
         self.log_section(
             f"=== {player.name}, ROUND {self.state.round_idx + 1}, "
             f"TURN {turn_idx} ({player.action_cubes_left} CUBES LEFT) ==="
@@ -461,6 +465,16 @@ class Engine:
 
         Each obligation is one mandatory discard from hand. A single card in hand
         auto-resolves via the ask() single-choice guard. Fizzles if hand is empty."""
+        if not self.state.turn_end_discards:
+            return
+        self.events.begin_turn_end(player.id)
+        try:
+            self._ask_turn_end_discards(agent, player)
+        finally:
+            self.events.end_event()
+
+    def _ask_turn_end_discards(self, agent: Agent, player: state.Player) -> None:
+        """Run the end-of-turn discard asks inside an open ``TurnEndEvent``."""
         for _ in range(self.state.turn_end_discards):
             if not player.hand:
                 self.log(f"  [{player.name}] end-of-turn discard: hand empty, skipped")
@@ -557,6 +571,14 @@ class Engine:
             self.log_section(f"=== SETUP: {player.name} CHOOSING BIRDS AND FOOD ===")
             log_format.log_dealt_hand(self, player, dealt_cards)
             log_format.log_dealt_bonus(self, dealt_cards, dealt_bonus, player)
+            # Open the phase and fire the capture together, exactly as
+            # _resolve_setup_choice does: the reporting layer pairs its phase
+            # snapshots with tree phases by position, so both sides must move
+            # in lockstep or every later phase misaligns.
+            self.events.begin_phase("setup")
+            self.instrumentation.setup_start(
+                engine=self, player=player, dealt_bonus=dealt_bonus
+            )
             self.events.begin_setup(player.id)
             self._apply_setup_choice(
                 player, dealt_cards, dealt_bonus, sc, defer_food=defer_food
@@ -599,7 +621,7 @@ class Engine:
         )
         self.log_global(f"Round goal: {self.state.round_goals[round_idx].description}")
         self.instrumentation.round_start(engine=self, round_num=round_idx)
-        self.events.begin_phase("round")
+        self.events.begin_phase("round", round_idx=round_idx)
         # Turn order rotates each round off the randomly-chosen first player,
         # then proceeds clockwise (player.id ascending, wrapping); every seat
         # holds equal cubes, so a strict round-robin drains them evenly.

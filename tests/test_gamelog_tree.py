@@ -9,13 +9,14 @@ key call-site wiring introduced in Step 3:
 - ``DecisionSubEvent`` captures decision options (with annotation from the probe)
 - ``SetupEvent`` covers each player's kept cards and bonus
 - 4 ``RoundGoalEvent``s across all rounds plus one ``FinalScoringEvent``
-- The ``EMPTY`` null recorder is a complete no-op
+- The ``null_recorder()`` no-op is a complete no-op
 """
 
 from __future__ import annotations
 
 import random
 import sys
+import typing
 
 # Add src/ to path as per test_smoke.py convention.
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "src"))
@@ -29,7 +30,6 @@ def _make_engine_with_recorder(seed: int = 42):
 
     rec = gamelog_recorder.EventRecorder(
         probes=(None, None),
-        seat_configs=(None, None),
     )
     eng, *_ = engine_mod.Engine.create(seed=seed)
     rng = random.Random(seed)
@@ -42,7 +42,7 @@ def _make_engine_with_recorder(seed: int = 42):
 
 
 def test_null_recorder_is_noop():
-    """EMPTY recorder accepts all calls without raising."""
+    """The null recorder accepts all calls without raising."""
     from wingspan import agents
     from wingspan import engine as engine_mod
     from wingspan.gamelog import recorder as gamelog_recorder
@@ -52,7 +52,7 @@ def test_null_recorder_is_noop():
     engine_mod.Engine.play_one_game(
         eng.state,
         (agents.random_agent(rng), agents.random_agent(rng)),
-        event_recorder=gamelog_recorder.EMPTY,
+        event_recorder=gamelog_recorder.null_recorder(),
     )
     assert eng.state.game_over
 
@@ -100,7 +100,9 @@ def test_play_bird_events_present():
 
     _eng, rec = _make_engine_with_recorder(seed=5)
 
-    def _collect_all(events: list[models.GameEvent]) -> list[models.GameEvent]:
+    def _collect_all(
+        events: typing.Sequence[models.GameEvent],
+    ) -> list[models.GameEvent]:
         result: list[models.GameEvent] = []
         for ev in events:
             result.append(ev)
@@ -118,7 +120,9 @@ def test_activate_brown_events_cover_row():
 
     _eng, rec = _make_engine_with_recorder(seed=3)
 
-    def _collect_all(events: list[models.GameEvent]) -> list[models.GameEvent]:
+    def _collect_all(
+        events: typing.Sequence[models.GameEvent],
+    ) -> list[models.GameEvent]:
         result: list[models.GameEvent] = []
         for ev in events:
             result.append(ev)
@@ -173,7 +177,9 @@ def test_decision_sub_events_have_outcome_text():
 
     _eng, rec = _make_engine_with_recorder(seed=13)
 
-    def _collect_subs(events: list[models.GameEvent]) -> list[models.SubEvent]:
+    def _collect_subs(
+        events: typing.Sequence[models.GameEvent],
+    ) -> list[models.SubEvent]:
         result: list[models.SubEvent] = []
         for ev in events:
             result.extend(ev.sub_events)
@@ -260,9 +266,7 @@ def test_record_decision_decodes_with_annotation_layouts():
             include_setup=False,
         )
     )
-    rec = gamelog_recorder.EventRecorder(
-        probes=(probe, None), seat_configs=(None, None)
-    )
+    rec = gamelog_recorder.EventRecorder(probes=(probe, None))
     rec.begin_game()
     rec.begin_phase("turn")
     rec.begin_main_action(0)
@@ -300,7 +304,9 @@ def test_feeder_reroll_notes_have_birdfeeder_dice_faces_and_survive_to_html():
 
     _eng, rec = _make_engine_with_recorder(seed=23)
 
-    def _collect_all(events: list[models.GameEvent]) -> list[models.GameEvent]:
+    def _collect_all(
+        events: typing.Sequence[models.GameEvent],
+    ) -> list[models.GameEvent]:
         result: list[models.GameEvent] = []
         for ev in events:
             result.append(ev)

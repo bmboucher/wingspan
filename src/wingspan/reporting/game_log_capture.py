@@ -567,7 +567,7 @@ def _play_bird_event_to_items(
 
 
 def _sub_events_to_items(
-    sub_events: list[gamelog_models.SubEvent],
+    sub_events: typing.Sequence[gamelog_models.AnySubEvent],
     player_id: int | None,
 ) -> list[game_log_html.LogItem]:
     """Convert a list of ``SubEvent``s to ``LogItem``s, dropping empty notes."""
@@ -597,7 +597,7 @@ def _sub_event_to_item(
         return game_log_html.LogItem(
             kind="forced",
             player_id=pid,
-            text=sub.text,
+            text=sub.outcome_text,
             forced=True,
         )
     elif isinstance(sub, gamelog_models.NoteSubEvent):

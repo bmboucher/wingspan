@@ -522,6 +522,52 @@ def test_capture_phases_align_one_to_one_with_tree():
     assert len(phases) == len(tree.phases)
 
 
+def test_capture_phases_align_on_the_fixed_setup_path():
+    """Alignment also holds when setup is resolved by a chooser.
+
+    ``_setup_phase_fixed`` opens its ``setup`` phase and fires ``setup_start``
+    together; if either side is ever added without the other, every phase after
+    setup pairs with the wrong snapshot and this fails."""
+    from wingspan import decisions
+
+    class _Keep:
+        def __init__(self, choice: decisions.SetupChoice) -> None:
+            self._choice = choice
+
+        def to_setup_choice(self) -> decisions.SetupChoice:
+            return self._choice
+
+    def choose_setups(
+        eng: core.Engine,
+        dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
+    ) -> list[_Keep]:
+        keeps: list[_Keep] = []
+        for player_id, (dealt_cards, dealt_bonus) in enumerate(dealt):
+            player = eng.state.players[player_id]
+            keeps.append(
+                _Keep(
+                    decisions.SetupChoice(
+                        label="fixed",
+                        kept_cards=tuple(dealt_cards[:2]),
+                        kept_foods=tuple(
+                            player.food.types_with_positive()[: len(dealt_cards) - 2]
+                        ),
+                        bonus_card=dealt_bonus[0],
+                    )
+                )
+            )
+        return keeps
+
+    eng, *_ = engine.Engine.create(seed=2024)
+    rng = random.Random(2024)
+    phases, tree = _run_and_capture(eng, rng, choose_setups=choose_setups)
+    assert len(phases) == len(tree.phases)
+    assert [phase.kind for phase in phases] == [
+        phase.kind for phase in tree.phases
+    ], "phase kinds must correspond position-for-position"
+    assert [phase.kind for phase in phases].count("setup") == 2
+
+
 def test_capture_kind_counts_match_game_shape():
     eng, *_ = engine.Engine.create(seed=99)
     rng = random.Random(99)
@@ -578,18 +624,22 @@ def test_log_items_carry_seat_attribution():
 
 
 def _run_and_capture(
-    eng: engine.Engine, rng: random.Random
+    eng: engine.Engine,
+    rng: random.Random,
+    choose_setups: core.SetupChooser | None = None,
 ) -> tuple[list[game_log_html.PhaseRecord], gamelog_models.GameEventTree]:
     """Drive one game through a recording handler and EventRecorder; return (phases, tree).
 
     The phase recorder subscribes to setup_start, round_start, and turn_start;
     the final-scoring phase is appended afterwards, exactly as the production
     handler's ``game_end`` does.  An EventRecorder is wired alongside so the
-    caller can pass ``tree`` to ``build_report``."""
+    caller can pass ``tree`` to ``build_report``.
+
+    ``choose_setups`` switches to the fixed-setup (setup-model) entry point
+    instead of asking each agent for its opening keep."""
     recorder_handler = _PhaseRecorder()
     rec = gamelog_recorder.EventRecorder(
         probes=(None, None),
-        seat_configs=(None, None),
     )
     cfg = instrumentation_config.InstrumentationConfig.model_validate(
         {
@@ -603,12 +653,22 @@ def _run_and_capture(
             output_dir=pathlib.Path("."), run_name="t", seed=0
         )
     )
-    engine.Engine.play_one_game(
-        eng.state,
-        (agents.random_agent(rng), agents.random_agent(rng)),
-        instrumentation=instrumentation,
-        event_recorder=rec,
-    )
+    seat_agents = (agents.random_agent(rng), agents.random_agent(rng))
+    if choose_setups is None:
+        engine.Engine.play_one_game(
+            eng.state,
+            seat_agents,
+            instrumentation=instrumentation,
+            event_recorder=rec,
+        )
+    else:
+        engine.Engine.play_one_game_with_setups(
+            eng.state,
+            seat_agents,
+            choose_setups,
+            instrumentation=instrumentation,
+            event_recorder=rec,
+        )
     phases = list(recorder_handler.captured)
     phases.append(
         game_log_capture.capture_phase(

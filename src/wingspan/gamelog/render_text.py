@@ -43,6 +43,11 @@ def _event_label(event: models.GameEvent) -> str:
         return f"White power: {event.bird_name}"
     if isinstance(event, models.ReactionEvent):
         return f"Reaction: {event.bird_name}"
+    if isinstance(event, models.ExtraPlayEvent):
+        where = f" in {event.habitat}" if event.habitat else ""
+        return f"Extra play{where}"
+    if isinstance(event, models.TurnEndEvent):
+        return "End of turn"
     if isinstance(event, models.SetupEvent):
         return _setup_event_label(event)
     if isinstance(event, models.RoundGoalEvent):
@@ -91,8 +96,8 @@ def _render_event(event: models.GameEvent, *, indent: int) -> list[str]:
         if isinstance(sub, models.DecisionSubEvent):
             lines.append(f"{prefix}  → {sub.outcome_text}")
         elif isinstance(sub, models.ForcedSubEvent):
-            lines.append(f"{prefix}  ! {sub.text}")
-        elif isinstance(sub, models.NoteSubEvent):
+            lines.append(f"{prefix}  ! {sub.outcome_text}")
+        else:
             lines.append(f"{prefix}  {sub.text}")
 
     # Children recurse at increased indent (e.g. WhitePowerEvent under PlayBirdEvent).

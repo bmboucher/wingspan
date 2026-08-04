@@ -1047,7 +1047,7 @@ def test_roll_not_in_feeder_cache_notes_the_rolled_faces():
     rng = random.Random(0)
     gs = state.new_game(rng, birds, bonuses, goals)
     gs.current_player = 0
-    rec = gamelog_recorder.EventRecorder(probes=(None, None), seat_configs=(None, None))
+    rec = gamelog_recorder.EventRecorder(probes=(None, None))
     rec.begin_game()
     eng = engine.Engine(gs, event_recorder=rec)
     player = gs.me()

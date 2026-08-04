@@ -29,7 +29,6 @@ from wingspan.gamelog import models
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
     from wingspan.players import decision_probe
-    from wingspan.training import config as train_config
 
 # Maximum options shown in a decision box (the chosen option is always included).
 _MAX_DECISION_OPTIONS = 5
@@ -55,26 +54,28 @@ class EventRecorder:
         empty, a :class:`~models.LooseEvent` is auto-created and appended to the
         current phase first.
 
-    ``probes`` / ``seat_configs`` are per-seat tuples, one entry per player in
-    seat order — any table size the engine supports (2..5 seats).
+    ``probes`` is a per-seat tuple, one entry per player in seat order — any
+    table size the engine supports (2..5 seats).
     """
 
     def __init__(
         self,
         probes: tuple[decision_probe.DecisionProbe | None, ...],
-        seat_configs: tuple[train_config.TrainConfig | None, ...],
     ) -> None:
         self._probes = probes
-        self._seat_configs = seat_configs
         self.root: models.GameEventTree = models.GameEventTree()
         self._current_phase: models.PhaseNode | None = None
-        self._open_stack: list[models.GameEvent] = []
+        self._open_stack: list[models.AnyGameEvent] = []
+        self._next_event_id: int = 0
+        self._phase_loose_event: models.LooseEvent | None = None
+        self._round_phase: models.PhaseNode | None = None
 
     # ---- Phase management ----
 
     def begin_game(self) -> None:
         """Reset the tree and push the ``game_start`` phase."""
         self.root = models.GameEventTree()
+        self._next_event_id = 0
         self.begin_phase("game_start")
 
     def end_game(self, engine: core.Engine) -> None:
@@ -105,15 +106,27 @@ class EventRecorder:
                 )
             )
 
-        event = models.FinalScoringEvent(scores=scores)
-        if self._current_phase is not None:
-            self._current_phase.events.append(event)
+        self._append_phase_event(models.FinalScoringEvent(scores=scores))
 
-    def begin_phase(self, kind: str) -> None:
-        """Push a new phase and clear the open-event stack."""
-        self._current_phase = models.PhaseNode(kind=kind)
+    def begin_phase(
+        self,
+        kind: str,
+        round_idx: int | None = None,
+        turn_idx: int | None = None,
+    ) -> None:
+        """Push a new phase and clear the open-event stack.
+
+        ``round_idx`` / ``turn_idx`` make the phase self-describing; the engine
+        passes them from the round and turn loops so downstream consumers need
+        not recover them positionally from the reporting layer."""
+        self._current_phase = models.PhaseNode(
+            kind=kind, round_idx=round_idx, turn_idx=turn_idx
+        )
         self.root.phases.append(self._current_phase)
         self._open_stack.clear()
+        self._phase_loose_event = None
+        if kind == "round":
+            self._round_phase = self._current_phase
 
     # ---- begin_* / end_event pair ----
 
@@ -153,6 +166,14 @@ class EventRecorder:
             )
         )
 
+    def begin_extra_play(self, player_id: int, habitat: str | None) -> None:
+        """Open an :class:`~models.ExtraPlayEvent` on the stack."""
+        self._push_event(models.ExtraPlayEvent(player_id=player_id, habitat=habitat))
+
+    def begin_turn_end(self, player_id: int) -> None:
+        """Open a :class:`~models.TurnEndEvent` on the stack."""
+        self._push_event(models.TurnEndEvent(player_id=player_id))
+
     def begin_setup(self, player_id: int) -> None:
         """Open a :class:`~models.SetupEvent` on the stack."""
         self._push_event(models.SetupEvent(player_id=player_id))
@@ -176,13 +197,19 @@ class EventRecorder:
         decision: decisions_module.Decision[typing.Any],
         choice: decisions_module.Choice,
     ) -> None:
-        """Append a :class:`~models.ForcedSubEvent` for a forced single-choice move."""
+        """Append a :class:`~models.ForcedSubEvent` for a forced single-choice move.
+
+        Carries the same clock/score fields as a genuine decision so forced
+        moves are joinable to the timeline, but consumes no probe: the agent
+        was never asked, so there is no policy annotation to attach."""
         from wingspan.reporting import humanize
 
-        text = humanize.humanize_outcome(decision, choice, engine.state)
-        self._stack_top().sub_events.append(
-            models.ForcedSubEvent(player_id=decision.player_id, text=text)
+        sub_event = models.ForcedSubEvent(
+            player_id=decision.player_id,
+            outcome_text=humanize.humanize_outcome(decision, choice, engine.state),
         )
+        _fill_clock(sub_event, engine, decision)
+        self._stack_top().sub_events.append(sub_event)
 
     def record_decision(
         self,
@@ -195,7 +222,6 @@ class EventRecorder:
         This is the single probe consumer — ``record_decision`` must be called
         exactly once per genuine decision, immediately after ``Engine.ask``
         fires the ``made_decision`` event."""
-        from wingspan.engine import scoring
         from wingspan.reporting import humanize
 
         # Consume the probe; may be (None, None) for random / human seats.
@@ -203,18 +229,6 @@ class EventRecorder:
         value_pov, annotation = probe.take() if probe is not None else (None, None)
 
         gs = engine.state
-        scores = [scoring.running_score(player) for player in gs.players]
-
-        # Encode the setup-window slot for timestamp reconstruction in reporting.
-        turn_counter = gs.turn_counter
-        if turn_counter >= 1:
-            setup_slot: int | None = None
-        elif decisions_module.is_setup_decision(decision):
-            setup_slot = _SETUP_SLOT_KEEP
-        elif isinstance(decision, decisions_module.BirdPowerPickBonusCardDecision):
-            setup_slot = _SETUP_SLOT_BONUS
-        else:
-            setup_slot = _SETUP_SLOT_FOOD
 
         # Build option list + stripes when annotation is present.
         options: list[models.DecisionOption] = []
@@ -234,23 +248,14 @@ class EventRecorder:
         ) and isinstance(choice, decisions_module.BonusCardChoice):
             _stamp_setup_bonus(self._open_stack, choice)
 
-        own_score = scores[decision.player_id]
-        other_scores = [
-            score for idx, score in enumerate(scores) if idx != decision.player_id
-        ]
-        margin_before = float(own_score - max(other_scores))
         sub_event = models.DecisionSubEvent(
             player_id=decision.player_id,
             outcome_text=humanize.humanize_outcome(decision, choice, gs),
             options=options,
             state_stripes=state_stripes,
             value=value_pov,
-            turn_counter=turn_counter,
-            setup_slot=setup_slot,
-            family_idx=decisions_module.family_index_for(type(decision)),
-            scores=scores,
-            margin_before=margin_before,
         )
+        _fill_clock(sub_event, engine, decision)
         self._stack_top().sub_events.append(sub_event)
 
     def record_round_goal(
@@ -261,34 +266,106 @@ class EventRecorder:
         counts: list[int],
         vps: list[int],
     ) -> None:
-        """Append a :class:`~models.RoundGoalEvent` to the current phase."""
+        """Append a :class:`~models.RoundGoalEvent` to the round it scores.
+
+        Round-goal scoring runs after the round's last turn, when the current
+        phase is that turn — so the event is routed back to the round phase it
+        actually belongs to.  Appending to an earlier phase is safe for the
+        reporting layer's positional ``zip``: it changes neither the number nor
+        the order of phases."""
         event = models.RoundGoalEvent(
             round_idx=round_idx,
             description=description,
             counts=counts,
             vps=vps,
         )
-        if self._current_phase is not None:
-            self._current_phase.events.append(event)
+        event.event_id = self._take_event_id()
+        target_phase = self._round_phase or self._current_phase
+        if target_phase is not None:
+            target_phase.events.append(event)
 
     ###### PRIVATE #######
 
-    def _push_event(self, event: models.GameEvent) -> None:
-        """Attach ``event`` to the stack-top's children (or phase events) and push."""
+    def _push_event(self, event: models.AnyGameEvent) -> None:
+        """Stamp an id, attach to the stack-top's children (or the phase), and push."""
+        event.event_id = self._take_event_id()
         if self._open_stack:
             self._open_stack[-1].children.append(event)
         elif self._current_phase is not None:
             self._current_phase.events.append(event)
         self._open_stack.append(event)
 
-    def _stack_top(self) -> models.GameEvent:
-        """Return the open event; auto-create a ``LooseEvent`` if the stack is empty."""
+    def _append_phase_event(self, event: models.AnyGameEvent) -> None:
+        """Stamp an id and append ``event`` directly to the phase, bypassing the stack.
+
+        Used by the scoring events, which are emitted between brackets rather
+        than as an open/close pair."""
+        event.event_id = self._take_event_id()
+        if self._current_phase is not None:
+            self._current_phase.events.append(event)
+
+    def _take_event_id(self) -> int:
+        """Return the next per-game monotonic event id."""
+        event_id = self._next_event_id
+        self._next_event_id += 1
+        return event_id
+
+    def _stack_top(self) -> models.AnyGameEvent:
+        """Return the open event, or this phase's shared ``LooseEvent`` bucket.
+
+        The bucket is created on first use and reused for the rest of the
+        phase, so a run of unbracketed ``record_*`` calls collects into one
+        event rather than one event apiece."""
         if self._open_stack:
             return self._open_stack[-1]
-        loose = models.LooseEvent()
-        if self._current_phase is not None:
-            self._current_phase.events.append(loose)
-        return loose
+        if self._phase_loose_event is None:
+            self._phase_loose_event = models.LooseEvent()
+            self._append_phase_event(self._phase_loose_event)
+        return self._phase_loose_event
+
+
+#### Clock / score helpers ####
+
+
+def _fill_clock(
+    sub_event: models.ResolvedSubEvent,
+    engine: core.Engine,
+    decision: decisions_module.Decision[typing.Any],
+) -> None:
+    """Populate the shared clock and score fields on a resolved sub-event.
+
+    Shared by ``record_decision`` and ``record_forced`` so both kinds of
+    resolution land on the timeline identically."""
+    from wingspan.engine import scoring
+
+    gs = engine.state
+    sub_event.turn_counter = gs.turn_counter
+    sub_event.setup_slot = _setup_slot_for(gs.turn_counter, decision)
+    sub_event.family_idx = decisions_module.family_index_for(type(decision))
+
+    scores = [scoring.running_score(player) for player in gs.players]
+    other_scores = [
+        score for idx, score in enumerate(scores) if idx != decision.player_id
+    ]
+    sub_event.scores = scores
+    sub_event.margin_before = float(scores[decision.player_id] - max(other_scores))
+
+
+def _setup_slot_for(
+    turn_counter: int,
+    decision: decisions_module.Decision[typing.Any],
+) -> int | None:
+    """Encode the setup-window slot for timestamp reconstruction in reporting.
+
+    ``None`` once the first turn has begun; otherwise which of the three
+    opening sub-windows (keep / bonus / food) this decision belongs to."""
+    if turn_counter >= 1:
+        return None
+    if decisions_module.is_setup_decision(decision):
+        return _SETUP_SLOT_KEEP
+    if isinstance(decision, decisions_module.BirdPowerPickBonusCardDecision):
+        return _SETUP_SLOT_BONUS
+    return _SETUP_SLOT_FOOD
 
 
 #### Annotation helpers ####
@@ -365,7 +442,7 @@ def _build_decision_options(
 
 
 def _stamp_setup_kept_cards(
-    open_stack: list[models.GameEvent],
+    open_stack: typing.Sequence[models.AnyGameEvent],
     choice: decisions_module.SetupChoice,
 ) -> None:
     """Fill ``kept_card_names`` on the innermost open :class:`~models.SetupEvent`."""
@@ -376,7 +453,7 @@ def _stamp_setup_kept_cards(
 
 
 def _stamp_setup_bonus(
-    open_stack: list[models.GameEvent],
+    open_stack: typing.Sequence[models.AnyGameEvent],
     choice: decisions_module.BonusCardChoice,
 ) -> None:
     """Fill ``kept_bonus_name`` on the innermost open :class:`~models.SetupEvent`."""
@@ -401,7 +478,12 @@ class _NullRecorder:
     def end_game(self, engine: core.Engine) -> None:
         pass
 
-    def begin_phase(self, kind: str) -> None:
+    def begin_phase(
+        self,
+        kind: str,
+        round_idx: int | None = None,
+        turn_idx: int | None = None,
+    ) -> None:
         pass
 
     def begin_main_action(self, player_id: int) -> None:
@@ -422,6 +504,12 @@ class _NullRecorder:
     def begin_activate_brown(
         self, player_id: int, bird_name: str, *, is_brown: bool
     ) -> None:
+        pass
+
+    def begin_extra_play(self, player_id: int, habitat: str | None) -> None:
+        pass
+
+    def begin_turn_end(self, player_id: int) -> None:
         pass
 
     def begin_setup(self, player_id: int) -> None:
@@ -460,8 +548,14 @@ class _NullRecorder:
         pass
 
 
-EMPTY: _NullRecorder = _NullRecorder()
-"""Shared no-op recorder for engines that run without the structured event log."""
+def null_recorder() -> _NullRecorder:
+    """Build a fresh no-op recorder for an engine running without the event log.
+
+    A factory rather than a shared constant: each engine gets its own instance,
+    so nothing can reach through a module-level singleton and mutate a tree
+    another game is nominally holding."""
+    return _NullRecorder()
+
 
 type AnyRecorder = EventRecorder | _NullRecorder
 """Union of the real and null recorder; the type of ``Engine.events``."""

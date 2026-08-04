@@ -423,7 +423,7 @@ def _engine_with_recorder(
 ) -> tuple[engine.Engine, gamelog_recorder.EventRecorder]:
     """An Engine wired with a fresh EventRecorder whose game_start phase is
     already open (required — note() drops silently outside an open phase)."""
-    rec = gamelog_recorder.EventRecorder(probes=(None, None), seat_configs=(None, None))
+    rec = gamelog_recorder.EventRecorder(probes=(None, None))
     rec.begin_game()
     eng = engine.Engine(gs, event_recorder=rec)
     return eng, rec

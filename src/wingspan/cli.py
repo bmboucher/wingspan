@@ -107,12 +107,9 @@ def main_play(argv: list[str] | None = None) -> int:
     # The recorder reads each seat's DecisionProbe so decision boxes get
     # probability bars and encoding-viewer stripes.
     rec = (
-        gamelog_recorder.EventRecorder(
-            probes=probes,
-            seat_configs=seat_configs,
-        )
+        gamelog_recorder.EventRecorder(probes=probes)
         if (args.html or args.log)
-        else gamelog_recorder.EMPTY
+        else gamelog_recorder.null_recorder()
     )
 
     instrumentation = _open_instrumentation(args, seed, seat_specs, seat_configs)

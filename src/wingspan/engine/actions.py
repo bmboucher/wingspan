@@ -198,19 +198,27 @@ def consume_extra_plays(
         if not plays:
             _log_wasted_extra_play(engine, player, habitat_filter)
             continue
-        if not _accept_extra_play(engine, agent, player, habitat_filter):
-            engine.log(f"[{player.name}] declines the extra play")
-            continue
-        if habitat_filter is not None:
-            engine.log(
-                f"[{player.name}] takes an EXTRA play in [{habitat_filter.value}]"
-            )
-        else:
-            engine.log(f"[{player.name}] takes an EXTRA play")
-        engine.events.begin_play_bird(player.id)
-        choice = _ask_play_bird(engine, agent, player, plays, extra=True)
-        do_play_bird(engine, agent, choice.bird, choice.habitat)
-        engine.events.end_event()
+        # The accept/decline ask is bracketed too, so a declined extra play is
+        # a named node in the tree rather than a loose decision.
+        engine.events.begin_extra_play(
+            player.id, habitat_filter.value if habitat_filter is not None else None
+        )
+        try:
+            if not _accept_extra_play(engine, agent, player, habitat_filter):
+                engine.log(f"[{player.name}] declines the extra play")
+                continue
+            if habitat_filter is not None:
+                engine.log(
+                    f"[{player.name}] takes an EXTRA play in [{habitat_filter.value}]"
+                )
+            else:
+                engine.log(f"[{player.name}] takes an EXTRA play")
+            engine.events.begin_play_bird(player.id)
+            choice = _ask_play_bird(engine, agent, player, plays, extra=True)
+            do_play_bird(engine, agent, choice.bird, choice.habitat)
+            engine.events.end_event()
+        finally:
+            engine.events.end_event()
 
 
 # ---------------------------------------------------------------------------

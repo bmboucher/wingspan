@@ -24,7 +24,6 @@ def _run_and_render(seed: int = 42) -> str:
 
     rec = gamelog_recorder.EventRecorder(
         probes=(None, None),
-        seat_configs=(None, None),
     )
     eng, *_ = engine_mod.Engine.create(seed=seed)
     rng = random.Random(seed)

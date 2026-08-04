@@ -10,6 +10,7 @@ and that a 2-seat recording still produces the same tree shape as before the
 from __future__ import annotations
 
 import random
+import typing
 
 import helpers
 from wingspan import agents as agents_module
@@ -22,8 +23,7 @@ def _record_game(num_players: int, seed: int) -> gamelog_models.GameEventTree:
     """Play one random-agent game at ``num_players`` seats through a real
     ``EventRecorder`` and return the resulting tree."""
     probes = tuple(None for _ in range(num_players))
-    seat_configs = tuple(None for _ in range(num_players))
-    rec = gamelog_recorder.EventRecorder(probes=probes, seat_configs=seat_configs)
+    rec = gamelog_recorder.EventRecorder(probes=probes)
     eng, *_ = engine_module.Engine.create(seed=seed, num_players=num_players)
     agent_list = helpers.make_agents(num_players, seed=seed)
     engine_module.Engine.play_one_game(eng.state, agent_list, event_recorder=rec)
@@ -35,7 +35,9 @@ def _collect_decision_subs(
 ) -> list[gamelog_models.DecisionSubEvent]:
     """Every ``DecisionSubEvent`` in the tree, DFS order."""
 
-    def _walk(events: list[gamelog_models.GameEvent]) -> list[gamelog_models.SubEvent]:
+    def _walk(
+        events: typing.Sequence[gamelog_models.GameEvent],
+    ) -> list[gamelog_models.SubEvent]:
         result: list[gamelog_models.SubEvent] = []
         for event in events:
             result.extend(event.sub_events)
@@ -169,11 +171,11 @@ def test_2p_margin_before_reduces_to_legacy_own_minus_opponent():
 
 
 def test_null_recorder_still_noop_regardless_of_seat_count():
-    """The EMPTY recorder accepts any seat count's calls without raising."""
+    """The null recorder accepts any seat count's calls without raising."""
     rng = random.Random(55)
     eng, *_ = engine_module.Engine.create(seed=55, num_players=3)
     agent_list = [agents_module.random_agent(rng) for _ in range(3)]
     engine_module.Engine.play_one_game(
-        eng.state, agent_list, event_recorder=gamelog_recorder.EMPTY
+        eng.state, agent_list, event_recorder=gamelog_recorder.null_recorder()
     )
     assert eng.state.game_over
