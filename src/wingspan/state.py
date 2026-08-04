@@ -733,6 +733,30 @@ class FoodPool(pydantic.BaseModel):
         return cls(counts=[count] * cards.N_FOODS)
 
 
+# The die-face word standing in for the invertebrate/seed choice face in a
+# formatted die-roll list (alongside the ``_CHOICE_FACE_FOODS`` /
+# ``FoodPool.format()`` / ``Birdfeeder.format()`` log-formatting precedent
+# above). The two food words either side of the slash are what the HTML
+# viewer's ``applyFoodEmoji`` turns into the paired 🐛/🌾 glyphs.
+CHOICE_FACE_LABEL = "invertebrate/seed"
+
+
+def format_die_faces(counts: FoodPool, choice_dice: int) -> str:
+    """Render one word per die, space-separated, in canonical
+    :data:`cards.ALL_FOODS` order, with any invertebrate/seed choice-face dice
+    rendered last as :data:`CHOICE_FACE_LABEL`. E.g. ``"seed seed fruit rodent
+    invertebrate/seed"``.
+
+    Takes a bare ``(counts, choice_dice)`` pair rather than a full
+    :class:`Birdfeeder` so both a birdfeeder reroll and the
+    ``ROLL_NOT_IN_FEEDER_CACHE`` dice predators — which roll into a plain
+    ``FoodPool`` plus a separate choice-die counter rather than a
+    ``Birdfeeder`` — can share this one formatter for their game-log notes."""
+    words = [food.value for food, amount in counts.items() for _ in range(amount)]
+    words.extend([CHOICE_FACE_LABEL] * choice_dice)
+    return " ".join(words)
+
+
 class RoundGoalResult(pydantic.BaseModel):
     """The frozen outcome of one round goal at the moment it was scored.
 

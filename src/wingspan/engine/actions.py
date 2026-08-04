@@ -21,6 +21,10 @@ if typing.TYPE_CHECKING:
     from wingspan.engine import core
 
 
+# Game-log note prefix for every birdfeeder reroll (see _reroll_feeder).
+_REROLL_NOTE_PREFIX = "Re-rolls birdfeeder: "
+
+
 # ---------------------------------------------------------------------------
 # Main action: play a bird
 
@@ -248,6 +252,23 @@ def do_gain_food(engine: "core.Engine", agent: "core.Agent") -> None:
     )
 
 
+def _reroll_feeder(engine: "core.Engine", player: state.Player) -> None:
+    """Reroll every feeder die and record the fresh faces as a game-log note.
+
+    The single sanctioned way to reroll the birdfeeder: every reroll in this
+    module routes through here, so a future re-roll site cannot silently skip
+    recording the fresh faces (mirroring :func:`offer_birdfeeder_reset`'s own
+    by-construction guarantee for the reset rules). Attributed to ``player`` —
+    whoever caused the roll, including a pink reactor's seat, which is not
+    necessarily the current player."""
+    feeder = engine.state.birdfeeder
+    feeder.reroll(engine.state.rng)
+    engine.events.note(
+        f"{_REROLL_NOTE_PREFIX}{state.format_die_faces(feeder.counts, feeder.choice_dice)}",
+        player_id=player.id,
+    )
+
+
 def offer_birdfeeder_reset(
     engine: "core.Engine", agent: "core.Agent", player: state.Player
 ) -> None:
@@ -275,7 +296,7 @@ def offer_birdfeeder_reset(
       affirmative choice, reroll."""
     feeder = engine.state.birdfeeder
     if feeder.is_empty():
-        feeder.reroll(engine.state.rng)
+        _reroll_feeder(engine, player)
         engine.log(f"  birdfeeder empty; rerolled to {feeder.format()}")
     if not feeder.reset_available():
         return
@@ -297,7 +318,7 @@ def offer_birdfeeder_reset(
         ),
     )
     if isinstance(ch, decisions.ResetBirdfeederChoice):
-        feeder.reroll(engine.state.rng)
+        _reroll_feeder(engine, player)
         engine.log(f"  {player.name} resets the birdfeeder -> {feeder.format()}")
 
 
@@ -321,7 +342,7 @@ def gain_feeder_die(
     feeder.take(food, from_choice_die=from_choice_die)
     player.food[food] += 1
     if feeder.is_empty():
-        feeder.reroll(engine.state.rng)
+        _reroll_feeder(engine, player)
         engine.log(f"  birdfeeder emptied; rerolled to {feeder.format()}")
 
 
@@ -470,13 +491,13 @@ def combined_feeder_gain(
         # Reached the target. Only an emptied feeder rerolls (Rule 1); a
         # single-face leftover stays showing for the next player to reset.
         if feeder.is_empty():
-            feeder.reroll(engine.state.rng)
+            _reroll_feeder(engine, player)
             engine.log(f"  birdfeeder emptied; rerolled to {feeder.format()}")
     else:
         # A partial subset is a committed reset: reroll the (now rerollable)
         # leftover and gain the rest from the fresh feeder, which re-offers the
         # start-of-choice reset.
-        feeder.reroll(engine.state.rng)
+        _reroll_feeder(engine, player)
         engine.log(f"  {player.name} resets the birdfeeder -> {feeder.format()}")
         combined_feeder_gain(engine, agent, player, n - taken)
 

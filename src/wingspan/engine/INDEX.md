@@ -53,7 +53,11 @@ recurse, `n==1` delegates to `take_one_from_feeder`), `_apply_subset(engine,
 player, choice)` (moves a chosen `FoodSubsetChoice`'s dice out of the feeder,
 bypassing `gain_feeder_die`'s mid-take reroll), and `combined_supply_gain(engine,
 agent, player, n, *, per_food_capacity, prompt)` (the ravens' supply gain and the
-setup keep — multisets within a per-food capacity).
+setup keep — multisets within a per-food capacity). `_reroll_feeder(engine,
+player)` is the single re-roll seam — reroll the feeder plus record a
+`state.format_die_faces` game-log note, by construction — that every one of
+`offer_birdfeeder_reset` / `gain_feeder_die` / `combined_feeder_gain`'s five
+reroll sites routes through, so a future call site cannot forget the note.
 
 **`reactors.py`** — Pink (between-turns) reactor hooks, each taking the
 triggering player by reference (not id) and firing every OTHER player's

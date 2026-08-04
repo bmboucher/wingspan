@@ -290,6 +290,11 @@ def _h_roll_not_in_feeder_cache(
         roll_str = choice_part if roll_str == "(empty)" else f"{roll_str}+{choice_part}"
     die_word = "die" if dice_out == 1 else "dice"
     engine.log(f"  {bird.name}: rolled {dice_out} {die_word}: {roll_str}")
+    engine.events.note(
+        f"{bird.name} rolls {dice_out} {die_word}: "
+        f"{state.format_die_faces(roll_counts, choice_rolled)}",
+        player_id=player.id,
+    )
 
     assert eff.food is not None
     if roll_counts[eff.food] > 0:

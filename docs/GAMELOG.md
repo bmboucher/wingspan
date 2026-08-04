@@ -55,6 +55,15 @@ are regenerable reporting artifacts, not covered by the model-rehydration
 guarantee (`docs/VERSIONING.md`) — this schema can change freely across
 versions.
 
+`NoteSubEvent` covers non-decision notifications that would otherwise be
+invisible between phase-boundary snapshots. Its first production use is
+birdfeeder re-rolls: every reroll — the optional Rule-2 reset, the automatic
+Rule-1 refill, and a committed partial-take under `combine_gain_food` — routes
+through `actions._reroll_feeder`, the single seam that pairs the reroll with a
+note listing the fresh dice faces (`state.format_die_faces`), and the
+`ROLL_NOT_IN_FEEDER_CACHE` dice predators (Anhinga and similar), which roll
+outside the feeder and note the faces they land on.
+
 ## Phase structure
 
 The tree top level is a sequence of `PhaseNode(kind, events)` objects whose
@@ -113,6 +122,13 @@ This single rule handles all nesting correctly:
 | `begin_white_power` / `end_event` | `do_play_bird` around `dispatch_power(…, "play")` |
 | `begin_activate_base` / `end_event` | `do_gain_food`, `do_lay_eggs`, `do_draw_cards` |
 | `begin_activate_brown` / `end_event` | `activate_row_powers` per crossed bird |
+| `events.note(text, player_id)` | `_reroll_feeder` — the single seam every birdfeeder reroll (`offer_birdfeeder_reset`, `gain_feeder_die`, `combined_feeder_gain`) routes through |
+
+### `engine/powers/grants.py`
+
+| Call | Location |
+|------|----------|
+| `events.note(text, player_id)` | `_h_roll_not_in_feeder_cache`, after the `ROLL_NOT_IN_FEEDER_CACHE` dice predator's roll |
 
 ### `engine/reactors.py`
 

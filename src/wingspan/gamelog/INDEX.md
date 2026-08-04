@@ -64,7 +64,10 @@ Key public methods:
 - `record_forced(engine, decision, choice)` — appends a `ForcedSubEvent`.
 - `record_round_goal(engine, round_idx, goal, counts, vps)` — appends a
   `RoundGoalEvent` to the current phase.
-- `note(text, player_id)` — appends a `NoteSubEvent` to the stack-top.
+- `note(text, player_id)` — appends a `NoteSubEvent` to the stack-top. Its
+  producers: `engine.actions._reroll_feeder` (every birdfeeder reroll) and
+  `engine.powers.grants._h_roll_not_in_feeder_cache` (the dice predators'
+  off-feeder rolls).
 
 `EMPTY = _NullRecorder()` — every method is a no-op; held by uninstrumented
 engines so call-site code needs no `if recorder is not None` guards.

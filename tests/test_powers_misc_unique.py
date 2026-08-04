@@ -15,6 +15,8 @@ import pytest
 
 from wingspan import cards, decisions, engine, state
 from wingspan.engine import powers
+from wingspan.gamelog import models as gamelog_models
+from wingspan.gamelog import recorder as gamelog_recorder
 
 
 def _no_agent[C: decisions.Choice](
@@ -1035,3 +1037,51 @@ def test_repeat_predator_power_fires_a_dice_roll_predator():
     assert any(
         "rolled" in line for line in log_lines
     ), f"Expected the repeated dice-roll predator to roll; got: {log_lines}"
+
+
+def test_roll_not_in_feeder_cache_notes_the_rolled_faces():
+    """ROLL_NOT_IN_FEEDER_CACHE (the dice-roll predators, e.g. Anhinga) records
+    a game-log note naming the bird and listing the ``dice_out`` rolled faces —
+    the only place these off-feeder rolls are visible outside ``--debug-log``."""
+    birds, bonuses, goals = cards.load_all()
+    rng = random.Random(0)
+    gs = state.new_game(rng, birds, bonuses, goals)
+    gs.current_player = 0
+    rec = gamelog_recorder.EventRecorder(probes=(None, None), seat_configs=(None, None))
+    rec.begin_game()
+    eng = engine.Engine(gs, event_recorder=rec)
+    player = gs.me()
+
+    # A real catalog dice-roll predator (Anhinga and similar).
+    predator_bird = next(
+        bird
+        for bird in birds
+        if bird.predator
+        and any(
+            eff.kind == cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE
+            for eff in bird.power.effects
+        )
+    )
+    predator_pb = state.PlayedBird(bird=predator_bird)
+
+    # Empty the feeder so all five dice are outside it and the roll fires.
+    gs.birdfeeder = state.Birdfeeder()
+
+    powers.dispatch_power(
+        eng, _no_agent, player, predator_pb, cards.Habitat.WETLAND, "activate"
+    )
+
+    notes = [
+        sub
+        for phase in rec.root.phases
+        for event in phase.events
+        for sub in event.sub_events
+        if isinstance(sub, gamelog_models.NoteSubEvent)
+    ]
+    assert len(notes) == 1, notes
+    assert notes[0].player_id == player.id
+    assert notes[0].text.startswith(
+        f"{predator_bird.name} rolls {state.BIRDFEEDER_DICE} "
+    )
+    faces = notes[0].text.split(": ", 1)[1].split()
+    assert len(faces) == state.BIRDFEEDER_DICE
