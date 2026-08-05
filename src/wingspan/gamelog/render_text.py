@@ -2,8 +2,14 @@
 
 Produces a human-readable log from a :class:`~wingspan.gamelog.models.GameEventTree`.
 Each phase opens with a ``=== KIND ===`` header.  Events render with a
-type-specific label line followed by their sub-events (decisions as ``→``,
-forced moves as ``!``, notes undecorated) and recursively nested children.
+``[summary]`` header line — the same at-a-glance text the HTML log shows, from
+:mod:`wingspan.gamelog.summarize` — followed by their sub-events (decisions as
+``→``, forced moves as ``!``, recorded effects as ``·``) and recursively nested
+children.
+
+Unlike the HTML log, which shows only decisions and hidden-information reveals
+beneath each header, this renderer keeps **every** effect row.  It is the
+detailed log: the header says what happened, and the rows below it prove it.
 
 This format is the target of ``wingspan play --log``; the raw ``engine.log``
 dump (old ``--log`` behaviour) remains available as ``--debug-log``.
@@ -13,7 +19,7 @@ from __future__ import annotations
 
 import typing
 
-from wingspan.gamelog import models
+from wingspan.gamelog import models, summarize
 
 
 def render_plaintext(tree: models.GameEventTree) -> str:
@@ -21,7 +27,8 @@ def render_plaintext(tree: models.GameEventTree) -> str:
 
     Each phase opens with a ``=== KIND ===`` header.  Events are indented by
     nesting depth; sub-events appear as prefix + text lines:
-    ``→ text`` for decisions, ``! text`` for forced moves, bare text for notes.
+    ``→ text`` for decisions, ``! text`` for forced moves, ``· text`` for
+    recorded effects.
     """
     lines: list[str] = []
     for phase in tree.phases:
@@ -34,67 +41,13 @@ def render_plaintext(tree: models.GameEventTree) -> str:
 ###### PRIVATE #######
 
 
-def _event_label(event: models.GameEvent) -> str:
-    """A concise label for an event's header line, including type-specific fields."""
-    if isinstance(event, models.ActivateBaseEvent):
-        return f"Activate {event.habitat} ({event.action})"
-    if isinstance(event, models.ActivateBrownEvent):
-        prefix = "Brown" if event.is_brown else "——"
-        return f"{prefix}: {event.bird_name}"
-    if isinstance(event, models.WhitePowerEvent):
-        return f"White power: {event.bird_name}"
-    if isinstance(event, models.ReactionEvent):
-        return f"Reaction: {event.bird_name}"
-    if isinstance(event, models.ExtraPlayEvent):
-        where = f" in {event.habitat}" if event.habitat else ""
-        return f"Extra play{where}"
-    if isinstance(event, models.TurnEndEvent):
-        return "End of turn"
-    if isinstance(event, models.RefillTrayEvent):
-        return "Refill tray"
-    if isinstance(event, models.DealEvent):
-        return "Deal"
-    if isinstance(event, models.SetupEvent):
-        return _setup_event_label(event)
-    if isinstance(event, models.RoundGoalEvent):
-        return _round_goal_label(event)
-    if isinstance(event, models.FinalScoringEvent):
-        return _final_scoring_label(event)
-    return type(event).__name__
-
-
-def _setup_event_label(event: models.SetupEvent) -> str:
-    """Label for a setup event, listing kept cards and bonus."""
-    parts: list[str] = []
-    if event.kept_card_names:
-        parts.append("kept: " + ", ".join(event.kept_card_names))
-    if event.kept_bonus_name:
-        parts.append("bonus: " + event.kept_bonus_name)
-    detail = f" ({'; '.join(parts)})" if parts else ""
-    return f"Setup{detail}"
-
-
-def _round_goal_label(event: models.RoundGoalEvent) -> str:
-    """Label for a round goal event with per-seat counts and VP."""
-    seat_parts: list[str] = []
-    for seat_idx, (count, vp) in enumerate(zip(event.counts, event.vps, strict=False)):
-        seat_parts.append(f"P{seat_idx}: {count}/{vp}VP")
-    detail = f" [{', '.join(seat_parts)}]" if seat_parts else ""
-    return f"Round {event.round_idx + 1} goal — {event.description}{detail}"
-
-
-def _final_scoring_label(event: models.FinalScoringEvent) -> str:
-    """Label for the final scoring event with per-seat totals."""
-    totals = [str(score.total) for score in event.scores]
-    return f"Final scoring [{', '.join(totals)}]"
-
-
 def _effect_text(effect: models.AnyEffect) -> str:
     """One-line plaintext form of a recorded state mutation.
 
     Deliberately mechanical — it names the effect kind and its own fields rather
     than composing prose, so a newly added effect class renders something
-    truthful without needing a hand-written template here."""
+    truthful without needing a hand-written template here.  The prose form lives
+    in :mod:`wingspan.gamelog.summarize` and is what the header line uses."""
     fields: dict[str, object] = effect.model_dump(exclude={"kind", "player_id"})
     parts: list[str] = []
     for name, value in fields.items():
@@ -114,8 +67,8 @@ def _render_event(event: models.GameEvent, *, indent: int) -> list[str]:
     prefix = "  " * indent
     lines: list[str] = []
 
-    # Header: bracket with type-specific label.
-    lines.append(f"{prefix}[{_event_label(event)}]")
+    # Header: the same summary line the HTML log collapses this event to.
+    lines.append(f"{prefix}[{summarize.summary_text(event)}]")
 
     # Sub-events: decisions (→), forced (!), effects (·).
     for sub in event.sub_events:

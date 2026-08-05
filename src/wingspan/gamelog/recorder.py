@@ -214,6 +214,7 @@ class EventRecorder:
         was never asked, so there is no policy annotation to attach."""
         from wingspan.reporting import humanize
 
+        _stamp_open_events(self._open_stack, decision, choice)
         sub_event = models.ForcedSubEvent(
             player_id=decision.player_id,
             outcome_text=humanize.humanize_outcome(decision, choice, engine.state),
@@ -248,15 +249,7 @@ class EventRecorder:
                 engine, decision, annotation
             )
 
-        # Stamp kept cards / bonus name on the enclosing SetupEvent.
-        if isinstance(decision, decisions_module.SetupDecision) and isinstance(
-            choice, decisions_module.SetupChoice
-        ):
-            _stamp_setup_kept_cards(self._open_stack, choice)
-        elif isinstance(
-            decision, decisions_module.BirdPowerPickBonusCardDecision
-        ) and isinstance(choice, decisions_module.BonusCardChoice):
-            _stamp_setup_bonus(self._open_stack, choice)
+        _stamp_open_events(self._open_stack, decision, choice)
 
         sub_event = models.DecisionSubEvent(
             player_id=decision.player_id,
@@ -451,26 +444,45 @@ def _build_decision_options(
     return options, state_stripes
 
 
-def _stamp_setup_kept_cards(
+def _stamp_open_events(
     open_stack: typing.Sequence[models.AnyGameEvent],
-    choice: decisions_module.SetupChoice,
+    decision: decisions_module.Decision[typing.Any],
+    choice: decisions_module.Choice,
 ) -> None:
-    """Fill ``kept_card_names`` on the innermost open :class:`~models.SetupEvent`."""
-    for event in reversed(open_stack):
-        if isinstance(event, models.SetupEvent):
-            event.kept_card_names = [bird.name for bird in choice.kept_cards]
-            return
+    """Copy a resolved choice's outcome onto the open event that summarizes it.
+
+    A handful of events describe themselves in terms of a decision made inside
+    them — which cards a setup kept, which action a turn spent its cube on.  The
+    recorder stamps those fields here rather than having the engine pass them to
+    ``begin_*``, since at ``begin_*`` time the answer is not yet known.  Called
+    from both resolution paths so a choice that happens to be forced still
+    stamps."""
+    if isinstance(decision, decisions_module.SetupDecision) and isinstance(
+        choice, decisions_module.SetupChoice
+    ):
+        setup_event = _innermost(open_stack, models.SetupEvent)
+        if setup_event is not None:
+            setup_event.kept_card_names = [bird.name for bird in choice.kept_cards]
+    elif isinstance(
+        decision, decisions_module.BirdPowerPickBonusCardDecision
+    ) and isinstance(choice, decisions_module.BonusCardChoice):
+        setup_event = _innermost(open_stack, models.SetupEvent)
+        if setup_event is not None:
+            setup_event.kept_bonus_name = choice.bonus_card.name
+    elif isinstance(choice, decisions_module.MainActionChoice):
+        main_event = _innermost(open_stack, models.MainActionEvent)
+        if main_event is not None:
+            main_event.action = choice.action.value
 
 
-def _stamp_setup_bonus(
-    open_stack: typing.Sequence[models.AnyGameEvent],
-    choice: decisions_module.BonusCardChoice,
-) -> None:
-    """Fill ``kept_bonus_name`` on the innermost open :class:`~models.SetupEvent`."""
+def _innermost[E: models.GameEvent](
+    open_stack: typing.Sequence[models.AnyGameEvent], event_type: type[E]
+) -> E | None:
+    """The innermost open event of ``event_type``, or ``None`` if none is open."""
     for event in reversed(open_stack):
-        if isinstance(event, models.SetupEvent):
-            event.kept_bonus_name = choice.bonus_card.name
-            return
+        if isinstance(event, event_type):
+            return event
+    return None
 
 
 #### Null recorder (no-op singleton for uninstrumented engines) ####

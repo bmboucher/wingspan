@@ -2,13 +2,14 @@
 
 Verifies that ``render_plaintext`` produces a well-formed human-readable log
 from a full random game.  Tests check structural invariants (phase headers, event
-label patterns, decision / forced / note prefixes) rather than exact text, so
+header patterns, decision / forced / effect prefixes) rather than exact text, so
 they remain valid as the renderer's output evolves.
 """
 
 from __future__ import annotations
 
 import random
+import re
 import sys
 
 # Add src/ to path as per test_smoke.py convention.
@@ -56,24 +57,61 @@ def test_decision_outcomes_present():
 
 
 def test_activate_brown_events_labeled():
-    """Brown-power slot events must appear as [Brown: ...] or [——: ...]."""
+    """Every bird crossed gets a header — powered ones tagged '(brown)', the
+    rest explicitly marked as having no power."""
     text = _run_and_render()
-    # At least one brown-power block must exist after any bird rows are activated.
-    brown_lines = [
-        line
-        for line in text.splitlines()
-        if line.lstrip().startswith("[Brown:") or line.lstrip().startswith("[——:")
-    ]
-    assert brown_lines, "No ActivateBrownEvent lines ([Brown:] or [——:]) found"
+    lines = text.splitlines()
+    brown_lines = [line for line in lines if "(brown):" in line]
+    assert brown_lines, "No brown-power event headers ('(brown):') found"
+    powerless_lines = [line for line in lines if "— no brown power]" in line]
+    assert powerless_lines, (
+        "No headers for birds without a brown power — every bird crossed in an "
+        "activated row must get its own line, powered or not"
+    )
 
 
-def test_activate_base_events_labeled():
-    """Habitat base-activation events must appear as [Activate ... (...)]."""
+def test_main_action_events_name_their_habitat():
+    """The main-action header must name the row the cube was spent on."""
     text = _run_and_render()
-    base_lines = [
-        line for line in text.splitlines() if line.lstrip().startswith("[Activate ")
+    main_lines = [
+        line for line in text.splitlines() if line.lstrip().startswith("[Main action:")
     ]
-    assert base_lines, "No ActivateBaseEvent lines ([Activate ...]) found"
+    assert main_lines, "No [Main action: ...] event lines found"
+    habitats = {"Forest", "Grassland", "Wetland"}
+    assert any(
+        any(habitat in line for habitat in habitats) for line in main_lines
+    ), f"No main-action header names a habitat; got {main_lines[:3]}"
+
+
+def test_event_headers_summarize_their_effects():
+    """An event's header must report what its ledger says happened."""
+    text = _run_and_render()
+    # A habitat gain-food activation folds its recorded food gains into a
+    # 'Gains ...' header rather than repeating the raw effect rows.
+    assert any(
+        line.lstrip().startswith("[Gains ") for line in text.splitlines()
+    ), "No effect-derived '[Gains ...]' header found"
+
+
+def test_deck_draws_name_the_card_drawn():
+    """A draw from the deck must name the card in both the header and a row.
+
+    The draw decision itself only says 'from the deck' — the identity of the
+    card is hidden information the ledger is the sole record of."""
+    lines = _run_and_render().splitlines()
+    deck_draws = [
+        (idx, match.group(1))
+        for idx, line in enumerate(lines)
+        if (match := re.search(r"· draw_card\(card=(.+?), source=deck\)", line))
+    ]
+    assert deck_draws, "No deck draws recorded in the rendered log"
+    for idx, card in deck_draws:
+        headers = [line for line in lines[:idx] if line.lstrip().startswith("[")]
+        assert headers, f"deck draw of {card!r} sits under no event header"
+        assert card in headers[-1], (
+            "The header above a deck draw must name the drawn card; "
+            f"{card!r} missing from {headers[-1]!r}"
+        )
 
 
 def test_setup_events_show_kept_cards():
@@ -126,23 +164,23 @@ def test_forced_moves_use_bang_prefix():
 
 
 def test_nesting_depth_increases_for_children():
-    """Child events (e.g. WhitePowerEvent under PlayBirdEvent) must be indented
+    """Child events (e.g. a white power under a bird play) must be indented
     more than their parent."""
-    # White power events appear as [White power: ...] and are children of PlayBirdEvent.
-    text = _run_and_render(seed=42)
+    checked = False
     for seed in (42, 99, 123, 777):
-        text = _run_and_render(seed=seed)
-        lines = text.splitlines()
+        lines = _run_and_render(seed=seed).splitlines()
         for idx, line in enumerate(lines):
-            if "[White power:" in line:
-                leading = len(line) - len(line.lstrip())
-                # The parent PlayBirdEvent must have less indentation.
-                parent_found = any(
-                    (len(prev_line) - len(prev_line.lstrip())) < leading
-                    and "[PlayBirdEvent]" in prev_line
-                    for prev_line in lines[:idx]
-                )
-                assert (
-                    parent_found
-                ), "WhitePowerEvent not properly indented under PlayBirdEvent"
-                break
+            if "(white):" not in line and "(white) —" not in line:
+                continue
+            leading = len(line) - len(line.lstrip())
+            parent_found = any(
+                (len(prev_line) - len(prev_line.lstrip())) < leading
+                and prev_line.lstrip().startswith("[Plays ")
+                for prev_line in lines[:idx]
+            )
+            assert parent_found, "White power not indented under its bird play"
+            checked = True
+            break
+        if checked:
+            break
+    assert checked, "No white-power event found across 4 random games"

@@ -623,6 +623,204 @@ def test_log_items_carry_seat_attribution():
     assert 0 in seat_ids and 1 in seat_ids
 
 
+#### Event → log-item grouping ####
+
+
+def test_empty_event_becomes_a_single_note():
+    """A bird with no brown power still gets a row of its own — the whole point
+    of recording an event for every bird crossed."""
+    event = gamelog_models.ActivateBrownEvent(
+        player_id=0, bird_name="Turkey Vulture", is_brown=False
+    )
+    items = game_log_capture.tree_to_log_items(
+        gamelog_models.PhaseNode(kind="turn", events=[event])
+    )
+    assert len(items) == 1
+    assert items[0].kind == "note"
+    assert items[0].text == "Turkey Vulture — no brown power"
+
+
+def test_single_decision_event_collapses_into_that_decision():
+    """A main-action event *is* its decision — it renders as the decision box,
+    retitled, rather than a group whose only child repeats it."""
+    event = gamelog_models.MainActionEvent(
+        player_id=0,
+        action="gain_food",
+        sub_events=[
+            gamelog_models.DecisionSubEvent(player_id=0, outcome_text="Gain food")
+        ],
+    )
+    items = game_log_capture.tree_to_log_items(
+        gamelog_models.PhaseNode(kind="turn", events=[event])
+    )
+    assert len(items) == 1
+    assert items[0].kind == "decision", "expected the decision box, not a wrapper"
+    assert items[0].text == "Main action: Forest (gain food)"
+    assert not items[0].children
+
+
+def test_multi_part_event_becomes_a_group_with_its_parts_inside():
+    """An event with more than one part keeps its structure: one collapsible
+    row headed by the summary, with the decision and the reveal inside."""
+    event = gamelog_models.ActivateBaseEvent(
+        player_id=0,
+        habitat="wetland",
+        action="draw_cards",
+        sub_events=[
+            gamelog_models.DecisionSubEvent(
+                player_id=0, outcome_text="Draws from the deck"
+            ),
+            gamelog_models.DrawCardEffect(
+                player_id=0,
+                card="Wood Stork",
+                source=gamelog_models.CardSource.DECK,
+            ),
+        ],
+    )
+    items = game_log_capture.tree_to_log_items(
+        gamelog_models.PhaseNode(kind="turn", events=[event])
+    )
+    assert len(items) == 1
+    group = items[0]
+    assert group.kind == "group"
+    assert group.text == "Draws Wood Stork"
+    child_texts = [child.text for child in group.children]
+    assert child_texts == ["Draws from the deck", "Draws Wood Stork from the deck"]
+
+
+def test_silent_effects_do_not_become_rows():
+    """Only reveals earn a row; ordinary bookkeeping folds into the header."""
+    event = gamelog_models.ActivateBaseEvent(
+        player_id=0,
+        habitat="forest",
+        action="gain_food",
+        sub_events=[
+            gamelog_models.DecisionSubEvent(player_id=0, outcome_text="Gains fish"),
+            gamelog_models.GainFoodEffect(
+                player_id=0,
+                food="fish",
+                amount=1,
+                source=gamelog_models.FoodSource.FEEDER,
+            ),
+        ],
+    )
+    items = game_log_capture.tree_to_log_items(
+        gamelog_models.PhaseNode(kind="turn", events=[event])
+    )
+    # One decision and no reveal → collapses to the decision box, headed by the
+    # summary the silent gain produced.
+    assert len(items) == 1
+    assert items[0].kind == "decision"
+    assert items[0].text == "Gains fish"
+
+
+def test_power_events_carry_their_power_color():
+    """Brown / white / pink headers are tinted to match the card."""
+    brown = gamelog_models.ActivateBrownEvent(
+        player_id=0,
+        bird_name="Cooper's Hawk",
+        is_brown=True,
+        sub_events=[
+            gamelog_models.TuckCardEffect(
+                player_id=0,
+                card="Bell's Vireo",
+                bird="Cooper's Hawk",
+                source=gamelog_models.CardSource.DECK,
+            )
+        ],
+    )
+    items = game_log_capture.tree_to_log_items(
+        gamelog_models.PhaseNode(kind="turn", events=[brown])
+    )
+    assert items[0].power_color == "brown"
+
+    pink = gamelog_models.ReactionEvent(player_id=1, bird_name="Turkey Vulture")
+    items = game_log_capture.tree_to_log_items(
+        gamelog_models.PhaseNode(kind="turn", events=[pink])
+    )
+    assert items[0].power_color == "pink"
+
+
+def test_child_events_nest_inside_their_parent():
+    """A white power under a bird play stays inside that play's group."""
+    event = gamelog_models.PlayBirdEvent(
+        player_id=0,
+        sub_events=[
+            gamelog_models.ForcedSubEvent(
+                player_id=0, outcome_text="Plays Cooper's Hawk in Forest"
+            ),
+            gamelog_models.PlayBirdEffect(
+                player_id=0, card="Cooper's Hawk", habitat="forest", slot=0
+            ),
+        ],
+        children=[
+            gamelog_models.WhitePowerEvent(
+                player_id=0,
+                bird_name="Cooper's Hawk",
+                sub_events=[
+                    gamelog_models.DecisionSubEvent(
+                        player_id=0, outcome_text="Draws 2 cards"
+                    )
+                ],
+            )
+        ],
+    )
+    items = game_log_capture.tree_to_log_items(
+        gamelog_models.PhaseNode(kind="turn", events=[event])
+    )
+    assert len(items) == 1, "the play and its power must not be siblings"
+    group = items[0]
+    assert group.text == "Plays Cooper's Hawk in Forest"
+    nested = [child for child in group.children if child.power_color == "white"]
+    assert len(nested) == 1
+    assert nested[0].text == "Cooper's Hawk (white): Draws 2 cards"
+
+
+def test_tray_refill_renders_without_a_wrapper():
+    """A tray refill is bookkeeping: its rows go straight into the log rather
+    than behind a group header that would only re-list them."""
+    event = gamelog_models.RefillTrayEvent(
+        player_id=0,
+        sub_events=[
+            gamelog_models.TrayRefillEffect(player_id=0, slot=1, card="Ruddy Duck")
+        ],
+    )
+    items = game_log_capture.tree_to_log_items(
+        gamelog_models.PhaseNode(kind="turn", events=[event])
+    )
+    assert len(items) == 1
+    assert items[0].kind == "note"
+    assert items[0].text == "Tray slot 2: Ruddy Duck"
+
+
+def test_a_real_turn_reads_as_one_row_per_logical_unit():
+    """The shape the grouping exists for: a turn's top level is the main
+    action, the habitat ability, and one row per bird in the activated row —
+    never a flat run of every decision the turn made."""
+    eng, *_ = engine.Engine.create(seed=12345)
+    rng = random.Random(12345)
+    phases, tree = _run_and_capture(eng, rng)
+    report = game_log_capture.build_report(
+        engine=eng, phases=phases, tree=tree, seed=12345, matchup=None
+    )
+    turn_phases = [phase for phase in report.phases if phase.kind == "turn"]
+    assert turn_phases, "a full game has turns"
+
+    grouped = [
+        phase
+        for phase in turn_phases
+        if any(item.kind == "group" and item.children for item in phase.log_items)
+    ]
+    assert grouped, "no turn produced a grouped row — the log is still flat"
+
+    for phase in turn_phases:
+        headers = [item.text for item in phase.log_items]
+        # The turn opens on the action, and every top-level row is one logical
+        # unit rather than a raw decision spliced up from inside an event.
+        assert headers, "every turn records at least the main action"
+        assert headers[0].startswith("Main action"), headers[:3]
+
+
 def _run_and_capture(
     eng: engine.Engine,
     rng: random.Random,

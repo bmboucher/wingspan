@@ -53,9 +53,12 @@ by `_seat_css_rules()` (up to 5 seats, matching `state.MAX_PLAYERS`). The decisi
 renders four item kinds from `PhaseRecord.log_items: list[LogItem]`: collapsible
 `"decision"` boxes (with option bars scaled to max-probability, `+#.#` scores,
 and the selected option highlighted); non-collapsible `"forced"` outcome boxes;
-muted `"note"` boxes for notifications; and `"group"` collapsible parents whose
-body is their `children: list[LogItem]` rendered recursively (used for the setup
-food-group "keeps 🌾…" node). `BirdCellInfo.selected` and `BonusCardInfo.selected`
+muted `"note"` boxes for notifications and hidden-info reveals; and `"group"`
+collapsible parents. Every kind that can hold `children: list[LogItem]` renders
+them recursively, including `"decision"` — a decision with nested events shows
+its option bars first, then the nested rows. `LogItem.power_color` tints an
+item's header brown / white / pink to match the bird power it reports.
+`BirdCellInfo.selected` and `BonusCardInfo.selected`
 add a green border highlight to the kept hand cards and kept bonus card in the
 setup phase. The data model holds **primitives only** — no engine or torch types
 — so the page renders from a plain JSON dump embedded in the document and drawn
@@ -86,11 +89,23 @@ All log-item content now sources from the structured event tree (see
 `gamelog/INDEX.md`) rather than text-parsing engine.log.
 
 `tree_to_log_items(phase: PhaseNode) -> list[LogItem]` converts one tree phase's
-events into the `LogItem` list consumed by the HTML viewer: `MainActionEvent` →
-a `"decision"` item; `PlayBirdEvent` → a `"group"` headed by its bird-selection
-decision, with egg/food sub-events as children and any `WhitePowerEvent` as a
-trailing `"note"`; `ActivateBaseEvent` / `ActivateBrownEvent` / `ReactionEvent` /
-`RoundGoalEvent` / `FinalScoringEvent` → their sub-events/notes in order.
+events into the `LogItem` list consumed by the HTML viewer, **preserving the
+tree's nesting one-for-one** so a turn reads as one row per logical unit (the
+main action, the habitat ability, one per bird crossed) with the detail inside.
+Every event is headed by `gamelog.summarize.summary_text(event)` and takes one
+of three shapes: no contents → a muted `"note"` (this is what gives a bird with
+no brown power its own row); exactly one decision and no child events → that
+`"decision"` box retitled with the summary (wrapping it would cost a click for
+no information); anything else → a `"group"` whose children are its decisions,
+its hidden-info reveals, and its child events. `RefillTrayEvent`
+(`_UNWRAPPED_EVENTS`) emits its rows without a wrapper — pure bookkeeping whose
+header would only re-list them; `RoundGoalEvent` / `FinalScoringEvent` emit
+nothing, rendering as phase snapshots instead.
+
+Effect sub-events are dropped unless `summarize.is_reveal` marks them: the rest
+are already folded into the header, and repeating them as rows would bury the
+reveals that are the only record of what came off the deck. `LogItem.power_color`
+is set to `"brown"` / `"white"` / `"pink"` on power events.
 
 `_apply_setup_highlights(phase, setup_event)` reads `SetupEvent.kept_card_names`
 and `kept_bonus_name` from the recorder's tree to set `selected` on the kept hand

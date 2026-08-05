@@ -26,7 +26,6 @@ Public API: :func:`render_game_log_html` (report -> HTML string) and
 
 from __future__ import annotations
 
-import enum
 import pathlib
 import typing
 
@@ -105,22 +104,6 @@ _SEAT_PALETTES: tuple[_SeatPalette, ...] = (
         note_border="#14b8a6",
     ),
 )
-
-
-class LogItemCategory(enum.StrEnum):
-    """Semantic category tag used by game_log_capture grouping/merge passes.
-
-    Not serialised into the HTML payload (excluded from model dump) — it exists
-    only to drive the ``_merge_draw_deck`` and ``_group_play_bird`` post-passes
-    inside ``game_log_capture``."""
-
-    PLAY_BIRD = "play_bird"
-    PAY_EGG = "pay_egg"
-    PAY_FOOD = "pay_food"
-    PLAY_BIRD_NOTE = "play_bird_note"
-    POWER_ACTIVATION = "power_activation"
-    DRAW_DECK = "draw_deck"
-    DRAW_DECK_NOTE = "draw_deck_note"
 
 
 # ---------------------------------------------------------------------------
@@ -231,10 +214,10 @@ class LogItem(pydantic.BaseModel):
     stripes for the encoding-viewer modal (shared across all options in one
     decision; ``None`` for non-decision items or when no model backed this seat).
 
-    ``category`` is a build-time grouping tag used by the capture post-passes;
-    it is excluded from JSON serialisation.  ``power_color`` is a render-time
-    string (e.g. ``"brown"``, ``"white"``) that drives the CSS class on ``note``
-    items to display a colored power-activation box."""
+    ``power_color`` is a render-time string (``"brown"`` / ``"white"`` /
+    ``"pink"``) that tints the item to match the bird power it reports, using
+    the game's own color language for activated / when-played / reactive
+    powers."""
 
     kind: typing.Literal["decision", "forced", "note", "group"]
     player_id: int | None
@@ -243,7 +226,6 @@ class LogItem(pydantic.BaseModel):
     forced: bool = False
     children: list[LogItem] = []
     state_stripes: list[gamelog_models.EncodedStripe] | None = None
-    category: LogItemCategory | None = pydantic.Field(default=None, exclude=True)
     power_color: str | None = None
 
 
@@ -706,6 +688,14 @@ main {
 .di.p0 summary, .di.p0.forced { background: #1e3a5f; color: #93c5fd; border-color: #1e4a7f; }
 .di.p1 summary, .di.p1.forced { background: #3f1515; color: #fca5a5; border-color: #5a1f1f; }
 .di.global summary, .di.global.forced { background: #1e293b; color: #cbd5e1; border-color: #2d3f55; }
+
+/* Bird-power tint on an event header, in the game's own color language for
+   activated (brown) / when-played (white) / reactive (pink) powers.  The
+   element selector lifts specificity above the generated .di.pN rules so the
+   power color wins over the seat color for any seat. */
+details.di.pw-brown > summary { background: #5c3d1e; color: #fde8c6; border-color: #7a5230; }
+details.di.pw-white > summary { background: #f1f5f9; color: #1e293b; border-color: #cbd5e1; }
+details.di.pw-pink  > summary { background: #4a1942; color: #f9d4f3; border-color: #6b2a5e; }
 
 /* Option rows inside an expanded decision */
 .di-body { padding: 4px 6px 6px; background: #111827; }
@@ -1176,23 +1166,23 @@ function renderLogItem(item) {
   const seat = item.player_id != null ? 'p' + item.player_id : 'global';
   const tag = item.player_id != null ? '<span class="di-tag">[P' + item.player_id + ']</span> ' : '';
   const headerText = tag + applyFoodEmoji(esc(item.text));
+  const pwCls = item.power_color ? ' pw-' + esc(item.power_color) : '';
+  const childHtml = (item.children || []).map(renderLogItem).join('');
 
   if (item.kind === 'note') {
-    const pwCls = item.power_color ? ' pw-' + esc(item.power_color) : '';
     return '<div class="note ' + seat + pwCls + '">' + headerText + '</div>';
   }
   if (item.kind === 'forced') {
-    return '<div class="di forced ' + seat + '">' + headerText + '</div>';
+    return '<div class="di forced ' + seat + pwCls + '">' + headerText + '</div>';
   }
   if (item.kind === 'group') {
-    const childHtml = (item.children || []).map(renderLogItem).join('');
-    return '<details class="di ' + seat + '">'
+    return '<details class="di ' + seat + pwCls + '">'
       + '<summary>' + headerText + '</summary>'
       + '<div class="di-body di-group-body">' + childHtml + '</div>'
       + '</details>';
   }
 
-  // decision: collapsible box with option rows
+  // decision: collapsible box with option rows, then any nested children
   const opts = item.options || [];
   const maxProb = Math.max(...opts.map(o => o.prob != null ? o.prob : 0), 1e-6);
   const optHtml = opts.map(o => {
@@ -1210,15 +1200,19 @@ function renderLogItem(item) {
       + '</span>'
       + '</div>';
   }).join('');
-  return '<details class="di ' + seat + '">'
+  const nested = childHtml ? '<div class="di-group-body">' + childHtml + '</div>' : '';
+  return '<details class="di ' + seat + pwCls + '">'
     + '<summary>' + headerText + '</summary>'
-    + '<div class="di-body">' + optHtml + '</div>'
+    + '<div class="di-body">' + optHtml + nested + '</div>'
     + '</details>';
 }
 
 function renderLog(phase) {
   const log = document.getElementById('decision-log');
   const items = phase.log_items || [];
+  // Reset the encoding registry: renderLogItem indexes into it by append
+  // position, so it must start empty every time a phase is (re-)rendered.
+  _encData.length = 0;
   if (!items.length) {
     log.innerHTML = '<div class="event-empty">(no decisions for this phase)</div>';
     return;

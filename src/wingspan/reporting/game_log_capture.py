@@ -15,7 +15,6 @@ snapshots), :func:`tree_to_log_items` (phase → ``LogItem`` list from tree),
 
 from __future__ import annotations
 
-import functools
 import typing
 
 import pydantic
@@ -24,6 +23,7 @@ from wingspan import cards, state
 from wingspan.agents import display
 from wingspan.engine import scoring
 from wingspan.gamelog import models as gamelog_models
+from wingspan.gamelog import summarize
 from wingspan.reporting import card_view, game_log_html
 
 if typing.TYPE_CHECKING:
@@ -38,12 +38,10 @@ _HABITAT_LABELS: dict[cards.Habitat, str] = {
     cards.Habitat.WETLAND: "Wetland",
 }
 
-
-@functools.cache
-def _birds_by_name() -> dict[str, cards.Bird]:
-    """Name→Bird map for the full card table, cached per process."""
-    birds, _, _ = cards.load_all()
-    return {bird.name: bird for bird in birds}
+# Events rendered as their bare contents rather than a collapsible group: pure
+# bookkeeping whose whole body is reveal rows, and whose header would only
+# re-list what those rows already say.  Wrapping them costs a click for nothing.
+_UNWRAPPED_EVENTS = (gamelog_models.RefillTrayEvent,)
 
 
 # ---------------------------------------------------------------------------
@@ -293,10 +291,10 @@ def build_report(
 def tree_to_log_items(phase: gamelog_models.PhaseNode) -> list[game_log_html.LogItem]:
     """Convert a tree phase's events into ``LogItem`` list for the HTML decision log.
 
-    Each :class:`~gamelog_models.GameEvent` type maps to one or more ``LogItem``
-    objects: decisions become collapsible boxes, notes become muted lines,
-    play-bird events become grouped parents, and scoring events are skipped
-    (they render as phase snapshots, not log items)."""
+    The tree's nesting is preserved one-for-one: each
+    :class:`~gamelog_models.GameEvent` becomes a single top-level item headed by
+    its summary, with its decisions, reveals, and child events inside.  Scoring
+    events are skipped — they render as phase snapshots, not log items."""
     items: list[game_log_html.LogItem] = []
     for event in phase.events:
         items.extend(_game_event_to_items(event))
@@ -503,74 +501,85 @@ def _apply_setup_highlights(
 def _game_event_to_items(
     event: gamelog_models.GameEvent,
 ) -> list[game_log_html.LogItem]:
-    """Map one :class:`~gamelog_models.GameEvent` to zero or more ``LogItem``s."""
-    if isinstance(event, gamelog_models.PlayBirdEvent):
-        return _play_bird_event_to_items(event)
-    elif isinstance(event, gamelog_models.SetupEvent):
-        return _sub_events_to_items(event.sub_events, event.player_id)
-    elif isinstance(
+    """Map one :class:`~gamelog_models.GameEvent` to the items representing it.
+
+    Structure-preserving: every event becomes exactly one top-level item headed
+    by its :func:`~wingspan.gamelog.summarize.summary_text`, so a turn reads as
+    one row per logical unit (the main action, the habitat ability, one per bird
+    crossed) and the detail lives inside.  Three shapes, by what the event
+    actually contains:
+
+    - **nothing** — a muted note.  This is what makes a bird with no brown power
+      still show a row of its own.
+    - **one decision, no child events** — that decision box, retitled with the
+      event's summary.  Wrapping it in a group whose only child repeats it would
+      cost a click for no information.
+    - **anything else** — a collapsible group.
+    """
+    if isinstance(
         event, (gamelog_models.RoundGoalEvent, gamelog_models.FinalScoringEvent)
     ):
         # Rendered as phase snapshots; no log-item representation.
         return []
-    else:
-        # MainActionEvent, ActivateBaseEvent, ActivateBrownEvent, ReactionEvent, LooseEvent
-        result: list[game_log_html.LogItem] = []
-        result.extend(_sub_events_to_items(event.sub_events, event.player_id))
-        for child in event.children:
-            result.extend(_game_event_to_items(child))
-        return result
+
+    body = _event_body_items(event)
+    if isinstance(event, _UNWRAPPED_EVENTS):
+        return body
+
+    header = summarize.summary_text(event)
+    power_color = _event_power_color(event)
+    if not body:
+        return [
+            game_log_html.LogItem(
+                kind="note",
+                player_id=event.player_id,
+                text=header,
+                power_color=power_color,
+            )
+        ]
+    if len(body) == 1 and body[0].kind == "decision" and not event.children:
+        return [body[0].model_copy(update={"text": header, "power_color": power_color})]
+    return [
+        game_log_html.LogItem(
+            kind="group",
+            player_id=event.player_id,
+            text=header,
+            children=body,
+            power_color=power_color,
+        )
+    ]
 
 
-def _play_bird_event_to_items(
-    event: gamelog_models.PlayBirdEvent,
+def _event_body_items(
+    event: gamelog_models.GameEvent,
 ) -> list[game_log_html.LogItem]:
-    """A ``PlayBirdEvent`` becomes a 'group' headed by the bird-selection decision.
+    """The items nested under an event's header.
 
-    Sub-events (selection, egg payments, food payment) are children. Any
-    ``WhitePowerEvent`` child contributes a trailing power-activation note plus
-    its own decisions."""
-    child_items = _sub_events_to_items(event.sub_events, event.player_id)
-    if not child_items:
-        # No decisions recorded (shouldn't happen in normal play); fall back flat.
-        items: list[game_log_html.LogItem] = []
-        for child in event.children:
-            items.extend(_game_event_to_items(child))
-        return items
+    Its own sub-events first — decisions, forced moves, and the hidden-info
+    reveals — then its child events, so the order matches the order the game
+    resolved them."""
+    items = _sub_events_to_items(event.sub_events, event.player_id)
+    for child in event.children:
+        items.extend(_game_event_to_items(child))
+    return items
 
-    group = game_log_html.LogItem(
-        kind="group",
-        player_id=event.player_id,
-        text=child_items[0].text,
-        children=child_items,
-    )
-    result: list[game_log_html.LogItem] = [group]
 
-    # Each WhitePowerEvent child contributes a power-activation note and its decisions.
-    for child_event in event.children:
-        if isinstance(child_event, gamelog_models.WhitePowerEvent):
-            bird = _birds_by_name().get(child_event.bird_name)
-            if bird is not None and bird.plain_power_text:
-                result.append(
-                    game_log_html.LogItem(
-                        kind="note",
-                        player_id=event.player_id,
-                        text=f"{child_event.bird_name}: {bird.plain_power_text}",
-                        power_color="white",
-                    )
-                )
-            result.extend(_sub_events_to_items(child_event.sub_events, event.player_id))
-        else:
-            result.extend(_game_event_to_items(child_event))
-
-    return result
+def _event_power_color(event: gamelog_models.GameEvent) -> str | None:
+    """The bird-power color an event's header should be tinted with, if any."""
+    if isinstance(event, gamelog_models.ActivateBrownEvent):
+        return "brown" if event.is_brown else None
+    if isinstance(event, gamelog_models.WhitePowerEvent):
+        return "white"
+    if isinstance(event, gamelog_models.ReactionEvent):
+        return "pink"
+    return None
 
 
 def _sub_events_to_items(
     sub_events: typing.Sequence[gamelog_models.AnySubEvent],
     player_id: int | None,
 ) -> list[game_log_html.LogItem]:
-    """Convert a list of ``SubEvent``s to ``LogItem``s, dropping empty notes."""
+    """Convert a list of ``SubEvent``s to ``LogItem``s, dropping silent effects."""
     items: list[game_log_html.LogItem] = []
     for sub in sub_events:
         item = _sub_event_to_item(sub, player_id)
@@ -583,7 +592,12 @@ def _sub_event_to_item(
     sub: gamelog_models.SubEvent,
     player_id: int | None = None,
 ) -> game_log_html.LogItem | None:
-    """Convert one ``SubEvent`` to a ``LogItem``, or ``None`` to suppress it."""
+    """Convert one ``SubEvent`` to a ``LogItem``, or ``None`` to suppress it.
+
+    Effects are suppressed unless they revealed hidden information: everything
+    else the ledger records is already folded into the enclosing event's
+    header, and repeating it as a row would bury the reveals that are the only
+    record of what came off the deck."""
     pid = sub.player_id if sub.player_id is not None else player_id
     if isinstance(sub, gamelog_models.DecisionSubEvent):
         return game_log_html.LogItem(
@@ -593,12 +607,18 @@ def _sub_event_to_item(
             options=list(sub.options),
             state_stripes=sub.state_stripes,
         )
-    elif isinstance(sub, gamelog_models.ForcedSubEvent):
+    if isinstance(sub, gamelog_models.ForcedSubEvent):
         return game_log_html.LogItem(
             kind="forced",
             player_id=pid,
             text=sub.outcome_text,
             forced=True,
+        )
+    if isinstance(sub, gamelog_models.Effect) and summarize.is_reveal(sub):
+        return game_log_html.LogItem(
+            kind="note",
+            player_id=pid,
+            text=summarize.reveal_text(sub),
         )
     return None
 

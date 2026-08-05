@@ -101,7 +101,7 @@ sits immediately after the decision that caused it.
 | `CacheFoodEffect` | `bird`, `food`, `amount`, `from_supply` | `from_supply` pairs with a `SpendFoodEffect` |
 | `UncacheFoodEffect` | `bird`, `food`, `amount` | |
 | `LayEggEffect` / `RemoveEggEffect` | `bird`, `habitat`, `slot`, `count`, `purpose` | coordinates are a snapshot — a bird can move |
-| `DrawCardEffect` | `card`, `source`, `tray_slot` | **reveal** when `source` is `deck` |
+| `DrawCardEffect` | `card`, `source`, `tray_slot` | **reveal** when `source` is `deck` or `deal` |
 | `DiscardCardEffect` | `card`, `purpose` | |
 | `TuckCardEffect` | `card`, `bird`, `source` | **reveal** when `source` is `deck` |
 | `PlayBirdEffect` | `card`, `habitat`, `slot` | |
@@ -131,6 +131,10 @@ Attribution: an effect's `player_id` is the **owner of the changed resource**,
 not the acting seat — a pink reactor mutates the reacting opponent's board and
 is attributed to that opponent, so per-seat sums add up. `TrayRefillEffect` is
 the one genuinely seatless effect (the end-of-round reset belongs to no player).
+This is what lets `summarize` scope an event's header to its own seat.
+
+The **reveal** rows above are the effects the HTML log surfaces individually;
+everything else folds into an event header.  See **Summaries** below.
 
 ## Phase structure
 
@@ -238,28 +242,86 @@ This single rule handles all nesting correctly:
 `EventRecorder.end_game(engine)` reads final scores and emits `FinalScoringEvent`
 into the `game_end` phase automatically — no explicit call-site needed in scoring.
 
+## Summaries (`gamelog/summarize.py`)
+
+Both renderers head each event with the same line, computed — never stored.
+The tree stays pure ground truth; no denormalized header strings live in it.
+
+`summarize(event) -> EventSummary` folds every `Effect` in an event's subtree
+into a typed aggregate (food maps, egg counts, card-name lists, played/moved
+birds, tray refills, dice faces).  Two rules govern the fold:
+
+- **Descendants count.** A collapsed row must describe everything inside it, so
+  a white power firing under a bird play shows up in the play's header.
+- **Other seats do not.** A descendant event belonging to another seat — a pink
+  reaction nested under the play that triggered it — is skipped with its whole
+  subtree.  Rolling it in would credit one player's food gain to another.
+
+`summary_text(event) -> str` templates that aggregate per event type.  It is
+derived from **what the ledger says happened**, not from the card's printed
+power text, so a power that fizzled reads as having fizzled.  When an event
+recorded no effect but did resolve a decision, the header falls back to that
+decision's outcome (`California Condor (white): Declines`) rather than claiming
+`no effect`.
+
+| Event | Header |
+| ----- | ------ |
+| `MainActionEvent` | `Main action: Forest (gain food)` — names the row the cube activates |
+| `ActivateBaseEvent` | the effect phrase (`Gains fish fish`), else `Lay eggs — no effect` |
+| `ActivateBrownEvent` | `Cooper's Hawk (brown): Tucks Bell's Vireo`, or `Turkey Vulture — no brown power` |
+| `WhitePowerEvent` / `ReactionEvent` | same shape, tagged `(white)` / `(pink)` |
+| `PlayBirdEvent` | `Plays Cooper's Hawk in Forest` |
+| `ExtraPlayEvent` | `Extra play (Wetland)` |
+| `TurnEndEvent` | `End of turn: Discards Mallard` |
+| `RefillTrayEvent` | `Tray refill: Ruddy Duck` |
+| `DealEvent` | `Deal (5 cards)` |
+| `SetupEvent` | `Setup (kept: …; bonus: …)` |
+| `RoundGoalEvent` / `FinalScoringEvent` | unchanged from before |
+| `LooseEvent` / anything unhandled | the effect phrase, else `Other` |
+
+Food renders as repeated whole words (`fish fish`) rather than `2fish`, because
+the HTML viewer's `applyFoodEmoji` substitutes on word boundaries — `2fish`
+would match nothing and print literally.  Past three tokens it switches to
+`6x seed`, keeping the space so the substitution still fires.
+
+**Reveals.** `is_reveal(effect)` marks the effects that disclosed hidden
+information: a deck draw, a deck tuck, a birdfeeder reroll, a predator's dice,
+a tray restock.  These get their own row via `reveal_text(effect)` — they are
+the *only* record of what came off the deck.  Every other effect stays silent
+and folds into its header.
+
 ## Rendering
 
 ### HTML (`reporting/game_log_capture.tree_to_log_items`)
 
-Converts one `PhaseNode` to `list[LogItem]` for the HTML viewer:
+Structure-preserving: the tree's nesting survives one-for-one into `LogItem`s,
+so a turn's top level reads as one row per logical unit — the main action, the
+habitat ability, one per bird crossed — with the detail inside.  Each event
+takes one of three shapes, by what it actually contains:
 
-- `MainActionEvent` → one `"decision"` item.
-- `PlayBirdEvent` → `"group"` headed by the bird-selection decision; sub-events
-  (egg, food) as children; `WhitePowerEvent` children as trailing `"note"` items.
-- `ActivateBaseEvent` / `ActivateBrownEvent` / `ReactionEvent` → sub-events in order.
-- `RoundGoalEvent` / `FinalScoringEvent` → sub-events (or a note if none).
+| Contents | Shape |
+| -------- | ----- |
+| nothing | a muted `"note"` — what gives a bird with no brown power its own row |
+| one decision, no child events | that `"decision"` box, retitled with the summary |
+| anything else | a `"group"` whose children are its decisions, reveals, and child events |
+
+`RefillTrayEvent` is the one exception (`_UNWRAPPED_EVENTS`): pure bookkeeping
+whose header would only re-list its own rows, so its rows go straight into the
+log.  `RoundGoalEvent` / `FinalScoringEvent` produce no items at all — they
+render as phase snapshots.
+
+`LogItem.power_color` carries `"brown"` / `"white"` / `"pink"` on power events,
+tinting the header in the game's own color language.
 
 ### Plaintext (`gamelog/render_text.render_plaintext`)
 
-Each phase: `=== KIND ===`.  Each event: `[label]` where the label is
-type-specific (e.g. `[Activate forest (gain food)]`, `[Brown: Elf Owl]`,
-`[——: Barn Owl]`, `[White power: Elf Owl]`,
-`[Setup (kept: Barn Owl, Elf Owl; bonus: Rodentologist)]`,
-`[Round 1 goal — … [P0: 3/4VP, P1: 1/1VP]]`,
-`[Final scoring [42, 37]]`).
-Sub-events: `→ text` (decision), `! text` (forced), `· kind(fields)` (effect).
-Children indented two spaces per level.
+Each phase: `=== KIND ===`.  Each event: `[summary_text]` — the same header the
+HTML log collapses to.  Sub-events: `→ text` (decision), `! text` (forced),
+`· kind(fields)` (effect).  Children indented two spaces per level.
+
+Unlike the HTML log, this renderer keeps **every** effect row, not just the
+reveals: it is the detailed log, where the header says what happened and the
+rows below prove it.
 
 ## Adding a new event type
 
@@ -273,8 +335,10 @@ Children indented two spaces per level.
 4. Wire the call-site `begin_<name>` / `end_event` brackets in the appropriate
    engine or action module.  If the bracket spans a phase boundary, keep the
    phase/instrumentation pairing intact (see the alignment invariant above).
-5. Handle the new subclass in `game_log_capture.tree_to_log_items` (HTML) and
-   `render_text._event_label` / `_render_event` (plaintext).
+5. Add a header branch to `summarize.summary_text`.  Both renderers pick it up
+   from there — there is no per-renderer label table.  The fallback returns the
+   effect phrase or `"Other"`, so a missing branch degrades quietly rather than
+   leaking a class name; `tests/test_gamelog_summarize.py` fails on the leak.
 6. Add tests in `tests/test_gamelog_tree.py`; the round-trip in
    `tests/test_gamelog_serialize.py` covers serialization automatically.
 7. Update this file.

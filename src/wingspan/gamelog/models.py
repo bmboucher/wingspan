@@ -433,9 +433,15 @@ class GameEvent(pydantic.BaseModel):
 
 class MainActionEvent(GameEvent):
     """Event #4: the player selects a main action (gain food / lay eggs /
-    draw cards / play a bird)."""
+    draw cards / play a bird).
+
+    ``action`` is the chosen ``MainAction`` value, stamped by the recorder when
+    the decision resolves (the same pattern as ``SetupEvent.kept_card_names``).
+    It shares its vocabulary with :attr:`ActivateBaseEvent.action`, so one label
+    table serves both."""
 
     kind: typing.Literal["main_action"] = "main_action"
+    action: str | None = None
 
 
 class PlayBirdEvent(GameEvent):

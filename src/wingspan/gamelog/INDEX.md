@@ -45,7 +45,7 @@ Key classes:
   [`docs/GAMELOG.md`](../../../docs/GAMELOG.md) for the ledger contract.
 - Top-level event types (one subclass per logical action, each carrying typed
   fields — no opaque payloads), all sharing `event_id`:
-  `MainActionEvent`, `PlayBirdEvent`, `WhitePowerEvent(bird_name)`,
+  `MainActionEvent(action)`, `PlayBirdEvent`, `WhitePowerEvent(bird_name)`,
   `ReactionEvent(bird_name)`, `ActivateBaseEvent(habitat, action)`,
   `ActivateBrownEvent(bird_name, is_brown)`, `ExtraPlayEvent(habitat)`,
   `TurnEndEvent`, `RefillTrayEvent`, `DealEvent`,
@@ -63,8 +63,8 @@ Key classes:
 **`recorder.py`** — `EventRecorder` + the `null_recorder()` no-op factory.
 
 `EventRecorder(probes)` maintains an open-event stack and a current phase.  The
-engine and action modules call `begin_*/end_event` brackets and `record_*` /
-`note` at each logical decision or notification point; the recorder builds the
+engine and action modules call `begin_*/end_event` brackets and `record_*` at
+each logical decision or mutation point; the recorder builds the
 `GameEventTree` in-place, stamping each event with a per-game monotonic
 `event_id` as it is opened.
 
@@ -86,6 +86,11 @@ Key public methods:
   own `state_layout` / `choice_layout` (the producing net's era geometry);
   the live layout is only a fallback for annotations that carry none.
 - `record_forced(engine, decision, choice)` — appends a `ForcedSubEvent`.
+
+  Both resolution paths first call `_stamp_open_events`, which copies a resolved
+  choice's outcome onto the open event that summarizes it — the setup's kept
+  cards and bonus, and `MainActionEvent.action`.  These cannot be passed to
+  `begin_*` because at bracket-open time the answer is not yet known.
 - `record_round_goal(engine, round_idx, goal, counts, vps)` — appends a
   `RoundGoalEvent` to the **round phase it scores** (scoring runs after the
   round's last turn, so the current phase is that turn).
@@ -106,17 +111,40 @@ constant so no two engines alias one tree.
 `AnyRecorder = EventRecorder | _NullRecorder` — the type used by `engine.core`
 for the `events` field.
 
+**`summarize.py`** — The shared header text both renderers use.  Pure:
+`models` + `pydantic` + stdlib only.
+
+- `EventSummary` — a typed aggregate of every `Effect` in one event's subtree
+  (food maps keyed by type, egg counts, card-name lists, played/moved birds,
+  tray refills, dice faces), plus an `is_empty` property.
+- `summarize(event) -> EventSummary` — the fold.  Descendants count (a
+  collapsed row must describe everything inside it); other seats do not (a pink
+  reaction nested under the play that triggered it is skipped with its whole
+  subtree, so one player's gain is never credited to another).
+- `summary_text(event) -> str` — the one-line header per event type, e.g.
+  `Main action: Forest (gain food)`, `Gains fish fish`,
+  `Cooper's Hawk (brown): Tucks Bell's Vireo`, `Turkey Vulture — no brown
+  power`, `Plays Cooper's Hawk in Forest`, `Tray refill: Ruddy Duck`.  Derived
+  from what the ledger recorded, never from the card's printed power text; an
+  event with no effects but a resolved decision falls back to that decision's
+  outcome rather than claiming `no effect`.
+- `effect_phrase(summary) -> str` / `food_words(counts) -> str` — the prose
+  builders.  Food is repeated whole words (`fish fish`, not `2fish`) because
+  the HTML viewer's emoji substitution matches on word boundaries; past three
+  tokens it switches to `6x seed`, keeping the space.
+- `is_reveal(effect)` / `reveal_text(effect)` — the hidden-information effects
+  (deck draw, deck tuck, feeder reroll, predator dice, tray restock) that earn
+  their own row in the HTML log instead of folding into a header.
+
 **`render_text.py`** — `render_plaintext(tree: GameEventTree) -> str`.
 
-Pure renderer: `models` + stdlib only.  Each phase opens with
-`=== KIND ===`.  Events render with a type-specific bracket label
-(`[Activate forest (gain food)]`, `[Brown: Elf Owl]`, `[——: Barn Owl]`,
-`[White power: Elf Owl]`, `[Extra play in forest]`, `[End of turn]`,
-`[Refill tray]`, `[Deal]`,
-`[Setup (kept: Barn Owl; bonus: Rodentologist)]`,
-`[Round 1 goal — ... [P0: 3/4VP, P1: 1/1VP]]`, `[Final scoring [42, 37]]`,
-etc.) followed by sub-event lines:
-`→ text` for decisions, `! text` for forced moves, `· kind(fields)` for
-effects (a mechanical field dump, so a new effect class renders truthfully
-without a hand-written template).
+Pure renderer: `models` + `summarize` + stdlib only.  Each phase opens with
+`=== KIND ===`; each event with `[summary_text]` — the same header the HTML log
+collapses to.  Sub-event lines follow: `→ text` for decisions, `! text` for
+forced moves, `· kind(fields)` for effects (a mechanical field dump, so a new
+effect class renders truthfully without a hand-written template).
 Children (nested events) are indented two spaces per level.
+
+Unlike the HTML log, this keeps **every** effect row rather than only the
+reveals: it is the detailed log, where the header says what happened and the
+rows below it prove it.
