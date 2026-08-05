@@ -33,8 +33,28 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.4"
+MODEL_VERSION = "1.5"
 """The current artifact-compatibility version (the only place it is defined).
+
+1.5 is a **behavior-only** MINOR FRESH bump — no tensor shape changes; the first
+value-level (as opposed to width-level) encoding era since the v1.1
+trunk-final-activation fix. The ``PlayBirdChoice`` featurizer's ``goal_delta``
+stripe is now **conditioned on the row's landing habitat**: a ``birds_<habitat>``
+round goal moves only on the row that actually plays the bird into that habitat.
+Pre-1.5 rows priced the bird's *card* habitats (``scoring.goal_count_delta_for_bird``
+with no ``play_habitat``), so a two-habitat bird advanced a habitat goal on both
+of its rows — e.g. a Peregrine Falcon's grassland row claimed the "[bird] in
+[wetland]" goal's count and VP delta. Candidate rows with no committed placement
+(hand / tray / setup keeps) keep the optimistic any-card-habitat bound.
+
+Era 1.4 artifacts route to ``wingspan.compat.v1_4.PolicyValueNetV1_4``, which
+re-fills each play-bird row's ``goal_delta`` with the habitat-agnostic pricing
+after live encoding (``choice_encode.refill_goal_delta_habitat_agnostic``).
+Dims are unchanged — ``compat.encoding_dims_for_era`` returns live widths for
+1.4 — but ``architecture_key`` leads with the era, so a 1.4 run still resumes
+era-pinned as the shim class. ``compat.v1_3.PolicyValueNetV1_3`` now inherits
+``PolicyValueNetV1_4``, so every pre-1.4 era freezes the old pricing too, on
+top of its own stripe strips.
 
 1.4 is a **main-net encoding** MINOR FRESH bump that lands two independent
 encoding changes together (both developed in parallel, folded into one era):

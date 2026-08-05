@@ -167,6 +167,28 @@ def encode_choices(
     return feats
 
 
+def refill_goal_delta_habitat_agnostic(
+    feat: np.ndarray,
+    player_id: int,
+    bird: cards.Bird,
+    game_state: state.GameState,
+) -> None:
+    """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): overwrite the
+    ``goal_delta`` stripe of one already-encoded choice row with the
+    habitat-agnostic pricing those eras were trained against.
+
+    Since v1.5 the live ``PlayBirdChoice`` featurizer prices ``goal_delta`` at
+    the row's committed landing habitat; pre-1.5 rows priced the bird's *card*
+    habitats, so a two-habitat bird advanced a ``birds_<habitat>`` goal on both
+    of its rows. The shim calls this per play-bird row after live encoding.
+    Zeroes the stripe first: the agnostic fill is a superset of the conditioned
+    one, and ``_write_goal_delta`` skips zero-count slots rather than clearing
+    them."""
+    start = layout._OFF_GOAL_DELTA
+    feat[start : start + layout._GOAL_DELTA_DIM] = 0.0
+    _fill_goal_delta(feat, player_id, bird, game_state)
+
+
 ###### PRIVATE #######
 
 #### Per-choice featurization ####
@@ -470,13 +492,17 @@ def _featurize_play_bird(
     # per-habitat variants of the same bird. The costs are follow-up decisions
     # (RemoveEggDecision / PayBirdFoodDecision), so no payment stripe is filled
     # here; the bonus_delta and goal_delta stripes price the play's contribution
-    # to held bonus cards and round-goal standings.
+    # to held bonus cards and round-goal standings, both conditioned on the
+    # landing habitat (a two-habitat bird advances a birds_<habitat> goal only
+    # on the row that actually plays it there).
     player = state.players[decision.player_id]
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
     _fill_landing_slot(feat, player, choice.habitat)
     _fill_bonus_delta(feat, player, choice.bird, play_habitat=choice.habitat)
-    _fill_goal_delta(feat, decision.player_id, choice.bird, state)
+    _fill_goal_delta(
+        feat, decision.player_id, choice.bird, state, play_habitat=choice.habitat
+    )
     if has_becomes_playable and baselines.playable_now:
         from wingspan.engine import playability as _playability
 
@@ -966,6 +992,7 @@ def _fill_goal_delta(
     player_id: int,
     bird: cards.Bird,
     game_state: state.GameState,
+    play_habitat: cards.Habitat | None = None,
 ) -> None:
     """Fill the goal_delta stripe: for each of the 4 round goals, how much
     playing ``bird`` would change the deciding player's category count and
@@ -973,7 +1000,12 @@ def _fill_goal_delta(
     with no eggs or tucks); vp_delta depends on current standings. Both stay
     zero for goals where the bird has no immediate static effect, and for
     goals whose round has already been scored (a scored goal's payout is
-    frozen — no choice can change it)."""
+    frozen — no choice can change it).
+
+    ``play_habitat`` is the landing row when the choice commits to one
+    (play-bird rows): a ``birds_<habitat>`` goal then moves only if that row
+    matches. ``None`` prices a not-yet-placed candidate (hand / tray rows) at
+    the optimistic any-card-habitat bound."""
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     player = game_state.players[player_id]
@@ -984,7 +1016,7 @@ def _fill_goal_delta(
             continue
         payouts = state.ROUND_GOAL_PAYOUTS[goal_idx]
         count_delta, vp_delta = scoring.goal_vp_delta_for_bird(
-            player, others, goal, bird, payouts
+            player, others, goal, bird, payouts, play_habitat=play_habitat
         )
         _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
 

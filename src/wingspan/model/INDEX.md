@@ -35,8 +35,10 @@ reads must agree on seat count. Key structure:
   a checkpoint for inference.
 - `PolicyValueNet.class_for_version(artifact_version) -> type[PolicyValueNet]`
   — the single era-routing table (v1.0 → `compat.v1_0.PolicyValueNetV1_0`,
-  all later same-MAJOR → live `PolicyValueNet`); used by `from_model_config`,
-  the checkpoint loaders, and the era-pinned training pipeline.
+  1.1-1.3 → `compat.v1_3.PolicyValueNetV1_3`, 1.4 →
+  `compat.v1_4.PolicyValueNetV1_4`, later same-MAJOR → live `PolicyValueNet`);
+  used by `from_model_config`, the checkpoint loaders, and the era-pinned
+  training pipeline.
 - `StateEmbedOffsets(card_index, hand_multihot, decision_type)`
   — NamedTuple seam frozen by era shims so `_embed_state` slices each era's
   vector at its own offsets. Future shims override via `_state_embed_offsets()`.

@@ -119,6 +119,12 @@ one site (not per-featurizer) for every `decisions.PlayerIdChoice` row: a
 `spec.num_players`-wide one-hot at `(choice.player_id − decision.player_id) %
 spec.num_players`. Absent at N=2 (`layout.off_player_select(spec)` is `None`);
 the existing `special.is_self` bit in `_featurize_player_id` is untouched.
+The `goal_delta` stripe on `PlayBirdChoice` rows is conditioned on the row's
+landing habitat (v1.5: `_fill_goal_delta`'s `play_habitat`, threaded to
+`scoring.goal_count_delta_for_bird`); habitat-less candidate rows keep the
+optimistic any-card-habitat bound. `refill_goal_delta_habitat_agnostic(feat,
+player_id, bird, gs)` is the public compat seam `wingspan.compat.v1_4` uses to
+re-fill a play-bird row with the pre-1.5 agnostic pricing.
 
 ## Subpackage
 

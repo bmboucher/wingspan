@@ -962,10 +962,12 @@ def test_goal_delta_nonzero_for_advancing_bird():
     orig_goals = eng.state.round_goals
     eng.state.round_goals = [forest_goal, total_goal, orig_goals[2], orig_goals[3]]
 
-    # Find a forest bird and a wetland-only bird for contrast.
+    # Find a forest bird and a wetland-only bird for contrast. ``_play_choice``
+    # plays a bird into its first printed habitat, and the play row prices
+    # goal_delta at that landing habitat — so pick a bird that lands in forest.
     all_birds, *_ = cards.load_all()
     forest_bird = next(
-        bird for bird in all_birds if cards.Habitat.FOREST in bird.habitats
+        bird for bird in all_birds if next(iter(bird.habitats)) is cards.Habitat.FOREST
     )
     wetland_only_bird = next(
         bird for bird in all_birds if bird.habitats == (cards.Habitat.WETLAND,)
@@ -1004,6 +1006,72 @@ def test_goal_delta_nonzero_for_advancing_bird():
     assert (
         wetland_row[slot1_count] > 0.0
     ), "wetland-only bird should also advance total_birds goal"
+
+
+def test_goal_delta_conditioned_on_landing_habitat():
+    """A two-habitat bird's play rows price a ``birds_<habitat>`` goal only on
+    the row that actually lands in that habitat; the other row's slot stays
+    zero. Candidate rows with no committed placement keep the optimistic
+    any-card-habitat bound."""
+    eng, *_ = engine.Engine.create(seed=1)
+    all_birds, _, all_goals = cards.load_all()
+
+    # Round-1 goal: [bird] in [wetland]. The deciding bird can play into
+    # grassland or wetland (the Peregrine Falcon shape).
+    wetland_goal = next(goal for goal in all_goals if goal.category == "birds_wetland")
+    orig_goals = eng.state.round_goals
+    eng.state.round_goals = [wetland_goal, *orig_goals[1:]]
+    dual_bird = next(
+        bird
+        for bird in all_birds
+        if set(bird.habitats) == {cards.Habitat.GRASSLAND, cards.Habitat.WETLAND}
+    )
+
+    # The two play rows of one PlayBirdDecision differ in landing habitat only.
+    decision = decisions.PlayBirdDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.PlayBirdChoice(
+                label=dual_bird.name, bird=dual_bird, habitat=cards.Habitat.GRASSLAND
+            ),
+            decisions.PlayBirdChoice(
+                label=dual_bird.name, bird=dual_bird, habitat=cards.Habitat.WETLAND
+            ),
+        ],
+    )
+    grassland_row, wetland_row = encode.encode_choices(decision, eng.state)
+
+    slot0_count = layout._OFF_GOAL_DELTA + layout._GOAL_DELTA_COUNT
+    slot0_vp = layout._OFF_GOAL_DELTA + layout._GOAL_DELTA_VP
+    assert grassland_row[slot0_count] == 0.0, "grassland play cannot advance the goal"
+    assert grassland_row[slot0_vp] == 0.0
+    assert np.isclose(wetland_row[slot0_count], 1.0 / layout._GOAL_COUNT_SCALE)
+    assert wetland_row[slot0_vp] > 0.0, "wetland play should gain placement VP"
+
+    # A hand candidate (no committed placement) still prices the could-count bound.
+    candidate = decisions.BirdPowerTuckFromHandDecision(
+        player_id=0,
+        prompt="t",
+        choices=[decisions.BirdChoice(label=dual_bird.name, bird=dual_bird)],
+    )
+    candidate_row = encode.encode_choices(candidate, eng.state)[0]
+    assert candidate_row[slot0_count] > 0.0
+
+    # The scoring helper itself: exact when the landing row is committed.
+    assert (
+        scoring.goal_count_delta_for_bird(
+            dual_bird, "birds_wetland", play_habitat=cards.Habitat.GRASSLAND
+        )
+        == 0
+    )
+    assert (
+        scoring.goal_count_delta_for_bird(
+            dual_bird, "birds_wetland", play_habitat=cards.Habitat.WETLAND
+        )
+        == 1
+    )
+    assert scoring.goal_count_delta_for_bird(dual_bird, "birds_wetland") == 1
 
 
 # ---------------------------------------------------------------------------

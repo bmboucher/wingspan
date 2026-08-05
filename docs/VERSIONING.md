@@ -2,7 +2,7 @@
 
 Every persisted artifact (the dated `run_config_<stamp>.json` run descriptor and
 every `.pt` payload) is stamped with a `MAJOR.MINOR` **artifact version**
-(`wingspan.version.MODEL_VERSION`, currently **`1.4`**). This is distinct from
+(`wingspan.version.MODEL_VERSION`, currently **`1.5`**). This is distinct from
 the package release version (`wingspan.__version__`) — one tracks the codebase,
 the other the on-disk artifact format.
 
@@ -35,7 +35,57 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.4 — food-unlock state stripes + `resets_feeder` choice stripe (current)
+### v1.5 — habitat-conditioned play-bird `goal_delta` (current)
+
+A **behavior-only** MINOR FRESH bump — the first era gate that changes **no
+tensor shape**, only stripe *values*. The `PlayBirdChoice` featurizer's
+`goal_delta` stripe is now conditioned on the row's committed landing habitat:
+a `birds_<habitat>` round goal moves only on the row that actually plays the
+bird into that habitat (`scoring.goal_count_delta_for_bird`'s new
+`play_habitat` parameter, threaded through `_fill_goal_delta` from
+`_featurize_play_bird`).
+
+**The bug this fixes.** A `birds_<habitat>` goal was priced from the bird's
+*card* habitats, not the row's landing habitat — so a two-habitat bird
+(the Peregrine Falcon shape, grassland/wetland) claimed the "[bird] in
+[wetland]" goal's `count_delta`/`vp_delta` on its grassland row too, making
+the two placements indistinguishable on the goal stripe. Candidate rows with
+no committed placement (hand / tray / setup keeps) keep the optimistic
+any-card-habitat bound — those semantics were correct and are unchanged
+(`play_habitat=None`).
+
+- **Behavioral change — encoding (FRESH, shape-preserving).** Every dim,
+  offset, and layout is unchanged, so `encoding_dims_for_era` has **no 1.4
+  branch** (era 1.4 dims equal live) and the shim overrides nothing geometric.
+  `compat.v1_4.PolicyValueNetV1_4` overrides `encode_choices` only: after live
+  encoding, each play-bird row's `goal_delta` stripe is re-filled with the
+  habitat-agnostic pricing (`choice_encode.refill_goal_delta_habitat_agnostic`)
+  — the value-level analogue of the older shims' `np.delete` column strips.
+  `class_for_version` routes era 1.4 there; `PolicyValueNetV1_3` now
+  **inherits** `PolicyValueNetV1_4` (and `PolicyValueNetV1_0` inherits
+  `V1_3`), so every pre-1.5 era freezes the old pricing — the refill runs at
+  live column offsets inside the `super().encode_choices` chain, before the
+  older shims' column strips shift anything.
+- **Why an era gate for a bug fix.** The rehydration guarantee: a 1.4 net
+  *trained against* the both-rows pricing, so feeding it corrected stripes
+  would change its policy outputs. Old artifacts never adopt new behavior,
+  buggy or not. `architecture_key` leads with the era, so a same-shape 1.4 run
+  still reads as its own era and resumes era-pinned as the shim class.
+- **Setup net unaffected.** The setup encoder prices keeps with no committed
+  habitat (the unchanged `play_habitat=None` bound), so setup artifacts stay
+  loadable and there is no setup-side shim.
+- **Golden fixture recaptured.** `tests/data/golden_n2.json` pins live-encoder
+  bytes, so it was re-captured at v1.5 (`python tests/golden_capture.py`): a
+  subset of the recorded hashes changed; the decision sequence is unchanged.
+- **No LFS fixture (deferred, as for v1.0 / v1.3).** `tests/test_compat_v1_4.py`
+  builds a v1.4-era net, saves it with a v1.4 stamp, round-trip-loads it
+  through the production `load_policy_net` path, and pins the frozen behavior
+  (both rows of a two-habitat bird priced identically on `goal_delta`; every
+  other stripe byte-identical to live).
+- **User action.** None: a pre-1.5 run resumes era-pinned via the shim; a run
+  started on 1.5 prices play-bird rows at their landing habitat.
+
+### v1.4 — food-unlock state stripes + `resets_feeder` choice stripe
 
 A **main-net encoding** MINOR FRESH bump that lands **two independent encoding
 changes together** (developed in parallel, folded into one era because no v1.4
@@ -343,11 +393,12 @@ which loads through the shims).
 
 ## Compat shims — the one sanctioned mechanism
 
-The `wingspan.compat` package is **currently empty** — the 1.0 MAJOR bump dropped
-every pre-1.0 shim, leaving only the inert dims-router seam
-(`compat.encoding_dims_for_era`). Each future MINOR bump adds one module back
-(`v1_<N>.py`), one per superseded same-MAJOR era. Shape: `if artifact older than
-the change: regenerate the encoding without the new field`. Inference call sites
+The `wingspan.compat` package holds one module per superseded same-MAJOR era
+(`v1_0`, `v1_3`, `v1_4`) plus the dims-router seam
+(`compat.encoding_dims_for_era`); each future MINOR bump adds one more
+(`v1_<N>.py`). Shape: `if artifact older than the change: regenerate the
+encoding without the new field` — or, for a behavior-only era (v1.5's value
+change), regenerate the prior stripe values. Inference call sites
 must encode through the net (`net.encode_state` / `net.encode_choices`), never by
 pairing the live encoder with a spec by hand — that is what lets a compat-era net
 carry its own geometry.
@@ -358,7 +409,9 @@ carry its own geometry.
 ## MINOR bumps (FRESH changes)
 
 A MINOR bump is required for every FRESH-type change — any change that alters
-a tensor shape — and must:
+a tensor shape, or any code-carried behavior change that would make a
+rehydrated artifact compute differently even at unchanged shape (v1.5; see
+"FRESH vs REGIME" below) — and must:
 
 1. Bump `MODEL_VERSION` in `wingspan/version.py`.
 2. Add the version-specific shim in `wingspan/compat/v<X_Y>.py`.

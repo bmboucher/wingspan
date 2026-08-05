@@ -46,7 +46,11 @@ that the passed dim may or may not already exclude.
 **Routing.** ``PolicyValueNet.class_for_version`` routes eras 1.1-1.3 here.
 ``compat.v1_0.PolicyValueNetV1_0`` subclasses this net so v1.0 artifacts strip the
 state stripes and ``resets_feeder`` too, on top of their own ``becomes_unplayable``
-choice-stripe removal and the old trunk-final-activation fallback.
+choice-stripe removal and the old trunk-final-activation fallback. This net in
+turn subclasses ``compat.v1_4.PolicyValueNetV1_4``, so every pre-1.4 era also
+freezes the pre-1.5 habitat-agnostic play-bird ``goal_delta`` pricing — the
+value refill runs at live column offsets inside the ``super().encode_choices``
+chain, before this shim's column strips shift anything.
 
 **Fixture note.** A committed LFS checkpoint fixture is deferred (as for v1.0): no
 in-production v1.3 checkpoint was preserved. Instead
@@ -64,6 +68,7 @@ import typing
 import numpy as np
 
 from wingspan import architecture, decisions, encode, state
+from wingspan.compat import v1_4
 from wingspan.encode import stripes
 from wingspan.model import core
 
@@ -73,10 +78,12 @@ _V1_4_STATE_STRIPE_NAMES = ("hand_food_unlock_me", "tray_food_unlock_me")
 _V1_4_CHOICE_STRIPE_NAME = "resets_feeder"
 
 
-class PolicyValueNetV1_3(core.PolicyValueNet):
+class PolicyValueNetV1_3(v1_4.PolicyValueNetV1_4):
     """``PolicyValueNet`` with pre-1.4 geometry: the two food-unlock state stripes
     removed from state encoding and the ``resets_feeder`` stripe removed from choice
-    encoding, with the frozen pre-1.4 embed offsets for both."""
+    encoding, with the frozen pre-1.4 embed offsets for both. Inherits the pre-1.5
+    habitat-agnostic play-bird ``goal_delta`` pricing from
+    :class:`wingspan.compat.v1_4.PolicyValueNetV1_4`."""
 
     # --- state: strip the two food-unlock stripes ---
 
@@ -160,11 +167,13 @@ class PolicyValueNetV1_3(core.PolicyValueNet):
         decision: decisions.Decision[typing.Any],
         game_state: state.GameState,
     ) -> np.ndarray:
-        """Encode choices at live v1.4 dims, then strip the ``resets_feeder`` column.
+        """Encode choices at live dims, then strip the ``resets_feeder`` column.
 
-        The live encoder writes the full v1.4 row including the new stripe;
-        ``np.delete`` removes its column so the result matches the width the pre-1.4
-        choice encoder (built without that stripe) expects."""
+        ``super().encode_choices`` (the v1_4 shim) writes the full-width row —
+        live encoding plus the pre-1.5 play-bird ``goal_delta`` refill —
+        including the v1.4 stripe; ``np.delete`` removes its column so the
+        result matches the width the pre-1.4 choice encoder (built without
+        that stripe) expects."""
         full = super().encode_choices(decision, game_state)
         start = encode.CHOICE_RESETS_FEEDER_OFFSET
         end = start + encode.CHOICE_RESETS_FEEDER_DIM

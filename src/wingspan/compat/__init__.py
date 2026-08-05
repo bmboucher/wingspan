@@ -37,6 +37,18 @@ path). It routes for eras 1.1-1.3; ``PolicyValueNetV1_0`` **inherits** it, so v1
 loads strip the state stripes and ``resets_feeder`` too, on top of their own
 ``becomes_unplayable`` strip and trunk-final-activation fix.
 
+**v1_4 shim** (see :mod:`wingspan.compat.v1_4`): v1.5 is a behavior-only era —
+no tensor shape changed, so ``encoding_dims_for_era`` has no 1.4 branch (era 1.4
+dims equal live). The live ``PlayBirdChoice`` featurizer now prices the
+``goal_delta`` stripe at the row's committed landing habitat; pre-1.5 rows priced
+the bird's *card* habitats (a two-habitat bird advanced a ``birds_<habitat>``
+goal on both rows). :class:`wingspan.compat.v1_4.PolicyValueNetV1_4` overrides
+only ``encode_choices``: after live encoding it re-fills each play-bird row's
+``goal_delta`` with the habitat-agnostic pricing
+(``choice_encode.refill_goal_delta_habitat_agnostic``). It routes for era 1.4;
+``PolicyValueNetV1_3`` **inherits** it, so every pre-1.4 era freezes the old
+pricing too (the refill runs at live offsets before their column strips).
+
 The pre-1.0 shims (``v0_0`` … ``v0_7``) were dropped at the 1.0 MAJOR bump; no
 0.x artifact loads under 1.x code. Each module is version-number-specific —
 never a config flag — and the whole package is deleted again at the next MAJOR
@@ -64,7 +76,9 @@ def encoding_dims_for_era(
     same-MAJOR era to narrow the state dim) and its ``choice_dim`` is
     ``CHOICE_RESETS_FEEDER_DIM`` (1) less. v1.0 additionally predates the v1.1
     ``becomes_unplayable`` choice stripe, so its ``choice_dim`` drops a further
-    ``CHOICE_BECOMES_UNPLAYABLE_DIM`` (180). Raises ``ValueError`` for a malformed
+    ``CHOICE_BECOMES_UNPLAYABLE_DIM`` (180). Era 1.4 has no branch: v1.5 changed
+    only stripe *values* (the play-bird ``goal_delta`` pricing), so 1.4 dims
+    equal live. Raises ``ValueError`` for a malformed
     version string, and :class:`wingspan.version.IncompatibleArtifactError` when
     ``spec.num_players != 2`` — every superseded (pre-live) era predates N-player
     support by definition: ``num_players`` is a config-carried, default-2 field

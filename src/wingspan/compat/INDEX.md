@@ -2,13 +2,14 @@
 
 The pre-1.0 shims (`v0_0` … `v0_7`) were dropped wholesale at the 1.0 MAJOR version
 bump, along with their fixture sets. No 0.x artifact loads under 1.x code —
-`version.check_artifact_compatible` refuses any different-MAJOR artifact. Two
+`version.check_artifact_compatible` refuses any different-MAJOR artifact. Three
 same-MAJOR shims exist now: **`v1_0`** (v1.0 artifacts — the v1.1 `becomes_unplayable`
-stripe + trunk-final-activation change) and **`v1_3`** (pre-1.4 geometry — the two
+stripe + trunk-final-activation change), **`v1_3`** (pre-1.4 geometry — the two
 v1.4 food-unlock **state** stripes and the v1.4 `resets_feeder` **choice** stripe,
-which shipped in one era). See `docs/VERSIONING.md` for the full compat policy
-(FRESH vs REGIME, when a MINOR bump is required, fixture-set rules, the MAJOR escape
-hatch).
+which shipped in one era), and **`v1_4`** (pre-1.5 behavior — the habitat-agnostic
+play-bird `goal_delta` pricing; no shape change). See `docs/VERSIONING.md` for the
+full compat policy (FRESH vs REGIME, when a MINOR bump is required, fixture-set
+rules, the MAJOR escape hatch).
 
 Each MINOR FRESH encoding reshape adds one module per superseded era:
 
@@ -20,7 +21,11 @@ Each MINOR FRESH encoding reshape adds one module per superseded era:
 When a later reshape supersedes an era that already lacked an earlier stripe, the
 older shim *inherits* the newer one so the strips compose (e.g. `v1_0` inherits
 `v1_3`: v1.0 vectors lack the `becomes_unplayable`, `resets_feeder`, and both
-food-unlock stripes).
+food-unlock stripes; `v1_3` in turn inherits `v1_4`, so every pre-1.4 era also
+freezes the pre-1.5 `goal_delta` pricing). A **behavior-only** era (stripe
+*values* changed, widths untouched — `v1_4`) follows the same module shape but
+overrides only the encoder that regenerates the old values; there is no
+`encoding_dims_for_era` branch and no offset/layout override to add.
 
 **Freeze _all_ geometry the net derives, not just `encode_state`.** A shim's job
 is that the rehydrated net computes identically to the saved one. The net also
@@ -56,10 +61,22 @@ same-MAJOR artifacts get the live widths. Raises
 `version.IncompatibleArtifactError` outright when `spec.num_players != 2` —
 every superseded era predates N-player support by construction, so no shim
 ever needs to reproduce an N>=3 shape (`docs/VERSIONING.md`'s `num_players`
-entry).
+entry). Era 1.4 has no branch — v1.5 changed stripe values only, so 1.4 dims
+equal live.
 
-**`v1_3.py`** — pre-1.4 geometry compat shim:
-- `PolicyValueNetV1_3` — `PolicyValueNet` subclass that reverses **both** v1.4
+**`v1_4.py`** — pre-1.5 behavior compat shim (no shape change):
+- `PolicyValueNetV1_4` — `PolicyValueNet` subclass that freezes the pre-1.5
+  habitat-agnostic play-bird `goal_delta` pricing: overrides `encode_choices`
+  only — after live encoding, each `PlayBirdChoice` row's `goal_delta` stripe is
+  re-filled via `choice_encode.refill_goal_delta_habitat_agnostic` (a
+  `birds_<habitat>` goal priced by the bird's *card* habitats, so a two-habitat
+  bird claims the goal on both rows — what every pre-1.5 net trained against).
+  Geometry, offsets, and layouts are all inherited live. Routes for era 1.4 via
+  `class_for_version`; `PolicyValueNetV1_3` inherits it, extending the freeze to
+  every earlier same-MAJOR era.
+
+**`v1_3.py`** — pre-1.4 geometry compat shim (inherits `v1_4.PolicyValueNetV1_4`):
+- `PolicyValueNetV1_3` — `PolicyValueNetV1_4` subclass that reverses **both** v1.4
   additions. On the **state** side it strips the two 5-wide food-unlock stripes
   (`hand_food_unlock_me`, `tray_food_unlock_me`) from `encode_state` and freezes the
   pre-1.4 `StateEmbedOffsets` (overrides `encode_state`, `_state_embed_offsets`,

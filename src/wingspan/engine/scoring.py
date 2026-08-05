@@ -187,19 +187,32 @@ def eval_goal(player: state.Player, goal: cards.EndRoundGoal) -> int:
     return counter(player)
 
 
-def goal_count_delta_for_bird(bird: cards.Bird, category: str) -> int:
+def goal_count_delta_for_bird(
+    bird: cards.Bird,
+    category: str,
+    *,
+    play_habitat: cards.Habitat | None = None,
+) -> int:
     """Marginal change in category count from playing ``bird``.
+
+    ``play_habitat`` is the row the play commits the bird to, when known: the
+    per-habitat bird counts then move only if the landing row matches. When
+    ``None`` (a candidate not yet committed to a row — hand / tray / setup
+    keeps), a per-habitat count moves if *any* of the bird's card habitats
+    matches: the optimistic could-count bound.
 
     Returns 0 for egg-total / tuck categories (a freshly played bird starts
     with no eggs or tucked cards, so those counts are unaffected at play
     time) — except ``birds_no_eggs``, which the eggless newcomer advances."""
     match category:
         case "birds_forest":
-            return 1 if cards.Habitat.FOREST in bird.habitats else 0
+            return _habitat_goal_count_delta(bird, cards.Habitat.FOREST, play_habitat)
         case "birds_grassland":
-            return 1 if cards.Habitat.GRASSLAND in bird.habitats else 0
+            return _habitat_goal_count_delta(
+                bird, cards.Habitat.GRASSLAND, play_habitat
+            )
         case "birds_wetland":
-            return 1 if cards.Habitat.WETLAND in bird.habitats else 0
+            return _habitat_goal_count_delta(bird, cards.Habitat.WETLAND, play_habitat)
         case "total_birds":
             return 1
         case "birds_no_eggs":
@@ -219,13 +232,18 @@ def goal_vp_delta_for_bird(
     goal: cards.EndRoundGoal,
     bird: cards.Bird,
     payouts: typing.Sequence[int],
+    *,
+    play_habitat: cards.Habitat | None = None,
 ) -> tuple[int, int]:
     """Return ``(count_delta, vp_delta)`` for playing ``bird`` against ``goal``.
 
     ``vp_delta`` is the change in placement VP versus every seat in
     ``others`` at current standings. Both values are 0 when the bird cannot
-    affect this goal category."""
-    count_delta = goal_count_delta_for_bird(bird, goal.category)
+    affect this goal category. ``play_habitat`` is the committed landing row
+    when known (see :func:`goal_count_delta_for_bird`)."""
+    count_delta = goal_count_delta_for_bird(
+        bird, goal.category, play_habitat=play_habitat
+    )
     before_count = eval_goal(player, goal)
     other_counts = [eval_goal(other, goal) for other in others]
     old_vp = _my_placement_vp(before_count, other_counts, payouts)
@@ -594,6 +612,20 @@ def bonus_linear_value(player: state.Player, bc: cards.BonusCard) -> float:
 
 
 ###### PRIVATE #######
+
+
+def _habitat_goal_count_delta(
+    bird: cards.Bird,
+    goal_habitat: cards.Habitat,
+    play_habitat: cards.Habitat | None,
+) -> int:
+    """Count delta for a ``birds_<habitat>`` goal from playing ``bird``: exact
+    when the landing row is committed (``play_habitat``), the optimistic
+    any-card-habitat bound when it is not (see
+    :func:`goal_count_delta_for_bird`)."""
+    if play_habitat is not None:
+        return 1 if play_habitat == goal_habitat else 0
+    return 1 if goal_habitat in bird.habitats else 0
 
 
 def _my_placement_vp(

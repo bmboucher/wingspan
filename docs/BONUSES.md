@@ -467,9 +467,15 @@ details on this gate.
 **Scored as**: Count of birds played into the named habitat on the POV player's board.
 
 **Advances by**: Playing any bird (with the matching habitat in its habitat set) into that
-habitat. Each `play_bird` candidate contributes a delta of 1 if the bird can live in the goal
 habitat. The habitat placement choice is explicit for multi-habitat birds — a dual-habitat bird
 placed in the goal habitat adds 1; placed elsewhere, it adds 0.
+
+**Delta computation**: `goal_count_delta_for_bird` — conditioned on the play row's committed
+landing habitat (`play_habitat`, v1.5): a `PlayBirdChoice` row prices 1 only when its landing
+habitat matches the goal. Pre-1.5 rows priced the bird's *card* habitats, so a dual-habitat
+bird claimed the goal on both of its rows (frozen for old artifacts by `compat.v1_4`).
+Candidate rows with no committed placement (hand keeps, tray draws, setup) price the
+optimistic any-card-habitat bound (`play_habitat=None`).
 
 **Encoder category list index**: 0 (`birds_forest`), 1 (`birds_grassland`), 2 (`birds_wetland`).
 
