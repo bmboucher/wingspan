@@ -57,7 +57,15 @@ def _board_hab_index(habitat: cards.Habitat) -> int:
 
 
 def _zero_board_location(row: np.ndarray) -> np.ndarray:
-    """Return a copy of ``row`` with ``board_hab`` and ``board_col`` zeroed."""
+    """Return a copy of ``row`` with ``board_hab``, ``board_col``, and both
+    habitat-conditioned goal-delta stripes zeroed.
+
+    ``goal_delta`` (since v1.5) and ``goal_delta_ignoring_eggs`` (v1.6) are
+    both priced at the row's committed landing habitat — a
+    ``birds_<habitat>`` or ``eggs_<habitat>`` round goal can legitimately
+    move differently between the two rows of a two-habitat bird, which is a
+    second, intentional source of row divergence beyond the landing slot
+    itself."""
     cleared = row.copy()
     cleared[
         layout.CHOICE_BOARD_HAB_OFFSET : layout.CHOICE_BOARD_HAB_OFFSET
@@ -67,6 +75,13 @@ def _zero_board_location(row: np.ndarray) -> np.ndarray:
         layout.CHOICE_BOARD_COL_OFFSET : layout.CHOICE_BOARD_COL_OFFSET
         + layout.CHOICE_BOARD_COL_DIM
     ] = 0
+    cleared[
+        layout._OFF_GOAL_DELTA : layout._OFF_GOAL_DELTA + layout._GOAL_DELTA_DIM
+    ] = 0
+    cleared[
+        encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET : encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET
+        + encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
+    ] = 0
     return cleared
 
 
@@ -75,8 +90,10 @@ def _zero_board_location(row: np.ndarray) -> np.ndarray:
 
 
 def test_play_bird_rows_mark_the_landing_slot():
-    """A bird playable in two habitats produces rows that differ exactly at the
-    landing slot — board_hab + board_col pointing at the destination."""
+    """A bird playable in two habitats produces rows that differ at the
+    landing slot — board_hab + board_col pointing at the destination — and,
+    where the current round goals are habitat-sensitive, in the two
+    habitat-conditioned goal-delta stripes (see ``_zero_board_location``)."""
     eng, birds, *_ = engine.Engine.create(seed=3)
     bird = next(candidate for candidate in birds if len(candidate.habitats) >= 2)
     first_habitat, second_habitat = bird.habitats[0], bird.habitats[1]
@@ -104,7 +121,9 @@ def test_play_bird_rows_mark_the_landing_slot():
     assert _get_board_hab(second_row) == _board_hab_index(second_habitat)
     assert _get_board_col(second_row) == 0
 
-    # The landing location (board_hab + board_col) is the rows' only difference.
+    # The landing location (board_hab + board_col) plus the habitat-conditioned
+    # goal-delta stripes are the rows' only differences — see
+    # _zero_board_location.
     assert np.array_equal(
         _zero_board_location(first_row), _zero_board_location(second_row)
     )

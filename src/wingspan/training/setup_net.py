@@ -56,10 +56,11 @@ from __future__ import annotations
 
 import typing
 
+import numpy as np
 import torch
 from torch import nn
 
-from wingspan import architecture, encode, setup_model
+from wingspan import architecture, encode, setup_model, version
 from wingspan.model import hand_model, mlp
 
 if typing.TYPE_CHECKING:
@@ -223,12 +224,58 @@ class SetupNet(nn.Module):
     @classmethod
     def from_setup_config(cls, descriptor: "setup_runmeta.SetupConfig") -> "SetupNet":
         """Rebuild a net matching a saved ``setup_config.json`` descriptor — fresh
-        weights in the saved shape, ready for ``load_state_dict``."""
+        weights in the saved shape, ready for ``load_state_dict``. Polymorphic:
+        called on a compat subclass (e.g. ``compat.v1_5.SetupNetV1_5``) via
+        ``cls``, it builds that subclass rather than the live ``SetupNet``."""
         return cls(
             encoding=descriptor.setup_encoding,
             arch=descriptor.setup_arch,
             main_arch=descriptor.main_arch,
         )
+
+    @classmethod
+    def class_for_version(cls, artifact_version: str) -> "type[SetupNet]":
+        """The setup-net class whose frozen encoding matches ``artifact_version``.
+
+        Mirrors ``model.core.PolicyValueNet.class_for_version``. Eras <= 1.5
+        route to :class:`wingspan.compat.v1_5.SetupNetV1_5`, which overrides
+        only ``encode_candidate`` to restore the pre-1.6 static (egg-blind)
+        ``goal_affinity`` pricing — v1.6 is the first version where a setup
+        artifact's *behavior* would change on rehydration even though its
+        geometry does not. Artifacts at or before era 1.3 also differ in
+        *shape* (the setup net's two-tower restructure landed in v1.3) and
+        would fail at ``load_state_dict`` regardless of which class builds
+        them; routing them through the v1.5 shim first is harmless —
+        ``players.loaders.load_setup_net`` already turns that failure into a
+        clear "retrain the setup model" error. v1.6+ same-MAJOR artifacts use
+        the live ``SetupNet``. Used by every construction seam that must
+        honor a setup artifact's era (``docs/VERSIONING.md``'s "encode
+        through the net" rule)."""
+        parsed = version.parse_version(artifact_version)
+        if parsed.major == 1 and parsed.minor <= 5:
+            # Local import avoids the compat -> training.setup_net -> compat
+            # circular dependency (mirrors model.core.class_for_version).
+            from wingspan.compat import v1_5 as compat_v1_5
+
+            return compat_v1_5.SetupNetV1_5
+        return SetupNet
+
+    def encode_candidate(
+        self,
+        candidate: setup_model.SetupCandidate,
+        context: setup_model.SetupContext,
+    ) -> np.ndarray:
+        """Encode one setup candidate through this net's own encoding.
+
+        The setup-side analogue of ``model.core.PolicyValueNet.encode_state`` /
+        ``encode_choices``: every inference and training call site that has a
+        ``SetupNet`` instance in hand must route through here rather than
+        pairing the free :func:`wingspan.setup_model.encode_setup_candidate`
+        function with a spec by hand, so a compat-era subclass (e.g.
+        ``compat.v1_5.SetupNetV1_5``) can override this method and carry its
+        own frozen encoding (``docs/VERSIONING.md``'s "encode through the
+        net" rule)."""
+        return setup_model.encode_setup_candidate(candidate, context, self.encoding)
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """The state-only critic ``V(s)``: ``(B, feature_dim)`` -> ``(B,)``.

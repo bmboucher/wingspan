@@ -126,8 +126,11 @@ class TestV1_0EncodingCompat:
 
     def test_v1_0_encode_choices_narrower_than_live_by_both_stripes(self) -> None:
         """The v1.0 shim's encode_choices output is exactly
-        CHOICE_BECOMES_UNPLAYABLE_DIM + CHOICE_RESETS_FEEDER_DIM columns narrower than
-        the live encoder output (v1.0 predates both stripes)."""
+        CHOICE_BECOMES_UNPLAYABLE_DIM + CHOICE_RESETS_FEEDER_DIM +
+        CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM columns narrower than the live
+        encoder output (v1.0 predates all three stripes: its own
+        becomes_unplayable strip plus the resets_feeder / goal_delta_ignoring_eggs
+        strips inherited via v1_3 -> v1_4 -> v1_5)."""
         eng, *_ = engine.Engine.create(seed=100)
         arch = self._small_arch()
         shim_net = self._make_net(arch)
@@ -144,14 +147,17 @@ class TestV1_0EncodingCompat:
         live_cols = encode.encode_choices(decision, eng.state).shape[1]
         shim_cols = shim_net.encode_choices(decision, eng.state).shape[1]
         assert live_cols - shim_cols == (
-            encode.CHOICE_BECOMES_UNPLAYABLE_DIM + encode.CHOICE_RESETS_FEEDER_DIM
+            encode.CHOICE_BECOMES_UNPLAYABLE_DIM
+            + encode.CHOICE_RESETS_FEEDER_DIM
+            + encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
         )
 
     def test_v1_0_encode_choices_width_matches_live_without_both_blocks(
         self,
     ) -> None:
-        """encode_choices on the shim matches live output with both the
-        becomes_unplayable and resets_feeder columns removed."""
+        """encode_choices on the shim matches live output with the
+        becomes_unplayable, resets_feeder, and goal_delta_ignoring_eggs
+        columns removed."""
         eng, *_ = engine.Engine.create(seed=100)
         arch = self._small_arch()
         shim_net = self._make_net(arch)
@@ -171,16 +177,27 @@ class TestV1_0EncodingCompat:
         live_full = encode.encode_choices(decision, eng.state)
         shim_out = shim_net.encode_choices(decision, eng.state)
 
-        removed = list(
-            range(
-                encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET,
-                encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET
-                + encode.CHOICE_BECOMES_UNPLAYABLE_DIM,
+        removed = (
+            list(
+                range(
+                    encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET,
+                    encode.CHOICE_BECOMES_UNPLAYABLE_OFFSET
+                    + encode.CHOICE_BECOMES_UNPLAYABLE_DIM,
+                )
             )
-        ) + list(
-            range(
-                encode.CHOICE_RESETS_FEEDER_OFFSET,
-                encode.CHOICE_RESETS_FEEDER_OFFSET + encode.CHOICE_RESETS_FEEDER_DIM,
+            + list(
+                range(
+                    encode.CHOICE_RESETS_FEEDER_OFFSET,
+                    encode.CHOICE_RESETS_FEEDER_OFFSET
+                    + encode.CHOICE_RESETS_FEEDER_DIM,
+                )
+            )
+            + list(
+                range(
+                    encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET,
+                    encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET
+                    + encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM,
+                )
             )
         )
         live_stripped = np.delete(live_full, removed, axis=1)
@@ -214,7 +231,9 @@ class TestV1_0EncodingCompat:
         assert live_offsets.kept_multihot is not None
         assert shim_offsets.kept_multihot is not None
         assert live_offsets.kept_multihot - shim_offsets.kept_multihot == (
-            encode.CHOICE_BECOMES_UNPLAYABLE_DIM + encode.CHOICE_RESETS_FEEDER_DIM
+            encode.CHOICE_BECOMES_UNPLAYABLE_DIM
+            + encode.CHOICE_RESETS_FEEDER_DIM
+            + encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
         )
 
     def test_v1_0_becomes_playable_offset_unchanged(self) -> None:

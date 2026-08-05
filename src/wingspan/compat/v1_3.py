@@ -83,7 +83,10 @@ class PolicyValueNetV1_3(v1_4.PolicyValueNetV1_4):
     removed from state encoding and the ``resets_feeder`` stripe removed from choice
     encoding, with the frozen pre-1.4 embed offsets for both. Inherits the pre-1.5
     habitat-agnostic play-bird ``goal_delta`` pricing from
-    :class:`wingspan.compat.v1_4.PolicyValueNetV1_4`."""
+    :class:`wingspan.compat.v1_4.PolicyValueNetV1_4` and, through it, the pre-1.6
+    ``goal_delta_ignoring_eggs`` choice-stripe removal from
+    :class:`wingspan.compat.v1_5.PolicyValueNetV1_5` — so this era's true choice
+    width is live minus both the v1.6 stripe and this era's own ``resets_feeder``."""
 
     # --- state: strip the two food-unlock stripes ---
 
@@ -145,10 +148,13 @@ class PolicyValueNetV1_3(v1_4.PolicyValueNetV1_4):
 
     def _true_choice_dim(self) -> int:
         """The choice width this shim's ``encode_choices`` actually produces — the
-        live width minus the ``resets_feeder`` stripe — derived from ``self.spec``
-        so it is independent of the ``choice_dim`` passed to ``__init__``. Subclasses
-        (``v1_0``) narrow further by overriding this."""
-        return encode.choice_feature_dim(self.spec) - encode.CHOICE_RESETS_FEEDER_DIM
+        parent (``v1_4`` -> ``v1_5``) true choice width, which already excludes the
+        v1.6 ``goal_delta_ignoring_eggs`` stripe, minus this era's own
+        ``resets_feeder`` stripe. Composed via ``super()`` rather than recomputed
+        absolutely from ``self.spec``, so a further tail-stripe narrowing an
+        ancestor era applies here automatically instead of being silently dropped.
+        Subclasses (``v1_0``) narrow further by overriding this the same way."""
+        return super()._true_choice_dim() - encode.CHOICE_RESETS_FEEDER_DIM
 
     def _build_choice_encoder(
         self,

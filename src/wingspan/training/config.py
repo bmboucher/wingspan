@@ -807,13 +807,20 @@ class RunConfig(pydantic.BaseModel):
     def setup_architecture_key(
         self,
     ) -> tuple[
+        str,
         int,
         setup_model.SetupShapeKey,
         tuple[tuple[int, ...], int, bool, bool, tuple[int, ...], int],
     ]:
-        """The setup-net shape signature a ``setup.pt`` must match to be resumed."""
+        """The setup-net weight-compatibility signature a ``setup.pt`` must match
+        to be resumed. Leads with ``encoding_version`` — mirroring
+        :attr:`architecture_key`, which leads with the era for the same reason —
+        so a same-shape setup net at a different era (e.g. the v1.6
+        ``goal_affinity`` pricing change) still reads as incompatible rather than
+        a silent shape coincidence."""
         arch = self.arch
         return (
+            self.encoding_version,
             self.setup_encoding.total_dim,
             self.setup_arch.shape_key,
             (

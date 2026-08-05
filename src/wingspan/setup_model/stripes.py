@@ -250,18 +250,26 @@ def setup_stripe_layout(
         encode_stripes.StripeDescriptor(
             name="goal_affinity",
             description=(
-                "Per round goal, how many kept cards would advance the goal's "
-                "category if played."
+                "Per round goal, the played-and-optimally-egg-populated affinity "
+                "of the kept cards: every kept bird is assumed eventually played "
+                "and its eggs set to whatever level best advances the goal's "
+                "category."
             ),
             offset=off,
             size=setup_encode._GOAL_AFFINITY_DIM,
             encoding="vector",
-            value_range="[0, ~1]",
+            value_range="[0, ~2]",
             notes=(
-                "One scalar per round (÷5): the summed static category affinity "
-                "of the kept cards (e.g. forest-capable birds toward a "
-                "birds_forest goal). Egg-driven goals are rightly 0 — nothing "
-                "has eggs at setup time."
+                "One scalar per round (÷5): wingspan.engine.scoring."
+                "goal_affinity_for_kept summed (or, for egg_sets_3habitats, "
+                "hand-level-assignment-optimized) over the kept cards — e.g. a "
+                "bowl-nest keep prices toward a bowl_birds_with_eggs or "
+                "eggs_bowl goal via its birds' egg_limit, star nests wild via "
+                "cards.nest_matches. Values commonly exceed 1: the ÷5 scale is "
+                "a normalization heuristic, not a hard cap. Pre-1.6 artifacts "
+                "were trained against a narrower egg-blind pricing (0 for every "
+                "egg-driven category); wingspan.compat.v1_5.SetupNetV1_5 "
+                "restores it via setup_encode.refill_goal_affinity_static."
             ),
             sub_fields=_goal_affinity_sub_fields(),
         )
@@ -545,19 +553,19 @@ def _bonus_affinity_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...
 
 
 def _goal_affinity_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...]:
-    """One kept-card affinity scalar per round goal."""
+    """One played-and-egg-populated affinity scalar per round goal."""
     return tuple(
         encode_stripes.SubFieldDescriptor(
             name=f"round_{round_idx}.kept_affinity",
             description=(
-                f"Kept cards that would advance the round-{round_idx} goal's "
-                "category if played."
+                f"Kept cards' played-and-optimally-egg-populated affinity "
+                f"toward the round-{round_idx} goal's category."
             ),
             relative_offset=round_idx,
             size=1,
             encoding="scalar",
-            value_range="[0, ~1]",
-            notes="Normalized ÷ 5.",
+            value_range="[0, ~2]",
+            notes="Normalized ÷ 5; may exceed 1 (see the stripe-level notes).",
             group=f"round_{round_idx}",
         )
         for round_idx in range(setup_encode._NUM_SETUP_GOALS)

@@ -59,9 +59,9 @@ def test_n2_totals_match_pre_stage2_dims():
     assert layout.state_feature_dim(_SPEC_N2) == 1129
     setup_spec = layout.EncodingSpec(include_setup=True)
     assert layout.state_feature_dim(setup_spec) == 1130
-    assert layout.choice_feature_dim(_SPEC_N2) == 509
+    assert layout.choice_feature_dim(_SPEC_N2) == 517
     setup_choice_spec = layout.EncodingSpec(include_setup=True, num_players=2)
-    assert layout.choice_feature_dim(setup_choice_spec) == 693
+    assert layout.choice_feature_dim(setup_choice_spec) == 701
 
 
 def test_n2_has_no_turn_position_or_player_select():
@@ -99,12 +99,12 @@ def test_accessors_equal_default_spec_module_constants():
 
 def test_n3_totals():
     assert layout.state_feature_dim(_SPEC_N3) == 1299
-    assert layout.choice_feature_dim(_SPEC_N3) == 512
+    assert layout.choice_feature_dim(_SPEC_N3) == 520
 
 
 def test_n4_totals():
     assert layout.state_feature_dim(_SPEC_N4) == 1467
-    assert layout.choice_feature_dim(_SPEC_N4) == 513
+    assert layout.choice_feature_dim(_SPEC_N4) == 521
 
 
 def test_n5_totals_follow_the_same_per_opponent_arithmetic():
@@ -184,10 +184,10 @@ def test_player_select_present_only_at_n_ge_3_and_sized_to_num_players():
         off = layout.off_player_select(spec)
         assert off is not None
         assert base_layout.size_of("player_select") == spec.num_players
-        # Directly after resets_feeder (the last base stripe before it).
-        resets_off = base_layout.offset_of("resets_feeder")
-        resets_size = base_layout.size_of("resets_feeder")
-        assert off == resets_off + resets_size
+        # Directly after goal_delta_ignoring_eggs (the last base stripe before it).
+        tail_off = base_layout.offset_of("goal_delta_ignoring_eggs")
+        tail_size = base_layout.size_of("goal_delta_ignoring_eggs")
+        assert off == tail_off + tail_size
         # And before any conditional setup stripes.
         setup_spec = layout.EncodingSpec(
             include_setup=True, num_players=spec.num_players

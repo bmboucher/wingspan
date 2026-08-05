@@ -213,8 +213,10 @@ def play_game_with_setup(
     pending_setups: list[tuple[int, np.ndarray, int | None, np.ndarray | None]] = []
 
     # Encoding derived from the net (when available) or from the active flags.
-    # Used consistently for both candidate scoring and feature recording so the
-    # stored samples always match what the net expects.
+    # Only the None-net fallback below still uses this directly: with a net in
+    # hand, encoding routes through setup_policy_net.encode_candidate instead
+    # (docs/VERSIONING.md's "encode through the net" rule), so a compat-era net
+    # carries its own frozen pricing.
     setup_enc = (
         setup_policy_net.encoding
         if setup_policy_net is not None
@@ -233,7 +235,6 @@ def play_game_with_setup(
         keep_results = _choose_setups(
             dealt,
             base_context,
-            setup_enc=setup_enc,
             net_seats=net_seats,
             generator=generator,
             setup_policy_net=setup_policy_net,
@@ -250,8 +251,12 @@ def play_game_with_setup(
             seat_context = base_context.model_copy(
                 update={"dealt_bonus_cards": tuple(seat_dealt_bonus)}
             )
-            chosen_features = setup_model.encode_setup_candidate(
-                result.candidate, seat_context, setup_enc
+            chosen_features = (
+                setup_policy_net.encode_candidate(result.candidate, seat_context)
+                if setup_policy_net is not None
+                else setup_model.encode_setup_candidate(
+                    result.candidate, seat_context, setup_enc
+                )
             )
             pending_setups.append(
                 (seat, chosen_features, result.chosen_idx, result.all_candidates)
@@ -505,7 +510,6 @@ def _choose_setups(
     dealt: tuple[tuple[list[cards.Bird], list[cards.BonusCard]], ...],
     context: setup_model.SetupContext,
     *,
-    setup_enc: setup_model.SetupEncoding,
     net_seats: tuple[int, ...],
     generator: setup_model.RandomSetupGenerator,
     setup_policy_net: setup_net.SetupNet | None,
@@ -547,10 +551,13 @@ def _choose_setups(
                 include_bonus=not defer_bonus,
                 include_food=not defer_food,
             )
+            # Encode through the net's own encode_candidate seam (not the free
+            # function paired with an encoding by hand) so a compat-era net
+            # (e.g. SetupNetV1_5) carries its own frozen pricing.
             features = np.stack(
                 [
-                    setup_model.encode_setup_candidate(c, seat_context, setup_enc)
-                    for c in candidates
+                    setup_policy_net.encode_candidate(candidate, seat_context)
+                    for candidate in candidates
                 ]
             )
 

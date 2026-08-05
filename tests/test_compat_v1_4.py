@@ -3,13 +3,20 @@
 # the test_encode.py convention)
 """Tests for the v1.4 -> v1.5 compat shim.
 
-v1.5 is a behavior-only era: no tensor shape changed, but the live
+v1.5 was a behavior-only era of its own: no tensor shape changed, but the live
 ``PlayBirdChoice`` featurizer now prices the ``goal_delta`` stripe at the row's
 committed landing habitat, where pre-1.5 rows priced the bird's *card* habitats
 (a two-habitat bird advanced a ``birds_<habitat>`` goal on both of its rows).
 ``compat.v1_4.PolicyValueNetV1_4`` freezes the old pricing by re-filling each
-play-bird row's ``goal_delta`` after live encoding — geometry stays identical
-to live, so the shim overrides ``encode_choices`` only.
+play-bird row's ``goal_delta`` after its parent's encoding — a value-level
+change on top of whatever geometry the parent produces, so the shim overrides
+``encode_choices`` only.
+
+Since the v1.6 bump, that parent is ``compat.v1_5.PolicyValueNetV1_5`` (was the
+live net directly): era 1.4 now inherits the ``goal_delta_ignoring_eggs``
+tail-strip too, so its choice geometry is live minus 8, not dims-equal-live.
+The refill still targets ``layout._OFF_GOAL_DELTA``, an offset well before the
+stripped tail, so it is unaffected by the re-chain.
 
 As for v1.0 / v1.3, a committed LFS checkpoint fixture is deferred:
 ``test_v1_4_stamped_checkpoint_round_trips`` builds a v1.4-era net, saves it
@@ -62,11 +69,23 @@ def _small_arch() -> architecture.ModelArchitecture:
 
 
 def _era_shim() -> compat_v1_4.PolicyValueNetV1_4:
-    """A v1_4 shim built at era 1.4's dims — which equal live (behavior-only era)."""
+    """A v1_4 shim built at era 1.4's (v1.6-narrowed) dims."""
     state_dim, choice_dim = compat.encoding_dims_for_era("1.4", encode.DEFAULT_SPEC)
     return compat_v1_4.PolicyValueNetV1_4(
         state_dim=state_dim, choice_dim=choice_dim, arch=_small_arch()
     )
+
+
+def _live_rows_without_v1_6_tail(
+    decision: decisions.Decision[typing.Any], game_state: state.GameState
+) -> np.ndarray:
+    """Live-encoded choice rows with the v1.6 ``goal_delta_ignoring_eggs`` tail
+    stripped — what era 1.4 (inheriting the v1_5 tail-strip) should match
+    outside its own ``goal_delta`` refill."""
+    live_rows = encode.encode_choices(decision, game_state)
+    start = encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET
+    end = start + encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
+    return np.delete(live_rows, slice(start, end), axis=1)
 
 
 def _wetland_goal_state() -> state.GameState:
@@ -161,14 +180,21 @@ class TestClassForVersionRouting:
 
 
 # ---------------------------------------------------------------------------
-# Dims: era 1.4 equals live (behavior-only bump)
+# Dims: era 1.4 state equals live; choice narrower by the inherited v1.6 tail
 
 
-def test_encoding_dims_for_era_1_4_equal_live() -> None:
+def test_encoding_dims_for_era_1_4_choice_narrower_by_goal_delta_ignoring_eggs() -> (
+    None
+):
+    """v1.5 itself changed no shape, so era 1.4's state_dim still equals live;
+    but the v1.6 bump narrows every pre-1.6 era's choice_dim by the
+    goal_delta_ignoring_eggs stripe, era 1.4 included."""
     spec = encode.DEFAULT_SPEC
     state_dim, choice_dim = compat.encoding_dims_for_era("1.4", spec)
     assert state_dim == encode.state_size(spec)
-    assert choice_dim == encode.choice_feature_dim(spec)
+    assert choice_dim == (
+        encode.choice_feature_dim(spec) - encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -201,11 +227,12 @@ class TestGoalDeltaFreeze:
         )
 
     def test_shim_touches_only_the_goal_delta_stripe(self) -> None:
-        """Outside goal_delta, shim rows are byte-identical to live rows — the
-        refill must not disturb any other stripe."""
+        """Outside goal_delta, shim rows are byte-identical to live rows once
+        the inherited v1.6 tail stripe is stripped from the live rows — the
+        refill must not disturb any other (still-present) stripe."""
         game_state = _wetland_goal_state()
         decision = _play_decision(_dual_bird())
-        live_rows = encode.encode_choices(decision, game_state)
+        live_rows = _live_rows_without_v1_6_tail(decision, game_state)
         shim_rows = _era_shim().encode_choices(decision, game_state)
         assert shim_rows.shape == live_rows.shape
         mask = np.ones(live_rows.shape[1], dtype=bool)
@@ -214,7 +241,9 @@ class TestGoalDeltaFreeze:
 
     def test_non_play_decisions_encode_identically_to_live(self) -> None:
         """Decisions without play-bird rows are untouched (candidate rows kept
-        the optimistic bound in both eras)."""
+        the optimistic bound in both eras), once the inherited v1.6 tail
+        stripe is stripped from the live rows — a BirdChoice row still fills
+        goal_delta_ignoring_eggs stripe, which the era 1.4 shim lacks."""
         game_state = _wetland_goal_state()
         candidate = _dual_bird()
         decision = decisions.BirdPowerTuckFromHandDecision(
@@ -222,7 +251,7 @@ class TestGoalDeltaFreeze:
             prompt="t",
             choices=[decisions.BirdChoice(label=candidate.name, bird=candidate)],
         )
-        live_rows = encode.encode_choices(decision, game_state)
+        live_rows = _live_rows_without_v1_6_tail(decision, game_state)
         shim_rows = _era_shim().encode_choices(decision, game_state)
         assert np.array_equal(shim_rows, live_rows)
 
@@ -232,8 +261,9 @@ class TestGoalDeltaFreeze:
 
 
 def test_v1_4_stamped_checkpoint_round_trips(tmp_path: pathlib.Path) -> None:
-    """A v1.4-stamped checkpoint loads under v1.5 via ``load_policy_net`` as the
-    shim class (at live-equal dims) and forward-passes a play-bird decision
+    """A v1.4-stamped checkpoint loads under live code via ``load_policy_net``
+    as the shim class (at era 1.4's dims — live minus the inherited v1.6
+    ``goal_delta_ignoring_eggs`` tail) and forward-passes a play-bird decision
     through the frozen encoder."""
     base = config.RunConfig(
         misc=config.MiscConfig(device="cpu"),
@@ -258,7 +288,10 @@ def test_v1_4_stamped_checkpoint_round_trips(tmp_path: pathlib.Path) -> None:
     cfg = config.with_encoding_version(base, "1.4")
     assert cfg.encoding_version == "1.4"
     assert cfg.state_dim == encode.state_size(cfg.encoding_spec)
-    assert cfg.choice_dim == encode.choice_feature_dim(cfg.encoding_spec)
+    assert cfg.choice_dim == (
+        encode.choice_feature_dim(cfg.encoding_spec)
+        - encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
+    )
 
     net_cls = model.PolicyValueNet.class_for_version(cfg.encoding_version)
     assert net_cls is compat_v1_4.PolicyValueNetV1_4

@@ -246,10 +246,10 @@ _KEPT_MULTIHOT_DIM = _BIRD_ID_DIM  # setup kept-set multi-hot (only when include
 # card-region offset the model slices on stays invariant to ``include_setup``
 # (the trailing kept_multihot region is by construction the row's final columns).
 #
-# ``player_select`` (N>=3 only) is appended after ``resets_feeder`` — the last
-# base stripe — and before the conditional setup stripes, so it shifts nothing
-# at N=2 (the stripe is simply absent) and the setup stripes stay the row's
-# final columns at every N.
+# ``player_select`` (N>=3 only) is appended after ``goal_delta_ignoring_eggs``
+# — the last base stripe — and before the conditional setup stripes, so it
+# shifts nothing at N=2 (the stripe is simply absent) and the setup stripes
+# stay the row's final columns at every N.
 _PLAYER_SELECT_STRIPE_NAME = "player_select"
 _CHOICE_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="kind", size=_KIND_DIM),
@@ -268,11 +268,19 @@ _CHOICE_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="bonus_value", size=_BONUS_VALUE_DIM),
     _stripe_descriptors.StripeSpec(name="becomes_playable", size=_BIRD_ID_DIM),
     _stripe_descriptors.StripeSpec(name="becomes_unplayable", size=_BIRD_ID_DIM),
-    # Last base stripe: a 1-bit pass-through, appended after the embedded
-    # becomes_* multi-hots so that adding it (v1.4 FRESH) shifts only the
-    # trailing conditional kept_multihot region — keeping the v1_3 compat shim
-    # trivial (see wingspan/compat/v1_3.py).
+    # A 1-bit pass-through, appended after the embedded becomes_* multi-hots
+    # (v1.4 FRESH) so it shifted only the trailing conditional kept_multihot
+    # region at the time — see wingspan/compat/v1_3.py.
     _stripe_descriptors.StripeSpec(name="resets_feeder", size=_RESETS_FEEDER_DIM),
+    # Last base stripe: per-round-goal (count_delta, vp_delta) pairs pricing the
+    # "this row's bird is eventually played and egg-populated optimally"
+    # hypothesis — the v1.6 FRESH addition. Appended after every other embedded
+    # multi-hot and pass-through stripe (including resets_feeder) so it shifts
+    # only the trailing conditional kept_multihot region — keeping the v1_5
+    # compat shim a trivial tail-strip (see wingspan/compat/v1_5.py).
+    _stripe_descriptors.StripeSpec(
+        name="goal_delta_ignoring_eggs", size=_GOAL_DELTA_DIM
+    ),
 ]
 _CHOICE_SETUP_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="setup_agg", size=_SETUP_DIM),
@@ -340,6 +348,7 @@ _OFF_BONUS_DELTA = CHOICE_BASE_LAYOUT.offset_of("bonus_delta")
 _OFF_GOAL_DELTA = CHOICE_BASE_LAYOUT.offset_of("goal_delta")
 _OFF_BONUS_VALUE = CHOICE_BASE_LAYOUT.offset_of("bonus_value")
 _OFF_RESETS_FEEDER = CHOICE_BASE_LAYOUT.offset_of("resets_feeder")
+_OFF_GOAL_DELTA_IGNORING_EGGS = CHOICE_BASE_LAYOUT.offset_of("goal_delta_ignoring_eggs")
 _CHOICE_BASE_DIM = CHOICE_BASE_LAYOUT.total_size
 
 
@@ -921,6 +930,12 @@ CHOICE_BECOMES_UNPLAYABLE_DIM: int = _BIRD_ID_DIM
 # compat shim can strip it from a pre-1.4 choice vector.
 CHOICE_RESETS_FEEDER_OFFSET: int = _OFF_RESETS_FEEDER
 CHOICE_RESETS_FEEDER_DIM: int = _RESETS_FEEDER_DIM
+# The v1.6 goal_delta_ignoring_eggs stripe (8 dims: 4 round goals × (count_delta,
+# vp_delta)), pricing the "this row's bird is eventually played and
+# egg-populated optimally" hypothesis. The last base choice stripe. Public so
+# the v1_5 compat shim can strip it from a pre-1.6 choice vector.
+CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET: int = _OFF_GOAL_DELTA_IGNORING_EGGS
+CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM: int = _GOAL_DELTA_DIM
 
 
 def trunk_input_dim(

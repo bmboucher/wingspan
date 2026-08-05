@@ -156,8 +156,14 @@ def load_setup_net(
         artifact_version,
         what=f"setup checkpoint at {ckpt_path}",
     )
-    # No pre-1.0 shims remain: every loadable artifact uses the live setup net.
-    net_instance = setup_net_module.SetupNet.from_setup_config(descriptor)
+    # Era-routed: an era <= 1.5 artifact builds the matching compat SetupNet
+    # subclass (e.g. SetupNetV1_5), whose geometry is unchanged from the live
+    # SetupNet — so this only ever affects encode_candidate's pricing, never
+    # load_state_dict below. Artifacts at or before era 1.3 differ in *shape*
+    # (the two-tower restructure); routing them through the v1.5 shim first is
+    # harmless since the mismatch is still caught by the except clause below.
+    net_cls = setup_net_module.SetupNet.class_for_version(artifact_version)
+    net_instance = net_cls.from_setup_config(descriptor)
     try:
         net_instance.load_state_dict(payload["setup_model"])
     except RuntimeError as error:

@@ -473,6 +473,7 @@ def _featurize_bird(
     _fill_bird_identity(feat, choice.bird)
     _fill_bonus_delta(feat, state.players[decision.player_id], choice.bird)
     _fill_goal_delta(feat, decision.player_id, choice.bird, state)
+    _fill_goal_delta_ignoring_eggs(feat, decision.player_id, choice.bird, state)
 
 
 def _featurize_play_bird(
@@ -494,13 +495,19 @@ def _featurize_play_bird(
     # here; the bonus_delta and goal_delta stripes price the play's contribution
     # to held bonus cards and round-goal standings, both conditioned on the
     # landing habitat (a two-habitat bird advances a birds_<habitat> goal only
-    # on the row that actually plays it there).
+    # on the row that actually plays it there). goal_delta_ignoring_eggs prices
+    # the same landing habitat under the played-and-optimally-egg-populated
+    # hypothesis, so egg-driven goals see a nonzero delta even though the
+    # freshly played bird has no eggs yet.
     player = state.players[decision.player_id]
     feat[layout._OFF_KIND + layout._KIND_BIRD] = 1.0
     _fill_bird_identity(feat, choice.bird)
     _fill_landing_slot(feat, player, choice.habitat)
     _fill_bonus_delta(feat, player, choice.bird, play_habitat=choice.habitat)
     _fill_goal_delta(
+        feat, decision.player_id, choice.bird, state, play_habitat=choice.habitat
+    )
+    _fill_goal_delta_ignoring_eggs(
         feat, decision.player_id, choice.bird, state, play_habitat=choice.habitat
     )
     if has_becomes_playable and baselines.playable_now:
@@ -787,6 +794,7 @@ def _featurize_draw_source(
         _fill_bird_identity(feat, tray_bird)
         _fill_bonus_delta(feat, state.players[decision.player_id], tray_bird)
         _fill_goal_delta(feat, decision.player_id, tray_bird, state)
+        _fill_goal_delta_ignoring_eggs(feat, decision.player_id, tray_bird, state)
     else:
         # The deck row stays identity-free (a blind draw is the value of
         # information), but a draw from any source grows the hand by one — so
@@ -1021,6 +1029,56 @@ def _fill_goal_delta(
         _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
 
 
+def _fill_goal_delta_ignoring_eggs(
+    feat: np.ndarray,
+    player_id: int,
+    bird: cards.Bird,
+    game_state: state.GameState,
+    play_habitat: cards.Habitat | None = None,
+) -> None:
+    """Fill the goal_delta_ignoring_eggs stripe: for each of the 4 round
+    goals, how much this row's ``bird`` would change the deciding player's
+    category count and placement VP under the hypothesis that it is
+    eventually played (a slot must be open) *and* egg-populated to whatever
+    level best advances the goal — unlike ``goal_delta``, this moves the
+    egg-driven categories (nest-egg totals, birds-with-eggs, egg sets) even
+    though the row's bird has no eggs yet. Star nests are wild
+    (:func:`cards.nest_matches`); the count half can exceed 1 (up to
+    ``bird.egg_limit``, at most 6, over the ÷5 scale).
+
+    The playability guard (at least one of the bird's card habitats must have
+    an open slot for an uncommitted row) lives inside
+    :func:`scoring.goal_vp_delta_for_bird_with_eggs`, gated on the deciding
+    player being passed. ``play_habitat`` is the committed landing row
+    (play-bird rows); ``None`` prices a not-yet-placed candidate (hand / tray
+    rows) at the optimistic any-reachable-habitat bound.
+
+    A separate function from :func:`_fill_goal_delta`, not a shared branch:
+    the v1_4 compat shim's ``refill_goal_delta_habitat_agnostic`` re-fills the
+    ``goal_delta`` stripe on rows whose tail 8 columns (this stripe) the v1_5
+    shim has already stripped, so ``_fill_goal_delta`` must stay untouched by
+    this stripe's logic."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    player = game_state.players[player_id]
+    others = game_state.opponents_clockwise(player_id)
+
+    for goal_idx, goal in enumerate(game_state.round_goals):
+        if goal_idx < len(game_state.scored_goals):
+            continue
+        payouts = state.ROUND_GOAL_PAYOUTS[goal_idx]
+        count_delta, vp_delta = scoring.goal_vp_delta_for_bird_with_eggs(
+            player, others, goal, bird, payouts, play_habitat=play_habitat
+        )
+        _write_goal_delta(
+            feat,
+            goal_idx,
+            count_delta,
+            vp_delta,
+            base_offset=layout._OFF_GOAL_DELTA_IGNORING_EGGS,
+        )
+
+
 def _fill_goal_delta_for_egg(
     feat: np.ndarray,
     player_id: int,
@@ -1184,13 +1242,25 @@ def _fill_bonus_delta_for_move(
 
 
 def _write_goal_delta(
-    feat: np.ndarray, goal_idx: int, count_delta: int, vp_delta: int
+    feat: np.ndarray,
+    goal_idx: int,
+    count_delta: int,
+    vp_delta: int,
+    *,
+    base_offset: int = layout._OFF_GOAL_DELTA,
 ) -> None:
-    """Write one goal slot of the goal_delta stripe (normalized); a zero
-    count delta writes nothing (the slot stays zero, the no-effect signal)."""
+    """Write one goal slot of a goal-delta stripe (normalized); a zero count
+    delta writes nothing (the slot stays zero, the no-effect signal).
+
+    ``base_offset`` selects which stripe: the play-instant ``goal_delta``
+    stripe (the default, ``layout._OFF_GOAL_DELTA``) or the
+    played-and-egg-populated ``goal_delta_ignoring_eggs`` stripe
+    (``layout._OFF_GOAL_DELTA_IGNORING_EGGS``, passed explicitly by
+    :func:`_fill_goal_delta_ignoring_eggs`). Both stripes share the same
+    per-slot layout (count then VP, ``_GOAL_DELTA_SLOT_DIM`` wide)."""
     if count_delta == 0:
         return
-    base = layout._OFF_GOAL_DELTA + goal_idx * layout._GOAL_DELTA_SLOT_DIM
+    base = base_offset + goal_idx * layout._GOAL_DELTA_SLOT_DIM
     feat[base + layout._GOAL_DELTA_COUNT] = count_delta / layout._GOAL_COUNT_SCALE
     feat[base + layout._GOAL_DELTA_VP] = vp_delta / layout._ROUND_GOAL_POINTS_SCALE
 

@@ -542,8 +542,12 @@ def _worker_init(arch: _WorkerArch) -> None:
     # setup model), so each game just reloads weights and plays. The full main
     # architecture shapes its frozen embedder copies, so the broadcast setup
     # state_dict (which carries the synced embedder weights) strict-loads.
+    # Era-routed exactly like _build_worker_net above: an era-pinned run's
+    # workers rebuild the matching compat SetupNet subclass so its
+    # encode_candidate freezes the era's own pricing.
     if arch.setup_enabled and arch.setup_arch is not None:
-        _worker_setup_net = setup_net.SetupNet(
+        setup_net_cls = setup_net.SetupNet.class_for_version(arch.encoding_version)
+        _worker_setup_net = setup_net_cls(
             encoding=arch.setup_encoding,
             arch=arch.setup_arch,
             main_arch=arch.arch,

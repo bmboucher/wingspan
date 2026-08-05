@@ -58,9 +58,14 @@ stripe offsets. Key exports:
   `tray_food_unlock_me`), contiguous in the continuous prefix right after
   `food_opp`. Pre-1.4 artifacts lack them; see `wingspan.compat.v1_3`.
 - `CHOICE_RESETS_FEEDER_OFFSET`, `CHOICE_RESETS_FEEDER_DIM` — offset and width (1) of
-  the v1.4 `resets_feeder` stripe (the last *base* stripe, after `becomes_unplayable`;
-  set on a `combine_gain_food` `FoodSubsetChoice` that rerolls the birdfeeder). v1.0–1.3
+  the v1.4 `resets_feeder` stripe (after `becomes_unplayable`; set on a
+  `combine_gain_food` `FoodSubsetChoice` that rerolls the birdfeeder). v1.0–1.3
   artifacts lack it; see `wingspan.compat.v1_3`.
+- `CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET`, `CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM` —
+  offset and width (8: 4 round goals × count/vp) of the v1.6 `goal_delta_ignoring_eggs`
+  stripe — the last *base* stripe (after `resets_feeder`), pricing each round goal
+  under the hypothesis that the row's bird is eventually played and egg-populated
+  optimally. Pre-1.6 artifacts lack it; see `wingspan.compat.v1_5`.
 - `SLOTS_PER_BOARD` (15), `SLOT_SCALAR_DIM` (9), `BOARD_CONT_STRIPE_DIM` (135),
   `OFF_BOARD_ME`/`OFF_BOARD_OPP` — live-encoding-only aliases consumed by the
   board self-attention path (`model.core`); a future FRESH shift must freeze
@@ -125,6 +130,14 @@ landing habitat (v1.5: `_fill_goal_delta`'s `play_habitat`, threaded to
 optimistic any-card-habitat bound. `refill_goal_delta_habitat_agnostic(feat,
 player_id, bird, gs)` is the public compat seam `wingspan.compat.v1_4` uses to
 re-fill a play-bird row with the pre-1.5 agnostic pricing.
+`_fill_goal_delta_ignoring_eggs` (v1.6) fills the sibling `goal_delta_ignoring_eggs`
+stripe at the same three bird-card row sites as `_fill_goal_delta`
+(`_featurize_bird`, `_featurize_play_bird`, `_featurize_draw_source`): per round
+goal, the delta under the hypothesis that the row's bird is eventually played
+(slot-gated) and egg-populated to whatever level best advances the goal
+(`scoring.goal_vp_delta_for_bird_with_eggs`) — nonzero on the egg-driven
+categories that `goal_delta` always reads 0 for. `_write_goal_delta` takes an
+explicit `base_offset` keyword so both stripes share one writer.
 
 ## Subpackage
 

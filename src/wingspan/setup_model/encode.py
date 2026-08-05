@@ -34,7 +34,11 @@ configuration. The always-present blocks are, in order:
 4. three positional integer card indices — the tray slots (context)
 5. a six-vector of birdfeeder die-face counts (the five foods + the choice die)
 6. four one-hots — the four rounds' end-of-round goals (context)
-7. per round goal, how many kept cards would advance its category if played
+7. per round goal, the played-and-optimally-egg-populated affinity of the kept
+   cards (:func:`wingspan.engine.scoring.goal_affinity_for_kept` — every kept
+   bird is assumed eventually played and egg-populated to whatever level best
+   advances the category; values may exceed 1, since the ÷5 scale is a
+   normalization heuristic rather than a hard cap)
 8. turn-1-playable multi-hot (only when ``include_turn1_playable``) — kept cards
    playable on turn 1 given concrete ``kept_foods``
 9. playable-kept-cards multi-hot (only when ``include_playable_kept_cards``) —
@@ -46,6 +50,13 @@ encoder ignores that (the context is each player's own view of the shared deal).
 The legacy module-level ``OFF_*`` constants and ``SETUP_FEATURE_DIM`` remain for
 the default-encoding (both splits off, 308 dims) case and for backward-compatible
 deserialization of pre-0.2 artifacts.
+
+**Compat seam (v1.6).** Pre-1.6 artifacts were trained against a narrower,
+egg-blind pricing of block 7 — :func:`wingspan.engine.scoring.goal_count_delta_for_bird`
+summed per kept card, zero for every egg-driven category since a freshly played
+bird has no eggs yet. :func:`refill_goal_affinity_static` restores that pricing
+in an already-encoded vector at unchanged offsets (this is the first setup-side
+compat seam; see ``wingspan.compat.v1_5.SetupNetV1_5`` and ``docs/VERSIONING.md``).
 """
 
 from __future__ import annotations
@@ -203,9 +214,9 @@ def encode_setup_candidate(
         base = encoding.off_goals + round_idx * SETUP_GOAL_DIM
         vec[base + encode.GOAL_CATEGORIES.index(category)] = 1.0
 
-    # 7. Kept-bonus value pricing (only when not split): qual count, stepped VP,
-    # linear VP, tray potential. Placed after goals so the tray offset is stable
-    # whether or not split_bonus is active.
+    # Kept-bonus value pricing (part of block 3's non-split shape; placed here,
+    # after goals, so the tray offset is stable whether or not split_bonus is
+    # active): qual count, stepped VP, linear VP, tray potential.
     if not encoding.split_bonus and candidate.bonus_card is not None:
         _fill_kept_bonus_value(
             vec,
@@ -215,17 +226,19 @@ def encode_setup_candidate(
             context.tray_birds,
         )
 
-    # 8. Goal affinity: per-round summed static affinity of kept cards.
-    # Egg-driven goals are rightly 0 — nothing has eggs at setup time.
+    # 7. Goal affinity: per round, the played-and-optimally-egg-populated
+    # affinity of the kept cards (wingspan.engine.scoring.goal_affinity_for_kept
+    # — the hand-level optimistic bound: every kept bird is assumed eventually
+    # played and its eggs set to whatever level best advances the category).
+    # Values may exceed 1: the ÷5 scale is a normalization heuristic, not a
+    # hard cap, and a keep's summed egg_limit against one nest/habitat category
+    # can exceed 5.
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     for round_idx, category in enumerate(
         context.round_goal_categories[:_NUM_SETUP_GOALS]
     ):
-        affinity = sum(
-            scoring.goal_count_delta_for_bird(bird, category)
-            for bird in candidate.kept_cards
-        )
+        affinity = scoring.goal_affinity_for_kept(candidate.kept_cards, category)
         vec[encoding.off_goal_affinity + round_idx] = (
             affinity / layout._GOAL_COUNT_SCALE
         )
@@ -251,6 +264,39 @@ def encode_setup_candidate(
             vec[encoding.off_playable_kept_cards + cards.bird_index(bird)] = 1.0
 
     return vec
+
+
+def refill_goal_affinity_static(
+    vec: np.ndarray,
+    candidate: candidates.SetupCandidate,
+    context: SetupContext,
+    encoding: arch_module.SetupEncoding,
+) -> None:
+    """Compat seam for eras <= 1.5 (``wingspan.compat.v1_5``): overwrite the
+    ``goal_affinity`` stripe of one already-encoded candidate vector with the
+    pre-1.6 static pricing those eras were trained against.
+
+    Since v1.6 the live encoder prices ``goal_affinity`` via
+    :func:`wingspan.engine.scoring.goal_affinity_for_kept` — the
+    played-and-optimally-egg-populated hand-level bound, nonzero for every
+    egg-driven category. Pre-1.6 vectors priced only
+    :func:`wingspan.engine.scoring.goal_count_delta_for_bird` summed per kept
+    card — zero for every egg-driven category, since a freshly played bird has
+    no eggs yet. The stripe's 4 scalars sit at unchanged offsets (v1.6 changed
+    no dims here), so this just overwrites them in place; the shim calls this
+    once per encoded candidate, after live encoding."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    for round_idx, category in enumerate(
+        context.round_goal_categories[:_NUM_SETUP_GOALS]
+    ):
+        affinity = sum(
+            scoring.goal_count_delta_for_bird(bird, category)
+            for bird in candidate.kept_cards
+        )
+        vec[encoding.off_goal_affinity + round_idx] = (
+            affinity / layout._GOAL_COUNT_SCALE
+        )
 
 
 ###### PRIVATE #######

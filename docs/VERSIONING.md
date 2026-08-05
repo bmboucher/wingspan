@@ -2,7 +2,7 @@
 
 Every persisted artifact (the dated `run_config_<stamp>.json` run descriptor and
 every `.pt` payload) is stamped with a `MAJOR.MINOR` **artifact version**
-(`wingspan.version.MODEL_VERSION`, currently **`1.5`**). This is distinct from
+(`wingspan.version.MODEL_VERSION`, currently **`1.6`**). This is distinct from
 the package release version (`wingspan.__version__`) — one tracks the codebase,
 the other the on-disk artifact format.
 
@@ -35,7 +35,133 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.5 — habitat-conditioned play-bird `goal_delta` (current)
+### v1.6 — `goal_delta_ignoring_eggs` choice stripe + setup `goal_affinity` egg pricing (current)
+
+A **shape + behavior** MINOR FRESH bump landing two views of the same scoring
+upgrade — "assume this bird is eventually played and egg-populated to
+whatever level best advances a round goal" — under one `MODEL_VERSION` bump
+because they were developed together: a shape-changing addition on the main
+net's choice side, and a behavior-only value change on the setup net's
+`goal_affinity` stripe.
+
+**Main-net half — new `goal_delta_ignoring_eggs` choice stripe (shape).** The
+existing `goal_delta` stripe only prices the *play-instant* delta — a freshly
+played bird has no eggs, so every egg-driven category (`eggs_<habitat>`,
+`eggs_<nest>`, `*_birds_with_eggs`, `egg_sets_3habitats` — 12 categories in
+all) reads 0 on every bird-card row, even when playing that bird is obviously
+a step toward the goal. The new 8-dim `goal_delta_ignoring_eggs` stripe prices
+the same 4 round goals under the played-and-optimally-egg-populated
+hypothesis instead: a bird's contribution is priced as if it is eventually
+played (a slot must be open in one of its card habitats — the guard lives in
+`scoring.goal_vp_delta_for_bird_with_eggs`) and its eggs are set to whatever
+level best advances the goal (up to `bird.egg_limit`; star nests wild via
+`cards.nest_matches`). It is appended as the new *last base* stripe
+(immediately after `resets_feeder`, the prior last base stripe), filled by a
+separate featurizer (`choice_encode._fill_goal_delta_ignoring_eggs`, built on
+`scoring.goal_count_delta_for_bird_with_eggs` /
+`goal_vp_delta_for_bird_with_eggs`) at the same three bird-card row call sites
+that already fill `goal_delta`: `_featurize_bird` (hand keeps /
+`BirdChoice`), `_featurize_play_bird` (committed landing habitat /
+`PlayBirdChoice`), and `_featurize_draw_source` (tray rows /
+`DrawSourceChoice`). The existing `goal_delta` stripe's play-instant semantics
+are completely untouched — this is a pure addition, not a value change to the
+existing stripe. Choice width grows by 8: N=2 base 509 → 517, `include_setup`
+693 → 701, N=3 base 512 → 520 (state dims unchanged).
+
+**Setup-net half — `goal_affinity` egg pricing (behavior only).** The setup
+encoder's `goal_affinity` stripe (`setup_model.encode.encode_setup_candidate`,
+block 7) priced kept cards via `scoring.goal_count_delta_for_bird` summed per
+card — the same play-instant pricing, zero for every one of those 12
+egg-driven categories, since nothing has eggs at setup time. It now prices via
+`scoring.goal_affinity_for_kept`: the played-and-optimally-egg-populated
+hand-level bound (no committed habitat, no board context).
+`egg_sets_3habitats` is handled specially — it is not additive across birds
+(each bird can only land in one habitat), so `_best_kept_egg_sets`
+brute-forces the best habitat assignment across the whole keep (kept hands
+are capped at 5 birds, so at most 3⁵ = 243 combinations). Shape is unchanged
+(still 4 scalars, same offsets); values may now exceed 1 (the ÷5
+normalization is a heuristic, not a hard cap).
+
+**Why an era gate for both halves.** The rehydration guarantee: a pre-1.6 net
+*trained against* 509-wide choice vectors (main) or the egg-blind
+`goal_affinity` pricing (setup) must keep computing identically on reload —
+feeding it the new stripe, or the new pricing, would change its outputs in
+ways it never learned to interpret.
+
+- **Shim mechanics — main net.** `wingspan.compat.v1_5.PolicyValueNetV1_5`
+  mirrors the `v1_3` narrowing shape, applied to one stripe: `encode_choices`
+  calls the live encoder then `np.delete`s the appended columns;
+  `_choice_embed_offsets` keeps `bird_id` / `becomes_playable` /
+  `becomes_unplayable` (they precede the stripe) and shifts `kept_multihot`
+  left by 8; `_build_choice_encoder` builds at `_true_choice_dim()`
+  (`self.spec`-derived, not the passed `choice_dim`); `raw_choice_stripe_layout`
+  drops the stripe via `VectorLayout.without_stripes`. `PolicyValueNetV1_4` —
+  previously a live-geometry, value-only shim — now **re-chains** to subclass
+  `PolicyValueNetV1_5` directly instead of the live net, so era 1.4's choice
+  geometry is 8 dims narrower than live too; its own `goal_delta`
+  habitat-agnostic refill still targets `layout._OFF_GOAL_DELTA`, an offset
+  well before the stripped tail, so it is unaffected by the re-chain.
+  `compat.v1_3.PolicyValueNetV1_3._true_choice_dim` now **composes via
+  `super()`** (`super()._true_choice_dim() - CHOICE_RESETS_FEEDER_DIM`) instead
+  of recomputing the width absolutely from `self.spec` — so the inherited v1_5
+  narrowing is never silently dropped, and any future tail-stripe narrowing an
+  ancestor era applies automatically. `compat.encoding_dims_for_era` gains a
+  `minor <= 5` branch (`choice_dim -= CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM`, 8)
+  — the newest, and so broadest, choice-narrowing branch, composing with the
+  existing `minor <= 3` (food-unlock state stripes + `resets_feeder`) and
+  `== 0` (`becomes_unplayable`) branches. `class_for_version` routes era 1.5 to
+  `PolicyValueNetV1_5`.
+- **Shim mechanics — setup net, the first `SetupNet` compat seam.** Before
+  this era, `players.loaders.load_setup_net` built the live `SetupNet`
+  unconditionally ("no pre-1.0 shims remain") because no setup-net behavior
+  had ever needed freezing — `SetupNet.class_for_version` did not exist (see
+  the corrected v1.2 entry below). v1.6 is the first version where a setup
+  artifact's *behavior* changes on rehydration even though its geometry does
+  not, so this era adds the seam for real:
+  - `training.setup_net.SetupNet.encode_candidate(candidate, context) ->
+    np.ndarray` — a new instance method, the setup-side analogue of
+    `model.core.PolicyValueNet.encode_state` / `encode_choices`. The base
+    implementation just calls the free `setup_model.encode_setup_candidate`
+    function with `self.encoding`; a compat subclass overrides it to carry
+    its own frozen pricing. Every call site that holds a `SetupNet` instance
+    now routes through this method instead of pairing the free function with
+    an encoding by hand: `players.factory._compute_setup_scores_and_probs`
+    (inference) and `training.collect.play_game_with_setup` / `_choose_setups`
+    (recording and scoring during collection). The free function remains the
+    fallback when no net is in hand (`setup_policy_net is None`).
+  - `training.setup_net.SetupNet.class_for_version(artifact_version) ->
+    type[SetupNet]` — mirrors `model.core.PolicyValueNet.class_for_version`;
+    routes eras <= 1.5 to `wingspan.compat.v1_5.SetupNetV1_5`.
+  - `wingspan.compat.v1_5.SetupNetV1_5` — overrides only `encode_candidate`:
+    calls the live encoder via `super()`, then
+    `setup_model.encode.refill_goal_affinity_static` overwrites the 4-scalar
+    `goal_affinity` stripe with the pre-1.6 static (egg-blind) pricing, in
+    place. No geometry override — the setup change is values-only, so this
+    class joins no dims-router branch.
+  - Setup-net **construction** is now era-routed everywhere a fresh instance
+    is built for an existing run, mirroring how the main net is already
+    era-pinned: `training.loop_setup.build_setup_net` (training/resume),
+    `training.mp_collect._worker_init` (collection workers), and
+    `players.loaders.load_setup_net` (inference) all call
+    `SetupNet.class_for_version(...)` before constructing.
+  - `training.config.RunConfig.setup_architecture_key` now **leads with
+    `encoding_version`**, mirroring `architecture_key` (which already leads
+    with the era for the same reason) — so a same-shape `setup.pt` from a
+    different era (e.g. a v1.5 setup net under live code) reads as
+    incompatible instead of a silent shape coincidence, and
+    `loop_setup.setup_architecture_matches` catches it at resume too.
+- **Golden fixture recaptured.** `tests/data/golden_n2.json` and
+  `tests/data/state_dict_shape_n2.json` pin live-encoder bytes and shapes, so
+  both were re-captured at v1.6.
+- **No LFS fixture (deferred, as for v1.0 / v1.3 / v1.4), for both halves.**
+  `tests/test_compat_v1_5.py` builds v1.5-era nets (main and setup), saves
+  them with a v1.5 stamp, and round-trip-loads them through the production
+  `load_policy_net` / `load_setup_net` paths.
+- **User action.** None: a pre-1.6 run resumes era-pinned via both shims
+  (main net choice geometry, setup net `goal_affinity` pricing); a run
+  started on 1.6 gets both new signals.
+
+### v1.5 — habitat-conditioned play-bird `goal_delta`
 
 A **behavior-only** MINOR FRESH bump — the first era gate that changes **no
 tensor shape**, only stripe *values*. The `PlayBirdChoice` featurizer's
@@ -199,8 +325,9 @@ old `margin / score_norm`.
   dims for any same-MAJOR era ≥ 1.1). A run pinned to an earlier same-MAJOR era
   keeps training its main net at that era.
 - **Setup checkpoints are discarded, not migrated.** A `Q`-trained fused value
-  head has no faithful `V(s)` reconstruction, so there is no setup shim (and no
-  `SetupNet.class_for_version` seam exists). On resume,
+  head has no faithful `V(s)` reconstruction, so there was no setup shim at
+  the time (no `SetupNet.class_for_version` seam existed until v1.6, when the
+  first behavior-only setup change needed one). On resume,
   `loop_setup.maybe_resume_setup`'s shape-mismatch path rebuilds the setup net
   fresh (with an `ALARM`); `players.loaders.load_setup_net` refuses an
   incompatible `setup.pt` with a clear "retrain the setup model" error rather than
@@ -394,14 +521,16 @@ which loads through the shims).
 ## Compat shims — the one sanctioned mechanism
 
 The `wingspan.compat` package holds one module per superseded same-MAJOR era
-(`v1_0`, `v1_3`, `v1_4`) plus the dims-router seam
+(`v1_0`, `v1_3`, `v1_4`, `v1_5`) plus the dims-router seam
 (`compat.encoding_dims_for_era`); each future MINOR bump adds one more
 (`v1_<N>.py`). Shape: `if artifact older than the change: regenerate the
-encoding without the new field` — or, for a behavior-only era (v1.5's value
-change), regenerate the prior stripe values. Inference call sites
-must encode through the net (`net.encode_state` / `net.encode_choices`), never by
-pairing the live encoder with a spec by hand — that is what lets a compat-era net
-carry its own geometry.
+encoding without the new field` — or, for a behavior-only era (v1.5's main-net
+value change; v1.6's setup-net value change), regenerate the prior stripe
+values. Inference call sites must encode through the net (`net.encode_state` /
+`net.encode_choices`, and — since v1.6, the first era a setup artifact's
+behavior needed freezing — `SetupNet.encode_candidate`), never by pairing the
+live encoder with a spec by hand — that is what lets a compat-era net carry
+its own geometry.
 
 **Compat is version-number-specific checks, never config flags.** Do not add
 `TrainConfig` axes to toggle old behaviors.

@@ -324,7 +324,7 @@ def test_config_syncs_dims_to_num_players():
         architecture=config.ArchitectureConfig(num_players=3),
     )
     assert n3.state_dim == 1299
-    assert n3.choice_dim == 512
+    assert n3.choice_dim == 520
     assert n3.num_players == 3
     assert n3.arch.num_players == 3
     assert n3.encoding_spec.num_players == 3
@@ -384,8 +384,12 @@ def test_compat_era_refuses_num_players_3():
     with pytest.raises(version.IncompatibleArtifactError):
         compat.encoding_dims_for_era("1.3", encode.EncodingSpec(num_players=3))
     # num_players=2 at the same era is unaffected (existing 2P resume path).
+    # Era 1.3 predates both the v1.4 resets_feeder stripe and the v1.6
+    # goal_delta_ignoring_eggs stripe, so the choice narrowing composes.
     dims = compat.encoding_dims_for_era("1.3", encode.EncodingSpec(num_players=2))
     assert dims == (
         encode.state_size(_EXCLUDE) - 10,
-        encode.choice_feature_dim(_EXCLUDE) - 1,
+        encode.choice_feature_dim(_EXCLUDE)
+        - encode.CHOICE_RESETS_FEEDER_DIM
+        - encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM,
     )

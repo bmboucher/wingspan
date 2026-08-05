@@ -184,10 +184,12 @@ class PolicyValueNet(nn.Module):
         the ``resets_feeder`` choice stripe). Eras 1.1-1.3 route to
         :class:`wingspan.compat.v1_3.PolicyValueNetV1_3` (strips both v1.4 additions:
         the food-unlock state stripes and the ``resets_feeder`` choice stripe). Era
-        1.4 routes to :class:`wingspan.compat.v1_4.PolicyValueNetV1_4` (live geometry,
-        but the pre-1.5 habitat-agnostic play-bird ``goal_delta`` pricing — which the
-        v1_3 and v1_0 shims inherit). v1.5+ same-MAJOR artifacts use the live
-        ``PolicyValueNet``.
+        1.4 routes to :class:`wingspan.compat.v1_4.PolicyValueNetV1_4` (the pre-1.5
+        habitat-agnostic play-bird ``goal_delta`` pricing — which the v1_3 and v1_0
+        shims inherit — on top of the geometry it in turn inherits from era 1.5).
+        Era 1.5 routes to :class:`wingspan.compat.v1_5.PolicyValueNetV1_5` (strips
+        the v1.6 ``goal_delta_ignoring_eggs`` choice stripe). v1.6+ same-MAJOR
+        artifacts use the live ``PolicyValueNet``.
         ``check_artifact_compatible`` already refuses any different-MAJOR artifact.
         Used by every construction seam that must honor an artifact's era."""
         parsed = version.parse_version(artifact_version)
@@ -204,6 +206,10 @@ class PolicyValueNet(nn.Module):
             from wingspan.compat import v1_4 as compat_v1_4
 
             return compat_v1_4.PolicyValueNetV1_4
+        if parsed.major == 1 and parsed.minor <= 5:
+            from wingspan.compat import v1_5 as compat_v1_5
+
+            return compat_v1_5.PolicyValueNetV1_5
         return PolicyValueNet
 
     @classmethod

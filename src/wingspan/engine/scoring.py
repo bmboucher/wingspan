@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import typing
 
 import pydantic
@@ -249,6 +250,104 @@ def goal_vp_delta_for_bird(
     old_vp = _my_placement_vp(before_count, other_counts, payouts)
     new_vp = _my_placement_vp(before_count + count_delta, other_counts, payouts)
     return count_delta, new_vp - old_vp
+
+
+def goal_count_delta_for_bird_with_eggs(
+    bird: cards.Bird,
+    category: str,
+    *,
+    play_habitat: cards.Habitat | None = None,
+    player: state.Player | None = None,
+) -> int:
+    """Per-goal-optimistic marginal count from playing ``bird`` and then
+    egg-populating it to whatever level best advances ``category`` — the
+    "played and egg-populated" counterpart to :func:`goal_count_delta_for_bird`,
+    which only prices the play-instant delta (0 for every egg-driven
+    category, since a freshly played bird starts with no eggs).
+
+    The bird is assumed played: when ``player`` is known, at least one of its
+    card habitats must have an open slot, or the play-hypothesis is
+    impossible and every category returns 0 (the guard is skipped for a
+    committed ``play_habitat`` — the offered row already exists). Its eggs
+    are then assumed set to whatever level best advances ``category`` —
+    typically ``bird.egg_limit`` on a reachable egg-total goal, wild star
+    nests included (:func:`cards.nest_matches`). ``play_habitat`` is the
+    committed landing row (play-bird rows); ``None`` is an uncommitted
+    candidate (hand / tray / setup keeps), which uses the optimistic
+    any-reachable-habitat bound. ``player=None`` means no board context at
+    all (setup pricing over an empty board) — the playability guard is
+    skipped and habitat reachability falls back to every card habitat."""
+    if (
+        player is not None
+        and play_habitat is None
+        and not any(player.can_play_in(habitat) for habitat in bird.habitats)
+    ):
+        return 0
+
+    goal_nest = _EGGS_ON_NEST_CATEGORIES.get(category)
+    if goal_nest is not None:
+        return bird.egg_limit if cards.nest_matches(bird.nest, goal_nest) else 0
+
+    goal_nest = _BIRDS_WITH_EGGS_CATEGORIES.get(category)
+    if goal_nest is not None:
+        matches = cards.nest_matches(bird.nest, goal_nest)
+        return 1 if matches and bird.egg_limit > 0 else 0
+
+    goal_habitat = _EGGS_IN_HABITAT_CATEGORIES.get(category)
+    if goal_habitat is not None:
+        if play_habitat is not None:
+            reachable = play_habitat == goal_habitat
+        else:
+            reachable = goal_habitat in _candidate_habitats(bird, player)
+        return bird.egg_limit if reachable else 0
+
+    if category == "egg_sets_3habitats":
+        return _egg_sets_delta_with_bird(bird, play_habitat, player)
+
+    return goal_count_delta_for_bird(bird, category, play_habitat=play_habitat)
+
+
+def goal_vp_delta_for_bird_with_eggs(
+    player: state.Player,
+    others: typing.Sequence[state.Player],
+    goal: cards.EndRoundGoal,
+    bird: cards.Bird,
+    payouts: typing.Sequence[int],
+    *,
+    play_habitat: cards.Habitat | None = None,
+) -> tuple[int, int]:
+    """Return ``(count_delta, vp_delta)`` for playing ``bird`` and
+    egg-populating it optimally against ``goal`` — the played-and-egg-populated
+    counterpart to :func:`goal_vp_delta_for_bird`, mirrored structurally.
+    ``vp_delta`` is the change in placement VP versus every seat in ``others``
+    at current standings. ``count_delta`` comes from
+    :func:`goal_count_delta_for_bird_with_eggs` (``player`` is always
+    supplied, so its playability guard applies); ``play_habitat`` is the
+    committed landing row when known (see
+    :func:`goal_count_delta_for_bird_with_eggs`)."""
+    count_delta = goal_count_delta_for_bird_with_eggs(
+        bird, goal.category, play_habitat=play_habitat, player=player
+    )
+    before_count = eval_goal(player, goal)
+    other_counts = [eval_goal(other, goal) for other in others]
+    old_vp = _my_placement_vp(before_count, other_counts, payouts)
+    new_vp = _my_placement_vp(before_count + count_delta, other_counts, payouts)
+    return count_delta, new_vp - old_vp
+
+
+def goal_affinity_for_kept(kept: typing.Sequence[cards.Bird], category: str) -> int:
+    """Setup-time hand-level affinity: the optimistic per-goal bound for a
+    setup keep, assuming every kept bird is eventually played and
+    egg-populated optimally for ``category``.
+
+    ``egg_sets_3habitats`` is not simply additive across birds — each bird
+    can only land in one habitat, so :func:`_best_kept_egg_sets` searches the
+    best habitat assignment across the whole keep. Every other category sums
+    :func:`goal_count_delta_for_bird_with_eggs` (no committed habitat, no
+    board context) over ``kept``."""
+    if category == "egg_sets_3habitats":
+        return _best_kept_egg_sets(kept)
+    return sum(goal_count_delta_for_bird_with_eggs(bird, category) for bird in kept)
 
 
 def goal_count_delta_for_egg(
@@ -628,6 +727,18 @@ def _habitat_goal_count_delta(
     return 1 if goal_habitat in bird.habitats else 0
 
 
+def _candidate_habitats(
+    bird: cards.Bird, player: state.Player | None
+) -> list[cards.Habitat]:
+    """Card habitats an uncommitted play of ``bird`` could reach: every
+    printed habitat when ``player`` is unknown (setup pricing over an empty
+    board), else only those with an open row slot (see
+    :func:`goal_count_delta_for_bird_with_eggs`)."""
+    if player is None:
+        return list(bird.habitats)
+    return [habitat for habitat in bird.habitats if player.can_play_in(habitat)]
+
+
 def _my_placement_vp(
     my_count: int,
     other_counts: typing.Sequence[int],
@@ -743,6 +854,49 @@ def _per_habitat_egg_sums(player: state.Player) -> dict[cards.Habitat, int]:
         habitat: sum(pb.eggs for pb in player.board[habitat])
         for habitat in cards.ALL_HABITATS
     }
+
+
+def _egg_sets_delta_with_bird(
+    bird: cards.Bird,
+    play_habitat: cards.Habitat | None,
+    player: state.Player | None,
+) -> int:
+    """``egg_sets_3habitats`` branch of
+    :func:`goal_count_delta_for_bird_with_eggs`: 0 with no board context (the
+    setup path prices this hand-level via :func:`goal_affinity_for_kept`
+    instead); otherwise the raised-min delta from adding ``bird.egg_limit`` to
+    the committed habitat, or the best such delta over every reachable
+    habitat when uncommitted (0 if none are reachable)."""
+    if player is None:
+        return 0
+    egg_sums = _per_habitat_egg_sums(player)
+    before_sets = min(egg_sums.values())
+    if play_habitat is not None:
+        egg_sums[play_habitat] += bird.egg_limit
+        return min(egg_sums.values()) - before_sets
+    deltas = [
+        min({**egg_sums, habitat: egg_sums[habitat] + bird.egg_limit}.values())
+        - before_sets
+        for habitat in _candidate_habitats(bird, player)
+    ]
+    return max(deltas, default=0)
+
+
+def _best_kept_egg_sets(kept: typing.Sequence[cards.Bird]) -> int:
+    """Best achievable ``egg_sets_3habitats`` count from a setup keep: assign
+    each kept bird to exactly one of its card habitats to maximize the min
+    across the three per-habitat summed ``egg_limit`` totals. Brute-forced
+    over every assignment (kept hands are capped at 5 birds, so at most
+    :math:`3^5 = 243` combinations — see :func:`goal_affinity_for_kept`)."""
+    if not kept:
+        return 0
+    best = 0
+    for assignment in itertools.product(*(bird.habitats for bird in kept)):
+        habitat_sums = dict.fromkeys(cards.ALL_HABITATS, 0)
+        for bird, habitat in zip(kept, assignment):
+            habitat_sums[habitat] += bird.egg_limit
+        best = max(best, min(habitat_sums.values()))
+    return best
 
 
 def _best_case_egg_count_delta(player: state.Player, category: str, n_eggs: int) -> int:

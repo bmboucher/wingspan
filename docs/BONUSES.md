@@ -475,7 +475,9 @@ landing habitat (`play_habitat`, v1.5): a `PlayBirdChoice` row prices 1 only whe
 habitat matches the goal. Pre-1.5 rows priced the bird's *card* habitats, so a dual-habitat
 bird claimed the goal on both of its rows (frozen for old artifacts by `compat.v1_4`).
 Candidate rows with no committed placement (hand keeps, tray draws, setup) price the
-optimistic any-card-habitat bound (`play_habitat=None`).
+optimistic any-card-habitat bound (`play_habitat=None`). This category is not egg-driven, so
+the v1.6 `goal_delta_ignoring_eggs` choice stripe (`goal_count_delta_for_bird_with_eggs`) falls
+through to the same computation and carries an identical value.
 
 **Encoder category list index**: 0 (`birds_forest`), 1 (`birds_grassland`), 2 (`birds_wetland`).
 
@@ -501,7 +503,12 @@ goal requires both (a) having birds in that row and (b) having egg capacity on t
 
 **Delta computation**: `goal_count_delta_for_egg` returns `delta_eggs` when the egg event is
 in the matching habitat; 0 otherwise. Bird moves (`goal_count_delta_for_move`) can transfer
-the egg block between habitats.
+the egg block between habitats. This is one of the 12 egg-driven categories that reads 0 on the
+play-instant `goal_delta` choice stripe for a not-yet-played bird; the v1.6
+`goal_delta_ignoring_eggs` stripe instead prices such a row via
+`goal_count_delta_for_bird_with_eggs` — `bird.egg_limit` when the row's (or, uncommitted, any
+reachable) habitat matches the goal. The setup `goal_affinity` stripe prices kept birds the
+same way (`goal_affinity_for_kept`, summed over the keep, no board context).
 
 **Encoder category list index**: 3 (`eggs_forest`), 4 (`eggs_grassland`), 5 (`eggs_wetland`).
 
@@ -525,7 +532,11 @@ target nest, and (b) laying eggs on them. The nest-type bonus cards (Enclosure B
 Box Builder, Platform Builder, Wildlife Gardener) align naturally with the matching nest goal.
 
 **Delta computation**: `goal_count_delta_for_egg` checks `cards.nest_matches(played_bird.bird.nest,
-goal_nest)` — star nests pass every nest check.
+goal_nest)` — star nests pass every nest check. Another of the 12 egg-driven categories: the v1.6
+`goal_delta_ignoring_eggs` choice stripe prices a not-yet-played bird via
+`goal_count_delta_for_bird_with_eggs` — `bird.egg_limit` when `cards.nest_matches(bird.nest,
+goal_nest)`, star nests wild — instead of the play-instant 0. The setup `goal_affinity` stripe
+prices kept birds the same way (`goal_affinity_for_kept`).
 
 **Encoder category list index**: 6 (`eggs_bowl`), 7 (`eggs_cavity`), 8 (`eggs_ground`),
 9 (`eggs_platform`).
@@ -551,7 +562,10 @@ bird that transitions from eggless to egg-carrying.
 
 **Delta computation**: `goal_count_delta_for_egg` tracks the has-eggs threshold crossing:
 `int(has_eggs_after) - int(had_eggs)`. Returns +1 on first egg, 0 for subsequent eggs, -1
-when the last egg is removed.
+when the last egg is removed. Also egg-driven: the v1.6 `goal_delta_ignoring_eggs` choice
+stripe prices a not-yet-played bird via `goal_count_delta_for_bird_with_eggs` — 1 when the
+bird's nest matches (star nests wild) and `bird.egg_limit > 0`, instead of the play-instant 0.
+The setup `goal_affinity` stripe prices kept birds the same way (`goal_affinity_for_kept`).
 
 **Encoder category list index**: 10 (`bowl_birds_with_eggs`), 11 (`cavity_birds_with_eggs`),
 12 (`ground_birds_with_eggs`), 13 (`platform_birds_with_eggs`).
@@ -567,7 +581,9 @@ when the last egg is removed.
 **Advances by**: Playing any bird anywhere, by 1. This is the simplest round goal — every play
 advances it, so advantage is earned by playing faster or more birds than the opponent.
 
-**Delta computation**: `goal_count_delta_for_bird` always returns 1.
+**Delta computation**: `goal_count_delta_for_bird` always returns 1. Not egg-driven, so the
+v1.6 `goal_delta_ignoring_eggs` choice stripe (`goal_count_delta_for_bird_with_eggs`) falls
+through to the same computation and also always returns 1.
 
 **Encoder category list index**: 17.
 
@@ -587,7 +603,15 @@ creates capacity; the Lay Eggs action delivers eggs toward the floor habitat.
 **Delta computation**: `goal_count_delta_for_egg` recomputes `min(egg_sums)` before and after
 each egg event. Bird moves can shift the egg block between habitats and recalculate the minimum.
 The best-case bound for an egg-lay commitment (`goal_best_case_for_eggs`) uses greedy water-fill:
-each egg goes to the lowest habitat with remaining capacity.
+each egg goes to the lowest habitat with remaining capacity. Egg-driven and structurally the
+odd one out among the v1.6 additions: the `goal_delta_ignoring_eggs` choice stripe's
+`goal_count_delta_for_bird_with_eggs` branch (`_egg_sets_delta_with_bird`) adds the candidate
+bird's `egg_limit` to its committed (or, uncommitted, the best reachable) habitat and re-takes
+the min, rather than pricing per-nest capacity directly. The setup `goal_affinity` stripe cannot
+sum this category additively across kept birds (each bird lands in only one habitat), so
+`goal_affinity_for_kept` instead calls `_best_kept_egg_sets`, a brute force over every habitat
+assignment of the kept hand (capped at 5 birds, so at most 3⁵ = 243 combinations) maximizing
+the min across the three per-habitat summed `egg_limit` totals.
 
 **Encoder category list index**: 18.
 

@@ -76,12 +76,17 @@ def build_setup_net(
     """A fresh setup net and its optimizer over the *trainable* parameters only.
 
     The frozen embedder copies are shaped by the main architecture; they are
-    synced from the main net and never stepped by this optimizer.  With no
-    pre-1.0 shims the live ``SetupNet`` is always built, so its card encoder
-    matches the main net's and ``sync_setup_embedders`` copies weights without a
-    shape mismatch.
+    synced from the main net and never stepped by this optimizer. Built via
+    ``SetupNet.class_for_version(training_loop.config.encoding_version)`` so a
+    resumed era-pinned run constructs the matching compat subclass (e.g.
+    ``SetupNetV1_5``) — its geometry is unchanged from the live ``SetupNet``,
+    so ``sync_setup_embedders`` copies weights without a shape mismatch either
+    way, but its ``encode_candidate`` freezes the era's own pricing.
     """
-    net = setup_net.SetupNet(
+    net_cls = setup_net.SetupNet.class_for_version(
+        training_loop.config.encoding_version
+    )
+    net = net_cls(
         encoding=training_loop.config.setup_encoding,
         arch=training_loop.config.setup_arch,
         main_arch=training_loop.config.arch,
@@ -205,8 +210,10 @@ def setup_architecture_matches(
     artifact_version = str(payload.get("version", version.PRE_VERSIONING_VERSION))
     try:
         # Rehydrated at the payload's own era for uniformity with the main
-        # gate; the setup key itself is era-independent (no setup encoding has
-        # changed shape between eras the dims router distinguishes).
+        # gate. setup_architecture_key leads with encoding_version (mirroring
+        # architecture_key), so this also catches a same-shape era mismatch —
+        # e.g. a v1.5 setup.pt resuming under live code, where the shape is
+        # unchanged but encode_candidate's goal_affinity pricing is not.
         saved = training_config.run_config_from_artifact(raw_config, artifact_version)
     except pydantic.ValidationError:
         return False

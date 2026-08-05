@@ -165,8 +165,11 @@ def test_unknown_or_future_eras_are_rejected():
 def test_encoding_dims_for_era_state_narrows_pre_1_4():
     """The v1.4 bump narrows ``state_dim`` by the two food-unlock stripes (10) and
     ``choice_dim`` by the ``resets_feeder`` stripe (1) for every pre-1.4 same-MAJOR
-    era; 0.x eras (untouched by the major-1 router branch) and the live era keep the
-    live widths. A malformed string is rejected."""
+    era; the v1.6 bump additionally narrows ``choice_dim`` by the
+    ``goal_delta_ignoring_eggs`` stripe (8) for every pre-1.6 same-MAJOR era, so
+    the two choice narrowings compose for eras 1.1-1.3. 0.x eras (untouched by
+    the major-1 router branch) and the live era keep the live widths. A
+    malformed string is rejected."""
     spec = encode.spec_for(True)
     live_state = encode.state_size(spec)
     live_choice = encode.choice_feature_dim(spec)
@@ -174,7 +177,9 @@ def test_encoding_dims_for_era_state_narrows_pre_1_4():
     for era in ("1.1", "1.2", "1.3"):
         state_dim, choice_dim = compat.encoding_dims_for_era(era, spec)
         assert live_state - state_dim == stripe_width
-        assert live_choice - choice_dim == encode.CHOICE_RESETS_FEEDER_DIM
+        assert live_choice - choice_dim == (
+            encode.CHOICE_RESETS_FEEDER_DIM + encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
+        )
     for era in ("0.0", "0.2", version.MODEL_VERSION):
         assert compat.encoding_dims_for_era(era, spec) == (live_state, live_choice)
     with pytest.raises(ValueError):

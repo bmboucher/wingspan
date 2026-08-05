@@ -1,7 +1,7 @@
 """Pre-1.5 artifact compat shim: freeze the habitat-agnostic play-bird
 ``goal_delta`` pricing.
 
-**What changed in v1.5 (encoding behavior — no shape change).** The
+**What changed in v1.5 (encoding behavior — no shape change of its own).** The
 ``PlayBirdChoice`` featurizer's ``goal_delta`` stripe became conditioned on the
 row's committed landing habitat: a ``birds_<habitat>`` round goal now moves only
 on the row that actually plays the bird into that habitat
@@ -11,14 +11,24 @@ goal — count and placement-VP delta alike — on **both** of its rows. Candida
 rows with no committed placement (hand / tray / setup keeps) kept the optimistic
 any-card-habitat bound in both eras, so only play-bird rows differ.
 
-**Shim strategy.** Every width, offset, and layout of era 1.4 equals live, so
-this shim overrides only :meth:`encode_choices`: encode at live geometry, then
-overwrite each ``PlayBirdChoice`` row's ``goal_delta`` stripe with the
-habitat-agnostic pricing via
+**Shim strategy.** At the 1.5 bump every width, offset, and layout of era 1.4
+equalled live, so this shim overrides only :meth:`encode_choices`: encode at
+live geometry, then overwrite each ``PlayBirdChoice`` row's ``goal_delta``
+stripe with the habitat-agnostic pricing via
 ``choice_encode.refill_goal_delta_habitat_agnostic`` — a net trained against
 the both-rows pricing keeps seeing it. This is the value-level analogue of the
 column strips in ``compat.v1_3``: the same "regenerate the prior encoding after
 live encoding" shape, applied to stripe *contents* instead of stripe columns.
+
+**v1.6 re-chain (geometry, not this class's own change).** This class now
+subclasses :class:`wingspan.compat.v1_5.PolicyValueNetV1_5` instead of the live
+net directly, so era 1.4's geometry is no longer dims-equal-live: it inherits
+the v1.6 ``goal_delta_ignoring_eggs`` tail-strip (choice width live − 8). This
+class's own :meth:`encode_choices` still only performs the value-level refill
+above; ``super().encode_choices`` (the v1_5 shim) already strips the tail
+before this override's loop runs, and the refill writes at
+``layout._OFF_GOAL_DELTA`` — an offset well before the stripped tail — so it
+remains correct unchanged.
 
 **Routing.** ``PolicyValueNet.class_for_version`` routes era 1.4 here.
 ``compat.v1_3.PolicyValueNetV1_3`` **inherits** this net, so eras 1.0-1.3
@@ -39,27 +49,31 @@ import typing
 import numpy as np
 
 from wingspan import decisions, state
+from wingspan.compat import v1_5
 from wingspan.encode import choice_encode
-from wingspan.model import core
 
 
-class PolicyValueNetV1_4(core.PolicyValueNet):
+class PolicyValueNetV1_4(v1_5.PolicyValueNetV1_5):
     """``PolicyValueNet`` with the pre-1.5 play-bird ``goal_delta`` pricing:
     every play-bird row prices a ``birds_<habitat>`` goal by the bird's card
-    habitats instead of the row's landing habitat. Geometry is identical to
-    live — only the stripe's values differ."""
+    habitats instead of the row's landing habitat. Inherits
+    :class:`wingspan.compat.v1_5.PolicyValueNetV1_5`'s pre-1.6 geometry (choice
+    width live − 8, the ``goal_delta_ignoring_eggs`` stripe stripped) — only
+    the ``goal_delta`` stripe's *values* differ from live, on top of that."""
 
     def encode_choices(
         self,
         decision: decisions.Decision[typing.Any],
         game_state: state.GameState,
     ) -> np.ndarray:
-        """Encode at live v1.5 semantics, then overwrite each play-bird row's
+        """Encode at pre-1.6 geometry (via the ``v1_5`` parent's tail-strip)
+        with live v1.5 semantics, then overwrite each play-bird row's
         ``goal_delta`` stripe with the habitat-agnostic pre-1.5 pricing.
 
-        The refill targets live column offsets, which is correct both here
-        (era 1.4 geometry equals live) and under the ``v1_3`` / ``v1_0``
-        subclasses (their column strips run after this override returns)."""
+        The refill targets ``layout._OFF_GOAL_DELTA``, an offset well before
+        the stripped ``goal_delta_ignoring_eggs`` tail, so it is correct both
+        here and under the ``v1_3`` / ``v1_0`` subclasses (their own column
+        strips run after this override returns)."""
         full = super().encode_choices(decision, game_state)
         for row, choice in zip(full, decision.choices):
             if isinstance(choice, decisions.PlayBirdChoice):

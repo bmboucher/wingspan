@@ -33,10 +33,45 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.5"
+MODEL_VERSION = "1.6"
 """The current artifact-compatibility version (the only place it is defined).
 
-1.5 is a **behavior-only** MINOR FRESH bump — no tensor shape changes; the first
+1.6 is a **shape** MINOR FRESH bump that lands the "played and
+egg-populated" goal pricing on the choice side. A new 8-dim
+``goal_delta_ignoring_eggs`` choice stripe is appended at the tail of the base
+choice-feature vector (immediately after ``resets_feeder``, the prior last
+base stripe): per round goal, a ``(count_delta, vp_delta)`` pair pricing the
+hypothesis that this row's bird is eventually played (a slot must be open in
+one of its card habitats) and egg-populated to whatever level best advances
+that goal (``scoring.goal_vp_delta_for_bird_with_eggs``, built on
+``scoring.goal_count_delta_for_bird_with_eggs`` /
+``scoring.goal_affinity_for_kept``). A bowl-nest bird counts toward both an
+``eggs_bowl`` goal (its ``egg_limit``) and a ``bowl_birds_with_eggs`` goal
+(1); star nests are wild (``cards.nest_matches``). The existing ``goal_delta``
+stripe keeps its exact v1.5 play-instant semantics untouched — the new
+stripe is filled by a separate featurizer, at the three call sites that
+already fill ``goal_delta`` (``BirdChoice``, ``PlayBirdChoice``, the tray
+``DrawSourceChoice`` row). Choice width grows by 8 (N=2 base: 509 → 517;
+include_setup: 693 → 701; N=3 base: 512 → 520).
+
+This era also carries a **value-level setup-encoding change**: the setup
+``goal_affinity`` stripe gains egg-driven categories, so a setup keep is
+priced with the same played-and-egg-populated optimism the choice stripe
+uses in-game (see ``docs/VERSIONING.md`` for the setup-side seam mechanics
+and ``docs/BONUSES.md`` for the affected goal categories). Both halves share one ``MODEL_VERSION`` bump because they are
+two views of the same scoring upgrade landing together.
+
+Era ≤1.5 artifacts predate the stripe. ``wingspan.compat.v1_5.PolicyValueNetV1_5``
+strips it after live encoding (the geometry-narrowing analogue of the v1_3 /
+v1_0 column strips): ``encoding_dims_for_era`` returns a ``choice_dim`` 8 less
+for every pre-1.6 same-MAJOR era, and every existing shim
+(``PolicyValueNetV1_4``, ``PolicyValueNetV1_3``, ``PolicyValueNetV1_0``) now
+chains through ``PolicyValueNetV1_5`` — ``compat.v1_4.PolicyValueNetV1_4``
+re-chains to subclass it directly, so its own ``goal_delta`` habitat-agnostic
+refill runs *after* the parent's tail-strip, at unaffected offsets (all
+< 509).
+
+1.5 was a **behavior-only** MINOR FRESH bump — no tensor shape changes; the first
 value-level (as opposed to width-level) encoding era since the v1.1
 trunk-final-activation fix. The ``PlayBirdChoice`` featurizer's ``goal_delta``
 stripe is now **conditioned on the row's landing habitat**: a ``birds_<habitat>``
@@ -49,12 +84,16 @@ of its rows — e.g. a Peregrine Falcon's grassland row claimed the "[bird] in
 
 Era 1.4 artifacts route to ``wingspan.compat.v1_4.PolicyValueNetV1_4``, which
 re-fills each play-bird row's ``goal_delta`` with the habitat-agnostic pricing
-after live encoding (``choice_encode.refill_goal_delta_habitat_agnostic``).
-Dims are unchanged — ``compat.encoding_dims_for_era`` returns live widths for
-1.4 — but ``architecture_key`` leads with the era, so a 1.4 run still resumes
-era-pinned as the shim class. ``compat.v1_3.PolicyValueNetV1_3`` now inherits
-``PolicyValueNetV1_4``, so every pre-1.4 era freezes the old pricing too, on
-top of its own stripe strips.
+after live encoding (``choice_encode.refill_goal_delta_habitat_agnostic``). At
+the time of the 1.5 bump, dims were unchanged for era 1.4 (the refill ran at
+live width); since the 1.6 bump ``PolicyValueNetV1_4`` subclasses
+``PolicyValueNetV1_5`` (the goal_delta_ignoring_eggs tail-strip), so era 1.4's
+choice geometry is now 8 narrower than live too — the refill still runs at
+unaffected offsets (all < 509), inside the ``super().encode_choices`` chain,
+*after* the parent's tail-strip. ``architecture_key`` leads with the era, so a
+1.4 run still resumes era-pinned as the shim class. ``compat.v1_3.PolicyValueNetV1_3``
+inherits ``PolicyValueNetV1_4``, so every pre-1.4 era freezes the old pricing
+too, on top of its own stripe strips.
 
 1.4 is a **main-net encoding** MINOR FRESH bump that lands two independent
 encoding changes together (both developed in parallel, folded into one era):

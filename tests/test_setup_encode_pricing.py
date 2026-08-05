@@ -6,8 +6,11 @@
 The kept-bonus value block prices the kept bonus card against the keep itself
 (kept qualifiers — every kept card for the hand-counting dynamic card — the
 stepped / linear VP they would pay, tray potential), and the goal-affinity
-block counts, per dealt goal, the kept cards that would advance its category
-if played.
+block prices, per dealt goal, the played-and-optimally-egg-populated affinity
+of the kept cards (``scoring.goal_affinity_for_kept``) — nonzero for
+egg-driven categories since v1.6, unlike the pre-1.6 play-instant pricing
+(``wingspan.compat.v1_5.SetupNetV1_5`` freezes that behavior for old
+artifacts; see ``tests/test_compat_v1_5.py``).
 """
 
 from __future__ import annotations
@@ -154,10 +157,16 @@ def test_goal_affinity_counts_every_kept_card_for_birds_no_eggs():
 
 def test_goal_affinity_counts_kept_cards_per_goal():
     """Two forest-only keeps: full affinity for a birds_forest goal and for
-    total_birds, none for a wetland or egg goal."""
+    total_birds, none for a wetland goal, and — since v1.6 — the *played and
+    egg-populated* bound (not 0) for an egg goal: both birds are assumed
+    played into forest and egg-filled, so eggs_forest prices their summed
+    egg_limit."""
     forest_only = [bird for bird in _BIRDS if bird.habitats == (cards.Habitat.FOREST,)]
+    bird_a, bird_b = forest_only[0], forest_only[1]
+    assert (bird_a.name, bird_a.egg_limit) == ("Acorn Woodpecker", 4)
+    assert (bird_b.name, bird_b.egg_limit) == ("American Redstart", 2)
     candidate = candidates.SetupCandidate(
-        kept_cards=(forest_only[0], forest_only[1]),
+        kept_cards=(bird_a, bird_b),
         kept_foods=_KEPT_FOODS,
         bonus_card=None,
     )
@@ -167,5 +176,87 @@ def test_goal_affinity_counts_kept_cards_per_goal():
     base = setup_encode.OFF_GOAL_AFFINITY
     assert float(vec[base + 0]) == _Approx(2 / 5)
     assert float(vec[base + 1]) == 0.0
-    assert float(vec[base + 2]) == 0.0  # egg goals can't be advanced at setup
+    # eggs_forest: both birds are single-habitat forest, so each is reachable
+    # and prices its full egg_limit — (4 + 2) / 5.
+    assert float(vec[base + 2]) == _Approx((bird_a.egg_limit + bird_b.egg_limit) / 5)
     assert float(vec[base + 3]) == _Approx(2 / 5)
+
+
+def test_goal_affinity_bowl_cavity_star_keep_prices_egg_driven_categories():
+    """The user's reported scenario: a bowl-nest, a cavity-nest, and a
+    star-nest keep prices toward every egg-driven category it could reach —
+    star nests are wild, so the star bird counts toward both the bowl and
+    cavity birds-with-eggs categories (and is the sole contributor to a
+    ground egg goal, having no ground-nest keep at all)."""
+    bowl_bird = _BIRDS[0].model_copy(
+        update={"nest": cards.NestType.BOWL, "egg_limit": 4}
+    )
+    cavity_bird = _BIRDS[1].model_copy(
+        update={"nest": cards.NestType.CAVITY, "egg_limit": 3}
+    )
+    star_bird = _BIRDS[2].model_copy(
+        update={"nest": cards.NestType.STAR, "egg_limit": 5}
+    )
+    candidate = candidates.SetupCandidate(
+        kept_cards=(bowl_bird, cavity_bird, star_bird),
+        kept_foods=_KEPT_FOODS,
+        bonus_card=None,
+    )
+    goal_categories = (
+        "bowl_birds_with_eggs",
+        "cavity_birds_with_eggs",
+        "eggs_ground",
+        "total_birds",
+    )
+    vec = setup_encode.encode_setup_candidate(candidate, _context(goal_categories))
+
+    base = setup_encode.OFF_GOAL_AFFINITY
+    assert float(vec[base + 0]) == _Approx(2 / 5)  # bowl bird + wild star bird
+    assert float(vec[base + 1]) == _Approx(2 / 5)  # cavity bird + wild star bird
+    assert float(vec[base + 2]) == _Approx(star_bird.egg_limit / 5)  # star only
+    assert float(vec[base + 3]) == _Approx(3 / 5)
+
+
+def test_goal_affinity_egg_sets_3habitats_uses_best_kept_assignment():
+    """Three single-habitat keeps covering all three habitats: each bird's
+    only possible landing habitat is forced, so the egg-set affinity is the
+    minimum of their egg limits (the hand-level assignment optimum), not a
+    plain sum."""
+    forest_bird = _BIRDS[0].model_copy(
+        update={"habitats": (cards.Habitat.FOREST,), "egg_limit": 4}
+    )
+    grassland_bird = _BIRDS[1].model_copy(
+        update={"habitats": (cards.Habitat.GRASSLAND,), "egg_limit": 6}
+    )
+    wetland_bird = _BIRDS[2].model_copy(
+        update={"habitats": (cards.Habitat.WETLAND,), "egg_limit": 2}
+    )
+    candidate = candidates.SetupCandidate(
+        kept_cards=(forest_bird, grassland_bird, wetland_bird),
+        kept_foods=_KEPT_FOODS,
+        bonus_card=None,
+    )
+    goal_categories = ("egg_sets_3habitats",) + ("birds_forest",) * 3
+    vec = setup_encode.encode_setup_candidate(candidate, _context(goal_categories))
+
+    assert float(vec[setup_encode.OFF_GOAL_AFFINITY + 0]) == _Approx(
+        min(forest_bird.egg_limit, grassland_bird.egg_limit, wetland_bird.egg_limit) / 5
+    )
+
+
+def test_goal_affinity_can_exceed_one():
+    """Two bowl-nest keeps whose egg limits sum past 5: the ÷5 normalization
+    is a heuristic, not a hard cap, so the stripe value exceeds 1.0."""
+    bowl_a = _BIRDS[0].model_copy(update={"nest": cards.NestType.BOWL, "egg_limit": 4})
+    bowl_b = _BIRDS[1].model_copy(update={"nest": cards.NestType.BOWL, "egg_limit": 3})
+    candidate = candidates.SetupCandidate(
+        kept_cards=(bowl_a, bowl_b),
+        kept_foods=_KEPT_FOODS,
+        bonus_card=None,
+    )
+    goal_categories = ("eggs_bowl",) + ("birds_forest",) * 3
+    vec = setup_encode.encode_setup_candidate(candidate, _context(goal_categories))
+
+    affinity = float(vec[setup_encode.OFF_GOAL_AFFINITY + 0])
+    assert affinity == _Approx((bowl_a.egg_limit + bowl_b.egg_limit) / 5)
+    assert affinity > 1.0

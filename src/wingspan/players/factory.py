@@ -366,14 +366,14 @@ def _compute_setup_scores_and_probs(
     value-only net cannot rank keeps; that fallback scores them uniformly."""
     context = setup_model.SetupContext.from_state(eng.state, decision.dealt_bonus)
 
-    # Encode each choice using the same candidate → feature-vector path the
-    # training pipeline uses, which guarantees alignment with the saved weights.
+    # Encode each choice through the net's own encode_candidate seam (not the
+    # free function paired with net_instance.encoding by hand), so a
+    # compat-era net (e.g. SetupNetV1_5) carries its own frozen pricing —
+    # the "encode through the net" rule (docs/VERSIONING.md).
     vecs = np.stack(
         [
-            setup_model.encode_setup_candidate(
-                setup_model.SetupCandidate.from_setup_choice(choice),
-                context,
-                net_instance.encoding,
+            net_instance.encode_candidate(
+                setup_model.SetupCandidate.from_setup_choice(choice), context
             )
             for choice in decision.choices
         ]

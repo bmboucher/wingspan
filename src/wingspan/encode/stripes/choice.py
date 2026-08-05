@@ -451,6 +451,36 @@ def raw_choice_stripe_layout(
     )
     end += layout.CHOICE_RESETS_FEEDER_DIM
 
+    # ---- goal_delta_ignoring_eggs (v1.6+: 8-dim, the last base stripe) ----
+    stripes.append(
+        descriptors.StripeDescriptor(
+            name="goal_delta_ignoring_eggs",
+            description=(
+                "Per-candidate round-goal contribution assuming this row's "
+                "bird is eventually played (a slot must be open) and "
+                "egg-populated to whatever level best advances each goal — "
+                "the played-and-optimally-egg-populated pricing, distinct "
+                "from goal_delta's play-instant pricing."
+            ),
+            offset=layout.CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET,
+            size=layout.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM,
+            encoding="vector",
+            value_range="[-~1, ~1]",
+            notes=(
+                f"{layout.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM} values: 4 goal "
+                "slots × 2 scalars, per-goal optimism (star nests wild, "
+                "capped at the bird's egg_limit — the count half can exceed "
+                "1, up to 6 over the ÷5 scale). Filled only on bird-card rows "
+                "(BirdChoice, PlayBirdChoice, tray DrawSourceChoice); "
+                "slot-gated for uncommitted (no play_habitat) rows by the "
+                "scoring helper's playability guard. Zero for non-bird rows "
+                "and scored rounds."
+            ),
+            sub_fields=_goal_delta_sub_fields(ignoring_eggs=True),
+        )
+    )
+    end += layout.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
+
     # ---- player_select (N>=3 only: width spec.num_players) ----
     off_player_select = layout.off_player_select(spec)
     if off_player_select is not None:
@@ -764,21 +794,34 @@ def _bonus_delta_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
     )
 
 
-def _goal_delta_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """8 sub-fields for the per-candidate round-goal delta stripe (4 slots × 2)."""
+def _goal_delta_sub_fields(
+    *, ignoring_eggs: bool = False
+) -> tuple[descriptors.SubFieldDescriptor, ...]:
+    """8 sub-fields for a per-candidate round-goal delta stripe (4 slots × 2).
+
+    Shared by ``goal_delta`` (the default, play-instant pricing) and
+    ``goal_delta_ignoring_eggs`` (``ignoring_eggs=True``, the
+    played-and-optimally-egg-populated pricing) — only the description text's
+    hypothesis clause differs; the sub-field names, offsets, and value ranges
+    are identical between the two stripes."""
     entries: list[tuple[str, str, str]] = []
+    hypothesis = (
+        "this row's bird being played and egg-populated optimally"
+        if ignoring_eggs
+        else "this choice"
+    )
     for goal_idx in range(4):
         entries.append(
             (
                 f"goal_{goal_idx}_count_delta",
-                f"Count change on the round-{goal_idx + 1} goal from this choice.",
+                f"Count change on the round-{goal_idx + 1} goal from {hypothesis}.",
                 "Normalized ÷ 5. Signed; zero once the round is scored.",
             )
         )
         entries.append(
             (
                 f"goal_{goal_idx}_vp_delta",
-                f"Placement VP swing on the round-{goal_idx + 1} goal from this choice.",
+                f"Placement VP swing on the round-{goal_idx + 1} goal from {hypothesis}.",
                 "Normalized ÷ 10. Signed; zero once the round is scored.",
             )
         )

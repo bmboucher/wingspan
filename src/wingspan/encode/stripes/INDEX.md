@@ -69,9 +69,11 @@ trailing `position_habitat` (3) + `position_column` (5) constant block.
 **`choice.py`** — `choice_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder for the per-choice row stripes (decision-type one-hot, choice-type
 one-hot, per-`Choice` feature fields). Stripe order is part of the checkpoint
-format. `raw_choice_stripe_layout(spec)` inserts a `player_select` stripe
-(width `spec.num_players`) after `resets_feeder`, before the conditional setup
-stripes, when `spec.num_players >= 3` — absent at N=2.
+format: `resets_feeder` (v1.4) then `goal_delta_ignoring_eggs` (v1.6, the last
+base stripe) are appended in that order. `raw_choice_stripe_layout(spec)`
+inserts a `player_select` stripe (width `spec.num_players`) after
+`goal_delta_ignoring_eggs`, before the conditional setup stripes, when
+`spec.num_players >= 3` — absent at N=2.
 
 **`card_feature.py`** — `card_feature_stripe_layout() -> VectorLayout` and
 `hand_encoder_input_stripe_layout() -> VectorLayout`. Descriptor for the

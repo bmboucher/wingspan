@@ -54,9 +54,22 @@ fused readout width (568 / 575).
 **`encode.py`** — `encode_setup_candidate(candidate: SetupCandidate, gs: GameState, encoding: SetupEncoding)
 -> np.ndarray`: per-candidate feature encoder. Features include: kept bird
 one-hots, habitat coverage, food-cost histogram, egg-limit sum, nest-type
-mix, kept-food vector, and (when `encoding.include_turn1_playable`) a 180-dim
-multi-hot of birds payable from `kept_foods` on turn 1. Output width matches
-`encoding.total_dim`.
+mix, kept-food vector, a per-round `goal_affinity` block (v1.6: priced via
+`goal_affinity_for_kept` — every kept bird assumed eventually played *and*
+egg-populated to whatever level best advances the category, so the 12
+egg-driven categories are no longer 0 at setup; pre-1.6 summed
+`goal_count_delta_for_bird`, egg-blind), and (when
+`encoding.include_turn1_playable`) a 180-dim multi-hot of birds payable from
+`kept_foods` on turn 1. Output width matches `encoding.total_dim`.
+`refill_goal_affinity_static(vec, candidate, context, encoding)` is the
+compat seam that overwrites an already-encoded vector's `goal_affinity`
+stripe with the pre-1.6 static (egg-blind) pricing in place — used only by
+the first `SetupNet` compat shim's `encode_candidate` override (see
+`wingspan.compat.v1_5.SetupNetV1_5`, `docs/VERSIONING.md`). Callers holding a
+`SetupNet` instance should encode through its `encode_candidate` method
+rather than pairing this free function with an encoding by hand, so a
+compat-era net's frozen pricing applies; this function remains the sanctioned
+path for the None-net fallback.
 
 **`stripes.py`** — `setup_stripe_layout(encoding) -> VectorLayout` (raw), plus
 `setup_state_stripe_layout(encoding, main_arch)` and
