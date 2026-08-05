@@ -11,6 +11,8 @@ dump (old ``--log`` behaviour) remains available as ``--debug-log``.
 
 from __future__ import annotations
 
+import typing
+
 from wingspan.gamelog import models
 
 
@@ -48,6 +50,10 @@ def _event_label(event: models.GameEvent) -> str:
         return f"Extra play{where}"
     if isinstance(event, models.TurnEndEvent):
         return "End of turn"
+    if isinstance(event, models.RefillTrayEvent):
+        return "Refill tray"
+    if isinstance(event, models.DealEvent):
+        return "Deal"
     if isinstance(event, models.SetupEvent):
         return _setup_event_label(event)
     if isinstance(event, models.RoundGoalEvent):
@@ -83,6 +89,26 @@ def _final_scoring_label(event: models.FinalScoringEvent) -> str:
     return f"Final scoring [{', '.join(totals)}]"
 
 
+def _effect_text(effect: models.AnyEffect) -> str:
+    """One-line plaintext form of a recorded state mutation.
+
+    Deliberately mechanical — it names the effect kind and its own fields rather
+    than composing prose, so a newly added effect class renders something
+    truthful without needing a hand-written template here."""
+    fields: dict[str, object] = effect.model_dump(exclude={"kind", "player_id"})
+    parts: list[str] = []
+    for name, value in fields.items():
+        if value is None or value == [] or value == "":
+            continue
+        rendered = (
+            " ".join(str(item) for item in typing.cast("list[object]", value))
+            if isinstance(value, list)
+            else str(value)
+        )
+        parts.append(f"{name}={rendered}")
+    return f"{effect.kind}({', '.join(parts)})"
+
+
 def _render_event(event: models.GameEvent, *, indent: int) -> list[str]:
     """Recursively render one event and its sub-events / children."""
     prefix = "  " * indent
@@ -91,14 +117,14 @@ def _render_event(event: models.GameEvent, *, indent: int) -> list[str]:
     # Header: bracket with type-specific label.
     lines.append(f"{prefix}[{_event_label(event)}]")
 
-    # Sub-events: decisions (→), forced (!), notes (bare).
+    # Sub-events: decisions (→), forced (!), effects (·).
     for sub in event.sub_events:
         if isinstance(sub, models.DecisionSubEvent):
             lines.append(f"{prefix}  → {sub.outcome_text}")
         elif isinstance(sub, models.ForcedSubEvent):
             lines.append(f"{prefix}  ! {sub.outcome_text}")
         else:
-            lines.append(f"{prefix}  {sub.text}")
+            lines.append(f"{prefix}  · {_effect_text(sub)}")
 
     # Children recurse at increased indent (e.g. WhitePowerEvent under PlayBirdEvent).
     for child in event.children:

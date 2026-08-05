@@ -12,6 +12,7 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
+from wingspan.engine import ledger
 from wingspan.engine.powers import registry
 
 if typing.TYPE_CHECKING:
@@ -91,11 +92,10 @@ def _h_draw_n_plus_one_draft(
     # Draw (#players + 1) cards into the active player's hand.
     drawn: list[cards.Bird] = []
     for _ in range(n_players + 1):
-        drawn_card = st.draw_bird()
+        drawn_card = ledger.draw_from_deck(engine, player)
         if drawn_card is None:
             break
         drawn.append(drawn_card)
-        player.hand.append(drawn_card)
 
     if not drawn:
         engine.log(f"  {bird.name}: deck empty; power skipped")
@@ -122,6 +122,11 @@ def _draft_pass_loop(
     caller to skip the return loop)."""
     passable = list(drawn)
     pass_pile: list[cards.Bird] = []
+    # The pile goes to the next seat clockwise, which _draft_return_loop hands
+    # it to first. Naming the recipient here lets each card's departure and
+    # arrival share one ledger record even though the pile is a transient.
+    n_players = len(engine.state.players)
+    recipient = engine.state.players[(player.id + 1) % n_players]
     while len(passable) > 1:
         pass_ch = engine.ask(
             agent,
@@ -134,7 +139,7 @@ def _draft_pass_loop(
                 ],
             ),
         )
-        player.hand.remove(pass_ch.bird)
+        ledger.take_into_pile(engine, player, recipient, pass_ch.bird)
         passable.remove(pass_ch.bird)
         pass_pile.append(pass_ch.bird)
         engine.log(f"  {bird.name}: [{player.name}] passes {pass_ch.bird.name}")
@@ -164,8 +169,18 @@ def _draft_return_loop(
         if not pile:
             return
         opponent = st.players[(player.id + offset) % n_players]
+        # Arrival only: each card's transfer was recorded when it left the
+        # previous holder's hand (ledger.take_into_pile), which named this seat
+        # as the recipient.
         opponent.hand.extend(pile)
 
+        # Whoever holds the pile next: the following seat clockwise, or the
+        # original player once the last opponent has been asked.
+        next_holder = (
+            player
+            if offset == n_players - 1
+            else st.players[(player.id + offset + 1) % n_players]
+        )
         returnable = list(pile)
         next_pile: list[cards.Bird] = []
         while len(returnable) > 1:
@@ -185,7 +200,7 @@ def _draft_return_loop(
                     ],
                 ),
             )
-            opponent.hand.remove(pass_ch.bird)
+            ledger.take_into_pile(engine, opponent, next_holder, pass_ch.bird)
             returnable.remove(pass_ch.bird)
             next_pile.append(pass_ch.bird)
             if n_players == 2:
@@ -199,7 +214,7 @@ def _draft_return_loop(
         pile = next_pile
 
     for returned_card in pile:
-        player.hand.append(returned_card)
+        player.hand.append(returned_card)  # recorded by the pass above
         engine.log(f"  {bird.name}: [{player.name}] receives back {returned_card.name}")
 
 

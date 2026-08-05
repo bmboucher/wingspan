@@ -12,7 +12,9 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
+from wingspan.engine import ledger
 from wingspan.engine.powers import dispatch, registry
+from wingspan.gamelog import models as gamelog_models
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -96,7 +98,9 @@ def _trade_discard_step(
     )
     assert isinstance(lose_ch, decisions.FoodChoice)
     lose_food = lose_ch.food
-    player.food[lose_food] -= 1
+    ledger.spend_food(
+        engine, player, lose_food, purpose=gamelog_models.EffectPurpose.POWER
+    )
     return lose_food
 
 
@@ -121,7 +125,7 @@ def _trade_gain_step(
     )
     assert isinstance(gain_ch, decisions.FoodChoice)
     gain_food = gain_ch.food
-    player.food[gain_food] += 1
+    ledger.gain_food(engine, player, gain_food, source=gamelog_models.FoodSource.SUPPLY)
     return gain_food
 
 

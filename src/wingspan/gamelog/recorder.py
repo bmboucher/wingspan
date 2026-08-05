@@ -174,6 +174,14 @@ class EventRecorder:
         """Open a :class:`~models.TurnEndEvent` on the stack."""
         self._push_event(models.TurnEndEvent(player_id=player_id))
 
+    def begin_refill_tray(self, player_id: int | None) -> None:
+        """Open a :class:`~models.RefillTrayEvent` on the stack."""
+        self._push_event(models.RefillTrayEvent(player_id=player_id))
+
+    def begin_deal(self, player_id: int) -> None:
+        """Open a :class:`~models.DealEvent` on the stack."""
+        self._push_event(models.DealEvent(player_id=player_id))
+
     def begin_setup(self, player_id: int) -> None:
         """Open a :class:`~models.SetupEvent` on the stack."""
         self._push_event(models.SetupEvent(player_id=player_id))
@@ -183,13 +191,15 @@ class EventRecorder:
         if self._open_stack:
             self._open_stack.pop()
 
-    # ---- record_* / note ----
+    # ---- record_* ----
 
-    def note(self, text: str, player_id: int | None = None) -> None:
-        """Append a :class:`~models.NoteSubEvent` to the stack-top."""
-        self._stack_top().sub_events.append(
-            models.NoteSubEvent(text=text, player_id=player_id)
-        )
+    def record_effect(self, effect: models.AnyEffect) -> None:
+        """Append one recorded state mutation to the stack-top.
+
+        Called only from :mod:`wingspan.engine.ledger`, which pairs every
+        mutation with its effect in a single function so the two cannot
+        drift."""
+        self._stack_top().sub_events.append(effect)
 
     def record_forced(
         self,
@@ -512,13 +522,19 @@ class _NullRecorder:
     def begin_turn_end(self, player_id: int) -> None:
         pass
 
+    def begin_refill_tray(self, player_id: int | None) -> None:
+        pass
+
+    def begin_deal(self, player_id: int) -> None:
+        pass
+
     def begin_setup(self, player_id: int) -> None:
         pass
 
     def end_event(self) -> None:
         pass
 
-    def note(self, text: str, player_id: int | None = None) -> None:
+    def record_effect(self, effect: models.AnyEffect) -> None:
         pass
 
     def record_forced(

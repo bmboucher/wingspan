@@ -15,6 +15,8 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
+from wingspan.engine import ledger
+from wingspan.gamelog import models as gamelog_models
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -169,7 +171,7 @@ def fire_pink_lay_egg(
         engine.log(f"  {pb.bird.name} (pink): [{other_player.name}] declined")
         engine.events.end_event()
         return False
-    other_player.board[ch.habitat][ch.slot].eggs += 1
+    ledger.lay_eggs(engine, other_player, other_player.board[ch.habitat][ch.slot])
     engine.log(
         f"  {pb.bird.name} (pink): [{other_player.name}] laid 1 egg on "
         f"{other_player.board[ch.habitat][ch.slot].bird.name}"
@@ -248,7 +250,13 @@ def _react_gain_from_supply(
 ) -> bool:
     assert eff.food is not None
     engine.events.begin_reaction(other_player.id, pb.bird.name)
-    other_player.food[eff.food] += eff.amount
+    ledger.gain_food(
+        engine,
+        other_player,
+        eff.food,
+        eff.amount,
+        source=gamelog_models.FoodSource.SUPPLY,
+    )
     engine.log(
         f"  {pb.bird.name} (pink): [{other_player.name}] +{eff.amount} "
         f"{eff.food.value} from supply"
@@ -265,7 +273,7 @@ def _react_cache_from_supply(
 ) -> bool:
     assert eff.food is not None
     engine.events.begin_reaction(other_player.id, pb.bird.name)
-    pb.cached_food[eff.food] += eff.amount
+    ledger.cache_food(engine, other_player, pb, eff.food, eff.amount)
     engine.log(f"  {pb.bird.name} (pink): cached {eff.amount} {eff.food.value}")
     engine.events.end_event()
     return True
@@ -327,8 +335,7 @@ def _react_tuck_from_hand(
                 choices=choices,
             ),
         )
-        other_player.hand.remove(ch.bird)
-        pb.tucked_cards += 1
+        ledger.tuck_from_hand(engine, other_player, ch.bird, pb)
         tucked_any = True
         engine.log(
             f"  {pb.bird.name} (pink): [{other_player.name}] tucked {ch.bird.name}"

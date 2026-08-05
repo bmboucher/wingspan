@@ -53,11 +53,43 @@ recurse, `n==1` delegates to `take_one_from_feeder`), `_apply_subset(engine,
 player, choice)` (moves a chosen `FoodSubsetChoice`'s dice out of the feeder,
 bypassing `gain_feeder_die`'s mid-take reroll), and `combined_supply_gain(engine,
 agent, player, n, *, per_food_capacity, prompt)` (the ravens' supply gain and the
-setup keep — multisets within a per-food capacity). `_reroll_feeder(engine,
-player)` is the single re-roll seam — reroll the feeder plus record a
-`state.format_die_faces` game-log note, by construction — that every one of
+setup keep — multisets within a per-food capacity). Every one of
 `offer_birdfeeder_reset` / `gain_feeder_die` / `combined_feeder_gain`'s five
-reroll sites routes through, so a future call site cannot forget the note.
+reroll sites routes through `ledger.reroll_feeder`, so no call site can forget
+to record the fresh faces.
+
+**`ledger.py`** — The mutate-and-record seam. One free function per kind of
+state change; each performs the mutation **and** records the matching
+`gamelog.models.Effect`, so the game log cannot drift from what happened.
+Every mutation in this package (and in `powers/`) routes through it.
+
+Food: `gain_food(engine, player, food, amount, *, source)`,
+`spend_food(engine, player, food, amount, *, purpose)`,
+`take_feeder_die(engine, player, food, *, from_choice_die)`,
+`cache_food(engine, player, played_bird, food, amount, *, from_supply)`,
+`uncache_food(engine, player, played_bird, food, amount)`.
+Eggs: `lay_eggs(engine, player, played_bird, count, *, purpose)`,
+`remove_eggs(engine, player, played_bird, count, *, purpose)`.
+Cards: `draw_from_deck(engine, player, *, source)`,
+`take_from_tray(engine, player, tray_index)`,
+`discard_from_hand(engine, player, card, *, purpose)`,
+`tuck_from_hand(engine, player, card, played_bird)`,
+`tuck_from_deck(engine, player, played_bird)`, plus the split
+`reveal_from_deck(engine)` / `tuck_revealed(...)` / `discard_revealed(...)` trio
+the dice predators need (turn the card face up, *then* decide its fate).
+`pass_card(engine, from_player, to_player, card)` moves a card hand-to-hand;
+`take_into_pile(engine, from_player, to_player, card)` is its counterpart for
+the card draft, whose pile leaves one hand several lines before it joins the
+next. Board: `place_bird(engine, player, card, habitat)`,
+`move_bird(engine, player, played_bird, from_habitat, to_habitat)`.
+Reveals: `reroll_feeder(engine, player)`,
+`record_dice_roll(engine, player, played_bird, counts, choice_dice)`,
+`refill_tray(engine, player_id)`, `reset_tray(engine, player_id)` — the last two
+open their own `RefillTrayEvent` bracket, since a tray refill belongs to no
+player action.
+
+`tests/test_gamelog_ledger.py` replays the recorded ledger against the final
+`GameState`; a mutation that bypasses this module fails there.
 
 **`reactors.py`** — Pink (between-turns) reactor hooks, each taking the
 triggering player by reference (not id) and firing every OTHER player's

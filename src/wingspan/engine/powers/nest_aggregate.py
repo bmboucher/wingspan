@@ -12,7 +12,9 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
+from wingspan.engine import ledger
 from wingspan.engine.powers import dispatch, registry
+from wingspan.gamelog import models as gamelog_models
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -67,7 +69,7 @@ def _h_lay_egg_all_nest(
             cap = pb_t.bird.egg_limit - pb_t.eggs
             add = min(eff.amount, cap)
             if add > 0:
-                pb_t.eggs += add
+                ledger.lay_eggs(engine, player, pb_t, add)
                 count += add
     engine.log(f"  {bird.name}: laid {count} egg(s) on all [{nest.value}] birds")
 
@@ -104,7 +106,6 @@ def _h_tuck_from_deck_paid(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    st = engine.state
     bird = pb.bird
     assert eff.food is not None
     if player.food.get(eff.food, 0) <= 0:
@@ -131,14 +132,14 @@ def _h_tuck_from_deck_paid(
     if isinstance(ch, decisions.SkipChoice):
         engine.log(f"  {bird.name}: declined to spend {eff.food.value}")
         return
-    player.food[eff.food] -= 1
+    ledger.spend_food(
+        engine, player, eff.food, purpose=gamelog_models.EffectPurpose.POWER
+    )
     tucked = 0
     for _ in range(eff.amount):
-        drawn_card = st.draw_bird()
-        if drawn_card is None:
+        if ledger.tuck_from_deck(engine, player, pb) is None:
             break
         tucked += 1  # tucked card leaves the deck for good
-    pb.tucked_cards += tucked
     engine.log(
         f"  {bird.name}: paid 1 {eff.food.value}, tucked {tucked} card(s) from deck"
     )

@@ -225,29 +225,39 @@ class GameState(pydantic.BaseModel):
             self.rng.shuffle(self.bird_deck)
         return self.bird_deck.pop()
 
-    def refill_tray(self) -> None:
+    def refill_tray(self) -> list[tuple[int, cards.Bird]]:
         """Fill each empty (``None``) tray slot from the deck, left-to-right.
 
         Called at the end of each turn and by powers that explicitly refill
         (e.g. Brant) — never automatically when a card is drawn mid-turn.
         Stops early if the deck (and discard) run dry, leaving later slots
-        empty."""
+        empty.
+
+        Returns the ``(slot, bird)`` pairs it turned face up. Each is a reveal
+        of a previously hidden deck card, and this return value is how the
+        caller records them in the game log: this module stays recorder-free (it
+        is a pure data layer), so it reports what it revealed rather than
+        logging it (see :func:`wingspan.engine.ledger.refill_tray`)."""
+        revealed: list[tuple[int, cards.Bird]] = []
         for slot_idx in range(TRAY_SIZE):
             if self.tray[slot_idx] is None:
                 drawn = self.draw_bird()
                 if drawn is None:
                     break
                 self.tray[slot_idx] = drawn
+                revealed.append((slot_idx, drawn))
+        return revealed
 
-    def reset_tray(self) -> None:
+    def reset_tray(self) -> list[tuple[int, cards.Bird]]:
         """Discard all face-up tray cards and replenish with fresh ones.
 
         Called at the end of each round. The discarded cards enter
         ``bird_discard`` so they can be shuffled back into the deck when it
-        runs dry later in the game."""
+        runs dry later in the game. Returns the freshly revealed
+        ``(slot, bird)`` pairs, like :meth:`refill_tray`."""
         self.bird_discard.extend(bird for bird in self.tray if bird is not None)
         self.tray = [None] * TRAY_SIZE
-        self.refill_tray()
+        return self.refill_tray()
 
     def reset_turn_state(self) -> None:
         """Clear per-turn scratch fields. Called at the start of every turn."""
@@ -741,20 +751,26 @@ class FoodPool(pydantic.BaseModel):
 CHOICE_FACE_LABEL = "invertebrate/seed"
 
 
-def format_die_faces(counts: FoodPool, choice_dice: int) -> str:
-    """Render one word per die, space-separated, in canonical
-    :data:`cards.ALL_FOODS` order, with any invertebrate/seed choice-face dice
-    rendered last as :data:`CHOICE_FACE_LABEL`. E.g. ``"seed seed fruit rodent
-    invertebrate/seed"``.
+def die_face_words(counts: FoodPool, choice_dice: int) -> list[str]:
+    """One word per die, in canonical :data:`cards.ALL_FOODS` order, with any
+    invertebrate/seed choice-face dice last as :data:`CHOICE_FACE_LABEL`.
+    E.g. ``["seed", "seed", "fruit", "rodent", "invertebrate/seed"]``.
 
     Takes a bare ``(counts, choice_dice)`` pair rather than a full
     :class:`Birdfeeder` so both a birdfeeder reroll and the
     ``ROLL_NOT_IN_FEEDER_CACHE`` dice predators — which roll into a plain
     ``FoodPool`` plus a separate choice-die counter rather than a
-    ``Birdfeeder`` — can share this one formatter for their game-log notes."""
+    ``Birdfeeder`` — share this one formatter. The list is what the game log
+    records (:class:`wingspan.gamelog.models.FeederRerollEffect`); the joined
+    string is what the human-readable logs print."""
     words = [food.value for food, amount in counts.items() for _ in range(amount)]
     words.extend([CHOICE_FACE_LABEL] * choice_dice)
-    return " ".join(words)
+    return words
+
+
+def format_die_faces(counts: FoodPool, choice_dice: int) -> str:
+    """Space-joined :func:`die_face_words`, e.g. ``"seed seed invertebrate/seed"``."""
+    return " ".join(die_face_words(counts, choice_dice))
 
 
 class RoundGoalResult(pydantic.BaseModel):

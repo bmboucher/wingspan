@@ -29,18 +29,27 @@ Key classes:
   one of `"game_start"`, `"setup"`, `"round"`, `"turn"`, `"game_end"`.
   `round_idx` / `turn_idx` make the phase self-describing (both `None` where
   they do not apply).
-- Sub-event leaves: `NoteSubEvent(text)` plus the two `ResolvedSubEvent`
-  subclasses — `ForcedSubEvent` and
-  `DecisionSubEvent(options, state_stripes, value)`.  `ResolvedSubEvent` holds
-  what both resolutions share: `outcome_text` and the clock/score fields
+- Sub-event leaves: the two `ResolvedSubEvent` subclasses — `ForcedSubEvent`
+  and `DecisionSubEvent(options, state_stripes, value)`.  `ResolvedSubEvent`
+  holds what both resolutions share: `outcome_text` and the clock/score fields
   (`turn_counter`, `setup_slot`, `family_idx`, `scores`, `margin_before`), so a
   forced move sits on the timeline exactly like a genuine decision.
+- Effect leaves: the `Effect` subclasses — one per kind of state mutation,
+  interleaved with decisions in the same `sub_events` stream so the log reads
+  in true chronological order.  `GainFoodEffect`, `SpendFoodEffect`,
+  `CacheFoodEffect`, `UncacheFoodEffect`, `LayEggEffect`, `RemoveEggEffect`,
+  `DrawCardEffect`, `DiscardCardEffect`, `TuckCardEffect`, `PlayBirdEffect`,
+  `MoveBirdEffect`, `PassCardEffect`, `FeederRerollEffect`, `DiceRollEffect`,
+  `TrayRefillEffect`, plus the `FoodSource` / `CardSource` / `EffectPurpose`
+  StrEnums their fields draw on.  Only `engine.ledger` constructs these — see
+  [`docs/GAMELOG.md`](../../../docs/GAMELOG.md) for the ledger contract.
 - Top-level event types (one subclass per logical action, each carrying typed
   fields — no opaque payloads), all sharing `event_id`:
   `MainActionEvent`, `PlayBirdEvent`, `WhitePowerEvent(bird_name)`,
   `ReactionEvent(bird_name)`, `ActivateBaseEvent(habitat, action)`,
   `ActivateBrownEvent(bird_name, is_brown)`, `ExtraPlayEvent(habitat)`,
-  `TurnEndEvent`, `SetupEvent(kept_card_names, kept_bonus_name)`,
+  `TurnEndEvent`, `RefillTrayEvent`, `DealEvent`,
+  `SetupEvent(kept_card_names, kept_bonus_name)`,
   `RoundGoalEvent(round_idx, description, counts, vps)`,
   `FinalScoringEvent(scores)`, `LooseEvent`.
 - `FinalScoreBreakdown(birds, eggs, tucked, cached, bonus, goals, total)`.
@@ -68,6 +77,7 @@ Key public methods:
   `begin_activate_base(player_id, habitat, action)` /
   `begin_activate_brown(player_id, bird_name, is_brown)` /
   `begin_extra_play(player_id, habitat)` / `begin_turn_end(player_id)` /
+  `begin_refill_tray(player_id)` / `begin_deal(player_id)` /
   `begin_setup(player_id)` — open a typed event.
 - `end_event()` — close the most-recently-opened event.
 - `record_decision(engine, decision, choice)` — reads the seat's `DecisionProbe`,
@@ -79,10 +89,11 @@ Key public methods:
 - `record_round_goal(engine, round_idx, goal, counts, vps)` — appends a
   `RoundGoalEvent` to the **round phase it scores** (scoring runs after the
   round's last turn, so the current phase is that turn).
-- `note(text, player_id)` — appends a `NoteSubEvent` to the stack-top. Its
-  producers: `engine.actions._reroll_feeder` (every birdfeeder reroll) and
-  `engine.powers.grants._h_roll_not_in_feeder_cache` (the dice predators'
-  off-feeder rolls).
+- `record_effect(effect)` — appends one recorded state mutation to the
+  stack-top.  Its sole producer is `engine.ledger`, which performs each
+  mutation and records its effect in the same call so the two cannot drift;
+  `tests/test_gamelog_ledger.py` reconciles the replayed ledger against the
+  final `GameState` to prove the seam is complete.
 
 Unbracketed `record_*` calls collect into a single `LooseEvent` per phase,
 created on first use, rather than one event apiece.
@@ -101,8 +112,11 @@ Pure renderer: `models` + stdlib only.  Each phase opens with
 `=== KIND ===`.  Events render with a type-specific bracket label
 (`[Activate forest (gain food)]`, `[Brown: Elf Owl]`, `[——: Barn Owl]`,
 `[White power: Elf Owl]`, `[Extra play in forest]`, `[End of turn]`,
+`[Refill tray]`, `[Deal]`,
 `[Setup (kept: Barn Owl; bonus: Rodentologist)]`,
 `[Round 1 goal — ... [P0: 3/4VP, P1: 1/1VP]]`, `[Final scoring [42, 37]]`,
 etc.) followed by sub-event lines:
-`→ text` for decisions, `! text` for forced moves, bare text for notes.
+`→ text` for decisions, `! text` for forced moves, `· kind(fields)` for
+effects (a mechanical field dump, so a new effect class renders truthfully
+without a hand-written template).
 Children (nested events) are indented two spaces per level.

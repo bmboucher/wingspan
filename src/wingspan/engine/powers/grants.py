@@ -12,8 +12,9 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine import reactors
+from wingspan.engine import ledger, reactors
 from wingspan.engine.powers import dispatch, registry
+from wingspan.gamelog import models as gamelog_models
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -34,7 +35,13 @@ def _h_gain_food_supply(
 ) -> None:
     bird = pb.bird
     if eff.food:
-        player.food[eff.food] += eff.amount
+        ledger.gain_food(
+            engine,
+            player,
+            eff.food,
+            eff.amount,
+            source=gamelog_models.FoodSource.SUPPLY,
+        )
         engine.log(f"  {bird.name}: +{eff.amount} {eff.food.value} from supply")
 
 
@@ -149,7 +156,7 @@ def _h_lay_egg_on_this(
             engine.log(f"  {pb.bird.name}: [{player.name}] skipped optional egg(s)")
             return
 
-    pb.eggs += to_lay
+    ledger.lay_eggs(engine, player, pb, to_lay)
     engine.log(f"  {pb.bird.name}: +{to_lay} egg on itself")
 
 
@@ -232,7 +239,7 @@ def _h_cache_food(
 ) -> None:
     bird = pb.bird
     if eff.food:
-        pb.cached_food[eff.food] += eff.amount
+        ledger.cache_food(engine, player, pb, eff.food, eff.amount)
         engine.log(f"  {bird.name}: cached {eff.amount} {eff.food.value}")
 
 
@@ -290,15 +297,11 @@ def _h_roll_not_in_feeder_cache(
         roll_str = choice_part if roll_str == "(empty)" else f"{roll_str}+{choice_part}"
     die_word = "die" if dice_out == 1 else "dice"
     engine.log(f"  {bird.name}: rolled {dice_out} {die_word}: {roll_str}")
-    engine.events.note(
-        f"{bird.name} rolls {dice_out} {die_word}: "
-        f"{state.format_die_faces(roll_counts, choice_rolled)}",
-        player_id=player.id,
-    )
+    ledger.record_dice_roll(engine, player, pb, roll_counts, choice_rolled)
 
     assert eff.food is not None
     if roll_counts[eff.food] > 0:
-        pb.cached_food[eff.food] += eff.amount
+        ledger.cache_food(engine, player, pb, eff.food, eff.amount)
         engine.log(f"  {bird.name}: cached {eff.amount} {eff.food.value}")
         # Dice predators succeed on a cache, same as deck-draw predators.
         reactors.trigger_pink_predator_success(engine, player)
@@ -348,8 +351,7 @@ def _h_tuck_from_hand(
                 choices=choices,
             ),
         )
-        player.hand.remove(ch.bird)
-        pb.tucked_cards += 1
+        ledger.tuck_from_hand(engine, player, ch.bird, pb)
         engine.log(f"  {bird.name}: tucked {ch.bird.name}")
 
 
@@ -392,8 +394,7 @@ def _h_tuck_from_hand_then_draw(
             choices=choices,
         ),
     )
-    player.hand.remove(ch.bird)
-    pb.tucked_cards += 1
+    ledger.tuck_from_hand(engine, player, ch.bird, pb)
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
     for _ in range(eff.amount):
         actions.draw_one_card(engine, agent, player)
@@ -437,8 +438,7 @@ def _h_tuck_from_hand_then_lay_on_this(
             choices=choices,
         ),
     )
-    player.hand.remove(ch.bird)
-    pb.tucked_cards += 1
+    ledger.tuck_from_hand(engine, player, ch.bird, pb)
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
 
     # Lay on this bird: forced unless birds_no_eggs goal is active (gap #19).
@@ -482,7 +482,7 @@ def _h_tuck_from_hand_then_lay_on_this(
     if isinstance(lay_ch, decisions.SkipChoice):
         # Unreachable — no skip row in choices; isinstance guard for type narrowing.
         return
-    pb.eggs += 1
+    ledger.lay_eggs(engine, player, pb)
     engine.log(f"  {bird.name}: laid 1 egg on itself")
 
 
@@ -525,8 +525,7 @@ def _h_tuck_from_hand_then_lay_any(
             choices=choices,
         ),
     )
-    player.hand.remove(ch.bird)
-    pb.tucked_cards += 1
+    ledger.tuck_from_hand(engine, player, ch.bird, pb)
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
     for _ in range(eff.amount):
         actions.lay_one_egg(engine, agent, player)
@@ -569,12 +568,17 @@ def _h_tuck_from_hand_then_gain_food_supply(
             choices=choices,
         ),
     )
-    player.hand.remove(ch.bird)
-    pb.tucked_cards += 1
+    ledger.tuck_from_hand(engine, player, ch.bird, pb)
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
 
     if eff.food:
-        player.food[eff.food] += eff.amount
+        ledger.gain_food(
+            engine,
+            player,
+            eff.food,
+            eff.amount,
+            source=gamelog_models.FoodSource.SUPPLY,
+        )
         engine.log(f"  {bird.name}: +{eff.amount} {eff.food.value} from supply")
 
 
@@ -631,7 +635,13 @@ def _h_all_players_gain_food(
             return
 
     for other_player in engine.state.players:
-        other_player.food[eff.food] += eff.amount
+        ledger.gain_food(
+            engine,
+            other_player,
+            eff.food,
+            eff.amount,
+            source=gamelog_models.FoodSource.SUPPLY,
+        )
     engine.log(f"  {bird.name}: all players +{eff.amount} {eff.food.value}")
 
 
@@ -670,9 +680,8 @@ def _h_all_players_draw(
 
     for other_player in engine.state.players:
         for _ in range(eff.amount):
-            drawn = engine.state.draw_bird()
+            drawn = ledger.draw_from_deck(engine, other_player)
             if drawn is not None:
-                other_player.hand.append(drawn)
                 engine.log(
                     f"  {bird.name}: [{other_player.name}] drew {drawn.name} from deck"
                 )
@@ -770,8 +779,7 @@ def _h_tuck_from_hand_then_gain_food_choice(
             ],
         ),
     )
-    player.hand.remove(ch.bird)
-    pb.tucked_cards += 1
+    ledger.tuck_from_hand(engine, player, ch.bird, pb)
     engine.log(f"  {bird.name}: tucked {ch.bird.name}")
 
     # Step 3: mandatory food choice from the two supply options.
@@ -791,7 +799,7 @@ def _h_tuck_from_hand_then_gain_food_choice(
     )
     assert isinstance(food_ch, decisions.FoodChoice)
     chosen = food_ch.food
-    player.food[chosen] += 1
+    ledger.gain_food(engine, player, chosen, source=gamelog_models.FoodSource.SUPPLY)
     engine.log(f"  {bird.name}: +1 {chosen.value} from supply (tuck reward)")
 
 
@@ -847,6 +855,8 @@ def _h_gain_food_feeder_may_cache(
         return
 
     # Move the food token from the player's supply to the bird's cache.
-    player.food[eff.food] -= gained
-    pb.cached_food[eff.food] += gained
+    ledger.spend_food(
+        engine, player, eff.food, gained, purpose=gamelog_models.EffectPurpose.POWER
+    )
+    ledger.cache_food(engine, player, pb, eff.food, gained, from_supply=True)
     engine.log(f"  {bird.name}: +{gained} {eff.food.value} from birdfeeder (cached)")

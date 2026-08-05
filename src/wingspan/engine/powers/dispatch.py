@@ -17,6 +17,7 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
+from wingspan.engine import ledger
 from wingspan.engine.powers import registry
 
 if typing.TYPE_CHECKING:
@@ -254,7 +255,7 @@ def lay_one_egg_on_nest(
         engine.log(f"  {label}: [{target_player.name}] skipped optional extra egg")
         return None
     chosen = target_player.board[ch.habitat][ch.slot]
-    chosen.eggs += 1
+    ledger.lay_eggs(engine, target_player, chosen)
     engine.log(
         f"  {label}: [{target_player.name}] laid 1 egg on "
         f"{chosen.bird.name}@{ch.habitat.value}[{ch.slot}]"

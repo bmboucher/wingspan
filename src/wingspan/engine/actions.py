@@ -15,14 +15,11 @@ import itertools
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine import helpers, powers, reactors
+from wingspan.engine import helpers, ledger, powers, reactors
+from wingspan.gamelog import models as gamelog_models
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
-
-
-# Game-log note prefix for every birdfeeder reroll (see _reroll_feeder).
-_REROLL_NOTE_PREFIX = "Re-rolls birdfeeder: "
 
 
 # ---------------------------------------------------------------------------
@@ -104,14 +101,25 @@ def do_play_bird(
     player = engine.state.me()
     egg_cost = player.board.next_egg_cost(habitat)
     for _ in range(egg_cost):
-        discard_an_egg(engine, agent, player, reason=f"play {card.name}")
+        discard_an_egg(
+            engine,
+            agent,
+            player,
+            reason=f"play {card.name}",
+            purpose=gamelog_models.EffectPurpose.PLAY_BIRD,
+        )
     payment = _ask_bird_food_payment(engine, agent, player, card, habitat).payment
     for food, amount in payment.items():
-        player.food[food] -= amount
+        if amount:
+            ledger.spend_food(
+                engine,
+                player,
+                food,
+                amount,
+                purpose=gamelog_models.EffectPurpose.PLAY_BIRD,
+            )
 
-    player.hand.remove(card)
-    pb = state.PlayedBird(bird=card)
-    player.board[habitat].append(pb)
+    pb = ledger.place_bird(engine, player, card, habitat)
     engine.instrumentation.bird_placed(
         engine=engine, player=player, bird=card, habitat=habitat, played_bird=pb
     )
@@ -149,11 +157,19 @@ def do_play_bird_action(engine: "core.Engine", agent: "core.Agent") -> None:
 
 
 def discard_an_egg(
-    engine: "core.Engine", agent: "core.Agent", player: state.Player, reason: str
+    engine: "core.Engine",
+    agent: "core.Agent",
+    player: state.Player,
+    reason: str,
+    *,
+    purpose: gamelog_models.EffectPurpose = gamelog_models.EffectPurpose.POWER,
 ) -> None:
     """Force ``player`` to remove one egg from any of their birds (no-op if
     none). Used both as part of the play-bird cost and by any effect that
-    demands an egg discard."""
+    demands an egg discard.
+
+    ``reason`` is the human-readable prompt suffix; ``purpose`` is its
+    machine-readable counterpart, recorded on the resulting effect."""
     choices: list[decisions.BoardTargetChoice | decisions.SkipChoice] = []
     for habitat, row in player.board.items():
         for slot, pb in enumerate(row):
@@ -177,7 +193,9 @@ def discard_an_egg(
         ),
     )
     assert isinstance(ch, decisions.BoardTargetChoice)
-    player.board[ch.habitat][ch.slot].eggs -= 1
+    ledger.remove_eggs(
+        engine, player, player.board[ch.habitat][ch.slot], purpose=purpose
+    )
 
 
 def consume_extra_plays(
@@ -260,23 +278,6 @@ def do_gain_food(engine: "core.Engine", agent: "core.Agent") -> None:
     )
 
 
-def _reroll_feeder(engine: "core.Engine", player: state.Player) -> None:
-    """Reroll every feeder die and record the fresh faces as a game-log note.
-
-    The single sanctioned way to reroll the birdfeeder: every reroll in this
-    module routes through here, so a future re-roll site cannot silently skip
-    recording the fresh faces (mirroring :func:`offer_birdfeeder_reset`'s own
-    by-construction guarantee for the reset rules). Attributed to ``player`` —
-    whoever caused the roll, including a pink reactor's seat, which is not
-    necessarily the current player."""
-    feeder = engine.state.birdfeeder
-    feeder.reroll(engine.state.rng)
-    engine.events.note(
-        f"{_REROLL_NOTE_PREFIX}{state.format_die_faces(feeder.counts, feeder.choice_dice)}",
-        player_id=player.id,
-    )
-
-
 def offer_birdfeeder_reset(
     engine: "core.Engine", agent: "core.Agent", player: state.Player
 ) -> None:
@@ -304,7 +305,7 @@ def offer_birdfeeder_reset(
       affirmative choice, reroll."""
     feeder = engine.state.birdfeeder
     if feeder.is_empty():
-        _reroll_feeder(engine, player)
+        ledger.reroll_feeder(engine, player)
         engine.log(f"  birdfeeder empty; rerolled to {feeder.format()}")
     if not feeder.reset_available():
         return
@@ -326,7 +327,7 @@ def offer_birdfeeder_reset(
         ),
     )
     if isinstance(ch, decisions.ResetBirdfeederChoice):
-        _reroll_feeder(engine, player)
+        ledger.reroll_feeder(engine, player)
         engine.log(f"  {player.name} resets the birdfeeder -> {feeder.format()}")
 
 
@@ -347,10 +348,9 @@ def gain_feeder_die(
     rather than a single face. The caller must ensure ``food`` is gainable the
     requested way (see ``Birdfeeder.gain_options``)."""
     feeder = engine.state.birdfeeder
-    feeder.take(food, from_choice_die=from_choice_die)
-    player.food[food] += 1
+    ledger.take_feeder_die(engine, player, food, from_choice_die=from_choice_die)
     if feeder.is_empty():
-        _reroll_feeder(engine, player)
+        ledger.reroll_feeder(engine, player)
         engine.log(f"  birdfeeder emptied; rerolled to {feeder.format()}")
 
 
@@ -499,13 +499,13 @@ def combined_feeder_gain(
         # Reached the target. Only an emptied feeder rerolls (Rule 1); a
         # single-face leftover stays showing for the next player to reset.
         if feeder.is_empty():
-            _reroll_feeder(engine, player)
+            ledger.reroll_feeder(engine, player)
             engine.log(f"  birdfeeder emptied; rerolled to {feeder.format()}")
     else:
         # A partial subset is a committed reset: reroll the (now rerollable)
         # leftover and gain the rest from the fresh feeder, which re-offers the
         # start-of-choice reset.
-        _reroll_feeder(engine, player)
+        ledger.reroll_feeder(engine, player)
         engine.log(f"  {player.name} resets the birdfeeder -> {feeder.format()}")
         combined_feeder_gain(engine, agent, player, n - taken)
 
@@ -521,17 +521,15 @@ def _apply_subset(
     multiset mid-apply. :func:`combined_feeder_gain` owns the single post-subset
     reroll instead. Plain single-face dice are spent before choice dice, so each
     ``Birdfeeder.take`` lands on the face the subset was enumerated against."""
-    feeder = engine.state.birdfeeder
     for food, amount in choice.plain.items():
         for _ in range(amount):
-            feeder.take(food)
-            player.food[food] += 1
+            ledger.take_feeder_die(engine, player, food)
     for _ in range(choice.choice_inv):
-        feeder.take(cards.Food.INVERTEBRATE, from_choice_die=True)
-        player.food[cards.Food.INVERTEBRATE] += 1
+        ledger.take_feeder_die(
+            engine, player, cards.Food.INVERTEBRATE, from_choice_die=True
+        )
     for _ in range(choice.choice_seed):
-        feeder.take(cards.Food.SEED, from_choice_die=True)
-        player.food[cards.Food.SEED] += 1
+        ledger.take_feeder_die(engine, player, cards.Food.SEED, from_choice_die=True)
 
 
 def combined_supply_gain(
@@ -572,7 +570,10 @@ def combined_supply_gain(
     )
     assert isinstance(chosen, decisions.FoodSubsetChoice)
     for food, amount in chosen.plain.items():
-        player.food[food] += amount
+        if amount:
+            ledger.gain_food(
+                engine, player, food, amount, source=gamelog_models.FoodSource.SUPPLY
+            )
     engine.log(f"  +{chosen.total_units()} ({chosen.display_label()})")
 
 
@@ -628,7 +629,7 @@ def lay_one_egg(
         ),
     )
     assert isinstance(ch, decisions.BoardTargetChoice)
-    player.board[ch.habitat][ch.slot].eggs += 1
+    ledger.lay_eggs(engine, player, player.board[ch.habitat][ch.slot])
 
 
 # ---------------------------------------------------------------------------
@@ -688,14 +689,10 @@ def draw_one_card(
         ),
     )
     if ch.source == "tray" and ch.tray_index is not None:
-        drawn = engine.state.tray[ch.tray_index]
-        assert drawn is not None
-        engine.state.tray[ch.tray_index] = None
-        player.hand.append(drawn)
+        ledger.take_from_tray(engine, player, ch.tray_index)
     else:
-        drawn = engine.state.draw_bird()
+        drawn = ledger.draw_from_deck(engine, player)
         if drawn:
-            player.hand.append(drawn)
             engine.log(f"[{player.name}] drew from deck: {drawn.name}")
 
 
@@ -923,8 +920,9 @@ def _convert_gain_food(
             ],
         ),
     )
-    player.hand.remove(discard_ch.bird)
-    engine.state.bird_discard.append(discard_ch.bird)
+    ledger.discard_from_hand(
+        engine, player, discard_ch.bird, purpose=gamelog_models.EffectPurpose.CONVERT
+    )
     engine.log(f"  convert: discard {discard_ch.bird.name} for +1 food")
 
     # Step 3 — pick which food die to take.
@@ -978,7 +976,9 @@ def _convert_lay_eggs(
             ],
         ),
     )
-    player.food[spend_ch.food] -= 1
+    ledger.spend_food(
+        engine, player, spend_ch.food, purpose=gamelog_models.EffectPurpose.CONVERT
+    )
     engine.log(f"  convert: spend {spend_ch.food.value} for +1 egg")
 
     # Step 3 — lay the egg.
@@ -1012,7 +1012,13 @@ def _convert_draw_cards(
     if isinstance(ch, decisions.SkipChoice):
         return
     engine.log("  convert: discard 1 egg for +1 card")
-    discard_an_egg(engine, agent, player, reason="convert to draw a card")
+    discard_an_egg(
+        engine,
+        agent,
+        player,
+        reason="convert to draw a card",
+        purpose=gamelog_models.EffectPurpose.CONVERT,
+    )
     draw_one_card(engine, agent, player)
 
 

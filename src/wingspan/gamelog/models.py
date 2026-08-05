@@ -24,6 +24,7 @@ imported by ``reporting`` without closing any import cycle.
 
 from __future__ import annotations
 
+import enum
 import typing
 
 import pydantic
@@ -95,16 +96,6 @@ class SubEvent(pydantic.BaseModel):
     player_id: int | None = None
 
 
-class NoteSubEvent(SubEvent):
-    """A non-decision notification line — "draws X from the deck", power outcomes.
-
-    Emitted for game events that are not otherwise captured as decisions or
-    forced moves."""
-
-    kind: typing.Literal["note"] = "note"
-    text: str
-
-
 class ResolvedSubEvent(SubEvent):
     """Abstract base for a decision point the engine resolved — forced or genuine.
 
@@ -152,8 +143,265 @@ class DecisionSubEvent(ResolvedSubEvent):
     value: float | None = None
 
 
+# ---------------------------------------------------------------------------
+# Effects: the ledger of what actually changed
+#
+# NAMING NOTE: :class:`wingspan.cards.schema.EffectKind` is a *different* thing —
+# it is the static, per-card declaration of what a bird's power is supposed to
+# do.  The classes below record what a game *actually did*, one entry per state
+# mutation.  The two never mix: card data is parsed into ``EffectKind``, and
+# executing it emits these.
+#
+# Card-vs-bird field naming is consistent throughout: ``card`` is a card moving
+# between zones (hand / deck / tray / board), ``bird`` is a bird already in play
+# that is being targeted.
+
+
+class FoodSource(enum.StrEnum):
+    """Where a gained food token came from."""
+
+    FEEDER = "feeder"
+    SUPPLY = "supply"
+    CACHE = "cache"
+    OPPONENT = "opponent"
+    DEAL = "deal"
+
+
+class CardSource(enum.StrEnum):
+    """Where a card moving into a zone came from."""
+
+    DECK = "deck"
+    TRAY = "tray"
+    HAND = "hand"
+    DEAL = "deal"
+    OPPONENT = "opponent"
+
+
+class EffectPurpose(enum.StrEnum):
+    """Why a resource was spent or gained — the intent behind the mutation.
+
+    Recording intent is the reason the ledger is explicit rather than derived
+    from a state diff: a diff can show that two food left the supply, but not
+    that one paid a bird's cost and the other bought an egg."""
+
+    PLAY_BIRD = "play_bird"
+    CONVERT = "convert"
+    POWER = "power"
+    SETUP = "setup"
+    TURN_END = "turn_end"
+    ACTION = "action"
+
+
+class Effect(SubEvent):
+    """Abstract base for one recorded state mutation.
+
+    Every concrete subclass is emitted by :mod:`wingspan.engine.ledger`, which
+    performs the mutation and records the effect in the same call so the two
+    cannot drift.  ``tests/test_gamelog_ledger.py`` replays the whole ledger
+    against the final :class:`~wingspan.state.GameState` to prove it."""
+
+
+class GainFoodEffect(Effect):
+    """``amount`` food tokens of one type entered a player's supply."""
+
+    kind: typing.Literal["gain_food"] = "gain_food"
+    food: str
+    amount: int
+    source: FoodSource
+
+
+class SpendFoodEffect(Effect):
+    """``amount`` food tokens of one type left a player's supply."""
+
+    kind: typing.Literal["spend_food"] = "spend_food"
+    food: str
+    amount: int
+    purpose: EffectPurpose
+
+
+class CacheFoodEffect(Effect):
+    """Food was placed on a bird in play.
+
+    ``from_supply`` distinguishes the two printed forms: caching food the player
+    already holds (which also decrements their supply, recorded as its own
+    :class:`SpendFoodEffect`) from a power that caches straight off the supply
+    without the food ever passing through the player's pool."""
+
+    kind: typing.Literal["cache_food"] = "cache_food"
+    bird: str
+    food: str
+    amount: int
+    from_supply: bool = False
+
+
+class UncacheFoodEffect(Effect):
+    """Food was removed from a bird's cache."""
+
+    kind: typing.Literal["uncache_food"] = "uncache_food"
+    bird: str
+    food: str
+    amount: int
+
+
+class LayEggEffect(Effect):
+    """``count`` eggs were added to one bird in play."""
+
+    kind: typing.Literal["lay_egg"] = "lay_egg"
+    bird: str
+    habitat: str
+    slot: int
+    count: int = 1
+    purpose: EffectPurpose = EffectPurpose.ACTION
+
+
+class RemoveEggEffect(Effect):
+    """``count`` eggs were removed from one bird in play."""
+
+    kind: typing.Literal["remove_egg"] = "remove_egg"
+    bird: str
+    habitat: str
+    slot: int
+    count: int = 1
+    purpose: EffectPurpose = EffectPurpose.ACTION
+
+
+class DrawCardEffect(Effect):
+    """A card entered a player's hand.
+
+    A ``source`` of :attr:`CardSource.DECK` makes this a **reveal**: the card's
+    identity was hidden until this moment, and this record is the only place it
+    appears."""
+
+    kind: typing.Literal["draw_card"] = "draw_card"
+    card: str
+    source: CardSource
+    tray_slot: int | None = None
+
+
+class DiscardCardEffect(Effect):
+    """A card left a player's hand for the discard pile."""
+
+    kind: typing.Literal["discard_card"] = "discard_card"
+    card: str
+    purpose: EffectPurpose = EffectPurpose.POWER
+
+
+class TuckCardEffect(Effect):
+    """A card was tucked behind a bird in play.
+
+    A ``source`` of :attr:`CardSource.DECK` makes this a **reveal** — the card
+    goes from the hidden deck straight under a bird without ever being seen."""
+
+    kind: typing.Literal["tuck_card"] = "tuck_card"
+    card: str
+    bird: str
+    source: CardSource
+
+
+class PlayBirdEffect(Effect):
+    """A bird card left the hand and was placed on the board."""
+
+    kind: typing.Literal["play_bird_effect"] = "play_bird_effect"
+    card: str
+    habitat: str
+    slot: int
+
+
+class MoveBirdEffect(Effect):
+    """A bird already in play relocated to another habitat row.
+
+    Distinct from :class:`PlayBirdEffect`: no card leaves a hand, and the bird
+    keeps its eggs, tucked cards and cache.  Recording a move as a second
+    placement would double-count the bird on any board reconstruction."""
+
+    kind: typing.Literal["move_bird"] = "move_bird"
+    card: str
+    from_habitat: str
+    from_slot: int
+    to_habitat: str
+    to_slot: int
+
+
+class PassCardEffect(Effect):
+    """A card moved from one player's hand to another's."""
+
+    kind: typing.Literal["pass_card"] = "pass_card"
+    card: str
+    to_player_id: int
+
+
+class FeederRerollEffect(Effect):
+    """The birdfeeder was rerolled — a **reveal** of the fresh dice faces.
+
+    ``player_id`` is whoever caused the roll, which for a pink reactor is not
+    necessarily the current player."""
+
+    kind: typing.Literal["feeder_reroll"] = "feeder_reroll"
+    faces: list[str] = []
+
+
+class DiceRollEffect(Effect):
+    """A dice-predator rolled outside the feeder — a **reveal** of the faces.
+
+    The ``ROLL_NOT_IN_FEEDER_CACHE`` birds (Anhinga and similar) roll dice that
+    never enter the birdfeeder, so their outcome is visible nowhere else."""
+
+    kind: typing.Literal["dice_roll"] = "dice_roll"
+    bird: str
+    faces: list[str] = []
+
+
+class TrayRefillEffect(Effect):
+    """A face-up tray slot was restocked from the deck — a **reveal**."""
+
+    kind: typing.Literal["tray_refill"] = "tray_refill"
+    slot: int
+    card: str
+
+
+type AnyEffect = (
+    GainFoodEffect
+    | SpendFoodEffect
+    | CacheFoodEffect
+    | UncacheFoodEffect
+    | LayEggEffect
+    | RemoveEggEffect
+    | DrawCardEffect
+    | DiscardCardEffect
+    | TuckCardEffect
+    | PlayBirdEffect
+    | MoveBirdEffect
+    | PassCardEffect
+    | FeederRerollEffect
+    | DiceRollEffect
+    | TrayRefillEffect
+)
+"""Union of every concrete :class:`Effect`.
+
+The declared parameter type of ``EventRecorder.record_effect``: the abstract
+:class:`Effect` base is not assignable to the discriminated ``sub_events`` list,
+and naming the union keeps a new effect class from being silently accepted
+without joining :data:`AnySubEvent`."""
+
+
 type AnySubEvent = typing.Annotated[
-    NoteSubEvent | ForcedSubEvent | DecisionSubEvent,
+    ForcedSubEvent
+    | DecisionSubEvent
+    | GainFoodEffect
+    | SpendFoodEffect
+    | CacheFoodEffect
+    | UncacheFoodEffect
+    | LayEggEffect
+    | RemoveEggEffect
+    | DrawCardEffect
+    | DiscardCardEffect
+    | TuckCardEffect
+    | PlayBirdEffect
+    | MoveBirdEffect
+    | PassCardEffect
+    | FeederRerollEffect
+    | DiceRollEffect
+    | TrayRefillEffect,
     pydantic.Field(discriminator="kind"),
 ]
 """Discriminated union of every concrete :class:`SubEvent`.
@@ -258,6 +506,29 @@ class TurnEndEvent(GameEvent):
     kind: typing.Literal["turn_end"] = "turn_end"
 
 
+class RefillTrayEvent(GameEvent):
+    """The face-up tray being restocked from the deck.
+
+    Its own event because a refill belongs to no player action: it runs at the
+    end of every turn and again when a round's tray is reset, both outside any
+    open bracket.  ``player_id`` is the seat whose turn ended, or ``None`` for
+    the end-of-round reset."""
+
+    kind: typing.Literal["refill_tray"] = "refill_tray"
+
+
+class DealEvent(GameEvent):
+    """One player's opening deal: starting hand, bonus cards, one of each food.
+
+    Sits in the ``game_start`` phase, before that player's ``setup`` phase,
+    because both setup paths deal before the setup pick is presented — and the
+    fixed-setup path deals *every* seat up front, so the deal cannot be folded
+    into the setup bracket.  Its own event keeps the dealt-card reveals off the
+    anonymous :class:`LooseEvent` bucket."""
+
+    kind: typing.Literal["deal"] = "deal"
+
+
 class SetupEvent(GameEvent):
     """Event #5: one player's setup phase (selecting birds, food, and bonus).
 
@@ -322,6 +593,8 @@ type AnyGameEvent = typing.Annotated[
     | ActivateBrownEvent
     | ExtraPlayEvent
     | TurnEndEvent
+    | RefillTrayEvent
+    | DealEvent
     | SetupEvent
     | RoundGoalEvent
     | FinalScoringEvent
@@ -377,6 +650,8 @@ ActivateBaseEvent.model_rebuild()
 ActivateBrownEvent.model_rebuild()
 ExtraPlayEvent.model_rebuild()
 TurnEndEvent.model_rebuild()
+RefillTrayEvent.model_rebuild()
+DealEvent.model_rebuild()
 SetupEvent.model_rebuild()
 RoundGoalEvent.model_rebuild()
 FinalScoringEvent.model_rebuild()

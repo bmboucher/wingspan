@@ -405,57 +405,55 @@ def test_subset_options_size_n_offered_regardless_of_leftover() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Re-roll notes
+# Re-roll reveals
 #
-# Every birdfeeder reroll routes through actions._reroll_feeder, the single
-# seam that pairs the dice reroll with a game-log NoteSubEvent — so a future
-# re-roll call site cannot silently skip recording the fresh faces.
-# EventRecorder.note() drops the note silently when no phase is open, so every
-# test here goes through _engine_with_recorder, which calls begin_game() first.
-
-# Mirrors actions._REROLL_NOTE_PREFIX (module-private, so asserted against its
-# literal text here rather than imported).
-_REROLL_PREFIX = "Re-rolls birdfeeder: "
+# Every birdfeeder reroll routes through ledger.reroll_feeder, the single seam
+# that pairs the dice reroll with a FeederRerollEffect — so a future re-roll
+# call site cannot silently skip recording the fresh faces. The recorder drops
+# effects silently when no phase is open, so every test here goes through
+# _engine_with_recorder, which calls begin_game() first.
 
 
 def _engine_with_recorder(
     gs: state.GameState,
 ) -> tuple[engine.Engine, gamelog_recorder.EventRecorder]:
     """An Engine wired with a fresh EventRecorder whose game_start phase is
-    already open (required — note() drops silently outside an open phase)."""
+    already open (required — effects drop silently outside an open phase)."""
     rec = gamelog_recorder.EventRecorder(probes=(None, None))
     rec.begin_game()
     eng = engine.Engine(gs, event_recorder=rec)
     return eng, rec
 
 
-def _collect_notes(
+def _collect_rerolls(
     rec: gamelog_recorder.EventRecorder,
-) -> list[gamelog_models.NoteSubEvent]:
-    """Every NoteSubEvent recorded anywhere in the tree, in recording order."""
-    notes: list[gamelog_models.NoteSubEvent] = []
+) -> list[gamelog_models.FeederRerollEffect]:
+    """Every FeederRerollEffect recorded anywhere in the tree, in order."""
+    rerolls: list[gamelog_models.FeederRerollEffect] = []
     for phase in rec.root.phases:
         for event in phase.events:
-            notes.extend(_collect_notes_in_event(event))
-    return notes
+            rerolls.extend(_collect_rerolls_in_event(event))
+    return rerolls
 
 
-def _collect_notes_in_event(
+def _collect_rerolls_in_event(
     event: gamelog_models.GameEvent,
-) -> list[gamelog_models.NoteSubEvent]:
-    """DFS helper for :func:`_collect_notes`: this event's own notes, then its
-    children's, in tree order."""
-    notes = [
-        sub for sub in event.sub_events if isinstance(sub, gamelog_models.NoteSubEvent)
+) -> list[gamelog_models.FeederRerollEffect]:
+    """DFS helper for :func:`_collect_rerolls`: this event's own rerolls, then
+    its children's, in tree order."""
+    rerolls = [
+        sub
+        for sub in event.sub_events
+        if isinstance(sub, gamelog_models.FeederRerollEffect)
     ]
     for child in event.children:
-        notes.extend(_collect_notes_in_event(child))
-    return notes
+        rerolls.extend(_collect_rerolls_in_event(child))
+    return rerolls
 
 
-def test_gain_feeder_die_notes_the_reroll_on_the_last_die() -> None:
+def test_gain_feeder_die_records_the_reroll_on_the_last_die() -> None:
     """Rule 1's auto-reroll (taking the feeder's last die) records exactly one
-    re-roll note listing the fresh BIRDFEEDER_DICE faces."""
+    re-roll reveal listing the fresh BIRDFEEDER_DICE faces."""
     gs = _new_game()
     feeder = _empty_feeder(gs)
     feeder.counts[cards.Food.FISH] = 1  # the only die on offer
@@ -464,16 +462,14 @@ def test_gain_feeder_die_notes_the_reroll_on_the_last_die() -> None:
 
     actions.gain_feeder_die(eng, player, cards.Food.FISH)
 
-    notes = _collect_notes(rec)
-    assert len(notes) == 1
-    assert notes[0].player_id == player.id
-    assert notes[0].text.startswith(_REROLL_PREFIX)
-    faces = notes[0].text.removeprefix(_REROLL_PREFIX).split()
-    assert len(faces) == state.BIRDFEEDER_DICE
+    rerolls = _collect_rerolls(rec)
+    assert len(rerolls) == 1
+    assert rerolls[0].player_id == player.id
+    assert len(rerolls[0].faces) == state.BIRDFEEDER_DICE
 
 
-def test_offer_reset_accept_notes_the_reroll() -> None:
-    """Rule 2: accepting the optional reset records one re-roll note."""
+def test_offer_reset_accept_records_the_reroll() -> None:
+    """Rule 2: accepting the optional reset records one re-roll reveal."""
     gs = _new_game()
     feeder = _empty_feeder(gs)
     feeder.counts[cards.Food.FISH] = 3  # single face: offers the reset
@@ -491,14 +487,13 @@ def test_offer_reset_accept_notes_the_reroll() -> None:
 
     actions.offer_birdfeeder_reset(eng, agent, player)
 
-    notes = _collect_notes(rec)
-    assert len(notes) == 1
-    assert notes[0].player_id == player.id
-    assert notes[0].text.startswith(_REROLL_PREFIX)
+    rerolls = _collect_rerolls(rec)
+    assert len(rerolls) == 1
+    assert rerolls[0].player_id == player.id
 
 
-def test_offer_reset_decline_records_no_note() -> None:
-    """Rule 2: declining the optional reset records no re-roll note."""
+def test_offer_reset_decline_records_no_reroll() -> None:
+    """Rule 2: declining the optional reset records no re-roll reveal."""
     gs = _new_game()
     feeder = _empty_feeder(gs)
     feeder.counts[cards.Food.FISH] = 3
@@ -512,12 +507,12 @@ def test_offer_reset_decline_records_no_note() -> None:
 
     actions.offer_birdfeeder_reset(eng, agent, player)
 
-    assert _collect_notes(rec) == []
+    assert _collect_rerolls(rec) == []
 
 
-def test_combined_feeder_gain_partial_subset_interleaves_reroll_note() -> None:
+def test_combined_feeder_gain_partial_subset_interleaves_reroll_reveal() -> None:
     """A partial-subset take (under combine_gain_food) commits to a reset: the
-    re-roll note lands after the gain decision that triggered it and before the
+    re-roll reveal lands after the gain decision that triggered it and before the
     next gain — matching ``do_gain_food``'s ``begin_activate_base`` bracket,
     which is why this test wraps the call the same way (the one sub_events list
     a real Gain Food action would record all of this into)."""
@@ -537,14 +532,11 @@ def test_combined_feeder_gain_partial_subset_interleaves_reroll_note() -> None:
     eng.events.end_event()
 
     sub_events = rec.root.phases[-1].events[0].sub_events
-    note_indices = [
+    reroll_indices = [
         i
         for i, sub in enumerate(sub_events)
-        if isinstance(sub, gamelog_models.NoteSubEvent)
+        if isinstance(sub, gamelog_models.FeederRerollEffect)
     ]
-    assert len(note_indices) == 1, [type(sub).__name__ for sub in sub_events]
-    note = sub_events[note_indices[0]]
-    assert isinstance(note, gamelog_models.NoteSubEvent)
-    assert note.text.startswith(_REROLL_PREFIX)
+    assert len(reroll_indices) == 1, [type(sub).__name__ for sub in sub_events]
     # Strictly between the partial-take gain that triggered it and the next gain.
-    assert 0 < note_indices[0] < len(sub_events) - 1
+    assert 0 < reroll_indices[0] < len(sub_events) - 1

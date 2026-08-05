@@ -600,13 +600,6 @@ def _sub_event_to_item(
             text=sub.outcome_text,
             forced=True,
         )
-    elif isinstance(sub, gamelog_models.NoteSubEvent):
-        if sub.text:
-            return game_log_html.LogItem(
-                kind="note",
-                player_id=pid,
-                text=sub.text,
-            )
     return None
 
 

@@ -289,18 +289,14 @@ def test_record_decision_decodes_with_annotation_layouts():
     assert all(opt.choice_stripes is not None for opt in decision_subs[0].options)
 
 
-def test_feeder_reroll_notes_have_birdfeeder_dice_faces_and_survive_to_html():
-    """Every birdfeeder re-roll note (``actions._reroll_feeder``'s uniform seam)
-    lists exactly ``BIRDFEEDER_DICE`` face words, and survives
-    ``game_log_capture.tree_to_log_items`` as a ``kind="note"`` ``LogItem`` — the
-    tree -> HTML seam the game-log viewer renders from."""
+def test_feeder_rerolls_reveal_all_birdfeeder_dice_faces():
+    """Every birdfeeder re-roll (``ledger.reroll_feeder``'s uniform seam) records
+    a ``FeederRerollEffect`` listing exactly ``BIRDFEEDER_DICE`` face words.
+
+    The reroll is a reveal: the fresh faces are chosen by the engine's RNG and
+    appear nowhere else in the tree, so this effect is the only record of them."""
     from wingspan import state
     from wingspan.gamelog import models
-    from wingspan.reporting import game_log_capture, game_log_html
-
-    # Mirrors actions._REROLL_NOTE_PREFIX (module-private, so asserted against
-    # its literal text here rather than imported).
-    reroll_prefix = "Re-rolls birdfeeder: "
 
     _eng, rec = _make_engine_with_recorder(seed=23)
 
@@ -313,30 +309,14 @@ def test_feeder_reroll_notes_have_birdfeeder_dice_faces_and_survive_to_html():
             result.extend(_collect_all(ev.children))
         return result
 
-    def _note_texts(items: list[game_log_html.LogItem]) -> set[str]:
-        texts: set[str] = set()
-        for item in items:
-            if item.kind == "note":
-                texts.add(item.text)
-            texts.update(_note_texts(item.children))
-        return texts
-
     all_events = _collect_all([ev for phase in rec.root.phases for ev in phase.events])
-    reroll_notes = [
+    rerolls = [
         sub
         for ev in all_events
         for sub in ev.sub_events
-        if isinstance(sub, models.NoteSubEvent) and sub.text.startswith(reroll_prefix)
+        if isinstance(sub, models.FeederRerollEffect)
     ]
-    assert (
-        reroll_notes
-    ), "expected at least one birdfeeder re-roll note over a full game"
-    for note in reroll_notes:
-        faces = note.text.removeprefix(reroll_prefix).split()
-        assert len(faces) == state.BIRDFEEDER_DICE, note.text
-
-    html_note_texts: set[str] = set()
-    for phase in rec.root.phases:
-        html_note_texts |= _note_texts(game_log_capture.tree_to_log_items(phase))
-    for note in reroll_notes:
-        assert note.text in html_note_texts, note.text
+    assert rerolls, "expected at least one birdfeeder re-roll over a full game"
+    for reroll in rerolls:
+        assert len(reroll.faces) == state.BIRDFEEDER_DICE, reroll
+        assert reroll.player_id is not None

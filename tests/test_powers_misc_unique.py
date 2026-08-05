@@ -1071,17 +1071,14 @@ def test_roll_not_in_feeder_cache_notes_the_rolled_faces():
         eng, _no_agent, player, predator_pb, cards.Habitat.WETLAND, "activate"
     )
 
-    notes = [
+    rolls = [
         sub
         for phase in rec.root.phases
         for event in phase.events
         for sub in event.sub_events
-        if isinstance(sub, gamelog_models.NoteSubEvent)
+        if isinstance(sub, gamelog_models.DiceRollEffect)
     ]
-    assert len(notes) == 1, notes
-    assert notes[0].player_id == player.id
-    assert notes[0].text.startswith(
-        f"{predator_bird.name} rolls {state.BIRDFEEDER_DICE} "
-    )
-    faces = notes[0].text.split(": ", 1)[1].split()
-    assert len(faces) == state.BIRDFEEDER_DICE
+    assert len(rolls) == 1, rolls
+    assert rolls[0].player_id == player.id
+    assert rolls[0].bird == predator_bird.name
+    assert len(rolls[0].faces) == state.BIRDFEEDER_DICE

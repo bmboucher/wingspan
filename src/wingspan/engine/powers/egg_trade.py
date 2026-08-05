@@ -12,7 +12,9 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
+from wingspan.engine import ledger
 from wingspan.engine.powers import registry
+from wingspan.gamelog import models as gamelog_models
 
 if typing.TYPE_CHECKING:
     from wingspan.engine import core
@@ -82,7 +84,9 @@ def _h_discard_egg_for_wild(
     )
     assert isinstance(egg_ch, decisions.BoardTargetChoice)
     source = player.board[egg_ch.habitat][egg_ch.slot]
-    source.eggs -= 1
+    ledger.remove_eggs(
+        engine, player, source, purpose=gamelog_models.EffectPurpose.POWER
+    )
     engine.log(f"  {bird.name}: discarded 1 egg from {source.bird.name}")
     _gain_wild_from_supply(engine, agent, player, bird, eff.amount)
 
@@ -152,7 +156,9 @@ def _h_discard_egg_for_cards(
     )
     assert isinstance(egg_ch, decisions.BoardTargetChoice)
     source = player.board[egg_ch.habitat][egg_ch.slot]
-    source.eggs -= 1
+    ledger.remove_eggs(
+        engine, player, source, purpose=gamelog_models.EffectPurpose.POWER
+    )
     engine.log(f"  {bird.name}: discarded 1 egg from {source.bird.name}")
 
     # Step 3: draw the cards.
@@ -199,5 +205,7 @@ def _gain_wild_from_supply(
         )
         assert isinstance(food_ch, decisions.FoodChoice)
         chosen_food = food_ch.food
-        player.food[chosen_food] += 1
+        ledger.gain_food(
+            engine, player, chosen_food, source=gamelog_models.FoodSource.SUPPLY
+        )
         engine.log(f"  {bird.name}: +1 {chosen_food.value} from supply")

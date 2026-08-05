@@ -28,6 +28,8 @@ Additional event types used for nesting and for bracketing otherwise-loose asks:
 | `ReactionEvent` | `bird_name` | Pink reactor firing, attributed to the reacting player |
 | `ExtraPlayEvent` | `habitat` | One accrued extra play offered; the accepted `PlayBirdEvent` is a child |
 | `TurnEndEvent` | — | End-of-turn discard obligations (`DRAW_CARDS_THEN_DISCARD_EOT`) |
+| `DealEvent` | — | One seat's opening deal (hand, bonus cards, one of each food) |
+| `RefillTrayEvent` | — | The face-up tray being restocked; belongs to no player action |
 | `LooseEvent` | — | Auto-wrap bucket for a `record_*` call outside any open bracket |
 
 Every event also carries `event_id`: a per-game monotonic integer stamped by the
@@ -67,7 +69,7 @@ point carries regardless of whether the agent was actually consulted:
 | `ResolvedSubEvent` *(base)* | `outcome_text`, `turn_counter`, `setup_slot`, `family_idx`, `scores`, `margin_before` | — |
 | `DecisionSubEvent` | + `options`, `state_stripes`, `value` | `→ text` (plaintext) / collapsible decision box with option bars (HTML) |
 | `ForcedSubEvent` | *(base only)* | `! text` (plaintext) / non-collapsible "forced" box (HTML) |
-| `NoteSubEvent` | `text` | bare text (plaintext) / muted "note" box (HTML) |
+| `Effect` *(base)* | *(see the effect ledger below)* | `· kind(fields)` (plaintext) |
 
 The base carries all timeline scalars so the timeline chart derives from the
 tree (no parallel data structure) and forced moves are joinable to it exactly
@@ -81,14 +83,54 @@ are regenerable reporting artifacts, not covered by the model-rehydration
 guarantee (`docs/VERSIONING.md`) — this schema can change freely across
 versions.
 
-`NoteSubEvent` covers non-decision notifications that would otherwise be
-invisible between phase-boundary snapshots. Its first production use is
-birdfeeder re-rolls: every reroll — the optional Rule-2 reset, the automatic
-Rule-1 refill, and a committed partial-take under `combine_gain_food` — routes
-through `actions._reroll_feeder`, the single seam that pairs the reroll with a
-note listing the fresh dice faces (`state.format_die_faces`), and the
-`ROLL_NOT_IN_FEEDER_CACHE` dice predators (Anhinga and similar), which roll
-outside the feeder and note the faces they land on.
+## The effect ledger
+
+Alongside decisions, `sub_events` carries **effects**: one record per state
+mutation, interleaved in true chronological order so `draw_card(Wood Stork)`
+sits immediately after the decision that caused it.
+
+> **Naming.** `cards.schema.EffectKind` is a different thing — the *static*
+> declaration of what a bird's power is supposed to do. `gamelog.models.Effect`
+> records what a game *actually did*. Card data parses into the former;
+> executing it emits the latter.
+
+| Class | Fields | Notes |
+|-------|--------|-------|
+| `GainFoodEffect` | `food`, `amount`, `source` | `source` ∈ feeder / supply / cache / opponent / deal |
+| `SpendFoodEffect` | `food`, `amount`, `purpose` | |
+| `CacheFoodEffect` | `bird`, `food`, `amount`, `from_supply` | `from_supply` pairs with a `SpendFoodEffect` |
+| `UncacheFoodEffect` | `bird`, `food`, `amount` | |
+| `LayEggEffect` / `RemoveEggEffect` | `bird`, `habitat`, `slot`, `count`, `purpose` | coordinates are a snapshot — a bird can move |
+| `DrawCardEffect` | `card`, `source`, `tray_slot` | **reveal** when `source` is `deck` |
+| `DiscardCardEffect` | `card`, `purpose` | |
+| `TuckCardEffect` | `card`, `bird`, `source` | **reveal** when `source` is `deck` |
+| `PlayBirdEffect` | `card`, `habitat`, `slot` | |
+| `MoveBirdEffect` | `card`, `from_habitat`, `from_slot`, `to_habitat`, `to_slot` | not a second play — the bird keeps eggs/tucks/cache |
+| `PassCardEffect` | `card`, `to_player_id` | |
+| `FeederRerollEffect` | `faces` | **reveal** |
+| `DiceRollEffect` | `bird`, `faces` | **reveal** — `ROLL_NOT_IN_FEEDER_CACHE` predators |
+| `TrayRefillEffect` | `slot`, `card` | **reveal** |
+
+Field naming is consistent: **`card`** is a card moving between zones (hand /
+deck / tray / board); **`bird`** is a bird already in play being targeted.
+
+### `engine/ledger.py` is the only producer
+
+Effects are never recorded next to a mutation by convention — every mutation is
+*performed by* a `ledger` function that records the effect in the same call.
+A power that pokes `pb.eggs` directly would leave the log silently
+under-reporting, and nothing about the recording site would look wrong.
+
+`tests/test_gamelog_ledger.py` is what makes this safe: it replays the whole
+recorded ledger from an empty game and reconciles it against the final
+`GameState` — per-seat food, per-bird eggs / tucks / caches, hand contents, and
+board rows rebuilt in order — across several seeds at 2 and 4 seats. A mutation
+that bypasses the ledger fails there.
+
+Attribution: an effect's `player_id` is the **owner of the changed resource**,
+not the acting seat — a pink reactor mutates the reacting opponent's board and
+is attributed to that opponent, so per-seat sums add up. `TrayRefillEffect` is
+the one genuinely seatless effect (the end-of-round reset belongs to no player).
 
 ## Phase structure
 
@@ -130,8 +172,8 @@ positional `zip` against the reporting layer.
   non-empty the new event is appended to the top's `children`; if the stack is
   empty it is appended to the current phase's `events`.
 - `end_event()` pops the top of the stack.
-- `record_decision` / `record_forced` / `note` append to the stack-top's
-  `sub_events`.  If the stack is empty, one `LooseEvent` per phase is created on
+- `record_decision` / `record_forced` / `record_effect` append to the
+  stack-top's `sub_events`.  If the stack is empty, one `LooseEvent` per phase is created on
   first use and appended to the current phase, then reused for the rest of the
   phase — a run of unbracketed calls collects into one bucket, not one event
   apiece.
@@ -152,6 +194,7 @@ This single rule handles all nesting correctly:
 | `events.begin_game()` | `play_one_game` / `play_one_game_with_setups` before the game loop |
 | `events.begin_phase("game_start")` | same, immediately after `begin_game` |
 | `events.begin_phase("setup")` | `_resolve_setup_choice` **and** `_setup_phase_fixed` (each paired with `instrumentation.setup_start`) |
+| `events.begin_deal(player.id)` / `events.end_event()` | wraps `_deal_setup_inputs` (the dealt cards are reveals, and the deal precedes the setup phase) |
 | `events.begin_setup(player.id)` / `events.end_event()` | wraps the setup decision asks + deferred resolves |
 | `events.begin_phase("round", round_idx=…)` | `_play_round` |
 | `events.begin_phase("turn", round_idx=…, turn_idx=…)` | `_take_turn` |
@@ -170,13 +213,13 @@ This single rule handles all nesting correctly:
 | `begin_white_power` / `end_event` | `do_play_bird` around `dispatch_power(…, "play")` |
 | `begin_activate_base` / `end_event` | `do_gain_food`, `do_lay_eggs`, `do_draw_cards` |
 | `begin_activate_brown` / `end_event` | `activate_row_powers` per crossed bird |
-| `events.note(text, player_id)` | `_reroll_feeder` — the single seam every birdfeeder reroll (`offer_birdfeeder_reset`, `gain_feeder_die`, `combined_feeder_gain`) routes through |
 
-### `engine/powers/grants.py`
+### `engine/ledger.py`
 
 | Call | Location |
 |------|----------|
-| `events.note(text, player_id)` | `_h_roll_not_in_feeder_cache`, after the `ROLL_NOT_IN_FEEDER_CACHE` dice predator's roll |
+| `events.record_effect(effect)` | every mutation helper — the only producer of effects |
+| `begin_refill_tray` / `end_event` | `_record_tray_reveals`, wrapping each tray restock |
 
 ### `engine/reactors.py`
 
@@ -215,7 +258,7 @@ type-specific (e.g. `[Activate forest (gain food)]`, `[Brown: Elf Owl]`,
 `[Setup (kept: Barn Owl, Elf Owl; bonus: Rodentologist)]`,
 `[Round 1 goal — … [P0: 3/4VP, P1: 1/1VP]]`,
 `[Final scoring [42, 37]]`).
-Sub-events: `→ text` (decision), `! text` (forced), bare text (note).
+Sub-events: `→ text` (decision), `! text` (forced), `· kind(fields)` (effect).
 Children indented two spaces per level.
 
 ## Adding a new event type

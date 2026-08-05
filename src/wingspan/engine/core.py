@@ -26,7 +26,8 @@ import random
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine import actions, log_format, scoring
+from wingspan.engine import actions, ledger, log_format, scoring
+from wingspan.gamelog import models as gamelog_models
 from wingspan.gamelog import recorder as gamelog_recorder
 from wingspan.instrumentation import dispatcher
 
@@ -395,7 +396,7 @@ class Engine:
         self._dispatch_main_action(agent, choice)
         actions.consume_extra_plays(self, player, agent)
         self._resolve_turn_end_discards(agent, player)
-        self.state.refill_tray()
+        ledger.refill_tray(self, player.id)
         self.instrumentation.turn_end(engine=self, player=player)
 
     @staticmethod
@@ -491,8 +492,9 @@ class Engine:
                 ),
             )
             assert isinstance(ch, decisions.BirdChoice)
-            player.hand.remove(ch.bird)
-            self.state.bird_discard.append(ch.bird)
+            ledger.discard_from_hand(
+                self, player, ch.bird, purpose=gamelog_models.EffectPurpose.TURN_END
+            )
             self.log(f"  [{player.name}] end-of-turn discard: {ch.bird.name}")
 
     # ------------------------------------------------------------------
@@ -641,7 +643,7 @@ class Engine:
         # end-of-round setup step; the last turn's refill_tray() still runs
         # (restoring any slots emptied during that turn) and those cards are
         # then discarded here before the new cards go face-up.
-        self.state.reset_tray()
+        ledger.reset_tray(self)
         self.instrumentation.round_end(engine=self, round_num=round_idx)
 
     # Power-granted extra plays are resolved by ``actions.consume_extra_plays``
@@ -655,9 +657,13 @@ class Engine:
         """Draw ``STARTING_HAND_SIZE`` birds from the top of the deck into
         ``player``'s hand. Silently deals fewer if the deck is short."""
         for _ in range(state.STARTING_HAND_SIZE):
-            drawn = self.state.draw_bird()
-            if drawn:
-                player.hand.append(drawn)
+            if (
+                ledger.draw_from_deck(
+                    self, player, source=gamelog_models.CardSource.DEAL
+                )
+                is None
+            ):
+                break
 
     def _deal_setup_inputs(
         self, player: state.Player
@@ -666,11 +672,21 @@ class Engine:
         food, returning the dealt cards and dealt bonus the setup pick is made
         over. The shared dealing prefix of both setup paths (the ask-the-agent
         ``_resolve_setup_choice`` and the fixed-setup ``_setup_phase_fixed``), so
-        a chooser decides over exactly the inputs an agent would see."""
-        self._deal_starting_hand(player)
-        dealt_bonus = self._deal_starting_bonus()
-        for food in cards.ALL_FOODS:
-            player.food[food] = 1
+        a chooser decides over exactly the inputs an agent would see.
+
+        Bracketed in its own ``DealEvent``: the dealt cards are reveals, and the
+        deal runs before the setup phase opens (the fixed-setup path deals every
+        seat up front, so it cannot be folded into the setup bracket)."""
+        self.events.begin_deal(player.id)
+        try:
+            self._deal_starting_hand(player)
+            dealt_bonus = self._deal_starting_bonus()
+            for food in cards.ALL_FOODS:
+                ledger.gain_food(
+                    self, player, food, source=gamelog_models.FoodSource.DEAL
+                )
+        finally:
+            self.events.end_event()
         return list(player.hand), dealt_bonus
 
     def _resolve_setup_choice(
@@ -849,14 +865,20 @@ class Engine:
         update is skipped here — food is instead resolved by a subsequent call to
         ``_maybe_resolve_deferred_setup_food``."""
         kept = list(sc.kept_cards)
-        player.hand = kept
         for card in dealt_cards:
             if card not in kept:
-                self.state.bird_discard.append(card)
+                ledger.discard_from_hand(
+                    self, player, card, purpose=gamelog_models.EffectPurpose.SETUP
+                )
         if not defer_food:
             for food in cards.ALL_FOODS:
                 if food not in sc.kept_foods:
-                    player.food[food] -= 1
+                    ledger.spend_food(
+                        self,
+                        player,
+                        food,
+                        purpose=gamelog_models.EffectPurpose.SETUP,
+                    )
         if sc.bonus_card is not None:
             player.bonus_cards.append(sc.bonus_card)
             for bonus in dealt_bonus:
@@ -907,8 +929,7 @@ class Engine:
             # One combined "gain N foods" pick over N-subsets of the five distinct
             # foods (one die of each on offer), replacing the gain/discard split.
             # N = 5 - n_kept (the foods kept after paying for birds); start at 0.
-            for food in cards.ALL_FOODS:
-                player.food[food] = 0
+            self._clear_setup_food(player)
             n_keep = len(cards.ALL_FOODS) - n_kept
             actions.combined_supply_gain(
                 self,
@@ -923,8 +944,7 @@ class Engine:
         if n_kept >= 3:
             # High-keep: player would have no food left after paying for birds.
             # Zero out the post-deal food pool and grant food via gain decisions.
-            for food in cards.ALL_FOODS:
-                player.food[food] = 0
+            self._clear_setup_food(player)
             n_gains = min(5 - n_kept, 2)  # 3 kept → 2, 4 kept → 1, 5 kept → 0
             gained: set[cards.Food] = set()
             for gain_num in range(n_gains):
@@ -942,7 +962,12 @@ class Engine:
                 )
                 chosen = self.ask(agent, decision)
                 assert isinstance(chosen, decisions.FoodChoice)
-                player.food[chosen.food] += 1
+                ledger.gain_food(
+                    self,
+                    player,
+                    chosen.food,
+                    source=gamelog_models.FoodSource.SUPPLY,
+                )
                 gained.add(chosen.food)
         else:
             # Low-keep: player has 5 food from the deal and discards down.
@@ -962,7 +987,29 @@ class Engine:
                 )
                 chosen = self.ask(agent, decision)
                 assert isinstance(chosen, decisions.FoodChoice)
-                player.food[chosen.food] -= 1
+                ledger.spend_food(
+                    self,
+                    player,
+                    chosen.food,
+                    purpose=gamelog_models.EffectPurpose.SETUP,
+                )
+
+    def _clear_setup_food(self, player: state.Player) -> None:
+        """Zero ``player``'s post-deal food pool before the deferred-food regimes
+        grant it back through in-game decisions.
+
+        Recorded as one :class:`~wingspan.gamelog.models.SpendFoodEffect` per
+        token rather than a bulk assignment, so the ledger stays a complete
+        account of every token that entered or left a supply."""
+        for food in cards.ALL_FOODS:
+            if player.food[food]:
+                ledger.spend_food(
+                    self,
+                    player,
+                    food,
+                    player.food[food],
+                    purpose=gamelog_models.EffectPurpose.SETUP,
+                )
 
 
 # ---------------------------------------------------------------------------

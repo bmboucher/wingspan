@@ -12,7 +12,7 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine import reactors
+from wingspan.engine import ledger, reactors
 from wingspan.engine.powers import dispatch, registry
 
 if typing.TYPE_CHECKING:
@@ -38,7 +38,6 @@ def _h_predator_hunt(
     eff: cards.Effect,
     trigger: str,
 ) -> None:
-    st = engine.state
     bird = pb.bird
     cap = eff.max_wingspan_cm
     assert cap is not None
@@ -62,18 +61,18 @@ def _h_predator_hunt(
             engine.log(f"  {bird.name}: [{player.name}] declined predator hunt")
             return
 
-    prey = st.draw_bird()
+    prey = ledger.reveal_from_deck(engine)
     if prey is None:
         engine.log(f"  {bird.name}: deck empty; predator hunt skipped")
         return
     if prey.wingspan_cm and prey.wingspan_cm < cap:
-        pb.tucked_cards += 1
+        ledger.tuck_revealed(engine, player, pb, prey)
         engine.log(
             f"  {bird.name}: hunted {prey.name} ({prey.wingspan_cm}cm < {cap}cm) — tucked"
         )
         reactors.trigger_pink_predator_success(engine, player)
     else:
-        st.bird_discard.append(prey)
+        ledger.discard_revealed(engine, player, prey)
         engine.log(
             f"  {bird.name}: hunt missed ({prey.name}, {prey.wingspan_cm}cm) — discarded"
         )
@@ -121,8 +120,7 @@ def _h_move_bird_if_rightmost(
     if ch.habitat == habitat:
         engine.log(f"  {bird.name}: chose to stay in [{habitat.value}]")
         return
-    row.pop()
-    player.board[ch.habitat].append(pb)
+    ledger.move_bird(engine, player, pb, habitat, ch.habitat)
     engine.log(f"  {bird.name}: moved from [{habitat.value}] to [{ch.habitat.value}]")
 
 
