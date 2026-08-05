@@ -32,7 +32,9 @@ import yaml
 from wingspan import engine, players, state
 from wingspan.agents import display
 from wingspan.engine import scoring
+from wingspan.gamelog import models as gamelog_models
 from wingspan.gamelog import recorder as gamelog_recorder
+from wingspan.gamelog import render_jsonl as gamelog_render_jsonl
 from wingspan.gamelog import render_text as gamelog_render_text
 from wingspan.instrumentation import config as instrumentation_config
 from wingspan.instrumentation import dispatcher
@@ -108,9 +110,14 @@ def main_play(argv: list[str] | None = None) -> int:
     # probability bars and encoding-viewer stripes.
     rec = (
         gamelog_recorder.EventRecorder(probes=probes)
-        if (args.html or args.log)
+        if (args.html or args.log or args.jsonl)
         else gamelog_recorder.null_recorder()
     )
+
+    # The flat log is append-only (one file for the whole series), so a rerun
+    # must start from an empty file rather than extending the previous run's.
+    if args.jsonl:
+        pathlib.Path(args.jsonl).write_text("", encoding="utf-8")
 
     instrumentation = _open_instrumentation(args, seed, seat_specs, seat_configs)
     try:
@@ -135,6 +142,26 @@ def main_play(argv: list[str] | None = None) -> int:
                     f"Game {game_idx + 1}: scores={scores}, winner={winner_label}, "
                     f"log lines={len(eng.state.log)}"
                 )
+
+            # --jsonl: append this game's flat rows. The whole series shares one
+            # file — rows are keyed by game_id, which is what the format is for.
+            if args.jsonl:
+                assert isinstance(rec, gamelog_recorder.EventRecorder)
+                gamelog_render_jsonl.append_game(
+                    pathlib.Path(args.jsonl),
+                    rec.root,
+                    _game_meta(
+                        seed=seed + game_idx,
+                        seat_specs=seat_specs,
+                        split_setup_bonus=split_setup_bonus,
+                        split_setup_food=split_setup_food,
+                        combine_gain_food=combine_gain_food,
+                        scores=scores,
+                        winner=winner,
+                    ),
+                )
+                if not args.quiet:
+                    print(f"  jsonl -> {args.jsonl}")
 
             # --log: write the structured gamelog tree as plaintext.
             if args.log:
@@ -212,6 +239,15 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="debug_log",
         help="Path to write the raw engine.log dump (old --log behaviour). "
         "Respects --collate for interleaved vs per-player files.",
+    )
+    parser.add_argument(
+        "--jsonl",
+        type=str,
+        default=None,
+        help="Path to write the flat structured game log: one JSON object per "
+        "line — a header row per game, then one row per event and sub-event. "
+        "A --games series appends every game to this one file, keyed by "
+        "game_id (pandas: read_json(path, lines=True)).",
     )
     parser.add_argument(
         "--html",
@@ -379,6 +415,35 @@ def _instrument_file_spec(
 
 
 #### Log file output ####
+
+
+def _game_meta(
+    *,
+    seed: int,
+    seat_specs: typing.Sequence[str],
+    split_setup_bonus: bool,
+    split_setup_food: bool,
+    combine_gain_food: bool,
+    scores: typing.Sequence[int | None],
+    winner: int,
+) -> gamelog_models.GameMeta:
+    """The flat log's header row for one finished game.
+
+    ``winner`` arrives from :func:`~wingspan.engine.scoring.determine_winner`,
+    which reports a tie as ``-1``; the log carries a tie as a null seat instead,
+    so a grouped win count never picks up a phantom seat."""
+    return gamelog_models.GameMeta(
+        game_id=str(seed),
+        source=gamelog_models.LogSource.PLAY,
+        seed=seed,
+        num_players=len(seat_specs),
+        seats=[str(raw) for raw in seat_specs],
+        split_setup_bonus=split_setup_bonus,
+        split_setup_food=split_setup_food,
+        combine_gain_food=combine_gain_food,
+        scores=[score or 0 for score in scores],
+        winner=None if winner < 0 else winner,
+    )
 
 
 def _html_game_path(base: str, game_idx: int, games: int) -> str:

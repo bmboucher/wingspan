@@ -643,6 +643,87 @@ class GameEventTree(pydantic.BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Flat structured log (JSONL) rows
+#
+# The tree above is the shape a *renderer* wants; these are the shape an
+# *analyst* wants — one flat row per node, tree links carried as columns.  See
+# :mod:`wingspan.gamelog.render_jsonl` for the walk that produces them.
+
+
+class LogSource(enum.StrEnum):
+    """Which entry point recorded a match."""
+
+    PLAY = "play"
+    TOURNAMENT = "tournament"
+
+
+class RowKind(enum.StrEnum):
+    """Which of the flat log's three row shapes a line carries."""
+
+    GAME = "game"
+    EVENT = "event"
+    SUB = "sub"
+
+
+class GameMeta(pydantic.BaseModel):
+    """One recorded match's identity, setup, and outcome — the flat log's header row.
+
+    Written once per game, ahead of that game's node rows, so a file holding
+    many matches (a ``--games`` series, a whole tournament) stays
+    self-describing: ``game_id`` joins the node rows back to the conditions
+    they were played under.  ``winner`` is the winning seat, or ``None`` for a
+    tie; ``scores`` and ``seats`` are both in seat order."""
+
+    row: typing.Literal[RowKind.GAME] = RowKind.GAME
+    game_id: str
+    source: LogSource = LogSource.PLAY
+    seed: int
+    num_players: int
+    seats: list[str] = []
+    split_setup_bonus: bool = False
+    split_setup_food: bool = False
+    combine_gain_food: bool = False
+    scores: list[int] = []
+    winner: int | None = None
+
+
+class NodeRow(pydantic.BaseModel):
+    """One node of the event tree as a flat log row.
+
+    Declares only the columns *every* node carries; the node's own typed fields
+    ride alongside as extras, which is what ``extra="allow"`` is for here — a
+    new :class:`Effect` subclass contributes its own columns without a schema
+    edit, and nothing has to be flattened into an opaque payload string.
+
+    Tree links: ``event_id`` is the event this row belongs to (the event itself
+    on an ``event`` row, its owner on a ``sub`` row), and ``parent_id`` is that
+    event's enclosing event — so both rows of one event agree on every tree
+    column, and the forest reconstructs from the ``event`` rows alone.  ``seq``
+    is the row's depth-first position within its game and orders the file.
+
+    ``phase_seq`` is the phase's own position in the game, and is what addresses
+    a turn: ``phase_turn`` numbers a seat's turns *within a round*, so every
+    seat takes a turn 3 and ``(phase_round, phase_turn)`` names two phases at
+    two seats, not one."""
+
+    model_config = pydantic.ConfigDict(extra="allow")
+
+    row: RowKind
+    game_id: str
+    seq: int
+    event_id: int
+    parent_id: int | None = None
+    depth: int = 0
+    phase: str
+    phase_seq: int
+    phase_round: int | None = None
+    phase_turn: int | None = None
+    kind: str
+    player_id: int | None = None
+    text: str = ""
+
+
+# ---------------------------------------------------------------------------
 # Resolve the forward reference from GameEvent.children to AnyGameEvent, which
 # is only defined once every subclass exists.  Each subclass inherits the
 # unresolved ``children`` field and so needs its own rebuild.

@@ -12,13 +12,21 @@ process.
 :func:`play_tournament_game` is the pure per-game unit shared by the worker path
 and the in-process path (``in_process=True``), so a test can exercise the real
 game logic without paying the spawn cost.
+
+With ``TournamentConfig.jsonl_path`` set, each game also appends its flat
+structured log (:mod:`wingspan.gamelog.render_jsonl`). Workers write per-process
+shards — one append handle per file, so no two processes interleave a line — and
+the runner concatenates them into the configured path once the pool has shut
+down, leaving the caller the single file they asked for.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import pathlib
 import random
+import shutil
 import typing
 from concurrent import futures
 
@@ -26,6 +34,10 @@ import pydantic
 import torch
 
 from wingspan import engine
+from wingspan.engine import scoring
+from wingspan.gamelog import models as gamelog_models
+from wingspan.gamelog import recorder as gamelog_recorder
+from wingspan.gamelog import render_jsonl as gamelog_render_jsonl
 from wingspan.tournament import models, participants, results, schedule
 from wingspan.training import collect
 
@@ -54,6 +66,7 @@ class _WorkerRoster(pydantic.BaseModel):
     specs: list[models.ParticipantSpec]
     device: str
     regime: models.RegimeFlags
+    jsonl_path: str | None = None
 
 
 def run_tournament(
@@ -95,6 +108,7 @@ def play_tournament_game(
     task: models.GameTask,
     device: torch.device,
     regime: models.RegimeFlags,
+    jsonl_path: str | None = None,
 ) -> models.GameResult:
     """Play one scheduled game and read out competitor A's result.
 
@@ -104,16 +118,26 @@ def play_tournament_game(
     own first player is read from the engine into ``a_was_start_player``.
     ``regime`` selects the setup/food engine variant every game runs under, so
     each net plays under the regime it was trained on.
+
+    ``jsonl_path`` is the *already-resolved* file this game's flat log rows are
+    appended to — the caller picks it (a worker's own shard, or the configured
+    path in-process), so nothing here has to know whether it is sharing a file.
     """
     agent_a = _agent_for(specs_by_id, model_agents, task.player_a_id, task, device)
     agent_b = _agent_for(specs_by_id, model_agents, task.player_b_id, task, device)
     seats: tuple[engine.Agent, engine.Agent] = (
         (agent_a, agent_b) if task.a_seat == 0 else (agent_b, agent_a)
     )
+    recorder = (
+        gamelog_recorder.EventRecorder(probes=(None, None))
+        if jsonl_path is not None
+        else gamelog_recorder.null_recorder()
+    )
     game = collect.new_engine(task.deal_seed)
     engine.Engine.play_one_game(
         game.state,
         seats,
+        event_recorder=recorder,
         split_setup_bonus=regime.split_setup_bonus,
         split_setup_food=regime.split_setup_food,
         combine_gain_food=regime.combine_gain_food,
@@ -121,6 +145,12 @@ def play_tournament_game(
 
     score0 = game.state.players[0].final_score or 0
     score1 = game.state.players[1].final_score or 0
+    if jsonl_path is not None and isinstance(recorder, gamelog_recorder.EventRecorder):
+        gamelog_render_jsonl.append_game(
+            pathlib.Path(jsonl_path),
+            recorder.root,
+            _game_meta(task, game, regime, [score0, score1]),
+        )
     a_score, b_score = (score0, score1) if task.a_seat == 0 else (score1, score0)
     return models.GameResult(
         round_index=task.round_index,
@@ -137,6 +167,42 @@ def play_tournament_game(
 ###### PRIVATE #######
 
 
+def _game_meta(
+    task: models.GameTask,
+    game: engine.Engine,
+    regime: models.RegimeFlags,
+    scores: list[int],
+) -> gamelog_models.GameMeta:
+    """The flat log's header row for one finished tournament game.
+
+    ``game_id`` is built from the schedule coordinates rather than the deal seed
+    alone, because a mirrored deal is played twice — once from each seat
+    ordering — and the two games must not collide when their shards are merged.
+    ``seats`` names the competitors in board-seat order, so a row's
+    ``player_id`` resolves to a competitor without consulting the schedule."""
+    seat_ids = (
+        [task.player_a_id, task.player_b_id]
+        if task.a_seat == 0
+        else [task.player_b_id, task.player_a_id]
+    )
+    winner = scoring.determine_winner(game.state.players)
+    return gamelog_models.GameMeta(
+        game_id=(
+            f"r{task.round_index}p{task.pair_index}"
+            f"o{int(task.orientation)}s{task.deal_seed}"
+        ),
+        source=gamelog_models.LogSource.TOURNAMENT,
+        seed=task.deal_seed,
+        num_players=len(game.state.players),
+        seats=seat_ids,
+        split_setup_bonus=regime.split_setup_bonus,
+        split_setup_food=regime.split_setup_food,
+        combine_gain_food=regime.combine_gain_food,
+        scores=scores,
+        winner=None if winner < 0 else winner,
+    )
+
+
 def _run_in_process(
     cfg: models.TournamentConfig,
     tasks: typing.Sequence[models.GameTask],
@@ -149,10 +215,13 @@ def _run_in_process(
     specs_by_id = {spec.id: spec for spec in cfg.participants}
     model_agents: dict[str, engine.Agent] = {}
     collected: list[models.GameResult] = []
+    _truncate(cfg.jsonl_path)
     for task in tasks:
         if should_stop is not None and should_stop():
             break
-        result = play_tournament_game(specs_by_id, model_agents, task, device, regime)
+        result = play_tournament_game(
+            specs_by_id, model_agents, task, device, regime, cfg.jsonl_path
+        )
         collected.append(result)
         if on_result is not None:
             on_result(result)
@@ -168,8 +237,12 @@ def _run_parallel(
 ) -> list[models.GameResult]:
     """Fan the games across a persistent worker pool, streaming completions."""
     roster = _WorkerRoster(
-        specs=list(cfg.participants), device=cfg.device, regime=regime
+        specs=list(cfg.participants),
+        device=cfg.device,
+        regime=regime,
+        jsonl_path=cfg.jsonl_path,
     )
+    _clear_shards(cfg.jsonl_path)
     pool = futures.ProcessPoolExecutor(
         max_workers=_default_worker_count(len(tasks)),
         initializer=_worker_init,
@@ -188,6 +261,8 @@ def _run_parallel(
                 break
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
+    # Only safe once every worker has exited — the shutdown above guarantees it.
+    _merge_shards(cfg.jsonl_path)
     return collected
 
 
@@ -211,6 +286,63 @@ def _agent_for(
     return cached
 
 
+#### Flat-log shards ####
+
+
+def _shard_path(base: str, worker_id: int) -> str:
+    """One worker's own slice of the flat log, ``<stem>.w<id><suffix>``.
+
+    Worker processes cannot share a single append handle without interleaving
+    partial lines, so each writes its own file; :func:`_merge_shards` puts them
+    back together. Row order *across* shards carries no meaning — ``game_id``
+    groups a match and ``seq`` orders it."""
+    path = pathlib.Path(base)
+    return str(path.with_name(f"{path.stem}.w{worker_id}{path.suffix or '.jsonl'}"))
+
+
+def _shard_glob(base: str) -> list[pathlib.Path]:
+    """Every shard file belonging to ``base``, in a stable order.
+
+    The pattern cannot match ``base`` itself — a shard always carries a
+    ``.w<id>`` segment the merge target does not — so merging never reads the
+    file it is writing."""
+    path = pathlib.Path(base)
+    return sorted(path.parent.glob(f"{path.stem}.w*{path.suffix or '.jsonl'}"))
+
+
+def _clear_shards(base: str | None) -> None:
+    """Remove any shards left by an earlier run, and empty the merge target.
+
+    Shard names are keyed on worker pid, so without this a rerun that happened
+    to draw a pid it used before would silently append to stale rows."""
+    if base is None:
+        return
+    for shard in _shard_glob(base):
+        shard.unlink()
+    _truncate(base)
+
+
+def _merge_shards(base: str | None) -> None:
+    """Concatenate every shard into ``base`` and delete the shards.
+
+    Leaves the caller with the single file they asked for, whichever driver
+    played the games."""
+    if base is None:
+        return
+    with open(base, "wb") as merged:
+        for shard in _shard_glob(base):
+            with open(shard, "rb") as handle:
+                shutil.copyfileobj(handle, merged)
+    for shard in _shard_glob(base):
+        shard.unlink()
+
+
+def _truncate(path: str | None) -> None:
+    """Start ``path`` empty, so an append-only writer cannot extend a stale run."""
+    if path is not None:
+        pathlib.Path(path).write_text("", encoding="utf-8")
+
+
 def _default_worker_count(n_tasks: int) -> int:
     """Workers default to (cores − reserved), capped, never more than the games."""
     cores = os.cpu_count() or 4
@@ -220,25 +352,32 @@ def _default_worker_count(n_tasks: int) -> int:
 
 # ---------------------------------------------------------------------------
 # Worker-process state: one roster of competitor specs, the shared game regime,
-# and a per-process cache of the model agents this worker has loaded, all
-# populated by ``_worker_init``.
+# this worker's own flat-log shard, and a per-process cache of the model agents
+# it has loaded, all populated by ``_worker_init``.
 
 _worker_specs: dict[str, models.ParticipantSpec] = {}
 _worker_model_agents: dict[str, engine.Agent] = {}
 _worker_device: torch.device | None = None
 _worker_regime: models.RegimeFlags | None = None
+_worker_jsonl_path: str | None = None
 
 
 def _worker_init(roster: _WorkerRoster) -> None:
     """Pin torch to one thread, silence stray logging, and stash the roster so
     each game just loads (and caches) the agents it needs."""
     global _worker_specs, _worker_model_agents, _worker_device, _worker_regime
+    global _worker_jsonl_path
     torch.set_num_threads(1)
     logging.getLogger().addHandler(logging.NullHandler())
     _worker_specs = {spec.id: spec for spec in roster.specs}
     _worker_model_agents = {}
     _worker_device = torch.device(roster.device)
     _worker_regime = roster.regime
+    _worker_jsonl_path = (
+        _shard_path(roster.jsonl_path, os.getpid())
+        if roster.jsonl_path is not None
+        else None
+    )
 
 
 def _worker_play(task: models.GameTask) -> models.GameResult:
@@ -246,5 +385,10 @@ def _worker_play(task: models.GameTask) -> models.GameResult:
     assert _worker_device is not None, "worker not initialized"
     assert _worker_regime is not None, "worker not initialized"
     return play_tournament_game(
-        _worker_specs, _worker_model_agents, task, _worker_device, _worker_regime
+        _worker_specs,
+        _worker_model_agents,
+        task,
+        _worker_device,
+        _worker_regime,
+        _worker_jsonl_path,
     )

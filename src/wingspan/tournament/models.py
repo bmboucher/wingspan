@@ -138,6 +138,12 @@ class TournamentConfig(pydantic.BaseModel):
     ``games_per_pair / 2`` mirrored deals (each deal played from both seat
     orderings), which gives each competitor the start-player seat an equal number
     of times.
+
+    ``jsonl_path`` opts every game into the flat structured log
+    (:mod:`wingspan.gamelog.render_jsonl`), which costs an event recorder per
+    game and so stays off unless asked for. Parallel workers each write their
+    own shard and the runner concatenates them into this one path when the
+    round-robin finishes.
     """
 
     participants: typing.Annotated[list[ParticipantSpec], pydantic.Field(min_length=2)]
@@ -146,6 +152,7 @@ class TournamentConfig(pydantic.BaseModel):
     elo_init: float = DEFAULT_ELO_INIT
     base_seed: int = 0
     out_path: str = "tournament_report.json"
+    jsonl_path: str | None = None
     device: str = "cpu"
 
     @pydantic.model_validator(mode="after")

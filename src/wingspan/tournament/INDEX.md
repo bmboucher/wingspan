@@ -13,7 +13,9 @@ state: `TournamentConfig`, `RegimeFlags`, `ParticipantSpec`, `RunOption`,
 `TournamentReport`, `EloTable`, `LiveRecord`, `StandingRow`. Also
 `ParticipantKind`, `Orientation`, `TournamentPhase` enums. `RegimeFlags` is the
 frozen `split_setup_bonus`/`split_setup_food`/`combine_gain_food` carrier every
-game runs under, shipped to workers as pool `initargs`.
+game runs under, shipped to workers as pool `initargs`. `TournamentConfig`
+carries the two output paths: `out_path` (the JSON report) and the optional
+`jsonl_path` (the flat per-game structured log — see `runner.py`).
 
 **`participants.py`** — Competitor discovery and loading:
 - `random_spec() -> models.ParticipantSpec` — the built-in random-agent spec.
@@ -46,10 +48,19 @@ generates the complete list of head-to-head pairings (each ordered pair plays
   finished `GameResult` to `on_result`. Resolves `regime` from the competitors'
   configs via `participants.resolve_regime_flags` when not supplied, so every
   caller runs games under the trained regime by construction.
-- `play_tournament_game(specs_by_id, model_agents, task, device, regime) ->
-  models.GameResult` — the pure per-game unit shared by the pool and in-process
-  paths; passes `regime`'s flags into `Engine.play_one_game`. The `RegimeFlags`
-  ride to each worker inside `_WorkerRoster`.
+- `play_tournament_game(specs_by_id, model_agents, task, device, regime,
+  jsonl_path=None) -> models.GameResult` — the pure per-game unit shared by the
+  pool and in-process paths; passes `regime`'s flags into
+  `Engine.play_one_game`. The `RegimeFlags` ride to each worker inside
+  `_WorkerRoster`.
+- `TournamentConfig.jsonl_path` opts every game into the flat structured log
+  (`gamelog.render_jsonl`), which costs an `EventRecorder` per game and so is
+  off by default. `jsonl_path` reaches `play_tournament_game` **already
+  resolved to the exact file this game appends to** — workers cannot share one
+  append handle without interleaving partial lines, so each writes
+  `<stem>.w<pid><suffix>` (`_shard_path`) and `_merge_shards` concatenates them
+  into the configured path once the pool has shut down. `_clear_shards` removes
+  a previous run's leftovers first, since shard names are keyed on pid.
 
 **`state.py`** — `TournamentState(pydantic.BaseModel)`: live shared snapshot
 read by the dashboard renderer. Fields: `config`, `phase`, `total_games`,

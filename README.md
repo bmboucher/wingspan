@@ -57,6 +57,7 @@ wingspan play --p0 best --p1 best --greedy --log ai.log # best vs itself, argmax
 wingspan play --p0 runs/exp/last.pt --p1 random         # a checkpoint by path
 wingspan play --p0 best --p1 best --html game.html      # navigable HTML game-log viewer
 wingspan play --p0 random --p1 random --p2 random --html game.html  # 3-seat random game, HTML log
+wingspan play --p0 best --p1 best --jsonl game.jsonl    # flat structured log, for analysis
 ```
 
 A `human` seat gets a numbered menu for every choice the rules require — pick a
@@ -78,6 +79,25 @@ per-seat score lines and per-seat critic/target return lines; it includes a
 for timestamp, player, per-seat scores, and per-seat critic/target values
 (each seat's own future-return margin vs its best other seat, in VP — not
 projected onto any other seat's axis).
+
+### The flat structured log
+
+`--jsonl FILE` writes the same game as data: one JSON object per line — a header
+row per match, then one row per event and sub-event. Every state change the
+engine made is there with its own typed columns (`card`, `food`, `amount`,
+`bird`, `habitat`), each event row carries the same at-a-glance header the HTML
+viewer shows, and the tree's nesting survives as `event_id` / `parent_id` /
+`depth` columns. Unlike `--log`, a `--games` series appends to the *one* file,
+keyed by `game_id`.
+
+```python
+import pandas
+rows = pandas.read_json("game.jsonl", lines=True)
+rows[rows.kind == "lay_egg"].groupby("player_id")["count"].sum()
+```
+
+`wingspan tournament --jsonl games.jsonl` does the same for every game of a
+round-robin. See [`docs/GAMELOG.md`](docs/GAMELOG.md) for the full row schema.
 
 ## Train an agent
 

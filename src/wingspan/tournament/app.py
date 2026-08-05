@@ -58,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
         elo_init=args.elo_init,
         base_seed=args.seed,
         out_path=args.out,
+        jsonl_path=args.jsonl,
         device=_resolve_device(args.device),
     )
     unloadable = _unloadable_competitors(cfg)
@@ -340,6 +341,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--elo-init", type=float, default=models.DEFAULT_ELO_INIT)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="tournament_report.json")
+    parser.add_argument(
+        "--jsonl",
+        default=None,
+        help="also write every game's flat structured log here (one JSON object "
+        "per line; parallel workers shard and are merged back into this path)",
+    )
     parser.add_argument("--device", default="cpu", help="cpu or cuda")
     parser.add_argument(
         "--base-dir",

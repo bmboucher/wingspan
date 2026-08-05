@@ -323,6 +323,82 @@ Unlike the HTML log, this renderer keeps **every** effect row, not just the
 reveals: it is the detailed log, where the header says what happened and the
 rows below prove it.
 
+### Flat JSONL (`gamelog/render_jsonl.render_rows`)
+
+The third renderer, and the one meant for analysis rather than reading. One
+match becomes a `GameMeta` header row followed by **one row per node** — every
+event *and* every sub-event — in depth-first order, each a single-line JSON
+object. Files concatenate freely: a `--games` series and a whole tournament land
+in one file, keyed by `game_id`.
+
+```
+wingspan play --p0 best --p1 best --seed 12345 --jsonl game.jsonl
+wingspan tournament --jsonl games.jsonl        # every game of the round-robin
+```
+
+```python
+import pandas
+rows = pandas.read_json("game.jsonl", lines=True)
+turns = rows[rows.phase == "turn"].groupby("phase_seq")
+```
+
+Not wired into training self-play — millions of games, and it would cost
+collection throughput for a file nobody reads.
+
+**Common columns**, on every node row:
+
+| Column | Meaning |
+| ------ | ------- |
+| `row` | `game` / `event` / `sub` — which shape this line is |
+| `game_id` | the match; the join key back to the header row |
+| `seq` | depth-first position within the game; orders the file |
+| `event_id` | the event this row belongs to — *itself* on an `event` row, its **owner** on a `sub` row, so `groupby("event_id")` collects an event with its parts |
+| `parent_id` | that event's enclosing event; absent at phase level |
+| `depth` | event nesting depth (a sub-event sits one below its event) |
+| `phase` | `game_start` / `setup` / `round` / `turn` / `game_end` |
+| `phase_seq` | the phase's index in the game — **this is what addresses a turn** |
+| `phase_round` / `phase_turn` | the phase's coordinates, namespaced |
+| `kind` | the node's `kind` discriminator (`activate_brown`, `draw_card`, …) |
+| `player_id` | acting seat on an event, resource owner on an effect |
+| `text` | the human-readable line — see below |
+
+> **`phase_turn` is not unique.** It numbers a seat's turns *within a round*, so
+> every seat has a turn 3 and `(phase_round, phase_turn)` names one phase *per
+> seat*. Group a turn on `phase_seq`, or two seats' turns silently merge.
+
+**Per-node columns.** Each node's own typed fields become its own columns — a
+`draw_card` row has `card` / `source`, a `lay_egg` row has `bird` / `habitat` /
+`count`. A new `Effect` subclass contributes its columns automatically; nothing
+is folded into an opaque payload. Null-valued fields are omitted rather than
+written as `null` (pandas fills them as NaN either way).
+
+**Event rows** additionally carry the folded `EventSummary` as `sum_`-prefixed
+columns (`sum_eggs_laid`, `sum_food_gained`, `sum_cards_drawn`, …), so the
+seat-scoping rule of the fold does not have to be re-derived downstream. Only
+non-default entries appear.
+
+**`text`** is the uniform human-readable column: an event's `summary_text`
+header (byte-identical to the HTML log's), a resolution's `outcome_text`, a
+reveal's disclosure line, and empty for an effect that folds silently into its
+event. `outcome_text` is *not* also emitted as its own column — `text` is it.
+
+**What is dropped:** `state_stripes` and each option's `choice_stripes`. Those
+are a full feature vector per decision and would dwarf everything else. The
+policy distribution itself is kept — `options` holds every offered choice's
+`label` / `prob` / `score` / `selected`.
+
+**Two shared column names**, both disambiguated by `kind`: `scores` is a
+per-seat `FinalScoreBreakdown` list on a `final_scoring` row and the running
+per-seat score on a resolution row; `round_idx` on a `round_goal` row is the
+round it scores (equal to that row's `phase_round`).
+
+Size: roughly 120 KB per random game, 210 KB per annotated model game.
+
+**Tournament sharding.** Worker processes cannot share one append handle
+without interleaving partial lines, so each writes `<stem>.w<pid><suffix>` and
+`runner._merge_shards` concatenates them into the configured path once the pool
+has shut down. The caller always ends up with the single file they asked for.
+
 ## Adding a new event type
 
 1. Add a `GameEvent` subclass to `gamelog/models.py` with typed fields and a
@@ -335,10 +411,12 @@ rows below prove it.
 4. Wire the call-site `begin_<name>` / `end_event` brackets in the appropriate
    engine or action module.  If the bracket spans a phase boundary, keep the
    phase/instrumentation pairing intact (see the alignment invariant above).
-5. Add a header branch to `summarize.summary_text`.  Both renderers pick it up
-   from there — there is no per-renderer label table.  The fallback returns the
-   effect phrase or `"Other"`, so a missing branch degrades quietly rather than
-   leaking a class name; `tests/test_gamelog_summarize.py` fails on the leak.
+5. Add a header branch to `summarize.summary_text`.  All three renderers pick it
+   up from there — there is no per-renderer label table.  The fallback returns
+   the effect phrase or `"Other"`, so a missing branch degrades quietly rather
+   than leaking a class name; `tests/test_gamelog_summarize.py` fails on the leak.
 6. Add tests in `tests/test_gamelog_tree.py`; the round-trip in
-   `tests/test_gamelog_serialize.py` covers serialization automatically.
+   `tests/test_gamelog_serialize.py` and the flat-log row schema in
+   `tests/test_gamelog_jsonl.py` both cover the new class automatically — the
+   JSONL renderer reads `kind` and dumps whatever fields the class declares.
 7. Update this file.

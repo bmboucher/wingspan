@@ -7,6 +7,7 @@ message and exit code 1.
 
 from __future__ import annotations
 
+import json
 import pathlib
 
 import pytest  # noqa: E402
@@ -154,6 +155,48 @@ def test_multi_game_logs_get_index_suffixes(tmp_path: pathlib.Path):
     assert exit_code == 0
     assert (tmp_path / "games.log.0").exists()
     assert (tmp_path / "games.log.1").exists()
+
+
+def test_jsonl_flag_collects_the_whole_series_in_one_file(tmp_path: pathlib.Path):
+    """``--jsonl`` appends every game of a series to the one path.
+
+    Unlike ``--log``, which needs a file per game because the plaintext format
+    has no way to say which game a line belongs to, the flat log keys every row
+    by ``game_id`` — so one file is the useful shape."""
+    jsonl_path = tmp_path / "games.jsonl"
+    exit_code = cli.main_play(
+        [
+            "--p0",
+            "random",
+            "--p1",
+            "random",
+            "--seed",
+            "7",
+            "--games",
+            "2",
+            "--quiet",
+            "--jsonl",
+            str(jsonl_path),
+        ]
+    )
+    assert exit_code == 0
+    rows = [
+        json.loads(line) for line in jsonl_path.read_text(encoding="utf-8").splitlines()
+    ]
+    headers = [row for row in rows if row["row"] == "game"]
+    assert [row["game_id"] for row in headers] == ["7", "8"]
+    assert all(row["source"] == "play" for row in headers)
+    assert all(row["seats"] == ["random", "random"] for row in headers)
+    assert {row["game_id"] for row in rows} == {"7", "8"}
+
+
+def test_jsonl_flag_starts_from_an_empty_file(tmp_path: pathlib.Path):
+    """A rerun replaces the previous run's rows rather than appending to them."""
+    jsonl_path = tmp_path / "game.jsonl"
+    jsonl_path.write_text('{"row":"stale"}\n', encoding="utf-8")
+    argv = ["--p0", "random", "--p1", "random", "--seed", "5", "--quiet"]
+    assert cli.main_play([*argv, "--jsonl", str(jsonl_path)]) == 0
+    assert "stale" not in jsonl_path.read_text(encoding="utf-8")
 
 
 def test_missing_checkpoint_fails_cleanly(

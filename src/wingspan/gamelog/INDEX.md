@@ -1,9 +1,10 @@
 # gamelog — Structured game-event tree
 
 Torch-free, engine-free kernel that the engine *produces* and the reporting
-layer *consumes*.  Both the HTML decision log and the `--log` plaintext log
-are pure renderers over this one tree; the raw `engine.log` stream is an
-independent debug dump (reachable via `--debug-log`), not a source.
+layer *consumes*.  The HTML decision log, the `--log` plaintext log, and the
+`--jsonl` flat structured log are all pure renderers over this one tree; the raw
+`engine.log` stream is an independent debug dump (reachable via `--debug-log`),
+not a source.
 
 See [`docs/GAMELOG.md`](../../../docs/GAMELOG.md) for the full design reference:
 six event types, sub-event taxonomy, open-event-stack rule, and call-site map.
@@ -53,6 +54,11 @@ Key classes:
   `RoundGoalEvent(round_idx, description, counts, vps)`,
   `FinalScoringEvent(scores)`, `LooseEvent`.
 - `FinalScoreBreakdown(birds, eggs, tucked, cached, bonus, goals, total)`.
+- Flat-log rows (consumed by `render_jsonl.py`): `LogSource`, `RowKind`,
+  `GameMeta` (one match's identity, setup, and outcome — the header row) and
+  `NodeRow` (the columns every node row carries; a node's own typed fields ride
+  along as pydantic extras, so a new `Effect` class contributes its own columns
+  with no schema edit).
 - `AnySubEvent`, `AnyGameEvent` — **discriminated unions** keyed on each
   subclass's `kind` literal, and the declared type of `sub_events` / `children` /
   `PhaseNode.events`.  Annotating those containers with the *base* classes makes
@@ -148,3 +154,21 @@ Children (nested events) are indented two spaces per level.
 Unlike the HTML log, this keeps **every** effect row rather than only the
 reveals: it is the detailed log, where the header says what happened and the
 rows below it prove it.
+
+**`render_jsonl.py`** — the flat structured log, for analysis rather than
+reading.  Pure: `models` + `summarize` + stdlib only.
+
+- `render_rows(tree, meta) -> list[str]` — the game's `GameMeta` header row,
+  then one `NodeRow` per node (event *and* sub-event) in depth-first order.
+- `render_jsonl(tree, meta) -> str` / `append_game(path, tree, meta)` — the
+  newline-terminated block and the append that writes it.  Files concatenate,
+  so a `--games` series, a tournament worker's shard, and a single game all go
+  through the same call.
+
+Every row carries the tree links as columns (`event_id` / `parent_id` /
+`depth` / `seq` / `phase_seq`), so the nesting reconstructs from the `event`
+rows alone.  Event rows also carry the folded `EventSummary` as `sum_`-prefixed
+columns and the same `text` header the HTML log shows.  The encoding-viewer
+stripes are dropped (a full feature vector per decision); the policy
+distribution is kept.  See [`docs/GAMELOG.md`](../../../docs/GAMELOG.md) for the
+full row schema.
