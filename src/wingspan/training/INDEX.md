@@ -337,7 +337,9 @@ pricing. `class_for_version(artifact_version) -> type[SetupNet]` (v1.6) —
 mirrors `PolicyValueNet.class_for_version`; routes eras <= 1.5 to
 `wingspan.compat.v1_5.SetupNetV1_5` (the first `SetupNet` compat shim, which
 overrides only `encode_candidate` to restore the pre-1.6 static egg-blind
-`goal_affinity` pricing — see `docs/VERSIONING.md`). Used by every
+`goal_affinity` pricing — see `docs/VERSIONING.md`) and era 1.6 to
+`wingspan.compat.v1_6.SetupNetV1_6` (the pre-1.7 static bonus pricing, which
+`SetupNetV1_5` inherits). Used by every
 construction seam that must honor a setup artifact's era: `loop_setup.build_setup_net`,
 `mp_collect._worker_init`, `players.loaders.load_setup_net`.
 

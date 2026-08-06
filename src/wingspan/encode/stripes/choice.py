@@ -358,8 +358,10 @@ def raw_choice_stripe_layout(
                 f"{layout._BONUS_VALUE_DIM} values: qual_count (board birds "
                 "qualifying for this bonus, ÷5), stepped_vp (VP the card pays at "
                 "that count, ÷7), linear_vp (same, piecewise-linear, ÷7), "
-                "hand_potential (hand/kept birds qualifying, ÷5), tray_potential "
-                "(tray birds qualifying, ÷5). Filled for BonusCardChoice and a "
+                "hand_potential (hand/kept birds that could come to qualify, ÷5), "
+                "tray_potential (tray birds likewise, ÷5). Potentials are "
+                "optimistic (v1.7): egg-counting cards count egg capacity "
+                "reaching the threshold. Filled for BonusCardChoice and a "
                 "setup pick's kept bonus; zero otherwise."
             ),
             sub_fields=_bonus_value_sub_fields(),
@@ -859,12 +861,15 @@ def _bonus_value_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
         ),
         (
             "hand_potential",
-            "Hand (or setup kept-subset) birds qualifying for the candidate bonus.",
+            "Hand (or setup kept-subset) birds that could come to qualify for "
+            "the candidate bonus (egg-counting cards: egg capacity reaches the "
+            "threshold).",
             "Normalized ÷ 5.",
         ),
         (
             "tray_potential",
-            "Face-up tray birds qualifying for the candidate bonus.",
+            "Face-up tray birds that could come to qualify for the candidate "
+            "bonus (egg-counting cards: egg capacity reaches the threshold).",
             "Normalized ÷ 5.",
         ),
     ]

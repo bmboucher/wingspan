@@ -59,6 +59,17 @@ the first :class:`wingspan.training.setup_net.SetupNet` compat shim — the
 **Routing (setup net).** ``SetupNet.class_for_version`` routes eras <= 1.5
 here.
 
+**v1.7 re-chain (values, not this class's own change).** Both classes now
+subclass their ``wingspan.compat.v1_6`` counterparts instead of the live nets
+directly, so every era <= 1.5 also freezes the pre-1.7 static (egg-blind)
+bonus potential pricing: ``PolicyValueNetV1_5.encode_choices``'s ``super()``
+call lands on the v1_6 bonus-potential refill (at
+``layout._OFF_BONUS_VALUE``, an offset before the tail this class strips)
+before the ``np.delete`` runs, and ``SetupNetV1_5.encode_candidate``'s
+``super()`` applies the v1_6 bonus refill before this class's
+``goal_affinity`` refill — the two write disjoint stripes at unchanged
+offsets, so neither class needed an edit beyond its base.
+
 **Fixture note.** A committed LFS checkpoint fixture is deferred (as for
 v1.0 / v1.3 / v1.4), for both halves: ``tests/test_compat_v1_5.py`` builds
 v1.5-era nets (main and setup), saves them with a v1.5 stamp, and round-trip-
@@ -73,21 +84,24 @@ import typing
 import numpy as np
 
 from wingspan import architecture, decisions, encode, setup_model, state
+from wingspan.compat import v1_6
 from wingspan.encode import stripes
 from wingspan.model import core
 from wingspan.setup_model import encode as setup_encode
-from wingspan.training import setup_net
 
 # Layout name of the v1.6 choice stripe this shim strips (offset/width:
 # ``encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_*``).
 _V1_6_CHOICE_STRIPE_NAME = "goal_delta_ignoring_eggs"
 
 
-class PolicyValueNetV1_5(core.PolicyValueNet):
+class PolicyValueNetV1_5(v1_6.PolicyValueNetV1_6):
     """``PolicyValueNet`` with pre-1.6 geometry: the ``goal_delta_ignoring_eggs``
     stripe removed from choice encoding, with the frozen pre-1.6 choice-embed
     offsets. Era <=1.5 artifacts predate the played-and-egg-populated goal
-    pricing entirely — their choice vectors are 8 dims narrower than live."""
+    pricing entirely — their choice vectors are 8 dims narrower than live.
+    Inherits :class:`wingspan.compat.v1_6.PolicyValueNetV1_6`'s pre-1.7 static
+    bonus potential values (the refill runs before this class's tail-strip,
+    at an offset the strip never touches)."""
 
     def _true_choice_dim(self) -> int:
         """The choice width this shim's ``encode_choices`` actually produces —
@@ -157,10 +171,13 @@ class PolicyValueNetV1_5(core.PolicyValueNet):
         )
 
 
-class SetupNetV1_5(setup_net.SetupNet):
+class SetupNetV1_5(v1_6.SetupNetV1_6):
     """``SetupNet`` with pre-1.6 ``goal_affinity`` pricing: overrides only
     ``encode_candidate`` to overwrite the ``goal_affinity`` stripe with the
-    static, egg-blind pre-1.6 computation after live encoding.
+    static, egg-blind pre-1.6 computation after live encoding — on top of the
+    pre-1.7 static bonus pricing inherited from
+    :class:`wingspan.compat.v1_6.SetupNetV1_6` (disjoint stripes, so the two
+    refills compose in either order).
 
     Geometry is UNCHANGED — v1.6's setup-side change is behavior-only (the
     setup twin of v1.5's main-net ``goal_delta`` value freeze), so this class

@@ -148,9 +148,10 @@ def setup_stripe_layout(
                 value_range="[0, ~1]",
                 notes=(
                     "2 values: min_affinity and max_affinity — for each dealt bonus "
-                    "card, count how many kept cards qualify it (same logic as "
-                    "kept_bonus_value's qual_count), then take the min and max of "
-                    "the two counts, normalized ÷ 5."
+                    "card, count how many kept cards could come to qualify it (same "
+                    "logic as kept_bonus_value's qual_count; egg-counting cards "
+                    "count egg capacity reaching the threshold, v1.7), then take "
+                    "the min and max of the two counts, normalized ÷ 5."
                 ),
                 sub_fields=_bonus_affinity_sub_fields(),
             )
@@ -235,11 +236,12 @@ def setup_stripe_layout(
                 value_range="[0, ~1]",
                 notes=(
                     f"{arch_module._KEPT_BONUS_VALUE_DIM} values: qual_count (kept "
-                    "cards passing the bonus test — every kept card for the "
-                    "hand-counting dynamic card, ÷5), stepped_vp / linear_vp (what "
-                    "the card pays if they all reach the board, ÷7), tray_potential "
-                    "(tray birds that could still qualify it, ÷5). All-zero when no "
-                    "bonus is kept."
+                    "cards that could come to qualify — every kept card for the "
+                    "hand-counting dynamic card, egg capacity reaching the "
+                    "threshold for the egg-counting cards (v1.7), ÷5), stepped_vp "
+                    "/ linear_vp (what the card pays if they all qualify, ÷7), "
+                    "tray_potential (tray birds that could still qualify it, ÷5). "
+                    "All-zero when no bonus is kept."
                 ),
                 sub_fields=_kept_bonus_value_sub_fields(),
             )
@@ -495,8 +497,10 @@ def _kept_bonus_value_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, .
     entries = [
         (
             "qual_count",
-            "Kept cards passing the kept bonus card's test.",
-            "Normalized ÷ 5. Every kept card for the hand-counting dynamic card.",
+            "Kept cards that could come to qualify the kept bonus card.",
+            "Normalized ÷ 5. Every kept card for the hand-counting dynamic "
+            "card; egg capacity reaching the threshold for the egg-counting "
+            "cards.",
         ),
         (
             "stepped_vp",
@@ -533,7 +537,7 @@ def _bonus_affinity_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...
     return (
         encode_stripes.SubFieldDescriptor(
             name="min_affinity",
-            description="Qualifier count for the weaker-matching dealt bonus card.",
+            description="Potential-qualifier count for the weaker-matching dealt bonus card.",
             relative_offset=0,
             size=1,
             encoding="scalar",
@@ -542,7 +546,7 @@ def _bonus_affinity_sub_fields() -> tuple[encode_stripes.SubFieldDescriptor, ...
         ),
         encode_stripes.SubFieldDescriptor(
             name="max_affinity",
-            description="Qualifier count for the stronger-matching dealt bonus card.",
+            description="Potential-qualifier count for the stronger-matching dealt bonus card.",
             relative_offset=1,
             size=1,
             encoding="scalar",

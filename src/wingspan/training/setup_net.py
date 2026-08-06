@@ -242,12 +242,16 @@ class SetupNet(nn.Module):
         only ``encode_candidate`` to restore the pre-1.6 static (egg-blind)
         ``goal_affinity`` pricing — v1.6 is the first version where a setup
         artifact's *behavior* would change on rehydration even though its
-        geometry does not. Artifacts at or before era 1.3 also differ in
+        geometry does not — and, via its :class:`wingspan.compat.v1_6.SetupNetV1_6`
+        base, the pre-1.7 static bonus pricing. Era 1.6 routes to
+        ``SetupNetV1_6`` alone (the v1.7 change made the kept-card bonus
+        potentials egg-optimistic; a 1.6 artifact must keep the static
+        counts). Artifacts at or before era 1.3 also differ in
         *shape* (the setup net's two-tower restructure landed in v1.3) and
         would fail at ``load_state_dict`` regardless of which class builds
         them; routing them through the v1.5 shim first is harmless —
         ``players.loaders.load_setup_net`` already turns that failure into a
-        clear "retrain the setup model" error. v1.6+ same-MAJOR artifacts use
+        clear "retrain the setup model" error. v1.7+ same-MAJOR artifacts use
         the live ``SetupNet``. Used by every construction seam that must
         honor a setup artifact's era (``docs/VERSIONING.md``'s "encode
         through the net" rule)."""
@@ -258,6 +262,10 @@ class SetupNet(nn.Module):
             from wingspan.compat import v1_5 as compat_v1_5
 
             return compat_v1_5.SetupNetV1_5
+        if parsed.major == 1 and parsed.minor <= 6:
+            from wingspan.compat import v1_6 as compat_v1_6
+
+            return compat_v1_6.SetupNetV1_6
         return SetupNet
 
     def encode_candidate(

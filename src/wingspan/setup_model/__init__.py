@@ -36,6 +36,7 @@ from wingspan.setup_model.encode import (
     SETUP_GOAL_DIM,
     SetupContext,
     encode_setup_candidate,
+    refill_bonus_pricing_static,
     refill_goal_affinity_static,
 )
 from wingspan.setup_model.generate import JointSetup, RandomSetupGenerator, SeatDeal
@@ -62,6 +63,7 @@ __all__ = [
     "count_setup_parameters",
     "encode_setup_candidate",
     "enumerate_setup_candidates",
+    "refill_bonus_pricing_static",
     "refill_goal_affinity_static",
     "select_by_margins",
     "setup_choice_input_dim",

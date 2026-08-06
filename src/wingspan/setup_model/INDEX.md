@@ -61,15 +61,22 @@ egg-driven categories are no longer 0 at setup; pre-1.6 summed
 `goal_count_delta_for_bird`, egg-blind), and (when
 `encoding.include_turn1_playable`) a 180-dim multi-hot of birds payable from
 `kept_foods` on turn 1. Output width matches `encoding.total_dim`.
+Bonus pricing (the folded-mode `kept_bonus_value` block and the split-mode
+`bonus_card_affinity` min/max pair, both via `_kept_qual_for_bonus`) is
+optimistic since v1.7: `scoring.bonus_potential_count`, so the egg-counting
+bonus cards price kept birds by egg capacity instead of reading 0.
 `refill_goal_affinity_static(vec, candidate, context, encoding)` is the
 compat seam that overwrites an already-encoded vector's `goal_affinity`
 stripe with the pre-1.6 static (egg-blind) pricing in place — used only by
 the first `SetupNet` compat shim's `encode_candidate` override (see
-`wingspan.compat.v1_5.SetupNetV1_5`, `docs/VERSIONING.md`). Callers holding a
-`SetupNet` instance should encode through its `encode_candidate` method
-rather than pairing this free function with an encoding by hand, so a
-compat-era net's frozen pricing applies; this function remains the sanctioned
-path for the None-net fallback.
+`wingspan.compat.v1_5.SetupNetV1_5`, `docs/VERSIONING.md`).
+`refill_bonus_pricing_static(vec, candidate, context, encoding)` is its v1.7
+sibling: overwrites whichever bonus block the encoding carries with the
+pre-1.7 static counts (used by `wingspan.compat.v1_6.SetupNetV1_6`). Callers
+holding a `SetupNet` instance should encode through its `encode_candidate`
+method rather than pairing these free functions with an encoding by hand, so
+a compat-era net's frozen pricing applies; the free encoder remains the
+sanctioned path for the None-net fallback.
 
 **`stripes.py`** — `setup_stripe_layout(encoding) -> VectorLayout` (raw), plus
 `setup_state_stripe_layout(encoding, main_arch)` and

@@ -111,6 +111,12 @@ ties split the floor of their combined places' payouts) against
 returns -1 for a genuine shared victory). `final_scoring(engine) -> None` sets
 each `Player.final_score`. Bonus-card scoring lives here too; each
 `BonusCard.scoring_rule` is dispatched through a registry.
+`bonus_potential_count(bc, birds, *, hand_sized=False)` (v1.7) is the shared
+optimistic potential counter the encoders and CLI display use for
+not-yet-played birds — static tag, egg capacity reaching the egg-counting
+cards' thresholds, or (``hand_sized`` sources) every bird for the
+hand-counting card; `bonus_potential_count_static` is its frozen egg-blind
+pre-1.7 form, kept public for the `wingspan.compat.v1_6` refills.
 
 **`helpers.py`** — Pure utility functions with no side effects:
 `cost_meets(food_pool, cost) -> bool` and

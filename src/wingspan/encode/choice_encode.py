@@ -189,6 +189,39 @@ def refill_goal_delta_habitat_agnostic(
     _fill_goal_delta(feat, player_id, bird, game_state)
 
 
+def refill_bonus_value_potentials_static(
+    feat: np.ndarray,
+    bonus_card: cards.BonusCard,
+    hand_source: typing.Iterable[cards.Bird],
+    tray: typing.Sequence[cards.Bird | None],
+) -> None:
+    """Compat seam for eras <= 1.6 (``wingspan.compat.v1_6``): overwrite the
+    ``bonus_value`` stripe's hand/tray potential scalars of one already-encoded
+    choice row with the static (egg-blind) pricing those eras were trained
+    against.
+
+    Since v1.7 the live fill prices potential via
+    :func:`wingspan.engine.scoring.bonus_potential_count` — nonzero for the
+    egg-counting dynamic cards (egg capacity reaching the card's threshold).
+    Pre-1.7 rows priced only the static ``bonus_categories`` tag, which no egg
+    card carries (the hand-counting card's full-source count is unchanged
+    across eras and is regenerated identically here). Only the two potential
+    scalars are rewritten in place — the board trio (qual/stepped/linear)
+    reads actual state and never changed. The shim calls this per
+    bonus-carrying row after live encoding."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    base = layout._OFF_BONUS_VALUE
+    hand_qual = scoring.bonus_potential_count_static(
+        bonus_card, hand_source, hand_sized=True
+    )
+    feat[base + layout._BONUS_VALUE_HAND] = hand_qual / layout._BONUS_COUNT_SCALE
+    tray_qual = scoring.bonus_potential_count_static(
+        bonus_card, (tray_bird for tray_bird in tray if tray_bird is not None)
+    )
+    feat[base + layout._BONUS_VALUE_TRAY] = tray_qual / layout._BONUS_COUNT_SCALE
+
+
 ###### PRIVATE #######
 
 #### Per-choice featurization ####
@@ -1308,20 +1341,13 @@ def _fill_bonus_value(
         / layout._BONUS_VALUE_SCALE
     )
 
-    # Potential: birds not yet in play that pass the card's static test. The
-    # hand-counting dynamic card is the exception — every card in the hand
-    # source counts toward it, whatever its printed categories.
-    if scoring.bonus_count_delta_for_hand(bonus_card, 1) > 0:
-        hand_qual = sum(1 for _bird in hand_source)
-    else:
-        hand_qual = sum(
-            1 for bird in hand_source if bonus_card.name in bird.bonus_categories
-        )
+    # Potential: birds not yet in play that could still come to qualify —
+    # static tags, egg capacity for the egg-counting cards, and (hand-like
+    # sources only) the whole source for the hand-counting card.
+    hand_qual = scoring.bonus_potential_count(bonus_card, hand_source, hand_sized=True)
     feat[base + layout._BONUS_VALUE_HAND] = hand_qual / layout._BONUS_COUNT_SCALE
-    tray_qual = sum(
-        1
-        for tray_bird in tray
-        if tray_bird is not None and bonus_card.name in tray_bird.bonus_categories
+    tray_qual = scoring.bonus_potential_count(
+        bonus_card, (tray_bird for tray_bird in tray if tray_bird is not None)
     )
     feat[base + layout._BONUS_VALUE_TRAY] = tray_qual / layout._BONUS_COUNT_SCALE
 

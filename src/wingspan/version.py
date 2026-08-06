@@ -33,8 +33,35 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.6"
+MODEL_VERSION = "1.7"
 """The current artifact-compatibility version (the only place it is defined).
+
+1.7 is a **behavior-only** MINOR FRESH bump — no tensor shape changes — that
+makes the bonus *potential* counters optimistic about the egg-counting
+dynamic bonus cards, the bonus-side twin of the v1.6 ``goal_affinity``
+change: a not-yet-played bird whose ``egg_limit`` reaches a card's threshold
+(Breeding Manager at 4, Oologist at 1) now counts as potentially qualifying
+(``scoring.bonus_potential_count``). Pre-1.7 encoders counted only the static
+``bonus_categories`` tag, which no dynamic card carries, so the egg cards'
+potentials read identically 0. Values move on both nets at unchanged dims and
+offsets: the main net's ``bonus_value`` stripe ``hand_potential`` /
+``tray_potential`` scalars (in-game ``BonusCardChoice`` rows and
+bonus-carrying ``SetupChoice`` rows), and the setup net's split-mode
+``bonus_card_affinity`` pair plus folded-mode ``kept_bonus_value`` 4-vector
+(stepped/linear are priced at the qual count, so they move with it).
+Board-side counts (``scoring.bonus_qualifying_count``) were always
+dynamic-aware and are unchanged.
+
+Era ≤1.6 artifacts route to ``wingspan.compat.v1_6`` —
+``PolicyValueNetV1_6`` / ``SetupNetV1_6`` override only ``encode_choices`` /
+``encode_candidate`` and regenerate the static pricing in place
+(``choice_encode.refill_bonus_value_potentials_static`` /
+``setup_model.encode.refill_bonus_pricing_static``); no
+``encoding_dims_for_era`` branch, no offset overrides.
+``compat.v1_5.PolicyValueNetV1_5`` / ``SetupNetV1_5`` re-chain to subclass
+the v1_6 classes, so every earlier era freezes the static bonus potentials
+too — the choice refill targets ``layout._OFF_BONUS_VALUE``, before every
+column the older shims strip, so the chain composes with no offset math.
 
 1.6 is a **shape** MINOR FRESH bump that lands the "played and
 egg-populated" goal pricing on the choice side. A new 8-dim

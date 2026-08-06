@@ -130,6 +130,13 @@ landing habitat (v1.5: `_fill_goal_delta`'s `play_habitat`, threaded to
 optimistic any-card-habitat bound. `refill_goal_delta_habitat_agnostic(feat,
 player_id, bird, gs)` is the public compat seam `wingspan.compat.v1_4` uses to
 re-fill a play-bird row with the pre-1.5 agnostic pricing.
+`_fill_bonus_value`'s `hand_potential` / `tray_potential` are optimistic
+(v1.7: `scoring.bonus_potential_count` — egg-counting bonus cards count egg
+capacity reaching the threshold; the hand-counting card counts the whole
+hand-like source only). `refill_bonus_value_potentials_static(feat,
+bonus_card, hand_source, tray)` is the matching compat seam
+`wingspan.compat.v1_6` uses to re-fill the two potential scalars of a
+bonus-carrying row with the pre-1.7 static-tag pricing.
 `_fill_goal_delta_ignoring_eggs` (v1.6) fills the sibling `goal_delta_ignoring_eggs`
 stripe at the same three bird-card row sites as `_fill_goal_delta`
 (`_featurize_bird`, `_featurize_play_bird`, `_featurize_draw_source`): per round

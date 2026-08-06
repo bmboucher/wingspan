@@ -653,6 +653,47 @@ def bonus_qualifying_count(player: state.Player, bc: cards.BonusCard) -> int:
     )
 
 
+def bonus_potential_count(
+    bc: cards.BonusCard,
+    birds: typing.Iterable[cards.Bird],
+    *,
+    hand_sized: bool = False,
+) -> int:
+    """Number of not-yet-played ``birds`` that could eventually qualify for
+    bonus card ``bc`` — the optimistic potential the encoders price for hand /
+    kept / tray sources.
+
+    Three-way dispatch: with ``hand_sized`` set, the hand-counting dynamic
+    card (Visionary Leader) counts every bird in the source — only hand-like
+    sources pass it; tray callers keep the default, preserving the tray's
+    zero. The egg-counting dynamic cards count birds whose ``egg_limit``
+    reaches the card's threshold — a bird that *can* carry 4 eggs is a live
+    Breeding Manager target even though it has none yet. Every other card
+    counts its static ``bonus_categories`` tag."""
+    if hand_sized and bonus_count_delta_for_hand(bc, 1) > 0:
+        return sum(1 for _bird in birds)
+    min_eggs = _EGG_COUNT_BONUS_MIN_EGGS.get(bc.name)
+    if min_eggs is not None:
+        return sum(1 for bird in birds if bird.egg_limit >= min_eggs)
+    return sum(1 for bird in birds if bc.name in bird.bonus_categories)
+
+
+def bonus_potential_count_static(
+    bc: cards.BonusCard,
+    birds: typing.Iterable[cards.Bird],
+    *,
+    hand_sized: bool = False,
+) -> int:
+    """The pre-1.7 (egg-blind) form of :func:`bonus_potential_count`: the
+    hand-counting card still counts a ``hand_sized`` source in full, but the
+    egg-counting cards fall through to the static tag test — which no bird
+    carries, so they read 0. Kept public as the frozen pricing the era <= 1.6
+    compat refills regenerate (``wingspan.compat.v1_6``)."""
+    if hand_sized and bonus_count_delta_for_hand(bc, 1) > 0:
+        return sum(1 for _bird in birds)
+    return sum(1 for bird in birds if bc.name in bird.bonus_categories)
+
+
 def bonus_score_for_count(bc: cards.BonusCard, count: int) -> int:
     """Stepped VP bonus card ``bc`` pays for exactly ``count`` qualifying birds:
     a per-bird card pays ``per_bird_vp`` for each, a tiered card pays the

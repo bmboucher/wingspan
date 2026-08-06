@@ -1214,6 +1214,97 @@ def test_bonus_value_tray_potential_counts_qualifying_tray_birds():
     )
 
 
+def test_bonus_value_hand_potential_is_egg_optimistic_for_breeding_manager():
+    """Breeding Manager tags no bird, but a hand bird whose egg capacity
+    reaches 4 could come to qualify — the hand potential counts exactly the
+    egg_limit >= 4 hand birds (v1.7 optimism)."""
+    eng, *_ = engine.Engine.create(seed=27)
+    birds, bonuses, _ = cards.load_all()
+    breeding_manager = _named_bonus(bonuses, "Breeding Manager")
+    big_nest = [bird for bird in birds if bird.egg_limit >= 4]
+    small_nest = next(bird for bird in birds if bird.egg_limit < 4)
+    me = eng.state.players[0]
+    me.hand = [*big_nest[:2], small_nest]
+
+    row = encode.encode_choices(_pick_bonus_decision(breeding_manager), eng.state)[0]
+    base = layout._OFF_BONUS_VALUE
+    assert np.isclose(
+        row[base + layout._BONUS_VALUE_HAND], 2.0 / layout._BONUS_COUNT_SCALE
+    )
+    assert row[base + layout._BONUS_VALUE_QUAL] == 0.0  # no eggs on the board yet
+
+
+def test_bonus_value_tray_potential_is_egg_optimistic_for_oologist():
+    """Oologist counts any bird that can carry an egg: the tray potential
+    counts egg_limit >= 1 tray birds, excluding a zero-capacity bird and an
+    empty slot."""
+    eng, *_ = engine.Engine.create(seed=28)
+    birds, bonuses, _ = cards.load_all()
+    oologist = _named_bonus(bonuses, "Oologist")
+    egg_capable = next(bird for bird in birds if bird.egg_limit >= 1)
+    no_eggs = next(bird for bird in birds if bird.egg_limit == 0)
+    eng.state.tray = [egg_capable, no_eggs, None]
+
+    row = encode.encode_choices(_pick_bonus_decision(oologist), eng.state)[0]
+    assert np.isclose(
+        row[layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_TRAY],
+        1.0 / layout._BONUS_COUNT_SCALE,
+    )
+
+
+def test_bonus_value_visionary_leader_tray_potential_stays_zero():
+    """The hand-counting card's full-source count applies to hand-like sources
+    only: its tray potential stays 0 (the pre-existing asymmetry, pinned so a
+    change to it is deliberate)."""
+    eng, *_ = engine.Engine.create(seed=29)
+    birds, bonuses, _ = cards.load_all()
+    visionary = _named_bonus(bonuses, "Visionary Leader")
+    me = eng.state.players[0]
+    me.hand = list(birds[:3])
+    eng.state.tray = list(birds[3:6])
+
+    row = encode.encode_choices(_pick_bonus_decision(visionary), eng.state)[0]
+    base = layout._OFF_BONUS_VALUE
+    assert np.isclose(
+        row[base + layout._BONUS_VALUE_HAND], 3.0 / layout._BONUS_COUNT_SCALE
+    )
+    assert row[base + layout._BONUS_VALUE_TRAY] == 0.0
+
+
+def test_bonus_value_setup_choice_egg_potential_counts_kept_subset():
+    """A setup pick's egg-card potential prices the kept subset, not the dealt
+    hand: only the kept 4+-egg-capacity bird counts for Breeding Manager."""
+    eng, *_ = engine.Engine.create(seed=30)
+    birds, bonuses, _ = cards.load_all()
+    breeding_manager = _named_bonus(bonuses, "Breeding Manager")
+    big_nest = [bird for bird in birds if bird.egg_limit >= 4]
+    small_nest = next(bird for bird in birds if bird.egg_limit < 4)
+    dealt = [*big_nest[:3], small_nest]  # 3 egg-capable birds dealt...
+    me = eng.state.players[0]
+    me.hand = list(dealt)
+
+    decision = decisions.SetupDecision(
+        player_id=0,
+        prompt="x",
+        choices=[
+            decisions.SetupChoice(
+                kept_cards=(big_nest[0], small_nest),  # ...but only 1 kept
+                kept_foods=tuple(cards.ALL_FOODS[:3]),
+                bonus_card=breeding_manager,
+            )
+        ],
+        dealt_cards=dealt,
+        dealt_bonus=[breeding_manager],
+    )
+    row = encode.encode_choices(
+        decision, eng.state, encode.EncodingSpec(include_setup=True)
+    )[0]
+    assert np.isclose(
+        row[layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_HAND],
+        1.0 / layout._BONUS_COUNT_SCALE,
+    )
+
+
 def test_bonus_value_zero_for_non_bonus_choice_kinds():
     """Bird-candidate and skip rows never fill the stripe — it prices offered
     bonus CARDS only (bird candidates carry bonus_delta instead)."""

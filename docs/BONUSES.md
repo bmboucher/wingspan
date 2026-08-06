@@ -90,8 +90,16 @@ When a `BonusCardChoice` row is presented (choosing which card to keep), a separ
 | `_BONUS_VALUE_QUAL` | Board birds currently qualifying for this card (÷ 5) |
 | `_BONUS_VALUE_STEPPED` | Stepped VP at that count (÷ 7) |
 | `_BONUS_VALUE_LINEAR` | Linear value at that count (÷ 7) |
-| `_BONUS_VALUE_HAND` | Hand birds that would qualify if played (÷ 5) |
-| `_BONUS_VALUE_TRAY` | Tray birds that would qualify if played (÷ 5) |
+| `_BONUS_VALUE_HAND` | Hand birds that could come to qualify if played (÷ 5) |
+| `_BONUS_VALUE_TRAY` | Tray birds that could come to qualify if played (÷ 5) |
+
+The two potential scalars are **optimistic** (v1.7, `scoring.bonus_potential_count`): a
+static card counts its printed tag, the egg-counting cards (Breeding Manager, Oologist)
+count birds whose `egg_limit` reaches the card's threshold, and the hand-counting card
+(Visionary Leader) counts the whole hand source — hand only; its tray potential stays 0.
+The setup encoder prices keeps the same way: the folded-mode `kept_bonus_value` block and
+the split-mode `bonus_card_affinity` min/max pair both run on the same counter (via
+`setup_model.encode._kept_qual_for_bonus`).
 
 The card's identity is also encoded as a one-hot over all 26 bonus cards
 (`CHOICE_BONUS_ID_OFFSET`, 26 dims) so the model can learn card-specific priors.
@@ -314,7 +322,10 @@ can reach 4 eggs. Cavity birds (egg_limit 4–5) are the most natural targets.
 
 **Model visibility**: Breeding Manager holds `held/count/stepped/linear` bonus progress stripes
 in the state vector, and egg-lay `BirdTargetChoice` rows include the bonus delta contribution
-from crossing the 4-egg threshold.
+from crossing the 4-egg threshold. Since v1.7 the bonus-pick potentials are optimistic:
+`hand_potential`/`tray_potential` on its `BonusCardChoice`/`SetupChoice` rows, and the setup
+`kept_bonus_value`/`bonus_card_affinity` stripes, count birds with `egg_limit >= 4`
+(`scoring.bonus_potential_count`) instead of reading 0.
 
 **Advances by**: Laying eggs on birds that are at or approaching 4 eggs. The egg-lay action
 (main action) and any bird power that lays eggs can improve this count. Playing a new bird
@@ -354,7 +365,10 @@ removing the last egg subtracts 1. Once a bird has its first egg, additional egg
 the count.
 
 **Model visibility**: The bonus progress stripes carry the live count. Egg-lay target choice
-rows encode the delta for crossing the 1-egg threshold on each candidate slot.
+rows encode the delta for crossing the 1-egg threshold on each candidate slot. Since v1.7 the
+bonus-pick potentials count birds with `egg_limit >= 1` (nearly the whole catalog — Oologist's
+potential is close to the source size, which is itself the signal that almost any keep can
+feed it).
 
 **Advances by**: Getting the first egg on each bird (breadth, not depth). The Lay Eggs main
 action and any bird power that lays eggs advance Oologist. There is an important tension:

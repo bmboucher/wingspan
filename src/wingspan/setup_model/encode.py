@@ -299,18 +299,76 @@ def refill_goal_affinity_static(
         )
 
 
+def refill_bonus_pricing_static(
+    vec: np.ndarray,
+    candidate: candidates.SetupCandidate,
+    context: SetupContext,
+    encoding: arch_module.SetupEncoding,
+) -> None:
+    """Compat seam for eras <= 1.6 (``wingspan.compat.v1_6``): overwrite the
+    bonus pricing stripes of one already-encoded candidate vector with the
+    pre-1.7 static (egg-blind) counts those eras were trained against.
+
+    Since v1.7 the live encoder prices kept-card bonus potential via
+    :func:`wingspan.engine.scoring.bonus_potential_count` — nonzero for the
+    egg-counting dynamic cards, whose thresholds a kept bird's ``egg_limit``
+    can reach. Pre-1.7 vectors counted only the static ``bonus_categories``
+    tag (plus the full keep for the hand-counting card). Rewrites whichever
+    bonus block the encoding carries, at unchanged offsets: the split-mode
+    ``bonus_card_affinity`` min/max pair, or the folded-mode
+    ``kept_bonus_value`` 4-vector — all four scalars, since stepped/linear are
+    priced at the (now static) qual count. The shim calls this once per
+    encoded candidate, after live encoding."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    if encoding.split_bonus:
+        counts = [
+            scoring.bonus_potential_count_static(
+                bonus_card, candidate.kept_cards, hand_sized=True
+            )
+            for bonus_card in context.dealt_bonus_cards
+        ]
+        if not counts:
+            return
+        base = encoding.off_bonus_block + _BONUS_DIM
+        vec[base] = min(counts) / _BONUS_AFFINITY_SCALE
+        vec[base + 1] = max(counts) / _BONUS_AFFINITY_SCALE
+        return
+
+    if candidate.bonus_card is None:
+        return
+    bonus_card = candidate.bonus_card
+    base = encoding.off_bonus_value
+    kept_qual = scoring.bonus_potential_count_static(
+        bonus_card, candidate.kept_cards, hand_sized=True
+    )
+    vec[base + _KEPT_BONUS_QUAL] = kept_qual / layout._BONUS_COUNT_SCALE
+    vec[base + _KEPT_BONUS_STEPPED] = (
+        scoring.bonus_score_for_count(bonus_card, kept_qual) / layout._BONUS_VALUE_SCALE
+    )
+    vec[base + _KEPT_BONUS_LINEAR] = (
+        scoring.bonus_linear_value_for_count(bonus_card, kept_qual)
+        / layout._BONUS_VALUE_SCALE
+    )
+    tray_qual = scoring.bonus_potential_count_static(
+        bonus_card,
+        (tray_bird for tray_bird in context.tray_birds if tray_bird is not None),
+    )
+    vec[base + _KEPT_BONUS_TRAY] = tray_qual / layout._BONUS_COUNT_SCALE
+
+
 ###### PRIVATE #######
 
 
 def _kept_qual_for_bonus(
     bonus_card: cards.BonusCard, kept_cards: tuple[cards.Bird, ...]
 ) -> int:
-    """Number of ``kept_cards`` that qualify ``bonus_card``."""
+    """Number of ``kept_cards`` that could eventually qualify ``bonus_card`` —
+    the optimistic potential (egg capacity counts for the egg-counting cards;
+    the hand-counting card counts the whole keep)."""
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
-    if scoring.bonus_count_delta_for_hand(bonus_card, 1) > 0:
-        return len(kept_cards)
-    return sum(1 for bird in kept_cards if bonus_card.name in bird.bonus_categories)
+    return scoring.bonus_potential_count(bonus_card, kept_cards, hand_sized=True)
 
 
 def _fill_kept_bonus_value(
@@ -332,10 +390,8 @@ def _fill_kept_bonus_value(
         scoring.bonus_linear_value_for_count(bonus_card, kept_qual)
         / layout._BONUS_VALUE_SCALE
     )
-    tray_qual = sum(
-        1
-        for tray_bird in tray_birds
-        if tray_bird is not None and bonus_card.name in tray_bird.bonus_categories
+    tray_qual = scoring.bonus_potential_count(
+        bonus_card, (tray_bird for tray_bird in tray_birds if tray_bird is not None)
     )
     vec[base + _KEPT_BONUS_TRAY] = tray_qual / layout._BONUS_COUNT_SCALE
 

@@ -2,7 +2,7 @@
 
 Every persisted artifact (the dated `run_config_<stamp>.json` run descriptor and
 every `.pt` payload) is stamped with a `MAJOR.MINOR` **artifact version**
-(`wingspan.version.MODEL_VERSION`, currently **`1.6`**). This is distinct from
+(`wingspan.version.MODEL_VERSION`, currently **`1.7`**). This is distinct from
 the package release version (`wingspan.__version__`) — one tracks the codebase,
 the other the on-disk artifact format.
 
@@ -35,7 +35,61 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.6 — `goal_delta_ignoring_eggs` choice stripe + setup `goal_affinity` egg pricing (current)
+### v1.7 — optimistic egg-bonus potential pricing (current)
+
+A **behavior-only** MINOR FRESH bump — no tensor shape changes on either net —
+that is the bonus-card twin of v1.6's `goal_affinity` change: the bonus
+*potential* counters (how many not-yet-played birds could still qualify a
+bonus card) became optimistic about the egg-counting dynamic cards. A bird
+whose `egg_limit` reaches the card's threshold — Breeding Manager at 4,
+Oologist at 1 — now counts as potentially qualifying, via the new shared
+counter `scoring.bonus_potential_count` (its `hand_sized` flag carries the
+pre-existing Visionary Leader full-hand special case, which applies to
+hand-like sources only — the tray asymmetry is deliberately preserved).
+Pre-1.7 encoders counted only the static `bonus_categories` tag, which no
+dynamic card carries, so the egg cards' potentials read identically 0 —
+during setup, a keep of two 4-egg-capacity birds showed `min_affinity` 0
+against a dealt Breeding Manager. Board-side counts
+(`scoring.bonus_qualifying_count`) were always dynamic-aware and are
+unchanged.
+
+Values move at unchanged dims and offsets on both nets:
+
+- **Main net** — the `bonus_value` stripe's `hand_potential` /
+  `tray_potential` scalars, on in-game `BonusCardChoice` rows and
+  bonus-carrying `SetupChoice` rows (`choice_encode._fill_bonus_value`). The
+  board trio (qual/stepped/linear) reads actual state and is unchanged.
+- **Setup net** — the split-mode `bonus_card_affinity` min/max pair and the
+  folded-mode `kept_bonus_value` 4-vector (`setup_model.encode`, via
+  `_kept_qual_for_bonus`); its stepped/linear VP are priced at the qual
+  count, so they move with it.
+
+**Shim.** `wingspan.compat.v1_6` follows the behavior-only era shape (the
+v1_4 / `SetupNetV1_5` precedent): `PolicyValueNetV1_6` overrides only
+`encode_choices` — live encode, then
+`choice_encode.refill_bonus_value_potentials_static` rewrites the two
+potential scalars of each bonus-carrying row with the static pricing (the
+refill re-runs the generic static predicate, `bonus_potential_count_static`,
+so a Visionary Leader row's full-hand count survives byte-identically) — and
+`SetupNetV1_6` overrides only `encode_candidate`, applying
+`setup_model.encode.refill_bonus_pricing_static` (both bonus-block shapes, at
+unchanged offsets). No `encoding_dims_for_era` branch, no offset or layout
+override. `compat.v1_5.PolicyValueNetV1_5` / `SetupNetV1_5` re-chain to
+subclass the v1_6 classes, so every era <= 1.5 freezes the static potentials
+too: the choice refill runs at full live width inside the `super()` chain and
+targets `layout._OFF_BONUS_VALUE` — before `becomes_playable`, and therefore
+before every column any older shim strips — so the whole v1_5→v1_4→v1_3→v1_0
+chain composes with no offset math.
+
+The golden fixture (`tests/data/golden_n2.json`) was recaptured — bonus-pick
+and setup rows change hashes, exactly the v1.5/v1.6 pattern;
+`state_dict_shape_n2.json` is untouched (no shapes move). A committed LFS
+checkpoint fixture remains deferred, as for every prior era:
+`tests/test_compat_v1_6.py` builds v1.6-stamped nets and round-trips them
+through the production loaders. **User action: none** — pre-1.7 checkpoints
+load and compute identically via the shim chain.
+
+### v1.6 — `goal_delta_ignoring_eggs` choice stripe + setup `goal_affinity` egg pricing
 
 A **shape + behavior** MINOR FRESH bump landing two views of the same scoring
 upgrade — "assume this bird is eventually played and egg-populated to

@@ -244,6 +244,67 @@ def test_goal_affinity_egg_sets_3habitats_uses_best_kept_assignment():
     )
 
 
+def test_egg_bonus_keep_is_priced_by_egg_capacity():
+    """Breeding Manager tags no bird, but kept cards whose egg capacity
+    reaches 4 could come to qualify — the keep is priced at that optimistic
+    count (v1.7): qual, the stepped/linear VP it pays, and the tray's
+    egg-capable bird as potential."""
+    breeding_manager = _BONUS_BY_NAME["Breeding Manager"]
+    big_nest = [bird for bird in _BIRDS if bird.egg_limit >= 4]
+    small_nest = next(bird for bird in _BIRDS if bird.egg_limit < 4)
+    candidate = candidates.SetupCandidate(
+        kept_cards=(big_nest[0], big_nest[1], small_nest),
+        kept_foods=(cards.Food.SEED, cards.Food.FISH),
+        bonus_card=breeding_manager,
+    )
+    context = _context(
+        ("birds_forest",) * 4, tray_birds=(big_nest[2], small_nest, None)
+    )
+    vec = setup_encode.encode_setup_candidate(candidate, context)
+
+    qual, stepped, linear, tray = _kept_bonus_block(vec)
+    assert qual == _Approx(2 / 5)
+    assert stepped == _Approx(scoring.bonus_score_for_count(breeding_manager, 2) / 7)
+    assert linear == _Approx(
+        scoring.bonus_linear_value_for_count(breeding_manager, 2) / 7
+    )
+    assert tray == _Approx(1 / 5)
+
+
+def test_bonus_card_affinity_min_max_over_dealt_cards():
+    """Split-bonus mode: ``bonus_card_affinity`` is the min/max
+    potential-qualifier count over the dealt bonus cards — the egg card priced
+    by egg capacity (v1.7), the static card by its printed tag. First direct
+    value test of the affinity stripe."""
+    from wingspan.setup_model import architecture as arch_module
+
+    breeding_manager = _BONUS_BY_NAME["Breeding Manager"]
+    bird_feeder = _BONUS_BY_NAME["Bird Feeder"]
+    tagged = next(bird for bird in _BIRDS if bird_feeder.name in bird.bonus_categories)
+    high_a = _BIRDS[0].model_copy(update={"egg_limit": 4, "bonus_categories": ()})
+    high_b = _BIRDS[1].model_copy(update={"egg_limit": 5, "bonus_categories": ()})
+    tagged_low = tagged.model_copy(update={"egg_limit": 2})
+    candidate = candidates.SetupCandidate(
+        kept_cards=(high_a, high_b, tagged_low),
+        kept_foods=(cards.Food.SEED, cards.Food.FISH),
+        bonus_card=None,
+    )
+    encoding = arch_module.SetupEncoding(split_bonus=True)
+    context = setup_encode.SetupContext(
+        tray_birds=(None, None, None),
+        birdfeeder_counts=(0, 0, 0, 0, 0, 0),
+        round_goal_categories=("birds_forest",) * 4,
+        dealt_bonus_cards=(breeding_manager, bird_feeder),
+    )
+    vec = setup_encode.encode_setup_candidate(candidate, context, encoding)
+
+    base = encoding.off_bonus_block + arch_module._BONUS_DIM
+    # Bird Feeder counts its one tagged keep; Breeding Manager both
+    # 4+-egg-capacity keeps (tagged_low's capacity of 2 misses the threshold).
+    assert float(vec[base + 0]) == _Approx(1 / 5)
+    assert float(vec[base + 1]) == _Approx(2 / 5)
+
+
 def test_goal_affinity_can_exceed_one():
     """Two bowl-nest keeps whose egg limits sum past 5: the ÷5 normalization
     is a heuristic, not a hard cap, so the stripe value exceeds 1.0."""

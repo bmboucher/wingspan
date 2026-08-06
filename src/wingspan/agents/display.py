@@ -547,7 +547,9 @@ def _bonus_setup_help(
     tray_birds: typing.Sequence[cards.Bird],
     selected_hand_birds: typing.Sequence[cards.Bird],
 ) -> str | None:
-    """Pre-game usefulness line for a type-counting card; ``None`` otherwise.
+    """Pre-game usefulness line for a card assessable per bird — type-counting
+    cards and the egg-counting cards (birds whose egg capacity reaches the
+    threshold); ``None`` for the rest (hand size / board layout).
 
     The hand figure is ``selected-qualifying / total-qualifying`` — how many
     matching birds you've kept so far out of how many you could — followed by
@@ -558,7 +560,7 @@ def _bonus_setup_help(
     summary = _bonus_catalog_summary()
     qualifying_total = summary.qualifying_by_bonus.get(bc.name)
     if qualifying_total is None:
-        return None  # dynamic card (eggs / hand size / board) — can't assess
+        return None  # unassessable card (hand size / board layout)
     matching_in_hand = _qualifying(bc, hand_birds)
     selected_matching = _qualifying(bc, selected_hand_birds)
     in_display = _qualifying(bc, tray_birds)
@@ -570,21 +572,25 @@ def _bonus_setup_help(
 
 
 def _qualifying(bc: cards.BonusCard, birds: typing.Iterable[cards.Bird]) -> int:
-    """How many of ``birds`` count toward ``bc`` by fixed bird property."""
-    return sum(1 for bird in birds if bc.name in bird.bonus_categories)
+    """How many of ``birds`` could count toward ``bc`` by fixed bird property —
+    the static category tag, or egg capacity for the egg-counting cards."""
+    return scoring.bonus_potential_count(bc, birds)
 
 
 @functools.cache
 def _bonus_catalog_summary() -> _BonusCatalogSummary:
     """Tally, once from the bundled catalog, the total core-set bird count and
-    how many birds qualify for each type-counting bonus card.
+    how many birds could qualify for each assessable bonus card — the static
+    tag count, or (egg-counting cards) the birds whose egg capacity reaches
+    the threshold.
 
-    Dynamic cards — counting eggs laid, end-game hand size, or board layout —
-    name no birds, so they never become a key and get no pre-game help line.
+    Cards no bird could ever satisfy by fixed property — end-game hand size,
+    board layout — never become a key and get no pre-game help line.
     """
-    birds, _, _ = cards.load_all()
+    birds, bonuses, _ = cards.load_all()
     qualifying: dict[str, int] = {}
-    for bird in birds:
-        for bonus_name in bird.bonus_categories:
-            qualifying[bonus_name] = qualifying.get(bonus_name, 0) + 1
+    for bc in bonuses:
+        count = scoring.bonus_potential_count(bc, birds)
+        if count > 0:
+            qualifying[bc.name] = count
     return _BonusCatalogSummary(total_birds=len(birds), qualifying_by_bonus=qualifying)

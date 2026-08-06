@@ -184,12 +184,38 @@ def test_setup_help_line_shows_counts_and_deck_share():
     assert f"{expected_pct}% of all birds" in help_line
 
 
-def test_setup_help_line_absent_for_dynamic_card():
-    """Dynamic cards can't be assessed pre-game, so they get no second line."""
+def test_setup_help_line_absent_for_unassessable_card():
+    """Cards no bird can satisfy by fixed property — end-game hand size, board
+    layout — can't be assessed pre-game, so they get no second line."""
     birds, bonuses, _ = cards.load_all()
-    oologist = _bonus(bonuses, "Oologist")
+    for name in ("Visionary Leader", "Ecologist"):
+        rendered = display.format_bonus_with_setup_help(
+            _bonus(bonuses, name),
+            hand_birds=birds[:2],
+            tray_birds=birds[2:4],
+            selected_hand_birds=[],
+        )
+        assert "\n" not in rendered, name
+        assert "% of all birds" not in rendered, name
+
+
+def test_setup_help_line_counts_egg_capacity_for_egg_cards():
+    """The egg-counting cards are assessable since v1.7: the help line counts
+    birds whose egg capacity reaches the card's threshold."""
+    birds, bonuses, _ = cards.load_all()
+    breeding_manager = _bonus(bonuses, "Breeding Manager")
+    big_nest = [bird for bird in birds if bird.egg_limit >= 4]
+    small_nest = next(bird for bird in birds if bird.egg_limit < 4)
+    catalog_total = len(big_nest)
+    expected_pct = round(100 * catalog_total / len(birds))
+
     rendered = display.format_bonus_with_setup_help(
-        oologist, hand_birds=birds[:2], tray_birds=birds[2:4], selected_hand_birds=[]
+        breeding_manager,
+        hand_birds=[*big_nest[:2], small_nest],
+        tray_birds=[big_nest[2], small_nest],
+        selected_hand_birds=[big_nest[0]],
     )
-    assert "\n" not in rendered
-    assert "% of all birds" not in rendered
+    help_line = rendered.splitlines()[1]
+    assert "1/2 in hand" in help_line
+    assert "1 in the display" in help_line
+    assert f"{expected_pct}% of all birds" in help_line

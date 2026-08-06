@@ -2,15 +2,17 @@
 
 The pre-1.0 shims (`v0_0` … `v0_7`) were dropped wholesale at the 1.0 MAJOR version
 bump, along with their fixture sets. No 0.x artifact loads under 1.x code —
-`version.check_artifact_compatible` refuses any different-MAJOR artifact. Four
+`version.check_artifact_compatible` refuses any different-MAJOR artifact. Five
 same-MAJOR shims exist now: **`v1_0`** (v1.0 artifacts — the v1.1 `becomes_unplayable`
 stripe + trunk-final-activation change), **`v1_3`** (pre-1.4 geometry — the two
 v1.4 food-unlock **state** stripes and the v1.4 `resets_feeder` **choice** stripe,
 which shipped in one era), **`v1_4`** (pre-1.5 behavior — the habitat-agnostic
-play-bird `goal_delta` pricing; no shape change of its own), and **`v1_5`**
+play-bird `goal_delta` pricing; no shape change of its own), **`v1_5`**
 (pre-1.6 geometry + behavior — the v1.6 `goal_delta_ignoring_eggs` main-net
 **choice** stripe, *and* the first `SetupNet` shim: the static, egg-blind
-pre-1.6 setup `goal_affinity` pricing, no shape change of its own). See
+pre-1.6 setup `goal_affinity` pricing, no shape change of its own), and
+**`v1_6`** (pre-1.7 behavior, both nets — the static egg-blind bonus
+*potential* pricing; no shape change of its own). See
 `docs/VERSIONING.md` for the full compat policy (FRESH vs REGIME, when a MINOR
 bump is required, fixture-set rules, the MAJOR escape hatch).
 
@@ -25,11 +27,12 @@ When a later reshape supersedes an era that already lacked an earlier stripe, th
 older shim *inherits* the newer one so the strips compose (e.g. `v1_0` inherits
 `v1_3`: v1.0 vectors lack the `becomes_unplayable`, `resets_feeder`, `goal_delta_ignoring_eggs`,
 and both food-unlock stripes; `v1_3` in turn inherits `v1_4`, which in turn
-inherits `v1_5`, so every pre-1.4 era also freezes the pre-1.5 `goal_delta`
-pricing and strips the v1.6 tail stripe). A **behavior-only** era (stripe
-*values* changed, widths untouched — `v1_4`) follows the same module shape but
-overrides only the encoder that regenerates the old values; there is no
-`encoding_dims_for_era` branch and no offset/layout override to add.
+inherits `v1_5`, which in turn inherits `v1_6`, so every pre-1.4 era also
+freezes the pre-1.5 `goal_delta` pricing, strips the v1.6 tail stripe, and
+freezes the pre-1.7 bonus potentials). A **behavior-only** era (stripe
+*values* changed, widths untouched — `v1_4`, `v1_6`) follows the same module
+shape but overrides only the encoder that regenerates the old values; there is
+no `encoding_dims_for_era` branch and no offset/layout override to add.
 
 **Freeze _all_ geometry the net derives, not just `encode_state`.** A shim's job
 is that the rehydrated net computes identically to the saved one. The net also
@@ -71,7 +74,28 @@ construction, so no shim ever needs to reproduce an N>=3 shape
 no further choice branch beyond the v1.6 one — v1.5 itself changed stripe
 values only.
 
-**`v1_5.py`** — pre-1.6 geometry (main net) + behavior (setup net) compat shim:
+**`v1_6.py`** — pre-1.7 behavior compat shim, both nets (the v1.7 optimistic
+egg-bonus potential change — `scoring.bonus_potential_count` — is values-only):
+- `PolicyValueNetV1_6` — `PolicyValueNet` subclass overriding `encode_choices`
+  only: after live encoding, each bonus-carrying row (`BonusCardChoice`, or
+  `SetupChoice` with a kept bonus) has its `bonus_value` `hand_potential` /
+  `tray_potential` scalars re-filled via
+  `choice_encode.refill_bonus_value_potentials_static` — the static-tag
+  pricing every pre-1.7 net trained against (the egg-counting cards read 0;
+  the hand-counting card's full-hand count is regenerated identically). The
+  refill targets `layout._OFF_BONUS_VALUE`, before `becomes_playable` and so
+  before every column any older shim strips — the v1_5 re-chain composes with
+  no offset math. Routes for era 1.6 via `class_for_version`.
+- `SetupNetV1_6` — `SetupNet` subclass overriding `encode_candidate` only:
+  live encoding, then `setup_model.encode.refill_bonus_pricing_static`
+  rewrites whichever bonus block the encoding carries (split-mode
+  `bonus_card_affinity` pair, or folded-mode `kept_bonus_value` 4-vector) at
+  unchanged offsets. Routes for era 1.6 via
+  `SetupNet.class_for_version`.
+
+**`v1_5.py`** — pre-1.6 geometry (main net) + behavior (setup net) compat shim
+(both classes inherit their `v1_6` counterparts, so eras <= 1.5 freeze the
+pre-1.7 bonus potentials too):
 - `PolicyValueNetV1_5` — `PolicyValueNet` subclass that strips the v1.6
   `goal_delta_ignoring_eggs` 8-dim choice stripe (the last base stripe, after
   `resets_feeder`) from `encode_choices` and shifts only `kept_multihot`

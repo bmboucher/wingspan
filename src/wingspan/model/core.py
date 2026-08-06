@@ -188,8 +188,11 @@ class PolicyValueNet(nn.Module):
         habitat-agnostic play-bird ``goal_delta`` pricing — which the v1_3 and v1_0
         shims inherit — on top of the geometry it in turn inherits from era 1.5).
         Era 1.5 routes to :class:`wingspan.compat.v1_5.PolicyValueNetV1_5` (strips
-        the v1.6 ``goal_delta_ignoring_eggs`` choice stripe). v1.6+ same-MAJOR
-        artifacts use the live ``PolicyValueNet``.
+        the v1.6 ``goal_delta_ignoring_eggs`` choice stripe). Era 1.6 routes to
+        :class:`wingspan.compat.v1_6.PolicyValueNetV1_6` (the pre-1.7 static
+        egg-blind bonus potential pricing — which every earlier shim inherits
+        through the v1_5 re-chain). v1.7+ same-MAJOR artifacts use the live
+        ``PolicyValueNet``.
         ``check_artifact_compatible`` already refuses any different-MAJOR artifact.
         Used by every construction seam that must honor an artifact's era."""
         parsed = version.parse_version(artifact_version)
@@ -210,6 +213,10 @@ class PolicyValueNet(nn.Module):
             from wingspan.compat import v1_5 as compat_v1_5
 
             return compat_v1_5.PolicyValueNetV1_5
+        if parsed.major == 1 and parsed.minor <= 6:
+            from wingspan.compat import v1_6 as compat_v1_6
+
+            return compat_v1_6.PolicyValueNetV1_6
         return PolicyValueNet
 
     @classmethod
