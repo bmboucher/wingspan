@@ -173,6 +173,30 @@ a clear error rather than being silently seated. 3-4 player checkpoints still
 play fine through `wingspan play`; only the round-robin tournament format is
 restricted.
 
+## Get live advice for a physical game
+
+`wingspan aid` is a live assistant for a 2-player game played at a physical
+table, not on the computer. It runs a terminal session that starts at game
+setup — you enter your dealt hand, bonus cards, round goals, the initial
+tray, and the feeder roll — and a trained model then ranks your options for
+every decision you make for the rest of the game, showing its top picks and
+expected VP margin before you confirm what you actually played:
+
+```
+wingspan aid                                  # advise with the latest trained model
+wingspan aid best --seed 42                   # advise with the strongest checkpoint
+wingspan aid --log session.log --jsonl session.jsonl  # write session logs
+```
+
+The opponent's moves are relayed by you as they happen — the assistant asks
+"what did they do?" for each of their decisions and tracks their hand and
+bonus cards as hidden counts (never guessing their identities), matching
+what the encoder itself is allowed to see. At the end of the final round it
+offers to enter the opponent's bonus card(s) for exact scoring; skipping
+that leaves their bonus VP as a placeholder to count manually. Only
+checkpoints trained at `num_players=2` can drive the advisor seat, and a
+session runs setup-to-end with no mid-game entry or undo.
+
 ## Installed commands
 
 After `pip install -e .` all tools are available through a single `wingspan`
@@ -181,6 +205,7 @@ command with subcommands:
 | Command                 | What it does                                            |
 | ----------------------- | ------------------------------------------------------- |
 | `wingspan play`         | Games between any mix of human, random, and AI seats    |
+| `wingspan aid`          | Live assistant for a physical 2-player game             |
 | `wingspan dashboard`    | FLIGHT PLAN: config screen → live training dashboard    |
 | `wingspan tournament`   | Round-robin tournament between trained AIs              |
 | `wingspan inspect`      | Model introspection report (vectors, architecture, params) |

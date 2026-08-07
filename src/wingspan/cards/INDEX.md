@@ -29,6 +29,16 @@ Pydantic models — they are never mutated after load.
   part of the encoder's checkpoint format).
 - `food_index(food) -> int`, `nest_matches(bird_nest, target) -> bool`.
 
+**`lookup.py`** — Fuzzy name → card resolution for interactive entry points
+(the `wingspan aid` session). Three-tier match over the catalog: exact
+normalized name → normalized-prefix (unique or ambiguous) → `difflib` fuzzy
+candidates. `find_birds(query)`, `find_bonus_cards(query)`, and
+`find_goals(query)` (goals have no name, so matching is against each goal's
+category tag + description) each return a list of candidates — empty (no
+match), one (resolved), or many (ambiguous). `find_food(query)` is a plain
+alias-table lookup (`Food | None`). `parse_bird_list(text)` splits a
+comma-separated hand entry into per-token `find_birds` results.
+
 ## Subpackage
 
 **`parse/`** — JSON loader and power-text parser.

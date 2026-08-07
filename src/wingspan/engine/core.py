@@ -763,8 +763,8 @@ class Engine:
         many as remain)."""
         dealt: list[cards.BonusCard] = []
         for _ in range(state.STARTING_BONUS_CARDS_DEAL):
-            if self.state.bonus_deck:
-                dealt.append(self.state.bonus_deck.pop())
+            if (card := self.state.draw_bonus()) is not None:
+                dealt.append(card)
         return dealt
 
     @staticmethod

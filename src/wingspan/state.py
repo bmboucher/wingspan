@@ -225,6 +225,17 @@ class GameState(pydantic.BaseModel):
             self.rng.shuffle(self.bird_deck)
         return self.bird_deck.pop()
 
+    def draw_bonus(self) -> cards.BonusCard | None:
+        """Pop the top bonus card, or ``None`` when the deck is empty.
+
+        The single bonus-reveal seam — every setup deal and mid-game power
+        that grants a bonus card draws through this method — mirroring
+        :meth:`draw_bird` for birds. Unlike the bird deck, the bonus deck is
+        never reshuffled from a discard pile, so an empty deck stays empty."""
+        if not self.bonus_deck:
+            return None
+        return self.bonus_deck.pop()
+
     def refill_tray(self) -> list[tuple[int, cards.Bird]]:
         """Fill each empty (``None``) tray slot from the deck, left-to-right.
 
@@ -642,19 +653,36 @@ class Birdfeeder(pydantic.BaseModel):
         else:
             raise ValueError(f"{food.value} is not gainable from the birdfeeder")
 
+    def roll_out_of_feeder(self, rng: random.Random, n: int) -> tuple["FoodPool", int]:
+        """Roll ``n`` dice over the same six equally-likely faces as the
+        feeder — the five single foods plus the invertebrate/seed choice
+        face — without entering the feeder itself.
+
+        Returns ``(single_face_counts, choice_face_count)``. This is the
+        shared roll primitive behind :meth:`reroll` (which rerolls the
+        feeder's own dice) and the dice-predator power
+        (``EffectKind.ROLL_NOT_IN_FEEDER_CACHE``), whose dice never enter the
+        feeder at all."""
+        single_face_counts = FoodPool()
+        choice_face_count = 0
+        for _ in range(n):
+            face = rng.randint(
+                0, cards.N_FOODS
+            )  # 0..N_FOODS-1 -> food; N_FOODS -> choice
+            if face < cards.N_FOODS:
+                single_face_counts[cards.ALL_FOODS[face]] += 1
+            else:
+                choice_face_count += 1
+        return single_face_counts, choice_face_count
+
     def reroll(self, rng: random.Random) -> None:
         """Reroll all five dice over the six equally-likely faces — the five
         single foods plus the invertebrate/seed choice face."""
         self.counts.zero()
         self.choice_dice = 0
-        for _ in range(BIRDFEEDER_DICE):
-            face = rng.randint(
-                0, cards.N_FOODS
-            )  # 0..N_FOODS-1 -> food; N_FOODS -> choice
-            if face < cards.N_FOODS:
-                self.counts[cards.ALL_FOODS[face]] += 1
-            else:
-                self.choice_dice += 1
+        rolled, choice = self.roll_out_of_feeder(rng, BIRDFEEDER_DICE)
+        self.counts = rolled
+        self.choice_dice = choice
 
 
 # ---------------------------------------------------------------------------

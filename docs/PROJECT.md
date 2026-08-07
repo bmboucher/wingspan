@@ -39,6 +39,7 @@ src/wingspan/
 | Package | Purpose | Detail |
 |---------|---------|--------|
 | `agents/` | Interactive + random agents; human-readable formatters | [`agents/INDEX.md`](../src/wingspan/agents/INDEX.md) |
+| `aid/` | Live assistant for a physical 2-player game: model advice + board tracking | [`aid/INDEX.md`](../src/wingspan/aid/INDEX.md) |
 | `cards/` | Immutable card definitions + power-text parser | [`cards/INDEX.md`](../src/wingspan/cards/INDEX.md) |
 | `cloud/` | Containerized, S3-persisted training runs + monitor | [`cloud/INDEX.md`](../src/wingspan/cloud/INDEX.md) |
 | `compat/` | Version-specific artifact shims (cleared at a MAJOR bump) | [`compat/INDEX.md`](../src/wingspan/compat/INDEX.md) |

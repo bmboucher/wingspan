@@ -281,14 +281,7 @@ def _h_roll_not_in_feeder_cache(
             return
 
     # Roll the outside dice using the same 6-face distribution as the feeder.
-    roll_counts = state.FoodPool()
-    choice_rolled = 0
-    for _ in range(dice_out):
-        face = st.rng.randint(0, cards.N_FOODS)
-        if face < cards.N_FOODS:
-            roll_counts[cards.ALL_FOODS[face]] += 1
-        else:
-            choice_rolled += 1
+    roll_counts, choice_rolled = st.birdfeeder.roll_out_of_feeder(st.rng, dice_out)
 
     # Format the result in the same style as Birdfeeder.format().
     roll_str = roll_counts.format()
@@ -703,8 +696,8 @@ def _h_draw_bonus(
     bird = pb.bird
     drawn: list[cards.BonusCard] = []
     for _ in range(eff.amount):
-        if st.bonus_deck:
-            drawn.append(st.bonus_deck.pop())
+        if (card := st.draw_bonus()) is not None:
+            drawn.append(card)
     player.bonus_cards.extend(drawn)
     engine.log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
 

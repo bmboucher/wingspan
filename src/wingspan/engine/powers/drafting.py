@@ -240,9 +240,10 @@ def _h_draw_bonus_keep(
     keep = max(eff.keep_count or 1, 1)
     drawn: list[cards.BonusCard] = []
     for _ in range(n_draw):
-        if not st.bonus_deck:
+        card = st.draw_bonus()
+        if card is None:
             break
-        drawn.append(st.bonus_deck.pop())
+        drawn.append(card)
     if not drawn:
         engine.log(f"  {bird.name}: bonus deck empty; power skipped")
         return

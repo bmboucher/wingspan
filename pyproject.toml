@@ -88,6 +88,7 @@ concurrency = ["multiprocessing", "thread"]
 parallel = true
 omit = [
     "*/wingspan/cli.py",               # argparse CLI boilerplate
+    "*/wingspan/aid/app.py",           # argparse CLI + interactive session wiring
     "*/wingspan/__main__.py",          # dispatcher entry point
     "*/wingspan/training/charts/*.py", # chart/visualization generation
     "*/wingspan/cloud/*.py",           # AWS/S3 integration (needs live cloud)

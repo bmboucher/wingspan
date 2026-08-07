@@ -655,6 +655,7 @@ class LogSource(enum.StrEnum):
 
     PLAY = "play"
     TOURNAMENT = "tournament"
+    AID = "aid"
 
 
 class RowKind(enum.StrEnum):

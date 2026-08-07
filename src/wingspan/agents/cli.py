@@ -32,7 +32,7 @@ def cli_agent() -> engine_core.Agent:
             # SetupChoice return is cast through.
             return typing.cast(
                 C,
-                _cli_resolve_setup_choice(
+                resolve_setup_choice_dialog(
                     decision,
                     [b for b in engine.state.tray if b is not None],
                 ),
@@ -54,7 +54,7 @@ def cli_agent() -> engine_core.Agent:
         print(decision.prompt)
         player = engine.state.players[decision.player_id]
         for i, choice in enumerate(decision.choices):
-            print(_format_choice_line(i, choice, player))
+            print(format_choice_line(i, choice, player))
         while True:
             raw = input("choice> ").strip()
             try:
@@ -69,12 +69,7 @@ def cli_agent() -> engine_core.Agent:
     return agent
 
 
-###### PRIVATE #######
-
-
-def _format_choice_line(
-    idx: int, choice: decisions.Choice, player: state.Player
-) -> str:
+def format_choice_line(idx: int, choice: decisions.Choice, player: state.Player) -> str:
     """Render one offered choice line with type-aware extra context.
 
     Bird- and bonus-card-carrying choices are expanded to show food cost,
@@ -109,7 +104,7 @@ def _format_choice_line(
     return f"  [{idx}] {choice.display_label()}"
 
 
-def _cli_resolve_setup_choice(
+def resolve_setup_choice_dialog(
     decision: decisions.SetupDecision,
     tray: list[cards.Bird],
 ) -> decisions.SetupChoice:
@@ -140,6 +135,9 @@ def _cli_resolve_setup_choice(
         "assembled setup answer did not match any offered SetupChoice: "
         f"keep={[bird.name for bird in kept_cards]} foods={kept_foods} bonus={bonus_card}"
     )
+
+
+###### PRIVATE #######
 
 
 def _cli_pick_hand_and_bonus(

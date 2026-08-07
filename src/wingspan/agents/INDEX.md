@@ -14,7 +14,11 @@ No state; implemented as a plain function matching the `Agent` protocol.
 **`cli.py`** — `cli_agent`: the interactive human agent. Delegates to the terminal
 selection widget in `interactive.py` for each decision; uses `display.py` to render
 the current game state before prompting. Suitable for human-vs-AI play via
-`wingspan play`.
+`wingspan play`. Two helpers are public for reuse by other interactive entry
+points: `format_choice_line(idx, choice, player)` renders one offered-choice
+line with type-aware extra context, and `resolve_setup_choice_dialog(decision,
+tray)` runs the two-step cards/bonus + foods sub-dialog for a `SetupDecision`
+and returns the matching `SetupChoice`.
 
 **`display.py`** — Human-readable formatters for cards and game state. Key functions:
 `format_bird(bird)`, `format_bonus(bc)`, `format_board(gs)`. Output is plain text
