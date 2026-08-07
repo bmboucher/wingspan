@@ -70,7 +70,9 @@ Food: `gain_food(engine, player, food, amount, *, source)`,
 `uncache_food(engine, player, played_bird, food, amount)`.
 Eggs: `lay_eggs(engine, player, played_bird, count, *, purpose)`,
 `remove_eggs(engine, player, played_bird, count, *, purpose)`.
-Cards: `draw_from_deck(engine, player, *, source)`,
+Cards: `draw_from_deck(engine, player, *, source, face_up)` (`face_up` is for
+powers whose deck draws are revealed to the whole table before entering the
+hand, e.g. the Oystercatcher draft pool),
 `take_from_tray(engine, player, tray_index)`,
 `discard_from_hand(engine, player, card, *, purpose)`,
 `tuck_from_hand(engine, player, card, played_bird)`,
@@ -80,8 +82,15 @@ the dice predators need (turn the card face up, *then* decide its fate).
 `pass_card(engine, from_player, to_player, card)` moves a card hand-to-hand;
 `take_into_pile(engine, from_player, to_player, card)` is its counterpart for
 the card draft, whose pile leaves one hand several lines before it joins the
-next. Board: `place_bird(engine, player, card, habitat)`,
+next — `receive_passed_cards(engine, to_player, received)` is the arrival
+side, landing the pile in a hand without recording a second effect (the
+departure-side `PassCardEffect` already named the recipient). Board:
+`place_bird(engine, player, card, habitat)`,
 `move_bird(engine, player, played_bird, from_habitat, to_habitat)`.
+
+The card group also maintains `Player.known_hand` — the publicly-known
+subset of a hand — alongside every mutation above: it is not part of the
+gamelog at all, just plain state kept in sync by this module.
 Reveals: `reroll_feeder(engine, player)`,
 `record_dice_roll(engine, player, played_bird, counts, choice_dice)`,
 `refill_tray(engine, player_id)`, `reset_tray(engine, player_id)` — the last two

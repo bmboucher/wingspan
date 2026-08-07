@@ -662,10 +662,13 @@ N_BOARD_INDEX_SLOTS = 2 * _SLOTS_PER_BOARD  # N=2 anchor: POV board + opponent b
 N_CARD_INDEX_SLOTS = N_BOARD_INDEX_SLOTS + state.TRAY_SIZE  # N=2 anchor
 HAND_MULTIHOT_DIM = _BIRD_ID_DIM
 N_HAND_PLAYABLE_MULTIHOTS = 2
-"""Number of extra hand-playability multi-hot stripes appended after ``hand_multihot``
-in the state vector: ``hand_playable_me`` (playable right now) and
-``hand_playable_eggs_me`` (egg-blocked but food/slot ready). Pre-0.6 artifacts
-have 0 extra stripes; the compat shim freezes the offsets at the old values."""
+"""Number of extra hand-*playability* multi-hot stripes appended after
+``hand_multihot`` in the state vector: ``hand_playable_me`` (playable right
+now) and ``hand_playable_eggs_me`` (egg-blocked but food/slot ready). Pre-0.6
+artifacts have 0 extra stripes; the compat shim freezes the offsets at the old
+values. This counts only the playability pair — see :func:`n_extra_hand_multihots`
+for the full extra-block count (playability pair plus one known-hand stripe per
+opponent, v1.8+)."""
 
 
 def n_board_index_slots(spec: EncodingSpec = DEFAULT_SPEC) -> int:
@@ -680,6 +683,12 @@ def n_card_index_slots(spec: EncodingSpec = DEFAULT_SPEC) -> int:
     seat's board plus the public tray. At N=2 this equals ``N_CARD_INDEX_SLOTS``
     (33)."""
     return n_board_index_slots(spec) + state.TRAY_SIZE
+
+
+def n_extra_hand_multihots(spec: EncodingSpec = DEFAULT_SPEC) -> int:
+    """Count of 180-wide card-set multi-hots after ``hand_multihot``: the two
+    playability stripes plus one known-hand stripe per opponent (v1.8+)."""
+    return N_HAND_PLAYABLE_MULTIHOTS + (spec.num_players - 1)
 
 
 # Per-habitat fields retained in the v0.9 compacted board-summary (row_length +
@@ -704,9 +713,10 @@ def _state_cont_stripe_specs(
     """The state continuous-prefix stripe specs for ``spec``.
 
     At N=2 (``spec.num_players == 2``) this reproduces the pre-N-player
-    literal chain byte-for-byte: no ``turn_position`` stripe, and each
-    per-opponent group's single ``range(1, 2)`` iteration yields exactly the
-    original unsuffixed stripe. At N>=3 it additionally inserts, in place:
+    literal chain byte-for-byte through ``hand_playable_eggs_me``: no
+    ``turn_position`` stripe, and each per-opponent group's single
+    ``range(1, 2)`` iteration yields exactly the original unsuffixed stripe.
+    At N>=3 it additionally inserts, in place:
 
     * a ``turn_position`` one-hot (width ``spec.num_players``) immediately
       after ``turn_state``;
@@ -718,6 +728,13 @@ def _state_cont_stripe_specs(
       :func:`round_goals_stripe_dim` / :func:`n_card_index_slots` (their
       per-spec sizes already cover every seat, so they stay single stripes
       rather than splitting into per-opponent ones).
+
+    At every N (including N=2), one ``known_hand_opp{k}`` 180-wide identity
+    multi-hot per opponent (``k = 1..spec.num_players - 1`` clockwise, named
+    via :func:`_opponent_suffix`) is appended at the tail of the multi-hot
+    region — after ``hand_playable_eggs_me``, before the trailing
+    ``decision_type`` stripe. A v1.8 addition (see ``state.Player.known_hand``,
+    maintained by ``engine.ledger``); the pre-1.8 compat shim slices it out.
     """
     n = spec.num_players
     specs: list[_stripe_descriptors.StripeSpec] = [
@@ -813,6 +830,18 @@ def _state_cont_stripe_specs(
             name="hand_playable_eggs_me", size=HAND_MULTIHOT_DIM
         )
     )
+    # Per-opponent identity multi-hot of the publicly-known subset of that
+    # opponent's hand (``Player.known_hand``, maintained by ``engine.ledger``).
+    # Appended at the tail of the multi-hot region — after both playability
+    # stripes, before decision_type — so the model's generic 180-wide-block
+    # extraction (``model.core._extract_hand_blocks``) picks it up without any
+    # model-side changes. v1.8 addition; the pre-1.8 compat shim slices it out.
+    specs.extend(
+        _stripe_descriptors.StripeSpec(
+            name=f"known_hand_opp{_opponent_suffix(k)}", size=HAND_MULTIHOT_DIM
+        )
+        for k in range(1, n)
+    )
     return specs
 
 
@@ -903,6 +932,15 @@ STATE_FOOD_UNLOCK_DIM: int = cards.N_FOODS
 STATE_HAND_FOOD_UNLOCK_OFFSET: int = STATE_CONT_LAYOUT.offset_of("hand_food_unlock_me")
 STATE_TRAY_FOOD_UNLOCK_OFFSET: int = STATE_CONT_LAYOUT.offset_of("tray_food_unlock_me")
 
+# The nearest opponent's known-hand identity multi-hot (v1.8+): a 180-wide
+# multi-hot of ``Player.known_hand``, appended at the tail of the multi-hot
+# region (after both playability stripes, before decision_type). Named
+# constants (not literals) so the pre-1.8 compat shim (Stage 3) can slice this
+# — and every later opponent's ``known_hand_opp2``, ``known_hand_opp3``, ...
+# replica at N>=3 — out of a live-era vector.
+STATE_KNOWN_HAND_OPP_DIM: int = HAND_MULTIHOT_DIM
+STATE_KNOWN_HAND_OPP_OFFSET: int = STATE_CONT_LAYOUT.offset_of("known_hand_opp")
+
 # Choice-vector card region the model embeds through the shared card table. The
 # bird-index column sits just before bonus_id; the board_hab / board_col one-hots
 # immediately precede it as pass-through features. These offsets are invariant
@@ -974,11 +1012,14 @@ def trunk_input_dim(
     more ``hand_embed_dim``-wide vector: the tray *set* embedded through the same
     hand encoder, derived in-model from the three tray index columns.
 
-    ``n_playable_multihots`` counts the extra hand-playability multi-hot blocks that
-    follow the hand multi-hot in the state vector (``N_HAND_PLAYABLE_MULTIHOTS`` in
-    live encoding, 0 for pre-0.6 compat shims). Each is removed from the flat
-    state and re-embedded through the same path, adding one set-embedding-wide
-    vector per block.
+    ``n_playable_multihots`` counts the extra 180-wide card-set multi-hot blocks
+    that follow the hand multi-hot in the state vector — the two playability
+    stripes plus (v1.8+) one ``known_hand_opp`` stripe per opponent. Each is
+    removed from the flat state and re-embedded through the same path, adding
+    one set-embedding-wide vector per block. Live-era callers pass
+    ``n_extra_hand_multihots(spec)``; pre-0.6 compat shims pass 0 (no extra
+    stripes at all); eras between 0.6 and 1.8 pass ``N_HAND_PLAYABLE_MULTIHOTS``
+    (the playability pair only, no known-hand stripes).
 
     ``board_position_dim`` is the width of the per-token position block the board
     self-attention path concatenates onto each of the ``n_board_index_slots`` board

@@ -85,8 +85,9 @@ def _small_arch() -> architecture.ModelArchitecture:
 def _era_shim(
     spec: encode.EncodingSpec = encode.DEFAULT_SPEC,
 ) -> compat_v1_6.PolicyValueNetV1_6:
-    """A v1_6 shim built at era 1.6's dims — which equal live (behavior-only
-    era), exactly how the load path builds it."""
+    """A v1_6 shim built at era 1.6's dims — choice dims equal live (v1.7 was
+    choice-behavior-only), state dims narrower by the inherited v1.8
+    known_hand_opp strip — exactly how the load path builds it."""
     state_dim, choice_dim = compat.encoding_dims_for_era("1.6", spec)
     return compat_v1_6.PolicyValueNetV1_6(
         state_dim=state_dim, choice_dim=choice_dim, arch=_small_arch(), spec=spec
@@ -180,10 +181,15 @@ class TestClassForVersionRouting:
 
 
 class TestEncodingDimsForEra:
-    def test_era_1_6_dims_equal_live(self) -> None:
+    def test_era_1_6_choice_dims_equal_live_state_narrowed_by_known_hand_opp(
+        self,
+    ) -> None:
+        """v1.7 itself changed only choice-row values, not shape — but the
+        v1.8 bump additionally narrows every pre-1.8 era's state_dim by the
+        known_hand_opp stripe, era 1.6 included."""
         spec = encode.DEFAULT_SPEC
         state_dim, choice_dim = compat.encoding_dims_for_era("1.6", spec)
-        assert state_dim == encode.state_size(spec)
+        assert state_dim == encode.state_size(spec) - encode.STATE_KNOWN_HAND_OPP_DIM
         assert choice_dim == encode.choice_feature_dim(spec)
 
 
@@ -484,7 +490,9 @@ def test_v1_6_stamped_checkpoint_round_trips(tmp_path: pathlib.Path) -> None:
     )
     cfg = config.with_encoding_version(base, "1.6")
     assert cfg.encoding_version == "1.6"
-    assert cfg.state_dim == encode.state_size(cfg.encoding_spec)
+    assert cfg.state_dim == (
+        encode.state_size(cfg.encoding_spec) - encode.STATE_KNOWN_HAND_OPP_DIM
+    )
     assert cfg.choice_dim == encode.choice_feature_dim(cfg.encoding_spec)
 
     net_cls = model.PolicyValueNet.class_for_version(cfg.encoding_version)

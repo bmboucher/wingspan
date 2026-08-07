@@ -136,6 +136,24 @@ This is what lets `summarize` scope an event's header to its own seat.
 The **reveal** rows above are the effects the HTML log surfaces individually;
 everything else folds into an event header.  See **Summaries** below.
 
+Brant (`DRAW_FROM_TRAY_ALL`) used to bulk-take the tray with a direct
+`hand.extend` that bypassed the ledger entirely — a real hole in the "only
+producer" invariant. It now calls `take_from_tray` once per slot, so it
+records one `DrawCardEffect(source=tray)` per card like every other tray draw.
+
+**Derived state, no new event type.** `Player.known_hand` (the publicly-known
+subset of a hand — cards every observer saw arrive face-up) is maintained by
+the same `engine/ledger.py` functions that already touch a hand, alongside
+their existing effect recording. It introduces no `Effect` subclass of its
+own — most of it *is* reconstructable from the effect stream above (a
+`DrawCardEffect(source=tray)` marks a card known; `DiscardCardEffect` /
+`TuckCardEffect(source=hand)` / `PlayBirdEffect` forget one or all), with one
+caveat: `draw_from_deck`'s `face_up` flag (used by the Oystercatcher draft's
+initial draw) is not itself part of `DrawCardEffect` — a face-up draft draw
+and an ordinary hidden deck draw both record `source=deck`, indistinguishable
+in the log. A future reconciliation test mirroring
+`tests/test_gamelog_ledger.py` would need to special-case that call site.
+
 ## Phase structure
 
 The tree top level is a sequence of `PhaseNode(kind, round_idx, turn_idx, events)`

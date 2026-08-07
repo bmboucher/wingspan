@@ -61,6 +61,32 @@ after live ``encode_choices`` and shifts only ``kept_multihot``. It routes for
 era 1.5; ``PolicyValueNetV1_4`` now **inherits** it, so every pre-1.6 era
 strips the tail stripe too, on top of its own stripes and value refills.
 
+**v1_6 shim** (see :mod:`wingspan.compat.v1_6`): v1.7 froze two behaviors —
+values only, no shape change — on top of live v1.6 geometry: the static
+(egg-blind) bonus *potential* pricing on both nets, and (main net only)
+spend-decision ``FoodChoice`` rows routed to ``gain_food`` instead of
+``pay_food``. :class:`wingspan.compat.v1_6.PolicyValueNetV1_6` overrides only
+``encode_choices``, re-running both refills after live encoding at unchanged
+offsets; :class:`wingspan.compat.v1_6.SetupNetV1_6` overrides only
+``encode_candidate`` for the bonus-pricing half (the setup net has no
+food-direction convention). No dims-router branch, no offset or layout
+override of its own. It routes for era 1.6.
+
+**v1_7 shim** (see :mod:`wingspan.compat.v1_7`): v1.8 appends the
+per-opponent ``known_hand_opp`` 180-dim **state** stripe (after both
+playability multi-hots, before ``decision_type``), so ``encoding_dims_for_era``
+returns a ``state_dim`` 180 less for every era with minor <= 7 (the newest,
+and so broadest, state-narrowing branch).
+:class:`wingspan.compat.v1_7.PolicyValueNetV1_7` strips the stripe after live
+``encode_state`` and freezes the pre-1.8 ``_state_embed_offsets`` — only
+``decision_type`` shifts left; ``card_index`` / ``hand_multihot`` precede the
+new stripe and are unchanged (the opposite shift shape from ``v1_3``'s
+food-unlock strip, which precedes both and shifts all three). No choice-side
+change and no ``SetupNet`` shim — v1.8 leaves choice and setup encoding
+untouched. It routes for era 1.7; ``PolicyValueNetV1_6`` now **inherits** it
+(re-chained from ``core.PolicyValueNet``), so every era <= 1.6 strips the
+stripe too, on top of its own choice-side value refills.
+
 The pre-1.0 shims (``v0_0`` … ``v0_7``) were dropped at the 1.0 MAJOR bump; no
 0.x artifact loads under 1.x code. Each module is version-number-specific —
 never a config flag — and the whole package is deleted again at the next MAJOR
@@ -82,21 +108,24 @@ def encoding_dims_for_era(
 ) -> tuple[int, int]:
     """The raw ``(state_dim, choice_dim)`` an era's encoders produce under ``spec``.
 
-    v1.6 added the ``goal_delta_ignoring_eggs`` **choice** stripe, so every era
-    with minor ≤ 5 predates it: its ``choice_dim`` is
-    ``CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM`` (8) less than the live width (the
-    newest, and so broadest, narrowing branch). v1.4 added both the two
-    food-unlock **state** stripes and the ``resets_feeder`` **choice** stripe, so
-    every era with minor ≤ 3 additionally predates both: its ``state_dim`` is a
-    further ``2 * STATE_FOOD_UNLOCK_DIM`` (10) less (the first same-MAJOR era to
-    narrow the state dim) and its ``choice_dim`` a further
-    ``CHOICE_RESETS_FEEDER_DIM`` (1) less. v1.0 additionally predates the v1.1
-    ``becomes_unplayable`` choice stripe, so its ``choice_dim`` drops a further
-    ``CHOICE_BECOMES_UNPLAYABLE_DIM`` (180). Era 1.5 has no state branch and no
-    further choice branch beyond the v1.6 one: v1.5 itself changed only stripe
-    *values* (the play-bird ``goal_delta`` pricing), not shape. Raises
-    ``ValueError`` for a malformed version string, and
-    :class:`wingspan.version.IncompatibleArtifactError` when
+    v1.8 added the per-opponent ``known_hand_opp`` **state** stripe, so every
+    era with minor ≤ 7 predates it: its ``state_dim`` is
+    ``STATE_KNOWN_HAND_OPP_DIM`` (180) less than the live width (the newest,
+    and so broadest, narrowing branch). v1.6 added the
+    ``goal_delta_ignoring_eggs`` **choice** stripe, so every era with minor ≤ 5
+    additionally predates it: its ``choice_dim`` is
+    ``CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM`` (8) less than the live width. v1.4
+    added both the two food-unlock **state** stripes and the ``resets_feeder``
+    **choice** stripe, so every era with minor ≤ 3 additionally predates both:
+    its ``state_dim`` a further ``2 * STATE_FOOD_UNLOCK_DIM`` (10) less and its
+    ``choice_dim`` a further ``CHOICE_RESETS_FEEDER_DIM`` (1) less. v1.0
+    additionally predates the v1.1 ``becomes_unplayable`` choice stripe, so its
+    ``choice_dim`` drops a further ``CHOICE_BECOMES_UNPLAYABLE_DIM`` (180). Era
+    1.5 and era 1.7 each have no dims branch of their own beyond what they
+    inherit — both changed only stripe *values* (v1.5's play-bird
+    ``goal_delta`` pricing, v1.7's bonus-potential and spend-food-routing
+    pricing), never shape. Raises ``ValueError`` for a malformed version
+    string, and :class:`wingspan.version.IncompatibleArtifactError` when
     ``spec.num_players != 2`` — every superseded (pre-live) era predates N-player
     support by definition: ``num_players`` is a config-carried, default-2 field
     that was introduced alongside the live encoder, so no compat-era spec can
@@ -111,6 +140,10 @@ def encoding_dims_for_era(
     parsed = version.parse_version(artifact_version)
     state_dim = encode.state_size(spec)
     choice_dim = encode.choice_feature_dim(spec)
+    # Every era with minor <= 7 predates the v1.8 known_hand_opp per-opponent
+    # state stripe.
+    if parsed.major == 1 and parsed.minor <= 7:
+        state_dim -= encode.STATE_KNOWN_HAND_OPP_DIM
     # Every era with minor <= 5 predates the v1.6 goal_delta_ignoring_eggs stripe.
     if parsed.major == 1 and parsed.minor <= 5:
         choice_dim -= encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM

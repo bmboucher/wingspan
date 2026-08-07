@@ -50,7 +50,11 @@ choice-stripe removal and the old trunk-final-activation fallback. This net in
 turn subclasses ``compat.v1_4.PolicyValueNetV1_4``, so every pre-1.4 era also
 freezes the pre-1.5 habitat-agnostic play-bird ``goal_delta`` pricing — the
 value refill runs at live column offsets inside the ``super().encode_choices``
-chain, before this shim's column strips shift anything.
+chain, before this shim's column strips shift anything. The chain continues
+through ``v1_5`` and ``v1_6`` to ``compat.v1_7.PolicyValueNetV1_7``, so every
+pre-1.4 era also strips the v1.8 ``known_hand_opp`` state stripe — composed
+via ``_true_state_dim``'s and ``_state_embed_offsets``'s ``super()`` calls,
+never recomputed absolutely.
 
 **Fixture note.** A committed LFS checkpoint fixture is deferred (as for v1.0): no
 in-production v1.3 checkpoint was preserved. Instead
@@ -86,15 +90,25 @@ class PolicyValueNetV1_3(v1_4.PolicyValueNetV1_4):
     :class:`wingspan.compat.v1_4.PolicyValueNetV1_4` and, through it, the pre-1.6
     ``goal_delta_ignoring_eggs`` choice-stripe removal from
     :class:`wingspan.compat.v1_5.PolicyValueNetV1_5` — so this era's true choice
-    width is live minus both the v1.6 stripe and this era's own ``resets_feeder``."""
+    width is live minus both the v1.6 stripe and this era's own ``resets_feeder``.
+    Also inherits, through the same chain, the pre-1.8 ``known_hand_opp``
+    state-stripe removal from :class:`wingspan.compat.v1_7.PolicyValueNetV1_7`
+    (composed via ``_true_state_dim``'s ``super()`` chain) — so this era's true
+    state width is live minus both the v1.8 stripe and this era's own two
+    food-unlock stripes."""
 
     # --- state: strip the two food-unlock stripes ---
 
     def _true_state_dim(self) -> int:
         """The state width this shim's ``encode_state`` actually produces — the
-        live width minus the two food-unlock stripes — derived from ``self.spec``
-        so it is independent of the ``state_dim`` passed to ``__init__``."""
-        return encode.state_size(self.spec) - 2 * encode.STATE_FOOD_UNLOCK_DIM
+        parent (``v1_4`` -> ``v1_5`` -> ``v1_6`` -> ``v1_7``) true state width,
+        which already excludes the v1.8 ``known_hand_opp`` stripe, minus this
+        era's own two food-unlock stripes. Composed via ``super()`` rather than
+        recomputed absolutely from ``self.spec``, so a further tail-narrowing
+        ancestor era applies here automatically instead of being silently
+        dropped — the same conversion the v1.6 bump performed on
+        ``_true_choice_dim`` below."""
+        return super()._true_state_dim() - 2 * encode.STATE_FOOD_UNLOCK_DIM
 
     def _build_trunk(
         self, state_dim: int, arch: architecture.ModelArchitecture
@@ -124,7 +138,11 @@ class PolicyValueNetV1_3(v1_4.PolicyValueNetV1_4):
     def _state_embed_offsets(self) -> core.StateEmbedOffsets:
         """Return pre-1.4 offsets: ``card_index`` / ``hand_multihot`` /
         ``decision_type`` shifted left by the two stripes' total width, because
-        those stripes were never in the pre-1.4 state vector."""
+        those stripes were never in the pre-1.4 state vector. ``super()`` already
+        returns ``decision_type`` shifted by the inherited v1.8 ``known_hand_opp``
+        strip (``card_index`` / ``hand_multihot`` are untouched by that strip,
+        since it is appended after both playability multi-hots), so this
+        method's own shift composes on top without special-casing."""
         live = super()._state_embed_offsets()
         shift = 2 * encode.STATE_FOOD_UNLOCK_DIM
         return core.StateEmbedOffsets(

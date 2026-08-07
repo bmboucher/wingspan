@@ -52,6 +52,10 @@ from wingspan.reporting import encode_viewer
 from wingspan.training import config
 
 _STATE_STRIPE_WIDTH = 2 * encode.STATE_FOOD_UNLOCK_DIM  # both 5-wide state stripes
+# The v1.8 known_hand_opp state stripe v1_3 now also strips, inherited through
+# the v1_4 -> v1_5 -> v1_6 -> v1_7 re-chain (composed via _true_state_dim's and
+# _state_embed_offsets's super() calls, not a v1_3-specific change).
+_INHERITED_KNOWN_HAND_OPP_WIDTH = encode.STATE_KNOWN_HAND_OPP_DIM
 
 
 def _small_arch() -> architecture.ModelArchitecture:
@@ -142,11 +146,15 @@ class TestClassForVersionRouting:
 
 class TestEncodingDimsForEra:
     def test_state_dim_narrower_by_ten_for_pre_1_4(self) -> None:
+        """Pre-1.4 eras predate both the two food-unlock stripes (v1.4) and
+        the known_hand_opp stripe (v1.8), so both state narrowings compose."""
         spec = encode.DEFAULT_SPEC
         live_state = encode.state_size(spec)
         for era in ("1.0", "1.1", "1.2", "1.3"):
             state_dim, _ = compat.encoding_dims_for_era(era, spec)
-            assert live_state - state_dim == _STATE_STRIPE_WIDTH
+            assert live_state - state_dim == (
+                _STATE_STRIPE_WIDTH + _INHERITED_KNOWN_HAND_OPP_WIDTH
+            )
 
     def test_choice_dim_narrower_by_resets_feeder_for_pre_1_4(self) -> None:
         """Pre-1.4 eras predate both resets_feeder (v1.4) and
@@ -187,33 +195,49 @@ class TestEncodingDimsForEra:
 
 class TestV1_3StateStripeStripping:
     def test_encode_state_narrower_than_live_by_stripe_width(self) -> None:
+        """v1_3 strips both its own two food-unlock columns and the
+        known_hand_opp stripe it inherits from the v1_7 parent."""
         eng, *_ = engine.Engine.create(seed=100)
         shim = _era_shim()
         decision = _decision()
         live_len = encode.encode_state(eng.state, decision).shape[0]
         shim_len = shim.encode_state(eng.state, decision).shape[0]
-        assert live_len - shim_len == _STATE_STRIPE_WIDTH
+        assert live_len - shim_len == (
+            _STATE_STRIPE_WIDTH + _INHERITED_KNOWN_HAND_OPP_WIDTH
+        )
 
     def test_encode_state_matches_live_without_stripes(self) -> None:
+        """Strip both the known_hand_opp tail stripe and the food-unlock
+        columns from the live vector before comparing — the inherited v1_7
+        strip runs before v1_3's own food-unlock strip in the super() chain."""
         eng, *_ = engine.Engine.create(seed=100)
         shim = _era_shim()
         decision = _decision()
         live = encode.encode_state(eng.state, decision)
+        kh_start = encode.STATE_KNOWN_HAND_OPP_OFFSET
+        kh_end = kh_start + encode.STATE_KNOWN_HAND_OPP_DIM
+        live_stripped = np.delete(live, slice(kh_start, kh_end), axis=0)
         start = encode.STATE_HAND_FOOD_UNLOCK_OFFSET
         live_stripped = np.delete(
-            live, slice(start, start + _STATE_STRIPE_WIDTH), axis=0
+            live_stripped, slice(start, start + _STATE_STRIPE_WIDTH), axis=0
         )
         shim_out = shim.encode_state(eng.state, decision)
         assert shim_out.shape == live_stripped.shape
         assert np.array_equal(shim_out, live_stripped)
 
     def test_state_embed_offsets_shifted_left(self) -> None:
+        """card_index / hand_multihot shift by v1_3's own food-unlock width
+        only (known_hand_opp is appended after both, so it never touches
+        them); decision_type shifts by both — v1_3's own strip AND the
+        inherited v1_7 known_hand_opp strip."""
         arch = _small_arch()
         live_off = core.PolicyValueNet(arch=arch)._state_embed_offsets()
         shim_off = _era_shim(arch=arch)._state_embed_offsets()
         assert live_off.card_index - shim_off.card_index == _STATE_STRIPE_WIDTH
         assert live_off.hand_multihot - shim_off.hand_multihot == _STATE_STRIPE_WIDTH
-        assert live_off.decision_type - shim_off.decision_type == _STATE_STRIPE_WIDTH
+        assert live_off.decision_type - shim_off.decision_type == (
+            _STATE_STRIPE_WIDTH + _INHERITED_KNOWN_HAND_OPP_WIDTH
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -314,13 +338,18 @@ class TestV1_0InheritsPre1_4Strips:
         )
 
     def test_v1_0_encode_state_strips_the_stripes(self) -> None:
+        """v1.0 strips the food-unlock columns AND (inherited via v1_3 ->
+        ... -> v1_7) the known_hand_opp tail stripe."""
         eng, *_ = engine.Engine.create(seed=102)
         net = self._v1_0_era_net()
         decision = _decision()
         live = encode.encode_state(eng.state, decision)
+        kh_start = encode.STATE_KNOWN_HAND_OPP_OFFSET
+        kh_end = kh_start + encode.STATE_KNOWN_HAND_OPP_DIM
+        live_stripped = np.delete(live, slice(kh_start, kh_end), axis=0)
         start = encode.STATE_HAND_FOOD_UNLOCK_OFFSET
         live_stripped = np.delete(
-            live, slice(start, start + _STATE_STRIPE_WIDTH), axis=0
+            live_stripped, slice(start, start + _STATE_STRIPE_WIDTH), axis=0
         )
         assert np.array_equal(net.encode_state(eng.state, decision), live_stripped)
 
@@ -394,6 +423,7 @@ class TestEraStripeLayouts:
         state_names = {s.name for s in shim.raw_state_stripe_layout().stripes}
         assert "hand_food_unlock_me" not in state_names
         assert "tray_food_unlock_me" not in state_names
+        assert "known_hand_opp" not in state_names  # inherited via v1_7
         choice_names = {s.name for s in shim.raw_choice_stripe_layout().stripes}
         assert "resets_feeder" not in choice_names
         assert "goal_delta_ignoring_eggs" not in choice_names  # inherited via v1_5
@@ -407,6 +437,9 @@ class TestEraStripeLayouts:
         assert "becomes_playable" in names
 
     def test_era_state_offsets_shift_left_past_removed_stripes(self) -> None:
+        """``hand_multihot`` shifts by v1_3's own food-unlock width only;
+        ``decision_type`` shifts by both that width and the inherited v1_7
+        ``known_hand_opp`` width — it sits past both removed regions."""
         shim = _era_shim()
         live = stripes.raw_state_stripe_layout(shim.spec)
         era = shim.raw_state_stripe_layout()
@@ -417,7 +450,7 @@ class TestEraStripeLayouts:
         )
         assert (
             live.offset_of("decision_type") - era.offset_of("decision_type")
-            == _STATE_STRIPE_WIDTH
+            == _STATE_STRIPE_WIDTH + _INHERITED_KNOWN_HAND_OPP_WIDTH
         )
 
     def test_era_vector_decodes_hand_via_own_layout(self) -> None:
@@ -475,7 +508,11 @@ def test_v1_3_stamped_checkpoint_round_trips(tmp_path: pathlib.Path) -> None:
     )
     cfg = config.with_encoding_version(base, "1.3")
     assert cfg.encoding_version == "1.3"
-    assert cfg.state_dim == encode.state_size(cfg.encoding_spec) - _STATE_STRIPE_WIDTH
+    assert cfg.state_dim == (
+        encode.state_size(cfg.encoding_spec)
+        - _STATE_STRIPE_WIDTH
+        - _INHERITED_KNOWN_HAND_OPP_WIDTH
+    )
     assert cfg.choice_dim == (
         encode.choice_feature_dim(cfg.encoding_spec)
         - encode.CHOICE_RESETS_FEEDER_DIM

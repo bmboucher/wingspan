@@ -1169,9 +1169,10 @@ def _param_report(view: state.ConfiguratorState) -> architecture.ParamReport:
 
 def _trunk_in(cfg: config.RunConfig) -> int:
     """The working config's post-embedding trunk input width, every embedding
-    knob threaded. Passes ``n_playable_multihots=N_HAND_PLAYABLE_MULTIHOTS`` for
-    live configs (the state vector includes two 180-dim playability stripes that
-    the model embeds rather than passing through as continuous features)."""
+    knob threaded. Passes ``n_playable_multihots=n_extra_hand_multihots(spec)``
+    for live configs (the state vector includes two 180-dim playability stripes
+    plus one 180-dim known-hand stripe per opponent that the model embeds
+    rather than passing through as continuous features)."""
     # See _param_report: read off cfg.arch, not cfg.architecture.main, so this
     # also works for the static/era-routed _StaticConfig adapter — same reason
     # num_players is read off cfg.arch.num_players (present on both the live
@@ -1188,7 +1189,7 @@ def _trunk_in(cfg: config.RunConfig) -> int:
         hand_embed_dim=cfg.architecture.main.hand_embed_dim,
         pooled_hand_width=cfg.arch.pooled_hand_width,
         tray_set_embedding=cfg.architecture.main.tray_set_embedding,
-        n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+        n_playable_multihots=encode.n_extra_hand_multihots(n_players_spec),
         board_position_dim=board_position_dim,
         n_card_index_slots=encode.n_card_index_slots(n_players_spec),
         n_board_index_slots=encode.n_board_index_slots(n_players_spec),

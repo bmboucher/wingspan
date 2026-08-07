@@ -70,21 +70,23 @@ def test_flag_on_appends_exactly_the_tray_set_embedding():
 
     # Widths: +N overall, matching trunk_input_dim's accounting.
     set_width = _ARCH_ON.hand_embed_width
+    n_extra = encode.n_extra_hand_multihots(encode.DEFAULT_SPEC)
     assert emb_on.shape[-1] == emb_off.shape[-1] + set_width
     assert emb_on.shape[-1] == encode.trunk_input_dim(
         len(state_vec),
         _ARCH_ON.card_embed_dim,
         use_distinct_hand_model=True,
         tray_set_embedding=True,
-        n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+        n_playable_multihots=n_extra,
     )
 
     # The shared prefix (continuous + slot embeddings) is everything before the
-    # first set embedding; the suffix (hand + playability embeddings) follows the
-    # tray block.  There are 1 + N_HAND_PLAYABLE_MULTIHOTS set-width blocks at the
-    # tail of emb_off (hand plus the two playability copies), so the prefix ends
-    # that many set-widths before the end.
-    prefix = emb_off.shape[-1] - (1 + encode.N_HAND_PLAYABLE_MULTIHOTS) * set_width
+    # first set embedding; the suffix (hand + playability + known-hand-opponent
+    # embeddings) follows the tray block.  There are 1 + n_extra set-width blocks
+    # at the tail of emb_off (hand plus the two playability copies plus one
+    # known_hand_opp copy at N=2), so the prefix ends that many set-widths
+    # before the end.
+    prefix = emb_off.shape[-1] - (1 + n_extra) * set_width
     assert torch.equal(emb_on[..., :prefix], emb_off[..., :prefix])
     assert torch.equal(emb_on[..., prefix + set_width :], emb_off[..., prefix:])
 

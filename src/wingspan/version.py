@@ -33,8 +33,38 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.7"
+MODEL_VERSION = "1.8"
 """The current artifact-compatibility version (the only place it is defined).
+
+1.8 is a **state-dims** MINOR FRESH bump: a per-opponent ``known_hand_opp``
+180-wide identity multi-hot is appended at the tail of the state vector's
+multi-hot region (immediately after ``hand_playable_eggs_me``, before the
+trailing ``decision_type`` one-hot) — one stripe per opponent, so N=2 adds
+exactly one column block. It carries the *public* knowledge of an opponent's
+hand contents the engine now tracks (``state.Player.known_hand``, maintained
+by ``engine.ledger``): a card seen entering an opponent's hand via a tray
+draw or a face-up draft draw stays known until it leaves. Playing a bird is
+a face-up departure that forgets exactly that card; any face-down departure
+(a discard or tuck from hand) wholesale-clears the tracked set, since
+observers can't tell which known card left. State width grows by 180 per opponent (N=2
+base: 1129 -> 1309; ``include_setup``: 1130 -> 1310). Choice dims and the
+setup net are untouched — no shape or value change on either.
+
+Era ≤1.7 artifacts route to ``wingspan.compat.v1_7`` — ``PolicyValueNetV1_7``
+overrides only the state-side seams (``encode_state``, ``_state_embed_offsets``,
+``_build_trunk``, ``_true_state_dim``, ``raw_state_stripe_layout``): after live
+encoding the ``known_hand_opp`` block is sliced out, and the only offset that
+moves is ``decision_type`` (shifted left by 180) — ``card_index`` and
+``hand_multihot`` precede the new stripe and are unchanged, the opposite shift
+shape from the v1.4 food-unlock strip (``compat.v1_3``), which shifts all
+three because that stripe precedes ``card_index``. No choice-side override,
+and no ``SetupNet`` shim — v1.8 does not touch choice or setup encoding, so a
+1.7-era setup artifact keeps routing exactly as it did before this bump.
+``compat.v1_6.PolicyValueNetV1_6`` now subclasses ``PolicyValueNetV1_7``
+(re-chained from ``core.PolicyValueNet``), so every earlier era strips the
+stripe too, composed with its own choice-side value refills via ``super()``
+chaining — the same shape the v1_3 -> v1_4 chain already uses for the
+food-unlock stripes.
 
 1.7 is a **behavior-only** MINOR FRESH bump — no tensor shape changes — that
 makes the bonus *potential* counters optimistic about the egg-counting

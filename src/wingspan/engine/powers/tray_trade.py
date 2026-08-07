@@ -32,11 +32,12 @@ def _h_draw_from_tray_all(
 ) -> None:
     # Brant (generic for N): take every face-up card in the tray.
     # The end-of-turn refill (core._take_turn) handles refilling; no mid-turn refill.
-    st = engine.state
     bird = pb.bird
-    taken = [card for card in st.tray if card is not None]
-    st.tray = [None] * state.TRAY_SIZE
-    player.hand.extend(taken)
+    taken: list[cards.Bird] = []
+    for tray_index in range(state.TRAY_SIZE):
+        drawn = ledger.take_from_tray(engine, player, tray_index)
+        if drawn is not None:
+            taken.append(drawn)
     engine.log(
         f"  {bird.name}: drew {len(taken)} card(s) from tray: "
         f"{[card.name for card in taken]}"

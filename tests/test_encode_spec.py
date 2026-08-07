@@ -236,8 +236,10 @@ def test_state_layout_for_matches_param_report_trunk_in():
 
         # Independent trunk_in mirroring param_report_for, passing all arch
         # params so pooled_hand_width and other knobs match. With no pre-1.0
-        # shims every descriptor is live, so both playability multi-hots are present.
-        n_playable = encode.N_HAND_PLAYABLE_MULTIHOTS
+        # shims every descriptor is live, so every extra hand multi-hot (both
+        # playability stripes plus one known-hand stripe per opponent) is present.
+        spec = encode.EncodingSpec(include_setup=include_setup)
+        n_playable = encode.n_extra_hand_multihots(spec)
         expected_trunk_in = encode.trunk_input_dim(
             descriptor.state_dim,
             arch.card_embed_dim,
@@ -267,7 +269,7 @@ def test_state_layout_for_matches_param_report_trunk_in_with_board_attention_pos
     )
     state_layout = runmeta.state_layout_for(descriptor)
     arch = descriptor.architecture
-    n_playable = encode.N_HAND_PLAYABLE_MULTIHOTS
+    n_playable = encode.n_extra_hand_multihots(spec)
     expected_trunk_in = encode.trunk_input_dim(
         descriptor.state_dim,
         arch.card_embed_dim,
@@ -323,7 +325,7 @@ def test_config_syncs_dims_to_num_players():
         misc=config.MiscConfig(device="cpu"),
         architecture=config.ArchitectureConfig(num_players=3),
     )
-    assert n3.state_dim == 1299
+    assert n3.state_dim == 1659
     assert n3.choice_dim == 520
     assert n3.num_players == 3
     assert n3.arch.num_players == 3
@@ -384,11 +386,13 @@ def test_compat_era_refuses_num_players_3():
     with pytest.raises(version.IncompatibleArtifactError):
         compat.encoding_dims_for_era("1.3", encode.EncodingSpec(num_players=3))
     # num_players=2 at the same era is unaffected (existing 2P resume path).
-    # Era 1.3 predates both the v1.4 resets_feeder stripe and the v1.6
-    # goal_delta_ignoring_eggs stripe, so the choice narrowing composes.
+    # Era 1.3 predates the v1.4 food-unlock state stripes (10), the v1.8
+    # known_hand_opp state stripe (180), the v1.4 resets_feeder choice stripe,
+    # and the v1.6 goal_delta_ignoring_eggs choice stripe, so both the state
+    # and choice narrowings compose.
     dims = compat.encoding_dims_for_era("1.3", encode.EncodingSpec(num_players=2))
     assert dims == (
-        encode.state_size(_EXCLUDE) - 10,
+        encode.state_size(_EXCLUDE) - 10 - encode.STATE_KNOWN_HAND_OPP_DIM,
         encode.choice_feature_dim(_EXCLUDE)
         - encode.CHOICE_RESETS_FEEDER_DIM
         - encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM,

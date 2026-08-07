@@ -191,8 +191,11 @@ class PolicyValueNet(nn.Module):
         the v1.6 ``goal_delta_ignoring_eggs`` choice stripe). Era 1.6 routes to
         :class:`wingspan.compat.v1_6.PolicyValueNetV1_6` (the pre-1.7 static
         egg-blind bonus potential pricing — which every earlier shim inherits
-        through the v1_5 re-chain). v1.7+ same-MAJOR artifacts use the live
-        ``PolicyValueNet``.
+        through the v1_5 re-chain). Era 1.7 routes to
+        :class:`wingspan.compat.v1_7.PolicyValueNetV1_7` (strips the v1.8
+        per-opponent ``known_hand_opp`` state stripe — which every earlier shim
+        now inherits through the v1_6 re-chain). v1.8+ same-MAJOR artifacts use
+        the live ``PolicyValueNet``.
         ``check_artifact_compatible`` already refuses any different-MAJOR artifact.
         Used by every construction seam that must honor an artifact's era."""
         parsed = version.parse_version(artifact_version)
@@ -217,6 +220,10 @@ class PolicyValueNet(nn.Module):
             from wingspan.compat import v1_6 as compat_v1_6
 
             return compat_v1_6.PolicyValueNetV1_6
+        if parsed.major == 1 and parsed.minor <= 7:
+            from wingspan.compat import v1_7 as compat_v1_7
+
+            return compat_v1_7.PolicyValueNetV1_7
         return PolicyValueNet
 
     @classmethod

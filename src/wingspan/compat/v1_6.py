@@ -53,6 +53,18 @@ v1.0 / v1.3 / v1.4 / v1.5): ``tests/test_compat_v1_6.py`` builds v1.6-era
 nets (main and setup), saves them with a v1.6 stamp, and round-trip-loads
 them through the production ``players.loaders.load_policy_net`` /
 ``load_setup_net`` paths.
+
+**v1.8 re-chain (state, not this class's own change).** ``PolicyValueNetV1_6``
+now subclasses :class:`wingspan.compat.v1_7.PolicyValueNetV1_7` instead of
+the live net directly, so era 1.6's geometry is no longer dims-equal-live on
+the state side: it inherits the v1.8 ``known_hand_opp`` state-stripe strip
+(state width live − 180) and the frozen pre-1.8 ``_state_embed_offsets``.
+This class's own :meth:`encode_choices` still only performs the two
+choice-side refills above — ``super().encode_choices`` resolves straight
+through to ``core.PolicyValueNet.encode_choices`` (``PolicyValueNetV1_7``
+overrides no choice seam), so neither refill's offset math changes.
+``SetupNetV1_6`` is unaffected — v1.8 does not touch setup encoding, so it
+keeps subclassing :class:`wingspan.training.setup_net.SetupNet` directly.
 """
 
 from __future__ import annotations
@@ -62,21 +74,24 @@ import typing
 import numpy as np
 
 from wingspan import decisions, setup_model, state
+from wingspan.compat import v1_7
 from wingspan.encode import choice_encode
-from wingspan.model import core
 from wingspan.setup_model import encode as setup_encode
 from wingspan.training import setup_net
 
 
-class PolicyValueNetV1_6(core.PolicyValueNet):
+class PolicyValueNetV1_6(v1_7.PolicyValueNetV1_7):
     """``PolicyValueNet`` with two pre-1.7 encoding behaviors frozen: (1)
     every bonus-carrying choice row prices ``hand_potential`` /
     ``tray_potential`` by the static ``bonus_categories`` tag alone, so the
     egg-counting dynamic cards read 0; (2) every spend-decision
     ``FoodChoice`` row (``SpendFoodDecision``, ``SpendFoodForEggDecision``)
-    is a ``gain_food`` one-hot rather than a ``pay_food`` payment. Geometry
-    is live — v1.7 is behavior-only, so this class overrides
-    ``encode_choices`` and nothing else."""
+    is a ``gain_food`` one-hot rather than a ``pay_food`` payment. Choice
+    geometry is live — v1.7 is behavior-only on the choice side, so this
+    class overrides ``encode_choices`` and nothing else of its own. Inherits
+    :class:`wingspan.compat.v1_7.PolicyValueNetV1_7`'s pre-1.8 state
+    geometry (the ``known_hand_opp`` stripe stripped) — the v1.8 re-chain,
+    not a change of this class's own."""
 
     def encode_choices(
         self,

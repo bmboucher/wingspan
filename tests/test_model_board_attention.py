@@ -141,7 +141,7 @@ def test_param_count_matches_accounting() -> None:
             use_distinct_hand_model=arch_attn.use_distinct_hand_model,
             hand_embed_dim=arch_attn.hand_embed_dim,
             tray_set_embedding=arch_attn.tray_set_embedding,
-            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            n_playable_multihots=encode.n_extra_hand_multihots(spec),
         ),
         choice_in=encode.choice_input_dim(
             encode.CHOICE_FEATURE_DIM,
@@ -174,7 +174,7 @@ def test_base_param_count_unchanged() -> None:
             use_distinct_hand_model=arch_base.use_distinct_hand_model,
             hand_embed_dim=arch_base.hand_embed_dim,
             tray_set_embedding=arch_base.tray_set_embedding,
-            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            n_playable_multihots=encode.n_extra_hand_multihots(spec),
         ),
         choice_in=encode.choice_input_dim(
             encode.CHOICE_FEATURE_DIM,
@@ -284,14 +284,15 @@ def test_trunk_input_width_grows_with_positions() -> None:
     assert isinstance(first_attn, torch.nn.Linear)
     assert isinstance(first_pos, torch.nn.Linear)
 
-    state_dim = encode.state_size(encode.DEFAULT_SPEC)
+    spec = encode.DEFAULT_SPEC
+    state_dim = encode.state_size(spec)
     expected_attn = encode.trunk_input_dim(
         state_dim,
         arch_attn.card_embed_dim,
         use_distinct_hand_model=arch_attn.use_distinct_hand_model,
         hand_embed_dim=arch_attn.hand_embed_dim,
         tray_set_embedding=arch_attn.tray_set_embedding,
-        n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+        n_playable_multihots=encode.n_extra_hand_multihots(spec),
     )
     expected_pos = encode.trunk_input_dim(
         state_dim,
@@ -299,7 +300,7 @@ def test_trunk_input_width_grows_with_positions() -> None:
         use_distinct_hand_model=arch_pos.use_distinct_hand_model,
         hand_embed_dim=arch_pos.hand_embed_dim,
         tray_set_embedding=arch_pos.tray_set_embedding,
-        n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+        n_playable_multihots=encode.n_extra_hand_multihots(spec),
         board_position_dim=encode.BOARD_POSITION_DIM,
     )
     assert first_attn.in_features == expected_attn
@@ -327,7 +328,7 @@ def test_param_count_matches_accounting_with_positions() -> None:
             use_distinct_hand_model=arch_pos.use_distinct_hand_model,
             hand_embed_dim=arch_pos.hand_embed_dim,
             tray_set_embedding=arch_pos.tray_set_embedding,
-            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            n_playable_multihots=encode.n_extra_hand_multihots(spec),
             board_position_dim=encode.BOARD_POSITION_DIM,
         ),
         choice_in=encode.choice_input_dim(
@@ -591,7 +592,7 @@ def test_param_count_matches_accounting_with_heads() -> None:
             use_distinct_hand_model=arch_heads.use_distinct_hand_model,
             hand_embed_dim=arch_heads.hand_embed_dim,
             tray_set_embedding=arch_heads.tray_set_embedding,
-            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            n_playable_multihots=encode.n_extra_hand_multihots(spec),
         ),
         choice_in=encode.choice_input_dim(
             encode.CHOICE_FEATURE_DIM,
@@ -846,7 +847,7 @@ def test_shared_param_count_matches_accounting() -> None:
             use_distinct_hand_model=arch_shared.use_distinct_hand_model,
             hand_embed_dim=arch_shared.hand_embed_dim,
             tray_set_embedding=arch_shared.tray_set_embedding,
-            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            n_playable_multihots=encode.n_extra_hand_multihots(spec),
         ),
         choice_in=encode.choice_input_dim(
             encode.CHOICE_FEATURE_DIM,
@@ -881,7 +882,7 @@ def test_shared_halves_board_attention_params() -> None:
                 use_distinct_hand_model=arch.use_distinct_hand_model,
                 hand_embed_dim=arch.hand_embed_dim,
                 tray_set_embedding=arch.tray_set_embedding,
-                n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+                n_playable_multihots=encode.n_extra_hand_multihots(spec),
             ),
             choice_in=encode.choice_input_dim(
                 encode.CHOICE_FEATURE_DIM,
@@ -921,7 +922,7 @@ def test_shared_param_count_with_positions_and_heads() -> None:
             use_distinct_hand_model=arch.use_distinct_hand_model,
             hand_embed_dim=arch.hand_embed_dim,
             tray_set_embedding=arch.tray_set_embedding,
-            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            n_playable_multihots=encode.n_extra_hand_multihots(spec),
             board_position_dim=encode.BOARD_POSITION_DIM,
         ),
         choice_in=encode.choice_input_dim(

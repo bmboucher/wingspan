@@ -46,7 +46,17 @@ stripe offsets. Key exports:
 - `N_ROUNDS: int = 4` — one-hot dimension for round number (v0.3+).
 - `MAX_ACTION_CUBES: int = 8` — one-hot dimension minus 1 for cube counts (v0.3+).
 - `N_HAND_PLAYABLE_MULTIHOTS: int = 2` — number of playability-filtered hand
-  multi-hots added in v0.6 (`hand_playable_me`, `hand_playable_eggs_me`).
+  multi-hots added in v0.6 (`hand_playable_me`, `hand_playable_eggs_me`). See
+  `n_extra_hand_multihots(spec)` for the full extra-block count including the
+  v1.8 known-hand stripes.
+- `n_extra_hand_multihots(spec) -> int` — count of 180-wide card-set multi-hots
+  after `hand_multihot`: `N_HAND_PLAYABLE_MULTIHOTS` (2) plus one
+  `known_hand_opp{k}` stripe per opponent (`spec.num_players - 1`). The value
+  every live caller (`runmeta`, `arch_diagram`, `svg`) passes as
+  `trunk_input_dim`'s / `state_embed_rules`'s `n_playable_multihots`.
+- `STATE_KNOWN_HAND_OPP_OFFSET`, `STATE_KNOWN_HAND_OPP_DIM` — offset (1109 at
+  N=2) and width (180, `HAND_MULTIHOT_DIM`) of the nearest opponent's v1.8
+  `known_hand_opp` stripe — see the dedicated paragraph below.
 - `CHOICE_BECOMES_PLAYABLE_OFFSET`, `CHOICE_BECOMES_PLAYABLE_DIM` — offset and
   width of the v0.6 `becomes_playable` stripe in each choice row.
 - `CHOICE_BECOMES_UNPLAYABLE_OFFSET`, `CHOICE_BECOMES_UNPLAYABLE_DIM` — offset and
@@ -61,6 +71,13 @@ stripe offsets. Key exports:
   the v1.4 `resets_feeder` stripe (after `becomes_unplayable`; set on a
   `combine_gain_food` `FoodSubsetChoice` that rerolls the birdfeeder). v1.0–1.3
   artifacts lack it; see `wingspan.compat.v1_3`.
+- Per-opponent `known_hand_opp{k}` identity multi-hots (180 dims each,
+  `STATE_KNOWN_HAND_OPP_DIM`) — the publicly-known subset of that opponent's
+  hand (`state.Player.known_hand`, maintained by `engine.ledger`, Stage 1).
+  Appended at the tail of the multi-hot region (after `hand_playable_eggs_me`,
+  before `decision_type`) so the model's generic 180-wide-block extraction
+  (`model.core._extract_hand_blocks`) picks them up with no model-side changes;
+  pre-1.8 artifacts lack it (compat shim: Stage 3 / `wingspan.compat.v1_7`).
 - `CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET`, `CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM` —
   offset and width (8: 4 round goals × count/vp) of the v1.6 `goal_delta_ignoring_eggs`
   stripe — the last *base* stripe (after `resets_feeder`), pricing each round goal
@@ -85,13 +102,15 @@ stripe offsets. Key exports:
 
 **`state_encode.py`** — `encode_state(gs: GameState, decision, spec) -> np.ndarray` and
 `state_size(spec) -> int`. Encodes the full perceived game state into a 1-D
-float vector (1129 dims at N=2 as of v1.4; 1299 at N=3, 1467 at N=4 — see
-`docs/VERSIONING.md`'s `num_players` entry; was 1119 in v0.9–v1.3, 1155 in
-v0.6–v0.8): per-habitat board slots, tray, per-type cached food, the two v1.4
+float vector (1309 dims at N=2 as of v1.8; 1659 at N=3, 2007 at N=4 — see
+`docs/VERSIONING.md`'s `num_players` entry; was 1129 in v1.4–v1.7, 1119 in
+v0.9–v1.3, 1155 in v0.6–v0.8): per-habitat board slots, tray, per-type cached food, the two v1.4
 food-unlock stripes (`hand_food_unlock_me`, `tray_food_unlock_me` — see
 `engine.playability.min_food_to_unlock`), birdfeeder, round goals (scored rounds
 zeroed), player hand + two playability multi-hots (`hand_playable_me`,
-`hand_playable_eggs_me`) via the hand encoder, one-hot round number, one-hot
+`hand_playable_eggs_me`) via the hand encoder, one `known_hand_opp{k}` identity
+multi-hot per opponent (v1.8; `_known_hand_opp`, reads `Player.known_hand`
+directly with no intersection against `hand`), one-hot round number, one-hot
 action cube counts, decision-type one-hot. The `hand_summary_me` stripe (10 dims) was removed in v0.9 — derived in-model
 via `set_summary_from_multihot`; `board_summary_me/opp` compacted from 18→6 dims (only
 `row_length` + `total_eggs` per habitat); `misc_scalars` compacted from 4→2 dims (dropped

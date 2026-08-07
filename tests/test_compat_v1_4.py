@@ -186,12 +186,12 @@ class TestClassForVersionRouting:
 def test_encoding_dims_for_era_1_4_choice_narrower_by_goal_delta_ignoring_eggs() -> (
     None
 ):
-    """v1.5 itself changed no shape, so era 1.4's state_dim still equals live;
-    but the v1.6 bump narrows every pre-1.6 era's choice_dim by the
-    goal_delta_ignoring_eggs stripe, era 1.4 included."""
+    """v1.5 itself changed no shape, so era 1.4's choice narrowing stops at the
+    inherited v1.6 tail stripe; but the v1.8 bump additionally narrows every
+    pre-1.8 era's state_dim by the known_hand_opp stripe, era 1.4 included."""
     spec = encode.DEFAULT_SPEC
     state_dim, choice_dim = compat.encoding_dims_for_era("1.4", spec)
-    assert state_dim == encode.state_size(spec)
+    assert state_dim == encode.state_size(spec) - encode.STATE_KNOWN_HAND_OPP_DIM
     assert choice_dim == (
         encode.choice_feature_dim(spec) - encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
     )
@@ -287,7 +287,9 @@ def test_v1_4_stamped_checkpoint_round_trips(tmp_path: pathlib.Path) -> None:
     )
     cfg = config.with_encoding_version(base, "1.4")
     assert cfg.encoding_version == "1.4"
-    assert cfg.state_dim == encode.state_size(cfg.encoding_spec)
+    assert cfg.state_dim == (
+        encode.state_size(cfg.encoding_spec) - encode.STATE_KNOWN_HAND_OPP_DIM
+    )
     assert cfg.choice_dim == (
         encode.choice_feature_dim(cfg.encoding_spec)
         - encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM

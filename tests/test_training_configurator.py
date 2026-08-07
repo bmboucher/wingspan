@@ -126,7 +126,7 @@ def test_num_players_field_commits_and_nudges():
 
     committed, error = fields.commit(cfg, num_players, "3")
     assert error is None and committed.architecture.num_players == 3
-    assert committed.state_dim == 1299
+    assert committed.state_dim == 1659
 
     up, error = fields.nudge(cfg, num_players, 1)
     assert error is None and up.architecture.num_players == 3
@@ -725,7 +725,7 @@ def _param_report_for(cfg: config.TrainConfig) -> architecture.ParamReport:
             hand_embed_dim=main.hand_embed_dim,
             pooled_hand_width=cfg.arch.pooled_hand_width,
             tray_set_embedding=main.tray_set_embedding,
-            n_playable_multihots=encode.N_HAND_PLAYABLE_MULTIHOTS,
+            n_playable_multihots=encode.n_extra_hand_multihots(cfg.encoding_spec),
         ),
         choice_in=encode.choice_input_dim(
             cfg.choice_dim,

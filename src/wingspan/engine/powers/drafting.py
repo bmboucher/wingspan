@@ -89,10 +89,12 @@ def _h_draw_n_plus_one_draft(
         engine.log(f"  {bird.name}: skipped")
         return
 
-    # Draw (#players + 1) cards into the active player's hand.
+    # Draw (#players + 1) cards into the active player's hand. The draft pool
+    # is revealed to the whole table in the physical game, so every drawn
+    # card is face-up from the start.
     drawn: list[cards.Bird] = []
     for _ in range(n_players + 1):
-        drawn_card = ledger.draw_from_deck(engine, player)
+        drawn_card = ledger.draw_from_deck(engine, player, face_up=True)
         if drawn_card is None:
             break
         drawn.append(drawn_card)
@@ -171,8 +173,10 @@ def _draft_return_loop(
         opponent = st.players[(player.id + offset) % n_players]
         # Arrival only: each card's transfer was recorded when it left the
         # previous holder's hand (ledger.take_into_pile), which named this seat
-        # as the recipient.
-        opponent.hand.extend(pile)
+        # as the recipient. The hand + known-hand mutation on arrival still
+        # goes through the ledger (receive_passed_cards), it just records no
+        # additional effect.
+        ledger.receive_passed_cards(engine, opponent, pile)
 
         # Whoever holds the pile next: the following seat clockwise, or the
         # original player once the last opponent has been asked.
@@ -213,8 +217,10 @@ def _draft_return_loop(
                 )
         pile = next_pile
 
+    # Arrival only, same as the mid-draft receive above: each card's departure
+    # was already recorded by ledger.take_into_pile.
+    ledger.receive_passed_cards(engine, player, pile)
     for returned_card in pile:
-        player.hand.append(returned_card)  # recorded by the pass above
         engine.log(f"  {bird.name}: [{player.name}] receives back {returned_card.name}")
 
 

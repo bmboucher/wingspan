@@ -2,7 +2,7 @@
 
 Every persisted artifact (the dated `run_config_<stamp>.json` run descriptor and
 every `.pt` payload) is stamped with a `MAJOR.MINOR` **artifact version**
-(`wingspan.version.MODEL_VERSION`, currently **`1.7`**). This is distinct from
+(`wingspan.version.MODEL_VERSION`, currently **`1.8`**). This is distinct from
 the package release version (`wingspan.__version__`) — one tracks the codebase,
 the other the on-disk artifact format.
 
@@ -35,7 +35,74 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.7 — optimistic egg-bonus potential pricing (current)
+### v1.8 — `known_hand_opp` per-opponent state stripes (current)
+
+A **main-net encoding** MINOR FRESH bump that widens the state vector with a
+per-opponent `known_hand_opp` 180-wide identity multi-hot: the *publicly
+known* subset of each opponent's hand, tracked in the engine ledger
+(`state.Player.known_hand`, maintained by `engine.ledger`, Stage 1) and
+appended at the tail of the state vector's multi-hot region — after both
+playability stripes (`hand_playable_me`, `hand_playable_eggs_me`), before
+the trailing `decision_type` one-hot (Stage 2).
+
+**What the engine now tracks.** `Player.known_hand` records which of a
+player's hand cards are currently known to the other seat(s): a card becomes
+known the moment it enters the hand via a public source — a tray draw or a
+face-up birdfeeder/draft draw — and the whole tracked set for that card is
+wholesale-cleared the moment it leaves the hand face-down (played, discarded
+face-down, or any other opaque removal), since the departure itself hides
+which physical copy left. `engine.ledger` is the single maintenance point;
+every hand-mutating action routes through it so the stripe is never encoded
+from a stale or hand-inferred set.
+
+**What the encoder now emits.** One `known_hand_opp{k}` 180-wide identity
+multi-hot per opponent (`k = 1..num_players - 1` clockwise; at N=2 exactly
+one stripe, the plain unsuffixed `known_hand_opp` name, matching every other
+per-opponent stripe's N=2 convention — `encode.layout.n_extra_hand_multihots`).
+State width grows by 180 per opponent (N=2 base: 1129 -> 1309;
+`include_setup`: 1130 -> 1310). Choice dims and the setup net are untouched —
+no shape or value change on either.
+
+- **Shape change — encoding (FRESH).** Pre-1.8 state vectors are 180 dims
+  narrower. `compat.v1_7.PolicyValueNetV1_7` strips the stripe after live
+  encoding (`np.delete`), freezing the pre-1.8 `StateEmbedOffsets` —
+  `decision_type` shifted left by 180, `card_index` / `hand_multihot`
+  UNCHANGED (the new stripe sits after both, the opposite shift shape from
+  every prior state-dims shim, `compat.v1_3`, whose food-unlock stripe
+  precedes `card_index` and shifts all three). Its `_build_trunk` derives the
+  block width from `self.spec` via `_true_state_dim` (absolute form — the
+  shim closest to live) rather than the passed dim, so it is correct whether
+  the constructor is handed era dims (the load path) or live dims (test
+  default); the trunk's dynamic extra-multihot-block count falls out of the
+  shifted offsets automatically (2, the playability pair only — Stage 2's
+  threshold-gated embed rules). `encoding_dims_for_era` gains a new
+  **topmost** branch: for every pre-1.8 same-MAJOR era, `state_dim -= 180`.
+- **No choice-side change, no setup-side change.** The choice vector and the
+  setup model are untouched, so there is no choice-embed-offset override and
+  no `SetupNetV1_7` — a 1.7-era setup artifact keeps routing through the live
+  `SetupNet` exactly as it did before this bump.
+- **Routing.** `class_for_version` routes era 1.7 to `PolicyValueNetV1_7`.
+  `compat.v1_6.PolicyValueNetV1_6` **inherits** it (re-chained from
+  `core.PolicyValueNet`), so every era <= 1.6 strips the stripe too, on top of
+  its own choice-side value refills — composed via `super()` chaining, the
+  same shape the v1_3 -> v1_4 chain already uses for the food-unlock stripes.
+- **Fixture recapture.** The golden fixture (`tests/data/golden_n2.json`) was
+  recaptured: every `state_setup` / `state_nosetup` hash moves (the state
+  vector widens for every decision), while every `choices_setup` /
+  `choices_nosetup` hash stays byte-identical to the pre-bump fixture — the
+  choice encoder is untouched, and the identity of every such hash was
+  verified column-for-column against the previous commit before writing.
+  `tests/data/state_dict_shape_n2.json` moves in exactly one entry:
+  `state_trunk.0.weight`'s input dimension grows by one more pooled-hand-width
+  block (the `known_hand_opp` stripe embeds through the same card-set pooling
+  as the two playability stripes). A committed LFS checkpoint fixture remains
+  deferred, as for every prior era: `tests/test_compat_v1_7.py` builds a
+  v1.7-stamped net and round-trips it through the production
+  `players.loaders.load_policy_net` path.
+- **User action: none** — pre-1.8 checkpoints load and compute identically
+  via the shim chain.
+
+### v1.7 — optimistic egg-bonus potential pricing
 
 A **behavior-only** MINOR FRESH bump — no tensor shape changes on either net —
 that is the bonus-card twin of v1.6's `goal_affinity` change: the bonus
@@ -593,12 +660,13 @@ which loads through the shims).
 ## Compat shims — the one sanctioned mechanism
 
 The `wingspan.compat` package holds one module per superseded same-MAJOR era
-(`v1_0`, `v1_3`, `v1_4`, `v1_5`) plus the dims-router seam
+(`v1_0`, `v1_3`, `v1_4`, `v1_5`, `v1_6`, `v1_7`) plus the dims-router seam
 (`compat.encoding_dims_for_era`); each future MINOR bump adds one more
 (`v1_<N>.py`). Shape: `if artifact older than the change: regenerate the
 encoding without the new field` — or, for a behavior-only era (v1.5's main-net
-value change; v1.6's setup-net value change), regenerate the prior stripe
-values. Inference call sites must encode through the net (`net.encode_state` /
+value change; v1.6's setup-net value change; v1.7's bonus-potential and
+spend-food-routing value changes), regenerate the prior stripe values.
+Inference call sites must encode through the net (`net.encode_state` /
 `net.encode_choices`, and — since v1.6, the first era a setup artifact's
 behavior needed freezing — `SetupNet.encode_candidate`), never by pairing the
 live encoder with a spec by hand — that is what lets a compat-era net carry

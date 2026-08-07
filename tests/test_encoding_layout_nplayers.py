@@ -12,11 +12,11 @@ axis, alongside ``include_setup``. These tests pin three invariants:
    ``spec``-aware accessor equals its frozen module-constant counterpart at
    ``DEFAULT_SPEC``.
 2. **N=3/N=4 dims follow the documented per-opponent-block arithmetic**: each
-   extra opponent adds 163 state dims (food 5 + board 135 + board_summary 6 +
-   bonus_count 1 + hand_size 1 + 15 card-index slots) plus 4 round-goal
-   opponent-count dims (1 per round); N>=3 additionally adds a
-   ``turn_position`` one-hot (width N) and a ``player_select`` choice stripe
-   (width N).
+   extra opponent adds 343 state dims (food 5 + board 135 + board_summary 6 +
+   bonus_count 1 + hand_size 1 + 15 card-index slots + 180 known-hand identity
+   multi-hot) plus 4 round-goal opponent-count dims (1 per round); N>=3
+   additionally adds a ``turn_position`` one-hot (width N) and a
+   ``player_select`` choice stripe (width N).
 3. **Stripe adjacency** — each per-opponent replica (``food_opp2``, ...)
    sits immediately after its singular sibling, and ``turn_position`` /
    ``player_select`` exist only at N>=3.
@@ -48,17 +48,18 @@ def test_n2_state_stripe_table_is_frozen():
         "round_goals": (444, 92),
         "card_idx_block": (536, 33),
         "hand_multihot": (569, 180),
+        "known_hand_opp": (1109, 180),  # v1.8: tail of the multi-hot region
     }
     for name, (offset, size) in expected.items():
         assert cont.offset_of(name) == offset, name
         assert cont.size_of(name) == size, name
-    assert layout.OFF_DECISION_TYPE == 1109
+    assert layout.OFF_DECISION_TYPE == 1289
 
 
 def test_n2_totals_match_pre_stage2_dims():
-    assert layout.state_feature_dim(_SPEC_N2) == 1129
+    assert layout.state_feature_dim(_SPEC_N2) == 1309
     setup_spec = layout.EncodingSpec(include_setup=True)
-    assert layout.state_feature_dim(setup_spec) == 1130
+    assert layout.state_feature_dim(setup_spec) == 1310
     assert layout.choice_feature_dim(_SPEC_N2) == 517
     setup_choice_spec = layout.EncodingSpec(include_setup=True, num_players=2)
     assert layout.choice_feature_dim(setup_choice_spec) == 701
@@ -98,26 +99,29 @@ def test_accessors_equal_default_spec_module_constants():
 
 
 def test_n3_totals():
-    assert layout.state_feature_dim(_SPEC_N3) == 1299
+    assert layout.state_feature_dim(_SPEC_N3) == 1659
     assert layout.choice_feature_dim(_SPEC_N3) == 520
 
 
 def test_n4_totals():
-    assert layout.state_feature_dim(_SPEC_N4) == 1467
+    assert layout.state_feature_dim(_SPEC_N4) == 2007
     assert layout.choice_feature_dim(_SPEC_N4) == 521
 
 
 def test_n5_totals_follow_the_same_per_opponent_arithmetic():
     # Each additional opponent beyond N=2 adds 163 state dims + 4 round-goal
-    # dims; turn_position grows from non-existent (N=2) to width 3 (N=3, a
-    # +3 jump), then widens by 1 per additional seat beyond that.
+    # dims + 180 for its known_hand_opp{k} identity multi-hot (v1.8); turn_position
+    # grows from non-existent (N=2) to width 3 (N=3, a +3 jump), then widens by 1
+    # per additional seat beyond that.
     n2 = layout.state_feature_dim(_SPEC_N2)
     n3 = layout.state_feature_dim(_SPEC_N3)
     n4 = layout.state_feature_dim(_SPEC_N4)
     n5 = layout.state_feature_dim(_SPEC_N5)
-    assert n3 - n2 == 163 + 4 + 3  # turn_position appears at width 3
-    assert n4 - n3 == 163 + 4 + 1  # +1 for turn_position widening by one more seat
-    assert n5 - n4 == 163 + 4 + 1
+    assert n3 - n2 == 163 + 180 + 4 + 3  # turn_position appears at width 3
+    assert (
+        n4 - n3 == 163 + 180 + 4 + 1
+    )  # +1 for turn_position widening by one more seat
+    assert n5 - n4 == 163 + 180 + 4 + 1
     assert (
         layout.choice_feature_dim(_SPEC_N5) - layout.choice_feature_dim(_SPEC_N4) == 1
     )
@@ -135,6 +139,7 @@ def test_replicated_opponent_stripes_sit_immediately_after_their_singular():
         "board_summary_opp",
         "opp_bonus_count",
         "opp_hand_size",
+        "known_hand_opp",
     ):
         singular = cont.offset_of(base)
         singular_size = cont.size_of(base)

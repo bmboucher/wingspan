@@ -675,7 +675,8 @@ def _build_raw_state_stripes(
             name="hand_multihot",
             description=(
                 f"My hand encoded as a multi-hot over all {hand_dim} core birds. "
-                "Opponent hand is hidden."
+                "Opponent hand contents are hidden except the publicly-known "
+                "subset carried by the known_hand_opp stripe(s) below."
             ),
             offset=hand_off,
             size=hand_size,
@@ -726,6 +727,32 @@ def _build_raw_state_stripes(
             ),
         )
     )
+
+    # ---- known-hand identity multi-hots (v1.8+: one per opponent) ----
+    for k in opponent_indices:
+        kh_off, kh_size = _at(f"known_hand_opp{layout._opponent_suffix(k)}")
+        stripes.append(
+            descriptors.StripeDescriptor(
+                name=f"known_hand_opp{layout._opponent_suffix(k)}",
+                description=_opponent_description(
+                    "Publicly-known cards in this opponent's hand — drawn "
+                    "face-up from the tray or received in a public draft; "
+                    "cleared whenever a card leaves that hand face-down.",
+                    k,
+                ),
+                offset=kh_off,
+                size=kh_size,
+                encoding="multi-hot",
+                value_range="{0, 1}",
+                notes=(
+                    "Indexed by stable bird order from cards.bird_index(). "
+                    "Embedded through the shared card embedder (same as "
+                    "hand_multihot). A subset of state.Player.known_hand, "
+                    "maintained by engine.ledger; opp_hand_size (above) stays "
+                    "the full (strictly >=) hand count."
+                ),
+            )
+        )
 
     # ---- decision-type one-hot (always last; setup column present iff include_setup) ----
     decision_dim = layout.decision_type_dim(spec)

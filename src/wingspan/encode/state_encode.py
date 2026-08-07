@@ -91,6 +91,9 @@ def encode_state(
     parts.append(
         _hand_playable_eggs(me)
     )  # layout.HAND_MULTIHOT_DIM — egg-blocked but ready
+    parts.extend(
+        _known_hand_opp(opponent) for opponent in opponents
+    )  # layout.HAND_MULTIHOT_DIM each — publicly-known subset of that hand
     parts.append(
         _encode_decision_type(decision, spec)
     )  # layout.decision_type_dim(spec) (stays last)
@@ -230,9 +233,10 @@ def _hand_identity(player: state.Player) -> np.ndarray:
 
     Pairs with ``_summary_hand``'s aggregate stats (identity + attributes) so
     every scoring head and the value head can read the *specific* cards held,
-    not just their summary. Opponent hands are hidden information, so only the
-    POV player's hand is encoded by identity (the opponent contributes its
-    size only)."""
+    not just their summary. Opponent hands are hidden information except the
+    publicly-known subset carried by the ``known_hand_opp`` stripes (see
+    ``_known_hand_opp``), so only the POV player's full hand is encoded by
+    identity here."""
     vec = np.zeros(layout._BIRD_ID_DIM, dtype=np.float32)
     for bird in player.hand:
         vec[cards.bird_index(bird)] = 1.0
@@ -258,6 +262,18 @@ def _hand_playable_eggs(player: state.Player) -> np.ndarray:
     vec = np.zeros(layout._BIRD_ID_DIM, dtype=np.float32)
     _, playable_if_eggs = playability.classify_hand_playability(player)
     for bird in playable_if_eggs:
+        vec[cards.bird_index(bird)] = 1.0
+    return vec
+
+
+def _known_hand_opp(opponent: state.Player) -> np.ndarray:
+    """Identity multi-hot of ``opponent``'s publicly-known hand cards.
+
+    Encodes ``known_hand`` directly — no intersection with ``hand``; the
+    engine ledger maintains the subset invariant, and masking here would
+    silently hide engine bugs."""
+    vec = np.zeros(layout._BIRD_ID_DIM, dtype=np.float32)
+    for bird in opponent.known_hand:
         vec[cards.bird_index(bird)] = 1.0
     return vec
 
@@ -307,9 +323,9 @@ def _opp_bonus_count(opp: state.Player) -> np.ndarray:
 
 
 def _opp_hand_size(opp: state.Player) -> np.ndarray:
-    """Opponent hand size as a single scalar. The *contents* of the opponent's
-    hand are hidden information, so only how many cards they hold is
-    observable."""
+    """Opponent hand size as a single scalar: the full count, strictly more
+    than the popcount of ``known_hand_opp`` (see ``_known_hand_opp``) whenever
+    the opponent holds any face-down (unknown) card."""
     return np.array([len(opp.hand) / layout._HAND_SIZE_SCALE], dtype=np.float32)
 
 

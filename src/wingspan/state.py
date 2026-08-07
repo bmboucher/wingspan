@@ -333,6 +333,14 @@ class Player(pydantic.BaseModel):
     id: int
     name: str
     hand: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
+    # The publicly-known subset of ``hand``: cards every observer saw arrive
+    # face-up (tray draws, revealed draft draws, public hand-to-hand passes).
+    # Wholesale-invalidated (cleared entirely, not card-by-card) the moment any
+    # card leaves the hand face-down, since observers can no longer tell which
+    # known card left. Maintained exclusively by ``wingspan.engine.ledger`` — no
+    # validator enforces the subset relation here because many tests assign
+    # ``player.hand`` directly without going through the ledger.
+    known_hand: list[cards.Bird] = pydantic.Field(default_factory=_new_bird_list)
     bonus_cards: list[cards.BonusCard] = pydantic.Field(
         default_factory=_new_bonus_card_list
     )

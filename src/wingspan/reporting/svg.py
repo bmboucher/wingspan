@@ -1180,16 +1180,25 @@ def _hand_state_conn(
 ) -> _Conn:
     """The pooled-hand → state-encoder elbow.  The distinct multi-card encoder
     feeds its own-hand (and optional tray) set; the card-table pool feeds the
-    hand multi-hot plus the extra playability multi-hots the trunk consumes."""
+    hand multi-hot plus the extra playability and known-opponent-hand
+    multi-hots the trunk consumes."""
     trunk_cx = _SVG_COL_CX[0]
     if arch.use_distinct_hand_model:
         tray_set = arch.tray_set_embedding
         copies = 2 if tray_set else 1
         label = "×2 · own hand + tray set" if tray_set else "×1 · own hand"
     else:
-        n_sets = 1 + encode.N_HAND_PLAYABLE_MULTIHOTS
+        spec = encode.EncodingSpec(num_players=arch.num_players)
+        n_sets = 1 + encode.n_extra_hand_multihots(spec)
+        n_known_opp = spec.num_players - 1
+        known_opp_label = (
+            "known-opp" if n_known_opp == 1 else f"known-opp×{n_known_opp}"
+        )
         copies = n_sets
-        label = f"×{n_sets} · hand + playable"
+        label = (
+            f"×{n_sets} · hand + playable×{encode.N_HAND_PLAYABLE_MULTIHOTS} + "
+            f"{known_opp_label}"
+        )
     return _Conn(
         src_x=hand_cx + _X_HAND_TRUNK_SRC,
         src_y=src_y,

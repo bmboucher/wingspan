@@ -226,7 +226,7 @@ def test_round_goal_other_counts_ride_clockwise_at_n3():
 def test_encode_state_n3_shape_and_card_index_ordering():
     gs = _new_game(3, seed=11)
     spec3 = encode.EncodingSpec(num_players=3)
-    assert encode.state_size(spec3) == 1299
+    assert encode.state_size(spec3) == 1659
 
     bird_a, bird_b, bird_c = cards.load_all()[0][:3]
     gs.players[0].board[cards.Habitat.FOREST] = [state.PlayedBird(bird=bird_a)]
@@ -235,7 +235,7 @@ def test_encode_state_n3_shape_and_card_index_ordering():
     gs.current_player = 0
 
     vec = encode.encode_state(gs, decision=None, spec=spec3)
-    assert vec.shape == (1299,)
+    assert vec.shape == (1659,)
 
     off = layout.off_card_index(spec3)
     slots = layout._SLOTS_PER_BOARD

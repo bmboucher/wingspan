@@ -36,7 +36,9 @@ reads must agree on seat count. Key structure:
 - `PolicyValueNet.class_for_version(artifact_version) -> type[PolicyValueNet]`
   — the single era-routing table (v1.0 → `compat.v1_0.PolicyValueNetV1_0`,
   1.1-1.3 → `compat.v1_3.PolicyValueNetV1_3`, 1.4 →
-  `compat.v1_4.PolicyValueNetV1_4`, later same-MAJOR → live `PolicyValueNet`);
+  `compat.v1_4.PolicyValueNetV1_4`, 1.5 → `compat.v1_5.PolicyValueNetV1_5`,
+  1.6 → `compat.v1_6.PolicyValueNetV1_6`, 1.7 →
+  `compat.v1_7.PolicyValueNetV1_7`, later same-MAJOR → live `PolicyValueNet`);
   used by `from_model_config`, the checkpoint loaders, and the era-pinned
   training pipeline.
 - `StateEmbedOffsets(card_index, hand_multihot, decision_type)`

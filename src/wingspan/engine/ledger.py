@@ -19,6 +19,13 @@ adds up.
 
 Every function takes the live ``Engine`` first, matching the free-function
 convention of the sibling engine modules.
+
+The card functions also maintain ``Player.known_hand`` — the publicly-known
+subset of a hand, derived state introducing no new gamelog event type. A card
+becomes known when it arrives face-up (tray draw, a draft draw, a public
+hand-to-hand pass) and is forgotten wholesale the moment any card leaves that
+hand face-down (a discard or tuck can't tell an observer which known card
+left, so the whole set is invalidated rather than guessed at).
 """
 
 from __future__ import annotations
@@ -194,14 +201,23 @@ def draw_from_deck(
     player: state.Player,
     *,
     source: models.CardSource = models.CardSource.DECK,
+    face_up: bool = False,
 ) -> cards.Bird | None:
     """Draw the top deck card into ``player``'s hand — a reveal.
 
-    ``None`` when the deck and discard are both exhausted."""
+    ``None`` when the deck and discard are both exhausted.
+
+    ``face_up`` is for powers whose deck draws are revealed to the whole table
+    before entering the hand — the Oystercatcher draft pool is dealt face-up
+    even though it comes off the deck, so the drawn card also joins
+    ``player.known_hand``. Plain deck draws (setup deal, wetland card-draw
+    action) stay hidden by default."""
     drawn = engine.state.draw_bird()
     if drawn is None:
         return None
     player.hand.append(drawn)
+    if face_up:
+        _mark_known(player, drawn)
     engine.events.record_effect(
         models.DrawCardEffect(player_id=player.id, card=drawn.name, source=source)
     )
@@ -213,12 +229,15 @@ def take_from_tray(
 ) -> cards.Bird | None:
     """Move the face-up tray card at ``tray_index`` into ``player``'s hand.
 
-    The slot is left empty; refilling is the caller's (deferred) business."""
+    The slot is left empty; refilling is the caller's (deferred) business.
+    The card was already face-up in the tray, so it joins
+    ``player.known_hand`` too."""
     drawn = engine.state.tray[tray_index]
     if drawn is None:
         return None
     engine.state.tray[tray_index] = None
     player.hand.append(drawn)
+    _mark_known(player, drawn)
     engine.events.record_effect(
         models.DrawCardEffect(
             player_id=player.id,
@@ -237,9 +256,13 @@ def discard_from_hand(
     *,
     purpose: models.EffectPurpose = models.EffectPurpose.POWER,
 ) -> None:
-    """Move ``card`` from ``player``'s hand to the bird discard pile."""
+    """Move ``card`` from ``player``'s hand to the bird discard pile.
+
+    A face-down departure: observers can't tell which known card left, so
+    ``player.known_hand`` is forgotten wholesale rather than just ``card``."""
     player.hand.remove(card)
     engine.state.bird_discard.append(card)
+    _forget_all_known(player)
     engine.events.record_effect(
         models.DiscardCardEffect(player_id=player.id, card=card.name, purpose=purpose)
     )
@@ -293,9 +316,13 @@ def tuck_from_hand(
     card: cards.Bird,
     played_bird: state.PlayedBird,
 ) -> None:
-    """Tuck ``card`` out of ``player``'s hand behind ``played_bird``."""
+    """Tuck ``card`` out of ``player``'s hand behind ``played_bird``.
+
+    A face-down departure: observers can't tell which known card left, so
+    ``player.known_hand`` is forgotten wholesale rather than just ``card``."""
     player.hand.remove(card)
     played_bird.tucked_cards += 1
+    _forget_all_known(player)
     engine.events.record_effect(
         models.TuckCardEffect(
             player_id=player.id,
@@ -325,9 +352,16 @@ def pass_card(
     to_player: state.Player,
     card: cards.Bird,
 ) -> None:
-    """Move ``card`` directly from one player's hand to another's."""
+    """Move ``card`` directly from one player's hand to another's.
+
+    A public transfer: ``card`` is forgotten from ``from_player``'s known set
+    (a single-card forget, not a wholesale one — the departure is face-up, so
+    observers know exactly which card left) and marked known for
+    ``to_player``."""
     from_player.hand.remove(card)
+    _forget_known(from_player, card)
     to_player.hand.append(card)
+    _mark_known(to_player, card)
     engine.events.record_effect(
         models.PassCardEffect(
             player_id=from_player.id, card=card.name, to_player_id=to_player.id
@@ -348,13 +382,40 @@ def take_into_pile(
     later.  Recording the completed transfer at departure — naming the seat the
     pile is bound for — keeps one ledger record per transfer, so both hands
     reconcile even though the card is briefly in neither.  The receiving side
-    is a bare ``hand.extend`` at the call site, deliberately unrecorded."""
+    is :func:`receive_passed_cards` at the call site, deliberately unrecorded.
+
+    A public departure: ``card`` is forgotten from ``from_player``'s known set
+    (a single-card forget — the departure is face-up, so observers know
+    exactly which card left)."""
     from_player.hand.remove(card)
+    _forget_known(from_player, card)
     engine.events.record_effect(
         models.PassCardEffect(
             player_id=from_player.id, card=card.name, to_player_id=to_player.id
         )
     )
+
+
+def receive_passed_cards(
+    engine: core.Engine,
+    to_player: state.Player,
+    received: typing.Sequence[cards.Bird],
+) -> None:
+    """Land a drafted pile in ``to_player``'s hand, the arrival counterpart to
+    :func:`take_into_pile`.
+
+    Records no effect: the departure-side ``PassCardEffect`` recorded by each
+    :func:`take_into_pile` call already named this recipient, so one ledger
+    record per transfer keeps both hands reconciling. This function exists
+    only so the hand *and* known-hand mutation on arrival stay inside the
+    ledger seam rather than a bare ``hand.extend`` at the call site — ``engine``
+    is unused but kept first for ledger-signature uniformity.
+
+    Every card in ``received`` arrived face-up (drafting is public), so each
+    joins ``to_player.known_hand`` too."""
+    to_player.hand.extend(received)
+    for card in received:
+        _mark_known(to_player, card)
 
 
 def place_bird(
@@ -366,8 +427,11 @@ def place_bird(
     """Move ``card`` from ``player``'s hand onto the board and return its slot.
 
     The bird is appended to the habitat row, so its slot is the row's previous
-    length."""
+    length. A face-up play forgets exactly ``card`` from ``player``'s known
+    set — observers watch it land on the board, so the rest of the known set
+    is untouched."""
     player.hand.remove(card)
+    _forget_known(player, card)
     played_bird = state.PlayedBird(bird=card)
     row = player.board[habitat]
     slot = len(row)
@@ -501,3 +565,29 @@ def _locate_bird(
             if candidate is played_bird:
                 return habitat.value, slot
     return "", _UNPLACED_SLOT
+
+
+# --- known-hand bookkeeping ---
+
+
+def _mark_known(player: state.Player, card: cards.Bird) -> None:
+    """Record that ``card`` arrived in ``player``'s hand face-up."""
+    player.known_hand.append(card)
+
+
+def _forget_known(player: state.Player, card: cards.Bird) -> None:
+    """Drop ``card`` from ``player``'s known set, if it was there.
+
+    A no-op when ``card`` was never known (e.g. a deck draw played straight
+    from hand) — callers don't need to check first."""
+    if card in player.known_hand:
+        player.known_hand.remove(card)
+
+
+def _forget_all_known(player: state.Player) -> None:
+    """Wholesale-clear ``player``'s known set.
+
+    Used whenever a card leaves the hand face-down: observers can't tell
+    which known card left, so the entire set is invalidated rather than
+    guessed at."""
+    player.known_hand.clear()

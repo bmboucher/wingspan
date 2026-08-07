@@ -2,7 +2,7 @@
 
 The pre-1.0 shims (`v0_0` … `v0_7`) were dropped wholesale at the 1.0 MAJOR version
 bump, along with their fixture sets. No 0.x artifact loads under 1.x code —
-`version.check_artifact_compatible` refuses any different-MAJOR artifact. Five
+`version.check_artifact_compatible` refuses any different-MAJOR artifact. Six
 same-MAJOR shims exist now: **`v1_0`** (v1.0 artifacts — the v1.1 `becomes_unplayable`
 stripe + trunk-final-activation change), **`v1_3`** (pre-1.4 geometry — the two
 v1.4 food-unlock **state** stripes and the v1.4 `resets_feeder` **choice** stripe,
@@ -10,11 +10,13 @@ which shipped in one era), **`v1_4`** (pre-1.5 behavior — the habitat-agnostic
 play-bird `goal_delta` pricing; no shape change of its own), **`v1_5`**
 (pre-1.6 geometry + behavior — the v1.6 `goal_delta_ignoring_eggs` main-net
 **choice** stripe, *and* the first `SetupNet` shim: the static, egg-blind
-pre-1.6 setup `goal_affinity` pricing, no shape change of its own), and
+pre-1.6 setup `goal_affinity` pricing, no shape change of its own),
 **`v1_6`** (pre-1.7 behavior — two freezes: the static egg-blind bonus
 *potential* pricing on both nets, and (main net only) spend-decision
 `FoodChoice` rows one-hot in `gain_food` instead of `pay_food`; no shape
-change of its own). See
+change of its own), and **`v1_7`** (pre-1.8 geometry — the v1.8 per-opponent
+`known_hand_opp` **state** stripe; no choice-side change, no `SetupNet`
+shim). See
 `docs/VERSIONING.md` for the full compat policy (FRESH vs REGIME, when a MINOR
 bump is required, fixture-set rules, the MAJOR escape hatch).
 
@@ -27,11 +29,13 @@ Each MINOR FRESH encoding reshape adds one module per superseded era:
 
 When a later reshape supersedes an era that already lacked an earlier stripe, the
 older shim *inherits* the newer one so the strips compose (e.g. `v1_0` inherits
-`v1_3`: v1.0 vectors lack the `becomes_unplayable`, `resets_feeder`, `goal_delta_ignoring_eggs`,
-and both food-unlock stripes; `v1_3` in turn inherits `v1_4`, which in turn
-inherits `v1_5`, which in turn inherits `v1_6`, so every pre-1.4 era also
-freezes the pre-1.5 `goal_delta` pricing, strips the v1.6 tail stripe, and
-freezes the pre-1.7 bonus potentials and spend-food routing). A
+`v1_3`: v1.0 vectors lack the `becomes_unplayable`, `resets_feeder`,
+`goal_delta_ignoring_eggs`, both food-unlock stripes, and the `known_hand_opp`
+state stripe; `v1_3` in turn inherits `v1_4`, which in turn inherits `v1_5`,
+which in turn inherits `v1_6`, which in turn inherits `v1_7`, so every pre-1.4
+era also freezes the pre-1.5 `goal_delta` pricing, strips the v1.6 tail
+stripe, freezes the pre-1.7 bonus potentials and spend-food routing, and
+strips the v1.8 `known_hand_opp` state stripe). A
 **behavior-only** era (stripe
 *values* changed, widths untouched — `v1_4`, `v1_6`) follows the same module
 shape but overrides only the encoder that regenerates the old values; there is
@@ -64,23 +68,44 @@ same-MAJOR era or refuse one explicitly.
 **`__init__.py`** — the package-level dims router:
 `encoding_dims_for_era(artifact_version, spec) -> (state_dim, choice_dim)`.
 Narrows the dims by every stripe added after the artifact's era. For every
-pre-1.6 same-MAJOR era: `choice_dim -= 8` (the `goal_delta_ignoring_eggs`
-stripe — the **newest**, and so broadest, choice-narrowing branch). For every
-pre-1.4 same-MAJOR era, additionally: `state_dim -= 10` (the two food-unlock
-stripes — the **first** state-dim branch) and `choice_dim -= 1` (the
+pre-1.8 same-MAJOR era: `state_dim -= 180` (the `known_hand_opp` stripe — the
+**newest**, and so broadest, state-narrowing branch). For every pre-1.6
+same-MAJOR era, additionally: `choice_dim -= 8` (the
+`goal_delta_ignoring_eggs` stripe). For every pre-1.4 same-MAJOR era,
+additionally: `state_dim -= 10` (the two food-unlock stripes — the **first**
+state-dim branch, now the second-narrowest) and `choice_dim -= 1` (the
 `resets_feeder` stripe). v1.0 additionally drops the 180-dim
 `becomes_unplayable` stripe from `choice_dim`. Later same-MAJOR artifacts get
 the live widths. Raises `version.IncompatibleArtifactError` outright when
 `spec.num_players != 2` — every superseded era predates N-player support by
 construction, so no shim ever needs to reproduce an N>=3 shape
-(`docs/VERSIONING.md`'s `num_players` entry). Era 1.5 has no state branch and
-no further choice branch beyond the v1.6 one — v1.5 itself changed stripe
+(`docs/VERSIONING.md`'s `num_players` entry). Era 1.5 and era 1.7 each have no
+dims branch of their own beyond what they inherit — both changed stripe
 values only.
+
+**`v1_7.py`** — pre-1.8 state compat shim (the v1.8 `known_hand_opp`
+per-opponent **state** stripe; no choice-side change, no `SetupNet` shim):
+- `PolicyValueNetV1_7` — `PolicyValueNet` subclass that strips the
+  `known_hand_opp` 180-dim state stripe (appended after both playability
+  multi-hots, before `decision_type`) from `encode_state` and freezes the
+  pre-1.8 `StateEmbedOffsets`: only `decision_type` shifts left by
+  `STATE_KNOWN_HAND_OPP_DIM` — `card_index` / `hand_multihot` precede the new
+  stripe and are unchanged (the opposite shift shape from `v1_3`'s
+  food-unlock strip, which precedes both and shifts all three). Overrides
+  `encode_state`, `_state_embed_offsets`, `_build_trunk`, `_true_state_dim`
+  (absolute form, derived from `self.spec` — the shim closest to live) and
+  `raw_state_stripe_layout` (`super()`'s layout `.without_stripes(...)` the
+  stripe name). `_build_trunk`'s dynamic extra-multihot-block count comes out
+  2 automatically once `decision_type` is shifted back (the playability pair
+  only, no known-hand block). Routes for era 1.7 via `class_for_version`.
 
 **`v1_6.py`** — pre-1.7 behavior compat shim, two freezes (the v1.7
 optimistic egg-bonus potential change — `scoring.bonus_potential_count` —
-and the v1.7 spend-decision food-routing change, both values-only):
-- `PolicyValueNetV1_6` — `PolicyValueNet` subclass overriding `encode_choices`
+and the v1.7 spend-decision food-routing change, both values-only). Since the
+v1.8 bump `PolicyValueNetV1_6` subclasses `v1_7.PolicyValueNetV1_7` (was
+`core.PolicyValueNet` directly), so it also inherits the pre-1.8
+`known_hand_opp` state-stripe strip — geometry, not a change of its own:
+- `PolicyValueNetV1_6` — `PolicyValueNetV1_7` subclass overriding `encode_choices`
   only: after live encoding, each bonus-carrying row (`BonusCardChoice`, or
   `SetupChoice` with a kept bonus) has its `bonus_value` `hand_potential` /
   `tray_potential` scalars re-filled via

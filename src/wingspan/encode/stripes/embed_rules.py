@@ -110,11 +110,27 @@ def state_embed_rules(
     ``embed_layout`` consistency check enforces whichever total the caller's
     ``trunk_input_dim(..., board_position_dim=...)`` call expects.
 
-    ``n_playable_multihots`` is the count of extra playability multi-hot stripes
-    that follow ``hand_multihot`` in the v0.6+ state vector.  Each is embedded
-    through the same shared card embedder at the same output width as the hand
-    multi-hot (``hand_width``).  Pass ``N_HAND_PLAYABLE_MULTIHOTS`` for live-era
-    artifacts; 0 for pre-0.6 compat layouts that lack these stripes.
+    ``n_playable_multihots`` is the count of extra 180-wide multi-hot stripes
+    that follow ``hand_multihot`` in raw stripe order — the two playability
+    stripes, then one ``known_hand_opp{k}`` stripe per opponent (v1.8+). Each
+    embeds through the same shared card embedder at the same output width as
+    the hand multi-hot (``hand_width``). The count is a threshold, not a set:
+    passing ``N`` embeds the first ``N`` blocks in that fixed order and leaves
+    the rest as raw 180-wide pass-through columns — this is what lets a caller
+    like ``state_stripe_layout()``'s bare default (``n_playable_multihots=0``)
+    describe a live-spec raw layout at its *un-embedded* width, without any
+    stripe needing to be stripped first. Pass ``N_HAND_PLAYABLE_MULTIHOTS`` for
+    v0.6-1.7 semantics (both playability stripes, no known-hand stripes);
+    ``n_extra_hand_multihots(spec)`` for live (v1.8+) artifacts (every block,
+    known-hand stripes included); 0 for pre-0.6 compat layouts that lack all
+    of them.
+
+    The per-opponent ``known_hand_opp{k}`` stripes are gated the same way: the
+    ``k``-th opponent's stripe is the ``(N_HAND_PLAYABLE_MULTIHOTS + k)``-th
+    extra block, so it embeds once ``n_playable_multihots`` reaches that
+    count — consistent with the two playable stripes' own ``>= 1`` / ``>= 2``
+    gates, and with :func:`~wingspan.encode.layout.n_extra_hand_multihots`'s
+    ``N_HAND_PLAYABLE_MULTIHOTS + (num_players - 1)`` total.
     """
     n_board = num_players * layout.SLOTS_PER_BOARD
     tray = state.TRAY_SIZE
@@ -251,6 +267,23 @@ def state_embed_rules(
                 f"{hand}-wide multi-hot over all core birds."
             ),
         )
+    # known_hand_opp{k} (v1.8+): threshold-gated like the two playable stripes
+    # above — see the docstring for why the k-th opponent's stripe needs
+    # n_playable_multihots >= N_HAND_PLAYABLE_MULTIHOTS + k.
+    for k in range(1, num_players):
+        if n_playable_multihots >= layout.N_HAND_PLAYABLE_MULTIHOTS + k:
+            stripe_name = f"known_hand_opp{layout._opponent_suffix(k)}"
+            rules[stripe_name] = _EmbedRule(
+                new_size=hand_width,
+                encoding="card-embedding (known-hand set, pooled)",
+                value_range="learned",
+                notes=(
+                    f"Publicly-known cards in this opponent's hand -> one "
+                    f"{hand_width}-dim embedding, pooled over the cards' shared "
+                    f"card vectors. Raw encoding is a {hand}-wide multi-hot over "
+                    "all core birds."
+                ),
+            )
     return rules
 
 
