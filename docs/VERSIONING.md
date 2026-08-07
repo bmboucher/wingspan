@@ -89,6 +89,24 @@ checkpoint fixture remains deferred, as for every prior era:
 through the production loaders. **User action: none** — pre-1.7 checkpoints
 load and compute identically via the shim chain.
 
+**Fold-in: spend-decision food routing (no version bump).** Folded into this
+same v1.7 era after the fact — no MINOR bump, since no v1.7 artifact yet
+exists to protect. Single-token `FoodChoice` rows offered by a spend decision
+(`SpendFoodDecision`'s discard, `SpendFoodForEggDecision`'s grassland trade)
+were being routed into the `gain_food` stripe like every other food row, even
+though the player is paying food away; they now route to `pay_food` at the
+usual `1 / _PAYMENT_COUNT_SCALE` per-unit scale, alongside a label fix in
+`wingspan.reporting.humanize` (the grassland spend sub-event read "Gains
+{food}" instead of "Spends {food}"). Era-gated by extending
+`compat.v1_6.PolicyValueNetV1_6.encode_choices` with a second refill,
+`choice_encode.refill_spend_food_gain_routing`, alongside the existing bonus
+potential refill — same shape-preserving, offset-preceding-the-tail pattern,
+so the v1_5→v1_3→v1_0 chain composes unchanged. `tests/data/golden_n2.json`
+was regenerated in place (the 6 `SpendFoodForEggDecision` records in the
+fixture change hash; no other record moves — the fixture carries no standalone
+`SpendFoodDecision` rows). Folding into 1.7 without a bump is sanctioned
+because no v1.7 run has ever been trained or checkpointed.
+
 ### v1.6 — `goal_delta_ignoring_eggs` choice stripe + setup `goal_affinity` egg pricing
 
 A **shape + behavior** MINOR FRESH bump landing two views of the same scoring

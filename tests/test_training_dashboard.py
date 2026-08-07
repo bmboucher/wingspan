@@ -227,7 +227,18 @@ def _run_to_completion(training: loop.TrainingLoop) -> None:
 
 def test_training_loop_one_iteration(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        # seed=1, not the default 0: at seed 0 this tiny 2-game eval happens to
+        # come out a perfect 1.0 win-rate against the fresh opponent clone,
+        # which clears opponent_reset_win_rate (0.95) and advances the
+        # opponent generation inside this same checkpoint — and per
+        # loop_checkpoint.checkpoint, the eval that *triggers* an advancement
+        # belongs to the old generation and is deliberately not credited as
+        # the new generation's best (no best.pt). That branch is real,
+        # intentional behavior, just not what this test means to exercise —
+        # it wants the ordinary "first eval always improves" path. seed=1
+        # lands there instead; picked empirically, not tied to any particular
+        # game outcome.
+        misc=config.MiscConfig(device="cpu", seed=1),
         run=config.RunSettings(
             games_per_iter=2,
             max_iterations=1,

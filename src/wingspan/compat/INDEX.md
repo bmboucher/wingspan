@@ -11,8 +11,10 @@ play-bird `goal_delta` pricing; no shape change of its own), **`v1_5`**
 (pre-1.6 geometry + behavior — the v1.6 `goal_delta_ignoring_eggs` main-net
 **choice** stripe, *and* the first `SetupNet` shim: the static, egg-blind
 pre-1.6 setup `goal_affinity` pricing, no shape change of its own), and
-**`v1_6`** (pre-1.7 behavior, both nets — the static egg-blind bonus
-*potential* pricing; no shape change of its own). See
+**`v1_6`** (pre-1.7 behavior — two freezes: the static egg-blind bonus
+*potential* pricing on both nets, and (main net only) spend-decision
+`FoodChoice` rows one-hot in `gain_food` instead of `pay_food`; no shape
+change of its own). See
 `docs/VERSIONING.md` for the full compat policy (FRESH vs REGIME, when a MINOR
 bump is required, fixture-set rules, the MAJOR escape hatch).
 
@@ -29,7 +31,8 @@ older shim *inherits* the newer one so the strips compose (e.g. `v1_0` inherits
 and both food-unlock stripes; `v1_3` in turn inherits `v1_4`, which in turn
 inherits `v1_5`, which in turn inherits `v1_6`, so every pre-1.4 era also
 freezes the pre-1.5 `goal_delta` pricing, strips the v1.6 tail stripe, and
-freezes the pre-1.7 bonus potentials). A **behavior-only** era (stripe
+freezes the pre-1.7 bonus potentials and spend-food routing). A
+**behavior-only** era (stripe
 *values* changed, widths untouched — `v1_4`, `v1_6`) follows the same module
 shape but overrides only the encoder that regenerates the old values; there is
 no `encoding_dims_for_era` branch and no offset/layout override to add.
@@ -74,18 +77,24 @@ construction, so no shim ever needs to reproduce an N>=3 shape
 no further choice branch beyond the v1.6 one — v1.5 itself changed stripe
 values only.
 
-**`v1_6.py`** — pre-1.7 behavior compat shim, both nets (the v1.7 optimistic
-egg-bonus potential change — `scoring.bonus_potential_count` — is values-only):
+**`v1_6.py`** — pre-1.7 behavior compat shim, two freezes (the v1.7
+optimistic egg-bonus potential change — `scoring.bonus_potential_count` —
+and the v1.7 spend-decision food-routing change, both values-only):
 - `PolicyValueNetV1_6` — `PolicyValueNet` subclass overriding `encode_choices`
   only: after live encoding, each bonus-carrying row (`BonusCardChoice`, or
   `SetupChoice` with a kept bonus) has its `bonus_value` `hand_potential` /
   `tray_potential` scalars re-filled via
   `choice_encode.refill_bonus_value_potentials_static` — the static-tag
   pricing every pre-1.7 net trained against (the egg-counting cards read 0;
-  the hand-counting card's full-hand count is regenerated identically). The
-  refill targets `layout._OFF_BONUS_VALUE`, before `becomes_playable` and so
-  before every column any older shim strips — the v1_5 re-chain composes with
-  no offset math. Routes for era 1.6 via `class_for_version`.
+  the hand-counting card's full-hand count is regenerated identically); each
+  spend-decision (`SpendFoodDecision`, `SpendFoodForEggDecision`)
+  `FoodChoice` row has its food-direction routing re-filled via
+  `choice_encode.refill_spend_food_gain_routing` — the `gain_food` one-hot
+  every pre-1.7 net trained against, instead of live's `pay_food` payment.
+  Both refills target offsets (`layout._OFF_BONUS_VALUE`,
+  `layout._OFF_GAIN_FOOD` / `layout._OFF_PAY`) before `becomes_playable` and
+  so before every column any older shim strips — the v1_5 re-chain composes
+  with no offset math. Routes for era 1.6 via `class_for_version`.
 - `SetupNetV1_6` — `SetupNet` subclass overriding `encode_candidate` only:
   live encoding, then `setup_model.encode.refill_bonus_pricing_static`
   rewrites whichever bonus block the encoding carries (split-mode
@@ -94,8 +103,9 @@ egg-bonus potential change — `scoring.bonus_potential_count` — is values-onl
   `SetupNet.class_for_version`.
 
 **`v1_5.py`** — pre-1.6 geometry (main net) + behavior (setup net) compat shim
-(both classes inherit their `v1_6` counterparts, so eras <= 1.5 freeze the
-pre-1.7 bonus potentials too):
+(both classes inherit their `v1_6` counterparts, so eras <= 1.5 freeze both
+pre-1.7 freezes too — bonus potentials on both nets, spend-food routing on
+the main net):
 - `PolicyValueNetV1_5` — `PolicyValueNet` subclass that strips the v1.6
   `goal_delta_ignoring_eggs` 8-dim choice stripe (the last base stripe, after
   `resets_feeder`) from `encode_choices` and shifts only `kept_multihot`

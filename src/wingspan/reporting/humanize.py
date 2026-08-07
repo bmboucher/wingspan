@@ -152,6 +152,8 @@ def humanize_outcome(
             return f"Gains {choice.food.value} (choice die)"
         if isinstance(decision, decisions.SpendFoodDecision):
             return f"Discards {choice.food.value}"
+        if isinstance(decision, decisions.SpendFoodForEggDecision):
+            return f"Spends {choice.food.value}"
         return f"Gains {choice.food.value}"
     if isinstance(choice, decisions.FoodSubsetChoice):
         return f"Gains {_food_subset_summary(choice)}"

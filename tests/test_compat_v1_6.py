@@ -1,21 +1,31 @@
 # pyright: reportPrivateUsage=false
 # (tests read the package-private bonus_value layout offsets to pin the frozen
 # scalars, matching the test_encode.py / test_compat_v1_5.py convention)
-"""Tests for the pre-1.7 -> v1.7 compat shim: the static (egg-blind) bonus
-potential value freeze, on both nets.
+"""Tests for the pre-1.7 -> v1.7 compat shim: two frozen pre-1.7 encoding
+behaviors.
 
-v1.7 made the bonus *potential* counters optimistic about the egg-counting
-dynamic cards (``scoring.bonus_potential_count``): a not-yet-played bird whose
+**Freeze #1 — static (egg-blind) bonus potential value, both nets.** v1.7
+made the bonus *potential* counters optimistic about the egg-counting dynamic
+cards (``scoring.bonus_potential_count``): a not-yet-played bird whose
 ``egg_limit`` reaches the card's threshold (Breeding Manager at 4, Oologist at
 1) now counts. Pre-1.7 encoders counted only the static ``bonus_categories``
-tag, which no dynamic card carries — so those cards' potentials read 0. No
-dims change on either net: ``compat.v1_6.PolicyValueNetV1_6`` overrides only
-``encode_choices`` (regenerating the static ``hand_potential`` /
-``tray_potential`` on bonus-carrying rows) and ``compat.v1_6.SetupNetV1_6``
-overrides only ``encode_candidate`` (regenerating the static
-``bonus_card_affinity`` pair / ``kept_bonus_value`` 4-vector).
-``compat.v1_5`` re-chains to subclass both, so every earlier era freezes the
-static potentials too.
+tag, which no dynamic card carries — so those cards' potentials read 0.
+
+**Freeze #2 — spend-decision food routing, main net only.** v1.7 re-routed
+single-token ``FoodChoice`` rows offered by a spend decision
+(``SpendFoodDecision``, ``SpendFoodForEggDecision``) from the ``gain_food``
+stripe to the ``pay_food`` stripe. Pre-1.7 encoders wrote a ``gain_food``
+one-hot for every ``FoodChoice`` regardless of direction.
+
+No dims change on either net for either freeze:
+``compat.v1_6.PolicyValueNetV1_6`` overrides only ``encode_choices``
+(regenerating the static ``hand_potential`` / ``tray_potential`` on
+bonus-carrying rows, and the ``gain_food`` routing on spend-decision rows) and
+``compat.v1_6.SetupNetV1_6`` overrides only ``encode_candidate`` (regenerating
+the static ``bonus_card_affinity`` pair / ``kept_bonus_value`` 4-vector — the
+setup net has no food-direction convention, so freeze #2 does not apply to
+it). ``compat.v1_5`` re-chains to subclass both, so every earlier era freezes
+both behaviors too.
 
 As for every prior era, a committed LFS checkpoint fixture is deferred: the
 round-trip tests build v1.6-stamped nets and reload them through the
@@ -245,6 +255,86 @@ class TestMainNetBonusPotentialFreeze:
             _pick_bonus_decision(_BONUS_BY_NAME["Breeding Manager"]),
             game_state,
         )
+
+
+# ---------------------------------------------------------------------------
+# (c.2) main-net spend-food routing freeze: the shim's spend-decision
+# FoodChoice rows read as a gain_food one-hot (pre-1.7) while the live
+# encoder's read as a pay_food payment; every other column is byte-identical.
+
+
+class TestMainNetSpendFoodRoutingFreeze:
+    def test_shim_freezes_spend_food_decision_in_gain_food(self) -> None:
+        eng, *_ = engine.Engine.create(seed=3)
+        game_state = eng.state
+        decision = decisions.SpendFoodDecision(
+            player_id=0,
+            prompt="x",
+            choices=[decisions.FoodChoice(label="fish", food=cards.Food.FISH)],
+        )
+        fish = cards.food_index(cards.Food.FISH)
+        live_rows = encode.encode_choices(decision, game_state)
+        shim_rows = _era_shim().encode_choices(decision, game_state)
+        assert live_rows.shape == shim_rows.shape  # behavior-only: no narrowing
+
+        gain_idx = layout._OFF_GAIN_FOOD + fish
+        pay_idx = layout._OFF_PAY + fish
+        assert np.isclose(live_rows[0][pay_idx], 1.0 / layout._PAYMENT_COUNT_SCALE)
+        assert live_rows[0][gain_idx] == 0.0
+        assert shim_rows[0][gain_idx] == 1.0
+        assert shim_rows[0][pay_idx] == 0.0
+
+        outside = np.ones(live_rows.shape[1], dtype=bool)
+        outside[[gain_idx, pay_idx]] = False
+        assert np.array_equal(live_rows[0][outside], shim_rows[0][outside])
+
+    def test_shim_freezes_spend_food_for_egg_decision_in_gain_food(self) -> None:
+        eng, *_ = engine.Engine.create(seed=3)
+        game_state = eng.state
+        decision = decisions.SpendFoodForEggDecision(
+            player_id=0,
+            prompt="x",
+            choices=[decisions.FoodChoice(label="seed", food=cards.Food.SEED)],
+        )
+        seed = cards.food_index(cards.Food.SEED)
+        live_rows = encode.encode_choices(decision, game_state)
+        shim_rows = _era_shim().encode_choices(decision, game_state)
+        assert live_rows.shape == shim_rows.shape
+
+        gain_idx = layout._OFF_GAIN_FOOD + seed
+        pay_idx = layout._OFF_PAY + seed
+        assert np.isclose(live_rows[0][pay_idx], 1.0 / layout._PAYMENT_COUNT_SCALE)
+        assert live_rows[0][gain_idx] == 0.0
+        assert shim_rows[0][gain_idx] == 1.0
+        assert shim_rows[0][pay_idx] == 0.0
+
+        outside = np.ones(live_rows.shape[1], dtype=bool)
+        outside[[gain_idx, pay_idx]] = False
+        assert np.array_equal(live_rows[0][outside], shim_rows[0][outside])
+
+    def test_v1_5_era_net_strips_tail_and_freezes_spend_food_routing(self) -> None:
+        """A v1.5-era net composes both freezes: rows are 8 narrower (its own
+        tail-strip) AND the spend row is frozen in gain_food (inherited from
+        v1_6) — the refill offsets precede the stripped tail."""
+        eng, *_ = engine.Engine.create(seed=3)
+        game_state = eng.state
+        decision = decisions.SpendFoodDecision(
+            player_id=0,
+            prompt="x",
+            choices=[decisions.FoodChoice(label="fish", food=cards.Food.FISH)],
+        )
+        fish = cards.food_index(cards.Food.FISH)
+        spec = encode.DEFAULT_SPEC
+        state_dim, choice_dim = compat.encoding_dims_for_era("1.5", spec)
+        v1_5_net = compat_v1_5.PolicyValueNetV1_5(
+            state_dim=state_dim, choice_dim=choice_dim, arch=_small_arch(), spec=spec
+        )
+        rows = v1_5_net.encode_choices(decision, game_state)
+        assert rows.shape[1] == (
+            encode.choice_feature_dim(spec) - encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
+        )
+        assert rows[0][layout._OFF_GAIN_FOOD + fish] == 1.0
+        assert rows[0][layout._OFF_PAY + fish] == 0.0
 
 
 # ---------------------------------------------------------------------------

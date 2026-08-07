@@ -370,6 +370,24 @@ def test_humanize_outcome_food():
     assert humanize.humanize_outcome(decision, choice, gs) == "Gains fish"
 
 
+def test_humanize_outcome_spend_food_discards():
+    # SpendFoodDecision (Green Heron's wild-food trade) reads as a discard.
+    gs = _empty_gs()
+    choice = decisions.FoodChoice(label="fruit", food=cards.Food.FRUIT)
+    decision = decisions.SpendFoodDecision(player_id=0, prompt="", choices=[choice])
+    assert humanize.humanize_outcome(decision, choice, gs) == "Discards fruit"
+
+
+def test_humanize_outcome_spend_food_for_egg():
+    # SpendFoodForEggDecision (grassland conversion) reads as a spend, not a gain.
+    gs = _empty_gs()
+    choice = decisions.FoodChoice(label="fruit", food=cards.Food.FRUIT)
+    decision = decisions.SpendFoodForEggDecision(
+        player_id=0, prompt="", choices=[choice]
+    )
+    assert humanize.humanize_outcome(decision, choice, gs) == "Spends fruit"
+
+
 def test_humanize_outcome_bonus_card():
     # Item 4: "bonus card" is included in the outcome label.
     gs = _empty_gs()

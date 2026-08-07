@@ -222,6 +222,15 @@ def refill_bonus_value_potentials_static(
     feat[base + layout._BONUS_VALUE_TRAY] = tray_qual / layout._BONUS_COUNT_SCALE
 
 
+def refill_spend_food_gain_routing(feat: np.ndarray, food: cards.Food) -> None:
+    """Compat seam for eras <= 1.6 (``wingspan.compat.v1_6``): re-route one
+    already-encoded spend-decision ``FoodChoice`` row back to the
+    ``gain_food`` stripe those eras were trained against (one-hot 1.0;
+    ``pay_food`` zeroed)."""
+    feat[layout._OFF_PAY : layout._OFF_PAY + layout._PAY_FOOD_DIM] = 0.0
+    _fill_gain_food(feat, food, from_choice_die=False)
+
+
 ###### PRIVATE #######
 
 #### Per-choice featurization ####
@@ -666,7 +675,15 @@ def _featurize_food(
     has_becomes_playable: bool = True,
 ) -> None:
     feat[layout._OFF_KIND + layout._KIND_FOOD] = 1.0
-    _fill_gain_food(feat, choice.food, choice.from_choice_die)
+    # Direction: spend decisions (discarding food, or trading food for an egg)
+    # pay into the pay_food stripe; every other FoodChoice (feeder gain, choice
+    # die) is a gain and fills gain_food as before.
+    if isinstance(
+        decision, (decisions.SpendFoodDecision, decisions.SpendFoodForEggDecision)
+    ):
+        _add_pay_food(feat, choice.food)
+    else:
+        _fill_gain_food(feat, choice.food, choice.from_choice_die)
     if has_becomes_playable and isinstance(decision, decisions.GainFoodDecision):
         from wingspan.engine import playability as _playability
 
@@ -1357,8 +1374,7 @@ def _fill_gain_food(feat: np.ndarray, food: cards.Food, from_choice_die: bool) -
     are the plain single-food dice; the final two are the invertebrate/seed choice
     die taken as invertebrate or as seed. ``from_choice_die`` (only ever true for
     invertebrate/seed at a feeder gain) selects the choice-die slots, so the model
-    scores burning a flexible choice die apart from spending a rigid single face.
-    Also serves spend decisions (which never set ``from_choice_die``)."""
+    scores burning a flexible choice die apart from spending a rigid single face."""
     if from_choice_die:
         if food == cards.Food.INVERTEBRATE:
             feat[layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_CHOICE_INV] = 1.0

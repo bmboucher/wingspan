@@ -613,6 +613,61 @@ def test_gain_food_choice_die_uses_distinct_slots():
     assert not np.array_equal(plain, combo)
 
 
+def test_spend_food_decision_fills_pay_stripe_not_gain_food():
+    """A ``SpendFoodDecision`` menu (Green Heron's wild-food discard) prices
+    each row as a payment: 1/PAYMENT_COUNT_SCALE at the row's food slot in
+    pay_food, an all-zero gain_food stripe, and the kind_food one-hot set."""
+    eng, *_ = engine.Engine.create(seed=2)
+    fish = cards.food_index(cards.Food.FISH)
+    decision = decisions.SpendFoodDecision(
+        player_id=0,
+        prompt="x",
+        choices=[decisions.FoodChoice(label="fish", food=cards.Food.FISH)],
+    )
+    (row,) = encode.encode_choices(decision, eng.state)
+    assert row[layout._OFF_KIND + layout._KIND_FOOD] == 1.0
+    assert row[layout._OFF_PAY + fish] == 1.0 / layout._PAYMENT_COUNT_SCALE
+    gain_food_stripe = row[
+        layout._OFF_GAIN_FOOD : layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_DIM
+    ]
+    assert np.all(gain_food_stripe == 0.0)
+
+
+def test_spend_food_for_egg_decision_fills_pay_stripe_not_gain_food():
+    """``SpendFoodForEggDecision`` (grassland conversion) rows are payments too:
+    the same pay_food scaling as ``SpendFoodDecision``, gain_food left zero."""
+    eng, *_ = engine.Engine.create(seed=2)
+    seed = cards.food_index(cards.Food.SEED)
+    decision = decisions.SpendFoodForEggDecision(
+        player_id=0,
+        prompt="x",
+        choices=[decisions.FoodChoice(label="seed", food=cards.Food.SEED)],
+    )
+    (row,) = encode.encode_choices(decision, eng.state)
+    assert row[layout._OFF_KIND + layout._KIND_FOOD] == 1.0
+    assert row[layout._OFF_PAY + seed] == 1.0 / layout._PAYMENT_COUNT_SCALE
+    gain_food_stripe = row[
+        layout._OFF_GAIN_FOOD : layout._OFF_GAIN_FOOD + layout._GAIN_FOOD_DIM
+    ]
+    assert np.all(gain_food_stripe == 0.0)
+
+
+def test_gain_food_decision_still_fills_gain_food_not_pay():
+    """A plain ``GainFoodDecision`` FoodChoice row is unaffected by the
+    direction split: gain_food one-hot set, pay stripe all-zero."""
+    eng, *_ = engine.Engine.create(seed=2)
+    fish = cards.food_index(cards.Food.FISH)
+    decision = decisions.GainFoodDecision(
+        player_id=0,
+        prompt="x",
+        choices=[decisions.FoodChoice(label="fish", food=cards.Food.FISH)],
+    )
+    (row,) = encode.encode_choices(decision, eng.state)
+    assert row[layout._OFF_GAIN_FOOD + fish] == 1.0
+    pay_stripe = row[layout._OFF_PAY : layout._OFF_PAY + layout._PAY_FOOD_DIM]
+    assert np.all(pay_stripe == 0.0)
+
+
 def test_food_subset_choice_fills_gain_food_as_count_vector():
     """A combined FoodSubsetChoice gain fills the gain_food stripe as a count
     vector (not a one-hot): a 2-fish supply subset puts 2.0 in the fish slot."""

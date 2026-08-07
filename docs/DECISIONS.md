@@ -87,8 +87,8 @@ when `include_setup` (**701** at N=2). The live stripes, in offset order:
 | Stripe | Width | Contents | Filled for |
 |---|---|---|---|
 | `kind` | 6 | one-hot: bird / food / habitat / payment / board_target / special | every row |
-| `gain_food` | 7 | 5 plain food faces + choice-die-as-invertebrate + choice-die-as-seed | food-type identifier: die gains, supply gains, and single-token spends — the *type* of the token, not the direction of flow. A **one-hot** for a single `FoodChoice`; a **count vector** for a combined `FoodSubsetChoice` (the `combine_gain_food` regime), filled by `_fill_gain_food_vector` — same 7 slots, raw counts, so a single-unit subset is byte-identical to the one-hot |
-| `pay_food` | 5 | per-food payment counts (÷4) | payment multisets, named exchange costs, setup foods-spent |
+| `gain_food` | 7 | 5 plain food faces + choice-die-as-invertebrate + choice-die-as-seed | die gains and supply gains only (**v1.7+**: spend-decision rows no longer land here — see `pay_food`). A **one-hot** for a single `FoodChoice`; a **count vector** for a combined `FoodSubsetChoice` (the `combine_gain_food` regime), filled by `_fill_gain_food_vector` — same 7 slots, raw counts, so a single-unit subset is byte-identical to the one-hot |
+| `pay_food` | 5 | per-food payment counts (÷4) | payment multisets, named exchange costs, setup foods-spent, and (**v1.7+**) single-token spend rows — `SpendFoodDecision`, `SpendFoodForEggDecision` `FoodChoice` rows, one payment unit (÷4) at the chosen food's slot |
 | `board_target` | 60 | 15 slots × 4 scalars: lay-flag, pay-flag, cached-total (÷max), tucked | egg add/remove targets; played-bird picks (context, no flag) |
 | `main_action` | 4 | one-hot over Gain Food / Lay Eggs / Draw Cards / Play Bird | main-action rows |
 | `special` | 2 | `is_skip`, `is_self` | skip rows; player-id rows |
@@ -367,15 +367,17 @@ All four are mandatory; the yes/no, where one exists, lives upstream in
   bird is placed, so the chosen habitat's next free slot is where it will
   land) — so the head sees what the tokens are buying, not just the tokens
   leaving.
-- **Single-token rows** (`food`-kind): a one-hot on the `gain_food` stripe —
-  the same stripe used for food gains, because `gain_food` is a food-type
-  identifier, not a "gains" stripe. For a spend decision, the hot slot marks
-  *which token is being given up*; the direction (spend vs. gain) is encoded
-  by the decision-type one-hot, not by the row itself.
+- **Single-token rows** (`food`-kind): (**v1.7+**) a single payment unit
+  (÷4) on the `pay_food` stripe at the chosen food's slot — the hot slot
+  marks *which token is being given up*. Direction is carried twice over:
+  by the decision-type one-hot, and now by the row itself landing on
+  `pay_food` rather than `gain_food`. (Pre-1.7 encoders wrote a `gain_food`
+  one-hot here instead, regardless of direction; eras <= 1.6 still do, via
+  the `wingspan.compat.v1_6` spend-food-routing freeze.)
 
 **Variation within the family.** Two row shapes inside one head: payment-kind
 rows (multisets on `pay_food` + committed bird + landing slot) and food-kind
-rows (a single food type on `gain_food`, no bird/slot context). The model is
+rows (a single food type on `pay_food`, no bird/slot context). The model is
 effectively learning two sub-skills — "which multiset preserves my
 flexibility?" and "which loose token do I value least?" — tied together by
 the shared notion of food value. Payment rows are the only place in the game

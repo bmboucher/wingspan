@@ -112,7 +112,7 @@ def raw_choice_stripe_layout(
     stripes.append(
         descriptors.StripeDescriptor(
             name="gain_food",
-            description="Food selection for a gain (and food choice for spend decisions).",
+            description="Food selection for a gain.",
             offset=layout._OFF_GAIN_FOOD,
             size=layout._GAIN_FOOD_DIM,
             encoding="vector",
@@ -120,9 +120,10 @@ def raw_choice_stripe_layout(
             notes=(
                 f"7 values: the five plain-die foods ({food_names}) then "
                 "take-choice-die-as-invertebrate[5] and take-choice-die-as-seed[6]. "
-                "A one-hot for a single FoodChoice gain/spend; a count vector for a "
+                "A one-hot for a single FoodChoice gain; a count vector for a "
                 "combined FoodSubsetChoice gain (combine_gain_food regime). "
-                "Zero for non-food choices."
+                "Zero for non-food choices and for spend-decision FoodChoice rows "
+                "(see pay_food)."
             ),
             sub_fields=_gain_food_sub_fields(),
         )
@@ -138,7 +139,9 @@ def raw_choice_stripe_layout(
             value_range="[0, 1]",
             notes=(
                 f"One value per food type ({food_names}), normalized ÷ 4. "
-                "Used for a bird play's payment and a PayCostChoice's paid food."
+                "Used for a bird play's payment, a PayCostChoice's paid food, and "
+                "(single-token, one unit) a spend decision's FoodChoice rows "
+                "(SpendFoodDecision, SpendFoodForEggDecision)."
             ),
             sub_fields=_choice_payment_sub_fields(),
         )
