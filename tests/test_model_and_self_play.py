@@ -174,6 +174,7 @@ def test_model_routes_distinct_family_heads():
     must produce different logits — proof that family_idx selects a distinct
     scoring head — while the value is identical, since the value head is shared
     and reads only the (here-identical) state."""
+    torch.manual_seed(0)
     net = model.PolicyValueNet()
     n_choices = 4
     state = torch.randn(1, encode.state_size()).repeat(2, 1)
@@ -185,13 +186,14 @@ def test_model_routes_distinct_family_heads():
         logits[0], logits[1]
     ), "distinct family heads should score the same candidates differently"
     assert torch.allclose(
-        value[0], value[1]
+        value[0], value[1], atol=1e-5
     ), "the value head is shared and family-agnostic"
 
 
 def test_model_same_family_scores_identically():
     """Two rows with identical inputs and the *same* family must yield
     identical logits — the routing is deterministic per family."""
+    torch.manual_seed(0)
     net = model.PolicyValueNet()
     net.eval()  # disable dropout so identical rows produce identical outputs
     n_choices = 3
@@ -201,7 +203,9 @@ def test_model_same_family_scores_identically():
     family = torch.zeros(2, dtype=torch.long)
     with torch.no_grad():
         logits, _ = net(state, choices, mask, family)
-    assert torch.allclose(logits[0], logits[1])
+    # Rows of one batched matmul may differ by float-reduction noise (~1e-7),
+    # so exact equality is too strict; a routing bug would differ by ~1e-2.
+    assert torch.allclose(logits[0], logits[1], atol=1e-5)
 
 
 def test_model_has_one_scorer_head_per_family():
