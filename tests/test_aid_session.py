@@ -73,6 +73,10 @@ _OPPONENT_KEPT_FOODS = "rodent, invertebrate, fruit"
 
 _DICE_COUNT_PATTERN = re.compile(r"^(\d+) dice were rolled")
 
+# Mirrors ``advisor._SETUP_FRAMING_LINE`` -- a substring rather than the full
+# private constant so this test doesn't reach into advisor.py's internals.
+_SETUP_FRAMING_SUBSTRING = "still setup"
+
 
 def _feeder_faces(_line: str) -> str:
     """A full birdfeeder reroll answer: exactly ``BIRDFEEDER_DICE`` faces."""
@@ -144,14 +148,22 @@ def _build_setup_entry() -> models.SetupEntry:
     )
 
 
-def _stub_inner_agent(registry: placeholders.PlaceholderRegistry) -> engine_core.Agent:
+def _stub_inner_agent(
+    registry: placeholders.PlaceholderRegistry, probe: decision_probe.DecisionProbe
+) -> engine_core.Agent:
     """A torch-free stand-in for the factory's trained inner agent.
 
     Asserts on every call that the advisor's placeholder sweep already ran --
-    no placeholder bird sits in seat 0's hand -- then always returns the
-    first offered choice without touching the ``DecisionProbe`` (mirroring
-    the annotation-less path the advisor already handles via
-    ``probe.take() -> (None, None)``, e.g. a setup-net-less setup pick)."""
+    no placeholder bird sits in seat 0's hand -- writes a trivial "100% on
+    choices[0]" policy annotation to ``probe`` (mirroring the real model
+    agent's forward-pass side effect, so the advisor's ranked recommendation
+    -- including, under a split-setup regime, the B3 combined preview line
+    -- always has something to render), then always returns the first
+    offered choice. Never touches the value slot, so ``probe.take()``'s
+    value half stays ``None`` throughout (mirroring a setup-net's
+    value-only-when-configured behavior); the actual choice returned is
+    unaffected by the annotation either way, so this is a pure rendering
+    change -- the game plays out identically to before."""
 
     def stub_agent[C: decisions.Choice](
         engine: engine_core.Engine, decision: decisions.Decision[C]
@@ -160,13 +172,19 @@ def _stub_inner_agent(registry: placeholders.PlaceholderRegistry) -> engine_core
             "the advisor's placeholder sweep must run before the inner "
             "agent ever sees seat 0's hand"
         )
+        probs = [1.0] + [0.0] * (len(decision.choices) - 1)
+        probe.record_policy(decision_probe.PolicyAnnotation(probs=probs, chosen_idx=0))
         return decision.choices[0]
 
     return typing.cast(engine_core.Agent, stub_agent)
 
 
 def _play_scripted_session(
-    monkeypatch: pytest.MonkeyPatch, *, split_setup_bonus: bool
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    split_setup_bonus: bool,
+    split_setup_food: bool = False,
+    combine_gain_food: bool = False,
 ) -> tuple[
     engine_core.Engine,
     oracle_state.OracleGameState,
@@ -177,7 +195,11 @@ def _play_scripted_session(
     a stubbed model agent, and the pattern-responding console -- and play it
     to completion. Returns the finished engine, the game state (for the
     bird-deck invariant), the console's full transcript, and the placeholder
-    registry (for the hand-composition invariant)."""
+    registry (for the hand-composition invariant).
+
+    ``split_setup_food``/``combine_gain_food`` default to the pre-B3 baseline
+    (both off); the parametrized test below drives every regime combination
+    explicitly."""
     registry = placeholders.PlaceholderRegistry()
     identify_name = _powerless_bird_name()
     con, transcript = aid_helpers.responder_console(_build_rules(identify_name))
@@ -194,7 +216,7 @@ def _play_scripted_session(
     instrumentation = hooks.build_instrumentation(handler)
 
     probe = decision_probe.DecisionProbe()
-    stub_inner = _stub_inner_agent(registry)
+    stub_inner = _stub_inner_agent(registry, probe)
     advisor_seat = advisor.advisor_agent(
         stub_inner, probe, con, echo, registry, _STUB_SCORE_NORM
     )
@@ -214,8 +236,8 @@ def _play_scripted_session(
         [advisor_seat, relay_seat],
         instrumentation=instrumentation,
         split_setup_bonus=split_setup_bonus,
-        split_setup_food=False,
-        combine_gain_food=False,
+        split_setup_food=split_setup_food,
+        combine_gain_food=combine_gain_food,
     )
     return eng, gs, transcript, registry
 
@@ -226,11 +248,11 @@ def _assert_session_invariants(
     transcript: list[str],
     registry: placeholders.PlaceholderRegistry,
 ) -> None:
-    """The shared assertions both regime variants must satisfy: the game
+    """The shared assertions every regime combination must satisfy: the game
     actually finished, every round scored, both seats have a final score, the
     bird deck shrank from its post-setup-reveal starting size without going
     negative, seat 1's hand holds only placeholders, and the advisor showed
-    at least one ranked (or explicitly model-less) recommendation."""
+    at least one ranked recommendation marker."""
     starting_deck_size = len(catalog.birds_ordered()) - state.TRAY_SIZE
     assert eng.state.game_over is True
     assert len(eng.state.scored_goals) == len(state.ROUND_CUBES)
@@ -241,27 +263,47 @@ def _assert_session_invariants(
     assert len(opponent_hand) >= 0
     assert all(registry.is_placeholder(bird) for bird in opponent_hand)
 
-    assert any("model pick" in line or "no setup model" in line for line in transcript)
+    assert any("model pick" in line for line in transcript)
 
 
-def test_full_session_completes_combined_setup_regime(
+@pytest.mark.parametrize(
+    "split_setup_bonus,split_setup_food,combine_gain_food",
+    [
+        (False, False, False),  # combined: bonus and food both in the SetupDecision
+        (True, False, False),  # bonus only deferred to an in-game CHOOSE_BONUS pick
+        (True, True, False),  # both axes deferred (sequential spend/gain food picks)
+        (True, True, True),  # both axes deferred, food resolved as one combined pick
+    ],
+    ids=["combined", "split-bonus", "split-both", "split-both-combine-gain-food"],
+)
+def test_full_session_completes(
     monkeypatch: pytest.MonkeyPatch,
+    split_setup_bonus: bool,
+    split_setup_food: bool,
+    combine_gain_food: bool,
 ) -> None:
-    """The opening bonus stays combined into the initial ``SetupDecision``
-    (``split_setup_bonus=False``): a full game runs to completion."""
+    """A full game runs to completion under every opening-regime combination.
+
+    Exercises the relay's placeholder-bonus auto-pick and generic opponent
+    fallback for the deferred picks, and -- whenever an axis is genuinely
+    deferred -- the advisor's B3 combined setup-preview line and per-decision
+    setup framing line (``split_setup_bonus=False, split_setup_food=False``
+    carries both axes on the initial ``SetupDecision``, so neither is ever
+    deferred and neither line appears)."""
     eng, gs, transcript, registry = _play_scripted_session(
-        monkeypatch, split_setup_bonus=False
+        monkeypatch,
+        split_setup_bonus=split_setup_bonus,
+        split_setup_food=split_setup_food,
+        combine_gain_food=combine_gain_food,
     )
     _assert_session_invariants(eng, gs, transcript, registry)
 
-
-def test_full_session_completes_split_setup_bonus_regime(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The opening bonus is deferred to an in-game ``CHOOSE_BONUS`` pick
-    (``split_setup_bonus=True``): exercises the relay's placeholder-bonus
-    auto-pick and the advisor's deferred-bonus path, end to end."""
-    eng, gs, transcript, registry = _play_scripted_session(
-        monkeypatch, split_setup_bonus=True
+    any_axis_deferred = split_setup_bonus or split_setup_food
+    assert (
+        any(_SETUP_FRAMING_SUBSTRING in line for line in transcript)
+        == any_axis_deferred
     )
-    _assert_session_invariants(eng, gs, transcript, registry)
+    assert (
+        any(line.startswith("model recommends:") for line in transcript)
+        == any_axis_deferred
+    )

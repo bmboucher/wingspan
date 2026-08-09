@@ -39,7 +39,7 @@ class SetupCandidate(pydantic.BaseModel):
     def to_setup_choice(self) -> decisions.SetupChoice:
         """The equivalent :class:`wingspan.decisions.SetupChoice` (label rendered
         lazily, like the engine's enumeration), for applying this keep to a
-        player via the engine's ``_apply_setup_choice``."""
+        player via ``wingspan.engine.setup_flow.apply_setup_choice``."""
         return decisions.SetupChoice.model_construct(
             kept_cards=self.kept_cards,
             kept_foods=self.kept_foods,

@@ -16,8 +16,11 @@ cross-validated so the total equals `state.BIRDFEEDER_DICE`; `to_food_pool()`
 converts to a `state.FoodPool`), `SetupEntry` (the full physical deal: hand,
 bonus pair, four round goals, tray, feeder, start seat), `OpponentPlayNote` /
 `TurnNotes` (mid-turn scratch consumed by the relay/advisor/hooks trio below —
-`TurnNotes.clear()` resets at the start of every turn), `SessionReport`
-(stage 4's end-of-session summary).
+`TurnNotes.clear()` resets at the start of every turn), `SetupPreview` (the
+advisor's combined setup-keep recommendation under a split-setup regime —
+kept cards, resolved bonus card, kept food pool; `format_line()` renders
+`model recommends: keep [...] + bonus [...] + foods [...]`, produced by
+`preview.py`), `SessionReport` (stage 4's end-of-session summary).
 
 **`console.py`** — `Console`: the injectable `read`/`write` pair every aid
 prompt flows through (`say`/`ask`/`menu`/`confirm`), so a full session can
@@ -68,6 +71,16 @@ token re-asked individually), the 2 dealt bonus cards, the 4 round goals
 feeder roll (via `oracle.parse_die_faces`) — each block loops on a
 "Correct?" confirm-echo before the next one starts.
 
+**`preview.py`** — `preview_setup(engine, inner, probe, decision, preferred)
+-> models.SetupPreview`: replays a preferred `SetupChoice` through the real
+deferred-resolution steps (`engine.setup_flow.apply_setup_choice` /
+`resolve_deferred_setup_bonus` / `resolve_deferred_setup_food`) on a
+`copy.deepcopy` of the live `GameState`, wrapped in a throwaway `Engine` so
+nothing touches the real state or console (at most ~3 extra `inner` forward
+passes: one bonus pick, up to two food picks). Drains `probe` once at the
+end so the preview's own `inner` calls don't leak into the caller's
+decision annotation.
+
 **`advisor.py`** — `advisor_agent(inner, probe, con, echo, registry,
 score_norm)`: the seat-0 `Agent`. Per decision: flushes the log, sweeps any
 placeholder out of the deciding seat's hand (`entry.identify_bird` +
@@ -75,13 +88,18 @@ placeholder out of the deciding seat's hand (`entry.identify_bird` +
 still pointing at the swapped placeholder in place), calls `inner` and reads
 back its `DecisionProbe` value/policy annotation (discarding `inner`'s own
 pick), shows the model's ranked top-`_AID_TOP_K` recommendation (setup
-decisions via the setup net's per-candidate `display_label`s; other
-decisions via the promoted `agents.cli.format_choice_line`, plus a
-`model eval: ±N.N VP expected margin` line scaled by `score_norm`), then
-asks what was actually played (setup via the promoted
-`agents.cli.resolve_setup_choice_dialog`; everything else via an
-Enter-defaults-to-model-pick index prompt) and writes the corrected
-`chosen_idx` back onto the probe so a recorder captures the real play.
+decisions via the setup net's per-candidate `display_label`, or — under a
+split-setup regime, detected via `agents.cli.setup_dialog_axes` — a compact
+`keep:[...]` label plus a combined `preview.preview_setup(...).format_line()`
+recommendation line after the ranking; other decisions via the promoted
+`agents.cli.format_choice_line`, plus a `model eval: ±N.N VP expected
+margin` line scaled by `score_norm`), then asks what was actually played
+(setup via the promoted `agents.cli.resolve_setup_choice_dialog`; everything
+else via an Enter-defaults-to-model-pick index prompt, prefixed with a
+`(still setup — this pick completes your opening)` framing line whenever
+`engine.state.turn_counter == 0` — true for the deferred bonus/food picks
+too) and writes the corrected `chosen_idx` back onto the probe so a recorder
+captures the real play.
 
 **`relay.py`** — `relay_agent(con, echo, registry, notes)`: the seat-1
 `Agent`. Auto-answers a `MainActionDecision`/`PlayBirdDecision` from an

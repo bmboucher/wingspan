@@ -58,6 +58,20 @@ setup keep — multisets within a per-food capacity). Every one of
 reroll sites routes through `ledger.reroll_feeder`, so no call site can forget
 to record the fresh faces.
 
+**`setup_flow.py`** — Setup-phase resolution as free functions, split out of
+`Engine` so a forthcoming aid preview can reuse them without going through
+`Engine` methods: `apply_setup_choice(engine, player, dealt_cards, dealt_bonus,
+sc, *, defer_food=False)` (mutates board/hand/food/bonus to reflect a resolved
+`SetupChoice`), `resolve_deferred_setup_bonus(engine, player, dealt_bonus, sc)
+-> cards.BonusCard | None` (resolves a deferred `split_setup_bonus` pick via the
+in-game `CHOOSE_BONUS` head; returns the bonus the player ends up keeping, or
+`None` when none was dealt), `resolve_deferred_setup_food(engine, player, agent,
+n_kept, *, defer_food)` (resolves a deferred `split_setup_food` pick via
+sequential — or, under `combine_gain_food`, combined — in-game food decisions),
+and `clear_setup_food(engine, player)` (zeroes the post-deal food pool before a
+deferred-food regime grants it back). `core._resolve_setup_choice` and
+`core._setup_phase_fixed` are the two call sites.
+
 **`ledger.py`** — The mutate-and-record seam. One free function per kind of
 state change; each performs the mutation **and** records the matching
 `gamelog.models.Effect`, so the game log cannot drift from what happened.

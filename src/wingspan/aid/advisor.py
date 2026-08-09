@@ -18,11 +18,18 @@ from wingspan.agents import cli as agents_cli
 from wingspan.agents import display
 from wingspan.aid import console as console_module
 from wingspan.aid import entry, placeholders
+from wingspan.aid import preview as preview_module
 from wingspan.engine import core as engine_core
 from wingspan.players import decision_probe
 
 # How many of the model's top-ranked choices get a probability line shown.
 _AID_TOP_K = 5
+
+# Printed before every genuine decision made during the setup window (the
+# deferred bonus/food picks resolve as in-game decisions routed through
+# ``_resolve_main_move``, so without this framing they'd look like an
+# ordinary turn).
+_SETUP_FRAMING_LINE = "(still setup — this pick completes your opening)"
 
 
 def advisor_agent(
@@ -102,17 +109,42 @@ def _resolve_setup_move(
 ) -> tuple[int, float | None, decision_probe.PolicyAnnotation | None]:
     """The setup-decision branch: show the setup net's top-ranked keep
     recommendations (if any), then walk the user through the actual keep via
-    the promoted CLI setup dialog and locate it among the offered choices."""
+    the promoted CLI setup dialog and locate it among the offered choices.
+
+    Under a split-setup regime the offered ``SetupChoice``s pin the deferred
+    axis (or axes) to their empty value, so ``display_label``'s
+    ``foods:[none] bonus:(none)`` segments would misleadingly read as "keeps
+    nothing" -- the ranked lines fall back to a compact ``keep:[...]`` label
+    in that case, and a combined recommendation line (the model's preferred
+    keep replayed through the real deferred-resolution steps, see
+    ``preview.py``) is shown after them."""
     setup_decision = typing.cast(decisions.SetupDecision, decision)
     inner(engine, decision)
     value, annotation = probe.take()
 
+    ask_bonus, ask_food = agents_cli.setup_dialog_axes(setup_decision)
+    bonus_deferred = not ask_bonus and len(setup_decision.dealt_bonus) > 0
+    food_deferred = not ask_food
+    any_deferred = bonus_deferred or food_deferred
+
+    top_indices: list[int] = []
     if annotation is not None:
-        for idx in _top_k_indices(annotation.probs, _AID_TOP_K):
-            label = setup_decision.choices[idx].display_label()
+        top_indices = _top_k_indices(annotation.probs, _AID_TOP_K)
+        for idx in top_indices:
+            choice = setup_decision.choices[idx]
+            label = (
+                _compact_keep_label(choice) if any_deferred else choice.display_label()
+            )
             con.say(f"{annotation.probs[idx]:5.1%}  {label}")
     else:
         con.say("(no setup model — no recommendation)")
+
+    if annotation is not None and any_deferred:
+        preferred = setup_decision.choices[top_indices[0]]
+        setup_preview = preview_module.preview_setup(
+            engine, inner, probe, setup_decision, preferred
+        )
+        con.say(setup_preview.format_line())
 
     tray_birds = [bird for bird in engine.state.tray if bird is not None]
     kept = agents_cli.resolve_setup_choice_dialog(setup_decision, tray_birds)
@@ -130,7 +162,15 @@ def _resolve_main_move(
 ) -> tuple[int, float | None, decision_probe.PolicyAnnotation | None]:
     """The general decision branch: show the board (for the two big
     decisions), the model's ranked recommendation, and the expected-margin
-    readout, then ask what was actually played."""
+    readout, then ask what was actually played.
+
+    ``engine.state.turn_counter`` stays 0 for the entire setup window
+    (including the deferred bonus/food picks a split-setup regime resolves
+    through this same branch), so a framing line is printed first whenever a
+    genuine decision reaches here before round 1 has properly begun."""
+    if engine.state.turn_counter == 0:
+        con.say(_SETUP_FRAMING_LINE)
+
     player = engine.state.players[decision.player_id]
     if isinstance(decision, (decisions.MainActionDecision, decisions.PlayBirdDecision)):
         con.say(display.format_board(engine.state, player))
@@ -155,6 +195,15 @@ def _resolve_main_move(
 
     chosen_idx = _resolve_move_index(con, decision, argmax_idx)
     return chosen_idx, value, annotation
+
+
+def _compact_keep_label(choice: decisions.SetupChoice) -> str:
+    """Compact ``keep:[...]`` label for a setup choice, used in place of
+    ``display_label`` whenever the bonus and/or food axes are deferred to
+    later decisions -- ``display_label``'s ``foods:[none] bonus:(none)``
+    segments would otherwise misread as "keeps nothing" for every option."""
+    kept_names = [bird.name for bird in choice.kept_cards] or ["none"]
+    return f"keep:[{', '.join(kept_names)}]"
 
 
 def _top_k_indices(probs: list[float], top_k: int) -> list[int]:

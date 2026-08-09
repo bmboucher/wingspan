@@ -104,25 +104,59 @@ def format_choice_line(idx: int, choice: decisions.Choice, player: state.Player)
     return f"  [{idx}] {choice.display_label()}"
 
 
+def setup_dialog_axes(decision: decisions.SetupDecision) -> tuple[bool, bool]:
+    """Which of the setup dialog's two optional axes the offered choices carry.
+
+    Returns ``(ask_bonus, ask_food)``. Under the split-setup regimes the
+    engine resolves the bonus pick and/or the food pick as separate later
+    decisions, so the offered ``SetupChoice``s come back with that axis
+    pinned to its empty value on every option: ``bonus_card=None`` for a
+    deferred bonus pick, ``kept_foods=()`` for a deferred food pick. This is
+    a sound test for "deferred" because under the non-split regime the
+    candidate enumerator (``setup_model/candidates.py``) always assigns a
+    dealt bonus card to every choice, and the keep-0-cards choice always
+    carries all five foods — so all-``None``/all-empty across *every* choice
+    only happens when the axis is genuinely deferred, never as a byproduct of
+    the non-split enumeration.
+
+    The one other way ``bonus_card`` is ``None`` on every choice is when no
+    bonus cards were dealt at all. That collapses onto the same correct
+    behavior: with an empty ``dealt_bonus`` the dialog already omits the
+    bonus section (``_cli_pick_hand_and_bonus`` returns ``None`` for it), so
+    treating that case as "don't ask" changes nothing observable.
+    """
+    ask_bonus = any(choice.bonus_card is not None for choice in decision.choices)
+    ask_food = any(choice.kept_foods for choice in decision.choices)
+    return ask_bonus, ask_food
+
+
 def resolve_setup_choice_dialog(
     decision: decisions.SetupDecision,
     tray: list[cards.Bird],
 ) -> decisions.SetupChoice:
-    """Two-step sub-dialog for the combined setup pick.
+    """Two-step sub-dialog for the combined setup pick, split-aware.
 
-    Step 1 is one screen: keep any subset of the dealt birds and pick exactly
-    one bonus card. Step 2 then keeps the matching number of foods. The
-    assembled answer is located among ``decision.choices`` and returned.
-    ``tray`` is the face-up bird display, used to gauge bonus-card value.
+    Step 1 is one screen: keep any subset of the dealt birds, plus — when the
+    offered choices carry a bonus pick (see :func:`setup_dialog_axes`) —
+    choose exactly one bonus card. Step 2 keeps the matching number of foods,
+    but only when the offered choices carry a food pick; otherwise the axis
+    is left at its deferred empty value. This mirrors whichever combination
+    of axes ``decision.choices`` actually varies over — under the split-setup
+    regimes the bonus and/or food pick are resolved by later decisions, so
+    asking for them here would never match any offered choice. The assembled
+    answer is located among ``decision.choices`` and returned. ``tray`` is
+    the face-up bird display, used to gauge bonus-card value.
     """
     dealt_cards = decision.dealt_cards
-    dealt_bonus = decision.dealt_bonus
+    ask_bonus, ask_food = setup_dialog_axes(decision)
 
     print()
     print(decision.prompt)
 
-    kept_cards, bonus_card = _cli_pick_hand_and_bonus(dealt_cards, dealt_bonus, tray)
-    kept_foods = _cli_pick_kept_foods(kept_cards)
+    kept_cards, bonus_card = _cli_pick_hand_and_bonus(
+        dealt_cards, decision.dealt_bonus if ask_bonus else [], tray
+    )
+    kept_foods = _cli_pick_kept_foods(kept_cards) if ask_food else ()
 
     for choice in decision.choices:
         if (

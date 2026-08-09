@@ -3,10 +3,12 @@
 Pure data layer for the ``wingspan aid`` package: the physical-table facts
 entered at setup (:class:`SetupEntry`, :class:`FeederEntry`), the running
 scratch the relay/advisor hooks consult mid-turn (:class:`TurnNotes`,
-:class:`OpponentPlayNote`), and the end-of-session summary
+:class:`OpponentPlayNote`), the advisor's combined setup-keep recommendation
+(:class:`SetupPreview`), and the end-of-session summary
 (:class:`SessionReport`). No behavior beyond field-level conversions and
 cross-field validation lives here -- see ``oracle.py`` / ``oracle_state.py``
-for the interactive machinery that produces these shapes.
+for the interactive machinery that produces these shapes and ``preview.py``
+for the simulation that produces a :class:`SetupPreview`.
 """
 
 from __future__ import annotations
@@ -114,6 +116,43 @@ class TurnNotes(pydantic.BaseModel):
         """Reset both fields; called at the start of every turn."""
         self.plays = []
         self.play_consumed_count = 0
+
+
+class SetupPreview(pydantic.BaseModel):
+    """The model's own preferred setup keep, replayed through the real
+    deferred-resolution code path (:mod:`wingspan.engine.setup_flow`) on a
+    throwaway cloned state -- see ``preview.py``'s ``preview_setup``.
+
+    Under a split-setup regime the advisor's setup ``SetupDecision`` only
+    offers a card-keep pick, with the bonus and/or food picks resolved by
+    later separate in-game decisions; this model captures what those later
+    picks would resolve to under the model's own preferred keep, so the
+    advisor can show one combined upfront recommendation line."""
+
+    kept_cards: tuple[schema.Bird, ...]
+    bonus_card: schema.BonusCard | None
+    kept_foods: state.FoodPool
+
+    def format_line(self) -> str:
+        """Render the one-line combined recommendation, e.g. ``model
+        recommends: keep [Bird A, Bird B] + bonus [Card X] + foods [fish,
+        seed x2]``.
+
+        An empty keep renders ``[none]``; the ``bonus [...]`` segment is
+        omitted entirely when :attr:`bonus_card` is ``None``; foods with a
+        count of exactly one are listed by name alone, higher counts get an
+        ``xN`` suffix, and zero-count foods are dropped."""
+        keep_names = [bird.name for bird in self.kept_cards] or ["none"]
+        segments = [f"keep [{', '.join(keep_names)}]"]
+        if self.bonus_card is not None:
+            segments.append(f"bonus [{self.bonus_card.name}]")
+        food_names = [
+            food.value if count == 1 else f"{food.value} x{count}"
+            for food, count in self.kept_foods.items()
+            if count > 0
+        ] or ["none"]
+        segments.append(f"foods [{', '.join(food_names)}]")
+        return "model recommends: " + " + ".join(segments)
 
 
 class SessionReport(pydantic.BaseModel):
