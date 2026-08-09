@@ -188,6 +188,14 @@ wingspan aid best --seed 42                   # advise with the strongest checkp
 wingspan aid --log session.log --jsonl session.jsonl  # write session logs
 ```
 
+In a real terminal, card prompts are type-to-filter pickers (type a few
+letters to narrow the list, arrows + Enter to select; Enter on an empty
+query marks a revealed card as face-down where that's allowed) and dice are
+entered as per-face counts (arrows to move between faces and adjust, Enter
+to accept once the total matches). When stdio is scripted or redirected the
+same prompts fall back to plain text: comma-separated card names and
+space-separated die faces.
+
 The opponent's moves are relayed by you as they happen — the assistant asks
 "what did they do?" for each of their decisions and tracks their hand and
 bonus cards as hidden counts (never guessing their identities), matching

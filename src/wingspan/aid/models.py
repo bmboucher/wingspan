@@ -13,6 +13,7 @@ for the simulation that produces a :class:`SetupPreview`.
 
 from __future__ import annotations
 
+import enum
 import typing
 
 import pydantic
@@ -163,3 +164,27 @@ class SessionReport(pydantic.BaseModel):
     scores: list[int]
     winner: int | None
     opponent_bonus_entered: bool
+
+
+class TypeaheadOutcome(enum.StrEnum):
+    """What a typeahead keystroke resolved to."""
+
+    CONTINUE = "continue"  # keep editing
+    ACCEPT = "accept"  # accept the highlighted match
+    ACCEPT_BLANK = "accept_blank"  # accept "no card" (face-down) -- allow_blank only
+
+
+class TypeaheadState(pydantic.BaseModel):
+    """The typeahead widget's editable state: the query so far and which
+    visible match is highlighted."""
+
+    query: str = ""
+    highlight: int = 0
+
+
+class CountsState(pydantic.BaseModel):
+    """The counts widget's editable state: one non-negative value per field
+    and which field has focus."""
+
+    values: list[int]
+    focus: int = 0

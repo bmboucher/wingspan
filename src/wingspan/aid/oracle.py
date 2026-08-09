@@ -15,13 +15,14 @@ import collections.abc
 import typing
 
 from wingspan import cards, state
+from wingspan.agents import display
 from wingspan.aid import console as console_module
-from wingspan.aid import models, placeholders
+from wingspan.aid import models, placeholders, widgets
 from wingspan.cards import lookup
 
 # The literal token a die-face entry uses for the invertebrate/seed choice
 # face, in place of a food name/alias.
-_CHOICE_FACE_TOKEN = "choice"
+CHOICE_FACE_TOKEN = "choice"
 
 
 class SessionOracle:
@@ -85,6 +86,16 @@ class SessionOracle:
             queued = self.bird_queue.popleft()
             return self.registry.mint_bird() if queued is None else queued
         self.echo.flush()
+        if self.console.supports_interactive():
+            picked = widgets.typeahead_pick(
+                self.console,
+                "A bird card was just drawn or revealed — pick it (Enter = "
+                "face-down/unknown):",
+                lookup.find_birds,
+                display.format_bird,
+                allow_blank=True,
+            )
+            return self.registry.mint_bird() if picked is None else picked
         while True:
             answer = self.console.ask(
                 "A bird card was just drawn or revealed — enter its name "
@@ -103,6 +114,16 @@ class SessionOracle:
             queued = self.bonus_queue.popleft()
             return self.registry.mint_bonus() if queued is None else queued
         self.echo.flush()
+        if self.console.supports_interactive():
+            picked = widgets.typeahead_pick(
+                self.console,
+                "A bonus card was just drawn or revealed — pick it (Enter = "
+                "face-down/unknown):",
+                lookup.find_bonus_cards,
+                display.format_bonus,
+                allow_blank=True,
+            )
+            return self.registry.mint_bonus() if picked is None else picked
         while True:
             answer = self.console.ask(
                 "A bonus card was just drawn or revealed — enter its name "
@@ -116,8 +137,10 @@ class SessionOracle:
 
     def feeder_roll(self) -> models.FeederEntry:
         """The birdfeeder's current ``BIRDFEEDER_DICE`` faces: the queued
-        setup roll if pending, else an interactive prompt for all five
-        physical dice."""
+        setup roll if pending, else a prompt for all five physical dice --
+        a counts-widget entry on an interactive console, else the die-face
+        text grammar (:func:`parse_die_faces`), naming any unrecognized
+        token in its retry message."""
         if self.pending_feeder is not None:
             entry = self.pending_feeder
             self.pending_feeder = None
@@ -127,35 +150,46 @@ class SessionOracle:
             f"The birdfeeder was rerolled — enter all {state.BIRDFEEDER_DICE} "
             'die faces, space-separated (food name/alias, or "choice"): '
         )
+        if self.console.supports_interactive():
+            values = widgets.counts_entry(
+                self.console, prompt, _die_face_labels(), state.BIRDFEEDER_DICE
+            )
+            return models.FeederEntry(
+                counts=values[: cards.N_FOODS], choice_dice=values[cards.N_FOODS]
+            )
         while True:
-            parsed = parse_die_faces(self.console.ask(prompt), state.BIRDFEEDER_DICE)
+            answer = self.console.ask(prompt)
+            parsed = parse_die_faces(answer, state.BIRDFEEDER_DICE)
             if parsed is not None:
                 counts, choice_dice = parsed
                 return models.FeederEntry(
                     counts=list(counts.counts), choice_dice=choice_dice
                 )
-            self.console.say(
-                f"Enter exactly {state.BIRDFEEDER_DICE} faces "
-                '(food name/alias, or "choice"), separated by spaces.'
-            )
+            self.console.say(die_face_retry_message(answer, state.BIRDFEEDER_DICE))
 
     def dice_roll(self, n: int) -> tuple[state.FoodPool, int]:
         """``n`` dice rolled outside the feeder (a dice-predator power):
         always interactive -- public information regardless of seat, so
-        never pre-queued."""
+        never pre-queued. A counts-widget entry on an interactive console,
+        else the die-face text grammar (:func:`parse_die_faces`), naming any
+        unrecognized token in its retry message."""
         self.echo.flush()
         prompt = (
             f"{n} dice were rolled outside the feeder — what did they show? "
             f'Enter {n} faces, space-separated (food name/alias, or "choice"): '
         )
+        if self.console.supports_interactive():
+            values = widgets.counts_entry(self.console, prompt, _die_face_labels(), n)
+            return (
+                state.FoodPool(counts=values[: cards.N_FOODS]),
+                values[cards.N_FOODS],
+            )
         while True:
-            parsed = parse_die_faces(self.console.ask(prompt), n)
+            answer = self.console.ask(prompt)
+            parsed = parse_die_faces(answer, n)
             if parsed is not None:
                 return parsed
-            self.console.say(
-                f'Enter exactly {n} faces (food name/alias, or "choice"), '
-                "separated by spaces."
-            )
+            self.console.say(die_face_retry_message(answer, n))
 
     def _resolve_candidates[T: _NamedCard](
         self, query: str, matches: list[T]
@@ -182,7 +216,7 @@ def parse_die_faces(
     """Parse a space-separated die-face entry into ``(single_face_counts,
     choice_face_count)``, or ``None`` if the token count is wrong or any
     token fails to resolve to a food name/alias or the literal
-    :data:`_CHOICE_FACE_TOKEN`.
+    :data:`CHOICE_FACE_TOKEN`.
 
     Public (rather than a private helper of :meth:`SessionOracle.feeder_roll`
     / :meth:`SessionOracle.dice_roll`) so ``entry.run_setup_entry`` can reuse
@@ -193,7 +227,7 @@ def parse_die_faces(
     counts = state.FoodPool()
     choice_count = 0
     for token in tokens:
-        if token.casefold() == _CHOICE_FACE_TOKEN:
+        if token.casefold() == CHOICE_FACE_TOKEN:
             choice_count += 1
             continue
         food = lookup.find_food(token)
@@ -201,6 +235,38 @@ def parse_die_faces(
             return None
         counts[food] += 1
     return counts, choice_count
+
+
+def invalid_die_face_tokens(text: str) -> list[str]:
+    """The tokens of a die-face entry that resolve to neither a food
+    name/alias nor the choice-face token, in entry order. Empty when every
+    token resolves (a parse failure with no invalid tokens means the count
+    was wrong)."""
+    return [
+        token
+        for token in text.split()
+        if token.casefold() != CHOICE_FACE_TOKEN and lookup.find_food(token) is None
+    ]
+
+
+def die_face_retry_message(answer: str, expected_count: int) -> str:
+    """The retry message to show after a failed :func:`parse_die_faces` call
+    on ``answer``: names the unrecognized token(s) when present, else
+    restates the count/grammar requirement unchanged (a parse failure with
+    no bad tokens means the token count was wrong). Shared by every die-face
+    text-mode fallback (:meth:`SessionOracle.feeder_roll`,
+    :meth:`SessionOracle.dice_roll`, ``entry._collect_feeder``) so the
+    wording stays consistent across all three."""
+    invalid = invalid_die_face_tokens(answer)
+    if invalid:
+        return (
+            f"Unrecognized die face(s): {', '.join(invalid)} — use a food "
+            'name/alias or "choice".'
+        )
+    return (
+        f"Enter exactly {expected_count} faces "
+        '(food name/alias, or "choice"), separated by spaces.'
+    )
 
 
 ###### PRIVATE #######
@@ -212,3 +278,10 @@ class _NamedCard(typing.Protocol):
     field used for the disambiguation menu."""
 
     name: str
+
+
+def _die_face_labels() -> list[str]:
+    """The counts-widget field labels for a die-face entry: each food's
+    display value, in :data:`wingspan.cards.ALL_FOODS` order, plus
+    :data:`CHOICE_FACE_TOKEN`."""
+    return [food.value for food in cards.ALL_FOODS] + [CHOICE_FACE_TOKEN]

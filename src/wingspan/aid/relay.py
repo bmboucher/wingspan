@@ -18,7 +18,7 @@ import typing
 from wingspan import cards, decisions, state
 from wingspan.agents import cli as agents_cli
 from wingspan.aid import console as console_module
-from wingspan.aid import models, placeholders
+from wingspan.aid import models, placeholders, widgets
 from wingspan.cards import lookup
 from wingspan.engine import core as engine_core
 
@@ -168,9 +168,19 @@ def _ask_int_in_range(
 def _ask_distinct_foods(
     con: console_module.Console, count: int
 ) -> tuple[cards.Food, ...]:
-    """Ask which ``count`` distinct foods the opponent kept, comma-separated,
-    re-asking until exactly ``count`` distinct resolvable foods are entered."""
+    """Ask which ``count`` distinct foods the opponent kept.
+
+    On an interactive console, a counts-widget entry with every field capped
+    at 1 (distinctness by construction). The text-mode fallback asks for a
+    comma-separated line, re-asking until exactly ``count`` distinct
+    resolvable foods are entered."""
     prompt = f"Which {count} food(s) did the opponent keep, comma-separated? "
+    if con.supports_interactive():
+        labels = [food.value for food in cards.ALL_FOODS]
+        values = widgets.counts_entry(
+            con, prompt, labels, count, field_caps=[1] * len(cards.ALL_FOODS)
+        )
+        return tuple(food for food, value in zip(cards.ALL_FOODS, values) if value)
     while True:
         answer = con.ask(prompt)
         tokens = [token.strip() for token in answer.split(",") if token.strip()]

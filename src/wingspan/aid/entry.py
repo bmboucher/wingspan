@@ -20,20 +20,58 @@ from wingspan.agents import display
 from wingspan.aid import console as console_module
 from wingspan.aid import models
 from wingspan.aid import oracle as oracle_module
+from wingspan.aid import widgets
 from wingspan.cards import lookup
 
 # How many round goals a setup entry always carries -- one per round.
 _N_ROUNDS = len(state.ROUND_CUBES)
 
 
-def identify_bird(con: console_module.Console, prompt: str) -> cards.Bird:
+def identify_bird(
+    con: console_module.Console,
+    prompt: str,
+    *,
+    exclude: collections.abc.Collection[cards.Bird] = (),
+) -> cards.Bird:
     """Ask for a bird name until it resolves to exactly one card -- no blank
-    "face-down" escape, unlike ``SessionOracle.reveal_bird``."""
+    "face-down" escape, unlike ``SessionOracle.reveal_bird``.
+
+    ``exclude`` only narrows the interactive typeahead's matches -- a dedup
+    aid for e.g. successive hand slots so an already-picked bird cannot be
+    picked twice. The text-mode fallback ignores it: a resolved free-text
+    answer is unambiguous regardless of what else was already picked.
+    """
+    if con.supports_interactive():
+
+        def find(query: str) -> list[cards.Bird]:
+            return [bird for bird in lookup.find_birds(query) if bird not in exclude]
+
+        picked = widgets.typeahead_pick(con, prompt, find, display.format_bird)
+        assert picked is not None  # allow_blank defaults to False
+        return picked
     return _resolve_named(con, con.ask(prompt), lookup.find_birds, "bird name")
 
 
-def identify_bonus(con: console_module.Console, prompt: str) -> cards.BonusCard:
-    """Bonus-card analogue of :func:`identify_bird`."""
+def identify_bonus(
+    con: console_module.Console,
+    prompt: str,
+    *,
+    exclude: collections.abc.Collection[cards.BonusCard] = (),
+) -> cards.BonusCard:
+    """Bonus-card analogue of :func:`identify_bird`, including the
+    interactive-only ``exclude`` dedup aid."""
+    if con.supports_interactive():
+
+        def find(query: str) -> list[cards.BonusCard]:
+            return [
+                bonus_card
+                for bonus_card in lookup.find_bonus_cards(query)
+                if bonus_card not in exclude
+            ]
+
+        picked = widgets.typeahead_pick(con, prompt, find, display.format_bonus)
+        assert picked is not None  # allow_blank defaults to False
+        return picked
     return _resolve_named(
         con, con.ask(prompt), lookup.find_bonus_cards, "bonus card name"
     )
@@ -60,7 +98,7 @@ def run_setup_entry(con: console_module.Console) -> models.SetupEntry:
     hand = _collect_hand(con)
     bonus_pair = _collect_bonus_pair(con)
     goals = _collect_goals(con)
-    tray = _collect_tray(con)
+    tray = _collect_tray(con, hand)
     feeder = _collect_feeder(con)
     return models.SetupEntry(
         hand=hand,
@@ -150,10 +188,23 @@ def _pick_start_player(con: console_module.Console) -> int:
 
 
 def _collect_hand(con: console_module.Console) -> tuple[cards.Bird, ...]:
-    """Your ``STARTING_HAND_SIZE`` dealt birds, entered as one
-    comma-separated line and resolved token by token."""
+    """Your ``STARTING_HAND_SIZE`` dealt birds.
+
+    On an interactive console, one typeahead pick per slot, each excluding
+    the birds already picked this hand. The text-mode fallback enters them
+    as one comma-separated line and resolves token by token."""
 
     def build() -> tuple[cards.Bird, ...]:
+        if con.supports_interactive():
+            picked: list[cards.Bird] = []
+            for slot in range(state.STARTING_HAND_SIZE):
+                bird = identify_bird(
+                    con,
+                    f"Dealt bird {slot + 1} of {state.STARTING_HAND_SIZE}:",
+                    exclude=picked,
+                )
+                picked.append(bird)
+            return tuple(picked)
         while True:
             answer = con.ask(
                 f"Enter your {state.STARTING_HAND_SIZE} dealt birds, "
@@ -180,9 +231,23 @@ def _collect_hand(con: console_module.Console) -> tuple[cards.Bird, ...]:
 
 
 def _collect_bonus_pair(con: console_module.Console) -> tuple[cards.BonusCard, ...]:
-    """Your ``STARTING_BONUS_CARDS_DEAL`` dealt bonus cards, one at a time."""
+    """Your ``STARTING_BONUS_CARDS_DEAL`` dealt bonus cards, one at a time.
+
+    On an interactive console, each pick excludes the bonus cards already
+    picked this deal."""
 
     def build() -> tuple[cards.BonusCard, ...]:
+        if con.supports_interactive():
+            picked: list[cards.BonusCard] = []
+            for slot in range(state.STARTING_BONUS_CARDS_DEAL):
+                bonus_card = identify_bonus(
+                    con,
+                    f"Enter dealt bonus card {slot + 1} of "
+                    f"{state.STARTING_BONUS_CARDS_DEAL}: ",
+                    exclude=picked,
+                )
+                picked.append(bonus_card)
+            return tuple(picked)
         return tuple(
             identify_bonus(
                 con,
@@ -200,9 +265,37 @@ def _collect_bonus_pair(con: console_module.Console) -> tuple[cards.BonusCard, .
 
 
 def _collect_goals(con: console_module.Console) -> tuple[cards.EndRoundGoal, ...]:
-    """The four end-of-round goal tiles, one per round."""
+    """The four end-of-round goal tiles, one per round.
+
+    On an interactive console, one typeahead pick per round -- goals have no
+    ``identify_*`` helper, so this drives ``widgets.typeahead_pick`` directly
+    -- each excluding the goals already picked, since a physical deal never
+    repeats a tile face. The text-mode fallback resolves free-text answers
+    via :func:`_resolve_goal`."""
 
     def build() -> tuple[cards.EndRoundGoal, ...]:
+        if con.supports_interactive():
+            _, _, catalog_goals = cards.load_all()
+            picked: list[cards.EndRoundGoal] = []
+
+            def find(query: str) -> list[cards.EndRoundGoal]:
+                return [goal for goal in lookup.find_goals(query) if goal not in picked]
+
+            def render(goal: cards.EndRoundGoal) -> str:
+                return goal.description
+
+            for round_num in range(_N_ROUNDS):
+                initial = [goal for goal in catalog_goals if goal not in picked]
+                chosen = widgets.typeahead_pick(
+                    con,
+                    f"Enter round {round_num + 1}'s goal: ",
+                    find,
+                    render,
+                    initial=initial,
+                )
+                assert chosen is not None  # allow_blank defaults to False
+                picked.append(chosen)
+            return tuple(picked)
         return tuple(
             _resolve_goal(con, con.ask(f"Enter round {round_num + 1}'s goal: "))
             for round_num in range(_N_ROUNDS)
@@ -215,10 +308,28 @@ def _collect_goals(con: console_module.Console) -> tuple[cards.EndRoundGoal, ...
     return _run_until_confirmed(con, build, echo)
 
 
-def _collect_tray(con: console_module.Console) -> tuple[cards.Bird, ...]:
-    """The initial face-up tray, left to right."""
+def _collect_tray(
+    con: console_module.Console, hand: tuple[cards.Bird, ...]
+) -> tuple[cards.Bird, ...]:
+    """The initial face-up tray, left to right.
+
+    ``hand`` is the already-entered starting hand. On an interactive console
+    each pick's exclusion set is ``hand`` plus the tray picks so far, since
+    the tray can never repeat a card already seen in hand; the text-mode
+    fallback ignores ``hand`` entirely (unchanged from before)."""
 
     def build() -> tuple[cards.Bird, ...]:
+        if con.supports_interactive():
+            picked: list[cards.Bird] = []
+            for slot in range(state.TRAY_SIZE):
+                bird = identify_bird(
+                    con,
+                    f"Enter tray slot {slot + 1} of {state.TRAY_SIZE} "
+                    "(left to right): ",
+                    exclude=list(hand) + picked,
+                )
+                picked.append(bird)
+            return tuple(picked)
         return tuple(
             identify_bird(
                 con,
@@ -235,26 +346,35 @@ def _collect_tray(con: console_module.Console) -> tuple[cards.Bird, ...]:
 
 
 def _collect_feeder(con: console_module.Console) -> models.FeederEntry:
-    """The initial birdfeeder roll, via the shared die-face grammar."""
+    """The initial birdfeeder roll.
+
+    On an interactive console, one counts-widget entry across the five food
+    fields plus the choice-face field. The text-mode fallback loops on the
+    shared die-face grammar (:func:`wingspan.aid.oracle.parse_die_faces`),
+    naming any unrecognized token in its retry message."""
     prompt = (
         f"Enter all {state.BIRDFEEDER_DICE} birdfeeder die faces, "
         'space-separated (food name/alias, or "choice"): '
     )
+    labels = [food.value for food in cards.ALL_FOODS] + [
+        oracle_module.CHOICE_FACE_TOKEN
+    ]
 
     def build() -> models.FeederEntry:
-        while True:
-            parsed = oracle_module.parse_die_faces(
-                con.ask(prompt), state.BIRDFEEDER_DICE
+        if con.supports_interactive():
+            values = widgets.counts_entry(con, prompt, labels, state.BIRDFEEDER_DICE)
+            return models.FeederEntry(
+                counts=values[: cards.N_FOODS], choice_dice=values[cards.N_FOODS]
             )
+        while True:
+            answer = con.ask(prompt)
+            parsed = oracle_module.parse_die_faces(answer, state.BIRDFEEDER_DICE)
             if parsed is not None:
                 counts, choice_dice = parsed
                 return models.FeederEntry(
                     counts=list(counts.counts), choice_dice=choice_dice
                 )
-            con.say(
-                f"Enter exactly {state.BIRDFEEDER_DICE} faces "
-                '(food name/alias, or "choice"), separated by spaces.'
-            )
+            con.say(oracle_module.die_face_retry_message(answer, state.BIRDFEEDER_DICE))
 
     def echo(feeder: models.FeederEntry) -> None:
         con.say(

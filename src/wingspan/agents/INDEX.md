@@ -31,4 +31,6 @@ for terminal display.
 
 **`interactive.py`** — Terminal selection-form widget. `select_form(choices, prompt)`
 renders a numbered list and reads a validated integer from stdin. Used by `cli_agent`
-to present each `Decision`'s `choices` list.
+to present each `Decision`'s `choices` list. `draw_frame(lines, prev_line_count)` (public
+— promoted from a private helper) is the shared in-place ANSI frame redraw both this
+widget and `wingspan.aid.widgets`' typeahead/counts tty shells draw through.

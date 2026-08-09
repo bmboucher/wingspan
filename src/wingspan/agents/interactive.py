@@ -135,7 +135,7 @@ def select_form(
             status,
             instructions,
         )
-        drawn_lines = _draw(frame, drawn_lines)
+        drawn_lines = draw_frame(frame, drawn_lines)
         key = _read_key()
 
         if key == "enter" and _form_accepts(sections, selections):
@@ -277,11 +277,14 @@ def _with_prefix(prefix: str, text: str) -> list[str]:
 #### Terminal I/O ####
 
 
-def _draw(lines: list[str], prev_line_count: int) -> int:
+def draw_frame(lines: list[str], prev_line_count: int) -> int:
     """Render ``lines`` in place, overwriting ``prev_line_count`` prior rows.
 
     Returns the number of lines drawn so the next call knows how far up to
-    move the cursor before redrawing.
+    move the cursor before redrawing. Public so ``wingspan.aid.widgets``'
+    tty shells can reuse this same in-place redraw for the typeahead/counts
+    widgets, sharing one frame-drawing implementation with this module's
+    ``select_form``.
     """
     chunks: list[str] = []
     if prev_line_count:

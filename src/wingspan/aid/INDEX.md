@@ -20,14 +20,49 @@ bonus pair, four round goals, tray, feeder, start seat), `OpponentPlayNote` /
 advisor's combined setup-keep recommendation under a split-setup regime —
 kept cards, resolved bonus card, kept food pool; `format_line()` renders
 `model recommends: keep [...] + bonus [...] + foods [...]`, produced by
-`preview.py`), `SessionReport` (stage 4's end-of-session summary).
+`preview.py`), `SessionReport` (stage 4's end-of-session summary),
+`TypeaheadOutcome` / `TypeaheadState` / `CountsState` (the `widgets.py`
+input-widget editable state: what a typeahead keystroke resolved to, the
+typeahead query + highlighted match index, and the counts widget's per-field
+values + focused index).
 
 **`console.py`** — `Console`: the injectable `read`/`write` pair every aid
 prompt flows through (`say`/`ask`/`menu`/`confirm`), so a full session can
-run headlessly in tests. `LogEcho`: mirrors new `GameState.log` lines
-(ANSI-stripped via `agents.display.strip_ansi`) to the console as session
-narration; `game_state` is attached after `oracle_state.build_state`
-constructs the state, and `flush()` is a no-op before that.
+run headlessly in tests. `supports_interactive()` reports whether both
+`read`/`write` are the builtin defaults AND stdin/stdout are real ttys —
+`widgets.py`'s tty shells check this before taking over stdio; a scripted
+test console (injected `read`/`write`) always reports `False`. `LogEcho`:
+mirrors new `GameState.log` lines (ANSI-stripped via `agents.display.strip_ansi`)
+to the console as session narration; `game_state` is attached after
+`oracle_state.build_state` constructs the state, and `flush()` is a no-op
+before that.
+
+**`widgets.py`** — Interactive input widgets (typeahead card lookup, numeric
+per-field counts entry), layered for headless testability. Pure
+reducers/renderers: `step_typeahead(state, n_matches, event, *, allow_blank)`
+and `step_counts(state, target_total, event, *, field_caps)` apply one
+decoded `training.configure.keys.KeyEvent` to a `models.TypeaheadState` /
+`models.CountsState` and return the next state (never mutating the input)
+plus a `models.TypeaheadOutcome` / an `accepted` bool; `render_typeahead_frame`
+/ `render_counts_frame` render a state to plain-ASCII frame lines (no ANSI —
+the in-place redraw is what matters). `MAX_VISIBLE_MATCHES` caps how many
+typeahead matches a frame shows before truncating. Drivers:
+`run_typeahead(events, prompt, find, render, draw, *, allow_blank, initial)`
+and `run_counts(events, prompt, labels, target_total, draw, *, field_caps)`
+thread an injectable `keys.KeyEvent` iterator and a `DrawFn` (the
+`agents.interactive.draw_frame` contract) through the reducers to completion,
+so a full widget session is scriptable and assertable headlessly; both raise
+`RuntimeError` if `events` is exhausted without a selection. Tty shells
+`typeahead_pick(con, prompt, find, render, *, allow_blank, initial)` and
+`counts_entry(con, prompt, labels, target_total, *, field_caps)` are thin
+wrappers opening a real `keys.KeyReader` and feeding an endless poll loop
+into the drivers, echoing the result through `con.say`; callers branch on
+`console.Console.supports_interactive()` before reaching these, so a
+scripted test console never does. `typeahead_pick` is wired into `entry.py`'s
+identify/setup-entry dialogs and `oracle.py`'s reveal prompts as of stage A2;
+`counts_entry` is wired into the feeder/dice-roll entry points (`entry.py`'s
+`_collect_feeder`, `oracle.py`'s `feeder_roll`/`dice_roll`) and `relay.py`'s
+opponent distinct-foods prompt as of stage A3.
 
 **`placeholders.py`** — `PlaceholderRegistry`: mints identity-distinct
 `model_copy(deep=True)` clones of one fixed catalog bird/bonus card
@@ -43,12 +78,26 @@ player's `bonus_cards` list (used by `hooks.AidHandler.round_end`).
 hidden/random outcome. Setup deals are pre-queued (`queue_bird_reveals` /
 `queue_bonus_reveals` / `queue_feeder_roll`) and drained silently in FIFO
 order (`None` entries mint placeholders, no prompt); anything unqueued
-prompts interactively through `console.py`, resolving free-text answers via
-`wingspan.cards.lookup` with menu-based disambiguation on multiple
-candidates and a retry loop on no match. `feeder_roll` / `dice_roll` share a
-space-separated die-face grammar, `parse_die_faces` (public — also reused by
-`entry.run_setup_entry` for the initial feeder-roll entry): each token is a
-food name/alias or the literal `"choice"`.
+flushes the log, then `reveal_bird`/`reveal_bonus` branch once on
+`console.supports_interactive()` — interactive consoles get a
+`widgets.typeahead_pick` picker (`allow_blank=True`, so a blank Enter ->
+`None` -> mints a placeholder, same as the fallback's blank answer);
+scripted/non-tty consoles keep the original free-text loop, resolving
+answers via `wingspan.cards.lookup` with menu-based disambiguation on
+multiple candidates and a retry loop on no match. `feeder_roll` / `dice_roll`
+branch the same way (stage A3): interactive consoles get a
+`widgets.counts_entry` entry over the five food fields plus a choice-face
+field (`_die_face_labels()`), split back into a `models.FeederEntry`/
+`state.FoodPool` at the `cards.N_FOODS` boundary; scripted/non-tty consoles
+keep the space-separated die-face grammar, `parse_die_faces` (public — also
+reused by `entry.run_setup_entry` for the initial feeder-roll entry): each
+token is a food name/alias or the literal `CHOICE_FACE_TOKEN` (`"choice"`,
+public as of stage A3). On a parse failure the fallback's retry message
+names any unrecognized token(s) via `invalid_die_face_tokens` (public), else
+restates the count/grammar requirement unchanged — `die_face_retry_message`
+(public) builds this message and is shared by every die-face text-mode
+fallback (`feeder_roll`, `dice_roll`, `entry._collect_feeder`) so the
+wording stays consistent.
 
 **`oracle_state.py`** — `OracleBirdfeeder` / `OracleGameState`: pydantic
 subclasses of `state.Birdfeeder` / `state.GameState` that route every
@@ -60,16 +109,35 @@ truthful for the encoder, which only reads lengths). `build_state` mirrors
 facts; see its docstring for the numbered construction sequence.
 
 **`entry.py`** — Shared "must-identify" dialogs (no face-down escape, unlike
-`SessionOracle`'s reveal prompts): `identify_bird` / `identify_bonus` loop
-via `wingspan.cards.lookup.find_birds`/`find_bonus_cards` until a query
-resolves, opening a disambiguation menu on multiple matches; `pick_habitat`
+`SessionOracle`'s reveal prompts): `identify_bird` / `identify_bonus` take a
+keyword-only `exclude` collection and branch once on
+`con.supports_interactive()` — interactive consoles get a
+`widgets.typeahead_pick` picker whose `find` is narrowed to drop `exclude`
+(an interactive-only dedup aid for already-picked cards, with no effect in
+text mode); scripted/non-tty consoles fall back to the original loop via
+`wingspan.cards.lookup.find_birds`/`find_bonus_cards` until a query
+resolves, opening a disambiguation menu on multiple matches. `pick_habitat`
 menus over `bird.habitats` (auto-resolves when only one is legal).
-`run_setup_entry` is the pre-game dialog: start seat, then the 5 dealt birds
-(one comma-separated line via `lookup.parse_bird_list`, each unresolved
-token re-asked individually), the 2 dealt bonus cards, the 4 round goals
-(via `lookup.find_goals`), the 3 tray cards left-to-right, and the initial
-feeder roll (via `oracle.parse_die_faces`) — each block loops on a
-"Correct?" confirm-echo before the next one starts.
+`run_setup_entry` is the pre-game dialog: start seat, then the 5 dealt
+birds, the 2 dealt bonus cards, the 4 round goals, the 3 tray cards
+left-to-right (passed the already-entered hand so its exclusion set folds
+hand cards in), and the initial feeder roll — each block loops on a
+"Correct?" confirm-echo before the next one starts. The per-block collectors
+(`_collect_hand` / `_collect_bonus_pair` / `_collect_goals` / `_collect_tray`)
+each branch internally on the same interactive check: interactive consoles
+drive one typeahead pick per slot with a running `exclude` set built up as
+picks are made (goals go straight through `widgets.typeahead_pick`, since
+goals have no `identify_*` helper — `find`/`render`/`initial` built from
+`wingspan.cards.lookup.find_goals`, `goal.description`, and
+`cards.load_all()`'s goal list respectively); scripted consoles keep the
+pre-A2 comma-separated-line / free-text loops verbatim. `_collect_feeder`
+(stage A3) branches the same way: interactive consoles get a
+`widgets.counts_entry` entry over the five food fields plus a choice-face
+field (labels built from `cards.ALL_FOODS` + the promoted
+`oracle.CHOICE_FACE_TOKEN`), split into a `models.FeederEntry` at the
+`cards.N_FOODS` boundary; scripted consoles keep the
+`oracle.parse_die_faces` text grammar, with `oracle.die_face_retry_message`
+naming any unrecognized token in the retry message.
 
 **`preview.py`** — `preview_setup(engine, inner, probe, decision, preferred)
 -> models.SetupPreview`: replays a preferred `SetupChoice` through the real
@@ -112,7 +180,14 @@ plus which foods when the regime's `SetupChoice` carries a food axis) and
 returns the first offered choice matching both, leaving any axis the regime
 omits (food, and always bonus — the opponent's kept bonus is never visible)
 unconstrained; otherwise falls back to a plain "what did they do?" menu,
-rendering any placeholder-bird choice as `(face-down card)`.
+rendering any placeholder-bird choice as `(face-down card)`. The food axis
+is entered via `_ask_distinct_foods`, which branches on
+`con.supports_interactive()` (stage A3): interactive consoles get a
+`widgets.counts_entry` entry over the five food fields, each capped at 1
+(`field_caps=[1] * len(cards.ALL_FOODS)`, distinctness by construction) —
+the foods with a nonzero value are returned; scripted consoles keep the
+comma-separated free-text loop, re-asking until exactly the requested count
+of distinct, resolvable foods is entered.
 
 **`hooks.py`** — `AidHandler` (a `pydantic` `events.CallbackHandler` mixing
 in `GameStart`/`GameEnd`/`RoundStart`/`RoundEnd`/`TurnStart`/`TurnEnd`

@@ -6,12 +6,15 @@ mirrors the engine's own game log to the console as narration -- the log
 already reads like a play-by-play, including the "skipping decision, only 1
 choice" lines the engine writes when ``Engine.ask`` short-circuits a forced
 move, so echoing it is the whole narration layer; nothing is re-derived from
-the Decision stream.
+the Decision stream. When :meth:`Console.supports_interactive` is true,
+widget helpers (see ``wingspan.aid.widgets``) may write ANSI frames directly
+to stdout instead of routing through :meth:`Console.say`.
 """
 
 from __future__ import annotations
 
 import collections.abc
+import sys
 
 from wingspan import state
 from wingspan.agents import display
@@ -34,8 +37,21 @@ class Console:
         read: collections.abc.Callable[[], str] | None = None,
         write: collections.abc.Callable[[str], None] | None = None,
     ) -> None:
+        self._interactive = (
+            read is None
+            and write is None
+            and sys.stdin.isatty()
+            and sys.stdout.isatty()
+        )
         self._read = read if read is not None else input
         self._write = write if write is not None else print
+
+    def supports_interactive(self) -> bool:
+        """Whether single-keystroke widgets may take over real stdio: both
+        read and write are the builtin defaults AND stdin/stdout are real
+        ttys. Scripted test consoles (injected read/write) always report
+        False."""
+        return self._interactive
 
     def say(self, text: str) -> None:
         """Write one line of narration/output."""

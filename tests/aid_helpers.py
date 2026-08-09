@@ -10,6 +10,15 @@ session test: rather than a fixed answer queue (which assumes a known dialog
 sequence), it answers every read by pattern-matching the most recently
 written line(s) against a table of substring rules, so it survives whatever
 decision sequence an arbitrary full game produces.
+
+``InteractiveConsole``/``interactive_console`` are the interactive-path
+analogue of ``scripted_console``: a ``Console`` subclass that always reports
+``supports_interactive() -> True`` (standing in for a real tty without
+touching stdin/stdout), for tests that fake out a widget's tty shell
+(``widgets.typeahead_pick`` / ``widgets.counts_entry``) and still need the
+surrounding confirm-echo ("Correct?") prompts, which flow through
+``Console.ask``/``confirm`` regardless of which path the card/count picks
+themselves take.
 """
 
 from __future__ import annotations
@@ -39,6 +48,34 @@ def scripted_console(answers: list[str]) -> tuple[console.Console, list[str]]:
         transcript.append(text)
 
     return console.Console(read=read, write=write), transcript
+
+
+class InteractiveConsole(console.Console):
+    """A ``Console`` that always reports interactive support, standing in for
+    a real tty in tests without touching stdin/stdout."""
+
+    def supports_interactive(self) -> bool:
+        """Always ``True`` -- the interactive-path stand-in."""
+        return True
+
+
+def interactive_console(answers: list[str]) -> tuple[InteractiveConsole, list[str]]:
+    """An ``InteractiveConsole`` whose ``read`` pops pre-scripted answers in
+    order and whose ``write`` records every printed line -- the interactive
+    analogue of :func:`scripted_console`, needed because prompts that still
+    flow through ``Console.ask``/``confirm`` (e.g. the "Correct?" confirm-echo)
+    need scripted answers even once the picks themselves route through a
+    faked widget."""
+    queue = collections.deque(answers)
+    transcript: list[str] = []
+
+    def read() -> str:
+        return queue.popleft()
+
+    def write(text: str) -> None:
+        transcript.append(text)
+
+    return InteractiveConsole(read=read, write=write), transcript
 
 
 def responder_console(
