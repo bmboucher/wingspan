@@ -1,7 +1,7 @@
 # pyright: reportPrivateUsage=false
 # (reads the private layout offsets to isolate the old goal_delta stripe,
 # matching the test_encode.py convention)
-"""Tests for the v1.6 ``goal_delta_ignoring_eggs`` choice stripe.
+"""Tests for the v1.5 ``goal_delta_ignoring_eggs`` choice stripe.
 
 Unlike the play-instant ``goal_delta`` stripe (zero for every egg-driven
 category on a freshly played bird), ``goal_delta_ignoring_eggs`` prices the

@@ -1,4 +1,4 @@
-"""Tests for the per-opponent known-hand state stripes (v1.8).
+"""Tests for the per-opponent known-hand state stripes (v1.5).
 
 Covers ``state.Player.known_hand`` (maintained by ``engine.ledger``, Stage 1)
 and the ``known_hand_opp{k}`` identity multi-hot stripes populated by

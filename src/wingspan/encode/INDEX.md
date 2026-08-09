@@ -48,14 +48,14 @@ stripe offsets. Key exports:
 - `N_HAND_PLAYABLE_MULTIHOTS: int = 2` — number of playability-filtered hand
   multi-hots added in v0.6 (`hand_playable_me`, `hand_playable_eggs_me`). See
   `n_extra_hand_multihots(spec)` for the full extra-block count including the
-  v1.8 known-hand stripes.
+  v1.5 known-hand stripes.
 - `n_extra_hand_multihots(spec) -> int` — count of 180-wide card-set multi-hots
   after `hand_multihot`: `N_HAND_PLAYABLE_MULTIHOTS` (2) plus one
   `known_hand_opp{k}` stripe per opponent (`spec.num_players - 1`). The value
   every live caller (`runmeta`, `arch_diagram`, `svg`) passes as
   `trunk_input_dim`'s / `state_embed_rules`'s `n_playable_multihots`.
 - `STATE_KNOWN_HAND_OPP_OFFSET`, `STATE_KNOWN_HAND_OPP_DIM` — offset (1109 at
-  N=2) and width (180, `HAND_MULTIHOT_DIM`) of the nearest opponent's v1.8
+  N=2) and width (180, `HAND_MULTIHOT_DIM`) of the nearest opponent's v1.5
   `known_hand_opp` stripe — see the dedicated paragraph below.
 - `CHOICE_BECOMES_PLAYABLE_OFFSET`, `CHOICE_BECOMES_PLAYABLE_DIM` — offset and
   width of the v0.6 `becomes_playable` stripe in each choice row.
@@ -77,12 +77,12 @@ stripe offsets. Key exports:
   Appended at the tail of the multi-hot region (after `hand_playable_eggs_me`,
   before `decision_type`) so the model's generic 180-wide-block extraction
   (`model.core._extract_hand_blocks`) picks them up with no model-side changes;
-  pre-1.8 artifacts lack it (compat shim: Stage 3 / `wingspan.compat.v1_7`).
+  pre-1.5 artifacts lack it (compat shim: Stage 3 / `wingspan.compat.v1_4`).
 - `CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET`, `CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM` —
-  offset and width (8: 4 round goals × count/vp) of the v1.6 `goal_delta_ignoring_eggs`
+  offset and width (8: 4 round goals × count/vp) of the v1.5 `goal_delta_ignoring_eggs`
   stripe — the last *base* stripe (after `resets_feeder`), pricing each round goal
   under the hypothesis that the row's bird is eventually played and egg-populated
-  optimally. Pre-1.6 artifacts lack it; see `wingspan.compat.v1_5`.
+  optimally. Pre-1.5 artifacts lack it; see `wingspan.compat.v1_4`.
 - `SLOTS_PER_BOARD` (15), `SLOT_SCALAR_DIM` (9), `BOARD_CONT_STRIPE_DIM` (135),
   `OFF_BOARD_ME`/`OFF_BOARD_OPP` — live-encoding-only aliases consumed by the
   board self-attention path (`model.core`); a future FRESH shift must freeze
@@ -102,14 +102,14 @@ stripe offsets. Key exports:
 
 **`state_encode.py`** — `encode_state(gs: GameState, decision, spec) -> np.ndarray` and
 `state_size(spec) -> int`. Encodes the full perceived game state into a 1-D
-float vector (1309 dims at N=2 as of v1.8; 1659 at N=3, 2007 at N=4 — see
-`docs/VERSIONING.md`'s `num_players` entry; was 1129 in v1.4–v1.7, 1119 in
+float vector (1309 dims at N=2 as of v1.5; 1659 at N=3, 2007 at N=4 — see
+`docs/VERSIONING.md`'s `num_players` entry; was 1129 in v1.4, 1119 in
 v0.9–v1.3, 1155 in v0.6–v0.8): per-habitat board slots, tray, per-type cached food, the two v1.4
 food-unlock stripes (`hand_food_unlock_me`, `tray_food_unlock_me` — see
 `engine.playability.min_food_to_unlock`), birdfeeder, round goals (scored rounds
 zeroed), player hand + two playability multi-hots (`hand_playable_me`,
 `hand_playable_eggs_me`) via the hand encoder, one `known_hand_opp{k}` identity
-multi-hot per opponent (v1.8; `_known_hand_opp`, reads `Player.known_hand`
+multi-hot per opponent (v1.5; `_known_hand_opp`, reads `Player.known_hand`
 directly with no intersection against `hand`), one-hot round number, one-hot
 action cube counts, decision-type one-hot. The `hand_summary_me` stripe (10 dims) was removed in v0.9 — derived in-model
 via `set_summary_from_multihot`; `board_summary_me/opp` compacted from 18→6 dims (only
@@ -150,13 +150,13 @@ optimistic any-card-habitat bound. `refill_goal_delta_habitat_agnostic(feat,
 player_id, bird, gs)` is the public compat seam `wingspan.compat.v1_4` uses to
 re-fill a play-bird row with the pre-1.5 agnostic pricing.
 `_fill_bonus_value`'s `hand_potential` / `tray_potential` are optimistic
-(v1.7: `scoring.bonus_potential_count` — egg-counting bonus cards count egg
+(v1.5: `scoring.bonus_potential_count` — egg-counting bonus cards count egg
 capacity reaching the threshold; the hand-counting card counts the whole
 hand-like source only). `refill_bonus_value_potentials_static(feat,
 bonus_card, hand_source, tray)` is the matching compat seam
-`wingspan.compat.v1_6` uses to re-fill the two potential scalars of a
-bonus-carrying row with the pre-1.7 static-tag pricing.
-`_fill_goal_delta_ignoring_eggs` (v1.6) fills the sibling `goal_delta_ignoring_eggs`
+`wingspan.compat.v1_4` uses to re-fill the two potential scalars of a
+bonus-carrying row with the pre-1.5 static-tag pricing.
+`_fill_goal_delta_ignoring_eggs` (v1.5) fills the sibling `goal_delta_ignoring_eggs`
 stripe at the same three bird-card row sites as `_fill_goal_delta`
 (`_featurize_bird`, `_featurize_play_bird`, `_featurize_draw_source`): per round
 goal, the delta under the hypothesis that the row's bird is eventually played

@@ -93,7 +93,7 @@ When a `BonusCardChoice` row is presented (choosing which card to keep), a separ
 | `_BONUS_VALUE_HAND` | Hand birds that could come to qualify if played (÷ 5) |
 | `_BONUS_VALUE_TRAY` | Tray birds that could come to qualify if played (÷ 5) |
 
-The two potential scalars are **optimistic** (v1.7, `scoring.bonus_potential_count`): a
+The two potential scalars are **optimistic** (v1.5, `scoring.bonus_potential_count`): a
 static card counts its printed tag, the egg-counting cards (Breeding Manager, Oologist)
 count birds whose `egg_limit` reaches the card's threshold, and the hand-counting card
 (Visionary Leader) counts the whole hand source — hand only; its tray potential stays 0.
@@ -322,7 +322,7 @@ can reach 4 eggs. Cavity birds (egg_limit 4–5) are the most natural targets.
 
 **Model visibility**: Breeding Manager holds `held/count/stepped/linear` bonus progress stripes
 in the state vector, and egg-lay `BirdTargetChoice` rows include the bonus delta contribution
-from crossing the 4-egg threshold. Since v1.7 the bonus-pick potentials are optimistic:
+from crossing the 4-egg threshold. Since v1.5 the bonus-pick potentials are optimistic:
 `hand_potential`/`tray_potential` on its `BonusCardChoice`/`SetupChoice` rows, and the setup
 `kept_bonus_value`/`bonus_card_affinity` stripes, count birds with `egg_limit >= 4`
 (`scoring.bonus_potential_count`) instead of reading 0.
@@ -365,7 +365,7 @@ removing the last egg subtracts 1. Once a bird has its first egg, additional egg
 the count.
 
 **Model visibility**: The bonus progress stripes carry the live count. Egg-lay target choice
-rows encode the delta for crossing the 1-egg threshold on each candidate slot. Since v1.7 the
+rows encode the delta for crossing the 1-egg threshold on each candidate slot. Since v1.5 the
 bonus-pick potentials count birds with `egg_limit >= 1` (nearly the whole catalog — Oologist's
 potential is close to the source size, which is itself the signal that almost any keep can
 feed it).
@@ -490,7 +490,7 @@ habitat matches the goal. Pre-1.5 rows priced the bird's *card* habitats, so a d
 bird claimed the goal on both of its rows (frozen for old artifacts by `compat.v1_4`).
 Candidate rows with no committed placement (hand keeps, tray draws, setup) price the
 optimistic any-card-habitat bound (`play_habitat=None`). This category is not egg-driven, so
-the v1.6 `goal_delta_ignoring_eggs` choice stripe (`goal_count_delta_for_bird_with_eggs`) falls
+the v1.5 `goal_delta_ignoring_eggs` choice stripe (`goal_count_delta_for_bird_with_eggs`) falls
 through to the same computation and carries an identical value.
 
 **Encoder category list index**: 0 (`birds_forest`), 1 (`birds_grassland`), 2 (`birds_wetland`).
@@ -518,7 +518,7 @@ goal requires both (a) having birds in that row and (b) having egg capacity on t
 **Delta computation**: `goal_count_delta_for_egg` returns `delta_eggs` when the egg event is
 in the matching habitat; 0 otherwise. Bird moves (`goal_count_delta_for_move`) can transfer
 the egg block between habitats. This is one of the 12 egg-driven categories that reads 0 on the
-play-instant `goal_delta` choice stripe for a not-yet-played bird; the v1.6
+play-instant `goal_delta` choice stripe for a not-yet-played bird; the v1.5
 `goal_delta_ignoring_eggs` stripe instead prices such a row via
 `goal_count_delta_for_bird_with_eggs` — `bird.egg_limit` when the row's (or, uncommitted, any
 reachable) habitat matches the goal. The setup `goal_affinity` stripe prices kept birds the
@@ -546,7 +546,7 @@ target nest, and (b) laying eggs on them. The nest-type bonus cards (Enclosure B
 Box Builder, Platform Builder, Wildlife Gardener) align naturally with the matching nest goal.
 
 **Delta computation**: `goal_count_delta_for_egg` checks `cards.nest_matches(played_bird.bird.nest,
-goal_nest)` — star nests pass every nest check. Another of the 12 egg-driven categories: the v1.6
+goal_nest)` — star nests pass every nest check. Another of the 12 egg-driven categories: the v1.5
 `goal_delta_ignoring_eggs` choice stripe prices a not-yet-played bird via
 `goal_count_delta_for_bird_with_eggs` — `bird.egg_limit` when `cards.nest_matches(bird.nest,
 goal_nest)`, star nests wild — instead of the play-instant 0. The setup `goal_affinity` stripe
@@ -576,7 +576,7 @@ bird that transitions from eggless to egg-carrying.
 
 **Delta computation**: `goal_count_delta_for_egg` tracks the has-eggs threshold crossing:
 `int(has_eggs_after) - int(had_eggs)`. Returns +1 on first egg, 0 for subsequent eggs, -1
-when the last egg is removed. Also egg-driven: the v1.6 `goal_delta_ignoring_eggs` choice
+when the last egg is removed. Also egg-driven: the v1.5 `goal_delta_ignoring_eggs` choice
 stripe prices a not-yet-played bird via `goal_count_delta_for_bird_with_eggs` — 1 when the
 bird's nest matches (star nests wild) and `bird.egg_limit > 0`, instead of the play-instant 0.
 The setup `goal_affinity` stripe prices kept birds the same way (`goal_affinity_for_kept`).
@@ -596,7 +596,7 @@ The setup `goal_affinity` stripe prices kept birds the same way (`goal_affinity_
 advances it, so advantage is earned by playing faster or more birds than the opponent.
 
 **Delta computation**: `goal_count_delta_for_bird` always returns 1. Not egg-driven, so the
-v1.6 `goal_delta_ignoring_eggs` choice stripe (`goal_count_delta_for_bird_with_eggs`) falls
+v1.5 `goal_delta_ignoring_eggs` choice stripe (`goal_count_delta_for_bird_with_eggs`) falls
 through to the same computation and also always returns 1.
 
 **Encoder category list index**: 17.
@@ -618,7 +618,7 @@ creates capacity; the Lay Eggs action delivers eggs toward the floor habitat.
 each egg event. Bird moves can shift the egg block between habitats and recalculate the minimum.
 The best-case bound for an egg-lay commitment (`goal_best_case_for_eggs`) uses greedy water-fill:
 each egg goes to the lowest habitat with remaining capacity. Egg-driven and structurally the
-odd one out among the v1.6 additions: the `goal_delta_ignoring_eggs` choice stripe's
+odd one out among the v1.5 additions: the `goal_delta_ignoring_eggs` choice stripe's
 `goal_count_delta_for_bird_with_eggs` branch (`_egg_sets_delta_with_bird`) adds the candidate
 bird's `egg_limit` to its committed (or, uncommitted, the best reachable) habitat and re-takes
 the min, rather than pricing per-nest capacity directly. The setup `goal_affinity` stripe cannot

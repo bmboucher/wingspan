@@ -386,9 +386,9 @@ def test_compat_era_refuses_num_players_3():
     with pytest.raises(version.IncompatibleArtifactError):
         compat.encoding_dims_for_era("1.3", encode.EncodingSpec(num_players=3))
     # num_players=2 at the same era is unaffected (existing 2P resume path).
-    # Era 1.3 predates the v1.4 food-unlock state stripes (10), the v1.8
+    # Era 1.3 predates the v1.4 food-unlock state stripes (10), the v1.5
     # known_hand_opp state stripe (180), the v1.4 resets_feeder choice stripe,
-    # and the v1.6 goal_delta_ignoring_eggs choice stripe, so both the state
+    # and the v1.5 goal_delta_ignoring_eggs choice stripe, so both the state
     # and choice narrowings compose.
     dims = compat.encoding_dims_for_era("1.3", encode.EncodingSpec(num_players=2))
     assert dims == (

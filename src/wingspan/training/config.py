@@ -815,7 +815,7 @@ class RunConfig(pydantic.BaseModel):
         """The setup-net weight-compatibility signature a ``setup.pt`` must match
         to be resumed. Leads with ``encoding_version`` — mirroring
         :attr:`architecture_key`, which leads with the era for the same reason —
-        so a same-shape setup net at a different era (e.g. the v1.6
+        so a same-shape setup net at a different era (e.g. the v1.5
         ``goal_affinity`` pricing change) still reads as incompatible rather than
         a silent shape coincidence."""
         arch = self.arch

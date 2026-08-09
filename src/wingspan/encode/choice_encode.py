@@ -195,15 +195,15 @@ def refill_bonus_value_potentials_static(
     hand_source: typing.Iterable[cards.Bird],
     tray: typing.Sequence[cards.Bird | None],
 ) -> None:
-    """Compat seam for eras <= 1.6 (``wingspan.compat.v1_6``): overwrite the
+    """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): overwrite the
     ``bonus_value`` stripe's hand/tray potential scalars of one already-encoded
     choice row with the static (egg-blind) pricing those eras were trained
     against.
 
-    Since v1.7 the live fill prices potential via
+    Since v1.5 the live fill prices potential via
     :func:`wingspan.engine.scoring.bonus_potential_count` — nonzero for the
     egg-counting dynamic cards (egg capacity reaching the card's threshold).
-    Pre-1.7 rows priced only the static ``bonus_categories`` tag, which no egg
+    Pre-1.5 rows priced only the static ``bonus_categories`` tag, which no egg
     card carries (the hand-counting card's full-source count is unchanged
     across eras and is regenerated identically here). Only the two potential
     scalars are rewritten in place — the board trio (qual/stepped/linear)
@@ -223,7 +223,7 @@ def refill_bonus_value_potentials_static(
 
 
 def refill_spend_food_gain_routing(feat: np.ndarray, food: cards.Food) -> None:
-    """Compat seam for eras <= 1.6 (``wingspan.compat.v1_6``): re-route one
+    """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): re-route one
     already-encoded spend-decision ``FoodChoice`` row back to the
     ``gain_food`` stripe those eras were trained against (one-hot 1.0;
     ``pay_food`` zeroed)."""
@@ -1105,9 +1105,9 @@ def _fill_goal_delta_ignoring_eggs(
 
     A separate function from :func:`_fill_goal_delta`, not a shared branch:
     the v1_4 compat shim's ``refill_goal_delta_habitat_agnostic`` re-fills the
-    ``goal_delta`` stripe on rows whose tail 8 columns (this stripe) the v1_5
-    shim has already stripped, so ``_fill_goal_delta`` must stay untouched by
-    this stripe's logic."""
+    ``goal_delta`` stripe on rows whose tail 8 columns (this stripe) the same
+    v1_4 shim has already stripped, so ``_fill_goal_delta`` must stay
+    untouched by this stripe's logic."""
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     player = game_state.players[player_id]

@@ -45,15 +45,15 @@ per opponent either way. Stripe SIZES are identical in both modes — sharing
 changes which module computes the block, not its width. `card_idx_board` is
 folded into them (`new_size=0`). `num_players` also sizes `card_idx_board`'s
 board portion (`n_board = num_players * SLOTS_PER_BOARD`) on the non-attention
-path. `known_hand_opp{k}` (v1.8, one per opponent) is pooled through the
+path. `known_hand_opp{k}` (v1.5, one per opponent) is pooled through the
 shared card embedder like `hand_playable_me`/`hand_playable_eggs_me`, and
 gated the same threshold way: the k-th opponent's stripe is the
 `(N_HAND_PLAYABLE_MULTIHOTS + k)`-th extra 180-wide block in raw stripe
 order, so it embeds once `n_playable_multihots` reaches that count — a
 caller passing fewer (e.g. `state.state_stripe_layout`'s bare default of 0, or
-`N_HAND_PLAYABLE_MULTIHOTS` for v0.6-1.7 semantics) leaves it as a raw
+`N_HAND_PLAYABLE_MULTIHOTS` for v0.6-1.4 semantics) leaves it as a raw
 180-wide pass-through column instead. `layout.n_extra_hand_multihots` is the
-live (v1.8+) total that embeds every block.
+live (v1.5+) total that embeds every block.
 
 **`state.py`** — `state_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder that assembles all state stripes in canonical order (board slots by
@@ -67,7 +67,7 @@ after its singular sibling via the `_opponent_description` /
 `layout._opponent_suffix` helpers; `round_goals`' sub-fields
 (`_round_goals_sub_fields(spec)`) report a `other_counts` vector sub-field
 (width N−1) instead of the singular `opp_count` scalar at N>=3. One
-`known_hand_opp{k}` descriptor per opponent (v1.8; publicly-known hand
+`known_hand_opp{k}` descriptor per opponent (v1.5; publicly-known hand
 subset, `state.Player.known_hand`) is appended after `hand_playable_eggs_me`,
 at every `num_players` (including N=2, where there is exactly one). Also
 `board_token_stripe_layout(card_embed_dim, *, board_attention_positions=False) ->
@@ -80,7 +80,7 @@ trailing `position_habitat` (3) + `position_column` (5) constant block.
 **`choice.py`** — `choice_stripe_layout(spec: EncodingSpec) -> VectorLayout`.
 Builder for the per-choice row stripes (decision-type one-hot, choice-type
 one-hot, per-`Choice` feature fields). Stripe order is part of the checkpoint
-format: `resets_feeder` (v1.4) then `goal_delta_ignoring_eggs` (v1.6, the last
+format: `resets_feeder` (v1.4) then `goal_delta_ignoring_eggs` (v1.5, the last
 base stripe) are appended in that order. `raw_choice_stripe_layout(spec)`
 inserts a `player_select` stripe (width `spec.num_players`) after
 `goal_delta_ignoring_eggs`, before the conditional setup stripes, when

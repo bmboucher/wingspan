@@ -130,7 +130,7 @@ class TestV1_0EncodingCompat:
         CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM columns narrower than the live
         encoder output (v1.0 predates all three stripes: its own
         becomes_unplayable strip plus the resets_feeder / goal_delta_ignoring_eggs
-        strips inherited via v1_3 -> v1_4 -> v1_5)."""
+        strips inherited via v1_3 -> v1_4)."""
         eng, *_ = engine.Engine.create(seed=100)
         arch = self._small_arch()
         shim_net = self._make_net(arch)

@@ -165,13 +165,12 @@ def test_unknown_or_future_eras_are_rejected():
 def test_encoding_dims_for_era_state_narrows_pre_1_4():
     """The v1.4 bump narrows ``state_dim`` by the two food-unlock stripes (10) and
     ``choice_dim`` by the ``resets_feeder`` stripe (1) for every pre-1.4 same-MAJOR
-    era; the v1.6 bump additionally narrows ``choice_dim`` by the
-    ``goal_delta_ignoring_eggs`` stripe (8) for every pre-1.6 same-MAJOR era, so
-    the two choice narrowings compose for eras 1.1-1.3. The v1.8 bump additionally
-    narrows ``state_dim`` by the ``known_hand_opp`` stripe (180) for every pre-1.8
-    same-MAJOR era, so both state narrowings compose for eras 1.1-1.3 too. 0.x eras
-    (untouched by the major-1 router branch) and the live era keep the live widths.
-    A malformed string is rejected."""
+    era; the v1.5 bump additionally narrows ``state_dim`` by the
+    ``known_hand_opp`` stripe (180) and ``choice_dim`` by the
+    ``goal_delta_ignoring_eggs`` stripe (8) for every pre-1.5 same-MAJOR era, so
+    both narrowings compose for eras 1.1-1.3. 0.x eras (untouched by the
+    major-1 router branch) and the live era keep the live widths. A malformed
+    string is rejected."""
     spec = encode.spec_for(True)
     live_state = encode.state_size(spec)
     live_choice = encode.choice_feature_dim(spec)
@@ -194,21 +193,22 @@ def test_encoding_dims_for_era_state_narrows_pre_1_4():
     )
 
 
-def test_class_for_version_routes_era_1_7_and_narrows_state_only():
-    """v1.8 introduces the second same-MAJOR state-dim narrowing branch (the
-    first was v1.4's food-unlock stripes): era 1.7 now routes to its own
-    shim (``compat.v1_7.PolicyValueNetV1_7``) and its ``state_dim`` drops by
-    the ``known_hand_opp`` stripe width, while its ``choice_dim`` stays live
-    — v1.7 was choice-behavior-only, so v1.8 adds no choice narrowing."""
-    from wingspan.compat import v1_7
+def test_class_for_version_routes_era_1_4_and_narrows_both():
+    """v1.5 introduces the second same-MAJOR state-dim narrowing branch (the
+    first was v1.4's food-unlock stripes) and narrows choice dims alongside
+    it in the same branch: era 1.4 routes to the merged shim
+    (``compat.v1_4.PolicyValueNetV1_4``) and its ``state_dim`` drops by the
+    ``known_hand_opp`` stripe width while its ``choice_dim`` drops by the
+    ``goal_delta_ignoring_eggs`` stripe width."""
+    from wingspan.compat import v1_4
 
-    assert model.PolicyValueNet.class_for_version("1.7") is v1_7.PolicyValueNetV1_7
+    assert model.PolicyValueNet.class_for_version("1.4") is v1_4.PolicyValueNetV1_4
     spec = encode.spec_for(True)
     live_state = encode.state_size(spec)
     live_choice = encode.choice_feature_dim(spec)
-    state_dim, choice_dim = compat.encoding_dims_for_era("1.7", spec)
+    state_dim, choice_dim = compat.encoding_dims_for_era("1.4", spec)
     assert live_state - state_dim == encode.STATE_KNOWN_HAND_OPP_DIM
-    assert choice_dim == live_choice
+    assert live_choice - choice_dim == encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM
 
 
 def test_class_for_version_routes_pre_1_4_to_shims():

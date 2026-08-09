@@ -79,7 +79,7 @@ def build_setup_net(
     synced from the main net and never stepped by this optimizer. Built via
     ``SetupNet.class_for_version(training_loop.config.encoding_version)`` so a
     resumed era-pinned run constructs the matching compat subclass (e.g.
-    ``SetupNetV1_5``) — its geometry is unchanged from the live ``SetupNet``,
+    ``SetupNetV1_4``) — its geometry is unchanged from the live ``SetupNet``,
     so ``sync_setup_embedders`` copies weights without a shape mismatch either
     way, but its ``encode_candidate`` freezes the era's own pricing.
     """
@@ -212,7 +212,7 @@ def setup_architecture_matches(
         # Rehydrated at the payload's own era for uniformity with the main
         # gate. setup_architecture_key leads with encoding_version (mirroring
         # architecture_key), so this also catches a same-shape era mismatch —
-        # e.g. a v1.5 setup.pt resuming under live code, where the shape is
+        # e.g. a v1.4 setup.pt resuming under live code, where the shape is
         # unchanged but encode_candidate's goal_affinity pricing is not.
         saved = training_config.run_config_from_artifact(raw_config, artifact_version)
     except pydantic.ValidationError:

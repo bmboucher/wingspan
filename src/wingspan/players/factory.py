@@ -368,7 +368,7 @@ def _compute_setup_scores_and_probs(
 
     # Encode each choice through the net's own encode_candidate seam (not the
     # free function paired with net_instance.encoding by hand), so a
-    # compat-era net (e.g. SetupNetV1_5) carries its own frozen pricing —
+    # compat-era net (e.g. SetupNetV1_4) carries its own frozen pricing —
     # the "encode through the net" rule (docs/VERSIONING.md).
     vecs = np.stack(
         [

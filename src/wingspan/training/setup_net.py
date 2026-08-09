@@ -225,7 +225,7 @@ class SetupNet(nn.Module):
     def from_setup_config(cls, descriptor: "setup_runmeta.SetupConfig") -> "SetupNet":
         """Rebuild a net matching a saved ``setup_config.json`` descriptor — fresh
         weights in the saved shape, ready for ``load_state_dict``. Polymorphic:
-        called on a compat subclass (e.g. ``compat.v1_5.SetupNetV1_5``) via
+        called on a compat subclass (e.g. ``compat.v1_4.SetupNetV1_4``) via
         ``cls``, it builds that subclass rather than the live ``SetupNet``."""
         return cls(
             encoding=descriptor.setup_encoding,
@@ -237,35 +237,29 @@ class SetupNet(nn.Module):
     def class_for_version(cls, artifact_version: str) -> "type[SetupNet]":
         """The setup-net class whose frozen encoding matches ``artifact_version``.
 
-        Mirrors ``model.core.PolicyValueNet.class_for_version``. Eras <= 1.5
-        route to :class:`wingspan.compat.v1_5.SetupNetV1_5`, which overrides
-        only ``encode_candidate`` to restore the pre-1.6 static (egg-blind)
-        ``goal_affinity`` pricing — v1.6 is the first version where a setup
-        artifact's *behavior* would change on rehydration even though its
-        geometry does not — and, via its :class:`wingspan.compat.v1_6.SetupNetV1_6`
-        base, the pre-1.7 static bonus pricing. Era 1.6 routes to
-        ``SetupNetV1_6`` alone (the v1.7 change made the kept-card bonus
-        potentials egg-optimistic; a 1.6 artifact must keep the static
-        counts). Artifacts at or before era 1.3 also differ in
-        *shape* (the setup net's two-tower restructure landed in v1.3) and
-        would fail at ``load_state_dict`` regardless of which class builds
-        them; routing them through the v1.5 shim first is harmless —
-        ``players.loaders.load_setup_net`` already turns that failure into a
-        clear "retrain the setup model" error. v1.7+ same-MAJOR artifacts use
-        the live ``SetupNet``. Used by every construction seam that must
-        honor a setup artifact's era (``docs/VERSIONING.md``'s "encode
-        through the net" rule)."""
+        Mirrors ``model.core.PolicyValueNet.class_for_version``. Eras <= 1.4
+        route to :class:`wingspan.compat.v1_4.SetupNetV1_4`, which overrides
+        only ``encode_candidate`` to restore both pre-1.5 setup pricings: the
+        static (egg-blind) ``goal_affinity`` stripe and the static bonus
+        pricing (split-mode ``bonus_card_affinity`` or folded-mode
+        ``kept_bonus_value``) — the setup-side halves of what were four
+        provisionally-numbered eras (1.5-1.8), collapsed into one class (see
+        ``compat.v1_4``'s module docstring). Artifacts at or before era 1.3
+        also differ in *shape* (the setup net's two-tower restructure landed
+        in v1.3) and would fail at ``load_state_dict`` regardless of which
+        class builds them; routing them through the v1.4 shim first is
+        harmless — ``players.loaders.load_setup_net`` already turns that
+        failure into a clear "retrain the setup model" error. v1.5+
+        same-MAJOR artifacts use the live ``SetupNet``. Used by every
+        construction seam that must honor a setup artifact's era
+        (``docs/VERSIONING.md``'s "encode through the net" rule)."""
         parsed = version.parse_version(artifact_version)
-        if parsed.major == 1 and parsed.minor <= 5:
+        if parsed.major == 1 and parsed.minor <= 4:
             # Local import avoids the compat -> training.setup_net -> compat
             # circular dependency (mirrors model.core.class_for_version).
-            from wingspan.compat import v1_5 as compat_v1_5
+            from wingspan.compat import v1_4 as compat_v1_4
 
-            return compat_v1_5.SetupNetV1_5
-        if parsed.major == 1 and parsed.minor <= 6:
-            from wingspan.compat import v1_6 as compat_v1_6
-
-            return compat_v1_6.SetupNetV1_6
+            return compat_v1_4.SetupNetV1_4
         return SetupNet
 
     def encode_candidate(
@@ -280,7 +274,7 @@ class SetupNet(nn.Module):
         ``SetupNet`` instance in hand must route through here rather than
         pairing the free :func:`wingspan.setup_model.encode_setup_candidate`
         function with a spec by hand, so a compat-era subclass (e.g.
-        ``compat.v1_5.SetupNetV1_5``) can override this method and carry its
+        ``compat.v1_4.SetupNetV1_4``) can override this method and carry its
         own frozen encoding (``docs/VERSIONING.md``'s "encode through the
         net" rule)."""
         return setup_model.encode_setup_candidate(candidate, context, self.encoding)

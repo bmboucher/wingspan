@@ -150,7 +150,7 @@ def setup_stripe_layout(
                     "2 values: min_affinity and max_affinity — for each dealt bonus "
                     "card, count how many kept cards could come to qualify it (same "
                     "logic as kept_bonus_value's qual_count; egg-counting cards "
-                    "count egg capacity reaching the threshold, v1.7), then take "
+                    "count egg capacity reaching the threshold, v1.5), then take "
                     "the min and max of the two counts, normalized ÷ 5."
                 ),
                 sub_fields=_bonus_affinity_sub_fields(),
@@ -238,7 +238,7 @@ def setup_stripe_layout(
                     f"{arch_module._KEPT_BONUS_VALUE_DIM} values: qual_count (kept "
                     "cards that could come to qualify — every kept card for the "
                     "hand-counting dynamic card, egg capacity reaching the "
-                    "threshold for the egg-counting cards (v1.7), ÷5), stepped_vp "
+                    "threshold for the egg-counting cards (v1.5), ÷5), stepped_vp "
                     "/ linear_vp (what the card pays if they all qualify, ÷7), "
                     "tray_potential (tray birds that could still qualify it, ÷5). "
                     "All-zero when no bonus is kept."
@@ -268,9 +268,9 @@ def setup_stripe_layout(
                 "bowl-nest keep prices toward a bowl_birds_with_eggs or "
                 "eggs_bowl goal via its birds' egg_limit, star nests wild via "
                 "cards.nest_matches. Values commonly exceed 1: the ÷5 scale is "
-                "a normalization heuristic, not a hard cap. Pre-1.6 artifacts "
+                "a normalization heuristic, not a hard cap. Pre-1.5 artifacts "
                 "were trained against a narrower egg-blind pricing (0 for every "
-                "egg-driven category); wingspan.compat.v1_5.SetupNetV1_5 "
+                "egg-driven category); wingspan.compat.v1_4.SetupNetV1_4 "
                 "restores it via setup_encode.refill_goal_affinity_static."
             ),
             sub_fields=_goal_affinity_sub_fields(),

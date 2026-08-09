@@ -158,7 +158,7 @@ pushes the `SETUP AC` event, and updates `state.last_setup`. Called from
 re-sync, so the update stays on-policy (`docs/TRAINING.md` §6.5).
 `build_setup_net(loop) -> (SetupNet, Optimizer)` — fresh net + optimizer over
 trainable params only; built via `SetupNet.class_for_version(loop.config.encoding_version)`
-so a resumed era-pinned run constructs the matching compat subclass (v1.6) —
+so a resumed era-pinned run constructs the matching compat subclass (v1.5) —
 its geometry is unchanged from the live `SetupNet`, so `sync_setup_embedders`
 below still copies weights without a shape mismatch, but its `encode_candidate`
 freezes the era's own pricing. `sync_setup_embedders(loop)` — copies the main net's
@@ -225,7 +225,7 @@ alive across iterations to amortize process-spawn cost. `_WorkerArch` carries
 `encoding_version` so workers rebuild the era's net class
 (`PolicyValueNet.class_for_version`) for both their own net and the eval
 opponent; `_worker_init` era-routes the setup net the same way
-(`SetupNet.class_for_version(arch.encoding_version)`, v1.6) when
+(`SetupNet.class_for_version(arch.encoding_version)`, v1.5) when
 `arch.setup_enabled`, so a worker's `encode_candidate` freezes the run's era
 pricing too. Two shutdown paths: `close()` waits for in-flight games (normal end
 of run); `terminate()` kills worker processes immediately and discards the
@@ -327,20 +327,19 @@ is the critic `V(s)` — invariant to the chosen keep — not the post-keep `Q(s
 the **policy head** (`policy_logits`) reads `state_enc ⊕ choice_enc`.
 `_embed_state` / `_embed_choice` are stripe-aware gathers that partition the
 embedded candidate (state stripes vs action stripes).
-`encode_candidate(candidate, context) -> np.ndarray` (v1.6) — the setup-side
+`encode_candidate(candidate, context) -> np.ndarray` (v1.5) — the setup-side
 analogue of `PolicyValueNet.encode_state` / `encode_choices`: the base
 implementation just calls the free `setup_model.encode_setup_candidate` with
 `self.encoding`, but every call site holding a `SetupNet` instance now routes
 through this method instead of pairing the free function with an encoding by
 hand, so a compat-era subclass can override it and carry its own frozen
-pricing. `class_for_version(artifact_version) -> type[SetupNet]` (v1.6) —
-mirrors `PolicyValueNet.class_for_version`; routes eras <= 1.5 to
-`wingspan.compat.v1_5.SetupNetV1_5` (the first `SetupNet` compat shim, which
-overrides only `encode_candidate` to restore the pre-1.6 static egg-blind
-`goal_affinity` pricing — see `docs/VERSIONING.md`) and era 1.6 to
-`wingspan.compat.v1_6.SetupNetV1_6` (the pre-1.7 static bonus pricing, which
-`SetupNetV1_5` inherits). Used by every
-construction seam that must honor a setup artifact's era: `loop_setup.build_setup_net`,
+pricing. `class_for_version(artifact_version) -> type[SetupNet]` (v1.5) —
+mirrors `PolicyValueNet.class_for_version`; routes eras <= 1.4 to
+`wingspan.compat.v1_4.SetupNetV1_4` (the first `SetupNet` compat shim, which
+overrides only `encode_candidate` to restore both the pre-1.5 static egg-blind
+`goal_affinity` pricing and the pre-1.5 static bonus pricing — see
+`docs/VERSIONING.md`). Used by every construction seam that must honor a
+setup artifact's era: `loop_setup.build_setup_net`,
 `mp_collect._worker_init`, `players.loaders.load_setup_net`.
 
 **`setup_learner.py`** — `actor_critic_update(net, optimizer, samples, config,

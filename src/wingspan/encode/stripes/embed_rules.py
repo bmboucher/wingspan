@@ -112,7 +112,7 @@ def state_embed_rules(
 
     ``n_playable_multihots`` is the count of extra 180-wide multi-hot stripes
     that follow ``hand_multihot`` in raw stripe order — the two playability
-    stripes, then one ``known_hand_opp{k}`` stripe per opponent (v1.8+). Each
+    stripes, then one ``known_hand_opp{k}`` stripe per opponent (v1.5+). Each
     embeds through the same shared card embedder at the same output width as
     the hand multi-hot (``hand_width``). The count is a threshold, not a set:
     passing ``N`` embeds the first ``N`` blocks in that fixed order and leaves
@@ -120,8 +120,8 @@ def state_embed_rules(
     like ``state_stripe_layout()``'s bare default (``n_playable_multihots=0``)
     describe a live-spec raw layout at its *un-embedded* width, without any
     stripe needing to be stripped first. Pass ``N_HAND_PLAYABLE_MULTIHOTS`` for
-    v0.6-1.7 semantics (both playability stripes, no known-hand stripes);
-    ``n_extra_hand_multihots(spec)`` for live (v1.8+) artifacts (every block,
+    v0.6-1.4 semantics (both playability stripes, no known-hand stripes);
+    ``n_extra_hand_multihots(spec)`` for live (v1.5+) artifacts (every block,
     known-hand stripes included); 0 for pre-0.6 compat layouts that lack all
     of them.
 
@@ -267,7 +267,7 @@ def state_embed_rules(
                 f"{hand}-wide multi-hot over all core birds."
             ),
         )
-    # known_hand_opp{k} (v1.8+): threshold-gated like the two playable stripes
+    # known_hand_opp{k} (v1.5+): threshold-gated like the two playable stripes
     # above — see the docstring for why the k-th opponent's stripe needs
     # n_playable_multihots >= N_HAND_PLAYABLE_MULTIHOTS + k.
     for k in range(1, num_players):

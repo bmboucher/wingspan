@@ -363,7 +363,7 @@ def raw_choice_stripe_layout(
                 "that count, ÷7), linear_vp (same, piecewise-linear, ÷7), "
                 "hand_potential (hand/kept birds that could come to qualify, ÷5), "
                 "tray_potential (tray birds likewise, ÷5). Potentials are "
-                "optimistic (v1.7): egg-counting cards count egg capacity "
+                "optimistic (v1.5): egg-counting cards count egg capacity "
                 "reaching the threshold. Filled for BonusCardChoice and a "
                 "setup pick's kept bonus; zero otherwise."
             ),
@@ -456,7 +456,7 @@ def raw_choice_stripe_layout(
     )
     end += layout.CHOICE_RESETS_FEEDER_DIM
 
-    # ---- goal_delta_ignoring_eggs (v1.6+: 8-dim, the last base stripe) ----
+    # ---- goal_delta_ignoring_eggs (v1.5+: 8-dim, the last base stripe) ----
     stripes.append(
         descriptors.StripeDescriptor(
             name="goal_delta_ignoring_eggs",

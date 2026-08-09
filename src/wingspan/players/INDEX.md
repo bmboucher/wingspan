@@ -36,9 +36,9 @@ both use the same loading and logging conventions.
 - `load_setup_net(checkpoint_dir, device) -> SetupNet | None` — loads the
   optional separately-trained setup model from a run directory; `None` only
   when the run trained without one (a present-but-broken `setup.pt` raises).
-  Era-routed since v1.6: constructs the artifact's class via
+  Era-routed since v1.5: constructs the artifact's class via
   `setup_net_module.SetupNet.class_for_version`, keyed on the artifact's own
-  version, before `load_state_dict` — so an era <= 1.5 artifact builds the
+  version, before `load_state_dict` — so an era <= 1.4 artifact builds the
   matching compat subclass (its geometry is unchanged from the live
   `SetupNet`; the routing only ever affects `encode_candidate`'s pricing,
   never the state-dict load).
@@ -69,8 +69,8 @@ constructor. AI policy agents record a `PolicyAnnotation` on the `DecisionProbe`
 after every genuine decision (after `chosen_idx` is resolved), enabling the HTML
 viewer's decision-box option bars. `_compute_setup_scores_and_probs` encodes each
 setup candidate through the `SetupNet` instance's own `encode_candidate` method
-(v1.6) rather than pairing the free `setup_model.encode_setup_candidate` function
-with the net's encoding by hand, so a compat-era subclass (e.g. `SetupNetV1_5`)
+(v1.5) rather than pairing the free `setup_model.encode_setup_candidate` function
+with the net's encoding by hand, so a compat-era subclass (e.g. `SetupNetV1_4`)
 carries its own frozen pricing — the "encode through the net" rule
 (`docs/VERSIONING.md`).
 

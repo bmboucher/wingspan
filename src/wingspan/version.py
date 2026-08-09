@@ -33,124 +33,97 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.8"
+MODEL_VERSION = "1.5"
 """The current artifact-compatibility version (the only place it is defined).
 
-1.8 is a **state-dims** MINOR FRESH bump: a per-opponent ``known_hand_opp``
-180-wide identity multi-hot is appended at the tail of the state vector's
-multi-hot region (immediately after ``hand_playable_eggs_me``, before the
-trailing ``decision_type`` one-hot) — one stripe per opponent, so N=2 adds
-exactly one column block. It carries the *public* knowledge of an opponent's
-hand contents the engine now tracks (``state.Player.known_hand``, maintained
-by ``engine.ledger``): a card seen entering an opponent's hand via a tray
-draw or a face-up draft draw stays known until it leaves. Playing a bird is
-a face-up departure that forgets exactly that card; any face-down departure
-(a discard or tuck from hand) wholesale-clears the tracked set, since
-observers can't tell which known card left. State width grows by 180 per opponent (N=2
-base: 1129 -> 1309; ``include_setup``: 1130 -> 1310). Choice dims and the
-setup net are untouched — no shape or value change on either.
+1.5 is a MINOR FRESH bump that lands four changes together — renumbered
+from four provisionally-numbered eras (1.5, 1.6, 1.7, 1.8) that landed on
+main in sequence but never trained a run past 1.4, so they were collapsed
+into one era before any of them trained (the fold-in rule already used for
+the v1.4 two-changes-in-one-era precedent; see ``docs/VERSIONING.md``):
 
-Era ≤1.7 artifacts route to ``wingspan.compat.v1_7`` — ``PolicyValueNetV1_7``
-overrides only the state-side seams (``encode_state``, ``_state_embed_offsets``,
-``_build_trunk``, ``_true_state_dim``, ``raw_state_stripe_layout``): after live
-encoding the ``known_hand_opp`` block is sliced out, and the only offset that
-moves is ``decision_type`` (shifted left by 180) — ``card_index`` and
-``hand_multihot`` precede the new stripe and are unchanged, the opposite shift
-shape from the v1.4 food-unlock strip (``compat.v1_3``), which shifts all
-three because that stripe precedes ``card_index``. No choice-side override,
-and no ``SetupNet`` shim — v1.8 does not touch choice or setup encoding, so a
-1.7-era setup artifact keeps routing exactly as it did before this bump.
-``compat.v1_6.PolicyValueNetV1_6`` now subclasses ``PolicyValueNetV1_7``
-(re-chained from ``core.PolicyValueNet``), so every earlier era strips the
-stripe too, composed with its own choice-side value refills via ``super()``
-chaining — the same shape the v1_3 -> v1_4 chain already uses for the
-food-unlock stripes.
+1. *State* — a per-opponent ``known_hand_opp`` 180-wide identity multi-hot
+   is appended at the tail of the state vector's multi-hot region
+   (immediately after ``hand_playable_eggs_me``, before the trailing
+   ``decision_type`` one-hot) — one stripe per opponent, so N=2 adds exactly
+   one column block. It carries the *public* knowledge of an opponent's
+   hand contents the engine tracks (``state.Player.known_hand``, maintained
+   by ``engine.ledger``): a card seen entering an opponent's hand via a
+   tray draw or a face-up draft draw stays known until it leaves. Playing a
+   bird is a face-up departure that forgets exactly that card; any
+   face-down departure (a discard or tuck from hand) wholesale-clears the
+   tracked set, since observers can't tell which known card left. State
+   width grows by 180 per opponent (N=2 base: 1129 -> 1309; ``include_setup``:
+   1130 -> 1310).
+2. *Choice* — a new 8-dim ``goal_delta_ignoring_eggs`` choice stripe is
+   appended at the tail of the base choice-feature vector (immediately
+   after ``resets_feeder``, the prior last base stripe): per round goal, a
+   ``(count_delta, vp_delta)`` pair pricing the hypothesis that this row's
+   bird is eventually played (a slot must be open in one of its card
+   habitats) and egg-populated to whatever level best advances that goal
+   (``scoring.goal_vp_delta_for_bird_with_eggs``, built on
+   ``scoring.goal_count_delta_for_bird_with_eggs`` /
+   ``scoring.goal_affinity_for_kept``). A bowl-nest bird counts toward both
+   an ``eggs_bowl`` goal (its ``egg_limit``) and a ``bowl_birds_with_eggs``
+   goal (1); star nests are wild (``cards.nest_matches``). The existing
+   ``goal_delta`` stripe keeps its own play-instant semantics untouched —
+   the new stripe is filled by a separate featurizer, at the three call
+   sites that already fill ``goal_delta`` (``BirdChoice``, ``PlayBirdChoice``,
+   the tray ``DrawSourceChoice`` row). Choice width grows by 8 (N=2 base:
+   509 -> 517; include_setup: 693 -> 701; N=3 base: 512 -> 520).
+3. *Values* — the ``PlayBirdChoice`` featurizer's ``goal_delta`` stripe is
+   now **conditioned on the row's landing habitat**: a ``birds_<habitat>``
+   round goal moves only on the row that actually plays the bird into that
+   habitat. The old pricing priced the bird's *card* habitats
+   (``scoring.goal_count_delta_for_bird`` with no ``play_habitat``), so a
+   two-habitat bird advanced a habitat goal on both of its rows — e.g. a
+   Peregrine Falcon's grassland row claimed the "[bird] in [wetland]"
+   goal's count and VP delta. Candidate rows with no committed placement
+   (hand / tray / setup keeps) keep the optimistic any-card-habitat bound.
+   The setup ``goal_affinity`` stripe gains the same egg-driven categories,
+   so a setup keep is priced with the same played-and-egg-populated
+   optimism the choice stripe uses in-game (see ``docs/BONUSES.md`` for the
+   affected goal categories).
+4. *Values* — the bonus *potential* counters become optimistic about the
+   egg-counting dynamic bonus cards: a not-yet-played bird whose
+   ``egg_limit`` reaches a card's threshold (Breeding Manager at 4,
+   Oologist at 1) now counts as potentially qualifying
+   (``scoring.bonus_potential_count``). The old pricing counted only the
+   static ``bonus_categories`` tag, which no dynamic card carries, so the
+   egg cards' potentials read identically 0. Values move on both nets at
+   unchanged dims and offsets: the main net's ``bonus_value`` stripe
+   ``hand_potential`` / ``tray_potential`` scalars (in-game
+   ``BonusCardChoice`` rows and bonus-carrying ``SetupChoice`` rows), and
+   the setup net's split-mode ``bonus_card_affinity`` pair plus
+   folded-mode ``kept_bonus_value`` 4-vector (stepped/linear are priced at
+   the qual count, so they move with it). Board-side counts
+   (``scoring.bonus_qualifying_count``) were always dynamic-aware and are
+   unchanged. Single-token ``FoodChoice`` rows offered by a spend decision
+   (``SpendFoodDecision``'s discard, ``SpendFoodForEggDecision``'s
+   grassland trade) now route to the ``pay_food`` stripe instead of
+   ``gain_food`` (main net only; setup-candidate encoding has no
+   food-direction convention).
 
-1.7 is a **behavior-only** MINOR FRESH bump — no tensor shape changes — that
-makes the bonus *potential* counters optimistic about the egg-counting
-dynamic bonus cards, the bonus-side twin of the v1.6 ``goal_affinity``
-change: a not-yet-played bird whose ``egg_limit`` reaches a card's threshold
-(Breeding Manager at 4, Oologist at 1) now counts as potentially qualifying
-(``scoring.bonus_potential_count``). Pre-1.7 encoders counted only the static
-``bonus_categories`` tag, which no dynamic card carries, so the egg cards'
-potentials read identically 0. Values move on both nets at unchanged dims and
-offsets: the main net's ``bonus_value`` stripe ``hand_potential`` /
-``tray_potential`` scalars (in-game ``BonusCardChoice`` rows and
-bonus-carrying ``SetupChoice`` rows), and the setup net's split-mode
-``bonus_card_affinity`` pair plus folded-mode ``kept_bonus_value`` 4-vector
-(stepped/linear are priced at the qual count, so they move with it).
-Board-side counts (``scoring.bonus_qualifying_count``) were always
-dynamic-aware and are unchanged.
-
-Era ≤1.6 artifacts route to ``wingspan.compat.v1_6`` —
-``PolicyValueNetV1_6`` / ``SetupNetV1_6`` override only ``encode_choices`` /
-``encode_candidate`` and regenerate the static pricing in place
-(``choice_encode.refill_bonus_value_potentials_static`` /
-``setup_model.encode.refill_bonus_pricing_static``); no
-``encoding_dims_for_era`` branch, no offset overrides.
-``compat.v1_5.PolicyValueNetV1_5`` / ``SetupNetV1_5`` re-chain to subclass
-the v1_6 classes, so every earlier era freezes the static bonus potentials
-too — the choice refill targets ``layout._OFF_BONUS_VALUE``, before every
-column the older shims strip, so the chain composes with no offset math.
-
-1.6 is a **shape** MINOR FRESH bump that lands the "played and
-egg-populated" goal pricing on the choice side. A new 8-dim
-``goal_delta_ignoring_eggs`` choice stripe is appended at the tail of the base
-choice-feature vector (immediately after ``resets_feeder``, the prior last
-base stripe): per round goal, a ``(count_delta, vp_delta)`` pair pricing the
-hypothesis that this row's bird is eventually played (a slot must be open in
-one of its card habitats) and egg-populated to whatever level best advances
-that goal (``scoring.goal_vp_delta_for_bird_with_eggs``, built on
-``scoring.goal_count_delta_for_bird_with_eggs`` /
-``scoring.goal_affinity_for_kept``). A bowl-nest bird counts toward both an
-``eggs_bowl`` goal (its ``egg_limit``) and a ``bowl_birds_with_eggs`` goal
-(1); star nests are wild (``cards.nest_matches``). The existing ``goal_delta``
-stripe keeps its exact v1.5 play-instant semantics untouched — the new
-stripe is filled by a separate featurizer, at the three call sites that
-already fill ``goal_delta`` (``BirdChoice``, ``PlayBirdChoice``, the tray
-``DrawSourceChoice`` row). Choice width grows by 8 (N=2 base: 509 → 517;
-include_setup: 693 → 701; N=3 base: 512 → 520).
-
-This era also carries a **value-level setup-encoding change**: the setup
-``goal_affinity`` stripe gains egg-driven categories, so a setup keep is
-priced with the same played-and-egg-populated optimism the choice stripe
-uses in-game (see ``docs/VERSIONING.md`` for the setup-side seam mechanics
-and ``docs/BONUSES.md`` for the affected goal categories). Both halves share one ``MODEL_VERSION`` bump because they are
-two views of the same scoring upgrade landing together.
-
-Era ≤1.5 artifacts predate the stripe. ``wingspan.compat.v1_5.PolicyValueNetV1_5``
-strips it after live encoding (the geometry-narrowing analogue of the v1_3 /
-v1_0 column strips): ``encoding_dims_for_era`` returns a ``choice_dim`` 8 less
-for every pre-1.6 same-MAJOR era, and every existing shim
-(``PolicyValueNetV1_4``, ``PolicyValueNetV1_3``, ``PolicyValueNetV1_0``) now
-chains through ``PolicyValueNetV1_5`` — ``compat.v1_4.PolicyValueNetV1_4``
-re-chains to subclass it directly, so its own ``goal_delta`` habitat-agnostic
-refill runs *after* the parent's tail-strip, at unaffected offsets (all
-< 509).
-
-1.5 was a **behavior-only** MINOR FRESH bump — no tensor shape changes; the first
-value-level (as opposed to width-level) encoding era since the v1.1
-trunk-final-activation fix. The ``PlayBirdChoice`` featurizer's ``goal_delta``
-stripe is now **conditioned on the row's landing habitat**: a ``birds_<habitat>``
-round goal moves only on the row that actually plays the bird into that habitat.
-Pre-1.5 rows priced the bird's *card* habitats (``scoring.goal_count_delta_for_bird``
-with no ``play_habitat``), so a two-habitat bird advanced a habitat goal on both
-of its rows — e.g. a Peregrine Falcon's grassland row claimed the "[bird] in
-[wetland]" goal's count and VP delta. Candidate rows with no committed placement
-(hand / tray / setup keeps) keep the optimistic any-card-habitat bound.
-
-Era 1.4 artifacts route to ``wingspan.compat.v1_4.PolicyValueNetV1_4``, which
-re-fills each play-bird row's ``goal_delta`` with the habitat-agnostic pricing
-after live encoding (``choice_encode.refill_goal_delta_habitat_agnostic``). At
-the time of the 1.5 bump, dims were unchanged for era 1.4 (the refill ran at
-live width); since the 1.6 bump ``PolicyValueNetV1_4`` subclasses
-``PolicyValueNetV1_5`` (the goal_delta_ignoring_eggs tail-strip), so era 1.4's
-choice geometry is now 8 narrower than live too — the refill still runs at
-unaffected offsets (all < 509), inside the ``super().encode_choices`` chain,
-*after* the parent's tail-strip. ``architecture_key`` leads with the era, so a
-1.4 run still resumes era-pinned as the shim class. ``compat.v1_3.PolicyValueNetV1_3``
-inherits ``PolicyValueNetV1_4``, so every pre-1.4 era freezes the old pricing
-too, on top of its own stripe strips.
+Era ≤1.4 artifacts route to ``wingspan.compat.v1_4`` — the single merged
+shim: ``PolicyValueNetV1_4`` overrides both the state-side seams
+(``encode_state``, ``_state_embed_offsets``, ``_build_trunk``,
+``_true_state_dim``, ``raw_state_stripe_layout``) and the choice-side seams
+(``encode_choices``, ``_choice_embed_offsets``, ``_build_choice_encoder``,
+``_true_choice_dim``, ``raw_choice_stripe_layout``); ``SetupNetV1_4``
+overrides ``encode_candidate``. After live encoding the ``known_hand_opp``
+block is sliced out (only ``decision_type`` shifts left by 180 —
+``card_index`` and ``hand_multihot`` precede the new stripe and are
+unchanged, the opposite shift shape from the v1.4 food-unlock strip
+(``compat.v1_3``), which shifts all three because that stripe precedes
+``card_index``); the ``goal_delta_ignoring_eggs`` tail is sliced out (only
+``kept_multihot`` shifts); and the ``goal_delta`` / ``goal_affinity`` /
+bonus-potential / spend-food refills regenerate the old values in place.
+``compat.v1_3.PolicyValueNetV1_3`` inherits ``PolicyValueNetV1_4`` (re-chained
+from ``core.PolicyValueNet``), so every earlier era strips the stripes and
+freezes the values too, composed via ``super()`` chaining — the same shape
+the v1_3 -> v1_4 chain already used before this collapse. The dims-router
+branch (``compat.encoding_dims_for_era``) narrows both ``state_dim`` and
+``choice_dim`` for every era with minor ≤ 4.
 
 1.4 is a **main-net encoding** MINOR FRESH bump that lands two independent
 encoding changes together (both developed in parallel, folded into one era):

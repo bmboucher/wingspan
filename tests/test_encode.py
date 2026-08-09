@@ -1272,7 +1272,7 @@ def test_bonus_value_tray_potential_counts_qualifying_tray_birds():
 def test_bonus_value_hand_potential_is_egg_optimistic_for_breeding_manager():
     """Breeding Manager tags no bird, but a hand bird whose egg capacity
     reaches 4 could come to qualify — the hand potential counts exactly the
-    egg_limit >= 4 hand birds (v1.7 optimism)."""
+    egg_limit >= 4 hand birds (v1.5 optimism)."""
     eng, *_ = engine.Engine.create(seed=27)
     birds, bonuses, _ = cards.load_all()
     breeding_manager = _named_bonus(bonuses, "Breeding Manager")

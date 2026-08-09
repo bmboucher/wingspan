@@ -728,7 +728,7 @@ def _build_raw_state_stripes(
         )
     )
 
-    # ---- known-hand identity multi-hots (v1.8+: one per opponent) ----
+    # ---- known-hand identity multi-hots (v1.5+: one per opponent) ----
     for k in opponent_indices:
         kh_off, kh_size = _at(f"known_hand_opp{layout._opponent_suffix(k)}")
         stripes.append(

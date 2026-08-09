@@ -52,9 +52,9 @@ from wingspan.reporting import encode_viewer
 from wingspan.training import config
 
 _STATE_STRIPE_WIDTH = 2 * encode.STATE_FOOD_UNLOCK_DIM  # both 5-wide state stripes
-# The v1.8 known_hand_opp state stripe v1_3 now also strips, inherited through
-# the v1_4 -> v1_5 -> v1_6 -> v1_7 re-chain (composed via _true_state_dim's and
-# _state_embed_offsets's super() calls, not a v1_3-specific change).
+# The v1.5 known_hand_opp state stripe v1_3 now also strips, inherited through
+# the v1_4 re-chain (composed via _true_state_dim's and _state_embed_offsets's
+# super() calls, not a v1_3-specific change).
 _INHERITED_KNOWN_HAND_OPP_WIDTH = encode.STATE_KNOWN_HAND_OPP_DIM
 
 
@@ -147,7 +147,7 @@ class TestClassForVersionRouting:
 class TestEncodingDimsForEra:
     def test_state_dim_narrower_by_ten_for_pre_1_4(self) -> None:
         """Pre-1.4 eras predate both the two food-unlock stripes (v1.4) and
-        the known_hand_opp stripe (v1.8), so both state narrowings compose."""
+        the known_hand_opp stripe (v1.5), so both state narrowings compose."""
         spec = encode.DEFAULT_SPEC
         live_state = encode.state_size(spec)
         for era in ("1.0", "1.1", "1.2", "1.3"):
@@ -158,7 +158,7 @@ class TestEncodingDimsForEra:
 
     def test_choice_dim_narrower_by_resets_feeder_for_pre_1_4(self) -> None:
         """Pre-1.4 eras predate both resets_feeder (v1.4) and
-        goal_delta_ignoring_eggs (v1.6), so both narrowings compose."""
+        goal_delta_ignoring_eggs (v1.5), so both narrowings compose."""
         spec = encode.DEFAULT_SPEC
         live_choice = encode.choice_feature_dim(spec)
         for era in ("1.1", "1.2", "1.3"):
@@ -178,7 +178,7 @@ class TestEncodingDimsForEra:
 
     def test_v1_0_choice_dim_drops_both_choice_stripes(self) -> None:
         """v1.0 predates the v1.1 becomes_unplayable stripe, the v1.4
-        resets_feeder stripe, and the v1.6 goal_delta_ignoring_eggs stripe, so
+        resets_feeder stripe, and the v1.5 goal_delta_ignoring_eggs stripe, so
         its choice_dim drops all three."""
         spec = encode.DEFAULT_SPEC
         _, choice_dim = compat.encoding_dims_for_era("1.0", spec)
@@ -196,7 +196,7 @@ class TestEncodingDimsForEra:
 class TestV1_3StateStripeStripping:
     def test_encode_state_narrower_than_live_by_stripe_width(self) -> None:
         """v1_3 strips both its own two food-unlock columns and the
-        known_hand_opp stripe it inherits from the v1_7 parent."""
+        known_hand_opp stripe it inherits from the v1_4 parent."""
         eng, *_ = engine.Engine.create(seed=100)
         shim = _era_shim()
         decision = _decision()
@@ -208,7 +208,7 @@ class TestV1_3StateStripeStripping:
 
     def test_encode_state_matches_live_without_stripes(self) -> None:
         """Strip both the known_hand_opp tail stripe and the food-unlock
-        columns from the live vector before comparing — the inherited v1_7
+        columns from the live vector before comparing — the inherited v1_4
         strip runs before v1_3's own food-unlock strip in the super() chain."""
         eng, *_ = engine.Engine.create(seed=100)
         shim = _era_shim()
@@ -229,7 +229,7 @@ class TestV1_3StateStripeStripping:
         """card_index / hand_multihot shift by v1_3's own food-unlock width
         only (known_hand_opp is appended after both, so it never touches
         them); decision_type shifts by both — v1_3's own strip AND the
-        inherited v1_7 known_hand_opp strip."""
+        inherited v1_4 known_hand_opp strip."""
         arch = _small_arch()
         live_off = core.PolicyValueNet(arch=arch)._state_embed_offsets()
         shim_off = _era_shim(arch=arch)._state_embed_offsets()
@@ -247,7 +247,7 @@ class TestV1_3StateStripeStripping:
 class TestV1_3ChoiceStripeStripping:
     def test_encode_choices_narrower_than_live_by_resets_feeder(self) -> None:
         """v1_3 strips both its own resets_feeder column and the
-        goal_delta_ignoring_eggs tail it inherits from the v1_5 parent."""
+        goal_delta_ignoring_eggs tail it inherits from the v1_4 parent."""
         eng, *_ = engine.Engine.create(seed=100)
         shim = _era_shim()
         decision = _decision()
@@ -259,7 +259,7 @@ class TestV1_3ChoiceStripeStripping:
 
     def test_encode_choices_matches_live_without_resets_feeder(self) -> None:
         """Strip both the resets_feeder column and the goal_delta_ignoring_eggs
-        tail from the live rows before comparing — the inherited v1_5 strip
+        tail from the live rows before comparing — the inherited v1_4 strip
         runs before v1_3's own resets_feeder strip in the super() chain."""
         eng, *_ = engine.Engine.create(seed=100)
         shim = _era_shim()
@@ -339,7 +339,7 @@ class TestV1_0InheritsPre1_4Strips:
 
     def test_v1_0_encode_state_strips_the_stripes(self) -> None:
         """v1.0 strips the food-unlock columns AND (inherited via v1_3 ->
-        ... -> v1_7) the known_hand_opp tail stripe."""
+        v1_4) the known_hand_opp tail stripe."""
         eng, *_ = engine.Engine.create(seed=102)
         net = self._v1_0_era_net()
         decision = _decision()
@@ -418,15 +418,15 @@ class TestEraStripeLayouts:
             assert net.raw_state_stripe_layout().total_size == state_vec.shape[0]
             assert net.raw_choice_stripe_layout().total_size == choice_rows.shape[1]
 
-    def test_v1_3_layouts_drop_the_v1_4_and_inherited_v1_6_stripes(self) -> None:
+    def test_v1_3_layouts_drop_the_v1_4_and_inherited_v1_5_stripes(self) -> None:
         shim = _era_shim()
         state_names = {s.name for s in shim.raw_state_stripe_layout().stripes}
         assert "hand_food_unlock_me" not in state_names
         assert "tray_food_unlock_me" not in state_names
-        assert "known_hand_opp" not in state_names  # inherited via v1_7
+        assert "known_hand_opp" not in state_names  # inherited via v1_4
         choice_names = {s.name for s in shim.raw_choice_stripe_layout().stripes}
         assert "resets_feeder" not in choice_names
-        assert "goal_delta_ignoring_eggs" not in choice_names  # inherited via v1_5
+        assert "goal_delta_ignoring_eggs" not in choice_names  # inherited via v1_4
         assert "becomes_unplayable" in choice_names  # v1.1 stripe still present
 
     def test_v1_0_choice_layout_also_drops_becomes_unplayable(self) -> None:
@@ -438,7 +438,7 @@ class TestEraStripeLayouts:
 
     def test_era_state_offsets_shift_left_past_removed_stripes(self) -> None:
         """``hand_multihot`` shifts by v1_3's own food-unlock width only;
-        ``decision_type`` shifts by both that width and the inherited v1_7
+        ``decision_type`` shifts by both that width and the inherited v1_4
         ``known_hand_opp`` width — it sits past both removed regions."""
         shim = _era_shim()
         live = stripes.raw_state_stripe_layout(shim.spec)

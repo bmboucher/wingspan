@@ -274,10 +274,10 @@ _CHOICE_STRIPE_SPECS: list[_stripe_descriptors.StripeSpec] = [
     _stripe_descriptors.StripeSpec(name="resets_feeder", size=_RESETS_FEEDER_DIM),
     # Last base stripe: per-round-goal (count_delta, vp_delta) pairs pricing the
     # "this row's bird is eventually played and egg-populated optimally"
-    # hypothesis — the v1.6 FRESH addition. Appended after every other embedded
+    # hypothesis — the v1.5 FRESH addition. Appended after every other embedded
     # multi-hot and pass-through stripe (including resets_feeder) so it shifts
-    # only the trailing conditional kept_multihot region — keeping the v1_5
-    # compat shim a trivial tail-strip (see wingspan/compat/v1_5.py).
+    # only the trailing conditional kept_multihot region — keeping the v1_4
+    # compat shim a trivial tail-strip (see wingspan/compat/v1_4.py).
     _stripe_descriptors.StripeSpec(
         name="goal_delta_ignoring_eggs", size=_GOAL_DELTA_DIM
     ),
@@ -668,7 +668,7 @@ now) and ``hand_playable_eggs_me`` (egg-blocked but food/slot ready). Pre-0.6
 artifacts have 0 extra stripes; the compat shim freezes the offsets at the old
 values. This counts only the playability pair — see :func:`n_extra_hand_multihots`
 for the full extra-block count (playability pair plus one known-hand stripe per
-opponent, v1.8+)."""
+opponent, v1.5+)."""
 
 
 def n_board_index_slots(spec: EncodingSpec = DEFAULT_SPEC) -> int:
@@ -687,7 +687,7 @@ def n_card_index_slots(spec: EncodingSpec = DEFAULT_SPEC) -> int:
 
 def n_extra_hand_multihots(spec: EncodingSpec = DEFAULT_SPEC) -> int:
     """Count of 180-wide card-set multi-hots after ``hand_multihot``: the two
-    playability stripes plus one known-hand stripe per opponent (v1.8+)."""
+    playability stripes plus one known-hand stripe per opponent (v1.5+)."""
     return N_HAND_PLAYABLE_MULTIHOTS + (spec.num_players - 1)
 
 
@@ -733,8 +733,8 @@ def _state_cont_stripe_specs(
     multi-hot per opponent (``k = 1..spec.num_players - 1`` clockwise, named
     via :func:`_opponent_suffix`) is appended at the tail of the multi-hot
     region — after ``hand_playable_eggs_me``, before the trailing
-    ``decision_type`` stripe. A v1.8 addition (see ``state.Player.known_hand``,
-    maintained by ``engine.ledger``); the pre-1.8 compat shim slices it out.
+    ``decision_type`` stripe. A v1.5 addition (see ``state.Player.known_hand``,
+    maintained by ``engine.ledger``); the pre-1.5 compat shim slices it out.
     """
     n = spec.num_players
     specs: list[_stripe_descriptors.StripeSpec] = [
@@ -835,7 +835,7 @@ def _state_cont_stripe_specs(
     # Appended at the tail of the multi-hot region — after both playability
     # stripes, before decision_type — so the model's generic 180-wide-block
     # extraction (``model.core._extract_hand_blocks``) picks it up without any
-    # model-side changes. v1.8 addition; the pre-1.8 compat shim slices it out.
+    # model-side changes. v1.5 addition; the pre-1.5 compat shim slices it out.
     specs.extend(
         _stripe_descriptors.StripeSpec(
             name=f"known_hand_opp{_opponent_suffix(k)}", size=HAND_MULTIHOT_DIM
@@ -932,10 +932,10 @@ STATE_FOOD_UNLOCK_DIM: int = cards.N_FOODS
 STATE_HAND_FOOD_UNLOCK_OFFSET: int = STATE_CONT_LAYOUT.offset_of("hand_food_unlock_me")
 STATE_TRAY_FOOD_UNLOCK_OFFSET: int = STATE_CONT_LAYOUT.offset_of("tray_food_unlock_me")
 
-# The nearest opponent's known-hand identity multi-hot (v1.8+): a 180-wide
+# The nearest opponent's known-hand identity multi-hot (v1.5+): a 180-wide
 # multi-hot of ``Player.known_hand``, appended at the tail of the multi-hot
 # region (after both playability stripes, before decision_type). Named
-# constants (not literals) so the pre-1.8 compat shim (Stage 3) can slice this
+# constants (not literals) so the pre-1.5 compat shim (Stage 3) can slice this
 # — and every later opponent's ``known_hand_opp2``, ``known_hand_opp3``, ...
 # replica at N>=3 — out of a live-era vector.
 STATE_KNOWN_HAND_OPP_DIM: int = HAND_MULTIHOT_DIM
@@ -968,10 +968,10 @@ CHOICE_BECOMES_UNPLAYABLE_DIM: int = _BIRD_ID_DIM
 # compat shim can strip it from a pre-1.4 choice vector.
 CHOICE_RESETS_FEEDER_OFFSET: int = _OFF_RESETS_FEEDER
 CHOICE_RESETS_FEEDER_DIM: int = _RESETS_FEEDER_DIM
-# The v1.6 goal_delta_ignoring_eggs stripe (8 dims: 4 round goals × (count_delta,
+# The v1.5 goal_delta_ignoring_eggs stripe (8 dims: 4 round goals × (count_delta,
 # vp_delta)), pricing the "this row's bird is eventually played and
 # egg-populated optimally" hypothesis. The last base choice stripe. Public so
-# the v1_5 compat shim can strip it from a pre-1.6 choice vector.
+# the v1_4 compat shim can strip it from a pre-1.5 choice vector.
 CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET: int = _OFF_GOAL_DELTA_IGNORING_EGGS
 CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM: int = _GOAL_DELTA_DIM
 
@@ -1014,11 +1014,11 @@ def trunk_input_dim(
 
     ``n_playable_multihots`` counts the extra 180-wide card-set multi-hot blocks
     that follow the hand multi-hot in the state vector — the two playability
-    stripes plus (v1.8+) one ``known_hand_opp`` stripe per opponent. Each is
+    stripes plus (v1.5+) one ``known_hand_opp`` stripe per opponent. Each is
     removed from the flat state and re-embedded through the same path, adding
     one set-embedding-wide vector per block. Live-era callers pass
     ``n_extra_hand_multihots(spec)``; pre-0.6 compat shims pass 0 (no extra
-    stripes at all); eras between 0.6 and 1.8 pass ``N_HAND_PLAYABLE_MULTIHOTS``
+    stripes at all); eras between 0.6 and 1.5 pass ``N_HAND_PLAYABLE_MULTIHOTS``
     (the playability pair only, no known-hand stripes).
 
     ``board_position_dim`` is the width of the per-token position block the board

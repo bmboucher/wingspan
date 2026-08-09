@@ -48,7 +48,7 @@ def test_n2_state_stripe_table_is_frozen():
         "round_goals": (444, 92),
         "card_idx_block": (536, 33),
         "hand_multihot": (569, 180),
-        "known_hand_opp": (1109, 180),  # v1.8: tail of the multi-hot region
+        "known_hand_opp": (1109, 180),  # v1.5: tail of the multi-hot region
     }
     for name, (offset, size) in expected.items():
         assert cont.offset_of(name) == offset, name
@@ -110,7 +110,7 @@ def test_n4_totals():
 
 def test_n5_totals_follow_the_same_per_opponent_arithmetic():
     # Each additional opponent beyond N=2 adds 163 state dims + 4 round-goal
-    # dims + 180 for its known_hand_opp{k} identity multi-hot (v1.8); turn_position
+    # dims + 180 for its known_hand_opp{k} identity multi-hot (v1.5); turn_position
     # grows from non-existent (N=2) to width 3 (N=3, a +3 jump), then widens by 1
     # per additional seat beyond that.
     n2 = layout.state_feature_dim(_SPEC_N2)

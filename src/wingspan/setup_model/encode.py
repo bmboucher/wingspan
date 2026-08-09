@@ -51,12 +51,12 @@ The legacy module-level ``OFF_*`` constants and ``SETUP_FEATURE_DIM`` remain for
 the default-encoding (both splits off, 308 dims) case and for backward-compatible
 deserialization of pre-0.2 artifacts.
 
-**Compat seam (v1.6).** Pre-1.6 artifacts were trained against a narrower,
+**Compat seam (v1.5).** Pre-1.5 artifacts were trained against a narrower,
 egg-blind pricing of block 7 — :func:`wingspan.engine.scoring.goal_count_delta_for_bird`
 summed per kept card, zero for every egg-driven category since a freshly played
 bird has no eggs yet. :func:`refill_goal_affinity_static` restores that pricing
 in an already-encoded vector at unchanged offsets (this is the first setup-side
-compat seam; see ``wingspan.compat.v1_5.SetupNetV1_5`` and ``docs/VERSIONING.md``).
+compat seam; see ``wingspan.compat.v1_4.SetupNetV1_4`` and ``docs/VERSIONING.md``).
 """
 
 from __future__ import annotations
@@ -272,17 +272,17 @@ def refill_goal_affinity_static(
     context: SetupContext,
     encoding: arch_module.SetupEncoding,
 ) -> None:
-    """Compat seam for eras <= 1.5 (``wingspan.compat.v1_5``): overwrite the
+    """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): overwrite the
     ``goal_affinity`` stripe of one already-encoded candidate vector with the
-    pre-1.6 static pricing those eras were trained against.
+    pre-1.5 static pricing those eras were trained against.
 
-    Since v1.6 the live encoder prices ``goal_affinity`` via
+    Since v1.5 the live encoder prices ``goal_affinity`` via
     :func:`wingspan.engine.scoring.goal_affinity_for_kept` — the
     played-and-optimally-egg-populated hand-level bound, nonzero for every
-    egg-driven category. Pre-1.6 vectors priced only
+    egg-driven category. Pre-1.5 vectors priced only
     :func:`wingspan.engine.scoring.goal_count_delta_for_bird` summed per kept
     card — zero for every egg-driven category, since a freshly played bird has
-    no eggs yet. The stripe's 4 scalars sit at unchanged offsets (v1.6 changed
+    no eggs yet. The stripe's 4 scalars sit at unchanged offsets (v1.5 changed
     no dims here), so this just overwrites them in place; the shim calls this
     once per encoded candidate, after live encoding."""
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
@@ -305,14 +305,14 @@ def refill_bonus_pricing_static(
     context: SetupContext,
     encoding: arch_module.SetupEncoding,
 ) -> None:
-    """Compat seam for eras <= 1.6 (``wingspan.compat.v1_6``): overwrite the
+    """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): overwrite the
     bonus pricing stripes of one already-encoded candidate vector with the
-    pre-1.7 static (egg-blind) counts those eras were trained against.
+    pre-1.5 static (egg-blind) counts those eras were trained against.
 
-    Since v1.7 the live encoder prices kept-card bonus potential via
+    Since v1.5 the live encoder prices kept-card bonus potential via
     :func:`wingspan.engine.scoring.bonus_potential_count` — nonzero for the
     egg-counting dynamic cards, whose thresholds a kept bird's ``egg_limit``
-    can reach. Pre-1.7 vectors counted only the static ``bonus_categories``
+    can reach. Pre-1.5 vectors counted only the static ``bonus_categories``
     tag (plus the full keep for the hand-counting card). Rewrites whichever
     bonus block the encoding carries, at unchanged offsets: the split-mode
     ``bonus_card_affinity`` min/max pair, or the folded-mode

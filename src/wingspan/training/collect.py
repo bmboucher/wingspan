@@ -553,7 +553,7 @@ def _choose_setups(
             )
             # Encode through the net's own encode_candidate seam (not the free
             # function paired with an encoding by hand) so a compat-era net
-            # (e.g. SetupNetV1_5) carries its own frozen pricing.
+            # (e.g. SetupNetV1_4) carries its own frozen pricing.
             features = np.stack(
                 [
                     setup_policy_net.encode_candidate(candidate, seat_context)

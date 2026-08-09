@@ -60,7 +60,7 @@ def _zero_board_location(row: np.ndarray) -> np.ndarray:
     """Return a copy of ``row`` with ``board_hab``, ``board_col``, and both
     habitat-conditioned goal-delta stripes zeroed.
 
-    ``goal_delta`` (since v1.5) and ``goal_delta_ignoring_eggs`` (v1.6) are
+    ``goal_delta`` and ``goal_delta_ignoring_eggs`` (since v1.5) are
     both priced at the row's committed landing habitat — a
     ``birds_<habitat>`` or ``eggs_<habitat>`` round goal can legitimately
     move differently between the two rows of a two-habitat bird, which is a

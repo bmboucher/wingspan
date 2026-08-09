@@ -36,6 +36,7 @@ _HEAVY_TEST_FILES = frozenset(
         "test_mp_collect.py",
         "test_model_and_self_play.py",
         "test_compat_v1_0.py",
+        "test_compat_v1_4.py",
         "test_setup_train_cpu.py",
         "test_setup_arch_key_restart.py",
         "test_setup_collect.py",

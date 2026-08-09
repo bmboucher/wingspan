@@ -8,9 +8,9 @@ The kept-bonus value block prices the kept bonus card against the keep itself
 stepped / linear VP they would pay, tray potential), and the goal-affinity
 block prices, per dealt goal, the played-and-optimally-egg-populated affinity
 of the kept cards (``scoring.goal_affinity_for_kept``) — nonzero for
-egg-driven categories since v1.6, unlike the pre-1.6 play-instant pricing
-(``wingspan.compat.v1_5.SetupNetV1_5`` freezes that behavior for old
-artifacts; see ``tests/test_compat_v1_5.py``).
+egg-driven categories since v1.5, unlike the pre-1.5 play-instant pricing
+(``wingspan.compat.v1_4.SetupNetV1_4`` freezes that behavior for old
+artifacts; see ``tests/test_compat_v1_4.py``).
 """
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ def test_goal_affinity_counts_every_kept_card_for_birds_no_eggs():
 
 def test_goal_affinity_counts_kept_cards_per_goal():
     """Two forest-only keeps: full affinity for a birds_forest goal and for
-    total_birds, none for a wetland goal, and — since v1.6 — the *played and
+    total_birds, none for a wetland goal, and — since v1.5 — the *played and
     egg-populated* bound (not 0) for an egg goal: both birds are assumed
     played into forest and egg-filled, so eggs_forest prices their summed
     egg_limit."""
@@ -247,7 +247,7 @@ def test_goal_affinity_egg_sets_3habitats_uses_best_kept_assignment():
 def test_egg_bonus_keep_is_priced_by_egg_capacity():
     """Breeding Manager tags no bird, but kept cards whose egg capacity
     reaches 4 could come to qualify — the keep is priced at that optimistic
-    count (v1.7): qual, the stepped/linear VP it pays, and the tray's
+    count (v1.5): qual, the stepped/linear VP it pays, and the tray's
     egg-capable bird as potential."""
     breeding_manager = _BONUS_BY_NAME["Breeding Manager"]
     big_nest = [bird for bird in _BIRDS if bird.egg_limit >= 4]
@@ -274,7 +274,7 @@ def test_egg_bonus_keep_is_priced_by_egg_capacity():
 def test_bonus_card_affinity_min_max_over_dealt_cards():
     """Split-bonus mode: ``bonus_card_affinity`` is the min/max
     potential-qualifier count over the dealt bonus cards — the egg card priced
-    by egg capacity (v1.7), the static card by its printed tag. First direct
+    by egg capacity (v1.5), the static card by its printed tag. First direct
     value test of the affinity stripe."""
     from wingspan.setup_model import architecture as arch_module
 

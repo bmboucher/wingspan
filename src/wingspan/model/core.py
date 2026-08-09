@@ -184,18 +184,15 @@ class PolicyValueNet(nn.Module):
         the ``resets_feeder`` choice stripe). Eras 1.1-1.3 route to
         :class:`wingspan.compat.v1_3.PolicyValueNetV1_3` (strips both v1.4 additions:
         the food-unlock state stripes and the ``resets_feeder`` choice stripe). Era
-        1.4 routes to :class:`wingspan.compat.v1_4.PolicyValueNetV1_4` (the pre-1.5
-        habitat-agnostic play-bird ``goal_delta`` pricing — which the v1_3 and v1_0
-        shims inherit — on top of the geometry it in turn inherits from era 1.5).
-        Era 1.5 routes to :class:`wingspan.compat.v1_5.PolicyValueNetV1_5` (strips
-        the v1.6 ``goal_delta_ignoring_eggs`` choice stripe). Era 1.6 routes to
-        :class:`wingspan.compat.v1_6.PolicyValueNetV1_6` (the pre-1.7 static
-        egg-blind bonus potential pricing — which every earlier shim inherits
-        through the v1_5 re-chain). Era 1.7 routes to
-        :class:`wingspan.compat.v1_7.PolicyValueNetV1_7` (strips the v1.8
-        per-opponent ``known_hand_opp`` state stripe — which every earlier shim
-        now inherits through the v1_6 re-chain). v1.8+ same-MAJOR artifacts use
-        the live ``PolicyValueNet``.
+        1.4 routes to :class:`wingspan.compat.v1_4.PolicyValueNetV1_4` — the merged
+        pre-1.5 shim (both the v1_3 and v1_0 shims inherit it): strips the
+        per-opponent ``known_hand_opp`` state stripe and the
+        ``goal_delta_ignoring_eggs`` choice tail stripe, and freezes the pre-1.5
+        habitat-agnostic play-bird ``goal_delta`` pricing plus the pre-1.7
+        egg-blind bonus-potential and spend-food-routing pricing (what were four
+        provisionally-numbered eras, 1.5-1.8, collapsed into this one class — see
+        ``compat.v1_4``'s module docstring). v1.5+ same-MAJOR artifacts use the
+        live ``PolicyValueNet``.
         ``check_artifact_compatible`` already refuses any different-MAJOR artifact.
         Used by every construction seam that must honor an artifact's era."""
         parsed = version.parse_version(artifact_version)
@@ -212,18 +209,6 @@ class PolicyValueNet(nn.Module):
             from wingspan.compat import v1_4 as compat_v1_4
 
             return compat_v1_4.PolicyValueNetV1_4
-        if parsed.major == 1 and parsed.minor <= 5:
-            from wingspan.compat import v1_5 as compat_v1_5
-
-            return compat_v1_5.PolicyValueNetV1_5
-        if parsed.major == 1 and parsed.minor <= 6:
-            from wingspan.compat import v1_6 as compat_v1_6
-
-            return compat_v1_6.PolicyValueNetV1_6
-        if parsed.major == 1 and parsed.minor <= 7:
-            from wingspan.compat import v1_7 as compat_v1_7
-
-            return compat_v1_7.PolicyValueNetV1_7
         return PolicyValueNet
 
     @classmethod

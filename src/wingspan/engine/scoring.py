@@ -684,11 +684,11 @@ def bonus_potential_count_static(
     *,
     hand_sized: bool = False,
 ) -> int:
-    """The pre-1.7 (egg-blind) form of :func:`bonus_potential_count`: the
+    """The pre-1.5 (egg-blind) form of :func:`bonus_potential_count`: the
     hand-counting card still counts a ``hand_sized`` source in full, but the
     egg-counting cards fall through to the static tag test — which no bird
-    carries, so they read 0. Kept public as the frozen pricing the era <= 1.6
-    compat refills regenerate (``wingspan.compat.v1_6``)."""
+    carries, so they read 0. Kept public as the frozen pricing the era <= 1.4
+    compat refills regenerate (``wingspan.compat.v1_4``)."""
     if hand_sized and bonus_count_delta_for_hand(bc, 1) > 0:
         return sum(1 for _bird in birds)
     return sum(1 for bird in birds if bc.name in bird.bonus_categories)

@@ -200,7 +200,7 @@ def test_setup_help_line_absent_for_unassessable_card():
 
 
 def test_setup_help_line_counts_egg_capacity_for_egg_cards():
-    """The egg-counting cards are assessable since v1.7: the help line counts
+    """The egg-counting cards are assessable since v1.5: the help line counts
     birds whose egg capacity reaches the card's threshold."""
     birds, bonuses, _ = cards.load_all()
     breeding_manager = _bonus(bonuses, "Breeding Manager")
