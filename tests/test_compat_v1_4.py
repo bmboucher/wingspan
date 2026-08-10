@@ -60,7 +60,7 @@ from wingspan import (
 from wingspan.compat import v1_0 as compat_v1_0
 from wingspan.compat import v1_3 as compat_v1_3
 from wingspan.compat import v1_4 as compat_v1_4
-from wingspan.encode import layout
+from wingspan.encode import choice_encode, layout
 from wingspan.engine import scoring
 from wingspan.model import core
 from wingspan.players import loaders
@@ -78,6 +78,21 @@ _TRAY_IDX = layout._OFF_BONUS_VALUE + layout._BONUS_VALUE_TRAY
 _BIRDS, _BONUSES, _GOALS = cards.load_all()
 _BONUS_BY_NAME = {bonus_card.name: bonus_card for bonus_card in _BONUSES}
 _BIG_NEST = [bird for bird in _BIRDS if bird.egg_limit >= 4]
+
+
+def _eot_bird_rows() -> set[int]:
+    """Card-table row indices (``bird_index + 1``) of every catalog bird
+    carrying a ``DRAW_CARDS_THEN_DISCARD_EOT`` power effect — the birds whose
+    power_ex block differs between the live (post-v1.5) and era-1.4 (frozen,
+    pre-amend) card tables."""
+    return {
+        cards.bird_index(bird) + 1
+        for bird in _BIRDS
+        if any(
+            effect.kind == cards.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT
+            for effect in bird.power.effects
+        )
+    }
 
 
 def _small_arch() -> architecture.ModelArchitecture:
@@ -442,10 +457,17 @@ class TestStateGeometry:
 
 class TestChoiceGeometry:
     def test_encode_choices_matches_live_with_tail_stripped(self) -> None:
+        """Beyond the tail strip, the shim also zeroes each MainActionChoice
+        row's v1.5-amended forecast cells (module docstring change 5) — apply
+        the same refill to the tail-stripped live rows before comparing, so
+        this test still isolates pure geometry/refill equivalence rather than
+        asserting an invariant the amend intentionally broke."""
         eng, *_ = engine.Engine.create(seed=100)
         shim = _era_shim()
         decision = _decision()
         live_stripped = _live_rows_without_v1_5_tail(decision, eng.state)
+        for row, choice in zip(live_stripped, decision.choices):
+            choice_encode.refill_main_action_forecast_zeros(row, choice.action)
         shim_out = shim.encode_choices(decision, eng.state)
         assert shim_out.shape == live_stripped.shape
         assert np.array_equal(shim_out, live_stripped)
@@ -979,3 +1001,114 @@ class TestArchitectureKeyEra:
         assert live_cfg.setup_architecture_key[0] == version.MODEL_VERSION
         assert era_cfg.setup_architecture_key != live_cfg.setup_architecture_key
         assert era_cfg.architecture_key != live_cfg.architecture_key
+
+
+# ---------------------------------------------------------------------------
+# (13) MAIN_ACTION forecast zeroing (module docstring change 5)
+
+
+class TestMainActionForecastZeroing:
+    def test_shim_zeroes_forecast_cells_except_regenerated_scalars(self) -> None:
+        """era-1.4 zeroes ``exchange`` on every row, ``bonus_delta`` on every
+        row except DRAW_CARDS (equal to live — its hand-growth pricing
+        predates the amend), ``goal_delta`` on every row except LAY_EGGS
+        (equal to live — its capacity-capped bound likewise predates the
+        amend). The row also stays at the narrow era width."""
+        eng, *_ = engine.Engine.create(seed=105)
+        game_state = eng.state
+        decision = decisions.MainActionDecision(
+            player_id=0,
+            prompt="action",
+            choices=[
+                decisions.MainActionChoice(label=action.value, action=action)
+                for action in decisions.MainAction
+            ],
+        )
+        live = encode.encode_choices(decision, game_state)
+        shim = _era_shim()
+        shim_out = shim.encode_choices(decision, game_state)
+
+        _, choice_dim = compat.encoding_dims_for_era("1.4", encode.DEFAULT_SPEC)
+        assert shim_out.shape[1] == choice_dim
+
+        exchange = slice(
+            layout._OFF_EXCHANGE, layout._OFF_EXCHANGE + layout._EXCHANGE_DIM
+        )
+        bonus = slice(
+            layout._OFF_BONUS_DELTA, layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_DIM
+        )
+        goal = slice(
+            layout._OFF_GOAL_DELTA, layout._OFF_GOAL_DELTA + layout._GOAL_DELTA_DIM
+        )
+
+        assert np.all(shim_out[:, exchange] == 0.0)
+        for row_idx, choice in enumerate(decision.choices):
+            if choice.action == decisions.MainAction.DRAW_CARDS:
+                assert np.array_equal(shim_out[row_idx, bonus], live[row_idx, bonus])
+            else:
+                assert np.all(shim_out[row_idx, bonus] == 0.0)
+            if choice.action == decisions.MainAction.LAY_EGGS:
+                assert np.array_equal(shim_out[row_idx, goal], live[row_idx, goal])
+            else:
+                assert np.all(shim_out[row_idx, goal] == 0.0)
+
+
+# ---------------------------------------------------------------------------
+# (14) Card-table freeze: power_ex frozen at the pre-v1.5-amend values
+# (module docstring change 6)
+
+
+class TestCardTablePowerExchangeFreeze:
+    def test_v1_4_card_table_freezes_pre_eot_power_exchange(self) -> None:
+        """``PolicyValueNetV1_4``'s frozen ``card_features`` buffer carries
+        the pre-v1.5-amend (EOT-discard-omitted) power_ex block for every
+        bird, differing from the live net's block exactly on the
+        cards_to_discard column of the DRAW_CARDS_THEN_DISCARD_EOT birds."""
+        arch = _small_arch()
+        live_net = core.PolicyValueNet(arch=arch)
+        shim = _era_shim(arch=arch)
+
+        power_ex = slice(
+            layout._OFF_ATTR_POWER_EX, layout._OFF_ATTR_POWER_EX + layout._EXCHANGE_DIM
+        )
+        live_block = live_net.card_features.numpy()[:, power_ex]
+        shim_block = shim.card_features.numpy()[:, power_ex]
+
+        eot_rows = _eot_bird_rows()
+        assert eot_rows
+
+        discard_col = layout._EXCHANGE_CARDS_TO_DISCARD
+        outside_discard = np.ones(layout._EXCHANGE_DIM, dtype=bool)
+        outside_discard[discard_col] = False
+        for row in eot_rows:
+            assert live_block[row, discard_col] > shim_block[row, discard_col]
+            assert np.array_equal(
+                live_block[row, outside_discard], shim_block[row, outside_discard]
+            )
+
+        non_eot_rows = [
+            row for row in range(live_block.shape[0]) if row not in eot_rows
+        ]
+        assert np.array_equal(live_block[non_eot_rows], shim_block[non_eot_rows])
+
+    def test_setup_net_card_table_freezes_pre_eot_power_exchange(self) -> None:
+        """``SetupNetV1_4`` joins the same card-table freeze — it builds its
+        own copy of the shared ``card_feature_matrix()`` table."""
+        encoding = setup_model.SetupEncoding()
+        live_setup, shim_setup = _setup_nets(encoding)
+
+        power_ex = slice(
+            layout._OFF_ATTR_POWER_EX, layout._OFF_ATTR_POWER_EX + layout._EXCHANGE_DIM
+        )
+        live_block = live_setup.card_features.numpy()[:, power_ex]
+        shim_block = shim_setup.card_features.numpy()[:, power_ex]
+
+        eot_rows = _eot_bird_rows()
+        discard_col = layout._EXCHANGE_CARDS_TO_DISCARD
+        for row in eot_rows:
+            assert live_block[row, discard_col] > shim_block[row, discard_col]
+
+        non_eot_rows = [
+            row for row in range(live_block.shape[0]) if row not in eot_rows
+        ]
+        assert np.array_equal(live_block[non_eot_rows], shim_block[non_eot_rows])

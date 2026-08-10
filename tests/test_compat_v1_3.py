@@ -44,7 +44,7 @@ from wingspan import (
 )
 from wingspan.compat import v1_0 as compat_v1_0
 from wingspan.compat import v1_3 as compat_v1_3
-from wingspan.encode import stripes
+from wingspan.encode import choice_encode, stripes
 from wingspan.encode.stripes import descriptors
 from wingspan.model import core
 from wingspan.players import loaders
@@ -260,7 +260,12 @@ class TestV1_3ChoiceStripeStripping:
     def test_encode_choices_matches_live_without_resets_feeder(self) -> None:
         """Strip both the resets_feeder column and the goal_delta_ignoring_eggs
         tail from the live rows before comparing — the inherited v1_4 strip
-        runs before v1_3's own resets_feeder strip in the super() chain."""
+        runs before v1_3's own resets_feeder strip in the super() chain.
+
+        Also apply the inherited v1_4 MainActionChoice forecast-cell zeroing
+        (module docstring change 5 in ``compat.v1_4``): ``_decision()`` is a
+        MainActionDecision, and every era <= 1.4 shim now zeroes those cells
+        too, so the comparison baseline must match that refill as well."""
         eng, *_ = engine.Engine.create(seed=100)
         shim = _era_shim()
         decision = _decision()
@@ -271,6 +276,8 @@ class TestV1_3ChoiceStripeStripping:
         start = encode.CHOICE_RESETS_FEEDER_OFFSET
         end = start + encode.CHOICE_RESETS_FEEDER_DIM
         live_stripped = np.delete(live_stripped, slice(start, end), axis=1)
+        for row, choice in zip(live_stripped, decision.choices):
+            choice_encode.refill_main_action_forecast_zeros(row, choice.action)
         shim_out = shim.encode_choices(decision, eng.state)
         assert shim_out.shape == live_stripped.shape
         assert np.array_equal(shim_out, live_stripped)

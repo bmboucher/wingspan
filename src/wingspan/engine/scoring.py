@@ -543,6 +543,41 @@ def bonus_count_delta_for_egg(
     return int(qualified_after) - int(qualified_before)
 
 
+def bonus_best_case_count_delta_for_eggs(
+    bc: cards.BonusCard, player: state.Player, n_eggs: int
+) -> int:
+    """Optimistic qualifying-count gain from directing ``n_eggs`` fresh eggs
+    entirely at bonus card ``bc`` — the best case a commitment row can
+    honestly advertise before the lay targets resolve.
+
+    Nonzero only for the dynamic egg-counting cards (Oologist at 1 egg,
+    Breeding Manager at 4); every other card returns 0, as does a non-positive
+    ``n_eggs``. Greedy cheapest-first: each board bird still short of the
+    threshold costs exactly ``threshold - eggs`` eggs to cross it, so the
+    candidates are sorted ascending by that cost and ``n_eggs`` is spent down
+    the list, counting how many conversions it covers. Capacity-capped by
+    construction — a candidate is only considered when its ``egg_limit`` can
+    actually reach the threshold, so the greedy sum never overshoots what the
+    board can physically hold."""
+    threshold = _EGG_COUNT_BONUS_MIN_EGGS.get(bc.name)
+    if threshold is None or n_eggs <= 0:
+        return 0
+    costs = sorted(
+        threshold - played_bird.eggs
+        for row in player.board.values()
+        for played_bird in row
+        if played_bird.eggs < threshold <= played_bird.bird.egg_limit
+    )
+    remaining = n_eggs
+    conversions = 0
+    for cost in costs:
+        if cost > remaining:
+            break
+        remaining -= cost
+        conversions += 1
+    return conversions
+
+
 def bonus_count_delta_for_hand(bc: cards.BonusCard, delta_cards: int) -> int:
     """Change in ``bc``'s qualifying count from the hand growing/shrinking by
     ``delta_cards`` — nonzero only for the hand-counting dynamic card

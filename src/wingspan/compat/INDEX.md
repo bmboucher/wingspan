@@ -12,8 +12,10 @@ main in sequence but never trained a run past 1.4, so they were collapsed into o
 era before any of them trained: the v1.5 per-opponent `known_hand_opp` **state**
 stripe, the v1.5 `goal_delta_ignoring_eggs` **choice** tail stripe, the
 habitat-conditioned play-bird `goal_delta` / egg-aware setup `goal_affinity`
-pricing, and the egg-optimistic bonus-potential pricing (both nets) + spend-food
-`pay_food` routing (main net)). See `docs/VERSIONING.md` for the full compat policy
+pricing, the egg-optimistic bonus-potential pricing (both nets) + spend-food
+`pay_food` routing (main net), the optimistic `MainActionChoice` consequence
+forecast (main net), and the card-attribute `power_ex` EOT-discard-side
+freeze (both nets)). See `docs/VERSIONING.md` for the full compat policy
 (FRESH vs REGIME, when a MINOR bump is required, fixture-set rules, the MAJOR
 escape hatch, and the v1.5 renumbering note).
 
@@ -30,9 +32,11 @@ older shim *inherits* the newer one so the strips compose (e.g. `v1_0` inherits
 `goal_delta_ignoring_eggs`, both food-unlock stripes, and the `known_hand_opp`
 state stripe; `v1_3` in turn inherits `v1_4`, so every pre-1.4 era also strips the
 v1.5 `known_hand_opp` state stripe and `goal_delta_ignoring_eggs` choice tail
-stripe, and freezes the pre-1.5 `goal_delta` / `goal_affinity` pricing plus the
-pre-1.7 bonus potentials and spend-food routing). A **behavior-only** value change
-(stripe *values* changed, widths untouched) follows the same module shape but
+stripe, and freezes the pre-1.5 `goal_delta` / `goal_affinity` pricing, the
+pre-1.7 bonus potentials and spend-food routing, the `MainActionChoice`
+consequence forecast, and the pre-EOT `power_ex` card table). A
+**behavior-only** value change (stripe *values* changed, widths untouched)
+follows the same module shape but
 overrides only the encoder that regenerates the old values; there is no
 `encoding_dims_for_era` branch and no offset/layout override to add for that part
 of the change — `v1_4` itself mixes both shapes (some of what it freezes is
@@ -78,10 +82,12 @@ support by construction, so no shim ever needs to reproduce an N>=3 shape
 
 **`v1_4.py`** — pre-1.5 geometry + behavior compat shim, both nets (the merged
 shim: what were four provisionally-numbered eras, 1.5-1.8, collapsed into one
-class before any of them ever trained a run — see `docs/VERSIONING.md`'s v1.5
-entry for the full renumbering rationale):
-- `PolicyValueNetV1_4` — `PolicyValueNet` subclass with two geometry strips and
-  three value refills:
+class before any of them ever trained a run, plus a later in-place amendment
+(MAIN_ACTION consequence pricing) folded in the same way — see
+`docs/VERSIONING.md`'s v1.5 entry for the full renumbering rationale and the
+fold-in note):
+- `PolicyValueNetV1_4` — `PolicyValueNet` subclass with two geometry strips,
+  four value refills, and a card-table freeze:
   - **State strip.** Strips the `known_hand_opp` 180-dim state stripe (appended
     after both playability multi-hots, before `decision_type`) from
     `encode_state` and freezes the pre-1.5 `StateEmbedOffsets`: only
@@ -97,32 +103,46 @@ entry for the full renumbering rationale):
     `becomes_playable` / `becomes_unplayable` precede it and are unchanged).
     Overrides `_choice_embed_offsets`, `_build_choice_encoder`,
     `_true_choice_dim` (also absolute form) and `raw_choice_stripe_layout`.
-  - **Three chained refills inside `encode_choices`,** in this order: (1) the
-    bonus-potential / spend-food refill at live width
+  - **Four chained refills inside `encode_choices`,** in this order: (1) the
+    bonus-potential / spend-food / MAIN_ACTION-forecast refill at live width
     (`choice_encode.refill_bonus_value_potentials_static` on every
     bonus-carrying row, `choice_encode.refill_spend_food_gain_routing` on
-    every spend-decision `FoodChoice` row); (2) the `goal_delta_ignoring_eggs`
-    tail strip; (3) the habitat-agnostic `goal_delta` refill
-    (`choice_encode.refill_goal_delta_habitat_agnostic`) on the narrowed rows.
+    every spend-decision `FoodChoice` row,
+    `choice_encode.refill_main_action_forecast_zeros` on every
+    `MainActionChoice` row — the whole `exchange` stripe, plus `bonus_delta`
+    except DRAW_CARDS and `goal_delta` except LAY_EGGS, whose scalars predate
+    this amendment and regenerate identically live); (2) the
+    `goal_delta_ignoring_eggs` tail strip; (3) the habitat-agnostic
+    `goal_delta` refill (`choice_encode.refill_goal_delta_habitat_agnostic`)
+    on the narrowed rows.
     Every refill offset (`layout._OFF_BONUS_VALUE`, `layout._OFF_GAIN_FOOD` /
-    `layout._OFF_PAY`, `layout._OFF_GOAL_DELTA`) precedes the stripped tail, so
-    the chain composes with no offset math and `v1_3` / `v1_0`'s own strips
-    run correctly after this method returns. Routes for era 1.4 via
+    `layout._OFF_PAY`, `layout._OFF_EXCHANGE`, `layout._OFF_BONUS_DELTA`,
+    `layout._OFF_GOAL_DELTA`) precedes the stripped tail, so the chain
+    composes with no offset math and `v1_3` / `v1_0`'s own strips run
+    correctly after this method returns. Routes for era 1.4 via
     `model.core.PolicyValueNet.class_for_version`.
+  - **Card-table freeze.** Overrides `_build_card_encoder`: builds the live
+    card encoder via `super()`, then overwrites the frozen `card_features`
+    buffer's power_ex columns with the pre-v1.5-amend (EOT-discard-omitted)
+    values (`state_encode.refill_card_features_power_exchange_pre_eot`) —
+    outside the per-row `encode_choices` chain, since the buffer is built
+    once at construction and shared by every row.
 - `SetupNetV1_4` — `wingspan.training.setup_net.SetupNet` subclass, the first
-  `SetupNet` compat shim. Overrides only `encode_candidate`: calls the live
+  `SetupNet` compat shim. Overrides `encode_candidate`: calls the live
   encoder via `super()`, then `setup_model.encode.refill_bonus_pricing_static`
   and `setup_model.encode.refill_goal_affinity_static` overwrite the bonus
   pricing and `goal_affinity` stripes with their pre-1.5 static (egg-blind)
   pricing, in place — disjoint stripes, so the two refills compose in either
-  order. No geometry override — every setup-side change since the v1.3
-  two-tower restructure has been values-only, so this class joins no
-  dims-router branch. Routes for eras <= 1.4 via
-  `wingspan.training.setup_net.SetupNet.class_for_version`; eras <= 1.3 route
-  here too, harmlessly (a pre-1.3 setup artifact differs in *shape* and would
-  fail at `load_state_dict` regardless of which class builds it —
-  `players.loaders.load_setup_net` already turns that into a clear "retrain
-  the setup model" error).
+  order. Also overrides `_build_card_encoder` — the same power_ex freeze as
+  the main net's, since `SetupNet` builds its own copy of the shared
+  `state_encode.card_feature_matrix()` table. No choice/candidate-geometry override —
+  every setup-side change since the v1.3 two-tower restructure has been
+  values-only, so this class joins no dims-router branch. Routes for eras
+  <= 1.4 via `wingspan.training.setup_net.SetupNet.class_for_version`; eras
+  <= 1.3 route here too, harmlessly (a pre-1.3 setup artifact differs in
+  *shape* and would fail at `load_state_dict` regardless of which class
+  builds it — `players.loaders.load_setup_net` already turns that into a
+  clear "retrain the setup model" error).
 
 **`v1_3.py`** — pre-1.4 geometry compat shim (inherits `v1_4.PolicyValueNetV1_4`):
 - `PolicyValueNetV1_3` — `PolicyValueNetV1_4` subclass that reverses **both** v1.4

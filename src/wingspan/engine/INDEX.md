@@ -140,6 +140,12 @@ not-yet-played birds — static tag, egg capacity reaching the egg-counting
 cards' thresholds, or (``hand_sized`` sources) every bird for the
 hand-counting card; `bonus_potential_count_static` is its frozen egg-blind
 pre-1.5 form, kept public for the `wingspan.compat.v1_4` refills.
+`bonus_best_case_count_delta_for_eggs(bc, player, n_eggs)` (v1.5) is the
+optimistic best-case qualifying-count gain from directing `n_eggs` fresh
+eggs entirely at the dynamic egg-counting cards (Oologist, Breeding
+Manager) — greedy cheapest-first over board birds capacity-capped to reach
+the threshold; the source of the `MainActionDecision` LAY_EGGS row's
+`bonus_delta` best case.
 
 **`helpers.py`** — Pure utility functions with no side effects:
 `cost_meets(food_pool, cost) -> bool` and
@@ -155,6 +161,18 @@ that would newly unlock a candidate bird — source of the v1.4
 `hand_food_unlock_me` / `tray_food_unlock_me` state stripes), and
 `setup_turn1_playable`. Imported **locally** inside encoder functions to keep
 `encode` engine-free at import time.
+
+**`forecast.py`** — Optimistic exchange forecasts for `MainActionDecision` rows,
+over `(state.Player, state.GameState)` — no `Engine`:
+`effect_exchange_ledger(effect, *, include_eot_discard) -> decisions.ExchangeLedger`
+(the effect->ledger branch table, ported out of
+`encode.state_encode._accumulate_effect_exchange`, which now delegates to it;
+`include_eot_discard` is the era seam for `DRAW_CARDS_THEN_DISCARD_EOT`'s
+end-of-turn discard side) and
+`habitat_action_exchange_forecast(player, game_state, action) -> decisions.ExchangeLedger`
+(GAIN_FOOD/LAY_EGGS/DRAW_CARDS only; greedy per-action forecast — base track
+gain, then the row's one-shot trade-arrow conversion, then every brown row
+power right-to-left — under running `_Budgets` for food/eggs/hand/egg room).
 
 **`log_format.py`** — Formatting helpers for the game log: `format_bird_log`,
 `format_food_log`, etc. Pure string functions; no engine state.

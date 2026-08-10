@@ -200,7 +200,10 @@ def raw_choice_stripe_layout(
     stripes.append(
         descriptors.StripeDescriptor(
             name="exchange",
-            description="Symmetric pay->gain trade terms for a PayCostChoice.",
+            description=(
+                "Symmetric pay->gain trade terms for a PayCostChoice, or an "
+                "optimistic per-action forecast for a habitat-row MainActionChoice."
+            ),
             offset=layout._OFF_EXCHANGE,
             size=layout._EXCHANGE_DIM,
             encoding="vector",
@@ -208,9 +211,15 @@ def raw_choice_stripe_layout(
             notes=(
                 f"{layout._EXCHANGE_DIM} resource-flow magnitudes (÷3): a 7-field self "
                 "block (cards/food/eggs paid -> food/eggs/cards-drawn/cards-tucked "
-                "gained) then a 4-field opponent-gain block (food/eggs/cards/tucks a "
-                "shared-benefit power also grants the opponent). The food *type* paid "
-                "rides the pay_food stripe. Zero for non-exchange choices."
+                "gained), a 4-field opponent-gain block (food/eggs/cards/tucks a "
+                "shared-benefit power also grants the opponent), then plays_to_gain "
+                "and cache_to_gain. The food *type* paid rides the pay_food stripe. "
+                "Filled on accept-exchange rows (the committed PayCostChoice ledger) "
+                "and (v1.5) on GAIN_FOOD/LAY_EGGS/DRAW_CARDS MainActionChoice rows "
+                "with the greedy per-action forecast "
+                "(engine.forecast.habitat_action_exchange_forecast); the PLAY_BIRD "
+                "main-action row has no habitat row to forecast and stays "
+                "deliberately zero. Zero for every other choice."
             ),
             sub_fields=_exchange_sub_fields(),
         )
@@ -312,8 +321,11 @@ def raw_choice_stripe_layout(
                 "Filled for play / keep-bird / tray draw-source candidates "
                 "(+1 board or hand qualifier), egg lay / removal board targets "
                 "(egg-threshold crossings), move-bird habitat rows (habitat "
-                "spread), and accept / main-action rows committing a net hand "
-                "change; zero otherwise."
+                "spread), accept / main-action rows committing a net hand "
+                "change, the LAY_EGGS main action (v1.5: capacity-capped best "
+                "case against the dynamic egg-counting cards), and the "
+                "PLAY_BIRD main action (v1.5: best case over every legal play, "
+                "per-component independent max); zero otherwise."
             ),
             sub_fields=_bonus_delta_sub_fields(),
         )
@@ -338,9 +350,11 @@ def raw_choice_stripe_layout(
                 "placement VP swing). Filled for play / keep-bird / tray "
                 "draw-source candidates (exact bird delta), egg lay / removal "
                 "board targets (exact egg delta), move-bird habitat rows "
-                "(exact move delta), and lay/draw commitment rows (accept "
+                "(exact move delta), lay/draw commitment rows (accept "
                 "trades, the LAY_EGGS main action: capacity-capped optimistic "
-                "bound); zero otherwise and for scored rounds."
+                "bound), and the PLAY_BIRD main action (v1.5: per-component "
+                "best case over every legal play); zero otherwise and for "
+                "scored rounds."
             ),
             sub_fields=_goal_delta_sub_fields(),
         )
@@ -475,11 +489,13 @@ def raw_choice_stripe_layout(
                 f"{layout.CHOICE_GOAL_DELTA_IGNORING_EGGS_DIM} values: 4 goal "
                 "slots × 2 scalars, per-goal optimism (star nests wild, "
                 "capped at the bird's egg_limit — the count half can exceed "
-                "1, up to 6 over the ÷5 scale). Filled only on bird-card rows "
-                "(BirdChoice, PlayBirdChoice, tray DrawSourceChoice); "
+                "1, up to 6 over the ÷5 scale). Filled on bird-card rows "
+                "(BirdChoice, PlayBirdChoice, tray DrawSourceChoice; "
                 "slot-gated for uncommitted (no play_habitat) rows by the "
-                "scoring helper's playability guard. Zero for non-bird rows "
-                "and scored rounds."
+                "scoring helper's playability guard) and (v1.5) the "
+                "PLAY_BIRD main-action row (per-component best case over "
+                "every legal play, alongside goal_delta). Zero for other "
+                "non-bird rows and scored rounds."
             ),
             sub_fields=_goal_delta_sub_fields(ignoring_eggs=True),
         )
@@ -737,8 +753,10 @@ def _special_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
 
 
 def _exchange_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
-    """11 sub-fields for the symmetric exchange stripe: a 7-field self block (what
-    the deciding player pays / gains) then a 4-field opponent-gain block."""
+    """13 sub-fields for the symmetric exchange stripe: a 7-field self block (what
+    the deciding player pays / gains), a 4-field opponent-gain block, then 2
+    trailing fields appended after it (plays_to_gain, cache_to_gain — see
+    layout._EXCHANGE_PLAYS_TO_GAIN / _EXCHANGE_CACHE_TO_GAIN)."""
     entries = [
         ("cards_to_discard", "Cards discarded from hand as payment."),
         ("food_to_pay", "Food paid (magnitude; the type rides the pay_food stripe)."),
@@ -751,6 +769,8 @@ def _exchange_sub_fields() -> tuple[descriptors.SubFieldDescriptor, ...]:
         ("opp_eggs_to_gain", "Eggs the opponent also lays."),
         ("opp_cards_to_draw", "Cards the opponent also draws."),
         ("opp_cards_to_tuck", "Cards the opponent also tucks."),
+        ("plays_to_gain", "Extra bird plays unlocked (the extra-play accept)."),
+        ("cache_to_gain", "Food cached on the bird (the cache-vs-keep accept)."),
     ]
     return tuple(
         descriptors.SubFieldDescriptor(

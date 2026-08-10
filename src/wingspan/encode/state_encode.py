@@ -388,10 +388,13 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
         if idx is not None:
             vec[layout._OFF_ATTR_BONUS_CATS + idx] = 1.0
 
-    # Power exchange: what the bird's ability does in resource terms.
+    # Power exchange: what the bird's ability does in resource terms. Live
+    # (v1.5+) includes the DRAW_CARDS_THEN_DISCARD_EOT discard side; era<=1.4
+    # nets keep the old (discard-side-omitted) block via the compat seam
+    # refill_card_features_power_exchange_pre_eot.
     vec[
         layout._OFF_ATTR_POWER_EX : layout._OFF_ATTR_POWER_EX + layout._EXCHANGE_DIM
-    ] = _bird_power_exchange_vector(bird)
+    ] = _bird_power_exchange_vector(bird, include_eot_discard=True)
 
     # OR-cost flag: 1.0 when the bird's food cost is an OR choice (pay 1
     # accepted food OR 2 non-accepted), 0.0 for standard AND costs.
@@ -455,6 +458,28 @@ def card_feature_matrix() -> np.ndarray:
         matrix[idx + 1, : layout._BIRD_ATTR_DIM] = _bird_attr_vector(bird)
         matrix[idx + 1, layout._BIRD_ATTR_DIM + idx] = 1.0
     return matrix
+
+
+def refill_card_features_power_exchange_pre_eot(matrix: np.ndarray) -> None:
+    """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): overwrite every
+    card row's power_ex columns in ``matrix`` (as built by
+    :func:`card_feature_matrix`) with the pre-v1.5-amend values — the
+    ``DRAW_CARDS_THEN_DISCARD_EOT`` discard side omitted, matching the
+    original mapper's byte-for-byte behavior.
+
+    ``matrix`` is mutated in place, in the same row order
+    :func:`card_feature_matrix` builds it (row 0 the padding row, left
+    untouched; row ``bird_index + 1`` that bird's attribute row). The
+    power_ex block sits at the same column offset within the row as within
+    the attribute vector (``layout._OFF_ATTR_POWER_EX``), since the
+    attribute vector occupies the row's leading columns."""
+    start = layout._OFF_ATTR_POWER_EX
+    end = start + layout._EXCHANGE_DIM
+    for bird in cards.load_all()[0]:
+        idx = cards.bird_index(bird)
+        matrix[idx + 1, start:end] = _bird_power_exchange_vector(
+            bird, include_eot_discard=False
+        )
 
 
 def card_summary_matrix() -> np.ndarray:
@@ -646,146 +671,56 @@ def _is_caching_bird(bird: cards.Bird) -> bool:
     return any(effect.kind in _CACHE_EFFECT_KINDS for effect in bird.power.effects)
 
 
-def _bird_power_exchange_vector(bird: cards.Bird) -> np.ndarray:
+def _bird_power_exchange_vector(
+    bird: cards.Bird, *, include_eot_discard: bool
+) -> np.ndarray:
     """Build the 13-dim power-exchange vector for ``bird``.
 
     Accumulates each effect's resource contribution into the same slot layout
     as the choice-row exchange stripe, then normalizes by ``_EXCHANGE_SCALE``.
-    UNIMPLEMENTED and unknown effects contribute zero (correct default)."""
+    UNIMPLEMENTED and unknown effects contribute zero (correct default).
+
+    ``include_eot_discard`` is threaded straight through to
+    :func:`_accumulate_effect_exchange`: ``True`` for the live per-card attr
+    fill (v1.5+, see ``_bird_attr_vector``); ``False`` for the era-<=1.4
+    compat seam (:func:`refill_card_features_power_exchange_pre_eot`), which
+    reproduces the original mapper's byte-for-byte behavior."""
     vec = np.zeros(layout._EXCHANGE_DIM, dtype=np.float32)
     for effect in bird.power.effects:
-        _accumulate_effect_exchange(vec, effect)
+        _accumulate_effect_exchange(
+            vec, effect, include_eot_discard=include_eot_discard
+        )
     return vec / layout._EXCHANGE_SCALE
 
 
-def _accumulate_effect_exchange(vec: np.ndarray, effect: cards.Effect) -> None:
+def _accumulate_effect_exchange(
+    vec: np.ndarray, effect: cards.Effect, *, include_eot_discard: bool
+) -> None:
     """Add one effect's resource exchange to ``vec`` (unnormalized).
 
-    Each EffectKind maps to zero or more exchange slots; compound kinds (e.g.
-    TUCK_FROM_HAND_THEN_DRAW) set both cost and gain slots. Pink reactive kinds
-    use the self-gain slots (the reacting player's perspective). Conditional
-    or partial-probability effects (PREDATOR_HUNT, FEWEST_*, ROLL_NOT_IN_FEEDER_*)
-    are mapped by their nominal exchange — the model learns to discount uncertain
-    outcomes via training, not by zeroing the signal here."""
-    amount = effect.amount
-    kind = effect.kind
+    Delegates to ``engine.forecast.effect_exchange_ledger`` — the branch table
+    that maps each EffectKind to zero or more ledger fields (compound kinds
+    set both cost and gain fields; pink reactive kinds use the self-gain
+    fields; conditional/partial-probability effects such as PREDATOR_HUNT,
+    FEWEST_*, ROLL_NOT_IN_FEEDER_* are priced at nominal face value — the
+    model learns to discount uncertain outcomes via training, not by zeroing
+    the signal here) now lives there as the single source of truth, shared
+    with the optimistic per-action forecast (``forecast.
+    habitat_action_exchange_forecast``, which always forecasts with the
+    discard side included). The ledger is projected onto ``vec`` via
+    ``layout._EXCHANGE_SLOT_FOR_LEDGER_FIELD``.
 
-    # Food gains (from supply, feeder, die, or compound tuck-then-gain)
-    if kind in (
-        cards.EffectKind.GAIN_FOOD_SUPPLY,
-        cards.EffectKind.GAIN_FOOD_BIRDFEEDER,
-        cards.EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE,
-        cards.EffectKind.GAIN_DIE_ANY,
-        cards.EffectKind.GAIN_ALL_FOOD_FEEDER,
-        cards.EffectKind.FEWEST_FOREST_GAINS_DIE,
-        cards.EffectKind.FEWEST_WETLAND_DRAWS_CARD,
-    ):
-        vec[layout._EXCHANGE_FOOD_TO_GAIN] += amount
+    ``include_eot_discard`` selects whether ``DRAW_CARDS_THEN_DISCARD_EOT``'s
+    end-of-turn discard side (a real cost the original mapper omitted) is
+    included in the mapped ledger — live card-attribute encoding passes
+    ``True`` (v1.5+); the era-<=1.4 compat seam passes ``False`` to reproduce
+    the original byte-for-byte behavior (see ``wingspan.compat.v1_4``)."""
+    from wingspan.engine import forecast
 
-    elif kind in (
-        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY,
-        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE,
-    ):
-        vec[layout._EXCHANGE_CARDS_TO_DISCARD] += 1
-        vec[layout._EXCHANGE_FOOD_TO_GAIN] += amount
-
-    # Cache gains (food cached on the bird itself)
-    elif kind in (
-        cards.EffectKind.CACHE_FOOD,
-        cards.EffectKind.ROLL_NOT_IN_FEEDER_CACHE,
-        cards.EffectKind.GAIN_FOOD_FEEDER_MAY_CACHE,
-        cards.EffectKind.PINK_GAIN_FOOD_CACHE,
-    ):
-        vec[layout._EXCHANGE_CACHE_TO_GAIN] += amount
-
-    # Egg gains
-    elif kind in (
-        cards.EffectKind.LAY_EGG_ON_THIS,
-        cards.EffectKind.LAY_EGG_ANY,
-    ):
-        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
-
-    elif kind in (
-        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ON_THIS,
-        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ANY,
-    ):
-        vec[layout._EXCHANGE_CARDS_TO_DISCARD] += 1
-        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
-
-    # Card draws
-    elif kind in (
-        cards.EffectKind.DRAW_CARDS,
-        cards.EffectKind.DRAW_FROM_TRAY_ALL,
-        cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT,
-        cards.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT,
-    ):
-        vec[layout._EXCHANGE_CARDS_TO_DRAW] += amount
-
-    elif kind == cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW:
-        vec[layout._EXCHANGE_CARDS_TO_DISCARD] += 1
-        vec[layout._EXCHANGE_CARDS_TO_DRAW] += amount
-
-    # Cards tucked (from deck onto a bird)
-    elif kind in (
-        cards.EffectKind.TUCK_FROM_DECK,
-        cards.EffectKind.TUCK_FROM_DECK_PAID,
-    ):
-        if kind == cards.EffectKind.TUCK_FROM_DECK_PAID:
-            vec[layout._EXCHANGE_EGGS_TO_PAY] += 1
-        vec[layout._EXCHANGE_CARDS_TO_TUCK] += amount
-
-    # Cards discarded from hand (tuck-from-hand as a cost with no secondary)
-    elif kind == cards.EffectKind.TUCK_FROM_HAND:
-        vec[layout._EXCHANGE_CARDS_TO_DISCARD] += 1
-
-    # Egg-cost exchanges
-    elif kind == cards.EffectKind.DISCARD_EGG_FOR_CARDS:
-        vec[layout._EXCHANGE_EGGS_TO_PAY] += 1
-        vec[layout._EXCHANGE_CARDS_TO_DRAW] += amount
-
-    elif kind == cards.EffectKind.DISCARD_EGG_FOR_WILD:
-        vec[layout._EXCHANGE_EGGS_TO_PAY] += 1
-        vec[layout._EXCHANGE_FOOD_TO_GAIN] += 1
-
-    # Wild food trade (net zero food but signals a conversion power)
-    elif kind == cards.EffectKind.TRADE_WILD_FOOD:
-        vec[layout._EXCHANGE_FOOD_TO_PAY] += 1
-        vec[layout._EXCHANGE_FOOD_TO_GAIN] += 1
-
-    # Extra bird plays
-    elif kind in (
-        cards.EffectKind.PLAY_ADDITIONAL_BIRD,
-        cards.EffectKind.PLAY_ADDITIONAL_BIRD_HERE,
-    ):
-        vec[layout._EXCHANGE_PLAYS_TO_GAIN] += 1
-
-    # All-players effects: self-gain + opponent-gain
-    elif kind == cards.EffectKind.ALL_PLAYERS_GAIN_FOOD:
-        vec[layout._EXCHANGE_FOOD_TO_GAIN] += amount
-        vec[layout._EXCHANGE_OPP_FOOD_TO_GAIN] += amount
-
-    elif kind == cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER:
-        vec[layout._EXCHANGE_FOOD_TO_GAIN] += 1
-        vec[layout._EXCHANGE_OPP_FOOD_TO_GAIN] += 1
-
-    elif kind == cards.EffectKind.ALL_PLAYERS_DRAW:
-        vec[layout._EXCHANGE_CARDS_TO_DRAW] += amount
-        vec[layout._EXCHANGE_OPP_CARDS_TO_DRAW] += amount
-
-    elif kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST:
-        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
-        vec[layout._EXCHANGE_OPP_EGGS_TO_GAIN] += amount
-
-    elif kind == cards.EffectKind.LAY_EGG_ALL_NEST:
-        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
-        vec[layout._EXCHANGE_OPP_EGGS_TO_GAIN] += amount
-
-    # Pink reactive effects (reacting player's gain)
-    elif kind == cards.EffectKind.PINK_PLAY_BIRD_GAIN:
-        vec[layout._EXCHANGE_FOOD_TO_GAIN] += amount
-
-    elif kind == cards.EffectKind.PINK_PLAY_BIRD_TUCK:
-        vec[layout._EXCHANGE_CARDS_TO_TUCK] += amount
-
-    elif kind == cards.EffectKind.PINK_LAY_EGG_ON_NEST:
-        vec[layout._EXCHANGE_EGGS_TO_GAIN] += amount
+    ledger = forecast.effect_exchange_ledger(
+        effect, include_eot_discard=include_eot_discard
+    )
+    for field, slot in layout._EXCHANGE_SLOT_FOR_LEDGER_FIELD.items():
+        count = typing.cast(int, getattr(ledger, field))
+        if count:
+            vec[slot] += count

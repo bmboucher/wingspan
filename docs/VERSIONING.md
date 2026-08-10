@@ -35,12 +35,16 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.5 — known-hand state stripe, egg-aware goal/bonus pricing, spend-food routing (current)
+### v1.5 — known-hand state stripe, egg-aware goal/bonus pricing, spend-food routing, main-action pricing (current)
 
-A MINOR FRESH bump that lands four changes together, renumbered from four
-provisionally-numbered eras (1.5, 1.6, 1.7, 1.8) that landed on main in
-sequence but never trained a run past 1.4 — collapsed into one era before
-any of them trained (see **Renumbering** below).
+A MINOR FRESH bump that lands six changes together. The first four ((a)-(d))
+were renumbered from four provisionally-numbered eras (1.5, 1.6, 1.7, 1.8)
+that landed on main in sequence but never trained a run past 1.4 — collapsed
+into one era before any of them trained (see **Renumbering** below). The
+last two ((e), (f)) are a later in-place amendment of this same
+never-trained era, landed under the identical rule: v1.5 still protects no
+checkpoint, so a further behavior-only change amends it directly rather than
+opening a v1.6.
 
 **(a) State — `known_hand_opp` per-opponent identity multi-hot.** A
 per-opponent `known_hand_opp` 180-wide identity multi-hot: the *publicly
@@ -141,6 +145,39 @@ in `wingspan.reporting.humanize` (the grassland spend sub-event read "Gains
 food-direction convention (it never offers a spend menu) and is unaffected
 by the routing half.
 
+**(e) Values — optimistic MAIN_ACTION consequence pricing (main net).**
+Every `MainActionChoice` row gains a forecast of what committing to it could
+deliver: the three habitat-action rows (`GAIN_FOOD`, `LAY_EGGS`,
+`DRAW_CARDS`) price the row's `exchange` stripe via the new greedy,
+three-phase `engine.forecast.habitat_action_exchange_forecast` — base track
+gain, then the row's one-shot trade-arrow conversion (exact engine gates),
+then every already-in-play brown bird's power right-to-left, under running
+food/egg/hand/spare-egg-room budgets; conditional and partial-probability
+effects price at nominal face value. `LAY_EGGS` additionally prices a
+`bonus_delta` best case against the dynamic egg-counting bonus cards
+(`scoring.bonus_best_case_count_delta_for_eggs`, greedy cheapest-first,
+capacity-capped). `PLAY_BIRD` has no habitat row to forecast, so it instead
+prices `bonus_delta`, `goal_delta`, and `goal_delta_ignoring_eggs` as the
+best case over every legal `(bird, habitat)` play (per-component
+independent max), leaving `exchange` deliberately zero. Pre-1.5 artifacts
+freeze every row at zero forecast — except the DRAW_CARDS `bonus_delta` and
+LAY_EGGS `goal_delta` scalars, which predate this change and regenerate
+identically live — via `choice_encode.refill_main_action_forecast_zeros`.
+Shape is unchanged on every stripe touched (`exchange` keeps its 13 dims;
+`bonus_delta` / `goal_delta` / `goal_delta_ignoring_eggs` keep theirs).
+
+**(f) Values — card-attribute `power_ex` EOT-discard side (both nets).** The
+card-attribute `power_ex` block (`state_encode.card_feature_matrix`, the
+shared per-card table both nets embed board/tray/hand/choice cards through)
+now includes the `DRAW_CARDS_THEN_DISCARD_EOT` discard side — a real cost
+the original mapper omitted — via the shared
+`engine.forecast.effect_exchange_ledger`'s `include_eot_discard` seam (`True`
+live, `False` for the frozen era). Pre-1.5 artifacts freeze the frozen
+`card_features` buffer at the pre-EOT (discard-side-omitted) values via
+`state_encode.refill_card_features_power_exchange_pre_eot`, applied right
+after `_build_card_encoder` builds the live (amended) table. Shape is
+unchanged (`power_ex` keeps its 13 dims).
+
 **Renumbering.** These four changes landed sequentially on main as
 provisionally-numbered eras 1.5, 1.6, 1.7, and 1.8, each with its own shim
 module (`compat.v1_5` through `compat.v1_7`, chained onto `compat.v1_4`).
@@ -168,19 +205,27 @@ modules):
   shifts, `card_index` / `hand_multihot` unchanged) and the choice-side
   seams (`encode_choices`, `_choice_embed_offsets`, `_build_choice_encoder`,
   `_true_choice_dim`, `raw_choice_stripe_layout` — strips
-  `goal_delta_ignoring_eggs`, only `kept_multihot` shifts) plus three
+  `goal_delta_ignoring_eggs`, only `kept_multihot` shifts) plus four
   choice-value refills chained inside `encode_choices`: the
-  bonus-potential/spend-food refill
+  bonus-potential/spend-food/MAIN_ACTION-forecast refill
   (`choice_encode.refill_bonus_value_potentials_static` /
-  `refill_spend_food_gain_routing`) at live width, then the
-  `goal_delta_ignoring_eggs` tail strip, then the habitat-agnostic
-  `goal_delta` refill (`choice_encode.refill_goal_delta_habitat_agnostic`)
-  on the narrowed rows — every refill offset precedes the stripped tail, so
-  the chain composes with no offset math. Both geometry seams derive their
-  width absolutely from `self.spec` (the shim closest to live) rather than
-  composing via `super()`.
-- `SetupNetV1_4` overrides only `encode_candidate`: live encoding, then
-  `setup_model.encode.refill_bonus_pricing_static` and
+  `refill_spend_food_gain_routing` / `refill_main_action_forecast_zeros`) at
+  live width, then the `goal_delta_ignoring_eggs` tail strip, then the
+  habitat-agnostic `goal_delta` refill
+  (`choice_encode.refill_goal_delta_habitat_agnostic`) on the narrowed rows
+  — every refill offset precedes the stripped tail, so the chain composes
+  with no offset math. Both geometry seams derive their width absolutely
+  from `self.spec` (the shim closest to live) rather than composing via
+  `super()`.
+- `PolicyValueNetV1_4` and `SetupNetV1_4` both also override
+  `_build_card_encoder`: build the live card encoder via `super()`, then
+  overwrite the frozen `card_features` buffer's power_ex columns with the
+  pre-EOT values (`state_encode.refill_card_features_power_exchange_pre_eot`)
+  — a card-table freeze outside the per-row `encode_choices` /
+  `encode_candidate` chain, since each net builds and freezes its own copy
+  of the one shared `card_feature_matrix()` table once at construction.
+- `SetupNetV1_4` otherwise overrides only `encode_candidate`: live encoding,
+  then `setup_model.encode.refill_bonus_pricing_static` and
   `refill_goal_affinity_static` (disjoint stripes, order immaterial).
   Geometry is unchanged on the setup side.
 - `compat.encoding_dims_for_era` gets one combined `minor <= 4` branch:
@@ -190,7 +235,7 @@ modules):
 - `class_for_version` (both `PolicyValueNet` and `SetupNet`) routes era 1.4
   to the merged shim; `compat.v1_3.PolicyValueNetV1_3` /
   `compat.v1_0.PolicyValueNetV1_0` **inherit** it (docstring renumbering
-  only — no code change), so every pre-1.4 era freezes all four changes
+  only — no code change), so every pre-1.4 era freezes all six changes
   too, composed exactly as before.
 
 **Fixtures.** `tests/data/golden_n2.json` and `tests/data/state_dict_shape_n2.json`
@@ -202,14 +247,19 @@ LFS checkpoint fixture remains deferred, as for every prior era.
 four now-deleted per-era files `test_compat_v1_5.py` /
 `test_compat_v1_6.py` / `test_compat_v1_7.py` / the old narrower
 `test_compat_v1_4.py`) round-trips era-1.4 main and setup checkpoints
-through `players.loaders.load_policy_net` / `load_setup_net`.
+through `players.loaders.load_policy_net` / `load_setup_net`. The later
+(e)-(f) fold-in *did* need a recapture: `golden_n2.json` was regenerated,
+with drift confirmed confined to the two choice hashes of exactly the 260
+`MainActionDecision` records — every state hash and every other choice hash
+is untouched.
 
 **User action: none.** No checkpoint was ever stamped at any of the four
-collapsed provisional eras (1.5–1.8) — none trained a run — so there is
-nothing to migrate forward; the renumbering is purely a codebase
-simplification. A pre-1.5 (era <= 1.4) checkpoint loads and computes
-identically via the merged `compat.v1_4` shim, exactly as it did before this
-bump; a run started on 1.5 gets all four new signals.
+collapsed provisional eras (1.5–1.8), nor at the (e)-(f) fold-in — none
+trained a run — so there is nothing to migrate forward; both the
+renumbering and the fold-in are purely codebase simplifications. A pre-1.5
+(era <= 1.4) checkpoint loads and computes identically via the merged
+`compat.v1_4` shim, exactly as it did before this bump; a run started on 1.5
+gets all six signals.
 
 ### v1.4 — food-unlock state stripes + `resets_feeder` choice stripe
 

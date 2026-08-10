@@ -80,6 +80,18 @@ at play time: Ecologist is priced via `bonus_count_delta_for_play_habitat`; the 
 hand-based cards are not priced in the play delta (a freshly played bird has no eggs and does
 not change hand size).
 
+**MAIN_ACTION commitment pricing (v1.5).** Before a specific target bird or habitat is chosen,
+two `MainActionDecision` rows carry their own best-case `bonus_delta`. The **Lay Eggs** row
+prices the dynamic egg-counting cards (Breeding Manager, Oologist) via
+`scoring.bonus_best_case_count_delta_for_eggs`: greedy cheapest-first over board birds that can
+reach the threshold, capacity-capped by construction (a candidate is only considered when its
+`egg_limit` can actually reach the threshold, so the projected total never overshoots what the
+board can hold). The **Play a Bird** row prices every held bonus card at its best legal play
+across every completable `(bird, habitat)` candidate right now — static tag or Ecologist's
+row-delta — each held card maximized independently rather than judged against one joint "best"
+play, so two cards served by two different candidate birds are each priced correctly. See
+`docs/DECISIONS.md` §2.1 for the exact stripe wiring.
+
 ### Choice encoding — bonus card identity
 
 When a `BonusCardChoice` row is presented (choosing which card to keep), a separate
@@ -325,7 +337,10 @@ in the state vector, and egg-lay `BirdTargetChoice` rows include the bonus delta
 from crossing the 4-egg threshold. Since v1.5 the bonus-pick potentials are optimistic:
 `hand_potential`/`tray_potential` on its `BonusCardChoice`/`SetupChoice` rows, and the setup
 `kept_bonus_value`/`bonus_card_affinity` stripes, count birds with `egg_limit >= 4`
-(`scoring.bonus_potential_count`) instead of reading 0.
+(`scoring.bonus_potential_count`) instead of reading 0. Also since v1.5, the LAY_EGGS
+main-action row carries a capacity-capped best case ahead of any egg-target pick
+(`scoring.bonus_best_case_count_delta_for_eggs`), greedily crediting the board's
+cheapest-to-cross birds.
 
 **Advances by**: Laying eggs on birds that are at or approaching 4 eggs. The egg-lay action
 (main action) and any bird power that lays eggs can improve this count. Playing a new bird
@@ -348,7 +363,10 @@ change the minimum and the delta is 0.
 **Model visibility**: The board summary's row-length scalars (one per habitat, `÷
 _ROW_SLOTS_SCALE`) let the model track relative row lengths. The Ecologist bonus progress
 stripes encode the current minimum and its VP. The bonus delta for `play_bird` choices shows
-which habitat target would raise the minimum row (those choices get a nonzero delta).
+which habitat target would raise the minimum row (those choices get a nonzero delta). Since
+v1.5, the PLAY_BIRD main-action row additionally carries the best case over every legal
+`(bird, habitat)` play right now — the row commits only to playing something, so it prices the
+most favorable row-delta before a specific bird/habitat is chosen.
 
 **Advances by**: Playing into the shortest row. The optimal strategy is to grow all three rows
 in parallel rather than specializing, which puts Ecologist in tension with habitat-specialist
@@ -368,7 +386,8 @@ the count.
 rows encode the delta for crossing the 1-egg threshold on each candidate slot. Since v1.5 the
 bonus-pick potentials count birds with `egg_limit >= 1` (nearly the whole catalog — Oologist's
 potential is close to the source size, which is itself the signal that almost any keep can
-feed it).
+feed it). Also since v1.5, the LAY_EGGS main-action row carries the same capacity-capped best
+case (`scoring.bonus_best_case_count_delta_for_eggs`) ahead of the egg-target pick.
 
 **Advances by**: Getting the first egg on each bird (breadth, not depth). The Lay Eggs main
 action and any bird power that lays eggs advance Oologist. There is an important tension:

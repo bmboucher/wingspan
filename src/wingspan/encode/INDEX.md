@@ -92,6 +92,11 @@ stripe offsets. Key exports:
   block (`ModelArchitecture.board_attention_positions`); `trunk_input_dim(...,
   board_position_dim=...)` accepts the resulting extra width (`0` when the flag
   is off, the default).
+- `_EXCHANGE_SLOT_FOR_LEDGER_FIELD` — `decisions.ExchangeLedger` field name ->
+  exchange-stripe slot index map (13 entries). The shared projection both
+  `_write_exchange` (`choice_encode.py`) and `_accumulate_effect_exchange`
+  (`state_encode.py`) use to write a ledger's pay/gain counts onto the
+  stripe; also consumed by `engine.forecast` (Stage 1).
 - `_OFF_*` constants — the append-only offset chain (part of checkpoint format;
   reordering is a FRESH break).
 - Normalization scales: `_POINTS_SCALE`, `_FOOD_COST_SCALE`, `_WINGSPAN_SCALE`, etc.
@@ -120,6 +125,18 @@ At `spec.num_players >= 3`, `encode_state` inserts a `turn_position` one-hot
 after `turn_state` and loops `GameState.opponents_clockwise` (Stage 1) to
 repeat every per-opponent stripe group once per opponent — at N=2 the single
 iteration reproduces the pre-N-player output byte-for-byte.
+
+`card_feature_matrix() -> np.ndarray` builds the shared per-card attribute
+table (padding row + one row per bird, via `_bird_attr_vector`) both nets
+embed board/tray/hand/choice cards through; `card_summary_matrix()` is its
+10-dim per-card summary sibling. `_bird_attr_vector`'s `power_ex` block (v1.5:
+Stage 1) delegates to `engine.forecast.effect_exchange_ledger` rather than
+mapping effects locally, passing `include_eot_discard=True` so the live table
+includes the `DRAW_CARDS_THEN_DISCARD_EOT` discard side the original mapper
+omitted. `refill_card_features_power_exchange_pre_eot(matrix)` is the compat
+seam `wingspan.compat.v1_4` uses to overwrite a built `card_feature_matrix()`'s
+power_ex columns back to the pre-amend (`include_eot_discard=False`) values,
+for both nets' frozen card tables.
 
 **`choice_encode.py`** — `encode_choices(gs, decision, spec, *, has_becomes_playable=True, food_playable_ignores_eggs=True) -> np.ndarray`
 (shape `[n_choices, choice_dim]`). One row per offered choice; each row is the
@@ -164,6 +181,27 @@ goal, the delta under the hypothesis that the row's bird is eventually played
 (`scoring.goal_vp_delta_for_bird_with_eggs`) — nonzero on the egg-driven
 categories that `goal_delta` always reads 0 for. `_write_goal_delta` takes an
 explicit `base_offset` keyword so both stripes share one writer.
+
+`_featurize_main_action` (v1.5: Stage 2) prices every `MainActionChoice` row
+via `_fill_main_action_pricing(feat, player, player_id, action, game_state)`:
+GAIN_FOOD / LAY_EGGS / DRAW_CARDS call `_fill_exchange_forecast(feat, player,
+game_state, action)` (delegates to
+`engine.forecast.habitat_action_exchange_forecast`, written through the
+shared `_write_exchange(feat, ledger)`); LAY_EGGS additionally calls
+`_fill_bonus_delta_best_case_for_eggs(feat, player, n_eggs)` (the dynamic
+egg-bonus best case, via `scoring.bonus_best_case_count_delta_for_eggs`);
+PLAY_BIRD calls `_fill_play_bird_best_case(feat, player_id, game_state)`,
+which prices `bonus_delta` / `goal_delta` / `goal_delta_ignoring_eggs` as a
+per-component independent max over `actions.playable_bird_plays`
+(`_fill_bonus_delta_best_case_for_plays` / `_fill_goal_delta_best_case_for_plays`),
+leaving `exchange` at zero. `_write_exchange(feat, ledger: decisions.ExchangeLedger)`
+is the shared writer behind both this forecast path and `_featurize_pay_cost`'s
+committed `PayCostChoice` terms (a `PayCostChoice` IS an `ExchangeLedger`).
+`refill_main_action_forecast_zeros(feat, action)` is the compat seam
+`wingspan.compat.v1_4` uses to zero a `MainActionChoice` row's v1.5-amended
+forecast cells (the whole `exchange` stripe; `bonus_delta` except DRAW_CARDS;
+`goal_delta` except LAY_EGGS — `goal_delta_ignoring_eggs` needs no refill,
+since the tail strip already removes it).
 
 ## Subpackage
 

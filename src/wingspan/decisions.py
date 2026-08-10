@@ -86,7 +86,36 @@ class SkipChoice(Choice):
     """Decline an optional decision. Carries no extra data beyond the label."""
 
 
-class PayCostChoice(Choice):
+class ExchangeLedger(pydantic.BaseModel):
+    """The symmetric ``pay -> gain`` resource ledger over the game's resources
+    (cards, food, eggs, bird plays, cache).
+
+    Shared base for two producers: ``PayCostChoice`` (a committed,
+    power-defined exchange the agent accepts or skips) and the optimistic
+    per-action forecasts built by ``wingspan.engine.forecast`` (a greedy
+    best-case projection of what committing to a main action could yield). A
+    field left at its default means "this resource is not part of this
+    exchange/forecast"."""
+
+    # Self side — what the deciding player gives up / receives.
+    paid_food: cards.Food | None = None  # a specific food token paid, if any
+    paid_food_count: int = 0  # unspecified food tokens paid (when type is a follow-up)
+    paid_card_count: int = 0  # cards discarded from hand as payment
+    paid_egg_count: int = 0  # eggs removed as payment
+    gained_food_count: int = 0  # food gained from the supply
+    gained_egg_count: int = 0  # eggs laid
+    gained_card_count: int = 0  # cards drawn into hand
+    gained_tuck_count: int = 0  # cards tucked behind the bird (VP + tuck count)
+    gained_play_count: int = 0  # extra bird plays unlocked (the extra-play accept)
+    gained_cache_count: int = 0  # food cached on the bird (the cache-vs-keep accept)
+    # Opponent side — what a shared-benefit power also grants the opponent.
+    opp_gained_food_count: int = 0
+    opp_gained_egg_count: int = 0
+    opp_gained_card_count: int = 0
+    opp_gained_tuck_count: int = 0
+
+
+class PayCostChoice(ExchangeLedger, Choice):
     """Accept a fixed, power-defined exchange — pay X to get Y.
 
     Used for the yes/no "accept exchange?" decisions (``AcceptExchangeDecision``):
@@ -119,23 +148,6 @@ class PayCostChoice(Choice):
     Distinct from ``FoodChoice`` because the agent isn't picking *which* food;
     they're confirming the offered exchange. The human-readable ``label`` names
     the specific cost."""
-
-    # Self side — what the deciding player gives up / receives.
-    paid_food: cards.Food | None = None  # a specific food token paid, if any
-    paid_food_count: int = 0  # unspecified food tokens paid (when type is a follow-up)
-    paid_card_count: int = 0  # cards discarded from hand as payment
-    paid_egg_count: int = 0  # eggs removed as payment
-    gained_food_count: int = 0  # food gained from the supply
-    gained_egg_count: int = 0  # eggs laid
-    gained_card_count: int = 0  # cards drawn into hand
-    gained_tuck_count: int = 0  # cards tucked behind the bird (VP + tuck count)
-    gained_play_count: int = 0  # extra bird plays unlocked (the extra-play accept)
-    gained_cache_count: int = 0  # food cached on the bird (the cache-vs-keep accept)
-    # Opponent side — what a shared-benefit power also grants the opponent.
-    opp_gained_food_count: int = 0
-    opp_gained_egg_count: int = 0
-    opp_gained_card_count: int = 0
-    opp_gained_tuck_count: int = 0
 
 
 class TuckActivateChoice(Choice):

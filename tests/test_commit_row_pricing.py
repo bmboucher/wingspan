@@ -18,6 +18,7 @@ import numpy as np
 
 from wingspan import cards, decisions, encode, state  # noqa: E402
 from wingspan.encode import layout  # noqa: E402
+from wingspan.engine import scoring  # noqa: E402
 
 _BIRDS, _BONUSES, _GOALS = cards.load_all()
 _BONUS_BY_NAME = {bonus_card.name: bonus_card for bonus_card in _BONUSES}
@@ -59,6 +60,20 @@ def _bonus_delta(row: np.ndarray) -> tuple[float, float, float]:
         float(row[base + layout._BONUS_DELTA_STEPPED]),
         float(row[base + layout._BONUS_DELTA_LINEAR]),
     )
+
+
+def _goal_delta_ignoring_eggs_slot(
+    row: np.ndarray, goal_idx: int
+) -> tuple[float, float]:
+    base = layout._OFF_GOAL_DELTA_IGNORING_EGGS + goal_idx * layout._GOAL_DELTA_SLOT_DIM
+    return (
+        float(row[base + layout._GOAL_DELTA_COUNT]),
+        float(row[base + layout._GOAL_DELTA_VP]),
+    )
+
+
+def _exchange_slice(row: np.ndarray) -> np.ndarray:
+    return row[layout._OFF_EXCHANGE : layout._OFF_EXCHANGE + layout._EXCHANGE_DIM]
 
 
 def _main_action_rows(
@@ -230,3 +245,190 @@ def test_accept_rows_silent_without_consequences():
     assert _bonus_delta(row) == (0.0, 0.0, 0.0)
     for goal_idx in range(4):
         assert _goal_delta_slot(row, goal_idx) == (0.0, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# MAIN_ACTION row pricing: exchange forecast (GAIN_FOOD/LAY_EGGS/DRAW_CARDS)
+# and PLAY_BIRD's best-case bonus_delta / goal_delta over every legal play.
+
+
+def test_draw_cards_row_prices_worked_example_exchange():
+    """The DRAW_CARDS row's exchange forecast matches the Stage 1 worked
+    example at stripe level: a single wetland Common Yellowthroat
+    (DRAW_CARDS_THEN_DISCARD_EOT amount=2) with an egg fires the wetland
+    conversion, so the row prices 4 cards drawn (1 base + 1 conversion + 2
+    power), 1 egg paid (the conversion), and 1 card discarded (the EOT
+    side)."""
+    game_state = _game_with_goals(["birds_forest"] * 4)
+    player = game_state.players[0]
+    eot_bird = next(bird for bird in _BIRDS if bird.name == "Common Yellowthroat")
+    player.hand = [eot_bird]
+    player.board[cards.Habitat.WETLAND] = [state.PlayedBird(bird=eot_bird, eggs=1)]
+
+    row = _main_action_rows(game_state)[decisions.MainAction.DRAW_CARDS]
+    assert row[layout._OFF_EXCHANGE + layout._EXCHANGE_CARDS_TO_DRAW] == _Approx(
+        4 / layout._EXCHANGE_SCALE
+    )
+    assert row[layout._OFF_EXCHANGE + layout._EXCHANGE_EGGS_TO_PAY] == _Approx(
+        1 / layout._EXCHANGE_SCALE
+    )
+    assert row[layout._OFF_EXCHANGE + layout._EXCHANGE_CARDS_TO_DISCARD] == _Approx(
+        1 / layout._EXCHANGE_SCALE
+    )
+
+
+def test_gain_food_and_lay_eggs_forecast_nonzero_play_bird_exchange_zero():
+    """GAIN_FOOD and LAY_EGGS rows carry a nonzero base-track exchange
+    forecast; the PLAY_BIRD row's exchange stripe stays all zero even when
+    legal plays exist — its resource flows come from the played bird's
+    power (not fired yet at the pick point), not from a habitat-row track."""
+    game_state = _game_with_goals(["birds_forest"] * 4)
+    player = game_state.players[0]
+    player.food = state.FoodPool(counts=[5, 5, 5, 5, 5])
+    playable = next(bird for bird in _BIRDS if cards.Habitat.FOREST in bird.habitats)
+    player.hand = [playable]
+    # LAY_EGGS needs spare egg room on the board to have anywhere to lay.
+    roomy = next(bird for bird in _BIRDS if bird.egg_limit >= 2)
+    player.board[cards.Habitat.WETLAND] = [state.PlayedBird(bird=roomy)]
+
+    rows = _main_action_rows(game_state)
+    gain_food_row = rows[decisions.MainAction.GAIN_FOOD]
+    assert gain_food_row[layout._OFF_EXCHANGE + layout._EXCHANGE_FOOD_TO_GAIN] > 0.0
+
+    lay_eggs_row = rows[decisions.MainAction.LAY_EGGS]
+    assert lay_eggs_row[layout._OFF_EXCHANGE + layout._EXCHANGE_EGGS_TO_GAIN] > 0.0
+
+    play_bird_row = rows[decisions.MainAction.PLAY_BIRD]
+    assert not _exchange_slice(play_bird_row).any()
+
+
+def test_play_bird_bonus_delta_static_tag_and_per_card_independent_max():
+    """A held bonus card statically tagged on a playable candidate prices
+    nonzero; two held cards served by two DIFFERENT candidate birds are each
+    priced at their own best (per-card independent max, not a single joint
+    pick — a bug that evaluated only one "best overall" play would silently
+    zero out whichever card that play doesn't tag)."""
+    game_state = _game_with_goals(["birds_forest"] * 4)
+    player = game_state.players[0]
+    player.food = state.FoodPool(counts=[5, 5, 5, 5, 5])
+
+    bird_feeder = _BONUS_BY_NAME["Bird Feeder"]
+    photographer = _BONUS_BY_NAME["Photographer"]
+    tagged_a = next(
+        bird
+        for bird in _BIRDS
+        if bird_feeder.name in bird.bonus_categories
+        and photographer.name not in bird.bonus_categories
+    )
+    tagged_b = next(
+        bird
+        for bird in _BIRDS
+        if photographer.name in bird.bonus_categories
+        and bird_feeder.name not in bird.bonus_categories
+    )
+    player.hand = [tagged_a, tagged_b]
+    player.bonus_cards = [bird_feeder, photographer]
+
+    expected_stepped = sum(
+        scoring.bonus_vp_deltas_for_count_change(bonus_card, 0, 1)[0]
+        for bonus_card in (bird_feeder, photographer)
+    )
+    expected_linear = sum(
+        scoring.bonus_vp_deltas_for_count_change(bonus_card, 0, 1)[1]
+        for bonus_card in (bird_feeder, photographer)
+    )
+
+    row = _main_action_rows(game_state)[decisions.MainAction.PLAY_BIRD]
+    qual, stepped, linear = _bonus_delta(row)
+    assert qual == _Approx(2 / layout._BONUS_COUNT_SCALE)
+    assert stepped == _Approx(expected_stepped / layout._BONUS_VALUE_SCALE)
+    assert linear == _Approx(expected_linear / layout._BONUS_VALUE_SCALE)
+
+
+def test_play_bird_goal_delta_habitat_specific_egg_ignoring_and_scored_freeze():
+    """A birds_<habitat> goal moves only via a candidate landing in that
+    habitat; an egg-driven goal stays silent in goal_delta (a freshly played
+    bird has no eggs yet) but nonzero in goal_delta_ignoring_eggs (the
+    played-and-optimally-egg-populated bound); a scored goal reads zero in
+    both regardless of any candidate."""
+    game_state = _game_with_goals(
+        ["birds_wetland", "birds_forest", "eggs_forest", "total_birds"]
+    )
+    game_state.scored_goals.append(
+        state.RoundGoalResult(counts=[0, 0], vp_awarded=[0, 0])
+    )
+    player = game_state.players[0]
+    player.food = state.FoodPool(counts=[5, 5, 5, 5, 5])
+    forest_bird = next(
+        bird
+        for bird in _BIRDS
+        if set(bird.habitats) == {cards.Habitat.FOREST} and bird.egg_limit > 0
+    )
+    player.hand = [forest_bird]
+
+    row = _main_action_rows(game_state)[decisions.MainAction.PLAY_BIRD]
+
+    # Goal 0 (birds_wetland) is frozen by scored_goals — silent either way.
+    assert _goal_delta_slot(row, 0) == (0.0, 0.0)
+    assert _goal_delta_ignoring_eggs_slot(row, 0) == (0.0, 0.0)
+
+    # Goal 1 (birds_forest) moves: the only candidate lands in forest.
+    forest_count, _ = _goal_delta_slot(row, 1)
+    assert forest_count == _Approx(1 / layout._GOAL_COUNT_SCALE)
+
+    # Goal 2 (eggs_forest) is silent in goal_delta (no eggs yet) but nonzero
+    # in goal_delta_ignoring_eggs (played-and-egg-populated bound).
+    eggs_count, _ = _goal_delta_slot(row, 2)
+    assert eggs_count == 0.0
+    eggs_ignoring_count, _ = _goal_delta_ignoring_eggs_slot(row, 2)
+    assert eggs_ignoring_count > 0.0
+
+
+def test_lay_eggs_bonus_delta_dynamic_egg_card_priced_and_silent():
+    """LAY_EGGS additionally prices the capacity-capped best case against the
+    held dynamic egg-counting bonus cards: Oologist crosses its 1-egg
+    threshold on both eggless birds when the row's 2 fresh eggs are
+    committed; without a dynamic egg card the stripe stays silent."""
+    game_state = _game_with_goals(["birds_forest"] * 4)
+    player = game_state.players[0]
+    oologist = _BONUS_BY_NAME["Oologist"]
+    roomy = next(bird for bird in _BIRDS if bird.egg_limit >= 4)
+    player.board[cards.Habitat.FOREST] = [
+        state.PlayedBird(bird=roomy),
+        state.PlayedBird(bird=roomy),
+    ]
+    player.bonus_cards = [oologist]
+
+    row = _main_action_rows(game_state)[decisions.MainAction.LAY_EGGS]
+    qual, stepped, linear = _bonus_delta(row)
+    assert qual == _Approx(1 / layout._BONUS_COUNT_SCALE)
+    expected_stepped, expected_linear = scoring.bonus_vp_deltas_for_count_change(
+        oologist, 0, 2
+    )
+    assert stepped == _Approx(expected_stepped / layout._BONUS_VALUE_SCALE)
+    assert linear == _Approx(expected_linear / layout._BONUS_VALUE_SCALE)
+
+    static_card = next(
+        bonus_card
+        for bonus_card in _BONUSES
+        if bonus_card.name not in ("Oologist", "Breeding Manager")
+    )
+    player.bonus_cards = [static_card]
+    silent_row = _main_action_rows(game_state)[decisions.MainAction.LAY_EGGS]
+    assert _bonus_delta(silent_row) == (0.0, 0.0, 0.0)
+
+
+def test_play_bird_row_all_zero_without_legal_plays():
+    """An empty hand -> no legal plays -> every PLAY_BIRD stripe (exchange,
+    bonus_delta, goal_delta, goal_delta_ignoring_eggs) stays at zero."""
+    game_state = _game_with_goals(["birds_forest"] * 4)
+    player = game_state.players[0]
+    player.bonus_cards = [_BONUS_BY_NAME["Bird Feeder"]]
+    assert not player.hand
+
+    row = _main_action_rows(game_state)[decisions.MainAction.PLAY_BIRD]
+    assert _bonus_delta(row) == (0.0, 0.0, 0.0)
+    for goal_idx in range(4):
+        assert _goal_delta_slot(row, goal_idx) == (0.0, 0.0)
+        assert _goal_delta_ignoring_eggs_slot(row, goal_idx) == (0.0, 0.0)
+    assert not _exchange_slice(row).any()

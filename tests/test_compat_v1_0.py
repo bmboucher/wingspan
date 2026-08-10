@@ -26,6 +26,7 @@ from torch import nn
 from wingspan import architecture, decisions, encode, engine, version
 from wingspan.compat import v1_0 as compat_v1_0
 from wingspan.compat import v1_3 as compat_v1_3
+from wingspan.encode import choice_encode
 from wingspan.model import core
 
 
@@ -157,7 +158,10 @@ class TestV1_0EncodingCompat:
     ) -> None:
         """encode_choices on the shim matches live output with the
         becomes_unplayable, resets_feeder, and goal_delta_ignoring_eggs
-        columns removed."""
+        columns removed — plus, since this decision is a MainActionDecision,
+        the inherited v1_4 MainActionChoice forecast-cell zeroing (module
+        docstring change 5 in ``compat.v1_4``) applied to the comparison
+        baseline."""
         eng, *_ = engine.Engine.create(seed=100)
         arch = self._small_arch()
         shim_net = self._make_net(arch)
@@ -201,6 +205,8 @@ class TestV1_0EncodingCompat:
             )
         )
         live_stripped = np.delete(live_full, removed, axis=1)
+        for row, choice in zip(live_stripped, decision.choices):
+            choice_encode.refill_main_action_forecast_zeros(row, choice.action)
 
         assert shim_out.shape == live_stripped.shape
         assert np.array_equal(shim_out, live_stripped)

@@ -222,6 +222,34 @@ def refill_bonus_value_potentials_static(
     feat[base + layout._BONUS_VALUE_TRAY] = tray_qual / layout._BONUS_COUNT_SCALE
 
 
+def refill_main_action_forecast_zeros(
+    feat: np.ndarray, action: decisions.MainAction
+) -> None:
+    """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): zero the
+    v1.5-amended consequence-forecast cells on one already-encoded
+    ``MainActionChoice`` row.
+
+    Pre-1.5 nets carry none of the new pricing: the whole ``exchange``
+    stripe is zeroed on every action (the habitat-row forecast is new);
+    ``bonus_delta`` is zeroed on every action except DRAW_CARDS, whose
+    hand-growth pricing predates the amend and is regenerated identically
+    live; ``goal_delta`` is zeroed on every action except LAY_EGGS, whose
+    capacity-capped bound likewise predates the amend.
+    ``goal_delta_ignoring_eggs`` needs no refill here — the v1_4 shim's tail
+    strip already removes the whole stripe. All three offsets precede that
+    tail strip, so this seam composes with the rest of the v1_4 chain with
+    no offset math."""
+    feat[layout._OFF_EXCHANGE : layout._OFF_EXCHANGE + layout._EXCHANGE_DIM] = 0.0
+    if action != decisions.MainAction.DRAW_CARDS:
+        feat[
+            layout._OFF_BONUS_DELTA : layout._OFF_BONUS_DELTA + layout._BONUS_DELTA_DIM
+        ] = 0.0
+    if action != decisions.MainAction.LAY_EGGS:
+        feat[
+            layout._OFF_GOAL_DELTA : layout._OFF_GOAL_DELTA + layout._GOAL_DELTA_DIM
+        ] = 0.0
+
+
 def refill_spend_food_gain_routing(feat: np.ndarray, food: cards.Food) -> None:
     """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): re-route one
     already-encoded spend-decision ``FoodChoice`` row back to the
@@ -329,25 +357,10 @@ def _featurize_pay_cost(
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
     if choice.paid_food is not None:
         _add_pay_food(feat, choice.paid_food)
-    exchange_terms = {
-        layout._EXCHANGE_CARDS_TO_DISCARD: choice.paid_card_count,
-        layout._EXCHANGE_FOOD_TO_PAY: (
-            choice.paid_food_count if choice.paid_food is None else 1
-        ),
-        layout._EXCHANGE_EGGS_TO_PAY: choice.paid_egg_count,
-        layout._EXCHANGE_FOOD_TO_GAIN: choice.gained_food_count,
-        layout._EXCHANGE_EGGS_TO_GAIN: choice.gained_egg_count,
-        layout._EXCHANGE_CARDS_TO_DRAW: choice.gained_card_count,
-        layout._EXCHANGE_CARDS_TO_TUCK: choice.gained_tuck_count,
-        layout._EXCHANGE_PLAYS_TO_GAIN: choice.gained_play_count,
-        layout._EXCHANGE_OPP_FOOD_TO_GAIN: choice.opp_gained_food_count,
-        layout._EXCHANGE_OPP_EGGS_TO_GAIN: choice.opp_gained_egg_count,
-        layout._EXCHANGE_OPP_CARDS_TO_DRAW: choice.opp_gained_card_count,
-        layout._EXCHANGE_OPP_CARDS_TO_TUCK: choice.opp_gained_tuck_count,
-        layout._EXCHANGE_CACHE_TO_GAIN: choice.gained_cache_count,
-    }
-    for index, count in exchange_terms.items():
-        feat[layout._OFF_EXCHANGE + index] = count / layout._EXCHANGE_SCALE
+    # A PayCostChoice IS an ExchangeLedger (it inherits the shared pay->gain
+    # fields), so the committed terms write through the same stripe filler the
+    # optimistic per-action forecasts use.
+    _write_exchange(feat, choice)
     # Consequence pricing for the committed terms. Net hand-card flow prices
     # the hand-counting bonus card (a draw grows the end-game hand, a discard
     # shrinks it); committed egg terms price an optimistic round-goal bound —
@@ -464,19 +477,19 @@ def _featurize_main_action(
         if choice.action == action:
             feat[layout._OFF_MAIN_ACTION + i] = 1.0
             break
-    # Consequence pricing on the *whether* row (the targets, if any, are
-    # follow-up decisions): DRAW_CARDS grows the hand by the wetland track
-    # count, which is what the hand-counting bonus card pays on; LAY_EGGS
-    # advertises the capacity-capped best case the grassland track's eggs
-    # could realize against each unscored goal. GAIN_FOOD and PLAY_BIRD touch
-    # no goal or bonus count directly and stay featureless.
+    # Consequence pricing on the *whether* row (the targets, if any, resolve
+    # as follow-up decisions): every row now advertises an optimistic
+    # best-case forecast of what committing to it could deliver, so the
+    # action-selection head sees comparable value signals across all four
+    # options. GAIN_FOOD / LAY_EGGS / DRAW_CARDS forecast the row's exchange
+    # (base track gain, one-shot conversion, brown row powers, greedily under
+    # running feasibility budgets); LAY_EGGS additionally prices the
+    # capacity-capped round-goal bound and the dynamic egg-bonus best case;
+    # DRAW_CARDS additionally prices the hand-counting bonus card. PLAY_BIRD
+    # has no habitat row to forecast an exchange for, so it instead prices
+    # the best case over every legal play (see _fill_main_action_pricing).
     player = state.players[decision.player_id]
-    if choice.action == decisions.MainAction.DRAW_CARDS:
-        _fill_bonus_delta_for_hand(feat, player, player.board.draw_cards_count())
-    elif choice.action == decisions.MainAction.LAY_EGGS:
-        _fill_goal_delta_best_case(
-            feat, decision.player_id, player.board.lay_eggs_count(), state
-        )
+    _fill_main_action_pricing(feat, player, decision.player_id, choice.action, state)
     # Becomes-playable: forecast which hand birds would unlock after this action.
     if has_becomes_playable:
         if choice.action == decisions.MainAction.GAIN_FOOD:
@@ -497,6 +510,35 @@ def _featurize_main_action(
                 player, n_eggs, already_playable=baselines.playable_now
             )
             _fill_becomes_playable(feat, newly)
+
+
+def _fill_main_action_pricing(
+    feat: np.ndarray,
+    player: state.Player,
+    player_id: int,
+    action: decisions.MainAction,
+    game_state: state.GameState,
+) -> None:
+    """Dispatch the MAIN_ACTION row's consequence pricing by action.
+
+    Every habitat-row action (GAIN_FOOD, LAY_EGGS, DRAW_CARDS) forecasts its
+    exchange terms (``_fill_exchange_forecast``); LAY_EGGS additionally
+    prices the capacity-capped round-goal bound and the dynamic egg-bonus
+    best case; DRAW_CARDS additionally prices the hand-counting bonus card.
+    PLAY_BIRD has no habitat row to forecast an exchange for, so it prices
+    the best case over every legal play instead (``_fill_play_bird_best_case``)."""
+    if action == decisions.MainAction.GAIN_FOOD:
+        _fill_exchange_forecast(feat, player, game_state, action)
+    elif action == decisions.MainAction.LAY_EGGS:
+        n_eggs = player.board.lay_eggs_count()
+        _fill_goal_delta_best_case(feat, player_id, n_eggs, game_state)
+        _fill_bonus_delta_best_case_for_eggs(feat, player, n_eggs)
+        _fill_exchange_forecast(feat, player, game_state, action)
+    elif action == decisions.MainAction.DRAW_CARDS:
+        _fill_bonus_delta_for_hand(feat, player, player.board.draw_cards_count())
+        _fill_exchange_forecast(feat, player, game_state, action)
+    elif action == decisions.MainAction.PLAY_BIRD:
+        _fill_play_bird_best_case(feat, player_id, game_state)
 
 
 def _featurize_bird(
@@ -1206,6 +1248,167 @@ def _fill_goal_delta_best_case(
         _write_goal_delta(feat, goal_idx, count_delta, vp_delta)
 
 
+def _fill_exchange_forecast(
+    feat: np.ndarray,
+    player: state.Player,
+    game_state: state.GameState,
+    action: decisions.MainAction,
+) -> None:
+    """Fill the exchange stripe with the optimistic per-action forecast for
+    committing to ``action``'s habitat row — GAIN_FOOD / LAY_EGGS /
+    DRAW_CARDS only (see ``engine.forecast.habitat_action_exchange_forecast``,
+    a greedy best-case projection under running feasibility budgets). Never
+    called for PLAY_BIRD, which has no habitat row to forecast."""
+    from wingspan.engine import forecast  # local: keeps encode engine-free at import
+
+    _write_exchange(
+        feat, forecast.habitat_action_exchange_forecast(player, game_state, action)
+    )
+
+
+def _fill_bonus_delta_best_case_for_eggs(
+    feat: np.ndarray, player: state.Player, n_eggs: int
+) -> None:
+    """Fill the bonus_delta stripe for a LAY_EGGS commitment: the capacity-
+    capped optimistic gain ``n_eggs`` fresh eggs could deliver to the held
+    dynamic egg-counting bonus cards (Oologist, Breeding Manager) if
+    directed there entirely — mirrors ``_fill_bonus_delta_for_hand`` in
+    shape, substituting the egg best-case delta primitive."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    qual = 0
+    stepped = 0.0
+    linear = 0.0
+    for bonus_card in player.bonus_cards:
+        count_delta = scoring.bonus_best_case_count_delta_for_eggs(
+            bonus_card, player, n_eggs
+        )
+        if count_delta == 0:
+            continue
+        qual += 1
+        count = scoring.bonus_qualifying_count(player, bonus_card)
+        stepped_delta, linear_delta = scoring.bonus_vp_deltas_for_count_change(
+            bonus_card, count, count + count_delta
+        )
+        stepped += stepped_delta
+        linear += linear_delta
+    _write_bonus_delta(feat, qual, stepped, linear)
+
+
+def _fill_play_bird_best_case(
+    feat: np.ndarray, player_id: int, game_state: state.GameState
+) -> None:
+    """Fill the PLAY_BIRD main-action row's bonus_delta / goal_delta /
+    goal_delta_ignoring_eggs stripes with the best case over every legal
+    ``(bird, habitat)`` play right now — the row commits only to *playing
+    something*, so it prices the most favorable candidate per component
+    independently (see ``_fill_bonus_delta_best_case_for_plays`` /
+    ``_fill_goal_delta_best_case_for_plays``). The exchange stripe stays
+    zero on this row by design: PLAY_BIRD's resource flows come from the
+    played bird's power, which hasn't fired yet at the pick point, not from
+    a habitat-row track.
+
+    An empty legal-play list — should not occur, since the engine only
+    offers PLAY_BIRD when at least one play exists, but may appear on a
+    synthetic decision — leaves every stripe at zero."""
+    from wingspan.engine import actions  # local: keeps encode engine-free at import
+
+    player = game_state.players[player_id]
+    plays = actions.playable_bird_plays(player, None)
+    if not plays:
+        return
+    _fill_bonus_delta_best_case_for_plays(feat, player, plays)
+    _fill_goal_delta_best_case_for_plays(feat, player_id, plays, game_state)
+
+
+def _fill_bonus_delta_best_case_for_plays(
+    feat: np.ndarray,
+    player: state.Player,
+    plays: list[tuple[cards.Bird, cards.Habitat]],
+) -> None:
+    """Fill the bonus_delta stripe with the best case over every play
+    candidate, independently per held bonus card: a static-tagged card
+    takes its +1 as soon as any candidate bird carries the tag; the dynamic
+    habitat-spread card (Ecologist) takes the best candidate's row-delta
+    (mirrors ``_fill_bonus_delta``'s static-tag-vs-dynamic branch, maximized
+    over ``plays`` instead of evaluated for one bird/habitat). Neither
+    primitive ever returns a negative delta for a play, so the running best
+    needs no floor."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    qual = 0
+    stepped = 0.0
+    linear = 0.0
+    for bonus_card in player.bonus_cards:
+        best = 0
+        for bird, habitat in plays:
+            if bonus_card.name in bird.bonus_categories:
+                count_delta = 1
+            else:
+                count_delta = scoring.bonus_count_delta_for_play_habitat(
+                    bonus_card, player, habitat
+                )
+            best = max(best, count_delta)
+        if best == 0:
+            continue
+        qual += 1
+        count = scoring.bonus_qualifying_count(player, bonus_card)
+        stepped_delta, linear_delta = scoring.bonus_vp_deltas_for_count_change(
+            bonus_card, count, count + best
+        )
+        stepped += stepped_delta
+        linear += linear_delta
+    _write_bonus_delta(feat, qual, stepped, linear)
+
+
+def _fill_goal_delta_best_case_for_plays(
+    feat: np.ndarray,
+    player_id: int,
+    plays: list[tuple[cards.Bird, cards.Habitat]],
+    game_state: state.GameState,
+) -> None:
+    """Fill the goal_delta and goal_delta_ignoring_eggs stripes with the
+    best case over every play candidate: per unscored round goal, the count
+    and VP components are each maximized independently across ``plays`` — a
+    per-component optimistic bound, not one candidate's joint outcome —
+    mirroring ``_fill_goal_delta`` / ``_fill_goal_delta_ignoring_eggs``'s
+    per-goal loop, with a max over candidates standing in for one bird's
+    delta."""
+    from wingspan.engine import scoring  # local: keeps encode engine-free at import
+
+    player = game_state.players[player_id]
+    others = game_state.opponents_clockwise(player_id)
+    for goal_idx, goal in enumerate(game_state.round_goals):
+        if goal_idx < len(game_state.scored_goals):
+            continue
+        payouts = state.ROUND_GOAL_PAYOUTS[goal_idx]
+        deltas = [
+            scoring.goal_vp_delta_for_bird(
+                player, others, goal, bird, payouts, play_habitat=habitat
+            )
+            for bird, habitat in plays
+        ]
+        _write_goal_delta(
+            feat,
+            goal_idx,
+            max(count for count, _ in deltas),
+            max(vp for _, vp in deltas),
+        )
+        deltas_eggs = [
+            scoring.goal_vp_delta_for_bird_with_eggs(
+                player, others, goal, bird, payouts, play_habitat=habitat
+            )
+            for bird, habitat in plays
+        ]
+        _write_goal_delta(
+            feat,
+            goal_idx,
+            max(count for count, _ in deltas_eggs),
+            max(vp for _, vp in deltas_eggs),
+            base_offset=layout._OFF_GOAL_DELTA_IGNORING_EGGS,
+        )
+
+
 def _fill_bonus_delta_for_egg(
     feat: np.ndarray,
     player: state.Player,
@@ -1326,6 +1529,27 @@ def _write_bonus_delta(
     feat[base + layout._BONUS_DELTA_QUAL] = qual / layout._BONUS_COUNT_SCALE
     feat[base + layout._BONUS_DELTA_STEPPED] = stepped / layout._BONUS_VALUE_SCALE
     feat[base + layout._BONUS_DELTA_LINEAR] = linear / layout._BONUS_VALUE_SCALE
+
+
+def _write_exchange(feat: np.ndarray, ledger: decisions.ExchangeLedger) -> None:
+    """Write the 13-slot exchange stripe from an ``ExchangeLedger``'s
+    pay/gain terms, normalized by ``layout._EXCHANGE_SCALE`` — the shared
+    writer behind the committed ``PayCostChoice`` accept row
+    (``_featurize_pay_cost``, where a ``PayCostChoice`` IS an
+    ``ExchangeLedger``) and the optimistic per-action forecast fillers
+    (``_fill_exchange_forecast``).
+
+    ``food_to_pay`` special-cases a *specific* food token paid (``paid_food``
+    set): the slot is always exactly 1 in that case, regardless of
+    ``paid_food_count`` — the two fields are mutually exclusive (a producer
+    sets one or the other, never both), and the food *type* itself rides the
+    choice row's PAY_FOOD stripe; here it is just a magnitude."""
+    for field, index in layout._EXCHANGE_SLOT_FOR_LEDGER_FIELD.items():
+        if field == "paid_food_count" and ledger.paid_food is not None:
+            count = 1
+        else:
+            count = typing.cast(int, getattr(ledger, field))
+        feat[layout._OFF_EXCHANGE + index] = count / layout._EXCHANGE_SCALE
 
 
 def _fill_bonus_value(

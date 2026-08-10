@@ -437,6 +437,29 @@ _EXCHANGE_SLOT_NAMES: tuple[str, ...] = (
     "cache_to_gain",
 )
 
+# ``ExchangeLedger`` field name -> exchange-stripe slot, for producers that
+# accumulate ledger fields (dict[str, int] or ``ExchangeLedger`` instances)
+# and need to project them onto the shared 13-slot layout (see
+# ``wingspan.engine.forecast`` and ``state_encode._bird_power_exchange_vector``).
+# ``paid_food`` (the specific token *type*, not a count) has no slot here — it
+# is a magnitude-free field; the type paid still rides the choice row's own
+# PAY_FOOD stripe, so only the 13 count/magnitude fields are mapped.
+_EXCHANGE_SLOT_FOR_LEDGER_FIELD: dict[str, int] = {
+    "paid_card_count": _EXCHANGE_CARDS_TO_DISCARD,
+    "paid_food_count": _EXCHANGE_FOOD_TO_PAY,
+    "paid_egg_count": _EXCHANGE_EGGS_TO_PAY,
+    "gained_food_count": _EXCHANGE_FOOD_TO_GAIN,
+    "gained_egg_count": _EXCHANGE_EGGS_TO_GAIN,
+    "gained_card_count": _EXCHANGE_CARDS_TO_DRAW,
+    "gained_tuck_count": _EXCHANGE_CARDS_TO_TUCK,
+    "opp_gained_food_count": _EXCHANGE_OPP_FOOD_TO_GAIN,
+    "opp_gained_egg_count": _EXCHANGE_OPP_EGGS_TO_GAIN,
+    "opp_gained_card_count": _EXCHANGE_OPP_CARDS_TO_DRAW,
+    "opp_gained_tuck_count": _EXCHANGE_OPP_CARDS_TO_TUCK,
+    "gained_play_count": _EXCHANGE_PLAYS_TO_GAIN,
+    "gained_cache_count": _EXCHANGE_CACHE_TO_GAIN,
+}
+
 # Within-BONUS_DELTA indices: a candidate bird's contribution to the deciding
 # player's HELD bonus cards (filled for play / keep-bird / tray draw-source
 # candidates — see ``choice_encode._fill_bonus_delta``). The marginal values

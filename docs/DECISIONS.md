@@ -92,18 +92,18 @@ when `include_setup` (**701** at N=2). The live stripes, in offset order:
 | `board_target` | 60 | 15 slots × 4 scalars: lay-flag, pay-flag, cached-total (÷max), tucked | egg add/remove targets; played-bird picks (context, no flag) |
 | `main_action` | 4 | one-hot over Gain Food / Lay Eggs / Draw Cards / Play Bird | main-action rows |
 | `special` | 2 | `is_skip`, `is_self` | skip rows; player-id rows |
-| `exchange` | 13 | pay→gain ledger (÷3): cards/food/eggs paid; food/eggs/cards/tucks/plays/cache gained; opponent-gain terms: `opp_food`, `opp_egg`, `opp_card`, `opp_tuck` — what a shared-benefit power additionally grants the opponent | accept-exchange rows |
+| `exchange` | 13 | pay→gain ledger (÷3): cards/food/eggs paid; food/eggs/cards/tucks/plays/cache gained; opponent-gain terms: `opp_food`, `opp_egg`, `opp_card`, `opp_tuck` — what a shared-benefit power additionally grants the opponent | accept-exchange rows; GAIN_FOOD/LAY_EGGS/DRAW_CARDS main-action rows (optimistic per-action forecast, v1.5); zero on PLAY_BIRD main-action rows |
 | `board_hab` | 3 | habitat one-hot for the single slot relevant to this choice (landing slot on placement rows; target slot on board-target rows; the candidate's current slot on played-bird rows) | wherever `board_target` is filled; play-bird rows; payment context; move-habitat rows; played-bird rows |
 | `board_col` | 5 | column one-hot for the same slot as `board_hab` | same as `board_hab` |
-| `bird_id` | 1 | single integer index column (`bird_index + 1`, 0 = no bird), embedded through the shared card table. **Candidate identity** on placement/food/main-action/draw rows. **Board-target occupant** on `BoardTargetChoice` rows (the bird being laid on / removed from), embedded to bring that bird's attributes into the row | every bird-carrying row; board-target rows (occupant) |
+| `bird_id` | 1 | single integer index column (`bird_index + 1`, 0 = no bird), embedded through the shared card table. **Candidate identity** on placement/food/draw rows. **Board-target occupant** on `BoardTargetChoice` rows (the bird being laid on / removed from), embedded to bring that bird's attributes into the row | every bird-carrying row; board-target rows (occupant) |
 | `bonus_id` | 26 | bonus-card identity one-hot | bonus picks, setup keeps |
-| `bonus_delta` | 3 | how this choice moves the decider's **held** bonus cards (static categories *and* the dynamic egg / hand-size / habitat-spread cards): affected-card count + summed stepped-VP and linear-VP marginals (signed) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; draw-source deck row, accept rows and the DRAW_CARDS main action (net hand change) |
-| `goal_delta` | 8 | how this choice moves each of the 4 round goals: per goal slot, count delta + marginal placement-VP swing (signed; **zero once that round is scored** — payouts freeze). Play rows price `birds_<habitat>` goals at their committed landing habitat (v1.5); habitat-less candidate rows use the optimistic any-card-habitat bound. This is the *play-instant* pricing — egg-driven categories read 0 here on every bird-card row; see the played-and-egg-populated `goal_delta_ignoring_eggs` sibling stripe below (v1.5) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; lay/remove commitment rows (accept trades, LAY_EGGS main action — capacity-capped optimistic bound) |
+| `bonus_delta` | 3 | how this choice moves the decider's **held** bonus cards (static categories *and* the dynamic egg / hand-size / habitat-spread cards): affected-card count + summed stepped-VP and linear-VP marginals (signed) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; draw-source deck row, accept rows and the DRAW_CARDS main action (net hand change); the LAY_EGGS main action (capacity-capped best case against the dynamic egg-counting cards, v1.5); the PLAY_BIRD main action (best case over every legal play, per-component independent max, v1.5) |
+| `goal_delta` | 8 | how this choice moves each of the 4 round goals: per goal slot, count delta + marginal placement-VP swing (signed; **zero once that round is scored** — payouts freeze). Play rows price `birds_<habitat>` goals at their committed landing habitat (v1.5); habitat-less candidate rows use the optimistic any-card-habitat bound. This is the *play-instant* pricing — egg-driven categories read 0 here on every bird-card row; see the played-and-egg-populated `goal_delta_ignoring_eggs` sibling stripe below (v1.5) | bird keep/play/tray-draw rows; egg lay/remove targets; move-habitat rows; lay/remove commitment rows (accept trades, LAY_EGGS main action — capacity-capped optimistic bound); the PLAY_BIRD main action (per-component best case over every legal play, v1.5) |
 | `bonus_value` | 5 | what this **offered bonus card** is worth to the decider: board qualifying count, the stepped and linear VP that count pays, and qualifying-bird counts in hand (kept subset at setup) and tray | bonus picks; setup keeps carrying a bonus |
 | `becomes_playable` | 180 | hand birds that transition from not-playable to playable as a direct result of the food or eggs this choice grants. **Food-gain path (v0.8+):** baseline is `playable_now ∪ playable_if_eggs`; `_bird_playable` is called with `ignore_eggs=True` — open slot + food-affordable is enough, egg cost is not checked. **Egg-gain path:** unchanged — baseline is `playable_now`, full `_bird_playable`. Exact on `FoodChoice` (`GainFoodDecision`); optimistic best-case on `PayCostChoice` skip_optional and on `GAIN_FOOD`/`LAY_EGGS` `MainActionChoice` rows. Zero on `BoardTargetChoice` (`LayEggDecision`) and all non-gain rows. Embedded through the shared card table (same as `hand_multihot`). | gain-bearing rows: food picks, accept-exchange rows with `gained_food_count > 0` or `gained_egg_count > 0`, `GAIN_FOOD` and `LAY_EGGS` main-action rows |
 | `becomes_unplayable` | 180 | currently-playable hand birds that lose playability as a direct result of the food, eggs, or board slot this choice spends. Symmetric counterpart to `becomes_playable`; uses `playable_now` as the baseline (birds fully playable before the choice). **Optimistic** for under-specified removals: a bird survives iff at least one way to remove the tokens still leaves it food-affordable. Exact on `FoodPaymentChoice` (payment multiset known) and `FoodChoice` (`SpendFoodDecision`/`SpendFoodForEggDecision`, −1 token). **Optimistic** on `PayCostChoice` with `paid_food_count > 0` (type unknown). **Full-play** on `PlayBirdChoice` (−1 slot in played habitat, −`next_egg_cost` eggs, −food payment — optimistic over payment alternatives). **Egg-loss** on `BoardTargetChoice` (`RemoveEggDecision`, `is_pay`): −1 egg to `total_eggs`. Zero on `MainActionChoice`, `SetupChoice`, gain-only rows, and every row type not listed. Never populated for the bird being played/paid-for (excluded from its own row's baseline). Embedded through the shared card table (one `card_embed_dim` embedding, summed). Added in **v1.1**; v1.0 artifacts lack this stripe — the `wingspan.compat.v1_0` shim strips it. | spend-bearing rows: `PlayBirdChoice`, `FoodPaymentChoice`, `FoodChoice` (spend context), `BoardTargetChoice` (`RemoveEggDecision`), `PayCostChoice` with food or egg payment |
 | `resets_feeder` | 1 | 1 if this combined food-gain option rerolls the birdfeeder — a partial take (fewer than `n` dice → committed reset + re-pick) or a full take that empties the feeder — so the model can tell a smaller-but-rerolls gain apart from a plain smaller gain (the `gain_food` count vector alone cannot). Added in **v1.4**; v1.0–1.3 artifacts lack it — the `wingspan.compat.v1_3` shim strips it, and `v1_0` inherits that strip. | `combine_gain_food` `FoodSubsetChoice` rows only |
-| `goal_delta_ignoring_eggs` | 8 | how this choice would move each of the 4 round goals under the hypothesis that the row's bird is *eventually played* (a slot must be open in one of its card habitats) *and* egg-populated to whatever level best advances the goal — unlike `goal_delta`, this is nonzero on the 12 egg-driven categories (`eggs_<habitat>`, `eggs_<nest>`, `*_birds_with_eggs`, `egg_sets_3habitats`) even though a freshly played bird has no eggs yet. Star nests wild (`cards.nest_matches`); the count half can exceed 1 (up to `bird.egg_limit`, at most 6, over the ÷5 scale). Same per-slot layout as `goal_delta` (count then VP, signed, zero once the round is scored). The last *base* stripe (after `resets_feeder`, before the trailing setup stripes). Added in **v1.5**; pre-1.5 artifacts lack it — the `wingspan.compat.v1_4` shim strips it. | bird keep/play/tray-draw rows only (`BirdChoice`, `PlayBirdChoice`, tray `DrawSourceChoice`); zero on non-bird rows and scored rounds |
+| `goal_delta_ignoring_eggs` | 8 | how this choice would move each of the 4 round goals under the hypothesis that the row's bird is *eventually played* (a slot must be open in one of its card habitats) *and* egg-populated to whatever level best advances the goal — unlike `goal_delta`, this is nonzero on the 12 egg-driven categories (`eggs_<habitat>`, `eggs_<nest>`, `*_birds_with_eggs`, `egg_sets_3habitats`) even though a freshly played bird has no eggs yet. Star nests wild (`cards.nest_matches`); the count half can exceed 1 (up to `bird.egg_limit`, at most 6, over the ÷5 scale). Same per-slot layout as `goal_delta` (count then VP, signed, zero once the round is scored). The last *base* stripe (after `resets_feeder`, before the trailing setup stripes). Added in **v1.5**; pre-1.5 artifacts lack it — the `wingspan.compat.v1_4` shim strips it. | bird keep/play/tray-draw rows only (`BirdChoice`, `PlayBirdChoice`, tray `DrawSourceChoice`); the PLAY_BIRD main-action row (per-component best case over every legal play, v1.5); zero on non-bird rows and scored rounds |
 | `player_select` | N (`spec.num_players`) | one-hot of which seat this row names, relative to the deciding player: `(choice.player_id − decision.player_id) % N`. Present **only when `num_players >= 3`** — appended after `goal_delta_ignoring_eggs`, before the trailing setup stripes, so it does not exist at N=2 and every other offset above is unaffected. The existing `special.is_self` bit is unchanged and still marks the deciding player's own row at every N. | `PlayerIdChoice` rows (`BirdPowerPickGainOrderDecision`, the Hummingbird food-order pick) when `num_players >= 3` |
 | `setup_agg` | 4 | kept-subset aggregates: Σpoints, Σfood-cost, Σegg-limit, kept count | setup keeps only (`include_setup`) |
 | `kept_multihot` | 180 | multi-hot of the specific kept birds, summed through the shared card table (the kept set is unordered — the single-candidate `bird_id` column stays zero on setup rows) | setup keeps only (`include_setup`) |
@@ -151,17 +151,45 @@ now. Choosing Play a Bird opens the follow-up `PLAY_BIRD` menu; the other
 three run their habitat-row action directly.
 
 **What the choice rows carry.** The special-kind bit, the 4-wide
-`main_action` one-hot, and consequence pricing on the two options whose
-commitment has a determinate resource effect: the **Draw Cards** row carries
-the `bonus_delta` of growing the hand by the wetland track count (what the
-hand-counting bonus card pays on), and the **Lay Eggs** row carries a
-`goal_delta` *bound* — per unscored goal, the capacity-capped best case the
-grassland track's eggs could realize (the exact per-target deltas land on the
-follow-up `LAY_EGG` rows; for the `birds_no_eggs` anti-goal the best case is
-the forced overflow past the already-egged birds' spare room, a non-positive
-bound). Gain Food and Play a Bird stay featureless tokens —
-their value is a fact about the *board*, read from the state context (food,
-eggs-capacity, hand, row counts, cubes left, round goal, opponent posture).
+`main_action` one-hot, and (v1.5) an optimistic best-case forecast on every
+row, so the head sees comparable value signals across all four options
+instead of the pre-1.5 shape where Gain Food and Play a Bird read as
+featureless tokens. The three habitat-action rows — **Gain Food**, **Lay
+Eggs**, **Draw Cards** — carry the row's `exchange` forecast
+(`engine.forecast.habitat_action_exchange_forecast`): a greedy, three-phase
+projection in the engine's real activation order — base printed track gain,
+then the row's one-shot trade-arrow conversion (gated exactly as the engine
+gates the real conversion), then every already-in-play brown bird's power,
+right-to-left — each phase spending against running coarse feasibility
+budgets (food, eggs, hand size, spare egg room) carried over from the phases
+before it; conditional and partial-probability effects price at nominal face
+value. **Draw Cards** additionally carries the `bonus_delta` of growing the
+hand by the wetland track count (what the hand-counting bonus card pays on).
+**Lay Eggs** additionally carries its existing `goal_delta` *bound* — per
+unscored goal, the capacity-capped best case the grassland track's eggs could
+realize (the exact per-target deltas land on the follow-up `LAY_EGG` rows;
+for the `birds_no_eggs` anti-goal the best case is the forced overflow past
+the already-egged birds' spare room, a non-positive bound) — plus a new
+`bonus_delta` best case against the dynamic egg-counting bonus cards
+(`scoring.bonus_best_case_count_delta_for_eggs`, greedy cheapest-first,
+capacity-capped). **Play a Bird** has no habitat row to forecast an exchange
+for — its `exchange` stripe stays deliberately zero, since its resource flows
+come from the played bird's not-yet-fired power, not a habitat track — but
+carries `bonus_delta`, `goal_delta`, and `goal_delta_ignoring_eggs` priced as
+the best case over every legal `(bird, habitat)` play right now, each
+component maximized independently across candidates rather than one play's
+joint outcome. **Gain Food** and **Lay Eggs** also carry the (pre-existing,
+v0.8+) optimistic `becomes_playable` forecast.
+
+Worked example (the exchange forecast's three phases in miniature): a single
+wetland bird with "draw 2 cards. If you do, discard 1 card from your hand at
+the end of your turn" (`DRAW_CARDS_THEN_DISCARD_EOT`, amount 2). With >= 1
+egg available, the Draw Cards row prices 4 cards drawn (1 base track gain + 1
+from the wetland trade-arrow conversion, which spends the egg, + 2 from the
+bird's power) against 1 egg paid and 1 card discarded (the EOT side — charged
+to the ledger but neither a precondition nor a hand-budget decrement); with 0
+eggs the conversion phase is infeasible, so the row prices 3 cards drawn (1
+base + 2 from the bird's power) and 1 card discarded, with no egg paid.
 
 **Variation within the family.** Minimal — one decision class, one shape. The
 only structural variation is menu width (3 vs 4 options, depending on whether
