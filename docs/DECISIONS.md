@@ -303,8 +303,8 @@ across every trigger:
 - Pygmy Nuthatch's tuck reward: "gain 1 [invertebrate] or [seed] from the
   supply" — a mandatory two-option supply pick offered after the tuck is
   accepted (menu limited to whichever of the two named foods is available);
-- under the `split_setup_food` regime (see §2.13): the **opening food gain**
-  — asked immediately after the setup keep is applied, against a
+- under the default `split_setup_food` split (see §2.13): the **opening food
+  gain** — asked immediately after the setup keep is applied, against a
   start-of-round-1 snapshot (empty board, full cubes, real tray/feeder/goals).
   2 asks for 3 birds kept (no-repeat menu shrinks from 5 to 4), 1 ask for 4
   birds kept (full 5-item menu). Players start with 0 food in this branch;
@@ -376,11 +376,12 @@ egg-bearing exchanges) keeps the original full `_bird_playable` predicate.
   the upstream commit.
 - *The trade give-back* (`SpendFoodDecision`): the lose half of Green Heron's
   trade — which food goes back to the supply.
-- *The setup food discard* (`SpendFoodDecision`): under the `split_setup_food`
-  regime (see §2.13) — asked immediately after the setup keep is applied,
-  against a start-of-round-1 snapshot. Players start with 5 food in this
-  branch; 1 ask for 1 bird kept (discard 1), 2 asks for 2 birds kept (discard
-  2 — no-repeat menu shrinks from 5 to 4 after the first). Mandatory.
+- *The setup food discard* (`SpendFoodDecision`): under the default
+  `split_setup_food` split (see §2.13) — asked immediately after the setup
+  keep is applied, against a start-of-round-1 snapshot. Players start with 5
+  food in this branch; 1 ask for 1 bird kept (discard 1), 2 asks for 2 birds
+  kept (discard 2 — no-repeat menu shrinks from 5 to 4 after the first).
+  Mandatory.
 
 All four are mandatory; the yes/no, where one exists, lives upstream in
 `SKIP_OPTIONAL`.
@@ -554,10 +555,10 @@ and a committed egg gain / egg payment fills the `goal_delta` stripe with the
 capacity-capped optimistic bound (the exact delta lands on the follow-up
 `LAY_EGG` / `PAY_EGG` target row). When the paid food is a named type it also
 rides the `pay_food` stripe. For `ActivateTuckDecision` the accept row is a
-special-kind token with the `cards_to_tuck` count in the
+`TuckActivateChoice` special-kind token with the `cards_to_tuck` count in the
 `EXCHANGE.cards_to_tuck` field — so the head reads how many cards the player
-is committing to tuck. In both cases the skip row is a special-kind token
-with `is_skip`.
+is committing to tuck. In both cases the skip row is a `SkipChoice`
+special-kind token with `is_skip`.
 
 **Variation within the family.** Structurally minimal — two rows every time.
 All variation is in the ledger values. The extra-play accept is the degenerate
@@ -592,15 +593,15 @@ weigh it. Example: `ROLL_NOT_IN_FEEDER_CACHE` uses
 
 - the "draw N bonus cards, keep K" powers — one decision per kept card, over
   the shrinking drawn pile;
-- under the `split_setup_bonus` regime (see §2.13): the **opening bonus
-  pick** — asked immediately after the setup keep is applied, over the two
+- under the default `split_setup_bonus` split (see §2.13): the **opening
+  bonus pick** — asked immediately after the setup keep is applied, over the two
   dealt bonus cards, against a minimal start-of-round-1 snapshot (empty board,
   full cubes, real tray/feeder/goals). It routes through `Engine.ask` like any
   in-game decision, so it adds one on-policy `CHOOSE_BONUS` sample per net
   seat per game.
 
-**What the choice rows carry.** A special-kind token, the 26-wide bonus
-identity one-hot, and the 5-dim `bonus_value` stripe pricing the candidate
+**What the choice rows carry.** A `BonusCardChoice` special-kind token, the
+26-wide bonus identity one-hot, and the 5-dim `bonus_value` stripe pricing the candidate
 against the decider's position: the current qualifying count (live game state
 for the four dynamic cards — eggs on birds, hand size, habitat spread — and
 board tags otherwise), the stepped and linear VP the card pays at that count,
@@ -636,19 +637,19 @@ share this head so none starves:
 
 **What the choice rows carry.** Three disjoint shapes:
 
-- habitat picks: each destination row carries the moving bird's identity
-  (→ card table, the decision's `moving_bird` / `from_habitat` context), its
-  **landing slot** marked by `board_hab` + `board_col` — the exact slot the
-  bird would occupy (the destination row's next free slot; the "stay" row
-  marks the bird's current slot), so the model reads the resulting location
-  instead of inferring it from a habitat flag — plus `goal_delta` /
+- habitat picks (`HabitatChoice`): each destination row carries the moving
+  bird's identity (→ card table, the decision's `moving_bird` / `from_habitat`
+  context), its **landing slot** marked by `board_hab` + `board_col` — the
+  exact slot the bird would occupy (the destination row's next free slot; the
+  "stay" row marks the bird's current slot), so the model reads the resulting
+  location instead of inferring it from a habitat flag — plus `goal_delta` /
   `bonus_delta` pricing the relocation: habitat bird counts, the egg block
   riding along (including the egg-set minimum), and the habitat-spread bonus
   card; the "stay" row's deltas are naturally all-zero;
-- played-bird picks: the candidate's bird identity (→ card table) plus the
-  full board block *as context, with no target flag* — and since the board
-  block is the decider's whole board, it is identical on every row; the rows
-  differ only by candidate identity;
+- played-bird picks (`PlayedBirdChoice`): the candidate's bird identity (→
+  card table) plus the full board block *as context, with no target flag* —
+  and since the board block is the decider's whole board, it is identical on
+  every row; the rows differ only by candidate identity;
 - gain-order picks: a special-kind token whose `is_self` flag marks the row
   that is the deciding player (going first is usually right, and this makes
   that learnable trivially).
@@ -718,8 +719,8 @@ both run the offer internally before building their menu / count from the
 post-reset feeder.
 
 **What the choice rows carry.** Nearly nothing, by design: the affirmative
-("reroll everything") is a bare special-kind token; the decline is the same
-plus `is_skip`. The entire judgment — what is showing, how many dice remain,
+("reroll everything") is a bare `ResetBirdfeederChoice` special-kind token;
+the decline is a `SkipChoice` with `is_skip`. The entire judgment — what is showing, how many dice remain,
 what the player needs — is read from the state vector (the 7-dim feeder
 stripe: five face counts, the choice-die count, and a 0/1 reset-availability
 flag mirroring the offer condition) through the trunk. The flag is derivable
@@ -770,33 +771,32 @@ axis:
 the gate is `split_setup_bonus_active = split_setup_bonus and
 use_setup_model`):
 
-- **Off (folded, the default):** the bonus is one axis of the combined keep —
-  candidates are every (kept-cards × kept-foods × dealt-bonus) combination,
-  504 for the standard 5-card / 2-bonus deal — so whichever model owns setup
-  implicitly owns the opening-bonus judgment too, jointly with the cards and
-  food (which is the argument *for* folding: the three cannot be valued
-  independently).
-- **On (split):** the candidate set drops the bonus axis (every candidate
-  carries `bonus_card = None`; 252 keeps; the setup encoder's bonus block
-  stays all-zero) and the opening bonus is instead asked as a normal in-game
-  `CHOOSE_BONUS` decision right after the keep is applied (§2.9). The
-  argument *for* splitting: the bonus judgment then trains on the in-game
-  head with on-policy credit, concentrating all bonus-valuation experience in
-  one place. This knob is shape-preserving (REGIME, resumable), whereas
-  `use_setup_model` changes tensor shapes (FRESH).
+- **`split_setup_bonus = True` (default, split):** the candidate set drops
+  the bonus axis (every candidate carries `bonus_card = None`; 252 keeps; the
+  setup encoder's bonus block stays all-zero) and the opening bonus is
+  instead asked as a normal in-game `CHOOSE_BONUS` decision right after the
+  keep is applied (§2.9). The argument *for* splitting: the bonus judgment
+  then trains on the in-game head with on-policy credit, concentrating all
+  bonus-valuation experience in one place. This knob is shape-preserving
+  (REGIME, resumable), whereas `use_setup_model` changes tensor shapes
+  (FRESH).
+- **`split_setup_bonus = False` (folded):** the bonus is one axis of the
+  combined keep — candidates are every (kept-cards × kept-foods × dealt-bonus)
+  combination, 504 for the standard 5-card / 2-bonus deal — so whichever model
+  owns setup implicitly owns the opening-bonus judgment too, jointly with the
+  cards and food (which is the argument *for* folding: the three cannot be
+  valued independently).
 
 **Whether the opening food pick is folded in is a separate config choice.**
 `TrainConfig.split_setup_food` (effective only alongside the setup model —
 the gate is `split_setup_food_active = split_setup_food and use_setup_model`):
 
-- **Off (folded, the default):** food is one axis of the combined keep —
-  candidates are every (kept-cards × kept-foods × dealt-bonus) combination.
-  The setup model jointly values the opening card-food-bonus bundle.
-- **On (split):** every candidate carries `kept_foods = ()` (the setup
-  encoder's food block is all-zero; `SETUP_FEATURE_DIM` is unchanged — REGIME,
-  resumable). The opening food pick is instead asked as sequential in-game
-  decisions right after the keep is applied, routing through the GAIN_FOOD or
-  SPEND_FOOD head depending on how many birds were kept:
+- **`split_setup_food = True` (default, split):** every candidate carries
+  `kept_foods = ()` (the setup encoder's food block is all-zero;
+  `SETUP_FEATURE_DIM` is unchanged — REGIME, resumable). The opening food pick
+  is instead asked as sequential in-game decisions right after the keep is
+  applied, routing through the GAIN_FOOD or SPEND_FOOD head depending on how
+  many birds were kept:
 
   | Birds kept | Player starts with | Decisions asked |
   |---|---|---|
@@ -812,6 +812,10 @@ the gate is `split_setup_food_active = split_setup_food and use_setup_model`):
   sample per seat per game to these otherwise lightly-exercised heads. When
   `split_setup_food` is active, `setup_food_sets` is ignored (random setup
   generation emits `kept_foods = ()` directly without food sampling).
+- **`split_setup_food = False` (folded):** food is one axis of the combined
+  keep — candidates are every (kept-cards × kept-foods × dealt-bonus)
+  combination. The setup model jointly values the opening card-food-bonus
+  bundle.
 
 **Inspecting the setup encoding in `wingspan play --html`.**  When
 `use_setup_model = True`, clicking a keep option in the HTML game log opens the

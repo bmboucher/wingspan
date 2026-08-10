@@ -7,7 +7,8 @@ config, runmeta, and the version checker can import it without torch.
 
 ## Modules
 
-**`__init__.py`** — re-exports `PolicyValueNet`.
+**`__init__.py`** — re-exports `PolicyValueNet` and `StateEmbedOffsets`
+(`__all__ = ["PolicyValueNet", "StateEmbedOffsets"]`).
 
 **`core.py`** — `PolicyValueNet(arch: ModelArchitecture, spec: EncodingSpec)`:
 the main actor-critic network. Constructor raises `ValueError` when
@@ -39,10 +40,13 @@ reads must agree on seat count. Key structure:
   `compat.v1_4.PolicyValueNetV1_4` (the merged pre-1.5 shim, both nets), later
   same-MAJOR → live `PolicyValueNet`); used by `from_model_config`, the
   checkpoint loaders, and the era-pinned training pipeline.
-- `StateEmbedOffsets(card_index, hand_multihot, decision_type)`
+- `StateEmbedOffsets(card_index, hand_multihot, decision_type, hand_summary, hand_summary_end)`
   — NamedTuple seam frozen by era shims so `_embed_state` slices each era's
   vector at its own offsets. Future shims override via `_state_embed_offsets()`.
-- `ChoiceEmbedOffsets(board_idx, bird_id, becomes_playable, becomes_unplayable, kept_multihot)`
+  `hand_summary` / `hand_summary_end` are the pre-0.9 hand-summary compat slice
+  (both `0` in live v0.9+ encoding, where the model derives the summary in-model
+  from the multi-hot instead).
+- `ChoiceEmbedOffsets(bird_id, becomes_playable, becomes_unplayable, kept_multihot)`
   — NamedTuple seam for the choice encoder; `becomes_unplayable` is `None` for
   v1.0 shims (v1.1 added it); `kept_multihot` is `None` outside setup.
   `_embed_choices` loops over whichever stripes are non-None, summing each through

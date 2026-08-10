@@ -37,9 +37,11 @@ is the on-offer multi-hot width (state, split-bonus only).
 width (tray rows + feeder + goals + bonus-on-offer); 304 with split-bonus
 (= 192 + 6 + 80 + 26), 278 without. `setup_choice_input_dim(encoding, main_arch)`
 computes the **choice** trunk's input width (kept/playability sets + foods + bonus
-action + affinities); 264 with split-bonus, 297 folded. The two partition the
-embedded candidate: `setup_choice_input_dim + setup_state_input_dim` equals the
-fused readout width (568 / 575).
+action + affinities); 264 with both `split_bonus` and `split_food` active (the
+trained-run default — `TrainConfig.split_setup_bonus` / `split_setup_food` both
+default `True`), 297 with neither. The two partition the embedded candidate:
+`setup_choice_input_dim + setup_state_input_dim` equals the fused readout width
+(568 / 575, at the same split settings).
 
 **`candidates.py`** — The keep-set options the setup model scores:
 - `SetupCandidate(kept_cards, kept_foods, bonus_card)` — one keep option (a
@@ -51,16 +53,25 @@ fused readout width (568 / 575).
   a single deferred sentinel (`kept_foods=()`), producing 64 candidates for a
   5-card / 2-bonus deal instead of 504.
 
-**`encode.py`** — `encode_setup_candidate(candidate: SetupCandidate, gs: GameState, encoding: SetupEncoding)
--> np.ndarray`: per-candidate feature encoder. Features include: kept bird
-one-hots, habitat coverage, food-cost histogram, egg-limit sum, nest-type
-mix, kept-food vector, a per-round `goal_affinity` block (v1.5: priced via
-`goal_affinity_for_kept` — every kept bird assumed eventually played *and*
-egg-populated to whatever level best advances the category, so the 12
-egg-driven categories are no longer 0 at setup; pre-1.5 summed
-`goal_count_delta_for_bird`, egg-blind), and (when
-`encoding.include_turn1_playable`) a 180-dim multi-hot of birds payable from
-`kept_foods` on turn 1. Output width matches `encoding.total_dim`.
+**`encode.py`** — `encode_setup_candidate(candidate: SetupCandidate, context: SetupContext,
+encoding: SetupEncoding | None = None) -> np.ndarray`: per-candidate feature
+encoder. `SetupContext` is a picklable, engine-decoupled record of the shared
+per-deal context (tray birds, birdfeeder counts, round-goal categories) so a
+worker process can build it from its own catalog rather than pickling live
+game objects across the pipe. The always-present blocks, in order: kept-cards
+multi-hot, kept-foods multi-hot (omitted when `encoding.split_food`), a bonus
+block (kept-bonus one-hot + pricing when `split_bonus` is off, or
+available-bonus multi-hot + affinity when it's on), tray index columns,
+birdfeeder counts, round-goal one-hots, and a per-round `goal_affinity` block
+(v1.5: priced via `goal_affinity_for_kept` — every kept bird assumed
+eventually played *and* egg-populated to whatever level best advances the
+category, so the 12 egg-driven categories are no longer 0 at setup; pre-1.5
+summed `goal_count_delta_for_bird`, egg-blind). Optional trailing blocks:
+(when `encoding.include_turn1_playable`) a 180-dim multi-hot of kept birds
+playable on turn 1 given concrete `kept_foods`, and (when
+`encoding.include_playable_kept_cards`) a 180-dim multi-hot of kept birds for
+which *some* keepable food set would allow turn-1 play. Output width matches
+`encoding.total_dim`.
 Bonus pricing (the folded-mode `kept_bonus_value` block and the split-mode
 `bonus_card_affinity` min/max pair, both via `_kept_qual_for_bonus`) is
 optimistic since v1.5: `scoring.bonus_potential_count`, so the egg-counting
@@ -87,12 +98,16 @@ summing to `setup_state_input_dim` / `setup_choice_input_dim`. Analogous to
 `encode.stripes` for the main encoder.
 
 **`generate.py`** — `RandomSetupGenerator(hand_combos, food_sets,
-tuples_per_batch=16, *, split_food=False)` — generates random-setup candidates
+tuples_per_batch=16, split_food=False)` — generates random-setup candidates
 for a game deal. `split_food=True` skips biased food sampling entirely and emits
 `kept_foods=()` on every candidate (the engine resolves food via deferred in-game
-GAIN_FOOD / SPEND_FOOD decisions). `generate_one` returns one `SetupBatch` for a
-single game deal. `tuples_per_batch` defaults to 16 and is unused at runtime (was
-used by the removed batch-deal random-phase path).
+GAIN_FOOD / SPEND_FOOD decisions). `generate_one(rng, seat_deal, context) ->
+SetupCandidate` returns one seat's candidate — the setup the random opponent
+uses once the AI seats have switched to the setup model. `generate(rng, dealt,
+context) -> list[JointSetup]` (`JointSetup = tuple[SetupCandidate, ...]`)
+samples up to `tuples_per_batch` joint setups over a fixed deal — one candidate
+per seat, cross-producted via `itertools.product` then subsampled with
+`rng.sample` when the product exceeds `tuples_per_batch`.
 
 **`record.py`** — `SetupSample(features, margin, iteration, chosen_idx,
 all_candidates, own_total, opp_total, won, margin_checkpoints, score_checkpoints,

@@ -290,24 +290,21 @@ dependency — once a bird is played, its contribution is fixed.
 
 ---
 
-### Group 7 — Printed stats (2 cards)
+### Group 7 — Printed stats (1 card)
 
-These cards qualify birds based on a numeric attribute printed on the card (point value or
-food cost total), not a categorical tag.
+This card qualifies birds based on a numeric attribute printed on the card (point value), not
+a categorical tag.
 
 | Card | Condition | Payout |
 |---|---|---|
 | **Backyard Birder** | Birds worth < 4 points (i.e. 0, 1, 2, or 3 VP) | 5–6 birds: 3 pt; 6+ birds: 6 pt |
-| **Diet Specialist** | Birds with a food cost of exactly 3 food tokens | 2–3 birds: 3 pt; 4+ birds: 6 pt |
 
-**Scoring**: Static. `Bird.points` and the total of `Bird.food_cost.counts` are read at load
-time and the qualifying flag is baked into `Bird.bonus_categories`.
+**Scoring**: Static. `Bird.points` is read at load time and the qualifying flag is baked into
+`Bird.bonus_categories`.
 
 **Model visibility**: Backyard Birder appears in the 7-dim curated bonus-category multi-hot.
-Diet Specialist is not in the multi-hot (its signal is covered by the food-cost 6-vector;
-a bird with food_cost summing to 3 qualifies). Both still get the full held/count/stepped/
-linear bonus progress treatment in the state vector, and the bonus delta in choice vectors
-correctly prices them.
+It gets the full held/count/stepped/linear bonus progress treatment in the state vector, and
+the bonus delta in choice vectors correctly prices it.
 
 **Advances by**: Playing a qualifying bird. There is no habitat, egg, or timing dependency.
 
@@ -456,8 +453,10 @@ All four round goal slots are encoded in the state vector
 | [22] | VP the POV player would earn if the round scored now (÷ `_ROUND_GOAL_POINTS_SCALE = 10`) |
 
 Encoding all four rounds (not just the current one) lets the model plan toward later-round
-goals it is already accumulating toward. Already-scored rounds hold their frozen at-scoring
-standings — those stripes never change again even as the boards evolve.
+goals it is already accumulating toward. Already-scored rounds are zeroed out (noise
+suppression, `zero_passed_rounds=True`, the v0.9+ default in `_round_goals_all_rounds`) —
+scored history carries no signal for future decisions. Frozen at-scoring standings survive
+only on the `zero_passed_rounds=False` path used by pre-0.9 compat shims.
 
 ### Choice encoding — goal delta
 
@@ -468,6 +467,14 @@ rounds × 2) in the choice feature row:
 |---|---|
 | [2k] | Count delta from playing this bird against round k's goal |
 | [2k+1] | VP delta from that count change (at current opponent standing) |
+
+A second, parallel 8-dim stripe, **goal delta ignoring eggs** (`CHOICE_GOAL_DELTA_IGNORING_EGGS_OFFSET`/
+`_DIM`, v1.5), sits alongside it. For the 12 egg-driven categories the play-instant `goal_delta`
+reads 0 on a not-yet-played bird (it has no eggs yet); `goal_delta_ignoring_eggs` instead prices
+the bird's `egg_limit` as an optimistic best case via `goal_count_delta_for_bird_with_eggs`, so
+the model sees egg-goal potential before any eggs are laid. For non-egg-driven categories the
+two stripes carry identical values. See the per-category sections below for the exact
+computation each goal uses.
 
 For the egg-lay action, the accept row of the `AcceptExchangeDecision` carries an *optimistic
 best-case* count/vp delta (`goal_best_case_for_eggs`), and each `BirdTargetChoice` row carries
@@ -683,12 +690,14 @@ each other: a play that advances both gets a high `_BONUS_DELTA_STEPPED` *and* a
 
 ### Gap — scoring-only categories
 
-The 20 goal categories encoded in `_GOAL_CATEGORIES` cover all 16 core-set goals. The European
-and Oceania expansion goals (tucked_cards, wingspan_under_30, wingspan_over_65, birds_no_eggs)
-occupy the remaining 4 category slots and are evaluable by the engine, but the physical tiles
-that use them are not drawn in a core-only game.
-
-`tucked_cards` is used by the European "birds with tucked cards" goal and aligns with the
-Citizen Scientist bonus card (also European; not in the 26 core bonus cards). `wingspan_under_30`
-and `wingspan_over_65` align with the Passerine Specialist and Large Bird Specialist bonus cards
-respectively.
+The 20 goal categories encoded in `layout._GOAL_CATEGORIES` cover all 16 core-set goals plus 4
+extra slots (tucked_cards, wingspan_under_30, wingspan_over_65, birds_no_eggs). All four have
+working scorers in `engine.scoring._CATEGORY_COUNTERS`, but `cards.parse.fields._GOAL_CATEGORIES`
+— the exact-match table from a goal's raw description to its category tag — has no entry
+mapping any description to `tucked_cards`, `wingspan_under_30`, or `wingspan_over_65`; only
+`birds_no_eggs` has working description→category wiring (`"[bird] with no [egg]"`). No goal in
+`data/goals.json` (any set) concerns wingspan thresholds, so `wingspan_under_30` and
+`wingspan_over_65` have no goal to wire up even in principle. The one real tucked-cards goal
+(id 2006, European, `"[bird_with_tucked_card] birds with tucked cards"`) has no matching key
+and would fall through `fields.goal_category` to a synthetic `"unknown:..."` tag, which the
+engine scores as 0 — so the reserved slot and working counter go unused in practice.

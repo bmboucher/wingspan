@@ -19,21 +19,23 @@ tab) and `game_log_html.py` (play HTML). Holds four canonical string constants:
 Birds tab payload builder. Lazy imports of `game_log_html` inside `bird_cell_info`
 (and a `TYPE_CHECKING` guard for the annotation) break the potential circular import.
 
-**`html.py`** — `generate_html_report(descriptor: ModelConfig, out_path: Path)`:
-produces a self-contained HTML file with a full model summary including:
-architecture diagram (via `svg.py`), vector layout table (state + choice stripes
-from `encode.stripes`), a conditional **Board Token Vector** panel (rendered only
+**`html.py`** — `generate_html_report(state_layout, choice_layout, param_report,
+arch, *, setup_encoding, setup_arch, use_setup_model, state_dim, choice_dim,
+family_order, run_name, model_version) -> str`: returns a self-contained HTML
+document string with a full model summary including: architecture diagram (via
+`svg.py`), vector layout table (state + choice stripes from `encode.stripes`), a
+conditional **Board Token Vector** panel (rendered only
 when `param_report.board_attention` is not `None`, describing one board-attention
 token via `encode.stripes.board_token_stripe_layout`: the shared card embedding
 plus the 9 mutable per-slot scalars, plus — when `arch.board_attention_positions`
 — the constant habitat/column position block, threaded through via
 `board_token_stripe_layout(..., board_attention_positions=arch.board_attention_positions)`),
-parameter count breakdown, training config
-table, and a **Birds tab** (Model ↔ Birds toggle in the header; responsive grid of all 180
+setup-state/setup-choice vector sections, a parameter count breakdown, and a
+**Birds tab** (Model ↔ Birds toggle in the header; responsive grid of all 180
 core cards; click any card to open an `#enc-modal` showing that bird's non-identity
-attribute encoding stripes with named, decoded values).  Also
-`build_model_summary_html(descriptor, report) -> str` — the pure string
-variant consumed by `training.runmeta`'s reporting seam.
+attribute encoding stripes with named, decoded values). No training-config table.
+`build_model_summary_html` lives in `training.runmeta` (not here) and calls this
+function — see that module's `INDEX.md`.
 
 **`game_log_html.py`** — the HTML *game*-log viewer (vs `html.py`'s *model*
 report). `render_game_log_html(report: GameLogReport) -> str` /
@@ -140,12 +142,13 @@ length does not match the layout raises `ValueError` (mismatched-era decode woul
 silently mis-attribute every stripe past the divergence point). For setup decisions,
 `extract_setup_context_stripes(vector, encoding)` and `extract_setup_candidate_stripes(vector,
 encoding)` decode a raw setup candidate vector using `setup_model.setup_stripe_layout(encoding)`,
-partitioned at `_SETUP_CONTEXT_STRIPES`: context stripes (tray, birdfeeder) go to the state
-panel; per-candidate stripes (kept cards, bonus, pricing) go to the choice panel. All functions
+partitioned at `_SETUP_CONTEXT_STRIPES` (`{"tray", "birdfeeder", "round_goals", "bonus_cards"}`):
+context stripes go to the state panel; per-candidate stripes (kept cards, bonus, pricing) go to
+the choice panel. All functions
 skip all-zero and `encoding=="complex"` stripes. Called lazily from
 `gamelog.recorder._build_decision_options` to keep the reporting stack off the
 recorder's import-time path. `extract_card_attr_stripes(bird) ->
-list[game_log_html.EncodedStripe]` — decodes the non-identity attribute sub-fields from
+list[gamelog.models.EncodedStripe]` — decodes the non-identity attribute sub-fields from
 `state_encode.card_feature_matrix()` for a single bird, producing named decoded labels
 (habitats, food_cost, nest, color, bonus_categories, power_exchange, scalar fields); the
 `bird_identity` one-hot stripe is intentionally excluded.
@@ -154,8 +157,9 @@ list[game_log_html.EncodedStripe]` — decodes the non-identity attribute sub-fi
 `humanize_choice(choice, gs, player_id)` → concise option label per Choice
 subclass. `humanize_outcome(decision, choice, gs)` → third-person summary for
 the collapsed decision header. `humanize_note(text)` → strips the `[Name]`
-prefix and pattern-rewrites common engine notifications (plays, egg lays, card
-draws, food gains, power activations, birdfeeder resets). `humanize_forced(label)`
+prefix and pattern-rewrites common engine notifications (bird plays, card
+draws, food gains, power activations, birdfeeder resets/rerolls, extra-play
+decisions). `humanize_forced(label)`
 → rewrites `display_label()` patterns (deck, tray slot, board target) to
 human-friendly text.
 

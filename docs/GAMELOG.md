@@ -15,10 +15,10 @@ Six logical event categories, each with its own Pydantic subclass:
 | 1 | `PlayBirdEvent` | — | `actions.do_play_bird_action` / `consume_extra_plays` |
 | 2 | `ActivateBaseEvent` | `habitat`, `action` | `actions.do_gain_food` / `do_lay_eggs` / `do_draw_cards` |
 | 3 | `ActivateBrownEvent` | `bird_name`, `is_brown` | `actions.activate_row_powers` (one per crossed bird) |
-| 4 | `MainActionEvent` | — | `engine.core._take_turn` |
+| 4 | `MainActionEvent` | `action: str \| None = None` | `engine.core._take_turn` |
 | 5 | `SetupEvent` | `kept_card_names`, `kept_bonus_name` | `engine.core._resolve_setup_choice` |
-| 6 | `RoundGoalEvent` | `round_idx`, `description`, `counts`, `vps` | `engine.scoring.score_round_goal` |
-| 6 | `FinalScoringEvent` | `scores: list[FinalScoreBreakdown]` | `EventRecorder.end_game` |
+| 6a | `RoundGoalEvent` | `round_idx`, `description`, `counts`, `vps` | `engine.scoring.score_round_goal` |
+| 6b | `FinalScoringEvent` | `scores: list[FinalScoreBreakdown]` | `EventRecorder.end_game` |
 
 Additional event types used for nesting and for bracketing otherwise-loose asks:
 
@@ -82,6 +82,15 @@ score, reducing to the legacy own-minus-opponent value at 2 seats.  Game logs
 are regenerable reporting artifacts, not covered by the model-rehydration
 guarantee (`docs/VERSIONING.md`) — this schema can change freely across
 versions.
+
+**Era-routed stripe decoding.** `state_stripes` and each option's
+`choice_stripes` are decoded from the annotation's *own* recorded vectors
+using the annotation's own `state_layout` / `choice_layout` — the geometry of
+whichever net actually produced the decision — not the live codebase's
+layout. `gamelog.recorder._build_decision_options` passes
+`annotation.state_layout` through to `encode_viewer.extract_state_stripes`;
+the live layout is used only as a fallback when the annotation carries none.
+This keeps old game logs decoding correctly under newer, wider-encoding code.
 
 ## The effect ledger
 
@@ -213,8 +222,7 @@ This single rule handles all nesting correctly:
 
 | Call | Location |
 |------|----------|
-| `events.begin_game()` | `play_one_game` / `play_one_game_with_setups` before the game loop |
-| `events.begin_phase("game_start")` | same, immediately after `begin_game` |
+| `events.begin_game()` | `play_one_game` / `play_one_game_with_setups` before the game loop (pushes the `"game_start"` phase internally — see Phase structure above) |
 | `events.begin_phase("setup")` | `_resolve_setup_choice` **and** `_setup_phase_fixed` (each paired with `instrumentation.setup_start`) |
 | `events.begin_deal(player.id)` / `events.end_event()` | wraps `_deal_setup_inputs` (the dealt cards are reveals, and the deal precedes the setup phase) |
 | `events.begin_setup(player.id)` / `events.end_event()` | wraps the setup decision asks + deferred resolves |
@@ -247,13 +255,13 @@ This single rule handles all nesting correctly:
 
 | Call | Location |
 |------|----------|
-| `begin_reaction(other_player.id, bird_name)` / `end_event` | per-bird body in each `fire_pink_*` function |
+| `begin_reaction(other_player.id, bird_name)` / `end_event` | `trigger_pink_predator_success`, `fire_pink_lay_egg`, and the private helpers `_react_gain_from_supply`, `_react_cache_from_supply`, `_react_tuck_from_hand` |
 
 ### `engine/scoring.py`
 
 | Call | Location |
 |------|----------|
-| `events.record_round_goal(engine, round_idx, goal, counts, vps)` | `score_round_goal` |
+| `events.record_round_goal(engine, round_idx, goal.category, counts, vps)` | `score_round_goal` — the `goal.category` `str` is bound to the recorder's `description` param |
 
 ### `end_game` auto-emission
 

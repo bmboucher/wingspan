@@ -462,28 +462,31 @@ user-approved decision, never a side effect of another change. What 1.0 did:
   per-version 0.1–0.8 changelog that used to live here is recoverable from git
   history (it ran from "0.0 initial era" through "0.8 food-gain `becomes_playable`
   ignores eggs").
-- **Removed the dead code paths the shims existed to support.** The distinct-hand
-  encoder and `tray_set_embedding` — together with the `use_distinct_hand_model`
-  flag, the `_check_tray_set_embedding` validator, and their two `ShapeKey` slots
-  — are gone. The main net now always takes the pooled hand path (`HandPooling`,
-  unconditional), and `StateEmbedOffsets` dropped its `hand_summary` field (now
-  three offsets). The setup net's own `hand_encoder_layers` / `hand_embed_dim` /
-  `hand_embed_width` are **kept** (it still builds a hand encoder; they remain in
-  `setup_architecture_key`).
-- **Deleted the unused `BirdPowerPickBirdFromHandDecision` slot** from
-  `ALL_DECISION_CLASSES` and `_DECISION_FAMILY` — a real FRESH change that shrinks
-  the decision-type one-hot by 1. `num_families` is unchanged (`DRAW_BIRD` stays,
-  now serving `DrawCardsPickSourceDecision` alone).
-- **Removed pre-1.0 on-disk tooling.** The flat (≤0.4) config format and its
-  reshape/migration (`_reshape_flat_to_nested` / `_is_nested_config`), and the
-  legacy `model_config.json` / `setup_config.json` / `process_*.json` sidecar
-  readers + writers (and their name constants `MODEL_CONFIG_JSON`,
-  `SETUP_CONFIG_JSON`, `SETUP_CONFIG_JSON_LEGACY`, `PROCESS_PREFIX`,
-  `PROCESS_GLOB`), are gone — the unified `run_config_<stamp>.json` is the only
-  run-dir config artifact. The compat-only constants `N_ROUNDS` / `MAX_ACTION_CUBES`
-  were dropped from `encode/layout.py` (live game constants like `N_PLAYER_TURNS`
-  stay). The in-memory descriptors `runmeta.ModelConfig` / `setup_runmeta.SetupConfig`
-  are **kept** (they describe a loaded run).
+- **Left the dead code paths the shims existed to support in place.** Removing
+  the distinct-hand encoder and `tray_set_embedding` — together with the
+  `use_distinct_hand_model` flag, the `_check_tray_set_embedding` validator, and
+  their two `ShapeKey` slots — was drafted for 1.0 but did not land: the 1.0
+  branch was re-based onto a diverged main, and only the compat drop above plus
+  the version bump were re-applied. All of it is still live — `architecture.py`
+  still builds the distinct-hand path, `compat/v1_0.py` still reads both flags,
+  and `model.StateEmbedOffsets` still carries all five fields (`card_index`,
+  `hand_multihot`, `decision_type`, `hand_summary`, `hand_summary_end`). The
+  main net's own `hand_encoder_layers` / `hand_embed_dim` / `hand_embed_width`
+  were never slated for removal — they're `ModelArchitecture` fields pulled into
+  `setup_architecture_key` via `self.arch`, and they remain there regardless.
+- **Kept `BirdPowerPickBirdFromHandDecision`.** Its removal from
+  `ALL_DECISION_CLASSES` and `_DECISION_FAMILY` was likewise drafted and dropped
+  by the rebase; it is still present, still mapped to `DecisionFamily.DRAW_BIRD`
+  alongside `DrawCardsPickSourceDecision`.
+- **Kept the pre-1.0 on-disk tooling.** The flat (≤0.4) config format and its
+  reshape/migration (`_reshape_flat_to_nested` / `_is_nested_config`), the legacy
+  `model_config.json` / `setup_config.json` / `process_*.json` sidecar readers +
+  writers and their name constants (`MODEL_CONFIG_JSON`, `SETUP_CONFIG_JSON`,
+  `SETUP_CONFIG_JSON_LEGACY`, `PROCESS_PREFIX`, `PROCESS_GLOB`), and the
+  compat-only constants `N_ROUNDS` / `MAX_ACTION_CUBES` in `encode/layout.py`
+  are all still there for the same reason — `training/artifacts.py` even
+  comments that the legacy files are "still read for backward compat; no longer
+  written".
 
 The versioning *machinery* is intact: the `compat` package
 (`compat.encoding_dims_for_era`), the `PolicyValueNet.class_for_version` and
@@ -710,10 +713,11 @@ their self-play training metric — which never round-trips through the shim —
 stayed healthy. The structural fix makes the seam exhaustive: `_state_embed_offsets`
 returns a `model.StateEmbedOffsets` named tuple carrying every offset
 `_embed_state` reads, and each shim freezes the whole tuple — different stripes
-precede each, so they do not share one delta. (At 1.0 that tuple is three
-offsets — card-index, hand, decision; the fourth, `hand_summary`, was retired
-with the distinct hand model, since the pooled-only main net no longer slices the
-hand-summary stripe out of its continuous trunk input.)
+precede each, so they do not share one delta. (That tuple is still five fields
+today — `card_index`, `hand_multihot`, `decision_type`, `hand_summary`,
+`hand_summary_end` — because the distinct hand model and its hand-summary
+slicing were never removed; retiring them to three was drafted for 1.0 but did
+not land, see the v1.0 entry below.)
 
 And a third recurrence on 2026-07-12, this time on the *decode* side: the
 game-log HTML encoding viewer displayed recorded state vectors by walking the

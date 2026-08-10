@@ -1,8 +1,8 @@
 # Reward modes: how actor and critic losses are computed
 
 This explains the math behind `cfg.reward_mode` (`learner._flatten`,
-`learner._terminal_margin_returns`, `learner._decision_delta_returns`) in three
-cases:
+`learner._terminal_margin_returns`, `learner._decision_delta_returns`,
+`learner._gae_flatten`) in four cases:
 
 1. **`terminal_margin`** — the old method: every decision gets the terminal
    point margin.
@@ -10,24 +10,47 @@ cases:
    lookahead.
 3. **`decision_delta` with γ = 1** — per-decision margin differences, full
    lookahead.
+4. **`gae`** — Generalized Advantage Estimation: a backward TD-residual sweep
+   over captured value estimates, with its own `(γλ)^Δt` decay, producing the
+   advantage and value target directly rather than an intermediate return
+   `G_k`.
 
-## Notation and setup common to all three cases
+Cases 1-3 assume `reward_basis = MARGIN`, the default; see **Reward basis**
+below for how `OWN_SCORE` changes the picture.
+
+## Notation and setup common to all four cases
 
 Fix one player. Let $S_1, S_2, \dots, S_K$ be the states at that player's
 successive decisions, and let $M$ be the **final** point margin from their POV.
+
+**Reward basis assumption.** Everything below through Case 4 assumes the
+default `reward_basis = MARGIN` — $P(S)$ and $M$ are margins (own score minus
+the best other seat's score), so the two seats' values are opposite-signed.
+`RewardBasis.OWN_SCORE` swaps every margin quantity below for the player's own
+absolute score instead (both seats then get positive values); see **Reward
+basis: MARGIN vs OWN_SCORE** near the end of this document.
 
 - $P(S)$ — the running point margin of state $S$ (own score − opponent's, as if
   the game ended now). The collector snapshots this as `margin_before` right
   before each decision (`collect.running_margin`).
 - $V(S)$ — the critic's value estimate for state $S$.
 - $P(S, A)$ — the actor's logit (pre-softmax score) for action $A$ in state $S$.
+- `end_game_bonus` (config default `0.0`) — added to $M$ for the winning seat
+  and subtracted for every other seat before it enters any of the return/
+  advantage computations below (`returns.terminal_values`), so it discounts
+  back through prior decisions exactly like any other part of the terminal
+  margin. `OWN_SCORE` basis adds it only to the winner's value, leaving other
+  seats' terminal values unchanged.
 
 Note that $S_{k+1}$ is the state at your **next** decision, so
 $P(S_{k+1}) - P(S_k)$ includes both your action's effect **and** whatever the
 opponent did in between (margin is own − opponent).
 
-Every reward mode just produces a per-step **return** $G_k$; the loss machinery
-downstream is identical in all three cases.
+Cases 1-3 each just produce a per-step **return** $G_k$, from which the
+identical advantage/loss machinery below derives $A_k = G_k - V(S_k)$. Case 4
+(`gae`) instead produces $A_k$ (and the critic's value target) directly,
+skipping the intermediate $G_k$ — see Case 4 below — but feeds into the same
+normalization and loss formulas.
 
 **Policy probability.** The probability of the chosen action $A^{(k)}$ is the
 masked softmax over the legal options:
@@ -140,13 +163,62 @@ no longer inflate or deflate that decision's credit, which removes a large,
 easily-observable variance component from both the return and the critic's
 regression target.
 
+## Case 4 — `gae`
+
+GAE (`timestamps.gae_advantages`, driven from `learner._gae_flatten`) does not
+route through a single per-step return $G_k$ the way cases 1-3 do. It instead
+walks the same per-player checkpoint sequence — $P(S_1), \dots, P(S_K), M$ —
+backward and produces the advantage $\hat A_k$ (pre-normalization: $A_k$) and
+the critic's value target directly, using the *captured* value estimates
+$V(S_k)$ from collection time (`Step.value_pred`) rather than treating $V$ as
+something to be fit against a Monte Carlo return after the fact:
+
+$$
+r_k = P(S_{k+1}) - P(S_k), \qquad r_K = M - P(S_K)
+$$
+
+$$
+\delta_k = r_k + \gamma^{\Delta t_k}\, V(S_{k+1}) - V(S_k)
+\qquad\text{(} V(S_{K+1}) := 0 \text{, the terminal has no further value)}
+$$
+
+$$
+A_k = \delta_k + (\gamma\lambda)^{\Delta t_k}\, A_{k+1}
+\qquad\text{(} A_{K+1} := 0 \text{)}
+\qquad\qquad
+\text{target}_k = A_k + V(S_k)
+$$
+
+where $\Delta t_k = t_{k+1} - t_k$ is the game-clock gap (see **The game
+clock** below) and `gae_lambda` ($\lambda$, default $0.95$) is a second decay
+applied on top of $\gamma$ — it controls how much the backward sweep trusts
+the critic's own estimates $V(S_{k+1})$ versus the realized rewards $r_k$ at
+each step, independent of $\gamma$'s discounting of *how far ahead* a reward
+is credited. $A_k$ is what feeds the advantage-normalization step above (in
+place of $G_k - V(S_k)$); $\text{target}_k$ replaces $G_k$ as the critic's
+regression target.
+
+This is a strict generalization of cases 2 and 3: at $\lambda = 1$ the
+$(\gamma\lambda)^{\Delta t}$ decay reduces to $\gamma^{\Delta t}$ and the
+backward sum telescopes to exactly the MC return $G_k$ from the intermediate
+γ formula above, so $A_k = G_k/\text{score\_norm} - V(S_k)$ and
+$\text{target}_k = G_k/\text{score\_norm}$ — the case-1/3 values, scaled
+(`timestamps.gae_advantages`'s docstring calls this out as the correctness
+check). At $\lambda = 0$, $A_k = \delta_k$ collapses to one-step TD: only the
+very next checkpoint and the critic's own next-step estimate matter, the most
+biased/lowest-variance end of the spectrum. GAE requires `behavior_logp` and
+`value_pred` captured at collection time, since both the TD residual and the
+advantage depend on estimates that must come from the *acting* policy, not a
+value refit after the fact.
+
 ## Summary
 
-| Case | Return $G_k$ | Critic target $V(S)$ learns |
+| Case | Return / advantage | Critic target $V(S)$ learns |
 |---|---|---|
-| (1) `terminal_margin` | $M$ | expected final margin |
-| (2) `decision_delta`, γ = 0 | $P(S_{k+1}) - P(S_k)$ | expected one-step margin delta |
-| (3) `decision_delta`, γ = 1 | $M - P(S_k)$ | expected *remaining* margin gain |
+| (1) `terminal_margin` | $G_k = M$ | expected final margin |
+| (2) `decision_delta`, γ = 0 | $G_k = P(S_{k+1}) - P(S_k)$ | expected one-step margin delta |
+| (3) `decision_delta`, γ = 1 | $G_k = M - P(S_k)$ | expected *remaining* margin gain |
+| (4) `gae` | $A_k$ (TD-residual sweep, above) | $A_k + V(S_k)$, blending realized reward with the critic's own estimate |
 
 Intermediate γ (the config default is `reward_discount = 1.0`, mode default
 still `TERMINAL_MARGIN`) interpolates:
@@ -199,9 +271,41 @@ five of *your* turns later is discounted by $\gamma^{10}$ (your consecutive
 main actions are two timestamp units apart, since the opponent's turn sits
 between them) regardless of how many decisions anyone made in between.
 
-One more implementation nuance worth knowing: the two seats' steps live in the
-same batch with opposite-signed margins (zero-sum self-play), and because
-rewards are differenced per player using only *that player's* decision
-checkpoints, opponent moves between your decisions fold into your $r_k$ — the
-reward measures "how did the margin move between my decisions," not "what did
-my action alone score."
+One more implementation nuance worth knowing: under the default `MARGIN`
+basis, the two seats' steps live in the same batch with opposite-signed
+margins (zero-sum self-play), and because rewards are differenced per player
+using only *that player's* decision checkpoints, opponent moves between your
+decisions fold into your $r_k$ — the reward measures "how did the margin move
+between my decisions," not "what did my action alone score." Under
+`OWN_SCORE` basis (below) this is no longer zero-sum — both seats' checkpoint
+sequences are their own non-negative running score, not opposite-signed
+margins — but the per-player checkpoint routing and the game-clock $\Delta t$
+discounting are otherwise unchanged.
+
+## Reward basis: MARGIN vs OWN_SCORE
+
+Everything above is written for `reward_basis = MARGIN` (`RewardBasis.MARGIN`,
+the config default), where $P(S)$ is the running margin and $M$ the final
+margin — own score minus the best other seat's, so a 2-player game's two
+seats always get exactly opposite values.
+
+`RewardBasis.OWN_SCORE` swaps the checkpoint quantity for each player's own
+absolute score instead:
+
+- $P(S)$ becomes `score_before` (the collector's per-step running own-score
+  snapshot) rather than `margin_before`.
+- $M$ becomes the player's own final score rather than the margin against the
+  best opponent.
+
+Concretely, `learner._terminal_margin_returns`, `_decision_delta_returns`, and
+`_gae_flatten` all branch on `cfg.training.reward_basis`: with `OWN_SCORE`
+they read `step.score_before` where the formulas above read `step.margin_before`,
+and `returns.terminal_values` computes each seat's own final score (with
+`end_game_bonus` added only for the winner) rather than a signed margin. Every
+formula in this document — cases 1-4, the game clock, batch-wide advantage
+normalization — carries over unchanged with this substitution; only the sign
+relationship between seats changes. Because both seats' values are now
+positive rather than opposite-signed, the gradient pushes each seat toward
+maximizing its own raw score regardless of what the opponent scores, rather
+than toward beating the opponent — this is a genuinely different training
+objective, not just a rescaling.

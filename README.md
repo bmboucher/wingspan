@@ -2,9 +2,11 @@
 
 A simulator and reinforcement-learning training pipeline for the **core-set**
 board game [Wingspan](https://stonemaiergames.com/games/wingspan/), supporting
-**2-4 players**. A given trained network plays at exactly the seat count it was
-trained at (`num_players`, a per-run config field); `wingspan play` seats any
-mix of human, random, and AI players up to that count. You can play a full
+**2-4 players from the CLI** (the engine/config support up to 5; see
+[docs/PROJECT.md](docs/PROJECT.md)). A given trained network plays at exactly
+the seat count it was trained at (`num_players`, a per-run config field);
+`wingspan play` seats any mix of human, random, and AI players up to that
+count. You can play a full
 game from the terminal, run quick automated games for logs or debugging, watch
 a trained network play (against itself, a frozen past self, or a random
 agent), and train a neural-network agent by self-play while watching it
@@ -66,9 +68,15 @@ AI-driven, every genuine decision is annotated in the game log with the
 policy's ranked probability distribution over the legal options, turning the
 log into a move-by-move readout of what the network was "thinking", and
 `--greedy` makes AI seats take the argmax option instead of sampling. `--games
-N` plays a series (game *i* deals with `--seed + i`), `--log` writes the full
-action-by-action log per game, and `--quiet` suppresses the per-game summary.
-`--html FILE` additionally writes a self-contained HTML viewer that replays the
+N` plays a series (game *i* deals with `--seed + i`), `--log` writes a
+structured plaintext game log per game (sourced from the event tree — the
+same log the `--jsonl` and `--html` outputs are built from), and `--quiet`
+suppresses the per-game summary. For the older raw `engine.log` dump, use
+`--debug-log FILE` instead; by default it splits into `FILE_p0.log` /
+`FILE_p1.log` (one file per seat), or pass `--collate` for a single
+interleaved file. `--device` selects the torch device AI seats run
+inference on (`cpu` by default). `--html FILE` additionally writes a
+self-contained HTML viewer that replays the
 game one phase/turn at a time — prev/next arrows, a per-seat view toggle
 (`P0 / Both / P1` at 2 seats, `All / P0 / P1 / ...` at 3+ seats), 3x5 board
 grids pinned at the top, and a collapsible decision log beneath (for a

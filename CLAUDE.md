@@ -4,7 +4,7 @@ Project-specific guidance for the Wingspan simulator. Global style rules in `~/.
 
 ## What this project is
 
-A 2-player Wingspan core-set simulator (180 birds, 26 bonus cards, 16 round goals) plus an RL self-play training pipeline. The long-term goal is answering analytical questions about the game (card power rankings, food economy) via scale — **design for scaling up training, not the minimum that runs today**. See `README.md` for the CLI reference and `docs/PROJECT.md` for the package map.
+A 2-5 player Wingspan core-set simulator (180 birds, 26 bonus cards, 16 round goals) plus an RL self-play training pipeline — the `wingspan play` CLI exposes up to 4 seats (`--p0`..`--p3`); a 5-seat game is reachable via config/training but not yet from the CLI. The long-term goal is answering analytical questions about the game (card power rankings, food economy) via scale — **design for scaling up training, not the minimum that runs today**. See `README.md` for the CLI reference and `docs/PROJECT.md` for the package map.
 
 ## Documentation files
 
@@ -101,7 +101,7 @@ Action/track/cost constants at the top of `state.py`; encoder dims and stripe of
 
 ## Test conventions
 
-- Tests prepend `src/` to `sys.path` (see `test_smoke.py`) — new tests match this pattern.
+- `pyproject.toml` sets `pythonpath = ["src"]`, so most tests import `wingspan` directly with no path setup (see `test_smoke.py`); a few tests instead prepend `src/` to `sys.path` manually (see `test_powers_house_wren.py`) — match whichever pattern the file you're editing already uses.
 - One file per power (`tests/test_powers_*.py`); cross-power smoke test is `test_smoke.py`; training-cycle coverage in `test_model_and_self_play.py`.
 
 ## Things to avoid

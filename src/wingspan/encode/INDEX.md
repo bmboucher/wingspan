@@ -24,7 +24,13 @@ stripe offsets. Key exports:
   derive spec from run config.
 - `state_feature_dim(spec) -> int`, `choice_feature_dim(spec) -> int`,
   `decision_type_dim(spec) -> int`, `num_families(spec) -> int` — spec-dependent
-  totals consumed by `model.core.PolicyValueNet` at construction time.
+  totals. `PolicyValueNet.__init__` calls `encode.state_size` (which calls
+  `state_feature_dim` internally) and `encode.choice_feature_dim` directly,
+  but computes the family count inline via
+  `len(decisions.active_decision_families(spec.include_setup))` rather than
+  calling `num_families` — which has no caller outside its own definition/
+  re-export. `decision_type_dim` is used only within `encode/` itself
+  (`layout.py`, `state_encode.py`, `stripes/state.py`).
 - `state_cont_layout(spec)`, `choice_base_layout(spec)`, `choice_full_layout(spec)`
   — `functools.lru_cache`d, spec-parameterized stripe-layout builders (replace
   the pre-N-player module-literal stripe-spec lists). `STATE_CONT_LAYOUT` /

@@ -6,25 +6,32 @@ Pydantic models — they are never mutated after load.
 
 ## Modules
 
-**`__init__.py`** — re-exports the public surface: `Bird`, `BonusCard`, `EndRoundGoal`,
-`Food`, `Habitat`, `NestType`, `PowerColor`, `EffectKind`, `Power`, `ALL_FOODS`,
-`ALL_HABITATS`, `food_index`, `nest_matches`, `parse_power`, `load_all`,
-`power_coverage`. Import from here, not from `schema` or `parse` directly.
+**`__init__.py`** — re-exports the public surface (`__all__` has 31 names,
+including `Bird`, `BonusCard`, `EndRoundGoal`, `Food`, `Habitat`, `NestType`,
+`PowerColor`, `EffectKind`, `Power`, `ALL_FOODS`, `ALL_HABITATS`, `food_index`,
+`nest_matches`, `parse_power`, `load_all`, `power_coverage`, plus the raw-record
+and ordering/index helpers). Import from here, not from `schema` or `parse`
+directly.
 
 **`schema.py`** — All enums and Pydantic models:
 - `Habitat` (`FOREST`, `GRASSLAND`, `WETLAND`), `Food` (`INVERTEBRATE`, `SEED`,
   `FISH`, `FRUIT`, `RODENT`), `NestType`, `PowerColor`.
-- `EffectKind` — ~60+ generic power-pattern variants (e.g. `GAIN_FOOD_SUPPLY`,
-  `LAY_EGG_ON_THIS`, `DRAW_CARDS`, `TUCK_CARD`, `UNIMPLEMENTED`). The canonical
+- `EffectKind` — 46 generic power-pattern variants (e.g. `GAIN_FOOD_SUPPLY`,
+  `LAY_EGG_ON_THIS`, `DRAW_CARDS`, `TUCK_FROM_HAND`, `UNIMPLEMENTED`). The canonical
   list of what the engine can dispatch.
 - `Power(color, effect: EffectKind, metadata)` — parsed IR for a single bird power.
-- `Bird(name, habitat, wingspan, food_cost: FoodPool, egg_limit, nest_type,
-  power_color, powers)` — frozen, the main card object.
-- `BonusCard(name, explanatory, scoring_rule)`, `EndRoundGoal(name, category,
-  explanatory)` — other card types.
+- `Bird(id, name, scientific_name, color: PowerColor, points, nest: NestType,
+  egg_limit, wingspan_cm, habitats: tuple[Habitat, ...], food_cost: BirdCost,
+  flocking, predator, raw_power_text, power: Power, bonus_categories)` —
+  frozen, the main card object. Note `food_cost` is `BirdCost`, an
+  immutable 6-slot payment vector — not the `state.py` `FoodPool`.
+- `BonusCard(id, name, condition, explanatory, vp_text, thresholds, per_bird_vp)`,
+  `EndRoundGoal(id, description, category, tile_id)` — other card types.
 - `BirdRecord`, `BonusRecord`, `GoalRecord` — raw-JSON input models with
-  `Field(alias=...)` and `extra="allow"`; each exposes a `.load()` method that
-  returns the corresponding typed card object.
+  `Field(alias=...)`; each exposes a `.load()` method that returns the
+  corresponding typed card object. Only `BirdRecord` declares
+  `extra="allow"` (the JSON source has extra columns per printed card);
+  `BonusRecord` and `GoalRecord` have no `model_config`.
 - `ALL_FOODS`, `ALL_HABITATS`, `N_FOODS` — canonical orderings (append-only;
   part of the encoder's checkpoint format).
 - `food_index(food) -> int`, `nest_matches(bird_nest, target) -> bool`.

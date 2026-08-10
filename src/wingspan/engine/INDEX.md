@@ -18,11 +18,18 @@ scoring) lives in sibling modules as free functions whose first argument is the
   constructor. `combine_gain_food` is the engine-behavior flag (default off) read
   by `actions.do_gain_food` / the raven supply handler / the setup-food branch to
   collapse multi-food gains into one combined subset decision.
-- `Engine.create(seed) -> (Engine, birds, bonuses, goals)` — static factory that
-  instantiates a fresh game from a seed.
-- `Engine.play_one_game(gs, agents: Sequence[Agent], instrumentation, split_setup_bonus) -> Engine`
-  — static entry point for a complete game. `agents` is indexed by `Player.id`
-  (length must match `len(gs.players)`), not fixed at 2.
+- `Engine.create(seed, num_players=2) -> (Engine, birds, bonuses, goals)` —
+  static factory that instantiates a fresh game from a seed.
+- `Engine.play_one_game(gs, agents: Sequence[Agent], instrumentation,
+  event_recorder=None, *, split_setup_bonus=False, split_setup_food=False,
+  combine_gain_food=False) -> Engine` — static entry point for a complete
+  game. `agents` is indexed by `Player.id` (length must match
+  `len(gs.players)`), not fixed at 2. `Engine.play_one_game_with_setups(gs,
+  agents, choose_setups, instrumentation, event_recorder=None, *,
+  split_setup_food=False, combine_gain_food=False) -> Engine` is the sibling
+  entry point for the setup-model collection path: like `play_one_game`, but
+  the setup phase is resolved by `choose_setups` instead of by asking each
+  agent.
 - `Engine.ask[C](agent, decision) -> C` — validates the agent's answer against
   `decision.choices`; auto-picks single-choice decisions; fires instrumentation
   callbacks. Never bypass `ask` — constructing a `Choice` directly skips validation.
@@ -36,6 +43,19 @@ scoring) lives in sibling modules as free functions whose first argument is the
   both logs. Use for round headers, game start/end banners.
 - `Engine.log_section(msg, global_line=False)` — section header with blank-line
   guarantee. Pass `global_line=True` for banners that belong to no single player.
+- `Engine.events: gamelog_recorder.AnyRecorder` — the structured event tree,
+  parallel to the plain-text log above. Defaults to a no-op recorder; pass
+  `event_recorder` to the constructor (or to `play_one_game` /
+  `play_one_game_with_setups`) to attach a real one. See `docs/GAMELOG.md`.
+- The turn loop: `_setup_phase(agents, *, defer_bonus, defer_food)` deals and
+  resolves the pre-round-1 setup pick for each player; `_play_round(round_idx,
+  agents)` resets per-round cube counts and bird activations, then rotates
+  turns clockwise; `_take_turn(agent)` resets per-turn scratch state
+  (`GameState.reset_turn_state`, which zeroes `turn_extra_plays` — the FIFO
+  queue of power-granted extra-play credits consumed by
+  `actions.consume_extra_plays` — and `turn_end_discards`, the
+  "draw N then discard 1 at end of turn" obligation count), then prompts the
+  main action, dispatches it, resolves any extra plays, and refills the tray.
 
 **`state.LogEntry`** — Pydantic model (`player_id: int | None`, `text: str`).
 Parallel structured log in `GameState.log_entries`; consumed by `cli._write_split_logs`
@@ -44,8 +64,13 @@ marks global lines that appear in both per-player files.
 
 **`actions.py`** — The four main actions as free functions:
 `do_gain_food(engine, agent)`, `do_lay_eggs(engine, agent)`,
-`do_draw_cards(engine, agent)`, `do_play_bird(engine, agent)`. Each mutates
+`do_draw_cards(engine, agent)`, `do_play_bird_action(engine, agent)` (the
+`PLAY_BIRD` branch `Engine._dispatch_main_action` calls). Each mutates
 `engine.state` and calls `engine.ask` for any decisions required by the action.
+`do_play_bird(engine, agent, card: cards.Bird, habitat: cards.Habitat)` is the
+lower-level cost-resolving executor that `do_play_bird_action` (and extra
+plays) commit a picked `(bird, habitat)` to: eggs then food, matching the
+printed action sequence.
 Under `engine.combine_gain_food`, multi-food gains route through the combined
 builders: `combined_feeder_gain(engine, agent, player, n)` (the path-dependent
 Forest feeder gain — reset folded in, partial subset → committed reroll →
@@ -132,8 +157,11 @@ ties split the floor of their combined places' payouts) against
 `determine_winner(players) -> int` are the shared game-winner kernel (highest
 `final_score`, ties broken by most unused supply food; `determine_winner`
 returns -1 for a genuine shared victory). `final_scoring(engine) -> None` sets
-each `Player.final_score`. Bonus-card scoring lives here too; each
-`BonusCard.scoring_rule` is dispatched through a registry.
+each `Player.final_score`. Bonus-card scoring lives here too:
+`bonus_score_for_count(bc, count) -> int` reads `bc.thresholds` /
+`bc.per_bird_vp` directly (no registry); the four dynamic cards (count
+depends on live board/hand state, not a static tag) dispatch through the
+plain `_DYNAMIC_BONUS_COUNTERS` dict keyed on `bc.name`.
 `bonus_potential_count(bc, birds, *, hand_sized=False)` (v1.5) is the shared
 optimistic potential counter the encoders and CLI display use for
 not-yet-played birds — static tag, egg capacity reaching the egg-counting
@@ -148,19 +176,25 @@ the threshold; the source of the `MainActionDecision` LAY_EGGS row's
 `bonus_delta` best case.
 
 **`helpers.py`** — Pure utility functions with no side effects:
-`cost_meets(food_pool, cost) -> bool` and
+`cost_meets(cost: BirdCost, payment: FoodPool) -> bool`,
 `enumerate_payments(food_pool, cost) -> list[FoodPool]` (all valid payment
-combinations). Used by both `actions.py` and the encoder.
+combinations), and `any_payment_exists(available, cost) -> bool` (a cheaper
+existence check than enumerating). Used by both `actions.py` and the encoder.
 
 **`playability.py`** — Pure playability predicates over `state.Player`:
-`classify_hand_playability(player) -> (playable_now, egg_blocked)` (the two
-hand multi-hot sources), `newly_playable_after_food`, `newly_playable_after_egg`,
-`gainable_feeder_foods`, `newly_playable_after_feeder_food`,
+`classify_hand_playability(player) -> (playable_now, playable_if_more_eggs)`
+(the two hand multi-hot sources; `egg_blocked` is only an internal loop flag,
+not part of the return), `newly_playable_after_food`, `newly_playable_after_foods`,
+`newly_playable_after_egg`, `gainable_feeder_foods`, `newly_playable_after_feeder_food`,
 `min_food_to_unlock(player, candidates) -> list[int]` (per-food smallest count
 that would newly unlock a candidate bird — source of the v1.4
 `hand_food_unlock_me` / `tray_food_unlock_me` state stripes), and
-`setup_turn1_playable`. Imported **locally** inside encoder functions to keep
-`encode` engine-free at import time.
+`setup_turn1_playable`. A counterfactual-loss family mirrors these for the
+opposite direction — what would stop being playable: `newly_unplayable_after_egg_loss`,
+`newly_unplayable_after_food_removed`, `newly_unplayable_after_optimistic_food_loss`,
+`newly_unplayable_after_play`, `setup_playable_kept_cards`. Imported
+**locally** inside encoder functions to keep `encode` engine-free at import
+time.
 
 **`forecast.py`** — Optimistic exchange forecasts for `MainActionDecision` rows,
 over `(state.Player, state.GameState)` — no `Engine`:
@@ -174,8 +208,10 @@ end-of-turn discard side) and
 gain, then the row's one-shot trade-arrow conversion, then every brown row
 power right-to-left — under running `_Budgets` for food/eggs/hand/egg room).
 
-**`log_format.py`** — Formatting helpers for the game log: `format_bird_log`,
-`format_food_log`, etc. Pure string functions; no engine state.
+**`log_format.py`** — Formatting helpers for the game log: `log_game_setup(engine)`,
+`log_dealt_hand(engine, player, dealt_cards)`, `log_dealt_bonus(...)`,
+`log_turn_summary(engine)`. All take the live `Engine` and write into it via
+the engine's `log` sink — not pure functions.
 
 ## Subpackage
 

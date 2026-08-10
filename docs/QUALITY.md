@@ -44,6 +44,11 @@ Always run the full gate (no section flags) before committing. Strict-mode
 pyright must be completely clean (`reportPrivateImportUsage = false` silences
 torch's under-exporting stubs — don't re-enable it).
 
+`--coverage` is a separate, narrower invocation — it does **not** run pyright,
+isort, or black (see the next section). Getting full coverage before
+committing means running both: the bare full gate, then `--coverage`
+separately if you want the coverage regression check too.
+
 ## Section flags (targeted runs)
 
 Everything after a section flag passes verbatim to the underlying tool. Steps
@@ -53,7 +58,7 @@ always execute in canonical gate order regardless of flag order.
 bash scripts/quality_gate.sh --pyright src/wingspan/state.py   # types only / one file
 bash scripts/quality_gate.sh --format                          # isort + black only
 bash scripts/quality_gate.sh --pytest tests/test_encode.py -k state -x -q
-bash scripts/quality_gate.sh --coverage                        # full gate + coverage regression
+bash scripts/quality_gate.sh --coverage                        # pytest (serial, --cov) + coverage regression only — NOT pyright/isort/black
 bash scripts/quality_gate.sh --debug                           # full verbose output for all steps
 ```
 
@@ -69,8 +74,19 @@ Pass `--coverage` (no args) to run pytest serially with `--cov
 --cov-report=term-missing`, then compare the TOTAL percentage against
 `coverage_baseline.txt` in the repo root.
 
+**`--coverage` alone does not run pyright, isort, or black.** In the script's
+arg parsing, `--coverage` sets `RUN_COVERAGE=true`, which implies
+`RUN_PYTEST=true` — and that happens before the "no section flags → full gate"
+check, so `FULL_GATE` never turns on and the type/format steps are skipped.
+`bash scripts/quality_gate.sh --coverage` on its own is a pytest+coverage run,
+not a full gate.
+
 `merge_worktree.sh` always passes `--coverage`; it is not needed during worktree
-iteration.
+iteration. Concretely, this means the merge step re-runs tests and the
+coverage regression check on the squashed result, but it does **not**
+re-verify types or formatting there — the last pyright/isort/black check was
+whatever you last ran by hand (typically the bare full gate) before
+committing.
 
 The baseline ratchets upward:
 - Coverage improves → baseline file updated automatically; commit it with your change.

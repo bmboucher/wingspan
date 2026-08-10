@@ -5,9 +5,13 @@ own `INDEX.md`; load only the one(s) relevant to the area you're working in.
 
 ## What's modelled
 
-- **Core set, 2-4 players (per-run seat count), no automa:** 180 birds, 26 bonus
+- **Core set, 2-5 players (per-run seat count), no automa:** 180 birds, 26 bonus
   cards, 16 end-of-round goals. `num_players` is a per-training-run config
-  field — a given network trains and plays at exactly one fixed seat count.
+  field (`Field(ge=2, le=5)` in `architecture.py`, `encode/layout.py`,
+  `training/config.py`) — a given network trains and plays at exactly one
+  fixed seat count. The `wingspan play` CLI only exposes 4 seats
+  (`--p0`..`--p3`); a 5-seat game is reachable via config/training but not
+  yet from the CLI.
 - Every bird's "when played / when activated / between turns" power is handled
   by a small library of generic power patterns. All core-set birds are covered;
   anything a future pattern doesn't yet recognise falls back to a logged no-op

@@ -2,20 +2,26 @@
 
 General-purpose event router that an `Engine` holds. Configure a set of handlers
 via a serializable `InstrumentationConfig`, attach it to an engine, and the
-router fires typed callbacks on game events. Used for training data collection
-(decision logging) and analytics (per-bird play tallies).
+router fires typed callbacks on game events. Used for human-readable audit
+logging (decision logging, per-bird play tallies) and HTML game-log rendering.
 
 ## Modules
 
 **`__init__.py`**
 
 **`config.py`** — `InstrumentationConfig` and `RunContext`:
-- `InstrumentationConfig(handlers: list[HandlerConfig])` — serializable list of
-  handler configs; passed at engine construction time. Each entry names a handler
-  class and its parameters.
-- `RunContext(run_name, checkpoint_dir, iteration)` — per-run metadata threaded
-  through to handlers so they can name their output files correctly.
-- `HandlerConfig` — abstract base; each handler module defines its own subclass.
+- `InstrumentationConfig` — two layers, matching the user-facing YAML:
+  `handlers: dict[str, CallbackHandler]` (named handler instances, each a
+  registered `CallbackHandler` subclass validated via `SerializeAsAny`) and
+  `events: dict[EventName, list[str]]` (the event -> handler-names assignment;
+  one handler may be assigned to several events and accumulate state across
+  them). `build()` constructs the live `dispatcher.Instrumentation` router.
+- `RunContext(output_dir, run_name, seed, matchup, worker_id)` — per-run
+  metadata threaded through to handlers so they can name their output files
+  correctly. `worker_id` is reserved for the future per-worker collection path.
+- There is no separate `HandlerConfig` class — `CallbackHandler` (see
+  `events.py`) doubles as its own config: its declared Pydantic fields are the
+  handler's constructor kwargs.
 
 **`dispatcher.py`** — `Instrumentation`: the live event router held by `Engine`.
 One typed `fire` method per `EventName` (e.g. `game_start(engine=...)`,
@@ -52,14 +58,18 @@ Built-in handler implementations.
 
 **`handlers/__init__.py`**
 
-**`handlers/card_visits.py`** — `CardVisitsHandler` / `CardVisitsConfig`: counts
-how many times each bird is played per game. Writes a `card_visits.json` summary
-at game end. Useful for coverage reports and card-popularity analytics.
+**`handlers/card_visits.py`** — `CardVisitRecorder` (registered `"CardVisitRecorder"`):
+counts how many times each bird is played per game, accumulating across
+`bird_placed` events and flushing one JSONL tally row per game on `game_end` to
+the configurable `output_path: str` (no fixed filename). Useful for coverage
+reports and card-popularity analytics.
 
-**`handlers/decision_logger.py`** — `DecisionLoggerHandler` / `DecisionLoggerConfig`:
-appends a JSONL row for every `MADE_DECISION` event. Each row contains the encoded
-state vector, encoded choice matrix, and the chosen index — the primary source
-of training data for offline supervised learning.
+**`handlers/decision_logger.py`** — `DecisionLogger` (registered `"DecisionLogger"`):
+appends one JSONL row per `made_decision` event to `output_path: str`. Each row
+is `{"round", "decision", "player_id", "n_choices", "chosen"}`, where `decision`
+is the decision class name and `chosen` is the chosen option's human-readable
+the choice's `display_label` — there are no encoded state/choice vectors here; this
+is a plain, human-readable audit log, not training data.
 
 **`handlers/game_log_html.py`** — `GameLogHtml` (`GameLogHtmlHandler`): records
 each game as a navigable, self-contained HTML log viewer (the `wingspan play

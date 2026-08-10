@@ -22,7 +22,8 @@ The measured profile is in §1 and is the foundation for every later decision.
 >   (2,4,8,16,32,64,128,256,512,2048)`; the old single-pad-to-widest tensor is gone.
 > - **Parallel collection** (§4.1) — a persistent CPU process pool
 >   (`mp_collect.ProcessCollector`) *and* an in-process CUDA batched-inference
->   collector (`batched_collect.BatchedCollector`); per-iteration weight broadcast.
+>   collector (`batched_collect.collect_games`, backed by the private
+>   `_BatchInferenceServer`); per-iteration weight broadcast.
 > - **The shared card embedding** (§6.3) — one card table is read everywhere a
 >   bird appears (board, tray, hand, choices), via integer index stripes.
 > - **A paired-game evaluation harness** (§7) — mirrored deals, 95% CI, mean
@@ -30,9 +31,9 @@ The measured profile is in §1 and is the foundation for every later decision.
 > - **Resumable checkpoints** (§5.1) — model + optimizer + config + metrics +
 >   progress counters + git SHA + encoding-era stamp, written atomically as
 >   `last.pt`/`best.pt`/`opponent.pt`, plus `metrics.jsonl` and `games.jsonl`.
-> - **Seeding** of Python / NumPy / torch (§5); a **separate setup model** with an
->   opt-in actor-critic mode (§6.4–6.5); and a **`decision_delta` reward mode**
->   alongside the default `terminal_margin` (§2).
+> - **Seeding** of Python / NumPy / torch (§5); a **separate setup model** with a
+>   mandatory actor-critic policy head (§6.4–6.5); and a **`decision_delta` reward
+>   mode** alongside the default `terminal_margin` (§2).
 >
 > **Device.** Both CPU and CUDA are supported (the §1.4/§4 "collect on CPU, update
 > on GPU" framing is no longer a hard split): CPU runs collect through the process
@@ -46,10 +47,10 @@ The measured profile is in §1 and is the foundation for every later decision.
 > `ppo_clip_eps`, `ppo_reuse_epochs`, and `gae_lambda` config knobs.
 >
 > Two caveats on the numbers below. (1) The §1.1 sizes have been **re-measured
-> against current `main`**: state vector **795**, choice vector **215**,
-> **21** decision classes, **~1.02 M** parameters with the shared embedding — the
+> against current `main`**: state vector **1309**, choice vector **517**,
+> **21** decision classes, **935,629** parameters with the shared embedding — the
 > old 532 k / 13-heads-are-80%-of-params framing is obsolete (the heads are now
-> ~39%, the trunk ~37%). (2) Checkpoints do **not** store RNG state, so a resumed
+> ~42%, the trunk ~45%). (2) Checkpoints do **not** store RNG state, so a resumed
 > session is *not* bit-for-bit identical — but every collected game is
 > seed-reproducible from `config.misc.seed`, so the per-game logs are stable.
 > Engine fidelity as of this pass: all core bird powers fire (including the four
@@ -97,7 +98,7 @@ Priorities, in order. Each links to its section; ✅ = shipped, ☐ = still open
 5. ☐ **Only then consider a bigger network** (§6), and only on evidence of
    *underfitting* measured against the §7 yardstick. Note the parameter budget
    has shifted: with the shared embedding and the wider trunk, the per-family
-   heads are now ~**39 %** of parameters and the shared trunk ~**37 %** — the
+   heads are now ~**42 %** of parameters and the shared trunk ~**45 %** — the
    trunk is no longer the cheap part, but it is still the thing that lifts every
    head at once when widened.
 
@@ -114,11 +115,11 @@ it produces. Here is this game, as the encoder and engine actually emit it.
 
 | Quantity | Value | Source |
 |---|---|---|
-| State vector length | **795** | `encode.state_size()` |
-| Per-choice feature length | **215** | `encode.choice_feature_dim()` |
+| State vector length | **1309** | `encode.state_size()` |
+| Per-choice feature length | **517** | `encode.choice_feature_dim()` |
 | Judgment-family heads (main net) | **12** | `decisions.active_decision_families(False)` |
 | Distinct decision classes | **21** | `decisions.ALL_DECISION_CLASSES` |
-| Total parameters (default arch) | **1,015,949** | `model.PolicyValueNet()` |
+| Total parameters (default arch) | **935,629** | `model.PolicyValueNet()` |
 
 The main net carries **12** family heads, not 13: `setup` is its own model by
 default (§6.4), so the `SETUP` head is excluded from `PolicyValueNet`.
@@ -129,14 +130,13 @@ mass out of the heads:
 
 | Component | Parameters | Share |
 |---|---|---|
-| State trunk (shared) | 376,576 | 37.1 % |
-| Per-choice encoder (shared) | 173,184 | 17.0 % |
-| Card encoder + shared embedding | 37,056 | 3.6 % |
-| Hand encoder (shared) | 32,704 | 3.2 % |
-| **12 scoring heads** | **396,300** | **39.0 %** |
+| State trunk (shared) | 424,192 | 45.3 % |
+| Per-choice encoder (shared) | 77,824 | 8.3 % |
+| Card encoder + shared embedding | 37,184 | 4.0 % |
+| **12 scoring heads** | **396,300** | **42.4 %** |
 | Value head (shared) | 129 | 0.0 % |
 
-The heads (39 %) and the shared trunk (37 %) are now comparable; the trunk is no
+The heads (42 %) and the shared trunk (45 %) are now comparable; the trunk is no
 longer the "cheapest part." This still matters for §6, but the lesson flips: the
 shared representation is now a first-class consumer of the parameter budget, so
 widening it is a real (not free) capacity decision — just one that lifts every
@@ -204,7 +204,7 @@ Almost every decision is small, but a few are enormous:
 > the original single-pad-to-widest training step. They are kept because they are
 > the *motivation* for the fix — length-bucketing (§4.2a) — which has since
 > shipped, so the pathological numbers below no longer occur. The choice-feature
-> width is also now **215**, not the 260 used in the worked example below.
+> width is also now **517**, not the 260 used in the worked example below.
 
 89.5 % of decisions offer four options or fewer. But the opening draft offers
 **504**, and a food-rich late-game `PlayBirdDecision` can offer **several
@@ -564,9 +564,10 @@ gradient update is nearly free. The job of this section is to keep the GPU fed.
 > `mp_collect.ProcessCollector` runs a persistent worker pool (reused across
 > iterations to amortize Windows spawn cost, capped at 16 workers) with weights
 > broadcast each iteration via a versioned on-disk `_mp_weights.pt`. On CUDA,
-> `batched_collect.BatchedCollector` runs the "batched-inference actor loop"
+> `batched_collect.collect_games` runs the "batched-inference actor loop"
 > described at the end of this subsection — many games stepped concurrently
-> through one batched forward pass. The collector is chosen by `misc.device`.
+> through one batched forward pass, backed by the private
+> `_BatchInferenceServer`. The collector is chosen by `misc.device`.
 
 The standard scalable-RL architecture, scaled to one machine:
 
@@ -610,7 +611,7 @@ of many processes, a single loop steps many games forward concurrently and
 collects their current decisions into one batched forward pass — turning the
 batch-of-one GPU penalty into a GPU *win*, and avoiding process overhead. It is
 fiddlier because games desynchronize (different games reach decisions at
-different times); `BatchedCollector` handles this with a batch-inference server
+different times); `collect_games` handles this with a `_BatchInferenceServer`
 that blocks until every live game has a pending request, then runs one
 padded/masked forward and hands results back. It is the CUDA-path collector;
 the CPU path uses the process pool.
@@ -688,10 +689,12 @@ below for context.
 ### 5.1 What a checkpoint must contain
 
 A checkpoint has to let you (a) resume a crashed run *exactly*, and (b) re-derive
-results later. **As shipped**, `loop_checkpoint.atomic_save` writes a single dict
-per checkpoint containing: `config` (the full `RunConfig.model_dump()`), `model`
-(`state_dict`), `optimizer` (Adam moments), `metrics` (this iteration's
-`IterationMetrics`), `progress` (resumable counters — iteration, opponent
+results later. **As shipped**, `loop_checkpoint.checkpoint_payload` builds a
+single dict shared by every checkpoint write (`last.pt`, `best.pt`, and the
+target-milestone `final_<n>.pt`), containing: `config` (the full
+`RunConfig.model_dump()`), `model` (`state_dict`), `optimizer` (Adam moments),
+`metrics` (this iteration's `IterationMetrics`), `progress` (resumable counters
+— iteration, opponent
 generation, phase), `git_sha`, and `version` (the run's *encoding era*, not the
 live `MODEL_VERSION` — era-pinned resume, see `docs/VERSIONING.md`). The one thing
 it deliberately does **not** carry is RNG state, so resume is not bit-for-bit
@@ -815,7 +818,7 @@ the remaining preconditions before spending capacity are the algorithm upgrade
   — that single embedding table *is* the per-card power readout.
 - **Widen the trunk before the heads.** The shared "read the board" trunk is the
   thing every decision and the critic depend on. It is no longer the cheap part
-  of the net — at the default `(128, 128)` it is already ~37 % of parameters
+  of the net — at the default `(128, 128)` it is already ~45 % of parameters
   (§1.1) — so widening it to 256–512 is a real capacity decision, but it lifts
   every head and the critic at once, whereas widening a head helps only the
   families that exercise it.
@@ -843,46 +846,47 @@ effort:
   these structured terms — DECISIONS.md §2.9).
 - **Treat `setup` as its own model** (now the default, DECISIONS.md §2.13): it
   is rare, high-variance, high-dimensional, and game-defining. The separate
-  setup net realizes this; it trains on-policy with REINFORCE from iteration 0
-  by default, and can optionally use a random-generation bootstrap phase as
-  an initializer (legacy warmup knobs, see §6.5).
+  setup net realizes this; it trains on-policy with actor-critic REINFORCE
+  from iteration 0 unconditionally — no bootstrap/warmup phase exists (see
+  §6.5).
 
 ### 6.5 The setup model's training schedule and actor-critic mode
 
-#### Default: MODEL_DRIVEN from iteration 0
+#### MODEL_DRIVEN from iteration 0, unconditionally
 
-By default (`setup_record_start_iter=0, setup_train_iter=0`) the setup model is
-in MODEL_DRIVEN mode from iteration 0 and trains on-policy with REINFORCE
-immediately. No burn-in or offline-fit warmup occurs; the value and policy heads
-learn purely from the games the setup net itself played. This is the "train from
-start" regime and is the right choice when REINFORCE is enabled
-(`setup_use_actor_critic=True`) because the policy gradient provides a useful
-learning signal even from random-weight initializations.
+`training.loop._run_iteration` sets `state.setup_phase = "MODEL_DRIVEN"`
+whenever `architecture.use_setup_model` is on (`loop.py` ~275, mirrored in
+`loop_metrics.py` ~153) — there is no other value `setup_phase` ever takes.
+The setup model trains on-policy with actor-critic REINFORCE from iteration 0;
+no burn-in or offline-fit warmup occurs, and no config field selects one. The
+value and policy heads learn purely from the games the setup net itself plays,
+from the first iteration. (An earlier three-phase RANDOM_NO_RECORD /
+RANDOM_RECORD / MODEL_DRIVEN warmup schedule — and the `setup_record_start_iter`
+/ `setup_train_iter` config knobs that drove it — existed in an earlier version
+of this pipeline; both the phases and the knobs have since been deleted.)
 
-#### Legacy warmup schedule (opt-in)
+#### Actor-critic is mandatory, not opt-in
 
-Set `setup_record_start_iter > 0` and `setup_train_iter > setup_record_start_iter`
-to restore the three-phase warmup:
+`SetupArchitecture.use_policy_head` (`setup_model/architecture.py` ~207)
+defaults `True` and is annotated "Always True: the setup net always trains
+actor-critic." `RunConfig.setup_arch` (`training/config.py` ~794) constructs it
+with `use_policy_head=True` unconditionally — there is no config field that
+turns it off. This is not just an unused option: because the value head reads
+only `state_enc` (state-only, so it is identical for every candidate of a
+deal), a value-only configuration would score every candidate identically and
+could not rank them at all (`setup_net.py` ~26-28) — the policy head is
+required for candidate selection to function, not merely for a stronger
+training signal. The value-only-MSE path referenced below is what the old
+(pre-actor-critic) setup model did before this became mandatory; it is kept as
+a documented contrast, not a live configuration.
 
-| Phase | Condition | Behaviour |
-|---|---|---|
-| RANDOM_NO_RECORD | `iter < setup_record_start_iter` | Random setups, nothing recorded (burn-in) |
-| RANDOM_RECORD | `setup_record_start_iter ≤ iter < setup_train_iter` | Random setups recorded to disk |
-| MODEL_DRIVEN | `iter ≥ setup_train_iter` | One-time offline MSE fit, then on-policy updates |
-
-This was the original regime, designed for pure MSE regression where the value
-head needed a stable bootstrap dataset before driving selection.
-
-#### Actor-critic mode
-
-The default `SetupNet` with only a value head is trained by MSE regression.
-The problem is that **the regression target is high-variance and provides no
-gradient to the selection mechanism** — the value head learns what a good setup
-looks like, but the sampling distribution only improves via greedy re-ranking,
-never via direct policy-gradient flow.
-
-Set `setup_use_actor_critic = true` in the training config to enable an opt-in
-actor-critic mode that adds a policy head and trains it with REINFORCE.
+Historically (predating the mandatory policy head), a value-only `SetupNet`
+was trained by MSE regression alone. The problem: **the regression target is
+high-variance and provides no gradient to the selection mechanism** — the
+value head learns what a good setup looks like, but the sampling distribution
+only improves via greedy re-ranking, never via direct policy-gradient flow.
+The mandatory policy head fixes this by training the ranking itself with
+REINFORCE.
 
 #### How it works
 
@@ -908,16 +912,16 @@ change — v1.3, see `docs/VERSIONING.md`).
 **Collection (MODEL_DRIVEN phase).** Instead of ranking candidates by the value
 head and picking the top-scoring one, `play_game_with_setup` calls
 `SetupNet.policy_and_value()` to get policy logits for all K candidates, then
-samples via softmax (`setup_policy_temperature` still applies). The full
-`(K, feature_dim)` candidate feature matrix is stored in
+samples via softmax (`training.setup.policy_temperature` still applies). The
+full `(K, feature_dim)` candidate feature matrix is stored in
 `SetupSample.all_candidates` (float16 after IPC compaction) along with
 `SetupSample.chosen_idx`. These fields are **in-memory only** and are not
-persisted to the JSONL store — the offline bootstrap format is unchanged.
+persisted to disk.
 
 **IPC cost.** Each sample carries a `(K, feature_dim)` float16 array (the
-dominant cost: K=504 bonus-included × the encoding's `total_dim`, ~hundreds of
-KB/sample; `split_setup_bonus` (§6.6) halves K to 252). v1.2 adds the seat's
-per-in-game-decision checkpoint/time sequences (`margin_checkpoints` /
+dominant cost: K=252 at the default `split_setup_bonus=True` (§6.6), ~hundreds
+of KB/sample; K=504 bonus-included only if that flag is turned off). v1.2 adds
+the seat's per-in-game-decision checkpoint/time sequences (`margin_checkpoints` /
 `score_checkpoints` / `decision_times`, ~tens of floats) plus a few scalars
 (`own_total`, `opp_total`, `won`, `final_timestamp`) so `returns.setup_return`
 can reproduce the discounted return — negligible against `all_candidates`.
@@ -971,22 +975,24 @@ below 1, the `t=0` setup target discounts away most of the late-game margin, so
 `pred`/`tgt` can sit near 0 while `real` stays large — that is expected, not a
 sign of a broken update.
 
-**The offline fit at `setup_train_iter` is unchanged.** It trains the value head
-via MSE on the bootstrap RANDOM_RECORD samples as before. The policy head first
-trains on-policy once MODEL_DRIVEN collection begins.
+**There is no offline fit stage.** Both the value head and the policy head
+train purely on-policy from iteration 0 — there is no bootstrap RANDOM_RECORD
+dataset and no one-time offline MSE fit; every setup update is the on-policy
+REINFORCE step described above.
 
-**Hyperparameters.** Three coefficients control the loss blend:
+**Hyperparameters.** Three coefficients control the loss blend
+(`training.setup.*`, class `SetupTrainingConfig`, `config.py` ~423-442):
 
 | Config field | Default | Role |
 |---|---|---|
-| `setup_pg_coef` | `1.0` | Weight on the policy-gradient term |
-| `setup_value_coef` | `0.5` | Weight on the value MSE term |
-| `setup_entropy_coef` | `0.01` | Entropy bonus (keeps exploration alive) |
+| `training.setup.pg_coef` | `1.0` | Weight on the policy-gradient term |
+| `training.setup.value_coef` | `0.5` | Weight on the value MSE term |
+| `training.setup.entropy_coef` | `0.01` | Entropy bonus (keeps exploration alive) |
 
-Start with the defaults. Raise `setup_entropy_coef` (0.05–0.1) if the policy
-collapses to deterministic early; lower it once the policy is stable. The
-`setup_policy_temperature` parameter (default 0.5) still governs sampling
-independently of entropy regularization — they are complementary.
+Start with the defaults. Raise `training.setup.entropy_coef` (0.05–0.1) if the
+policy collapses to deterministic early; lower it once the policy is stable.
+The `training.setup.policy_temperature` parameter (default 0.5) still governs
+sampling independently of entropy regularization — they are complementary.
 
 **Setup dropout is inert for this update.** `architecture.setup.dropout` /
 `training.setup.dropout_final` remain valid, era-tracked config fields —
@@ -996,26 +1002,31 @@ so dropout never actually perturbs it. Don't remove these fields on the
 strength of that: they stay meaningful config even though this particular
 update path ignores them.
 
-**This is a setup-FRESH change.** Toggling `setup_use_actor_critic` changes
-`SetupArchitecture.shape_key` and will invalidate any existing `setup.pt`,
-resetting the setup net. The main `PolicyValueNet` is not affected and does
-not require a `MODEL_VERSION` bump.
+**This was a setup-FRESH change (v1.3).** Making the policy head mandatory
+(`use_policy_head=True` unconditionally) changed `SetupArchitecture.shape_key`
+— which includes `use_policy_head` — and invalidated any pre-v1.3 `setup.pt`
+built without one, resetting the setup net. The main `PolicyValueNet` was not
+affected and required no `MODEL_VERSION` bump.
 
 ### 6.6 Setup-split knobs: deferring bonus and food picks to in-game heads
 
-Two optional flags move pieces of the opening judgment out of the setup model
-and into the regular in-game decision heads. Both are REGIME (shape-preserving,
-resumable) — they are gated on `use_setup_model` and never change tensor shapes.
+Two flags move pieces of the opening judgment out of the setup model and into
+the regular in-game decision heads. Both are REGIME (shape-preserving,
+resumable) — they are gated on `use_setup_model` and never change tensor
+shapes — and **both default `True`**, so a default run already takes the split
+path; folding bonus/food back into the setup candidate itself requires
+explicitly setting the flag to `False`.
 
-**`split_setup_bonus`** (`bool`, default `False`; gate: `split_setup_bonus_active`):
-When on, candidates drop the bonus axis (`bonus_card = None`; the setup
-encoder's bonus block stays all-zero). The opening bonus pick is instead asked
-as a normal `CHOOSE_BONUS` decision right after the keep (§2.9 of DECISIONS.md).
-Concentrates all bonus-valuation signal in one place on-policy. Candidate set
-shrinks from 504 to 252 for the standard 5-card / 2-bonus deal.
+**`split_setup_bonus`** (`bool`, default `True`; gate: `split_setup_bonus_active`):
+When on (the default), candidates drop the bonus axis (`bonus_card = None`;
+the setup encoder's bonus block stays all-zero). The opening bonus pick is
+instead asked as a normal `CHOOSE_BONUS` decision right after the keep (§2.9
+of DECISIONS.md). Concentrates all bonus-valuation signal in one place
+on-policy. Candidate set shrinks from 504 to 252 for the standard 5-card /
+2-bonus deal.
 
-**`split_setup_food`** (`bool`, default `False`; gate: `split_setup_food_active`):
-When on, candidates carry `kept_foods = ()` (food block all-zero;
+**`split_setup_food`** (`bool`, default `True`; gate: `split_setup_food_active`):
+When on (the default), candidates carry `kept_foods = ()` (food block all-zero;
 `SETUP_FEATURE_DIM` unchanged). The opening food pick is asked as sequential
 in-game decisions right after the keep, routing through GAIN_FOOD or SPEND_FOOD
 depending on birds kept:
@@ -1031,9 +1042,10 @@ depending on birds kept:
 
 This adds one on-policy sample per seat per game to the GAIN_FOOD / SPEND_FOOD
 heads (§2.4, §2.5 of DECISIONS.md), which are among the most data-starved
-heads (§6.4). When active, `setup_food_sets` is ignored — random setup
-generation emits `kept_foods = ()` directly, skipping the biased food-sampling
-and cross-product assembly that normal random generation performs.
+heads (§6.4). While active (the default), `training.setup.food_sets` is
+ignored — random setup generation emits `kept_foods = ()` directly, skipping
+the biased food-sampling and cross-product assembly that normal random
+generation performs.
 
 Both flags can be active simultaneously. Neither touches `MODEL_VERSION` or
 `setup_architecture_key`.
@@ -1075,6 +1087,10 @@ train:
   dagger:
     clone_iters: 10   # imitation for iters 0..9; RL + bootstrap continues after
 ```
+
+(This is cloud run-file syntax — `cloud.runfile.CloudRunFile.train`. A local
+`run_config_<stamp>.json` has no `train:` wrapper; it nests the same fields
+under `RunConfigFile.config`, a `RunConfig` directly.)
 
 The configurator's TRAINING ▸ CLONING group exposes `clone_iters` when
 `bootstrap_opponent` is a checkpoint path. The expert is always the bootstrap
@@ -1156,6 +1172,10 @@ train:
   opponent:
     bootstrap_opponent: checkpoints/last.pt   # frozen greedy copy of run A
 ```
+
+(Again, the `train:` wrapper is cloud run-file syntax; a local
+`run_config_<stamp>.json` nests `opponent` directly under `RunConfigFile.config`,
+with no `train:` key.)
 
 This is useful when a second run needs a head start against a stronger opener —
 the bootstrap opponent is much stronger than the random agent, so the run B policy

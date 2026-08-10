@@ -9,9 +9,11 @@ rich dashboard with results. Entry point: `wingspan tournament`.
 
 **`models.py`** — Pydantic models for tournament parameters, results, and live
 state: `TournamentConfig`, `RegimeFlags`, `ParticipantSpec`, `RunOption`,
-`GameTask`, `GameResult`, `MatchupResult`, `ParticipantResult`,
-`TournamentReport`, `EloTable`, `LiveRecord`, `StandingRow`. Also
-`ParticipantKind`, `Orientation`, `TournamentPhase` enums. `RegimeFlags` is the
+`GameTask`, `GameResult`, `SplitStats`, `MatchupResult`, `ParticipantResult`,
+`TournamentReport`, `EloTable`, `LiveRecord`, `StandingRow`. `SplitStats`
+(`games`, `wins`, `win_rate`, `avg_margin`) is the win-rate/margin breakdown
+embedded three times per side (`first`/`second`/`overall`) in `MatchupResult`.
+Also `ParticipantKind`, `Orientation`, `TournamentPhase` enums. `RegimeFlags` is the
 frozen `split_setup_bonus`/`split_setup_food`/`combine_gain_food` carrier every
 game runs under, shipped to workers as pool `initargs`. `TournamentConfig`
 carries the two output paths: `out_path` (the JSON report) and the optional
@@ -25,8 +27,10 @@ carries the two output paths: `out_path` (the JSON report) and the optional
 - `spec_from_dir(checkpoint_dir) -> models.ParticipantSpec` — single-run spec.
 - `with_unique_ids(specs) -> list[models.ParticipantSpec]` — deduplicates specs
   from identical run names by appending a numeric suffix.
-- `load_player(spec, config) -> engine.Agent` — resolves a spec to a live
-  `Agent` (random agent, or model loaded from its checkpoint).
+- `load_player(spec, device, rng) -> engine.Agent` — resolves a spec to a live
+  `Agent`: a `RANDOM` competitor becomes a uniform-random agent seeded from
+  `rng`; a `MODEL` competitor is loaded via `players.load_policy_net_from_run_dir`
+  and wrapped as a greedy (argmax) `policy.greedy_agent`.
 - `resolve_regime_flags(specs) -> models.RegimeFlags` — the setup/food engine
   regime the games run under, derived from every model competitor's stored
   `RunConfig` (via the same `players.resolve_*` functions `wingspan play` uses)
@@ -63,22 +67,28 @@ generates the complete list of head-to-head pairings (each ordered pair plays
   a previous run's leftovers first, since shard names are keyed on pid.
 
 **`state.py`** — `TournamentState(pydantic.BaseModel)`: live shared snapshot
-read by the dashboard renderer. Fields: `config`, `phase`, `total_games`,
-`games_done`, `live_table`, `records`, `elo_history`, `events`, `error`.
-`record_game(result)` folds a finished game into the live Elo, records, and
-sparklines. `new_tournament_state(cfg) -> TournamentState` constructs the
-initial empty state.
+read by the dashboard renderer. Fields: `config`, `phase`, `start_monotonic`,
+`stopped_monotonic`, `total_games`, `games_done`, `live_table`, `records`,
+`elo_history`, `events`, `error`. `record_game(result)` folds a finished game
+into the live Elo, records, and sparklines. `new_tournament_state(cfg) ->
+TournamentState` constructs the initial empty state.
 
-**`elo.py`** — `replay(results, competitors, k=32, initial=1000) -> EloTable`:
-replays all match results in order to compute ELO ratings from scratch.
+**`elo.py`** — `replay(ids, init, k, game_results) -> EloTable`: replays
+`game_results` in a fixed deterministic order (round, then pair, then
+orientation) over a fresh table from `models.EloTable.initial` to compute final
+ELO ratings reproducibly regardless of worker-pool finish order.
 
 **`results.py`** — `aggregate(cfg, games) -> TournamentReport`: rolls finished
 games into the full report: deterministic final Elo, per-pair first/second/overall
 splits, and per-competitor records. Data shapes live in `models.py`.
 
-**`dashboard.py`** — Live `rich` dashboard renderer. `TournamentDashboard`
-registers as a `TournamentState` observer and re-renders the ELO table and
-win-rate matrix on each update.
+**`dashboard.py`** — Live `rich` dashboard renderer, driven imperatively from a
+poll loop in `app.py` (no observer class). `build_layout() -> Layout` builds
+the fixed five-region layout (header / standings | events / progress);
+`render(root, live: TournamentState) -> None` repaints all four panels each
+frame: header (phase, clock, throughput), standings (rank, Elo, an Elo-trend
+sparkline, W·L·T record, win rate, margin — sorted by live Elo), recent
+events, and a progress bar. There is no win-rate matrix.
 
 **`picker.py`** — Interactive competitor-selection UI shown before the
 tournament starts: lets the user deselect runs from the discovered list.

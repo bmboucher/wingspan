@@ -12,23 +12,28 @@ both use the same loading and logging conventions.
 `parse_player_spec(raw: str, checkpoint_dir: Path) -> PlayerSpec`. Recognized forms:
 - `"human"` → interactive CLI agent.
 - `"random"` → uniform-random agent.
-- `"<name>"` → named run in the default checkpoint directory.
+- `"<name>"` → one of the three literals in `NAMED_SPECS`
+  (`"last"`, `"best"`, `"opponent"`) resolved against the default checkpoint
+  directory. Any other string is treated as a filesystem path (below), not a
+  named run.
 - `"/path/to/run/"` → run directory carrying its config descriptor
   (`run_config_<stamp>.json` for ≥0.5, legacy `model_config.json` otherwise).
 - `"/path/to/checkpoint.pt"` → bare checkpoint file.
 `PlayerSpec` carries the resolved `kind` enum and the raw string for error messages.
 
 **`loaders.py`** — Both self-describing checkpoint load paths:
-- `load_policy_net(path: Path, spec: EncodingSpec) -> PolicyValueNet` — loads a
-  `.pt` checkpoint, checks its embedded `version` via `version.py`, rehydrates
-  the embedded config at the payload's era
-  (`config.run_config_from_artifact`, which reshapes a ≤0.4 flat config into the
-  nested sections), and constructs the era's net class at the era's dims
-  (`PolicyValueNet.class_for_version`).
-- `load_policy_net_from_run_dir(run_dir: Path) -> PolicyValueNet` — reads the
-  run's descriptor via `runmeta.read_model_config` (which dispatches on
-  `run_config_<stamp>.json` vs legacy `model_config.json`), locates the `BEST`
-  checkpoint, and delegates to `load_policy_net`.
+- `load_policy_net(checkpoint_path: Path, device: torch.device) ->
+  (PolicyValueNet, RunConfig)` — loads a `.pt` checkpoint, checks its embedded
+  `version` via `version.py`, rehydrates the embedded config at the payload's
+  era (`config.run_config_from_artifact`, which reshapes a ≤0.4 flat config
+  into the nested sections), and constructs the era's net class at the era's
+  dims (`PolicyValueNet.class_for_version`). Returns the parsed `RunConfig`
+  alongside the net so regime flags can mirror the training run.
+- `load_policy_net_from_run_dir(checkpoint_dir: str, device: torch.device) ->
+  PolicyValueNet` — loads the run directory's `artifacts.LAST_CKPT` weights
+  (not `BEST`); does not delegate to `load_policy_net` — it calls a private
+  `_reconstruct_net(checkpoint_dir)` to build the net from the run's own
+  descriptor, then loads the state dict directly.
 - `encoding_key` / `descriptor_encoding_key` / `expected_encoding_key` — the
   encoding-compatibility signatures both paths verify before seating a net;
   `expected_encoding_key` derives an era's true widths via
@@ -63,7 +68,8 @@ candidate vector per choice, aligned to `decision.choices`) and `setup_encoding`
 `raw_*_stripe_layout()` — a compat-era net stamps its *era's* layouts so the
 game-log viewer decodes the recorded vectors at the offsets that wrote them.
 
-**`factory.py`** — `build_agent(spec, device, rng, greedy) -> (Agent, TrainConfig|None)`:
+**`factory.py`** — `build_agent(spec, device, rng, greedy, value_probe:
+DecisionProbe | None = None) -> (Agent, TrainConfig|None)`:
 the top-level factory. Maps each `PlayerSpec.kind` to the appropriate agent
 constructor. AI policy agents record a `PolicyAnnotation` on the `DecisionProbe`
 after every genuine decision (after `chosen_idx` is resolved), enabling the HTML
@@ -83,5 +89,7 @@ regime checks.
 
 Log annotation format (text log, unchanged): `[P#] <DecisionType> | N choices |
 [greedy] | head:<family>` followed by indented choice lines (4 spaces). The
-chose-line reads `[P#] chose: <label> (xx.xxx%)`. All log lines use
-`decision.player_id` for attribution.
+chose-line reads `[P#] chose: <label> (xx.xxx%)`. The header and option lines
+use `decision.player_id` for attribution; the chose-line itself is written via
+`eng.log_global` (in `_handle_setup_decision` / `_handle_main_decision`)
+and so is unattributed (`player_id=None`).

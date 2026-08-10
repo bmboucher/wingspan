@@ -2,6 +2,12 @@
 
 **Question:** How are critic rewards calculated — terminal margin or per-step deltas?
 
+*Last verified against the codebase on 2026-06-10. Figures like the value
+head's total parameter count and the number of judgment-family scoring heads
+drift as the architecture changes; if they've moved, re-derive from
+`model.PolicyValueNet()` and `decisions.active_decision_families(False)`
+rather than trusting the literals here.*
+
 > **Update:** the per-step margin-delta shaping discussed under
 > *Alternatives → Per-step score-delta shaping* is now available as an opt-in
 > reward mode (`TrainConfig.reward_mode = decision_delta`, with a
@@ -89,9 +95,13 @@ Default coefficients: `value_coef = 0.5`, `entropy_coef = 0.01`.
 
 ### Value head architecture (`model/core.py:374-384`)
 
-The value head is a **single shared MLP** across all 13 judgment families
-(PlaceBird, LayEgg, GainFood, etc.). It is built by `_build_value_head`
-(`core.py:374-384`):
+The value head is a **single shared MLP** across all 12 judgment-family
+scoring heads the main net carries by default (PlaceBird, LayEgg, GainFood,
+etc.) — `ALL_DECISION_FAMILIES` defines 13 families, but `SETUP` is excluded
+from the main net's heads by default now that setup is scored by its own
+`SetupNet` (`TrainConfig.use_setup_model=True`;
+`decisions.active_decision_families(False)`). It is built by
+`_build_value_head` (`core.py:374-384`):
 
 ```python
 self.value_head = mlp.build_readout(
@@ -115,16 +125,16 @@ value = self.value_head(state_ctx).squeeze(-1)  # (B,)
 tuple — which means **no hidden layers**: the value head is a single linear
 projection from `trunk_embed_width` (default `128`) directly to a scalar. The
 measured parameter count confirms this: the value head contributes only
-**129 parameters** out of 532,110 total (TRAINING.md §1.1), which is
+**129 parameters** out of 935,629 total, which is
 `128 * 1 + 1 = 129` (weight + bias for one linear layer).
 
 The value head reads `state_ctx` — the trunk's embedding of the current board
-state — which is the same input used by all 13 family scoring heads before they
+state — which is the same input used by all 12 family scoring heads before they
 concatenate the choice embedding. The value head therefore sees the same
 compact board representation regardless of which family's decision is being
 made.
 
-**Shared head across families:** all 13 judgment families (macro action, play
+**Shared head across families:** all 12 judgment-family heads (macro action, play
 bird, lay egg, gain food, etc.) feed through the same value head. The value
 function `V(s)` must therefore generalize: it is predicting the terminal
 outcome from a board state irrespective of whether the current decision is

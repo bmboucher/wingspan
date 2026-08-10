@@ -97,7 +97,7 @@ Key public methods:
   choice's outcome onto the open event that summarizes it — the setup's kept
   cards and bonus, and `MainActionEvent.action`.  These cannot be passed to
   `begin_*` because at bracket-open time the answer is not yet known.
-- `record_round_goal(engine, round_idx, goal, counts, vps)` — appends a
+- `record_round_goal(engine, round_idx, description, counts, vps)` — appends a
   `RoundGoalEvent` to the **round phase it scores** (scoring runs after the
   round's last turn, so the current phase is that turn).
 - `record_effect(effect)` — appends one recorded state mutation to the
