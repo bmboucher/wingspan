@@ -2,7 +2,7 @@
 # Run the quality gate: pyright -> isort -> black -> pyright -> pytest.
 #
 # Usage:
-#   bash scripts/quality_gate.sh [target-dir] [--pyright [args...]] [--format [paths...]] [--pytest [args...]] [--coverage] [--debug]
+#   bash scripts/quality_gate.sh [target-dir] [--pyright [args...]] [--format [paths...]] [--pytest [args...]] [--coverage] [--debug] [--dry-run]
 #
 # target-dir  Directory to check (default: repo root, derived from this script's
 #             location). Must come BEFORE the first section flag. Pass a worktree
@@ -11,6 +11,10 @@
 # Section flags select which steps run. With no section flags the full gate runs:
 # pyright -> isort -> black -> pyright -> pytest. Steps always execute in that
 # canonical order regardless of the order flags appear on the command line.
+#
+# --coverage, --debug and --dry-run are modifiers, not section flags — they
+# change how the gate runs, not which steps run, so a bare --coverage still
+# means the full gate.
 #
 # Every argument after a section flag (up to the next section flag) is passed
 # verbatim to the underlying tool:
@@ -26,14 +30,19 @@
 #                                        0 = serial.)
 #   --coverage            Run pytest serially with --cov in a single pass, then
 #                         check TOTAL coverage against coverage_baseline.txt.
-#                         Takes no arguments. Implies --pytest (uses the full
-#                         serial+cov run instead of the default parallel run).
-#                         Used by merge_worktree.sh; not needed during worktree
-#                         iteration.
+#                         Takes no arguments; a modifier, not a section flag —
+#                         it selects how pytest runs, not which steps run, so a
+#                         bare --coverage runs the FULL gate plus the
+#                         regression check. Pair it with --pytest for a
+#                         coverage-only run. Used by merge_worktree.sh; not
+#                         needed during worktree iteration.
 #   --debug               Print full tool output instead of per-step summary lines.
 #                         By default the gate captures each tool's output and prints
 #                         only "tool ... OK [detail]" on success, plus full output
 #                         on failure. Pass --debug to see everything.
+#   --dry-run             Print the resolved plan (steps, target, per-tool args)
+#                         and exit 0 without running anything. Reported before
+#                         preflight, so it needs no venv and no pyright on PATH.
 #
 # Examples:
 #   bash scripts/quality_gate.sh                                # full gate (fast, no coverage)
@@ -44,9 +53,10 @@
 #   bash scripts/quality_gate.sh --pyright --pytest             # types + tests
 #   bash scripts/quality_gate.sh --debug                        # full verbose output
 #   bash scripts/quality_gate.sh .claude/worktrees/<slug> --pytest tests/test_smoke.py
+#   bash scripts/quality_gate.sh --coverage --dry-run           # show the merge gate's plan
 #
 # Exit codes:
-#   0  gate passed
+#   0  gate passed, or --dry-run printed the resolved plan
 #   1  genuine check failure (type errors or failing tests) — fix the code, rerun
 #   2  infrastructure/usage error (missing venv, pyright not on PATH, bad target
 #      dir, invalid arguments) — NOT a code problem; stop and ask the user to fix
@@ -122,6 +132,20 @@ _gate_run() {
     return $rc
 }
 
+# Echo the resolved step list as space-prefixed tokens in canonical execution
+# order. Reads the RUN_* globals set by argument parsing. Single source of
+# truth shared by the run header and --dry-run, so a dry run can never report
+# a plan different from the one the gate actually executes.
+resolved_steps() {
+    local steps=""
+    [ "$RUN_PYRIGHT" = true ] && steps="$steps pyright"
+    [ "$RUN_FORMAT" = true ] && steps="$steps format"
+    [ "$RUN_PYTEST" = true ] && steps="$steps pytest"
+    [ "$RUN_COVERAGE" = true ] && steps="$steps coverage"
+    echo "$steps"
+    return 0
+}
+
 # ---- Detail extractors (each takes a captured-output file path, echoes a short suffix or nothing) ----
 
 _detail_pyright() {
@@ -130,8 +154,8 @@ _detail_pyright() {
 
 _detail_isort() {
     local n
-    n="$(grep -c '^Fixing ' "$1" 2>/dev/null || echo 0)"
-    [ "$n" -gt 0 ] && echo "$n files reformatted"
+    n="$(grep -c '^Fixing ' "$1" 2>/dev/null)"
+    [ "${n:-0}" -gt 0 ] && echo "$n files reformatted"
     return 0
 }
 
@@ -152,6 +176,7 @@ RUN_FORMAT=false
 RUN_PYTEST=false
 RUN_COVERAGE=false
 DEBUG=false
+DRY_RUN=false
 PYRIGHT_ARGS=()
 FORMAT_ARGS=()
 PYTEST_ARGS=()
@@ -164,6 +189,7 @@ while [[ $# -gt 0 ]]; do
         --pytest)   SECTION="pytest";  RUN_PYTEST=true ;;
         --coverage) SECTION="";        RUN_COVERAGE=true ;;
         --debug)    SECTION="";        DEBUG=true ;;
+        --dry-run)  SECTION="";        DRY_RUN=true ;;
         --only|--only=*)
             infra_error "--only has been removed. Use section flags instead: --pyright / --format / --pytest (arguments after each flag are passed to that tool, e.g. --pytest tests/test_smoke.py)."
             ;;
@@ -178,7 +204,7 @@ while [[ $# -gt 0 ]]; do
                 usage
                 exit 0
             elif [[ "$1" == -* ]]; then
-                infra_error "Unknown flag: $1 (section flags: --pyright / --format / --pytest / --coverage / --debug; run with --help for usage)"
+                infra_error "Unknown flag: $1 (section flags: --pyright / --format / --pytest; modifiers: --coverage / --debug / --dry-run; run with --help for usage)"
             else
                 TARGET_DIR="$1"
             fi
@@ -186,11 +212,6 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
-
-# --coverage implies --pytest (the coverage run IS the pytest run).
-if [ "$RUN_COVERAGE" = true ]; then
-    RUN_PYTEST=true
-fi
 
 # Default args for sections that were requested bare.
 if [ ${#FORMAT_ARGS[@]} -eq 0 ]; then FORMAT_ARGS=(src tests); fi
@@ -215,6 +236,34 @@ if [ "$RUN_PYRIGHT" = false ] && [ "$RUN_FORMAT" = false ] && [ "$RUN_PYTEST" = 
     RUN_PYRIGHT=true
     RUN_FORMAT=true
     RUN_PYTEST=true
+fi
+
+# --coverage implies --pytest (the coverage run IS the pytest run). Applied
+# AFTER the full-gate check above: --coverage is a modifier, not a section
+# flag, so a bare --coverage must not read as an explicit step selection.
+# Doing this earlier is what silently dropped pyright/isort/black from the
+# merge gate.
+if [ "$RUN_COVERAGE" = true ]; then
+    RUN_PYTEST=true
+fi
+
+# ---- Dry run: report the resolved plan and exit ----
+#
+# Placed before preflight so the plan can be inspected (and asserted in tests)
+# without a venv or pyright on PATH.
+
+if [ "$DRY_RUN" = true ]; then
+    echo "steps:$(resolved_steps)"
+    echo "full_gate: $FULL_GATE"
+    echo "target: $TARGET_DIR"
+    if [ ${#PYRIGHT_ARGS[@]} -eq 0 ]; then
+        echo "pyright_args:"
+    else
+        echo "pyright_args: ${PYRIGHT_ARGS[*]}"
+    fi
+    echo "format_args: ${FORMAT_ARGS[*]}"
+    echo "pytest_args: ${PYTEST_ARGS[*]}"
+    exit 0
 fi
 
 # ---- Preflight ----
@@ -245,12 +294,7 @@ if [ "$FULL_GATE" = true ]; then
         echo "==== QUALITY GATE: $TARGET_DIR ===="
     fi
 else
-    STEPS=""
-    [ "$RUN_PYRIGHT" = true ] && STEPS="$STEPS pyright"
-    [ "$RUN_FORMAT" = true ] && STEPS="$STEPS format"
-    [ "$RUN_PYTEST" = true ] && STEPS="$STEPS pytest"
-    [ "$RUN_COVERAGE" = true ] && STEPS="$STEPS coverage"
-    echo "==== QUALITY GATE: $TARGET_DIR  [steps:$STEPS] ===="
+    echo "==== QUALITY GATE: $TARGET_DIR  [steps:$(resolved_steps)] ===="
 fi
 
 FAILED=0

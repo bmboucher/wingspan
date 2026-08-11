@@ -32,6 +32,11 @@ etc.) and dumps the full tool output only on failure. Pass `--debug` to
 disable suppression and stream every tool's full output — useful when a
 failing step's summary line isn't enough to diagnose the problem.
 
+Pass `--dry-run` to print the resolved plan — which steps will run, the
+target directory, and the per-tool args — and exit without running anything.
+Useful for confirming which steps a given invocation will actually run before
+committing to a multi-minute gate run.
+
 ## Exit codes
 
 | Code | Meaning | What to do |
@@ -44,10 +49,11 @@ Always run the full gate (no section flags) before committing. Strict-mode
 pyright must be completely clean (`reportPrivateImportUsage = false` silences
 torch's under-exporting stubs — don't re-enable it).
 
-`--coverage` is a separate, narrower invocation — it does **not** run pyright,
-isort, or black (see the next section). Getting full coverage before
-committing means running both: the bare full gate, then `--coverage`
-separately if you want the coverage regression check too.
+`--coverage` runs the full gate *and* adds the coverage regression check on
+top, so it is a superset of the bare gate — there is no need to run both.
+It is slower, though, because the coverage run executes pytest serially
+(see the next section), which is why the bare gate is the right choice
+during day-to-day iteration.
 
 ## Section flags (targeted runs)
 
@@ -58,8 +64,9 @@ always execute in canonical gate order regardless of flag order.
 bash scripts/quality_gate.sh --pyright src/wingspan/state.py   # types only / one file
 bash scripts/quality_gate.sh --format                          # isort + black only
 bash scripts/quality_gate.sh --pytest tests/test_encode.py -k state -x -q
-bash scripts/quality_gate.sh --coverage                        # pytest (serial, --cov) + coverage regression only — NOT pyright/isort/black
+bash scripts/quality_gate.sh --coverage                        # full gate + coverage regression (serial pytest)
 bash scripts/quality_gate.sh --debug                           # full verbose output for all steps
+bash scripts/quality_gate.sh --coverage --dry-run              # print the resolved plan without running anything
 ```
 
 No-argument defaults:
@@ -74,19 +81,15 @@ Pass `--coverage` (no args) to run pytest serially with `--cov
 --cov-report=term-missing`, then compare the TOTAL percentage against
 `coverage_baseline.txt` in the repo root.
 
-**`--coverage` alone does not run pyright, isort, or black.** In the script's
-arg parsing, `--coverage` sets `RUN_COVERAGE=true`, which implies
-`RUN_PYTEST=true` — and that happens before the "no section flags → full gate"
-check, so `FULL_GATE` never turns on and the type/format steps are skipped.
-`bash scripts/quality_gate.sh --coverage` on its own is a pytest+coverage run,
-not a full gate.
+A bare `--coverage` resolves to the full gate plus the regression check, and
+`merge_worktree.sh` relies on exactly that so every squashed merge is
+type-checked and format-checked, not just tested. Pair `--coverage` with
+`--pytest` when you deliberately want a narrow coverage-only run.
 
-`merge_worktree.sh` always passes `--coverage`; it is not needed during worktree
-iteration. Concretely, this means the merge step re-runs tests and the
-coverage regression check on the squashed result, but it does **not**
-re-verify types or formatting there — the last pyright/isort/black check was
-whatever you last ran by hand (typically the bare full gate) before
-committing.
+`merge_worktree.sh` always passes `--coverage`; it is not needed during
+worktree iteration. Concretely, this means the merge step re-runs pyright,
+isort, black, and pytest on the squashed result, plus the coverage regression
+check — it is not just re-verifying tests.
 
 The baseline ratchets upward:
 - Coverage improves → baseline file updated automatically; commit it with your change.
