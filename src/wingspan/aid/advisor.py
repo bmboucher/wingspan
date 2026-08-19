@@ -2,7 +2,8 @@
 
 Wraps a factory model agent so every genuine decision is displayed with the
 model's ranked recommendation (and, at setup, the setup net's top picks)
-before asking what was actually played at the physical table. Runs a
+before asking what was actually played at the physical table -- or, under
+``--trust-me``, auto-committing that top pick without asking. Runs a
 placeholder sweep on the deciding seat's hand first, since a draft power can
 pass face-down cards into it that the model must never see un-identified,
 and writes the corrected pick back onto the probe so an ``EventRecorder``
@@ -31,6 +32,11 @@ _AID_TOP_K = 5
 # ordinary turn).
 _SETUP_FRAMING_LINE = "(still setup — this pick completes your opening)"
 
+# Printed in place of the actual-move / setup-dialog prompt when
+# ``trust_me`` is on, so the transcript records that the model's own pick
+# was auto-committed rather than something the user selected.
+_TRUST_LINE_PREFIX = "trusting model pick"
+
 
 def advisor_agent(
     inner: engine_core.Agent,
@@ -39,10 +45,13 @@ def advisor_agent(
     echo: console_module.LogEcho,
     registry: placeholders.PlaceholderRegistry,
     score_norm: float,
+    *,
+    trust_me: bool = False,
 ) -> engine_core.Agent:
     """Build the seat-0 agent: consult ``inner`` for a recommendation, show
     it to the user, then ask what was actually played and write the
-    correction back onto ``probe``."""
+    correction back onto ``probe`` -- or, when ``trust_me`` is set, skip the
+    prompt and commit the model's top pick directly."""
 
     def agent[C: decisions.Choice](
         engine: engine_core.Engine,
@@ -53,11 +62,11 @@ def advisor_agent(
 
         if decisions.is_setup_decision(decision):
             chosen_idx, value, annotation = _resolve_setup_move(
-                con, inner, probe, engine, decision
+                con, inner, probe, engine, decision, trust_me
             )
         else:
             chosen_idx, value, annotation = _resolve_main_move(
-                con, inner, probe, engine, decision, score_norm
+                con, inner, probe, engine, decision, score_norm, trust_me
             )
 
         if value is not None:
@@ -106,10 +115,13 @@ def _resolve_setup_move(
     probe: decision_probe.DecisionProbe,
     engine: engine_core.Engine,
     decision: decisions.Decision[typing.Any],
+    trust_me: bool,
 ) -> tuple[int, float | None, decision_probe.PolicyAnnotation | None]:
     """The setup-decision branch: show the setup net's top-ranked keep
     recommendations (if any), then walk the user through the actual keep via
-    the promoted CLI setup dialog and locate it among the offered choices.
+    the promoted CLI setup dialog and locate it among the offered choices --
+    or, under ``trust_me`` (with a recommendation on hand), auto-commit the
+    top-ranked keep and skip the dialog entirely.
 
     Under a split-setup regime the offered ``SetupChoice``s pin the deferred
     axis (or axes) to their empty value, so ``display_label``'s
@@ -146,9 +158,15 @@ def _resolve_setup_move(
         )
         con.say(setup_preview.format_line())
 
-    tray_birds = [bird for bird in engine.state.tray if bird is not None]
-    kept = agents_cli.resolve_setup_choice_dialog(setup_decision, tray_birds)
-    chosen_idx = setup_decision.choices.index(kept)
+    if trust_me and annotation is not None:
+        chosen_idx = top_indices[0]
+        choice = setup_decision.choices[chosen_idx]
+        label = _compact_keep_label(choice) if any_deferred else choice.display_label()
+        con.say(f"{_TRUST_LINE_PREFIX}: {label}")
+    else:
+        tray_birds = [bird for bird in engine.state.tray if bird is not None]
+        kept = agents_cli.resolve_setup_choice_dialog(setup_decision, tray_birds)
+        chosen_idx = setup_decision.choices.index(kept)
     return chosen_idx, value, annotation
 
 
@@ -159,10 +177,13 @@ def _resolve_main_move(
     engine: engine_core.Engine,
     decision: decisions.Decision[typing.Any],
     score_norm: float,
+    trust_me: bool,
 ) -> tuple[int, float | None, decision_probe.PolicyAnnotation | None]:
     """The general decision branch: show the board (for the two big
     decisions), the model's ranked recommendation, and the expected-margin
-    readout, then ask what was actually played.
+    readout, then ask what was actually played -- or, under ``trust_me``
+    (with a recommendation on hand), auto-commit the model's top pick and
+    skip the prompt.
 
     ``engine.state.turn_counter`` stays 0 for the entire setup window
     (including the deferred bonus/food picks a split-setup regime resolves
@@ -193,7 +214,14 @@ def _resolve_main_move(
     if value is not None:
         con.say(f"model eval: {value * score_norm:+.1f} VP expected margin")
 
-    chosen_idx = _resolve_move_index(con, decision, argmax_idx)
+    if trust_me and annotation is not None:
+        chosen_idx = argmax_idx
+        con.say(
+            f"{_TRUST_LINE_PREFIX}: "
+            f"{agents_cli.format_choice_line(argmax_idx, decision.choices[argmax_idx], player)}"
+        )
+    else:
+        chosen_idx = _resolve_move_index(con, decision, argmax_idx)
     return chosen_idx, value, annotation
 
 

@@ -46,6 +46,12 @@ from wingspan.training import config
 # only, no N-player support).
 _NUM_PLAYERS = 2
 
+# Seat-0 label prefixes for the flat jsonl meta: the plain interactive
+# advisor vs. a ``--trust-me`` session where the model's picks were
+# auto-committed rather than confirmed by the user.
+_AID_SEAT_PREFIX = "aid:"
+_TRUST_ME_SEAT_PREFIX = "aid-trust:"
+
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for ``wingspan aid``: run one live-assisted physical-game
@@ -77,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     con = console_module.Console()
     try:
         eng, handler = _run_interactive_session(
-            con, rng, inner_agent, probe, cfg, rec, regimes
+            con, rng, inner_agent, probe, cfg, rec, regimes, args.trust_me
         )
     except KeyboardInterrupt:
         print("\nsession aborted (not resumable)", file=sys.stderr)
@@ -139,6 +145,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to write the flat structured game log (see `wingspan play "
         "--jsonl`); appends one game keyed by seed.",
     )
+    parser.add_argument(
+        "--trust-me",
+        action="store_true",
+        dest="trust_me",
+        help="Skip the your-actual-move prompts and automatically play the "
+        "model's top pick for your seat; you still enter setup, reveals, "
+        "dice, and the opponent's moves.",
+    )
     return parser
 
 
@@ -198,10 +212,13 @@ def _run_interactive_session(
     cfg: config.TrainConfig,
     rec: gamelog_recorder.AnyRecorder,
     regimes: tuple[bool, bool, bool],
+    trust_me: bool,
 ) -> tuple[engine_core.Engine, hooks.AidHandler]:
     """Run the setup dialog through game end: build the oracle-backed state
     from the entered deal, wire the advisor/relay seats and the physical-table
-    hooks, then drive a full game on the real ``Engine``."""
+    hooks, then drive a full game on the real ``Engine``. ``trust_me`` is
+    forwarded to the advisor seat, which then auto-commits its own top pick
+    instead of prompting for the actual move."""
     split_setup_bonus, split_setup_food, combine_gain_food = regimes
     setup_entry = entry.run_setup_entry(con)
 
@@ -215,7 +232,13 @@ def _run_interactive_session(
     )
     instrumentation = hooks.build_instrumentation(handler)
     advisor_seat = advisor.advisor_agent(
-        inner_agent, probe, con, echo, registry, cfg.training.score_norm
+        inner_agent,
+        probe,
+        con,
+        echo,
+        registry,
+        cfg.training.score_norm,
+        trust_me=trust_me,
     )
     relay_seat = relay.relay_agent(con, echo, registry, notes)
 
@@ -280,24 +303,28 @@ def _write_outputs(
         gamelog_render_jsonl.append_game(
             pathlib.Path(args.jsonl),
             rec.root,
-            _session_meta(seed, args.model, regimes, report),
+            _session_meta(seed, args.model, args.trust_me, regimes, report),
         )
 
 
 def _session_meta(
     seed: int,
     model_spec: str,
+    trust_me: bool,
     regimes: tuple[bool, bool, bool],
     report: models.SessionReport,
 ) -> gamelog_models.GameMeta:
-    """The flat log's header row for this aid session."""
+    """The flat log's header row for this aid session. The seat-0 label
+    carries an ``aid-trust:`` prefix instead of ``aid:`` when ``--trust-me``
+    drove the session, so a flat-log reader can tell the two modes apart."""
     split_setup_bonus, split_setup_food, combine_gain_food = regimes
+    seat_prefix = _TRUST_ME_SEAT_PREFIX if trust_me else _AID_SEAT_PREFIX
     return gamelog_models.GameMeta(
         game_id=str(seed),
         source=gamelog_models.LogSource.AID,
         seed=seed,
         num_players=_NUM_PLAYERS,
-        seats=[f"aid:{model_spec}", "relay"],
+        seats=[f"{seat_prefix}{model_spec}", "relay"],
         split_setup_bonus=split_setup_bonus,
         split_setup_food=split_setup_food,
         combine_gain_food=combine_gain_food,

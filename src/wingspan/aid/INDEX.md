@@ -150,24 +150,29 @@ end so the preview's own `inner` calls don't leak into the caller's
 decision annotation.
 
 **`advisor.py`** — `advisor_agent(inner, probe, con, echo, registry,
-score_norm)`: the seat-0 `Agent`. Per decision: flushes the log, sweeps any
-placeholder out of the deciding seat's hand (`entry.identify_bird` +
-`registry.swap_bird`, rewriting any offered `BirdChoice`/`PlayBirdChoice`
-still pointing at the swapped placeholder in place), calls `inner` and reads
-back its `DecisionProbe` value/policy annotation (discarding `inner`'s own
-pick), shows the model's ranked top-`_AID_TOP_K` recommendation (setup
-decisions via the setup net's per-candidate `display_label`, or — under a
-split-setup regime, detected via `agents.cli.setup_dialog_axes` — a compact
-`keep:[...]` label plus a combined `preview.preview_setup(...).format_line()`
-recommendation line after the ranking; other decisions via the promoted
-`agents.cli.format_choice_line`, plus a `model eval: ±N.N VP expected
-margin` line scaled by `score_norm`), then asks what was actually played
-(setup via the promoted `agents.cli.resolve_setup_choice_dialog`; everything
-else via an Enter-defaults-to-model-pick index prompt, prefixed with a
-`(still setup — this pick completes your opening)` framing line whenever
+score_norm, *, trust_me=False)`: the seat-0 `Agent`. Per decision: flushes
+the log, sweeps any placeholder out of the deciding seat's hand
+(`entry.identify_bird` + `registry.swap_bird`, rewriting any offered
+`BirdChoice`/`PlayBirdChoice` still pointing at the swapped placeholder in
+place), calls `inner` and reads back its `DecisionProbe` value/policy
+annotation (discarding `inner`'s own pick), shows the model's ranked
+top-`_AID_TOP_K` recommendation (setup decisions via the setup net's
+per-candidate `display_label`, or — under a split-setup regime, detected via
+`agents.cli.setup_dialog_axes` — a compact `keep:[...]` label plus a combined
+`preview.preview_setup(...).format_line()` recommendation line after the
+ranking; other decisions via the promoted `agents.cli.format_choice_line`,
+plus a `model eval: ±N.N VP expected margin` line scaled by `score_norm`),
+then asks what was actually played (setup via the promoted
+`agents.cli.resolve_setup_choice_dialog`; everything else via an
+Enter-defaults-to-model-pick index prompt, prefixed with a `(still setup —
+this pick completes your opening)` framing line whenever
 `engine.state.turn_counter == 0` — true for the deferred bonus/food picks
-too) and writes the corrected `chosen_idx` back onto the probe so a recorder
-captures the real play.
+too) — or, when `trust_me` is set and a recommendation is on hand, skips
+that prompt/dialog and auto-commits the top-ranked pick instead, echoing a
+`trusting model pick: ...` line in its place (falling back to the ordinary
+interactive prompt whenever there is no annotation to trust) — and writes
+the corrected `chosen_idx` back onto the probe so a recorder captures the
+real play.
 
 **`relay.py`** — `relay_agent(con, echo, registry, notes)`: the seat-1
 `Agent`. Auto-answers a `MainActionDecision`/`PlayBirdDecision` from an
@@ -206,23 +211,30 @@ across all six events it implements.
 
 **`app.py`** — `wingspan aid` CLI wiring. `_build_parser()` (`prog="wingspan
 aid"`): a positional checkpoint spec (default `last`) plus
-`--checkpoint-dir`/`--device`/`--seed`/`--log`/`--jsonl` (no `--html` — the
-navigable HTML viewer needs the training-config timeline plumbing
-`cli._open_instrumentation` carries, which does not compose cleanly with
-`AidHandler`'s own event router). `main(argv)`: resolves the model spec via
-`players.parse_player_spec` (refusing `human`/`random`), builds the inner
-agent via `players.build_agent(..., greedy=True, value_probe=probe)`, derives
-the opening regime from the one loaded `TrainConfig`
-(`resolve_split_setup_bonus`/`_food`, `resolve_combine_gain_food`,
-`resolve_num_players((cfg,), 2)`), then runs `entry.run_setup_entry` ->
-`oracle_state.build_state` -> wires `hooks.AidHandler` +
-`advisor.advisor_agent` + `relay.relay_agent` -> `Engine.play_one_game`. The
-whole interactive session (setup dialog through game end) is wrapped in
-`try/except KeyboardInterrupt` so a Ctrl-C aborts cleanly rather than leaving
-a half-drawn board. The final report (`models.SessionReport`) prints each
-seat's score, the winner, and — when `AidHandler.opponent_bonus_entered` is
-`False` — a reminder that the opponent's bonus VP is a placeholder to count
-manually. Excluded from the coverage gate (`pyproject.toml`'s
+`--checkpoint-dir`/`--device`/`--seed`/`--log`/`--jsonl`/`--trust-me` (no
+`--html` — the navigable HTML viewer needs the training-config timeline
+plumbing `cli._open_instrumentation` carries, which does not compose cleanly
+with `AidHandler`'s own event router). `--trust-me` skips the your-actual-move
+prompts and the setup dialog, auto-playing the model's top pick for seat 0
+while setup entry, oracle reveals/dice, and the opponent relay stay
+interactive — threaded from `args.trust_me` through `_run_interactive_session`
+to `advisor.advisor_agent(..., trust_me=...)`. `main(argv)`: resolves the
+model spec via `players.parse_player_spec` (refusing `human`/`random`),
+builds the inner agent via `players.build_agent(..., greedy=True,
+value_probe=probe)`, derives the opening regime from the one loaded
+`TrainConfig` (`resolve_split_setup_bonus`/`_food`,
+`resolve_combine_gain_food`, `resolve_num_players((cfg,), 2)`), then runs
+`entry.run_setup_entry` -> `oracle_state.build_state` -> wires
+`hooks.AidHandler` + `advisor.advisor_agent` + `relay.relay_agent` ->
+`Engine.play_one_game`. The whole interactive session (setup dialog through
+game end) is wrapped in `try/except KeyboardInterrupt` so a Ctrl-C aborts
+cleanly rather than leaving a half-drawn board. The final report
+(`models.SessionReport`) prints each seat's score, the winner, and — when
+`AidHandler.opponent_bonus_entered` is `False` — a reminder that the
+opponent's bonus VP is a placeholder to count manually. The flat `--jsonl`
+meta's seat-0 label (`_session_meta`) is `aid-trust:<spec>` instead of
+`aid:<spec>` whenever `args.trust_me` was set, so a log reader can tell the
+two modes apart. Excluded from the coverage gate (`pyproject.toml`'s
 `[tool.coverage.run] omit`, alongside `cli.py`): it is argparse/interactive
 wiring exercised by hand, not unit tests — `tests/test_aid_session.py`
 exercises the real advisor/relay/hooks stack it wires together, headlessly,

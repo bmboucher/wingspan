@@ -194,6 +194,7 @@ expected VP margin before you confirm what you actually played:
 wingspan aid                                  # advise with the latest trained model
 wingspan aid best --seed 42                   # advise with the strongest checkpoint
 wingspan aid --log session.log --jsonl session.jsonl  # write session logs
+wingspan aid --trust-me                       # auto-play the model's picks for your seat
 ```
 
 In a real terminal, card prompts are type-to-filter pickers (type a few
@@ -212,6 +213,12 @@ offers to enter the opponent's bonus card(s) for exact scoring; skipping
 that leaves their bonus VP as a placeholder to count manually. Only
 checkpoints trained at `num_players=2` can drive the advisor seat, and a
 session runs setup-to-end with no mid-game entry or undo.
+
+Pass `--trust-me` to skip confirming your own moves: the model's top pick is
+committed automatically for your seat, so you only sit through setup entry,
+oracle reveals/dice, and relaying the opponent's moves — the recommendation
+display still prints first, since under `--trust-me` it's what tells you
+which move to actually execute at the table.
 
 ## Installed commands
 

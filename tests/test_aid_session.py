@@ -77,6 +77,9 @@ _DICE_COUNT_PATTERN = re.compile(r"^(\d+) dice were rolled")
 # private constant so this test doesn't reach into advisor.py's internals.
 _SETUP_FRAMING_SUBSTRING = "still setup"
 
+# Mirrors ``advisor._TRUST_LINE_PREFIX`` -- see ``_SETUP_FRAMING_SUBSTRING``.
+_TRUST_LINE_SUBSTRING = "trusting model pick"
+
 
 def _feeder_faces(_line: str) -> str:
     """A full birdfeeder reroll answer: exactly ``BIRDFEEDER_DICE`` faces."""
@@ -96,15 +99,31 @@ def _predator_dice_faces(line: str) -> str:
     )
 
 
-def _build_rules(identify_name: str) -> list[aid_helpers.ResponderRule]:
+def _reject_actual_move_prompt(_line: str) -> str:
+    """Responder-rule callable standing in for the ``your actual move``
+    answer under ``trust_me`` -- that prompt must never fire once the
+    advisor auto-commits its own top pick, so matching it here is a test
+    failure rather than a real answer."""
+    raise AssertionError("trust-me must never prompt for our move")
+
+
+def _build_rules(
+    identify_name: str, *, trust_me: bool = False
+) -> list[aid_helpers.ResponderRule]:
     """The full responder rule table for one session: every prompt substring
     the advisor/relay/hooks/oracle stack can present during actual gameplay
     (the pre-built setup entry means ``entry.run_setup_entry``'s own dialog
-    never runs, so its prompts are not included here)."""
+    never runs, so its prompts are not included here). Under ``trust_me``
+    the "your actual move" rule instead asserts that prompt is never
+    reached, since the advisor auto-commits its own top pick."""
+    actual_move_rule: aid_helpers.ResponderRule = (
+        "your actual move",
+        _reject_actual_move_prompt if trust_me else (lambda _line: ""),
+    )
     return [
         ("Did the opponent play a bird", lambda _line: "n"),
         ("Did they play ANOTHER", lambda _line: "n"),
-        ("your actual move", lambda _line: ""),
+        actual_move_rule,
         ("opponent's move>", lambda _line: "0"),
         (
             "How many bird cards did the opponent keep",
@@ -179,12 +198,23 @@ def _stub_inner_agent(
     return typing.cast(engine_core.Agent, stub_agent)
 
 
+def _reject_setup_dialog(
+    decision: decisions.SetupDecision, tray: list[cards.Bird]
+) -> decisions.SetupChoice:
+    """Monkeypatch target for ``resolve_setup_choice_dialog`` under
+    ``trust_me`` -- that dialog must never open once the advisor auto-commits
+    the setup net's top-ranked keep, so being called here is a test
+    failure."""
+    raise AssertionError("trust-me must never open the setup dialog")
+
+
 def _play_scripted_session(
     monkeypatch: pytest.MonkeyPatch,
     *,
     split_setup_bonus: bool,
     split_setup_food: bool = False,
     combine_gain_food: bool = False,
+    trust_me: bool = False,
 ) -> tuple[
     engine_core.Engine,
     oracle_state.OracleGameState,
@@ -199,10 +229,14 @@ def _play_scripted_session(
 
     ``split_setup_food``/``combine_gain_food`` default to the pre-B3 baseline
     (both off); the parametrized test below drives every regime combination
-    explicitly."""
+    explicitly. ``trust_me`` wires the advisor for auto-commit and swaps in
+    the rules/monkeypatch that assert neither the actual-move prompt nor the
+    setup dialog is ever reached."""
     registry = placeholders.PlaceholderRegistry()
     identify_name = _powerless_bird_name()
-    con, transcript = aid_helpers.responder_console(_build_rules(identify_name))
+    con, transcript = aid_helpers.responder_console(
+        _build_rules(identify_name, trust_me=trust_me)
+    )
     echo = console_module.LogEcho(con)
     oracle = oracle_module.SessionOracle(con, echo, registry)
 
@@ -218,7 +252,7 @@ def _play_scripted_session(
     probe = decision_probe.DecisionProbe()
     stub_inner = _stub_inner_agent(registry, probe)
     advisor_seat = advisor.advisor_agent(
-        stub_inner, probe, con, echo, registry, _STUB_SCORE_NORM
+        stub_inner, probe, con, echo, registry, _STUB_SCORE_NORM, trust_me=trust_me
     )
     relay_seat = relay.relay_agent(con, echo, registry, notes)
 
@@ -228,7 +262,9 @@ def _play_scripted_session(
         return decision.choices[len(decision.choices) // 2]
 
     monkeypatch.setattr(
-        agents_cli, "resolve_setup_choice_dialog", _mid_range_setup_choice
+        agents_cli,
+        "resolve_setup_choice_dialog",
+        _reject_setup_dialog if trust_me else _mid_range_setup_choice,
     )
 
     eng = engine_core.Engine.play_one_game(
@@ -307,3 +343,19 @@ def test_full_session_completes(
         any(line.startswith("model recommends:") for line in transcript)
         == any_axis_deferred
     )
+
+
+def test_trust_me_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Under ``--trust-me`` the session still completes with neither the
+    actual-move prompt nor the setup dialog ever reached (the responder rule
+    and the monkeypatched dialog both assert on that), and every trusted pick
+    is echoed with the ``trusting model pick`` line. The stub agent argmaxes
+    ``choices[0]``, so the setup keep it auto-commits to
+    (``choices[top_indices[0]]``) is also ``choices[0]`` -- a different keep
+    than the mid-range one the non-trust-me tests exercise, but the shared
+    invariants tolerate any legal flow."""
+    eng, gs, transcript, registry = _play_scripted_session(
+        monkeypatch, split_setup_bonus=False, trust_me=True
+    )
+    _assert_session_invariants(eng, gs, transcript, registry)
+    assert any(_TRUST_LINE_SUBSTRING in line for line in transcript)
