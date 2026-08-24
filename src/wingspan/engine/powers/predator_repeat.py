@@ -61,7 +61,7 @@ def _h_predator_hunt(
             engine.log(f"  {bird.name}: [{player.name}] declined predator hunt")
             return
 
-    prey = ledger.reveal_from_deck(engine)
+    prey = ledger.reveal_from_deck(engine, player)
     if prey is None:
         engine.log(f"  {bird.name}: deck empty; predator hunt skipped")
         return

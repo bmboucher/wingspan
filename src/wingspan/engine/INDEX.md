@@ -14,22 +14,28 @@ scoring) lives in sibling modules as free functions whose first argument is the
 - `Agent` — `typing.Protocol` with generic `__call__[C: Choice](self, engine,
   decision: Decision[C], /) -> C`. Non-generic at use sites (`list[Agent]`
   typechecks); each call's return type tracks the Decision's parameterization.
-- `Engine(gs: GameState, agents, instrumentation, *, combine_gain_food=False)` —
-  constructor. `combine_gain_food` is the engine-behavior flag (default off) read
-  by `actions.do_gain_food` / the raven supply handler / the setup-food branch to
-  collapse multi-food gains into one combined subset decision.
+- `Engine(gs: GameState, agents, instrumentation, *, combine_gain_food=False,
+  verbose_turn_log=True)` — constructor. `combine_gain_food` is the
+  engine-behavior flag (default off) read by `actions.do_gain_food` / the
+  raven supply handler / the setup-food branch to collapse multi-food gains
+  into one combined subset decision. `verbose_turn_log` (default on) gates
+  whether `log_format.log_game_setup`/`log_dealt_hand`/`log_dealt_bonus`/
+  `log_turn_summary` write their board/hand/tray/score-table snapshots into
+  the game log at all — `wingspan aid` passes `False` since the player
+  already sees the physical board.
 - `Engine.create(seed, num_players=2) -> (Engine, birds, bonuses, goals)` —
   static factory that instantiates a fresh game from a seed.
 - `Engine.play_one_game(gs, agents: Sequence[Agent], instrumentation,
   event_recorder=None, *, split_setup_bonus=False, split_setup_food=False,
-  combine_gain_food=False) -> Engine` — static entry point for a complete
-  game. `agents` is indexed by `Player.id` (length must match
-  `len(gs.players)`), not fixed at 2. `Engine.play_one_game_with_setups(gs,
+  combine_gain_food=False, verbose_turn_log=True) -> Engine` — static entry
+  point for a complete game. `agents` is indexed by `Player.id` (length must
+  match `len(gs.players)`), not fixed at 2. `Engine.play_one_game_with_setups(gs,
   agents, choose_setups, instrumentation, event_recorder=None, *,
   split_setup_food=False, combine_gain_food=False) -> Engine` is the sibling
-  entry point for the setup-model collection path: like `play_one_game`, but
-  the setup phase is resolved by `choose_setups` instead of by asking each
-  agent.
+  entry point for the setup-model collection path (no `verbose_turn_log`
+  param — not used by any caller of this entry point): like `play_one_game`,
+  but the setup phase is resolved by `choose_setups` instead of by asking
+  each agent.
 - `Engine.ask[C](agent, decision) -> C` — validates the agent's answer against
   `decision.choices`; auto-picks single-choice decisions; fires instrumentation
   callbacks. Never bypass `ask` — constructing a `Choice` directly skips validation.
@@ -116,8 +122,11 @@ hand, e.g. the Oystercatcher draft pool),
 `discard_from_hand(engine, player, card, *, purpose)`,
 `tuck_from_hand(engine, player, card, played_bird)`,
 `tuck_from_deck(engine, player, played_bird)`, plus the split
-`reveal_from_deck(engine)` / `tuck_revealed(...)` / `discard_revealed(...)` trio
-the dice predators need (turn the card face up, *then* decide its fate).
+`reveal_from_deck(engine, player)` / `tuck_revealed(...)` / `discard_revealed(...)`
+trio the dice predators need (turn the card face up, *then* decide its
+fate) — `player` is whoever's power triggered the reveal, threaded to
+`GameState.draw_bird`'s `revealed_to` so `wingspan aid` never prompts for a
+card only the acting player (not necessarily the human's own seat) may see.
 `pass_card(engine, from_player, to_player, card)` moves a card hand-to-hand;
 `take_into_pile(engine, from_player, to_player, card)` is its counterpart for
 the card draft, whose pile leaves one hand several lines before it joins the

@@ -14,10 +14,11 @@ import pydantic
 import pytest
 
 import aid_helpers
-from wingspan import cards, state
+from wingspan import cards, decisions, engine, state
 from wingspan.aid import console, models, oracle, oracle_state, placeholders
 from wingspan.cards import lookup
 from wingspan.cards.parse import catalog
+from wingspan.engine import powers
 
 # A valid 5-die feeder reading (1 each of invertebrate/seed/fish/fruit, one
 # choice die) reused across the build_state tests.
@@ -180,6 +181,160 @@ def test_deck_lengths_decrement_by_one_per_draw() -> None:
     bonus_before = len(gs.bonus_deck)
     gs.draw_bonus()
     assert len(gs.bonus_deck) == bonus_before - 1
+
+
+# ---------------------------------------------------------------------------
+# revealed_to gating: an opponent-bound draw mints silently and never
+# prompts; a public or own-seat draw still prompts exactly as before.
+
+
+def _minimal_oracle_state(
+    session_oracle: oracle.SessionOracle,
+) -> oracle_state.OracleGameState:
+    """A bare ``OracleGameState`` with no pre-queued setup facts, so these
+    tests exercise ``draw_bird``/``draw_bonus``'s ``revealed_to`` gating in
+    isolation from ``build_state``'s setup-deal queue."""
+    return oracle_state.OracleGameState(
+        oracle=session_oracle,
+        rng=random.Random(0),
+        players=[state.Player(id=0, name="You"), state.Player(id=1, name="Opponent")],
+        current_player=0,
+        round_idx=0,
+        bird_deck=list(catalog.birds_ordered()[:5]),
+        bonus_deck=list(catalog.bonus_cards_ordered()[:5]),
+    )
+
+
+def test_draw_bird_revealed_to_opponent_mints_placeholder_without_prompting() -> None:
+    session_oracle, transcript = _fresh_oracle([])
+    gs = _minimal_oracle_state(session_oracle)
+    deck_before = len(gs.bird_deck)
+
+    drawn = gs.draw_bird(revealed_to=1)
+
+    assert drawn is not None
+    assert session_oracle.registry.is_placeholder(drawn)
+    assert transcript == []
+    assert len(gs.bird_deck) == deck_before - 1
+
+
+def test_draw_bonus_revealed_to_opponent_mints_placeholder_without_prompting() -> None:
+    session_oracle, transcript = _fresh_oracle([])
+    gs = _minimal_oracle_state(session_oracle)
+    deck_before = len(gs.bonus_deck)
+
+    drawn = gs.draw_bonus(revealed_to=1)
+
+    assert drawn is not None
+    assert session_oracle.registry.is_placeholder(drawn)
+    assert transcript == []
+    assert len(gs.bonus_deck) == deck_before - 1
+
+
+def test_draw_bird_revealed_to_our_own_seat_still_prompts() -> None:
+    session_oracle, _ = _fresh_oracle(["Barn Owl"])
+    gs = _minimal_oracle_state(session_oracle)
+
+    drawn = gs.draw_bird(revealed_to=0)
+
+    assert drawn is not None
+    assert drawn.name == "Barn Owl"
+    assert not session_oracle.registry.is_placeholder(drawn)
+
+
+def test_draw_bonus_revealed_to_our_own_seat_still_prompts() -> None:
+    session_oracle, _ = _fresh_oracle(["Anatomist"])
+    gs = _minimal_oracle_state(session_oracle)
+
+    drawn = gs.draw_bonus(revealed_to=0)
+
+    assert drawn is not None
+    assert drawn.name == "Anatomist"
+    assert not session_oracle.registry.is_placeholder(drawn)
+
+
+def test_draw_bird_public_reveal_still_prompts() -> None:
+    """Regression guard: ``revealed_to=None`` (a public reveal, e.g. into
+    the face-up tray) must be unaffected by the opponent short-circuit."""
+    session_oracle, _ = _fresh_oracle(["Barn Owl"])
+    gs = _minimal_oracle_state(session_oracle)
+
+    drawn = gs.draw_bird(revealed_to=None)
+
+    assert drawn is not None
+    assert drawn.name == "Barn Owl"
+    assert not session_oracle.registry.is_placeholder(drawn)
+
+
+def test_refill_tray_still_prompts_for_every_public_slot() -> None:
+    """Regression guard on the real ``refill_tray`` call path (which always
+    draws with the default ``revealed_to=None``): every newly face-up slot
+    still prompts, unaffected by the opponent short-circuit."""
+    session_oracle, _ = _fresh_oracle(
+        ["Barn Owl", "Barn Swallow", "Anna's Hummingbird"]
+    )
+    gs = _minimal_oracle_state(session_oracle)
+    gs.tray = [None] * state.TRAY_SIZE
+
+    revealed = gs.refill_tray()
+
+    assert [bird.name for _, bird in revealed] == [
+        "Barn Owl",
+        "Barn Swallow",
+        "Anna's Hummingbird",
+    ]
+    assert not any(session_oracle.registry.is_placeholder(bird) for _, bird in revealed)
+
+
+def test_predator_hunt_for_opponent_seat_never_prompts_for_prey() -> None:
+    """A real ``PREDATOR_HUNT`` dispatch for the OPPONENT's own predator
+    never surfaces an identity prompt for the revealed prey card -- proving
+    ``ledger.reveal_from_deck``'s ``player`` parameter reaches
+    ``OracleGameState.draw_bird`` correctly gated."""
+    session_oracle, transcript = _fresh_oracle([])
+    gs = _minimal_oracle_state(session_oracle)
+    gs.current_player = 1
+    opponent = gs.players[1]
+
+    # A low cap (well under every real placeholder-source wingspan): under
+    # OracleGameState, ``bird_deck`` filler is popped and discarded
+    # unexamined regardless of identity -- the real "prey" always comes back
+    # as a minted placeholder (a deep copy of the fixed catalog source,
+    # see placeholders.py), so a low cap reliably sends it to the discard
+    # branch (rather than a tuck, which only records a count -- the object
+    # itself wouldn't survive for inspection).
+    power_text = (
+        "Look at a [card] from the deck. If less than 30 cm, tuck it behind"
+        " this bird. If not, discard it"
+    )
+    template = next(
+        bird for bird in catalog.birds_ordered() if bird.color == cards.PowerColor.BROWN
+    )
+    predator_bird = template.model_copy(
+        update={
+            "color": cards.PowerColor.BROWN,
+            "raw_power_text": power_text,
+            "power": cards.parse_power(cards.PowerColor.BROWN, power_text),
+        }
+    )
+    pb = state.PlayedBird(bird=predator_bird)
+    opponent.board[cards.Habitat.FOREST] = [pb]
+
+    gs.bird_deck = [catalog.birds_ordered()[1]]
+    eng = engine.Engine(gs)
+
+    def _no_agent[C: decisions.Choice](
+        _engine: engine.Engine, decision: decisions.Decision[C]
+    ) -> C:
+        raise AssertionError(f"unexpected decision: {type(decision).__name__}")
+
+    powers.dispatch_power(
+        eng, _no_agent, opponent, pb, cards.Habitat.FOREST, "activate"
+    )
+
+    assert transcript == []
+    assert gs.bird_discard
+    assert session_oracle.registry.is_placeholder(gs.bird_discard[-1])
 
 
 # ---------------------------------------------------------------------------
@@ -416,10 +571,12 @@ def test_log_echo_flushes_only_new_lines_since_last_flush() -> None:
     gs = _minimal_game_state()
     echo.game_state = gs
 
-    gs.log.append("\x1b[31mline one\x1b[0m")
+    gs.log_entries.append(
+        state.LogEntry(player_id=None, text="\x1b[31mline one\x1b[0m")
+    )
     echo.flush()
     assert transcript == ["line one"]
 
-    gs.log.append("line two")
+    gs.log_entries.append(state.LogEntry(player_id=None, text="line two"))
     echo.flush()
     assert transcript == ["line one", "line two"]

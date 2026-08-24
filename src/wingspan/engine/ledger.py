@@ -212,7 +212,7 @@ def draw_from_deck(
     even though it comes off the deck, so the drawn card also joins
     ``player.known_hand``. Plain deck draws (setup deal, wetland card-draw
     action) stay hidden by default."""
-    drawn = engine.state.draw_bird()
+    drawn = engine.state.draw_bird(revealed_to=player.id)
     if drawn is None:
         return None
     player.hand.append(drawn)
@@ -268,14 +268,18 @@ def discard_from_hand(
     )
 
 
-def reveal_from_deck(engine: core.Engine) -> cards.Bird | None:
+def reveal_from_deck(engine: core.Engine, player: state.Player) -> cards.Bird | None:
     """Pop the top deck card without giving it to anyone.
 
     The dice-predator "draw the top card and check its cost" powers turn it face
     up before deciding whether it is tucked or discarded; the caller follows up
     with :func:`tuck_revealed` or :func:`discard_revealed`, either of which
-    records the reveal."""
-    return engine.state.draw_bird()
+    records the reveal.
+
+    ``player`` is whoever's predator power triggered the reveal — only they
+    examine the card, so it gates the reveal the same way :func:`draw_from_deck`
+    does."""
+    return engine.state.draw_bird(revealed_to=player.id)
 
 
 def tuck_revealed(
@@ -339,7 +343,7 @@ def tuck_from_deck(
     """Tuck the top deck card behind ``played_bird`` — a reveal.
 
     ``None`` when the deck and discard are both exhausted."""
-    drawn = reveal_from_deck(engine)
+    drawn = reveal_from_deck(engine, player)
     if drawn is None:
         return None
     tuck_revealed(engine, player, played_bird, drawn)

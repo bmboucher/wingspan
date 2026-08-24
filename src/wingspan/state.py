@@ -216,7 +216,18 @@ class GameState(pydantic.BaseModel):
     def me(self) -> Player:
         return self.players[self.current_player]
 
-    def draw_bird(self) -> cards.Bird | None:
+    def draw_bird(self, *, revealed_to: int | None = None) -> cards.Bird | None:
+        """Pop the top bird card, or ``None`` when the deck (and discard)
+        are both exhausted.
+
+        ``revealed_to`` names the player id this draw becomes privately
+        known to, or ``None`` for a public reveal (into the face-up tray).
+        This base implementation always draws blind and ignores the
+        parameter entirely — it exists solely so
+        :class:`wingspan.aid.oracle_state.OracleGameState` can route a draw
+        through the physical-table oracle only when the card is
+        legitimately askable (our own hand, or a public reveal), never for
+        the opponent's hidden hand/bonus pile."""
         if not self.bird_deck:
             if not self.bird_discard:
                 return None
@@ -225,13 +236,17 @@ class GameState(pydantic.BaseModel):
             self.rng.shuffle(self.bird_deck)
         return self.bird_deck.pop()
 
-    def draw_bonus(self) -> cards.BonusCard | None:
+    def draw_bonus(self, *, revealed_to: int | None = None) -> cards.BonusCard | None:
         """Pop the top bonus card, or ``None`` when the deck is empty.
 
         The single bonus-reveal seam — every setup deal and mid-game power
         that grants a bonus card draws through this method — mirroring
         :meth:`draw_bird` for birds. Unlike the bird deck, the bonus deck is
-        never reshuffled from a discard pile, so an empty deck stays empty."""
+        never reshuffled from a discard pile, so an empty deck stays empty.
+
+        ``revealed_to`` mirrors :meth:`draw_bird`'s parameter and, like
+        there, is ignored by this base implementation — see :meth:`draw_bird`
+        for why it exists."""
         if not self.bonus_deck:
             return None
         return self.bonus_deck.pop()

@@ -94,6 +94,7 @@ class Engine:
         event_recorder: gamelog_recorder.AnyRecorder | None = None,
         *,
         combine_gain_food: bool = False,
+        verbose_turn_log: bool = True,
     ):
         self.state = gs
         # Engine-behavior flag (the ``combine_gain_food`` regime): collapse a run
@@ -102,6 +103,12 @@ class Engine:
         # branch, so it never threads through the turn loop or power dispatch.
         # Encoding-independent (no shape change); defaults off.
         self.combine_gain_food = combine_gain_food
+        # Gates the per-turn ``log_format.log_turn_summary`` snapshot (board by
+        # habitat, hand, tray, score+food table, bonus cards) written into the
+        # game log at the top of ``_take_turn``. On by default for file logging
+        # (``--log``/``--jsonl``), tournaments, and training; ``wingspan aid``
+        # turns it off since the player already sees the physical board.
+        self.verbose_turn_log = verbose_turn_log
         # ``agents`` is indexed by ``Player.id`` so opponent-prompting power
         # effects (pink reactors, "each player chooses" effects) can route to
         # the correct controller without threading agents through every method
@@ -154,6 +161,7 @@ class Engine:
         split_setup_bonus: bool = False,
         split_setup_food: bool = False,
         combine_gain_food: bool = False,
+        verbose_turn_log: bool = True,
     ) -> Engine:
         """Construct an Engine on ``gs`` with ``agents``, run a full game,
         and return the engine. The caller's ``gs`` is mutated in place, so
@@ -178,18 +186,24 @@ class Engine:
         ``setup_flow.resolve_deferred_setup_food``).
 
         ``combine_gain_food`` collapses multi-die / multi-token food gains into
-        one combined subset decision (the ``combine_gain_food`` regime)."""
+        one combined subset decision (the ``combine_gain_food`` regime).
+
+        ``verbose_turn_log`` controls whether each turn's ``log_format.log_turn_summary``
+        snapshot is written to the game log (default on); ``wingspan aid`` passes
+        ``False`` since the player already sees the physical board."""
         eng = Engine(
             gs,
             agents=agents,
             instrumentation=instrumentation,
             event_recorder=event_recorder,
             combine_gain_food=combine_gain_food,
+            verbose_turn_log=verbose_turn_log,
         )
         eng.log_section("=== GAME START ===", global_line=True)
         eng.instrumentation.game_start(engine=eng)
         eng.events.begin_game()
-        log_format.log_game_setup(eng)
+        if eng.verbose_turn_log:
+            log_format.log_game_setup(eng)
         eng._setup_phase(
             agents, defer_bonus=split_setup_bonus, defer_food=split_setup_food
         )
@@ -387,7 +401,8 @@ class Engine:
             f"=== {player.name}, ROUND {self.state.round_idx + 1}, "
             f"TURN {turn_idx} ({player.action_cubes_left} CUBES LEFT) ==="
         )
-        log_format.log_turn_summary(self)
+        if self.verbose_turn_log:
+            log_format.log_turn_summary(self)
         self.log("")
         self.events.begin_main_action(player.id)
         choice = self.ask(agent, self._main_action_decision(player))
@@ -537,8 +552,9 @@ class Engine:
                 self.log_section(
                     f"=== SETUP: {player.name} CHOOSING BIRDS, FOOD, AND BONUS CARD ==="
                 )
-            log_format.log_dealt_hand(self, player, dealt_cards)
-            log_format.log_dealt_bonus(self, dealt_cards, dealt_bonus, player)
+            if self.verbose_turn_log:
+                log_format.log_dealt_hand(self, player, dealt_cards)
+                log_format.log_dealt_bonus(self, dealt_cards, dealt_bonus, player)
             self._resolve_setup_choice(
                 player,
                 agents,
@@ -682,7 +698,7 @@ class Engine:
         self.events.begin_deal(player.id)
         try:
             self._deal_starting_hand(player)
-            dealt_bonus = self._deal_starting_bonus()
+            dealt_bonus = self._deal_starting_bonus(player)
             for food in cards.ALL_FOODS:
                 ledger.gain_food(
                     self, player, food, source=gamelog_models.FoodSource.DEAL
@@ -764,12 +780,12 @@ class Engine:
         )
         self.events.end_event()
 
-    def _deal_starting_bonus(self) -> list[cards.BonusCard]:
+    def _deal_starting_bonus(self, player: state.Player) -> list[cards.BonusCard]:
         """Pop ``STARTING_BONUS_CARDS_DEAL`` bonus cards from the deck (or as
-        many as remain)."""
+        many as remain) for ``player``'s setup deal."""
         dealt: list[cards.BonusCard] = []
         for _ in range(state.STARTING_BONUS_CARDS_DEAL):
-            if (card := self.state.draw_bonus()) is not None:
+            if (card := self.state.draw_bonus(revealed_to=player.id)) is not None:
                 dealt.append(card)
         return dealt
 

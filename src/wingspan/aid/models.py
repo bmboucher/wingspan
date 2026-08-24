@@ -18,7 +18,7 @@ import typing
 
 import pydantic
 
-from wingspan import state
+from wingspan import decisions, state
 from wingspan.cards import schema
 
 # Aid sessions are 2-player only (see the plan's "user-approved scope"), so
@@ -105,18 +105,21 @@ class OpponentPlayNote(pydantic.BaseModel):
 
 class TurnNotes(pydantic.BaseModel):
     """Mutable per-turn scratch consumed by the relay/advisor hooks (stage
-    3): which opponent plays were reported this turn, and how many of them
-    the subsequent decisions have already consumed."""
+    3): which opponent plays were reported this turn, how many of them the
+    subsequent decisions have already consumed, and which main action the
+    opponent's pre-turn menu recorded."""
 
     plays: list[OpponentPlayNote] = pydantic.Field(
         default_factory=_new_opponent_play_note_list
     )
     play_consumed_count: int = 0
+    main_action: decisions.MainAction | None = None
 
     def clear(self) -> None:
-        """Reset both fields; called at the start of every turn."""
+        """Reset all three fields; called at the start of every turn."""
         self.plays = []
         self.play_consumed_count = 0
+        self.main_action = None
 
 
 class SetupPreview(pydantic.BaseModel):

@@ -6,9 +6,12 @@ mirrors the engine's own game log to the console as narration -- the log
 already reads like a play-by-play, including the "skipping decision, only 1
 choice" lines the engine writes when ``Engine.ask`` short-circuits a forced
 move, so echoing it is the whole narration layer; nothing is re-derived from
-the Decision stream. When :meth:`Console.supports_interactive` is true,
-widget helpers (see ``wingspan.aid.widgets``) may write ANSI frames directly
-to stdout instead of routing through :meth:`Console.say`.
+the Decision stream. Per-player lines are stripped of their redundant
+``[Name]`` prefix and, on an interactive console, color-coded by seat
+(green for the user, red for the opponent) instead. When
+:meth:`Console.supports_interactive` is true, widget helpers (see
+``wingspan.aid.widgets``) may write ANSI frames directly to stdout instead
+of routing through :meth:`Console.say`.
 """
 
 from __future__ import annotations
@@ -23,6 +26,12 @@ from wingspan.agents import display
 # answer) defaults to yes, matching the "[Y/n]" prompt suffix.
 _CONFIRM_YES_ANSWERS = frozenset({"", "y", "yes"})
 _CONFIRM_NO_ANSWERS = frozenset({"n", "no"})
+
+# LogEcho's per-seat narration colors: green for the user's own seat (id 0),
+# red for the opponent's (id 1). Global lines (player_id None) get no color.
+_GREEN = "\x1b[32m"
+_RED = "\x1b[31m"
+_ANSI_RESET = "\x1b[0m"
 
 
 class Console:
@@ -98,7 +107,10 @@ class Console:
 
 
 class LogEcho:
-    """Flushes new ``GameState.log`` lines to a ``Console`` as narration.
+    """Flushes new ``GameState.log_entries`` lines to a ``Console`` as
+    narration, one player-attributed color and a stripped ``[Name]`` prefix
+    at a time (green for the user's seat, red for the opponent's, plain for
+    global lines).
 
     Attach ``game_state`` once ``oracle_state.build_state`` constructs it;
     :meth:`flush` is a no-op before that (setup dialogs that run before the
@@ -110,10 +122,26 @@ class LogEcho:
         self._printed_through = 0
 
     def flush(self) -> None:
-        """Print every ``game_state.log`` line since the last flush,
-        stripped of ANSI styling. No-op while unattached."""
-        if self.game_state is None:
+        """Print every ``game_state.log_entries`` line since the last flush,
+        stripped of ANSI styling and of its redundant ``[Name]`` prefix, and
+        color-coded by ``player_id`` when the console supports it. No-op
+        while unattached."""
+        game_state = self.game_state
+        if game_state is None:
             return
-        for line in self.game_state.log[self._printed_through :]:
-            self.console.say(display.strip_ansi(line))
-        self._printed_through = len(self.game_state.log)
+        for entry in game_state.log_entries[self._printed_through :]:
+            self.console.say(self._render(entry, game_state))
+        self._printed_through = len(game_state.log_entries)
+
+    def _render(self, entry: state.LogEntry, game_state: state.GameState) -> str:
+        """Strip ANSI styling and the ``[Name]`` prefix from one entry, then
+        color it by seat when the console supports interactive output."""
+        text = display.strip_ansi(entry.text)
+        if entry.player_id is None:
+            return text
+        player_name = game_state.players[entry.player_id].name
+        text = text.removeprefix(f"[{player_name}] ")
+        if not self.console.supports_interactive():
+            return text
+        color = _GREEN if entry.player_id == 0 else _RED
+        return f"{color}{text}{_ANSI_RESET}"

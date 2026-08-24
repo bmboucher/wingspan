@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import typing
 
-from wingspan import decisions
+from wingspan import decisions, state
 from wingspan.agents import cli as agents_cli
-from wingspan.agents import display
 from wingspan.aid import console as console_module
 from wingspan.aid import entry, placeholders
 from wingspan.aid import preview as preview_module
@@ -117,11 +116,12 @@ def _resolve_setup_move(
     decision: decisions.Decision[typing.Any],
     trust_me: bool,
 ) -> tuple[int, float | None, decision_probe.PolicyAnnotation | None]:
-    """The setup-decision branch: show the setup net's top-ranked keep
-    recommendations (if any), then walk the user through the actual keep via
-    the promoted CLI setup dialog and locate it among the offered choices --
-    or, under ``trust_me`` (with a recommendation on hand), auto-commit the
-    top-ranked keep and skip the dialog entirely.
+    """The setup-decision branch: show a condensed header naming the setup
+    net's top-ranked keep, then an indented percentage line per remaining
+    top-ranked recommendation below it (if any), then walk the user through
+    the actual keep via the promoted CLI setup dialog and locate it among
+    the offered choices -- or, under ``trust_me`` (with a recommendation on
+    hand), auto-commit the top-ranked keep and skip the dialog entirely.
 
     Under a split-setup regime the offered ``SetupChoice``s pin the deferred
     axis (or axes) to their empty value, so ``display_label``'s
@@ -142,12 +142,12 @@ def _resolve_setup_move(
     top_indices: list[int] = []
     if annotation is not None:
         top_indices = _top_k_indices(annotation.probs, _AID_TOP_K)
+        top_choice = setup_decision.choices[top_indices[0]]
+        con.say(f"Setup: {_setup_choice_label(top_choice, any_deferred)}")
         for idx in top_indices:
             choice = setup_decision.choices[idx]
-            label = (
-                _compact_keep_label(choice) if any_deferred else choice.display_label()
-            )
-            con.say(f"{annotation.probs[idx]:5.1%}  {label}")
+            label = _setup_choice_label(choice, any_deferred)
+            con.say(f"  {label}    {annotation.probs[idx]:.0%}")
     else:
         con.say("(no setup model — no recommendation)")
 
@@ -161,8 +161,7 @@ def _resolve_setup_move(
     if trust_me and annotation is not None:
         chosen_idx = top_indices[0]
         choice = setup_decision.choices[chosen_idx]
-        label = _compact_keep_label(choice) if any_deferred else choice.display_label()
-        con.say(f"{_TRUST_LINE_PREFIX}: {label}")
+        con.say(f"{_TRUST_LINE_PREFIX}: {_setup_choice_label(choice, any_deferred)}")
     else:
         tray_birds = [bird for bird in engine.state.tray if bird is not None]
         kept = agents_cli.resolve_setup_choice_dialog(setup_decision, tray_birds)
@@ -179,11 +178,18 @@ def _resolve_main_move(
     score_norm: float,
     trust_me: bool,
 ) -> tuple[int, float | None, decision_probe.PolicyAnnotation | None]:
-    """The general decision branch: show the board (for the two big
-    decisions), the model's ranked recommendation, and the expected-margin
-    readout, then ask what was actually played -- or, under ``trust_me``
-    (with a recommendation on hand), auto-commit the model's top pick and
-    skip the prompt.
+    """The general decision branch: show the model's ranked recommendation
+    as a condensed header (a short category label plus the top pick's
+    label) with an indented, index-labeled percentage line per
+    top-``_AID_TOP_K`` choice below it, then ask what was actually played --
+    or, under ``trust_me`` (with a recommendation on hand), auto-commit the
+    model's top pick and skip the prompt. ``score_norm`` is threaded through
+    only for the caller's ``probe.record(value)``/return-tuple bookkeeping --
+    this branch no longer prints an expected-margin readout.
+
+    Each ranked line is prefixed with the choice's actual position in
+    ``decision.choices`` (not its rank), since that is what
+    ``_resolve_move_index`` expects typed back for "your actual move".
 
     ``engine.state.turn_counter`` stays 0 for the entire setup window
     (including the deferred bonus/food picks a split-setup regime resolves
@@ -193,33 +199,22 @@ def _resolve_main_move(
         con.say(_SETUP_FRAMING_LINE)
 
     player = engine.state.players[decision.player_id]
-    if isinstance(decision, (decisions.MainActionDecision, decisions.PlayBirdDecision)):
-        con.say(display.format_board(engine.state, player))
 
     inner(engine, decision)
     value, annotation = probe.take()
 
-    con.say(decision.prompt)
     top_indices = (
         _top_k_indices(annotation.probs, _AID_TOP_K) if annotation is not None else []
     )
     argmax_idx = top_indices[0] if top_indices else 0
-    for idx, choice in enumerate(decision.choices):
-        line = agents_cli.format_choice_line(idx, choice, player)
-        if annotation is not None and idx in top_indices:
-            line += f"  — {annotation.probs[idx]:.1%}"
-        if annotation is not None and idx == argmax_idx:
-            line += "  ← model pick"
-        con.say(line)
-    if value is not None:
-        con.say(f"model eval: {value * score_norm:+.1f} VP expected margin")
+    _print_ranked_block(con, decision, player, annotation, top_indices, argmax_idx)
 
     if trust_me and annotation is not None:
         chosen_idx = argmax_idx
-        con.say(
-            f"{_TRUST_LINE_PREFIX}: "
-            f"{agents_cli.format_choice_line(argmax_idx, decision.choices[argmax_idx], player)}"
+        top_label = agents_cli.format_choice_line(
+            argmax_idx, decision.choices[argmax_idx], player, show_index=False
         )
+        con.say(f"{_TRUST_LINE_PREFIX}: {top_label}")
     else:
         chosen_idx = _resolve_move_index(con, decision, argmax_idx)
     return chosen_idx, value, annotation
@@ -232,6 +227,51 @@ def _compact_keep_label(choice: decisions.SetupChoice) -> str:
     segments would otherwise misread as "keeps nothing" for every option."""
     kept_names = [bird.name for bird in choice.kept_cards] or ["none"]
     return f"keep:[{', '.join(kept_names)}]"
+
+
+def _setup_choice_label(choice: decisions.SetupChoice, any_deferred: bool) -> str:
+    """Ranked-list label for one setup choice: the compact ``keep:[...]``
+    form under a deferred axis (see ``_compact_keep_label``), else the
+    choice's own ``display_label``."""
+    return _compact_keep_label(choice) if any_deferred else choice.display_label()
+
+
+def _prompt_headline(prompt: str) -> str:
+    """Drop a decision prompt's leading ``[player name] `` tag and any
+    trailing ``?``, and capitalize what remains, for use as the ranked
+    block's category label -- the player name is redundant here since
+    ``advisor_agent`` only ever narrates its own seat's decisions."""
+    _, _, rest = prompt.partition("] ")
+    headline = (rest or prompt).rstrip("?")
+    return headline[:1].upper() + headline[1:] if headline else headline
+
+
+def _print_ranked_block(
+    con: console_module.Console,
+    decision: decisions.Decision[typing.Any],
+    player: state.Player,
+    annotation: decision_probe.PolicyAnnotation | None,
+    top_indices: list[int],
+    argmax_idx: int,
+) -> None:
+    """Print the condensed recommendation block for ``_resolve_main_move``:
+    a ``"category: top pick"`` header line, then one indented
+    ``"idx: label    prob%"`` line per top-ranked choice (already sorted
+    descending by probability) -- or, with no model annotation to rank by,
+    just the bare prompt headline with no percentage list."""
+    headline = _prompt_headline(decision.prompt)
+    if annotation is None:
+        con.say(headline)
+        return
+    top_label = agents_cli.format_choice_line(
+        argmax_idx, decision.choices[argmax_idx], player, show_index=False
+    )
+    con.say(f"{headline}: {top_label}")
+    for idx in top_indices:
+        label = agents_cli.format_choice_line(
+            idx, decision.choices[idx], player, show_index=False
+        )
+        con.say(f"  {idx}: {label}    {annotation.probs[idx]:.0%}")
 
 
 def _top_k_indices(probs: list[float], top_k: int) -> list[int]:

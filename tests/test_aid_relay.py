@@ -112,6 +112,7 @@ def test_turn_notes_auto_answer_main_action_then_play_bird() -> None:
     noted_bird = catalog.birds_ordered()[4]
     noted_habitat = noted_bird.habitats[0]
     notes = models.TurnNotes()
+    notes.main_action = decisions.MainAction.PLAY_BIRD
     notes.plays.append(models.OpponentPlayNote(bird=noted_bird, habitat=noted_habitat))
     con, transcript = aid_helpers.scripted_console([])  # no input should be consumed
     echo = console.LogEcho(con)
@@ -152,6 +153,129 @@ def test_turn_notes_auto_answer_main_action_then_play_bird() -> None:
     assert chosen_play == play_decision.choices[1]
     assert notes.play_consumed_count == 1
     assert any("opponent plays" in line for line in transcript)
+
+
+def test_turn_notes_auto_answer_non_play_main_action() -> None:
+    """A non-``PLAY_BIRD`` ``notes.main_action`` (as the new turn-start menu
+    always records, even when no bird was played) auto-answers the real
+    ``MainActionDecision`` without prompting, and leaves no play-note state
+    behind to confuse anything that comes after."""
+    registry = placeholders.PlaceholderRegistry()
+    notes = models.TurnNotes()
+    notes.main_action = decisions.MainAction.GAIN_FOOD
+    con, transcript = aid_helpers.scripted_console([])  # no input should be consumed
+    echo = console.LogEcho(con)
+    eng, *_ = engine_core.Engine.create(seed=20)
+
+    agent = relay.relay_agent(con, echo, registry, notes)
+
+    main_decision = decisions.MainActionDecision(
+        player_id=1,
+        prompt="choose action",
+        choices=[
+            decisions.MainActionChoice(
+                label="gain food (forest)", action=decisions.MainAction.GAIN_FOOD
+            ),
+            decisions.MainActionChoice(
+                label="play a bird", action=decisions.MainAction.PLAY_BIRD
+            ),
+        ],
+    )
+    chosen_action = agent(eng, main_decision)
+
+    assert chosen_action == main_decision.choices[0]
+    assert any("auto-selected from your report" in line for line in transcript)
+    assert notes.plays == []
+    assert notes.play_consumed_count == 0
+
+
+# ---------------------------------------------------------------------------
+# AcceptExchangeDecision extra-play auto-answer
+
+
+def test_extra_play_auto_accepted_when_note_unconsumed() -> None:
+    registry = placeholders.PlaceholderRegistry()
+    notes = models.TurnNotes()
+    first_bird = catalog.birds_ordered()[4]
+    second_bird = catalog.birds_ordered()[9]
+    notes.plays.append(
+        models.OpponentPlayNote(bird=first_bird, habitat=first_bird.habitats[0])
+    )
+    notes.plays.append(
+        models.OpponentPlayNote(bird=second_bird, habitat=second_bird.habitats[0])
+    )
+    notes.play_consumed_count = 1  # the first play already resolved this turn
+    con, transcript = aid_helpers.scripted_console([])  # no input should be consumed
+    echo = console.LogEcho(con)
+    eng, *_ = engine_core.Engine.create(seed=21)
+
+    agent = relay.relay_agent(con, echo, registry, notes)
+
+    accept_choice = decisions.PayCostChoice(label="play a bird", gained_play_count=1)
+    skip_choice = decisions.SkipChoice(label="forfeit the extra play")
+    decision = decisions.AcceptExchangeDecision(
+        player_id=1,
+        prompt="[Opponent] play another bird?",
+        choices=[accept_choice, skip_choice],
+    )
+    chosen = agent(eng, decision)
+
+    assert chosen == accept_choice
+    assert any("auto-selected from your report" in line for line in transcript)
+
+
+def test_extra_play_auto_declined_when_no_unconsumed_note() -> None:
+    registry = placeholders.PlaceholderRegistry()
+    notes = models.TurnNotes()  # no plays recorded this turn
+    con, transcript = aid_helpers.scripted_console([])  # no input should be consumed
+    echo = console.LogEcho(con)
+    eng, *_ = engine_core.Engine.create(seed=22)
+
+    agent = relay.relay_agent(con, echo, registry, notes)
+
+    accept_choice = decisions.PayCostChoice(label="play a bird", gained_play_count=1)
+    skip_choice = decisions.SkipChoice(label="forfeit the extra play")
+    decision = decisions.AcceptExchangeDecision(
+        player_id=1,
+        prompt="[Opponent] play another bird?",
+        choices=[accept_choice, skip_choice],
+    )
+    chosen = agent(eng, decision)
+
+    assert chosen == skip_choice
+    assert any("auto-selected from your report" in line for line in transcript)
+
+
+def test_unrelated_accept_exchange_decision_falls_through_to_generic_prompt() -> None:
+    """A fixed exchange unrelated to the extra-play credit (e.g. the Forest
+    card->food trade) must not be auto-answered -- its accept choice carries
+    no ``gained_play_count``, so it still reaches the generic fallback even
+    with an unconsumed play note sitting around."""
+    registry = placeholders.PlaceholderRegistry()
+    notes = models.TurnNotes()
+    noted_bird = catalog.birds_ordered()[4]
+    notes.plays.append(
+        models.OpponentPlayNote(bird=noted_bird, habitat=noted_bird.habitats[0])
+    )
+    con, transcript = aid_helpers.scripted_console(["0"])
+    echo = console.LogEcho(con)
+    eng, *_ = engine_core.Engine.create(seed=23)
+
+    agent = relay.relay_agent(con, echo, registry, notes)
+
+    accept_choice = decisions.PayCostChoice(
+        label="discard 1 card -> +1 food", paid_card_count=1, gained_food_count=1
+    )
+    skip_choice = decisions.SkipChoice(label="keep cards")
+    decision = decisions.AcceptExchangeDecision(
+        player_id=1,
+        prompt="[Opponent] discard a card to gain 1 extra food?",
+        choices=[accept_choice, skip_choice],
+    )
+    chosen = agent(eng, decision)
+
+    assert chosen == accept_choice
+    assert any("opponent's move>" in line for line in transcript)
 
 
 # ---------------------------------------------------------------------------
@@ -235,11 +359,16 @@ def test_generic_fallback_renders_placeholder_choices_as_face_down() -> None:
 
 
 def test_turn_start_reports_a_play_and_swaps_the_placeholder() -> None:
+    """Picking PLAY_BIRD (menu index 4) from the new main-action menu still
+    drives the identify-bird + pick-habitat sub-flow, and records the picked
+    action onto ``notes.main_action``. The opponent's board is empty, so no
+    bird there could grant an extra play -- the "another bird?" question is
+    never asked, and the scripted answer queue carries no entry for it."""
     registry = placeholders.PlaceholderRegistry()
     single_habitat_bird = next(
         bird for bird in catalog.birds_ordered() if len(bird.habitats) == 1
     )
-    con, _ = aid_helpers.scripted_console(["y", single_habitat_bird.name, "n"])
+    con, _ = aid_helpers.scripted_console(["4", single_habitat_bird.name])
     echo = console.LogEcho(con)
     notes = models.TurnNotes()
     eng, *_ = engine_core.Engine.create(seed=5)
@@ -252,10 +381,97 @@ def test_turn_start_reports_a_play_and_swaps_the_placeholder() -> None:
     )
     handler.turn_start(engine=eng, player=eng.state.players[1])
 
+    assert notes.main_action == decisions.MainAction.PLAY_BIRD
     assert eng.state.players[1].hand == [single_habitat_bird]
     assert len(notes.plays) == 1
     assert notes.plays[0].bird == single_habitat_bird
     assert notes.plays[0].habitat == single_habitat_bird.habitats[0]
+
+
+def test_turn_start_menu_offers_all_four_main_actions_and_records_choice() -> None:
+    """The pre-turn menu lists all 4 ``MainAction`` values with the engine's
+    own labels; picking a non-``PLAY_BIRD`` option records it onto
+    ``notes.main_action`` and never opens the bird-identify sub-flow."""
+    registry = placeholders.PlaceholderRegistry()
+    con, transcript = aid_helpers.scripted_console(["1"])  # gain food (forest)
+    echo = console.LogEcho(con)
+    notes = models.TurnNotes()
+    eng, *_ = engine_core.Engine.create(seed=24)
+    session_oracle = oracle_module.SessionOracle(con, echo, registry)
+
+    handler = hooks.AidHandler(
+        con=con, echo=echo, oracle=session_oracle, notes=notes, registry=registry
+    )
+    handler.turn_start(engine=eng, player=eng.state.players[1])
+
+    assert notes.main_action == decisions.MainAction.GAIN_FOOD
+    assert notes.plays == []
+    assert any("gain food (forest)" in line for line in transcript)
+    assert any("lay eggs (grassland)" in line for line in transcript)
+    assert any("draw cards (wetland)" in line for line in transcript)
+    assert any("play a bird" in line for line in transcript)
+
+
+def test_turn_start_no_extra_play_ask_without_plays_another_bird_power() -> None:
+    """After identifying one bird play, a board bird whose power does NOT
+    grant an extra play must not trigger the "another bird?" re-ask -- the
+    scripted answer queue carries no entry for it, so an accidental ask
+    would raise ``IndexError`` on the empty queue."""
+    registry = placeholders.PlaceholderRegistry()
+    normal_bird = next(
+        bird for bird in catalog.birds_ordered() if not bird.plays_another_bird
+    )
+    single_habitat_bird = next(
+        bird for bird in catalog.birds_ordered() if len(bird.habitats) == 1
+    )
+    eng, *_ = engine_core.Engine.create(seed=25)
+    eng.state.players[1].board[normal_bird.habitats[0]].append(
+        state.PlayedBird(bird=normal_bird)
+    )
+    eng.state.players[1].hand = [registry.mint_bird()]
+    con, transcript = aid_helpers.scripted_console(["4", single_habitat_bird.name])
+    echo = console.LogEcho(con)
+    notes = models.TurnNotes()
+    session_oracle = oracle_module.SessionOracle(con, echo, registry)
+
+    handler = hooks.AidHandler(
+        con=con, echo=echo, oracle=session_oracle, notes=notes, registry=registry
+    )
+    handler.turn_start(engine=eng, player=eng.state.players[1])
+
+    assert len(notes.plays) == 1
+    assert not any("Did they play ANOTHER bird" in line for line in transcript)
+
+
+def test_turn_start_asks_another_bird_when_board_has_extra_play_power() -> None:
+    """A board bird whose power DOES grant an extra play (House Wren --
+    ``PLAY_ADDITIONAL_BIRD_HERE``) must trigger the "another bird?" re-ask
+    after the first play is identified."""
+    registry = placeholders.PlaceholderRegistry()
+    extra_play_bird = next(
+        bird for bird in catalog.birds_ordered() if bird.name == "House Wren"
+    )
+    assert extra_play_bird.plays_another_bird
+    single_habitat_bird = next(
+        bird for bird in catalog.birds_ordered() if len(bird.habitats) == 1
+    )
+    eng, *_ = engine_core.Engine.create(seed=26)
+    eng.state.players[1].board[extra_play_bird.habitats[0]].append(
+        state.PlayedBird(bird=extra_play_bird)
+    )
+    eng.state.players[1].hand = [registry.mint_bird()]
+    con, transcript = aid_helpers.scripted_console(["4", single_habitat_bird.name, "n"])
+    echo = console.LogEcho(con)
+    notes = models.TurnNotes()
+    session_oracle = oracle_module.SessionOracle(con, echo, registry)
+
+    handler = hooks.AidHandler(
+        con=con, echo=echo, oracle=session_oracle, notes=notes, registry=registry
+    )
+    handler.turn_start(engine=eng, player=eng.state.players[1])
+
+    assert len(notes.plays) == 1
+    assert any("Did they play ANOTHER bird" in line for line in transcript)
 
 
 def test_turn_start_no_op_for_our_own_seat() -> None:
@@ -315,3 +531,71 @@ def test_round_end_before_final_round_does_nothing() -> None:
 
     assert eng.state.players[1].bonus_cards == [placeholder_bonus]
     assert handler.opponent_bonus_entered is False
+
+
+def test_round_end_decline_first_card_still_offers_and_enters_the_second() -> None:
+    """A decline on the first placeholder bonus card must not abort the loop
+    (``continue``, not ``break``): the second card must still be offered, and
+    an accept on it must still stick ``opponent_bonus_entered`` at ``True``
+    (never reset back to ``False`` by a later iteration).
+
+    ``registry.swap_bonus`` always replaces the *first* placeholder it finds
+    in the list (mirroring ``swap_bird``) rather than the specific card the
+    loop is currently on -- a separate, pre-existing quirk out of scope for
+    this fix -- so this test only asserts the two things the fix actually
+    guarantees (both cards offered, the flag stays ``True``), not which slot
+    ends up holding the identified card."""
+    registry = placeholders.PlaceholderRegistry()
+    real_bonus = catalog.bonus_cards_ordered()[3]
+    con, transcript = aid_helpers.scripted_console(["n", "y", real_bonus.name])
+    echo = console.LogEcho(con)
+    notes = models.TurnNotes()
+    eng, *_ = engine_core.Engine.create(seed=27)
+    echo.game_state = eng.state
+    session_oracle = oracle_module.SessionOracle(con, echo, registry)
+    eng.state.players[1].bonus_cards = [registry.mint_bonus(), registry.mint_bonus()]
+
+    handler = hooks.AidHandler(
+        con=con, echo=echo, oracle=session_oracle, notes=notes, registry=registry
+    )
+    handler.round_end(engine=eng, round_num=len(state.ROUND_CUBES) - 1)
+
+    assert handler.opponent_bonus_entered is True
+    assert real_bonus in eng.state.players[1].bonus_cards
+    assert sum("Game over" in line for line in transcript) == 2
+
+
+# ---------------------------------------------------------------------------
+# AidHandler.turn_end: pause after our own seat's turn
+
+
+def test_turn_end_pauses_after_our_own_seat() -> None:
+    registry = placeholders.PlaceholderRegistry()
+    con, transcript = aid_helpers.scripted_console([""])
+    echo = console.LogEcho(con)
+    notes = models.TurnNotes()
+    eng, *_ = engine_core.Engine.create(seed=9)
+    session_oracle = oracle_module.SessionOracle(con, echo, registry)
+
+    handler = hooks.AidHandler(
+        con=con, echo=echo, oracle=session_oracle, notes=notes, registry=registry
+    )
+    handler.turn_end(engine=eng, player=eng.state.players[0])
+
+    assert any("Press Enter when ready to continue" in line for line in transcript)
+
+
+def test_turn_end_no_pause_after_opponent_seat() -> None:
+    registry = placeholders.PlaceholderRegistry()
+    con, transcript = aid_helpers.scripted_console([])  # no prompt should be asked
+    echo = console.LogEcho(con)
+    notes = models.TurnNotes()
+    eng, *_ = engine_core.Engine.create(seed=10)
+    session_oracle = oracle_module.SessionOracle(con, echo, registry)
+
+    handler = hooks.AidHandler(
+        con=con, echo=echo, oracle=session_oracle, notes=notes, registry=registry
+    )
+    handler.turn_end(engine=eng, player=eng.state.players[1])
+
+    assert not any("Press Enter when ready to continue" in line for line in transcript)

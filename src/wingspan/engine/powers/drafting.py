@@ -240,7 +240,7 @@ def _h_draw_bonus_keep(
     keep = max(eff.keep_count or 1, 1)
     drawn: list[cards.BonusCard] = []
     for _ in range(n_draw):
-        card = st.draw_bonus()
+        card = st.draw_bonus(revealed_to=player.id)
         if card is None:
             break
         drawn.append(card)

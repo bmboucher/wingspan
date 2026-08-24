@@ -82,7 +82,7 @@ def _build(
 # Ranked display, default/override, probe write-back, value readout
 
 
-def test_ranked_display_shows_probabilities_and_model_pick_marker() -> None:
+def test_ranked_display_shows_header_and_ranked_percentages() -> None:
     eng, con, transcript, probe, registry = _build([""])
     echo = console.LogEcho(con)
     annotation = decision_probe.PolicyAnnotation(probs=[0.6, 0.3, 0.1], chosen_idx=0)
@@ -91,8 +91,12 @@ def test_ranked_display_shows_probabilities_and_model_pick_marker() -> None:
 
     agent(eng, _main_action_decision())
 
-    assert any("60.0%" in line for line in transcript)
-    assert any("← model pick" in line for line in transcript)
+    # Header: category (derived from the decision prompt) plus the top
+    # pick's bare label, no bracket index.
+    assert any(line == "Choose your main action: gain food" for line in transcript)
+    # Ranked list: index-labeled so it stays typeable back into "your actual
+    # move", percentage rounded to a whole number.
+    assert any(line.strip() == "0: gain food    60%" for line in transcript)
 
 
 def test_enter_resolves_to_argmax_choice() -> None:
@@ -137,7 +141,9 @@ def test_probe_write_back_carries_the_corrected_chosen_idx() -> None:
     assert written_annotation.chosen_idx == 2
 
 
-def test_value_readout_line_uses_score_norm() -> None:
+def test_no_vp_expected_margin_line_is_printed() -> None:
+    """The per-decision VP-margin readout was dropped from the condensed
+    recommendation block -- guard against it creeping back in."""
     eng, con, transcript, probe, registry = _build([""])
     echo = console.LogEcho(con)
     annotation = decision_probe.PolicyAnnotation(probs=[0.6, 0.3, 0.1], chosen_idx=0)
@@ -146,7 +152,7 @@ def test_value_readout_line_uses_score_norm() -> None:
 
     agent(eng, _main_action_decision())
 
-    assert any("+10.0 VP expected margin" in line for line in transcript)
+    assert not any("VP expected margin" in line for line in transcript)
 
 
 # ---------------------------------------------------------------------------
@@ -410,8 +416,9 @@ def test_setup_move_under_split_axes_shows_compact_labels_and_preview_line(
 
     assert chosen == choice_keep_two
     keep_two_label = f"keep:[{dealt_cards[0].name}, {dealt_cards[1].name}]"
-    assert any(line.strip().endswith(keep_two_label) for line in transcript)
-    assert any(line.strip().endswith("keep:[none]") for line in transcript)
+    assert any(line == f"Setup: {keep_two_label}" for line in transcript)
+    assert any(keep_two_label in line for line in transcript)
+    assert any("keep:[none]" in line for line in transcript)
     assert any(line.startswith("model recommends:") for line in transcript)
     # display_label's "foods:[...] bonus:(none)" phrasing must not appear --
     # the compact label replaces it entirely under a deferred axis.

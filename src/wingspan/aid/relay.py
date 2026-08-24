@@ -2,13 +2,14 @@
 
 Every engine decision on the opponent's behalf becomes a "what did they do?"
 prompt driven from what the user can see across the physical table: a
-pre-turn dialog (``hooks.AidHandler.turn_start``) already recorded which
-bird(s) they played this turn, so the first two decision shapes auto-answer
-from that report without prompting again. Anything routed entirely through
-face-down cards (draft piles, unseen discards) auto-picks rather than asking
-the user to guess an identity they cannot know. The opponent's own setup pick
-is inferred from what is physically visible -- how many cards they kept and
-which foods -- rather than asked outright.
+pre-turn dialog (``hooks.AidHandler.turn_start``) already recorded which main
+action they took this turn and, for a bird play, which bird(s), so the
+``MainActionDecision``/``PlayBirdDecision``/extra-play ``AcceptExchangeDecision``
+shapes all auto-answer from that report without prompting again. Anything
+routed entirely through face-down cards (draft piles, unseen discards)
+auto-picks rather than asking the user to guess an identity they cannot know.
+The opponent's own setup pick is inferred from what is physically visible --
+how many cards they kept and which foods -- rather than asked outright.
 """
 
 from __future__ import annotations
@@ -30,9 +31,10 @@ def relay_agent(
     notes: models.TurnNotes,
 ) -> engine_core.Agent:
     """Build the seat-1 agent: auto-answer whatever the pre-turn hook already
-    recorded, auto-pick when every option is a hidden card, special-case the
-    opponent's setup pick, and otherwise ask a plain "what did they do?"
-    menu."""
+    recorded (main action, bird play, and the power-granted extra-play
+    accept/decline), auto-pick when every option is a hidden card,
+    special-case the opponent's setup pick, and otherwise ask a plain "what
+    did they do?" menu."""
 
     def agent[C: decisions.Choice](
         engine: engine_core.Engine,
@@ -43,6 +45,10 @@ def relay_agent(
         noted = _auto_answer_from_notes(con, notes, decision)
         if noted is not None:
             return typing.cast(C, noted)
+
+        extra_play_noted = _auto_answer_extra_play(con, notes, decision)
+        if extra_play_noted is not None:
+            return typing.cast(C, extra_play_noted)
 
         if _all_choices_are_placeholders(registry, decision):
             con.say("opponent used a hidden card")
@@ -68,16 +74,27 @@ def _auto_answer_from_notes(
     notes: models.TurnNotes,
     decision: decisions.Decision[typing.Any],
 ) -> decisions.Choice | None:
-    """Auto-answer a ``MainActionDecision``/``PlayBirdDecision`` from an
-    already-reported opponent play, without prompting. Returns ``None`` when
-    there is no unconsumed note (or, for ``PlayBirdDecision``, no matching
-    choice) so the caller falls through to the next stage."""
-    has_unconsumed_note = notes.play_consumed_count < len(notes.plays)
-    if isinstance(decision, decisions.MainActionDecision) and has_unconsumed_note:
+    """Auto-answer a ``MainActionDecision``/``PlayBirdDecision`` from what the
+    pre-turn hook already recorded, without prompting. The main-action pick
+    always matches ``notes.main_action`` directly -- the turn-start menu sets
+    it for all 4 actions, not just ``PLAY_BIRD`` -- while the bird-play pick
+    still needs an unconsumed ``OpponentPlayNote`` to match against. Returns
+    ``None`` when there is nothing to auto-answer (no ``main_action`` note,
+    or for ``PlayBirdDecision``, no unconsumed/matching note) so the caller
+    falls through to the next stage."""
+    is_main_action_with_note = (
+        isinstance(decision, decisions.MainActionDecision)
+        and notes.main_action is not None
+    )
+    if is_main_action_with_note:
         for choice in decision.choices:
-            if choice.action == decisions.MainAction.PLAY_BIRD:
-                con.say("opponent plays a bird (auto-selected from your report)")
+            if choice.action == notes.main_action:
+                con.say(
+                    f"opponent's main action: {choice.display_label()} "
+                    "(auto-selected from your report)"
+                )
                 return choice
+    has_unconsumed_note = notes.play_consumed_count < len(notes.plays)
     if isinstance(decision, decisions.PlayBirdDecision) and has_unconsumed_note:
         note = notes.plays[notes.play_consumed_count]
         for choice in decision.choices:
@@ -86,6 +103,57 @@ def _auto_answer_from_notes(
                 con.say(f"opponent plays {note.bird.name} in {note.habitat.value}")
                 return choice
     return None
+
+
+def _auto_answer_extra_play(
+    con: console_module.Console,
+    notes: models.TurnNotes,
+    decision: decisions.Decision[typing.Any],
+) -> decisions.Choice | None:
+    """Auto-answer the power-granted "play another bird?"
+    ``AcceptExchangeDecision`` (``engine.actions._accept_extra_play``) from
+    the pre-turn report, without prompting -- closes the double-ask where the
+    hook's turn-start loop already established whether a second play
+    happened this turn.
+
+    Scoped narrowly to the extra-play exchange, not every
+    ``AcceptExchangeDecision`` (the same decision class also carries the
+    Forest card->food, Grassland food->egg, Wetland egg->card, and
+    discard-food-to-tuck exchanges): the extra-play accept is identified by
+    ``PayCostChoice.gained_play_count > 0``, the one ``ExchangeLedger`` field
+    ``_accept_extra_play`` is the sole producer of in the whole engine, so no
+    other exchange offered through this decision class can match it. Returns
+    ``None`` for every other ``AcceptExchangeDecision`` (and every other
+    decision type), so the caller falls through to the generic prompt."""
+    if not isinstance(decision, decisions.AcceptExchangeDecision):
+        return None
+    accept_choice = next(
+        (
+            choice
+            for choice in decision.choices
+            if isinstance(choice, decisions.PayCostChoice)
+            and choice.gained_play_count > 0
+        ),
+        None,
+    )
+    if accept_choice is None:
+        return None
+    skip_choice = next(
+        (
+            choice
+            for choice in decision.choices
+            if isinstance(choice, decisions.SkipChoice)
+        ),
+        None,
+    )
+    if skip_choice is None:
+        return None
+    has_unconsumed_note = notes.play_consumed_count < len(notes.plays)
+    if has_unconsumed_note:
+        con.say("opponent takes the extra play (auto-selected from your report)")
+        return accept_choice
+    con.say("opponent forfeits the extra play (auto-selected from your report)")
+    return skip_choice
 
 
 #### Hidden-card auto-pick ####

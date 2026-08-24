@@ -15,6 +15,13 @@ from wingspan.aid import models
 from wingspan.aid import oracle as oracle_module
 from wingspan.cards.parse import catalog
 
+# The user's seat in a 2-player aid session (see build_state: seat 0 is
+# always "You"). A draw bound for this seat -- or for the public face-up
+# tray (``revealed_to=None``) -- is legitimately askable at the physical
+# table; a draw bound for any other seat is the opponent's hidden
+# information and must never prompt.
+_OUR_SEAT = 0
+
 
 class OracleBirdfeeder(state.Birdfeeder):
     """Birdfeeder whose reroll is supplied by the physical dice, entered
@@ -50,11 +57,33 @@ class OracleGameState(state.GameState):
 
     oracle: oracle_module.SessionOracle
 
-    def draw_bird(self) -> cards.Bird | None:
+    def draw_bird(self, *, revealed_to: int | None = None) -> cards.Bird | None:
         """Mirrors the base reshuffle bookkeeping exactly, then substitutes
         the oracle-revealed bird for the popped filler card so
         ``len(bird_deck)`` stays truthful (the encoder reads only the
         length) while the returned identity is the real, oracle-supplied
+        card.
+
+        ``revealed_to`` gates *who* may see that identity. A public reveal
+        (``revealed_to=None``, e.g. the face-up tray) or a draw bound for
+        our own seat still prompt the oracle exactly as before -- we need
+        to know those cards. A draw bound for any other seat is the
+        opponent's hidden hand/bonus pile: physically invisible to the
+        user, so it must never reach a prompt -- a placeholder is minted
+        directly instead, with ``self.oracle.reveal_bird`` skipped
+        entirely.
+
+        Safe with respect to the setup-time pre-queue: ``build_state``
+        queues a run of ``None`` entries for the opponent's unseen setup
+        deal (its step 6), meant to be drained -- silently, as
+        placeholders -- in lockstep with that deal's draws. Taking the
+        short-circuit path here still pops that queue's front entry first
+        (discarding it unexamined, never using or revealing its value) so
+        the queue's position stays exactly in sync with every draw that
+        *does* prompt. Skipping the pop instead would leave those entries
+        sitting unconsumed once setup finishes, and the very next public
+        or own-seat draw would pop them first -- silently minting a
+        placeholder in place of a real prompt for an unrelated later
         card."""
         if not self.bird_deck:
             if not self.bird_discard:
@@ -63,15 +92,25 @@ class OracleGameState(state.GameState):
             self.bird_discard = []
             self.rng.shuffle(self.bird_deck)
         self.bird_deck.pop()
+        if revealed_to is not None and revealed_to != _OUR_SEAT:
+            if self.oracle.bird_queue:
+                self.oracle.bird_queue.popleft()
+            return self.oracle.registry.mint_bird()
         return self.oracle.reveal_bird()
 
-    def draw_bonus(self) -> cards.BonusCard | None:
+    def draw_bonus(self, *, revealed_to: int | None = None) -> cards.BonusCard | None:
         """Mirrors :meth:`state.GameState.draw_bonus`'s empty-deck check,
         then substitutes the oracle-revealed bonus card for the popped
-        filler, mirroring :meth:`draw_bird`."""
+        filler, mirroring :meth:`draw_bird` -- including its
+        ``revealed_to`` gating and pre-queue drain (see :meth:`draw_bird`
+        for the full explanation)."""
         if not self.bonus_deck:
             return None
         self.bonus_deck.pop()
+        if revealed_to is not None and revealed_to != _OUR_SEAT:
+            if self.oracle.bonus_queue:
+                self.oracle.bonus_queue.popleft()
+            return self.oracle.registry.mint_bonus()
         return self.oracle.reveal_bonus()
 
 

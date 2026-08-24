@@ -121,7 +121,10 @@ def _build_rules(
         _reject_actual_move_prompt if trust_me else (lambda _line: ""),
     )
     return [
-        ("Did the opponent play a bird", lambda _line: "n"),
+        # "1" = gain food (forest), the first option in the pre-turn
+        # main-action menu -- keeps the opponent seat's effective behavior
+        # identical to the pre-menu baseline (never plays a bird).
+        ("What did the opponent do this turn?", lambda _line: "1"),
         ("Did they play ANOTHER", lambda _line: "n"),
         actual_move_rule,
         ("opponent's move>", lambda _line: "0"),
@@ -287,8 +290,8 @@ def _assert_session_invariants(
     """The shared assertions every regime combination must satisfy: the game
     actually finished, every round scored, both seats have a final score, the
     bird deck shrank from its post-setup-reveal starting size without going
-    negative, seat 1's hand holds only placeholders, and the advisor showed
-    at least one ranked recommendation marker."""
+    negative, seat 1's hand holds only placeholders, and the advisor printed
+    at least one ranked-recommendation percentage line."""
     starting_deck_size = len(catalog.birds_ordered()) - state.TRAY_SIZE
     assert eng.state.game_over is True
     assert len(eng.state.scored_goals) == len(state.ROUND_CUBES)
@@ -299,7 +302,7 @@ def _assert_session_invariants(
     assert len(opponent_hand) >= 0
     assert all(registry.is_placeholder(bird) for bird in opponent_hand)
 
-    assert any("model pick" in line for line in transcript)
+    assert any(line.strip().endswith("%") for line in transcript)
 
 
 @pytest.mark.parametrize(

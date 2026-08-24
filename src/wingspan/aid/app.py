@@ -250,6 +250,7 @@ def _run_interactive_session(
         split_setup_bonus=split_setup_bonus,
         split_setup_food=split_setup_food,
         combine_gain_food=combine_gain_food,
+        verbose_turn_log=False,
     )
     return eng, handler
 

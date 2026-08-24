@@ -696,7 +696,7 @@ def _h_draw_bonus(
     bird = pb.bird
     drawn: list[cards.BonusCard] = []
     for _ in range(eff.amount):
-        if (card := st.draw_bonus()) is not None:
+        if (card := st.draw_bonus(revealed_to=player.id)) is not None:
             drawn.append(card)
     player.bonus_cards.extend(drawn)
     engine.log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")

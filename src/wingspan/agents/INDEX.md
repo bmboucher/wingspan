@@ -17,8 +17,10 @@ sub-dialogs, keep-cards-and-bonus then keep-foods); every other decision runs
 its own inline `input("choice> ")` loop. Uses `display.py` to render
 the current game state before prompting. Suitable for human-vs-AI play via
 `wingspan play`. Public helpers for reuse by other interactive entry points:
-`format_choice_line(idx, choice, player)` renders one offered-choice line with
-type-aware extra context; `setup_dialog_axes(decision)` inspects the offered
+`format_choice_line(idx, choice, player, *, show_index=True)` renders one
+offered-choice line with type-aware extra context (pass `show_index=False`
+for the bare label with no leading `  [idx] ` marker — used by `aid.advisor`'s
+probability-ranked recommendation lines); `setup_dialog_axes(decision)` inspects the offered
 `SetupChoice`s and returns `(ask_bonus, ask_food)` — under the split-setup
 regimes the engine defers the bonus and/or food pick to a later decision, so
 every offered choice carries that axis at its empty value (`bonus_card=None`

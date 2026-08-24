@@ -16,7 +16,9 @@ cross-validated so the total equals `state.BIRDFEEDER_DICE`; `to_food_pool()`
 converts to a `state.FoodPool`), `SetupEntry` (the full physical deal: hand,
 bonus pair, four round goals, tray, feeder, start seat), `OpponentPlayNote` /
 `TurnNotes` (mid-turn scratch consumed by the relay/advisor/hooks trio below —
-`TurnNotes.clear()` resets at the start of every turn), `SetupPreview` (the
+`plays`/`play_consumed_count` for reported bird plays, `main_action` for the
+opponent's pre-turn menu pick; `TurnNotes.clear()` resets all three at the
+start of every turn), `SetupPreview` (the
 advisor's combined setup-keep recommendation under a split-setup regime —
 kept cards, resolved bonus card, kept food pool; `format_line()` renders
 `model recommends: keep [...] + bonus [...] + foods [...]`, produced by
@@ -32,10 +34,17 @@ run headlessly in tests. `supports_interactive()` reports whether both
 `read`/`write` are the builtin defaults AND stdin/stdout are real ttys —
 `widgets.py`'s tty shells check this before taking over stdio; a scripted
 test console (injected `read`/`write`) always reports `False`. `LogEcho`:
-mirrors new `GameState.log` lines (ANSI-stripped via `agents.display.strip_ansi`)
-to the console as session narration; `game_state` is attached after
-`oracle_state.build_state` constructs the state, and `flush()` is a no-op
-before that.
+mirrors new `GameState.log_entries` lines (ANSI-stripped via
+`agents.display.strip_ansi`) to the console as session narration; each
+entry's redundant `[Name]` prefix (computed per line from the deciding
+player's live `game_state.players[entry.player_id].name`, matching exactly
+what the engine's f-strings emit) is removed via `str.removeprefix`
+regardless of interactivity, and on an interactive console the remaining
+text is wrapped in a per-seat ANSI color (`_GREEN` for player 0/"You",
+`_RED` for player 1/"Opponent"; global `player_id is None` lines stay
+plain) — non-interactive consoles print the prefix-stripped text uncolored.
+`game_state` is attached after `oracle_state.build_state` constructs the
+state, and `flush()` is a no-op before that.
 
 **`widgets.py`** — Interactive input widgets (typeahead card lookup, numeric
 per-field counts entry), layered for headless testability. Pure
@@ -104,7 +113,18 @@ subclasses of `state.Birdfeeder` / `state.GameState` that route every
 reveal/roll through a `SessionOracle` field instead of `rng` (`reroll` /
 `roll_out_of_feeder` / `draw_bird` / `draw_bonus` overrides — the latter two
 still pop a filler card first so `len(bird_deck)`/`len(bonus_deck)` stay
-truthful for the encoder, which only reads lengths). `build_state` mirrors
+truthful for the encoder, which only reads lengths). `draw_bird`/`draw_bonus`
+gate on the base `GameState`'s `revealed_to: int | None` parameter (the
+player id a draw is privately bound for, `None` for a public reveal e.g. into
+the tray): a public reveal or one bound for `_OUR_SEAT` (0) prompts the
+oracle exactly as before, but a draw bound for any other seat — the
+opponent's hidden hand/bonus pile — never prompts at all; it pops one entry
+off the matching setup-queue (`oracle.bird_queue`/`bonus_queue`, discarded
+unexamined, keeping the queue's position in sync with every draw) and mints
+a placeholder directly via `oracle.registry.mint_bird`/`mint_bonus`. Every
+engine call site that draws into a specific seat's hand/bonus pile passes
+`revealed_to=player.id`; tray-bound draws (`refill_tray`/`reset_tray`) stay
+at the default `None` and are unaffected. `build_state` mirrors
 `state.new_game`, replacing the shuffle/roll with the entered `SetupEntry`
 facts; see its docstring for the numbered construction sequence.
 
@@ -156,13 +176,19 @@ the log, sweeps any placeholder out of the deciding seat's hand
 `BirdChoice`/`PlayBirdChoice` still pointing at the swapped placeholder in
 place), calls `inner` and reads back its `DecisionProbe` value/policy
 annotation (discarding `inner`'s own pick), shows the model's ranked
-top-`_AID_TOP_K` recommendation (setup decisions via the setup net's
-per-candidate `display_label`, or — under a split-setup regime, detected via
-`agents.cli.setup_dialog_axes` — a compact `keep:[...]` label plus a combined
-`preview.preview_setup(...).format_line()` recommendation line after the
-ranking; other decisions via the promoted `agents.cli.format_choice_line`,
-plus a `model eval: ±N.N VP expected margin` line scaled by `score_norm`),
-then asks what was actually played (setup via the promoted
+top-`_AID_TOP_K` recommendation as a condensed header-plus-list block — a
+`"category: top pick"` header (setup decisions get a fixed `"Setup: ..."`
+header; other decisions derive the category from `decision.prompt` via
+`_prompt_headline`, stripping the engine's `[player name]` tag) followed by
+one indented, probability-percentage line per top-ranked choice (setup via
+the setup net's per-candidate `display_label`, or — under a split-setup
+regime, detected via `agents.cli.setup_dialog_axes` — a compact `keep:[...]`
+label plus a combined `preview.preview_setup(...).format_line()`
+recommendation line after the ranking; other decisions via the promoted
+`agents.cli.format_choice_line(..., show_index=False)`, each line kept
+typeable back into the actual-move prompt via its real `decision.choices`
+index — no `model eval` VP readout is printed any more), then asks what was
+actually played (setup via the promoted
 `agents.cli.resolve_setup_choice_dialog`; everything else via an
 Enter-defaults-to-model-pick index prompt, prefixed with a `(still setup —
 this pick completes your opening)` framing line whenever
@@ -175,9 +201,17 @@ the corrected `chosen_idx` back onto the probe so a recorder captures the
 real play.
 
 **`relay.py`** — `relay_agent(con, echo, registry, notes)`: the seat-1
-`Agent`. Auto-answers a `MainActionDecision`/`PlayBirdDecision` from an
-unconsumed `TurnNotes.plays` entry (populated by
-`hooks.AidHandler.turn_start`) without prompting; auto-picks index 0 when
+`Agent`. Auto-answers a `MainActionDecision` from `TurnNotes.main_action`
+(set by `hooks.AidHandler.turn_start`'s pre-turn menu, for all 4 actions —
+not just `PLAY_BIRD`) and a `PlayBirdDecision` from an unconsumed
+`TurnNotes.plays` entry, without prompting; also auto-answers the
+power-granted extra-play `AcceptExchangeDecision`
+(`engine.actions._accept_extra_play`) from whether a play note is still
+unconsumed — accept when one is, decline when none is — identifying that
+specific exchange by `PayCostChoice.gained_play_count > 0` so it never
+mis-fires on an unrelated fixed exchange (Forest card→food, Grassland
+food→egg, etc.) offered through the same decision class. Auto-picks index 0
+when
 every offered choice carries a placeholder bird (draft piles, unseen
 discards — an identity the user cannot know either); infers the opponent's
 `SetupDecision` keep from what is physically visible (how many cards kept,
@@ -196,18 +230,32 @@ of distinct, resolvable foods is entered.
 
 **`hooks.py`** — `AidHandler` (a `pydantic` `events.CallbackHandler` mixing
 in `GameStart`/`GameEnd`/`RoundStart`/`RoundEnd`/`TurnStart`/`TurnEnd`
-handlers): every method flushes the log first. `turn_start` on the
-opponent's seat loops "did they play (another) bird?", identifying each via
-`entry.identify_bird` + `entry.pick_habitat`, swapping the placeholder in
-their tracked hand (`registry.swap_bird`, skipped with a warning if none is
-present) and appending a `models.OpponentPlayNote` the relay consumes; a
-no-op on our own seat (the advisor sweeps per-decision instead). `round_end`
-on the final round (`round_num == len(state.ROUND_CUBES) - 1`) offers to
-enter each remaining placeholder opponent bonus card for exact scoring
-(`entry.identify_bonus` + `registry.swap_bonus`), stopping at the first
-decline and recording `opponent_bonus_entered`. `build_instrumentation`
-wires one `AidHandler` instance into a fresh `dispatcher.Instrumentation`
-across all six events it implements.
+handlers): every method flushes the log first. `turn_end` additionally
+pauses on `con.ask` after our own seat's (`_OUR_SEAT`) turn fully resolves,
+regardless of `trust_me`, so play never rolls on to the opponent's turn
+without an explicit go-ahead. `turn_start` on the opponent's seat offers a
+single `con.menu` over the 4 `decisions.MainAction` values (labeled to match
+the engine's own `MainActionChoice.display_label()` wording), recording the
+pick onto `notes.main_action`; picking `PLAY_BIRD` hands off to
+`_record_opponent_bird_plays`, which loops `entry.identify_bird` +
+`entry.pick_habitat`, swaps the placeholder in their tracked hand
+(`registry.swap_bird`, skipped with a warning if none is present), and
+appends a `models.OpponentPlayNote` the relay consumes — re-asking "another
+bird?" only when `_opponent_could_play_another_bird` finds a known
+(non-placeholder) board bird whose `schema.Bird.plays_another_bird` is true,
+otherwise stopping silently after the first play (a deliberate scope
+limit: it doesn't simulate whether a *non*-play action's row power could
+also grant an extra play). Any other action needs no further prompt here —
+`notes.main_action` alone lets `relay.py` auto-answer the upcoming
+`MainActionDecision`. A no-op on our own seat's `turn_start` (the advisor
+sweeps our hand per-decision instead). `round_end` on the final round
+(`round_num == len(state.ROUND_CUBES) - 1`) offers to enter each remaining
+placeholder opponent bonus card for exact scoring (`entry.identify_bonus` +
+`registry.swap_bonus`); a decline `continue`s to the next placeholder card
+rather than aborting the loop, and `opponent_bonus_entered` sticks `True`
+once any card is entered rather than being overwritten by a later decline.
+`build_instrumentation` wires one `AidHandler` instance into a fresh
+`dispatcher.Instrumentation` across all six events it implements.
 
 **`app.py`** — `wingspan aid` CLI wiring. `_build_parser()` (`prog="wingspan
 aid"`): a positional checkpoint spec (default `last`) plus

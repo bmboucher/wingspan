@@ -69,7 +69,13 @@ def cli_agent() -> engine_core.Agent:
     return agent
 
 
-def format_choice_line(idx: int, choice: decisions.Choice, player: state.Player) -> str:
+def format_choice_line(
+    idx: int,
+    choice: decisions.Choice,
+    player: state.Player,
+    *,
+    show_index: bool = True,
+) -> str:
     """Render one offered choice line with type-aware extra context.
 
     Bird- and bonus-card-carrying choices are expanded to show food cost,
@@ -77,31 +83,37 @@ def format_choice_line(idx: int, choice: decisions.Choice, player: state.Player)
     ``label`` is too terse for a human at decision time. A bonus card also
     gets a second line with how useful it is to ``player`` right now. Other
     Choice subclasses fall through to ``label`` as-is.
+
+    ``show_index`` controls whether the line is prefixed with a ``  [idx] ``
+    marker; callers that display a bare label out of index order (e.g. the
+    aid advisor's probability-ranked recommendation lines) pass
+    ``show_index=False`` and get the label text with no leading indent.
     """
+    prefix = f"  [{idx}] " if show_index else ""
     if isinstance(choice, decisions.PlayBirdChoice):
         # The board (printed in full above the main-action prompt) already
         # shows every hand card's stats and power, so a play option only needs
         # the bird name and target habitat; the costs are follow-up prompts.
-        return f"  [{idx}] play {choice.bird.name} in {choice.habitat.value}"
+        return f"{prefix}play {choice.bird.name} in {choice.habitat.value}"
     if isinstance(choice, decisions.FoodPaymentChoice):
         # One complete payment for the committed play; the parent decision's
         # prompt already names the bird being paid for.
-        return f"  [{idx}] pay {display.format_food_pool(choice.payment)}"
+        return f"{prefix}pay {display.format_food_pool(choice.payment)}"
     if isinstance(choice, decisions.BirdChoice):
-        return f"  [{idx}] {display.format_bird_full(choice.bird)}"
+        return f"{prefix}{display.format_bird_full(choice.bird)}"
     if isinstance(choice, decisions.BonusCardChoice):
-        head = f"  [{idx}] {display.format_bonus(choice.bonus_card)}"
+        head = f"{prefix}{display.format_bonus(choice.bonus_card)}"
         return (
             f"{head}\n      "
             f"{display.format_bonus_score_now(choice.bonus_card, player)}"
         )
     if isinstance(choice, decisions.PlayedBirdChoice):
-        return f"  [{idx}] {display.format_played_bird(choice.played_bird)}"
+        return f"{prefix}{display.format_played_bird(choice.played_bird)}"
     if isinstance(choice, decisions.DrawSourceChoice):
         if choice.bird is not None:
-            return f"  [{idx}] {display.format_bird_full(choice.bird)}"
-        return f"  [{idx}] Draw from the Deck"
-    return f"  [{idx}] {choice.display_label()}"
+            return f"{prefix}{display.format_bird_full(choice.bird)}"
+        return f"{prefix}Draw from the Deck"
+    return f"{prefix}{choice.display_label()}"
 
 
 def setup_dialog_axes(decision: decisions.SetupDecision) -> tuple[bool, bool]:
