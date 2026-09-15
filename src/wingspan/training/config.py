@@ -412,6 +412,14 @@ class RunSettings(pydantic.BaseModel):
     eval_every: typing.Annotated[int, pydantic.Field(ge=0)] = 5
     # Held-out games per eval block (played as mirrored pairs).
     eval_games: typing.Annotated[int, pydantic.Field(ge=0)] = 128
+    # Architecture-probe cadence: re-measure the live checkpoint's
+    # representation health (analysis.probe_set / analysis.representation)
+    # every N iterations (0 disables probing).
+    probe_every: typing.Annotated[int, pydantic.Field(ge=0)] = 25  # 0 disables probing
+    # Decisions sampled (from this iteration's collected steps) per probe pass.
+    # ge=1, not ge=0: 0 would make subsample_steps return an empty sample,
+    # crashing representation.measure's torch.cat([]) mid-run.
+    probe_decisions: typing.Annotated[int, pydantic.Field(ge=1)] = 2048
     # Checkpoint / identity.
     checkpoint_dir: str = "checkpoints"
     run_name: str = "dashboard"

@@ -261,6 +261,21 @@ renumbering and the fold-in are purely codebase simplifications. A pre-1.5
 `compat.v1_4` shim, exactly as it did before this bump; a run started on 1.5
 gets all six signals.
 
+**Later, shape-preserving (REGIME) addition — architecture-probe training-loop
+cadence.** `RunSettings.probe_every` / `probe_decisions` (default 25 / 2048;
+`probe_every=0` disables) schedule `training.loop_probe.maybe_probe`'s
+periodic re-measurement of the live checkpoint via the same
+`analysis.probe_set` / `analysis.representation` machinery `wingspan analysis
+probe` already ran offline (`docs/TRAINING.md` §6.5), folding the result into
+`IterationMetrics.representation` / `.probe_seconds` (both optional/defaulted,
+so old `metrics.jsonl` rows keep parsing) and three new dashboard rows. Both
+new fields are config-carried cadence knobs with no effect on any tensor
+shape or on how a rehydrated artifact computes — `probe_every=0` reproduces
+pre-addition behavior exactly — so this needs no `MODEL_VERSION` bump and no
+compat shim, per the general rule below ("Shape-preserving knobs (`activation`,
+`dropout`, learning rates, cadences) stay out of the key, resume freely, and
+need no version bump").
+
 ### v1.4 — food-unlock state stripes + `resets_feeder` choice stripe
 
 A **main-net encoding** MINOR FRESH bump that lands **two independent encoding

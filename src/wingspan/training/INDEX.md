@@ -29,7 +29,9 @@ top-level computed properties so call sites don't churn.
   never had N>=3 to freeze) toggles, and the era-synced `encoding_version` /
   `state_dim` / `choice_dim` / `family_order`.
 - `run: RunSettings` — `games_per_iter`, `max_iterations`, `target_iterations`,
-  `eval_every`, `eval_games`, `checkpoint_dir`, `run_name`, `resume`, `history_len`.
+  `eval_every`, `eval_games`, `probe_every` (0 disables; default 25),
+  `probe_decisions` (default 2048), `checkpoint_dir`, `run_name`, `resume`,
+  `history_len`.
 - `training: TrainingConfig` — `lr`, `value_coef`, `entropy_coef`, `grad_clip`,
   `score_norm`, `reward_mode` (`terminal_margin` | `decision_delta` | `gae`),
   `reward_discount` (REGIME), PPO/GAE knobs (all REGIME): `policy_loss`
@@ -142,10 +144,11 @@ Key members:
 - `self.net`, `self.optimizer`, `self.state (RunState)`, `self.lock (RLock)`,
   `self.collect_device`, `self.train_device` (no `self.device` — every sibling
   module chooses a role explicitly).
-- `_run_iteration(iteration)` — six phases in order: collect → setup update
-  (on-policy, before the main update / embedder re-sync — `loop_setup.update_setup`)
-  → update (`learner.update`, then `loop_setup.sync_setup_embedders`) →
-  evaluate → measure → commit.
+- `_run_iteration(iteration)` — seven phases in order: collect → probe
+  (periodic architecture-probe re-measurement, `loop_probe.maybe_probe`) →
+  setup update (on-policy, before the main update / embedder re-sync —
+  `loop_setup.update_setup`) → update (`learner.update`, then
+  `loop_setup.sync_setup_embedders`) → evaluate → measure → commit.
 
 **`loop_resume.py`** — `maybe_resume(loop)`: loads `LAST_CKPT` if present,
 validates `architecture_key` (alarm + fresh start on mismatch, including when
@@ -193,6 +196,20 @@ encoding + weights + optimizer + era version stamp).
 for graduation. `load_opponent(loop)` — loads the opponent checkpoint with
 graceful FRESH restart on architecture mismatch.
 
+**`loop_probe.py`** — `maybe_probe(loop, iteration, records) -> (RepresentationMetrics
+| None, elapsed_seconds)`: mirrors `loop_eval.maybe_evaluate`'s cadence-gate shape.
+Cadence-gated by `run.probe_every` (0 disables; `(None, 0.0)` on every skip,
+including an off-cadence iteration). On a probed iteration, subsamples up to
+`run.probe_decisions` of this iteration's just-collected steps
+(`analysis.probe_set.subsample_steps`, seeded `misc.seed * 7919 + iteration *
+131 + 3` — deliberately different from `maybe_evaluate`'s `*101+1` so the two
+seed streams never correlate), builds a `ProbeSet` (`analysis.probe_set.from_steps`),
+and runs the same `analysis.representation.measure` / `summarize_for_loop` pass
+`wingspan analysis probe` runs offline (`docs/TRAINING.md` §6.5), against
+`train_device` at the run's `training.score_norm`. Pushes one INFO `PROBE …`
+event under `loop.lock`. Pure plumbing — no new diagnostic logic, only the
+cadence gate, the subsample, and the call into the `analysis` package.
+
 **`loop_target.py`** — `handle_target_if_reached(loop, iteration)`: milestone
 sequencing at the user-configured target iteration — `final_<n>.pt` (written
 via `loop_checkpoint.checkpoint_payload`, so it is the same era-stamped payload
@@ -212,8 +229,8 @@ builder (config + weights + optimizer + progress + git SHA + the run-era
 **`loop_metrics.py`** — Pure metrics aggregation: `build_iteration_metrics(iteration,
 total_games, records, stats, eval_result, collect_seconds, update_seconds,
 eval_seconds, win_rate, setup_enabled, setup_stats, entropy_coef, dropout_p,
-imitation_phase=False) -> IterationMetrics`. No loop state; easy to test in
-isolation.
+representation, imitation_phase=False, probe_seconds=0.0) -> IterationMetrics`.
+No loop state; easy to test in isolation.
 
 **`loop_anneal.py`** — `apply_dropout_schedules(loop, iteration)`: called at the
 top of every `_run_iteration`; no-op for a net whose `dropout_final` is unset.
@@ -402,7 +419,11 @@ tuple[ScoreBreakdown, ...]` is the JSONL row format for `games.jsonl`, one
 entry per seat. `IterationMetrics.entropy_coef` / `.dropout_p` (`float |
 None`, default `None` for old rows) carry the main net's effective
 anneal-accessor values for that iteration — always populated on write,
-constant when no anneal is configured.
+constant when no anneal is configured. `IterationMetrics.representation:
+analysis_models.RepresentationMetrics | None` (default `None`) and
+`.probe_seconds: float` (default `0.0`) carry `loop_probe.maybe_probe`'s
+architecture-probe readout — non-None only on a probed iteration
+(`run.probe_every`); both defaults keep old `metrics.jsonl` rows parseable.
 
 **`metrics_log.py`** — `MetricsLog(path)`: cached reader for the append-only
 `metrics.jsonl` history. `load() -> list[IterationMetrics]`; re-reads only
@@ -424,6 +445,15 @@ Reads from `RunState` on each refresh tick. `_health_rows` appends an "entropy
 coef" / "dropout p" row to TRAINING HEALTH only when the corresponding
 `training.entropy_coef_final` / `dropout_final` is set, with a dimmed
 `→ {final}` verdict (deterministic schedule, nothing to rate as good/bad).
+`_probe_health_rows` appends up to 3 more TRAINING HEALTH rows — "trunk tail
+rank95/width" (the deepest `trunk.L*` layer's `rank95_over_width`), "attn
+uniform KL" (`RepresentationMetrics.uniform_kl`), "mean dead frac" (mean
+`dead_fraction` over every probed layer) — shown once any `state.history`
+entry carries a probe result (`im.representation is not None`; probing is
+cadence-gated, so the *last* iteration alone is usually off-cadence). Each
+row's current value and sparkline read only the probed subset of history
+(`_probe_row`, a `_anneal_row` sibling with a static dimmed "probe" 4th cell
+in place of a schedule target).
 
 **`theme.py`** — Palette (`WETLAND_*` color constants) and glyph constants
 ("wetland dawn" aesthetic). Imported by dashboard, charts, and configure.

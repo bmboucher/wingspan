@@ -18,6 +18,7 @@ from __future__ import annotations
 import rich.console as rich_console
 from rich import box, layout, panel, table, text
 
+from wingspan.analysis import models as analysis_models
 from wingspan.training import charts, metrics, runstate, theme
 
 _WORDMARK = "🪶 WINGSPAN  FLIGHT PLAN"
@@ -549,6 +550,7 @@ def _health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
         )
     if last is not None:
         rows.extend(_anneal_health_rows(state, last))
+        rows.extend(_probe_health_rows(state))
     return rows
 
 
@@ -590,6 +592,97 @@ def _anneal_row(
     )
 
 
+def _probe_health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
+    """Architecture-probe rows (trunk tail rank, attention uniform-substitution
+    KL, mean dead-unit fraction — ``docs/TRAINING.md`` §6.5), shown only once
+    at least one iteration in history carries a probe result.
+
+    Probing is cadence-gated (``run.probe_every``), so the *last* iteration
+    alone is almost always off-cadence and ``last.representation`` would be
+    ``None`` far more often than not — gate on ``state.history`` instead, and
+    read each row's "current value" off the most recent *probed* iteration,
+    not necessarily the very last one."""
+    probed = [
+        im.representation for im in state.history if im.representation is not None
+    ]
+    if not probed:
+        return []
+    rows: list[tuple[text.Text, ...]] = []
+
+    trunk_series = [
+        rank
+        for rank in (_trunk_tail_rank95_over_width(rep) for rep in probed)
+        if rank is not None
+    ]
+    if trunk_series:
+        rows.append(
+            _probe_row("trunk tail rank95/width", trunk_series[-1], trunk_series)
+        )
+
+    uniform_kl_series = [rep.uniform_kl for rep in probed if rep.uniform_kl is not None]
+    if uniform_kl_series:
+        rows.append(
+            _probe_row("attn uniform KL", uniform_kl_series[-1], uniform_kl_series)
+        )
+
+    dead_series = [
+        frac
+        for frac in (_mean_dead_fraction(rep) for rep in probed)
+        if frac is not None
+    ]
+    if dead_series:
+        rows.append(_probe_row("mean dead frac", dead_series[-1], dead_series))
+
+    return rows
+
+
+def _trunk_tail_rank95_over_width(
+    representation: analysis_models.RepresentationMetrics,
+) -> float | None:
+    """The deepest trunk layer's ``rank95_over_width``.
+
+    ``analysis.layer_probe.LinearLayerProbe`` names layers ``f"{prefix}.L{index}"``
+    in traversal order; ``representation.measure`` probes the trunk under the
+    fixed prefix ``"trunk"``, so the tail layer is the one with the highest
+    ``L{index}`` suffix among ``trunk.L*`` entries — trunk depth is a config
+    knob (``architecture.trunk_layers``), so this is never a fixed index.
+    ``None`` when the probe's layer set has no ``trunk.L*`` entries (should not
+    happen in practice — every net has a trunk — but keeps this total)."""
+    trunk_layers = [
+        layer for layer in representation.layers if layer.name.startswith("trunk.L")
+    ]
+    if not trunk_layers:
+        return None
+    tail = max(trunk_layers, key=lambda layer: int(layer.name.removeprefix("trunk.L")))
+    return tail.rank95_over_width
+
+
+def _mean_dead_fraction(
+    representation: analysis_models.RepresentationMetrics,
+) -> float | None:
+    """Mean ``dead_fraction`` across every probed layer (trunk and choice
+    encoder alike, unlike the trunk-only tail-rank row above). ``None`` when
+    the probe recorded no layers."""
+    if not representation.layers:
+        return None
+    return sum(layer.dead_fraction for layer in representation.layers) / len(
+        representation.layers
+    )
+
+
+def _probe_row(name: str, value: float, series: list[float]) -> tuple[text.Text, ...]:
+    """One TRAINING HEALTH row for an architecture-probe metric: name, current
+    value, and sparkline copied verbatim from ``_anneal_row``'s first three
+    cells, with a static dimmed "probe" tag standing in for its "→ final"
+    schedule target — there is no target value for a probe metric."""
+    return (
+        text.Text(name, style=theme.TEXT_MUTED),
+        text.Text(f"{value:.4f}", style=theme.TEXT_PRIMARY),
+        text.Text(charts.sparkline(series, _SPARK_CELLS), style=theme.SPARK_COLOR),
+        text.Text("probe", style=theme.TEXT_DIM2),
+    )
+
+
 def _perf_health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
     """The two throughput readouts, split apart so raw collection speed is not
     conflated with end-to-end progress, and each held *steady between updates*
@@ -600,12 +693,13 @@ def _perf_health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
       (games / collect-seconds). It is that iteration's settled figure, so it
       stays fixed while the next iteration's games are still streaming in
       instead of fluctuating with every game that lands.
-    * ``overall`` — the true end-to-end rate (games over collect + update + eval
-      wall time) across the whole most-recent evaluation cycle: every iteration
-      since the previous eval up to and including the one that ran the latest
-      eval. Amortizing the eval cost over all the iterations it covers means the
-      value no longer dips on the single eval iteration — it advances once per
-      eval cycle. Always ``<= raw`` (the denominator only adds overhead).
+    * ``overall`` — the true end-to-end rate (games over collect + update +
+      eval + probe wall time) across the whole most-recent evaluation cycle:
+      every iteration since the previous eval up to and including the one
+      that ran the latest eval. Amortizing the eval (and any probe) cost over
+      all the iterations it covers means the value no longer dips on the
+      single eval iteration — it advances once per eval cycle. Always
+      ``<= raw`` (the denominator only adds overhead).
     """
     last = state.last_iter
     raw = last.games_per_sec if last is not None else 0.0
@@ -627,7 +721,7 @@ def _perf_health_rows(state: runstate.RunState) -> list[tuple[text.Text, ...]]:
             text.Text(
                 charts.sparkline(overall_series, _SPARK_CELLS), style=theme.SPARK_COLOR
             ),
-            text.Text("incl update+eval", style=theme.TEXT_DIM2),
+            text.Text("incl update+eval+probe", style=theme.TEXT_DIM2),
         ),
     ]
 
@@ -638,10 +732,10 @@ def _overall_rates(
     """The end-to-end games/sec of each completed evaluation cycle plus the most
     recent one. An eval cycle runs from just after the previous eval through the
     iteration that ran the next eval; its rate is the cycle's games over its
-    total collect + update + eval wall time. The series gains a point only when
-    an eval completes, so the live ``overall`` readout holds steady between
-    evals. Before the first eval it falls back to the latest iteration's own
-    end-to-end rate so the readout is still populated."""
+    total collect + update + eval + probe wall time. The series gains a point
+    only when an eval completes, so the live ``overall`` readout holds steady
+    between evals. Before the first eval it falls back to the latest
+    iteration's own end-to-end rate so the readout is still populated."""
     series: list[float] = []
     cycle_start = 0
     for index, item in enumerate(history):
@@ -658,10 +752,15 @@ def _overall_rates(
 
 def _cycle_rate(items: list[metrics.IterationMetrics]) -> float:
     """End-to-end games/sec over a span of iterations: their collected games over
-    their total collect + update + eval wall time."""
+    their total collect + update + eval + probe wall time (``probe_seconds`` is
+    0.0 on every off-cadence iteration, so this is a no-op there)."""
     games = sum(item.games_this_iter for item in items)
     seconds = sum(
-        item.collect_seconds + item.update_seconds + item.eval_seconds for item in items
+        item.collect_seconds
+        + item.update_seconds
+        + item.eval_seconds
+        + item.probe_seconds
+        for item in items
     )
     return games / seconds if seconds > 0.0 else 0.0
 

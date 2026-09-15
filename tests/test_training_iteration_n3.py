@@ -101,6 +101,7 @@ def test_n3_tiny_iteration_collect_update_eval():
         setup_stats=None,
         entropy_coef=cfg.entropy_coef_at(0),
         dropout_p=cfg.dropout_p_at(0),
+        representation=None,
     )
     assert iter_metrics.games_this_iter == 2
     assert iter_metrics.avg_breakdown.total >= 0.0

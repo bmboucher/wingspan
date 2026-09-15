@@ -24,6 +24,7 @@ from __future__ import annotations
 import pydantic
 
 from wingspan import decisions
+from wingspan.analysis import models as analysis_models
 
 # The six scoring sources, in the order the dashboard lists them. Maps the
 # user-facing labels onto ``ScoreBreakdown`` field names.
@@ -262,8 +263,16 @@ class IterationMetrics(pydantic.BaseModel):
     update_seconds: float
     eval_seconds: float
     games_per_sec: float
+    # 0.0 on an off-cadence iteration (``run.probe_every``; see ``representation``
+    # below) — mirrors ``eval_seconds``' 0.0-when-skipped convention.
+    probe_seconds: float = 0.0
 
     eval: EvalResult | None = None
+    # Architecture-probe readout for this iteration (rank/dead-unit/ablation-KL
+    # summary; ``docs/TRAINING.md`` §6.5). Non-None only on a probed iteration
+    # (``run.probe_every``, 0 disables); ``None`` default keeps old
+    # ``metrics.jsonl`` rows (written before this field existed) parseable.
+    representation: analysis_models.RepresentationMetrics | None = None
 
     # Win fraction for the net (player 0) over this iteration's collection games,
     # ties counting as half. Non-None only during the random-opponent bootstrap

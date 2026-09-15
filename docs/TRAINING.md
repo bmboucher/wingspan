@@ -935,10 +935,23 @@ ordinary training, matching the near-uniform head entropy and the 49.6%
 head-to-head win rate against a fully-uniform substitution
 (`docs/RESEARCH.md`'s "General architecture exploration" gap list).
 
-This section is offline-only: `wingspan analysis probe` reads a checkpoint
-and reports on it, with no training-loop integration. Folding these metrics
-into the live dashboard / `metrics.jsonl` (so rank-over-time is a chart, not
-a manual re-run) is the next stage.
+These metrics also run live. `RunSettings.probe_every` (0 disables; default 25
+iterations) schedules `training.loop_probe.maybe_probe`, called from
+`TrainingLoop._run_iteration` right after collection: a reproducible random
+subsample of up to `probe_decisions` (default 2048) of that iteration's
+just-collected steps is measured through the same `analysis.probe_set` /
+`analysis.representation.measure` pass `wingspan analysis probe` runs offline,
+then projected down via `summarize_for_loop`. The lightweight
+`RepresentationMetrics` result rides on `IterationMetrics.representation`
+(`None` on an off-cadence iteration), so it persists to `metrics.jsonl`
+alongside every other per-iteration readout, and the dashboard's TRAINING
+HEALTH panel grows up to three more rows the moment the run has probed at
+least once — trunk tail `rank95_over_width`, attention uniform-substitution
+KL, and mean dead-unit fraction — each sparklining only the probed iterations,
+so rank-over-time is a chart, not a manual re-run. The offline CLI remains the
+tool for the deeper report this section describes: per-family / board-fill
+slices, per-head knockout, and `--head-to-head` game-strength comparisons stay
+CLI-only.
 
 ### 6.6 The setup model's training schedule and actor-critic mode
 

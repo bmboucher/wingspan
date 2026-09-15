@@ -6,7 +6,8 @@ Covers:
 2. ZERO / UNIFORM / HEAD_KNOCKOUT ablation semantics.
 3. ``install`` / ``uninstall`` wiring and the empty-board finite/KL=0 guarantee.
 4. ``measure()`` on a shared-attention net: report well-formedness.
-5. ``measure()`` with a reference net, and with board attention off.
+5. ``measure()`` with a reference net, with board attention off, and that a
+   mid-measurement exception still restores ``net``'s mode and wrappers.
 6. ``summarize_for_loop()``.
 7. ``evaluate_substitution()``.
 8. The ``wingspan analysis probe`` CLI.
@@ -366,6 +367,36 @@ def test_measure_attention_off_has_no_attention_or_ablations() -> None:
     assert report.family_effects == []
     assert report.board_fill_effects == []
     assert report.layers  # trunk/choice layer stats are still produced
+
+
+def test_measure_restores_net_mode_and_uninstalls_wrappers_on_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mid-measurement exception (a CUDA OOM, a linalg error in the ridge
+    fit, ...) must not leave ``net`` stuck in eval mode or still wearing its
+    ``ProbeAttention`` wrappers. Offline this was harmless (the CLI process
+    just exits); it matters now that ``training.loop_probe`` calls ``measure``
+    live, mid-run, on a net that collection/update keep using afterward."""
+    cfg = _tiny_config(board_attention_shared=True)
+    net = _tiny_net(cfg)
+    net.train()  # the live loop's net is normally in train mode, not eval
+    original_board_attn = net.board_attn
+    probes = probe_set.from_self_play(net, cfg, n_games=1, seed=900, device=_DEVICE)
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("synthetic measurement failure")
+
+    # _run_ablations runs after _install_attention, so wrappers is non-empty
+    # here — exercising the real uninstall path, not just its empty-list no-op.
+    monkeypatch.setattr(representation, "_run_ablations", _boom)
+
+    with pytest.raises(RuntimeError, match="synthetic measurement failure"):
+        representation.measure(
+            net, probes, device=_DEVICE, score_norm=cfg.training.score_norm
+        )
+
+    assert net.training is True
+    assert net.board_attn is original_board_attn
 
 
 ###### 6: summarize_for_loop() #######

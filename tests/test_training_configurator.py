@@ -145,6 +145,34 @@ def test_num_players_field_commits_and_nudges():
     assert error is not None and rejected.architecture.num_players == 2
 
 
+def test_probe_decisions_field_rejects_zero():
+    """0 would make ``subsample_steps`` return an empty sample and crash
+    ``representation.measure`` mid-run (``torch.cat([])``) the first time a
+    probe fires — the configurator must not be able to reach it, neither by
+    typing it directly nor by decrementing down to it."""
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
+    probe_decisions = fields.spec_for("probe_decisions")
+    assert isinstance(probe_decisions, fields.IntField)
+    assert fields.format_value(cfg, probe_decisions) == "2048"
+
+    # Direct entry: rejected by the model's Field(ge=1) bound.
+    rejected, error = fields.commit(cfg, probe_decisions, "0")
+    assert error is not None and rejected.run.probe_decisions == cfg.run.probe_decisions
+
+    # The nudge path hits the same guard: stepping down by exactly one step
+    # size from the step size itself would land on 0 (the real-world case —
+    # 8 decrements of 256 from the 2048 default reaches exactly 0) and must
+    # be rejected too, leaving the value unchanged.
+    near_floor = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
+        run=config.RunSettings(probe_decisions=probe_decisions.step),
+    )
+    stepped, error = fields.nudge(near_floor, probe_decisions, -1)
+    assert error is not None and stepped.run.probe_decisions == probe_decisions.step
+
+
 def test_nudge_cycles_choice():
     cfg = config.RunConfig(
         misc=config.MiscConfig(collect_device="cpu", train_device="cpu")

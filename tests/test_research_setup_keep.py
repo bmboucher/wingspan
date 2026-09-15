@@ -21,6 +21,7 @@ torch = pytest.importorskip("torch")
 
 from wingspan import cards, setup_model, version  # noqa: E402
 from wingspan.research import app, constants, models, setup_keep  # noqa: E402
+from wingspan.training import setup_runmeta  # noqa: E402
 from wingspan.training import (  # noqa: E402
     artifacts,
     config,
@@ -28,9 +29,6 @@ from wingspan.training import (  # noqa: E402
     runmeta,
 )
 from wingspan.training import setup_net as setup_net_module  # noqa: E402
-from wingspan.training import (  # noqa: E402
-    setup_runmeta,
-)
 
 _DEVICE = torch.device("cpu")
 # Exposures per setup: one per dealt bird.

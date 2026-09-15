@@ -17,6 +17,7 @@ import pathlib
 
 import pytest
 
+from wingspan.analysis import models as analysis_models
 from wingspan.training import (
     collect,
     config,
@@ -25,6 +26,7 @@ from wingspan.training import (
     loop_checkpoint,
     loop_collect,
     loop_eval,
+    loop_probe,
     loop_setup,
     metrics,
 )
@@ -93,6 +95,14 @@ def test_run_iteration_setup_update_precedes_main_update_and_sync(
         order.append("collect")
         return [canned_record]
 
+    def fake_maybe_probe(
+        training_loop: loop.TrainingLoop,
+        iteration: int,
+        records: list[collect.GameRecord],
+    ) -> tuple[analysis_models.RepresentationMetrics | None, float]:
+        order.append("probe")
+        return None, 0.0
+
     def fake_learner_update(
         net: object,
         optimizer: object,
@@ -132,6 +142,7 @@ def test_run_iteration_setup_update_precedes_main_update_and_sync(
         order.append("commit")
 
     monkeypatch.setattr(loop_collect, "collect_games", fake_collect_games)
+    monkeypatch.setattr(loop_probe, "maybe_probe", fake_maybe_probe)
     monkeypatch.setattr(learner, "update", fake_learner_update)
     monkeypatch.setattr(loop_setup, "update_setup", fake_update_setup)
     monkeypatch.setattr(loop_setup, "sync_setup_embedders", fake_sync_setup_embedders)
@@ -142,6 +153,7 @@ def test_run_iteration_setup_update_precedes_main_update_and_sync(
 
     assert order == [
         "collect",
+        "probe",
         "update_setup",
         "learner.update",
         "sync_setup_embedders",

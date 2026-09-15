@@ -499,6 +499,8 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "target_eval_games": ("run", "target_eval_games"),
     "eval_every": ("run", "eval_every"),
     "eval_games": ("run", "eval_games"),
+    "probe_every": ("run", "probe_every"),
+    "probe_decisions": ("run", "probe_decisions"),
     "checkpoint_dir": ("run", "checkpoint_dir"),
     "run_name": ("run", "run_name"),
     "resume": ("run", "resume"),
@@ -857,6 +859,25 @@ FIELD_SPECS: list[FieldSpec] = [
         step=8,
         help="Held-out games per eval, played as mirrored pairs to cancel the "
         "first-player edge (an odd value rounds down to the nearest pair).",
+    ),
+    IntField(
+        attr="probe_every",
+        label="probe every",
+        group_path=("EVALUATION",),
+        unit="iters",
+        step=1,
+        help="Re-measure the live checkpoint's representation health (rank, dead "
+        "units, attention ablation KL) every N iterations; 0 disables probing "
+        "entirely.",
+    ),
+    IntField(
+        attr="probe_decisions",
+        label="probe decisions",
+        group_path=("EVALUATION",),
+        unit="decisions",
+        step=256,
+        help="Decisions sampled from this iteration's collected steps for each "
+        "architecture-probe pass.",
     ),
     FloatField(
         attr="eval_ewma_alpha",

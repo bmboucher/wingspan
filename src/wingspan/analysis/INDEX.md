@@ -1,13 +1,17 @@
-# analysis — Architecture-importance probes over a trained checkpoint
+# analysis — Architecture-importance probes for a `PolicyValueNet`
 
-Offline diagnostics for a trained `PolicyValueNet`: how much does each part of
-the network's architecture actually matter? Loads a checkpoint, self-plays a
-sample of on-distribution decisions, then measures board-attention behavior
-and ablation sensitivity, trunk/choice-encoder layer capacity, and trunk
-input-energy shares. Exposed as `wingspan analysis probe`. See
-`docs/TRAINING.md` "Representation diagnostics" for how to read the numbers
-and the 2026-09-15 baseline, and `docs/RESEARCH.md`'s "General architecture
-exploration" project for how this fits the research agenda.
+Diagnostics for a trained `PolicyValueNet`: how much does each part of the
+network's architecture actually matter? Measures board-attention behavior and
+ablation sensitivity, trunk/choice-encoder layer capacity, and trunk
+input-energy shares over a sample of on-distribution decisions. Two callers:
+the offline `wingspan analysis probe` CLI (loads a checkpoint, self-plays a
+fresh sample of games) and the live training loop
+(`wingspan.training.loop_probe.maybe_probe`, periodic, against the in-memory
+net over a subsample of the current iteration's already-collected steps — no
+checkpoint load, no extra self-play). See `docs/TRAINING.md` "Representation
+diagnostics" (§6.5) for how to read the numbers, the 2026-09-15 baseline, and
+how the live cadence is configured, and `docs/RESEARCH.md`'s "General
+architecture exploration" project for how this fits the research agenda.
 
 ## Modules
 

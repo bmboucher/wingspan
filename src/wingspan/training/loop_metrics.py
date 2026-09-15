@@ -9,6 +9,7 @@ call its functions directly.
 from __future__ import annotations
 
 from wingspan import setup_model
+from wingspan.analysis import models as analysis_models
 from wingspan.training import collect, learner, metrics
 
 
@@ -80,7 +81,9 @@ def build_iteration_metrics(
     setup_stats: metrics.SetupUpdateStats | None,
     entropy_coef: float,
     dropout_p: float,
+    representation: analysis_models.RepresentationMetrics | None,
     imitation_phase: bool = False,
+    probe_seconds: float = 0.0,
 ) -> metrics.IterationMetrics:
     """Aggregate one iteration's records + update stats into an :class:`~metrics.IterationMetrics` row."""
     n_games = len(records)
@@ -148,7 +151,9 @@ def build_iteration_metrics(
         update_seconds=update_seconds,
         eval_seconds=eval_seconds,
         games_per_sec=n_games / collect_seconds if collect_seconds > 0 else 0.0,
+        probe_seconds=probe_seconds,
         eval=eval_result,
+        representation=representation,
         collection_win_rate=win_rate,
         setup_phase="MODEL_DRIVEN" if setup_enabled else None,
         setup_loss=setup_stats.loss if setup_stats is not None else None,

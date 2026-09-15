@@ -25,6 +25,7 @@ torch = pytest.importorskip("torch")
 
 from wingspan import model, version  # noqa: E402
 from wingspan.players import loaders  # noqa: E402
+from wingspan.training import setup_runmeta  # noqa: E402
 from wingspan.training import (  # noqa: E402
     artifacts,
     config,
@@ -33,9 +34,6 @@ from wingspan.training import (  # noqa: E402
     runstate,
 )
 from wingspan.training import setup_net as setup_net_module  # noqa: E402
-from wingspan.training import (  # noqa: E402
-    setup_runmeta,
-)
 
 
 def _setup_cfg(checkpoint_dir: pathlib.Path) -> config.RunConfig:

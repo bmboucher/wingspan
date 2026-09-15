@@ -16,6 +16,8 @@ The per-concern logic is split across sibling modules:
 - ``loop_collect``    — batched / multiprocess self-play collection
 - ``loop_setup``      — setup-model lifecycle (fit, update, sync, resume)
 - ``loop_eval``       — paired-game eval, opponent graduation / advancement
+- ``loop_probe``      — periodic architecture-probe measurement (rank, dead
+  units, attention ablation KL)
 - ``loop_target``     — target-milestone sequence (checkpoint → eval → pause)
 - ``loop_checkpoint`` — commit, checkpoint write, finish; I/O + seed helpers
 - ``loop_metrics``    — pure metrics aggregation (no loop state)
@@ -42,6 +44,7 @@ from wingspan.training import (
     loop_collect,
     loop_eval,
     loop_metrics,
+    loop_probe,
     loop_resume,
     loop_setup,
     loop_target,
@@ -250,16 +253,19 @@ class TrainingLoop:
 
     #### Iteration orchestration ####
 
-    # One training iteration -- the heart of the loop. Six phases run in order:
+    # One training iteration -- the heart of the loop. Seven phases run in order:
     #   1. collect      -- self-play games into recorded forked decisions (loop_collect)
-    #   2. setup update -- on-policy actor-critic step over this iteration's setup
+    #   2. probe        -- periodic architecture-probe re-measurement of the live
+    #                      checkpoint over a subsample of this iteration's steps
+    #                      (loop_probe)
+    #   3. setup update -- on-policy actor-critic step over this iteration's setup
     #                      samples, run before the main update / embedder re-sync
     #                      below so its log-probs stay on-policy (loop_setup)
-    #   3. update       -- one length-bucketed REINFORCE step (learner.update),
+    #   4. update       -- one length-bucketed REINFORCE step (learner.update),
     #                      followed by the setup net's embedder re-sync
-    #   4. evaluate     -- periodic paired games vs the reference opponent (loop_eval)
-    #   5. measure      -- fold the above into one IterationMetrics row (loop_metrics)
-    #   6. commit       -- graduate/advance the opponent, checkpoint, log (loop_checkpoint)
+    #   5. evaluate     -- periodic paired games vs the reference opponent (loop_eval)
+    #   6. measure      -- fold the above into one IterationMetrics row (loop_metrics)
+    #   7. commit       -- graduate/advance the opponent, checkpoint, log (loop_checkpoint)
     def _run_iteration(self, iteration: int) -> None:
         with self.lock:
             self.state.phase = runstate.Phase.COLLECTING
@@ -302,6 +308,8 @@ class TrainingLoop:
                 f"avg {loop_metrics.avg_points(records):.1f} pts/game"
                 + (" · DAgger clone" if imitation_phase else ""),
             )
+
+        representation, probe_seconds = loop_probe.maybe_probe(self, iteration, records)
 
         # Setup update runs here, before the main net's update and the embedder
         # re-sync below: at this point the setup net (trunks, heads, and its
@@ -361,7 +369,9 @@ class TrainingLoop:
             setup_stats,
             self.config.entropy_coef_at(iteration),
             self.config.dropout_p_at(iteration),
+            representation,
             imitation_phase=imitation_phase,
+            probe_seconds=probe_seconds,
         )
         loop_checkpoint.commit_iteration(
             self, iter_metrics, stats, eval_result, records

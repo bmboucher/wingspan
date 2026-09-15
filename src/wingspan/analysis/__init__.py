@@ -1,15 +1,21 @@
-"""Offline architecture-importance diagnostics for a trained ``PolicyValueNet``.
+"""Architecture-importance diagnostics for a ``PolicyValueNet``.
 
-Loads a checkpoint, self-plays a sample of on-distribution decisions, and
-measures how much each part of the network matters: board-attention
+Measures how much each part of the network matters: board-attention
 contribution/entropy and ablation sensitivity (zero / uniform / per-head
 knockout), trunk and choice-encoder layer capacity (effective rank, linear
 predictability, dead units), and the input groups the trunk actually reads
-from. Exposed as the ``wingspan analysis probe`` CLI command
-(:mod:`wingspan.analysis.cli`). See ``docs/analysis/INDEX.md`` for the
-module map and ``docs/TRAINING.md`` "Representation diagnostics" for how to
-read the numbers.
+from. Two callers feed this package a :class:`probe_set.ProbeSet` of
+on-distribution decisions and run :func:`representation.measure` over it:
 
-This package intentionally holds no training-loop integration (Stage 2):
-it only reads a checkpoint and reports on it.
+* The offline ``wingspan analysis probe`` CLI (:mod:`wingspan.analysis.cli`)
+  loads a checkpoint and self-plays a fresh sample of games
+  (:func:`probe_set.from_self_play`).
+* The live training loop (``wingspan.training.loop_probe.maybe_probe``) runs
+  periodically against the in-memory net, over a subsample of the current
+  iteration's already-collected steps (:func:`probe_set.from_steps`) — no
+  checkpoint load, no extra self-play.
+
+See ``docs/analysis/INDEX.md`` for the module map and ``docs/TRAINING.md``
+"Representation diagnostics" (§6.5) for how to read the numbers and how the
+live cadence is configured.
 """

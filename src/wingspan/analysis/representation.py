@@ -60,36 +60,47 @@ def measure(
     mode before returning) and every pass runs under ``torch.no_grad()`` — this
     function never updates ``net``'s weights. ``score_norm`` converts the raw
     value-head shift into score points (mirrors the training run's own
-    ``TrainingConfig.score_norm``)."""
+    ``TrainingConfig.score_norm``).
+
+    The wrapper install/mode-restore is wrapped in ``try``/``finally`` so an
+    exception anywhere in the probe (a CUDA OOM, a linalg error in the ridge
+    fit, a bad ``probe_set``) can never leave ``net`` stuck in eval mode or
+    still wearing its ``ProbeAttention`` wrappers. Offline this was harmless —
+    the CLI process just exits — but ``training.loop_probe`` now calls this
+    live, mid-run, on the same net that collection and the update step keep
+    using afterward, so a failed probe must not corrupt it."""
     was_training = net.training
     net.eval()
-    with torch.no_grad():
-        census, total_parameters = _param_census(net)
-        wrappers, collector = _install_attention(net)
-        full_pass, layer_stats, attention_stats, trunk_input = _run_full_pass(
-            net, probe_set, device, wrappers, collector
-        )
-        ablations, family_effects, board_fill_effects = _run_ablations(
-            net, probe_set, device, wrappers, full_pass, score_norm
-        )
-        reference = None
-        if reference_net is not None:
-            reference = _run_reference_pass(
-                reference_net,
-                probe_set,
-                device,
-                full_pass,
-                score_norm,
-                checkpoint_label,
+    wrappers: list[attention_probe.ProbeAttention] = []
+    try:
+        with torch.no_grad():
+            census, total_parameters = _param_census(net)
+            wrappers, collector = _install_attention(net)
+            full_pass, layer_stats, attention_stats, trunk_input = _run_full_pass(
+                net, probe_set, device, wrappers, collector
             )
-        trunk_shares = (
-            _trunk_input_shares(net, trunk_input)
-            if _trunk_shares_supported(net)
-            else []
-        )
+            ablations, family_effects, board_fill_effects = _run_ablations(
+                net, probe_set, device, wrappers, full_pass, score_norm
+            )
+            reference = None
+            if reference_net is not None:
+                reference = _run_reference_pass(
+                    reference_net,
+                    probe_set,
+                    device,
+                    full_pass,
+                    score_norm,
+                    checkpoint_label,
+                )
+            trunk_shares = (
+                _trunk_input_shares(net, trunk_input)
+                if _trunk_shares_supported(net)
+                else []
+            )
+    finally:
         attention_probe.uninstall(net, wrappers)
-    if was_training:
-        net.train()
+        if was_training:
+            net.train()
     return models.RepresentationReport(
         checkpoint=checkpoint_label,
         n_games=probe_set.n_games,
