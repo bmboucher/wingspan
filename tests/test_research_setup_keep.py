@@ -28,7 +28,9 @@ from wingspan.training import (  # noqa: E402
     runmeta,
 )
 from wingspan.training import setup_net as setup_net_module  # noqa: E402
-from wingspan.training import setup_runmeta
+from wingspan.training import (  # noqa: E402
+    setup_runmeta,
+)
 
 _DEVICE = torch.device("cpu")
 # Exposures per setup: one per dealt bird.

@@ -32,7 +32,12 @@ from wingspan.training import (
     artifacts,
 )
 from wingspan.training import config as training_config
-from wingspan.training import loop_checkpoint, loop_eval, runmeta, runstate
+from wingspan.training import (
+    loop_checkpoint,
+    loop_eval,
+    runmeta,
+    runstate,
+)
 
 if typing.TYPE_CHECKING:
     from wingspan.training import loop
