@@ -248,8 +248,8 @@ def _dealt_setup_state(
     """A fresh engine with seat 0 in a faithful post-deal setup state: real
     birds popped off the shuffled deck into the hand, real bonus cards popped
     off the bonus deck, and one of each food -- mirroring what
-    ``Engine._deal_setup_inputs`` leaves in place before a ``SetupDecision``
-    is offered, without going through that private method."""
+    ``Engine.deal_setup_inputs`` leaves in place before a ``SetupDecision``
+    is offered, without going through that method."""
     eng, *_ = engine_core.Engine.create(seed=seed)
     player = eng.state.players[0]
     dealt_cards = [eng.state.bird_deck.pop() for _ in range(state.STARTING_HAND_SIZE)]

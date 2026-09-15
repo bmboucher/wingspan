@@ -224,7 +224,7 @@ This single rule handles all nesting correctly:
 |------|----------|
 | `events.begin_game()` | `play_one_game` / `play_one_game_with_setups` before the game loop (pushes the `"game_start"` phase internally — see Phase structure above) |
 | `events.begin_phase("setup")` | `_resolve_setup_choice` **and** `_setup_phase_fixed` (each paired with `instrumentation.setup_start`) |
-| `events.begin_deal(player.id)` / `events.end_event()` | wraps `_deal_setup_inputs` (the dealt cards are reveals, and the deal precedes the setup phase) |
+| `events.begin_deal(player.id)` / `events.end_event()` | wraps `deal_setup_inputs` (the dealt cards are reveals, and the deal precedes the setup phase) |
 | `events.begin_setup(player.id)` / `events.end_event()` | wraps the setup decision asks + deferred resolves |
 | `events.begin_phase("round", round_idx=…)` | `_play_round` |
 | `events.begin_phase("turn", round_idx=…, turn_idx=…)` | `_take_turn` |

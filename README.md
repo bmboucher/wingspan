@@ -220,6 +220,35 @@ oracle reveals/dice, and relaying the opponent's moves — the recommendation
 display still prints first, since under `--trust-me` it's what tells you
 which move to actually execute at the table.
 
+## Run a research study
+
+`wingspan research` hosts the offline, fixed-model studies from
+[docs/RESEARCH.md](docs/RESEARCH.md). The first is the setup keep-rate
+**experience study**: it deals random setups, asks the run's setup model which
+birds it keeps, and writes one CSV row per dealt bird (an *exposure*) with a
+0/1 `kept` flag (the *observation*), so a card's keep rate is
+`sum(kept) / count(rows)` and pivots by any other column.
+
+```
+wingspan research setup-keep                               # 1000 setups from checkpoints/ -> setup_keep.csv
+wingspan research setup-keep --setups 20000 --workers 8    # fan the deals across 8 processes
+wingspan research setup-keep --checkpoint-dir runs/exp1 --out exp1_keep.csv
+wingspan research setup-keep --temperature 1.0             # sample the keep instead of taking the argmax
+```
+
+Each setup is one seat of a fresh seeded game dealt exactly as the engine deals
+it (tray, feeder roll, round goals, five birds, two bonus cards); games use
+consecutive seeds from `--seed`, so a study can be extended by continuing the
+range, and the CSV is identical whether it ran in-process or under `--workers`.
+Every row carries the exposure key (`setup_id`, `game_seed`, `seat`,
+`card_slot`), the observation (`kept`, the policy's marginal `keep_prob`,
+`n_kept`, the critic's `deal_value`, `bonus_kept`), the card's printed
+attributes (points, egg limit, wingspan, nest, power color, habitats, per-food
+cost, flocking/predator, effect kinds), and the rest of the setup (`hand`,
+`tray_1..3`, the six `feeder_*` die counts, `goal_1..4` with categories,
+`bonus_1`/`bonus_2`). The seat count defaults to the run's trained
+`num_players`; the run must have trained a setup model (`setup.pt`).
+
 ## Installed commands
 
 After `pip install -e .` all tools are available through a single `wingspan`
@@ -234,6 +263,7 @@ command with subcommands:
 | `wingspan inspect`      | Model introspection report (vectors, architecture, params) |
 | `wingspan cloud`        | Headless S3-persisted training (container use)          |
 | `wingspan monitor`      | FLOCK WATCH: live roster of cloud runs                  |
+| `wingspan research`     | Offline research studies (setup keep-rate CSV)          |
 
 Run `wingspan --help` for the full list, or `wingspan <command> --help` for
 per-command usage.

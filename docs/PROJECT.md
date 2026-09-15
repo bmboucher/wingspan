@@ -54,6 +54,7 @@ src/wingspan/
 | `model/` | PyTorch policy-value network | [`model/INDEX.md`](../src/wingspan/model/INDEX.md) |
 | `players/` | Seat players from CLI specs (shared by play + tournament) | [`players/INDEX.md`](../src/wingspan/players/INDEX.md) |
 | `reporting/` | Model introspection and HTML report generation | [`reporting/INDEX.md`](../src/wingspan/reporting/INDEX.md) |
+| `research/` | Offline research studies over trained checkpoints (setup keep-rate CSV) | [`research/INDEX.md`](../src/wingspan/research/INDEX.md) |
 | `setup_model/` | Separately-trained setup model (value-regression bandit) | [`setup_model/INDEX.md`](../src/wingspan/setup_model/INDEX.md) |
 | `tournament/` | Round-robin tournament between trained AIs | [`tournament/INDEX.md`](../src/wingspan/tournament/INDEX.md) |
 | `training/` | Live training + monitoring dashboard ("FLIGHT PLAN") | [`training/INDEX.md`](../src/wingspan/training/INDEX.md) |

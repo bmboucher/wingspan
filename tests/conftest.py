@@ -41,6 +41,7 @@ _HEAVY_TEST_FILES = frozenset(
         "test_setup_arch_key_restart.py",
         "test_setup_collect.py",
         "test_setup_feature_off.py",
+        "test_research_setup_keep.py",
     }
 )
 

@@ -534,7 +534,7 @@ class Engine:
         ``SetupDecision`` and resolves it via sequential in-game food decisions
         after the card-keep is applied."""
         for player in self.state.players:
-            dealt_cards, dealt_bonus = self._deal_setup_inputs(player)
+            dealt_cards, dealt_bonus = self.deal_setup_inputs(player)
             # Set current_player before any logging so all setup lines for this
             # player are attributed to them in the structured log.
             self.state.current_player = player.id
@@ -581,7 +581,7 @@ class Engine:
         ``setup_flow.apply_setup_choice`` and instead resolves food via sequential
         in-game food decisions immediately after the card-keep and bonus are
         applied."""
-        dealt = tuple(self._deal_setup_inputs(player) for player in self.state.players)
+        dealt = tuple(self.deal_setup_inputs(player) for player in self.state.players)
         keeps = choose_setups(self, dealt)
         for player in self.state.players:
             dealt_cards, dealt_bonus = dealt[player.id]
@@ -683,14 +683,16 @@ class Engine:
             ):
                 break
 
-    def _deal_setup_inputs(
+    def deal_setup_inputs(
         self, player: state.Player
     ) -> tuple[list[cards.Bird], list[cards.BonusCard]]:
         """Deal ``player``'s starting hand and bonus cards and give one of each
         food, returning the dealt cards and dealt bonus the setup pick is made
         over. The shared dealing prefix of both setup paths (the ask-the-agent
         ``_resolve_setup_choice`` and the fixed-setup ``_setup_phase_fixed``), so
-        a chooser decides over exactly the inputs an agent would see.
+        a chooser decides over exactly the inputs an agent would see. Public so
+        offline studies (``wingspan.research``) can deal exactly what an agent
+        sees without running a game.
 
         Bracketed in its own ``DealEvent``: the dealt cards are reveals, and the
         deal runs before the setup phase opens (the fixed-setup path deals every
