@@ -16,7 +16,7 @@ two trunks and two heads, exactly paralleling the in-game net:
 * the **value head** (``forward`` / the critic ``V(s)``) reads ``state_enc`` only,
   so its output is identical for every keep candidate of a deal: a true value
   baseline, not the post-keep ``Q(s, a)``. This is what makes the setup advantage
-  ``target − V(s)`` carry a real gradient (``docs/TRAINING.md §6.5``);
+  ``target − V(s)`` carry a real gradient (``docs/TRAINING.md §6.6``);
 * the **policy head** (``policy_logits`` / selection + REINFORCE actor) reads
   ``cat(state_enc, choice_enc)``, so its logits rank candidate keeps. Candidate
   selection at collection time uses these logits.
@@ -140,7 +140,7 @@ class SetupNet(nn.Module):
         # heads — the in-game net's ``state_trunk``. The critic is therefore a
         # function of the deal state alone (``V(s)``, not ``Q(s, a)``), so the
         # setup advantage ``target − V(s)`` does not self-cancel
-        # (``docs/TRAINING.md §6.5``). No LayerNorm; the trunk uses
+        # (``docs/TRAINING.md §6.6``). No LayerNorm; the trunk uses
         # ``between_activation`` as its own final activation so ``state_enc`` is
         # nonlinear before the heads' first Linear. ----
         state_in = setup_model.setup_state_input_dim(encoding, main_arch)

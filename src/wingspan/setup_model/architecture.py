@@ -172,7 +172,7 @@ class SetupArchitecture(pydantic.BaseModel):
       choice_enc)`` and producing the per-candidate selection logit.
     * ``value_layers`` — the **value head** (critic ``V(s)``), reading ``state_enc``
       only. Because ``V(s)`` is a function of state alone, the setup advantage
-      ``target − V(s)`` does not self-cancel (``docs/TRAINING.md §6.5``).
+      ``target − V(s)`` does not self-cancel (``docs/TRAINING.md §6.6``).
 
     Each width tuple is ordered input-to-output. Reuses
     :data:`wingspan.architecture.Widths` and

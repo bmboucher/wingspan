@@ -8,7 +8,7 @@ context alone (tray / birdfeeder / round goals / bonus-on-offer), not the chosen
 keep. So the advantage ``target − V(s)`` carries a real policy gradient, unlike
 the former per-candidate ``Q(s, a_chosen)`` whose advantage self-cancelled (its
 conditional mean given the chosen action was ≈ 0, leaving the entropy bonus to
-collapse the logits toward uniform — ``docs/TRAINING.md §6.5``).
+collapse the logits toward uniform — ``docs/TRAINING.md §6.6``).
 
 The ``target`` is the in-game return at this seat's ``t=0`` setup decision
 (:func:`wingspan.training.returns.setup_return`), so the setup and in-game value

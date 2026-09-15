@@ -32,7 +32,7 @@ The measured profile is in §1 and is the foundation for every later decision.
 >   progress counters + git SHA + encoding-era stamp, written atomically as
 >   `last.pt`/`best.pt`/`opponent.pt`, plus `metrics.jsonl` and `games.jsonl`.
 > - **Seeding** of Python / NumPy / torch (§5); a **separate setup model** with a
->   mandatory actor-critic policy head (§6.4–6.5); and a **`decision_delta` reward
+>   mandatory actor-critic policy head (§6.4, §6.6); and a **`decision_delta` reward
 >   mode** alongside the default `terminal_margin` (§2).
 >
 > **Device.** Both CPU and CUDA are supported (the §1.4/§4 "collect on CPU, update
@@ -475,7 +475,7 @@ Two semantics worth calling out:
 * The taper horizon is the **configured** `run.target_iterations`, not a live
   one — re-targeting via the dashboard's `[C]ontinue` prompt does not move the
   schedule (it only sets a new pause point).
-* The schedule advances during DAgger clone iterations (§6.7) — the absolute
+* The schedule advances during DAgger clone iterations (§6.8) — the absolute
   iteration counter is shared, so cloning and annealing compose without special
   casing.
 
@@ -848,9 +848,90 @@ effort:
   is rare, high-variance, high-dimensional, and game-defining. The separate
   setup net realizes this; it trains on-policy with actor-critic REINFORCE
   from iteration 0 unconditionally — no bootstrap/warmup phase exists (see
-  §6.5).
+  §6.6).
 
-### 6.5 The setup model's training schedule and actor-critic mode
+### 6.5 Representation diagnostics
+
+`wingspan analysis probe` (`wingspan.analysis`, `docs/RESEARCH.md`'s "General
+architecture exploration" project) turns "should I add capacity here?" (§6.2)
+from a guess into a measurement, on a *specific* trained checkpoint rather
+than a sweep. It self-plays a sample of on-distribution decisions and reports:
+
+- **`rank95` / `rank95_over_width`** — the number of eigen-directions of a
+  layer's post-ReLU activation covariance needed to reach 95% of its
+  variance, and that count divided by the layer's width. A layer whose rank
+  sits near its width is using the capacity it was given; a layer whose rank
+  is far below its width is collapsed onto a lower-dimensional subspace no
+  matter how wide it's declared.
+- **`linear_r2`** — R² of a ridge-regularized *linear* fit of a layer's
+  post-ReLU output from its input. Near 1.0 means the layer's nonlinearity
+  contributes essentially nothing beyond a linear map — the ReLU stack is
+  doing the job of a single `Linear`.
+- **`dead_fraction`** — the share of a layer's units that are never active
+  (> 0) over the probed decisions; a direct read of wasted width.
+- **Attention entropy** — per-head normalized entropy of the board-attention
+  weights (1.0 = uniform over the filled board slots). A head near 1.0 is not
+  discriminating between board slots; it is behaving like a mean pool.
+- **Uniform/zero substitution KL** — `KL(full‖ablated)` per decision when the
+  board-attention block is replaced with a uniform average (`UNIFORM`) or
+  dropped entirely (`ZERO`), calibrated against the KL between *consecutive
+  training generations* (the report's reference-checkpoint comparison) — a
+  block whose ablation KL is smaller than one generation's normal policy
+  drift is not doing anything a generation of training wouldn't have changed
+  anyway.
+
+**Reading the numbers.** Rank near width, with room to grow, is a genuine
+widening candidate (§6.3). Rank far below width *with* `linear_r2` ≈ 1 means
+the layer is either collapsed (undertrained, or starved of gradient signal)
+or over-provisioned (already wider than the problem needs) — narrowing it
+back loses nothing and shrinks the parameter budget for the heads that do
+need it. A layer's rank *falling* over successive checkpoints while eval win
+rate has stalled (§9's exit criteria) is a capacity-loss tell distinct from
+either of those — worth a rank-over-time chart before concluding the
+architecture itself is the bottleneck.
+
+**Running it:**
+
+```
+wingspan analysis probe last --games 20 --reference best
+```
+
+`TARGET` and `--reference` take the same player-spec grammar as `wingspan
+play` (`last` / `best` / `opponent` / a run directory / a direct `.pt` path).
+`--head-to-head N` additionally plays `N` mirrored deals of the full network
+against a UNIFORM- and a ZERO-substituted copy, giving the ablation KL a
+game-strength counterpart. `--json PATH` writes the full report for
+downstream tooling.
+
+**2026-09-15 baseline** (default architecture, `board_attention_shared`,
+8 heads, positions on):
+
+| Layer | rank95 / width | linear R² |
+|---|---|---|
+| trunk.L0 | 64 / 128 | 0.94 |
+| trunk.L1 | 29 / 128 | 0.94 |
+| trunk.L2 | 8 / 64 | 0.99 |
+| trunk.L3 | 7 / 64 | 0.99 |
+| choice.L0 | 40 / 128 | 0.87 |
+| choice.L1 | 4 / 64 | 0.99 |
+| choice.L2 | 3 / 64 | 0.998 |
+
+Both tails are sharply low-rank and nearly linear — the trunk's last two
+layers and the choice encoder's last two layers are candidates for narrowing,
+not widening. The board-attention block's uniform-substitution KL was
+**0.007**, its zero-substitution KL **0.063**, against a **0.051**
+previous-training-generation KL — the block's *learned* pattern (as opposed
+to a plain average) accounts for less policy drift than one generation of
+ordinary training, matching the near-uniform head entropy and the 49.6%
+head-to-head win rate against a fully-uniform substitution
+(`docs/RESEARCH.md`'s "General architecture exploration" gap list).
+
+This section is offline-only: `wingspan analysis probe` reads a checkpoint
+and reports on it, with no training-loop integration. Folding these metrics
+into the live dashboard / `metrics.jsonl` (so rank-over-time is a chart, not
+a manual re-run) is the next stage.
+
+### 6.6 The setup model's training schedule and actor-critic mode
 
 #### MODEL_DRIVEN from iteration 0, unconditionally
 
@@ -919,7 +1000,7 @@ full `(K, feature_dim)` candidate feature matrix is stored in
 persisted to disk.
 
 **IPC cost.** Each sample carries a `(K, feature_dim)` float16 array (the
-dominant cost: K=252 at the default `split_setup_bonus=True` (§6.6), ~hundreds
+dominant cost: K=252 at the default `split_setup_bonus=True` (§6.7), ~hundreds
 of KB/sample; K=504 bonus-included only if that flag is turned off). v1.2 adds
 the seat's per-in-game-decision checkpoint/time sequences (`margin_checkpoints` /
 `score_checkpoints` / `decision_times`, ~tens of floats) plus a few scalars
@@ -1008,7 +1089,7 @@ update path ignores them.
 built without one, resetting the setup net. The main `PolicyValueNet` was not
 affected and required no `MODEL_VERSION` bump.
 
-### 6.6 Setup-split knobs: deferring bonus and food picks to in-game heads
+### 6.7 Setup-split knobs: deferring bonus and food picks to in-game heads
 
 Two flags move pieces of the opening judgment out of the setup model and into
 the regular in-game decision heads. Both are REGIME (shape-preserving,
@@ -1050,7 +1131,7 @@ generation performs.
 Both flags can be active simultaneously. Neither touches `MODEL_VERSION` or
 `setup_architecture_key`.
 
-### 6.7 DAgger behavioral cloning (clone-then-RL)
+### 6.8 DAgger behavioral cloning (clone-then-RL)
 
 #### What it does
 
@@ -1152,7 +1233,7 @@ defaults to disabled; pre-DAgger configs validate unchanged. See `docs/VERSIONIN
 
 ---
 
-### 6.8 Using a pre-trained checkpoint as the bootstrap opponent
+### 6.9 Using a pre-trained checkpoint as the bootstrap opponent
 
 #### The run-A → run-B pattern
 

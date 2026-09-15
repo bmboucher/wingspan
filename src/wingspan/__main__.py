@@ -11,6 +11,8 @@ Commands:
   monitor     FLOCK WATCH: watch all cloud runs from their S3 status snapshots.
   inspect     Print the model introspection report.
   research    Offline research studies over a trained checkpoint (docs/RESEARCH.md).
+  analysis    Offline architecture-importance probe over a trained checkpoint
+              (docs/TRAINING.md "6.5 Representation diagnostics").
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ _VERBS: dict[str, str] = {
     "monitor": "FLOCK WATCH: watch all cloud runs from their S3 status snapshots.",
     "inspect": "Print the model introspection report.",
     "research": "Offline research studies over a trained checkpoint (docs/RESEARCH.md).",
+    "analysis": "Offline architecture-importance probe over a trained checkpoint.",
 }
 
 
@@ -70,6 +73,10 @@ def main(argv: list[str] | None = None) -> int:
             import wingspan.research.app as research_app
 
             return research_app.main(rest)
+        case "analysis":
+            import wingspan.analysis.cli as analysis_cli
+
+            return analysis_cli.main_analysis(rest)
         case _:
             print(
                 f"wingspan: unknown command '{verb}'  (try `wingspan --help`)",

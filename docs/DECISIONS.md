@@ -757,7 +757,7 @@ axis:
   rank candidates; the **value head** reads only the action-independent *context*
   stripes (tray / birdfeeder / round goals, plus the bonus-cards-on-offer multi-hot
   in split-bonus mode), so it is the critic `V(s)` and the advantage `target − V(s)`
-  no longer self-cancels (v1.2; see `docs/TRAINING.md §6.5`, `docs/VERSIONING.md`).
+  no longer self-cancels (v1.2; see `docs/TRAINING.md §6.6`, `docs/VERSIONING.md`).
 - **`use_setup_model = False`:** the main net keeps a `SETUP` head and scores
   the same candidates as ordinary choice rows (the kept birds as a multi-hot
   on the dedicated trailing `kept_multihot` stripe — the single-candidate

@@ -100,6 +100,7 @@ keyed by `game_id`.
 
 ```python
 import pandas
+
 rows = pandas.read_json("game.jsonl", lines=True)
 rows[rows.kind == "lay_egg"].groupby("player_id")["count"].sum()
 ```
@@ -249,6 +250,23 @@ cost, flocking/predator, effect kinds), and the rest of the setup (`hand`,
 `bonus_1`/`bonus_2`). The seat count defaults to the run's trained
 `num_players`; the run must have trained a setup model (`setup.pt`).
 
+## Probe a model's architecture
+
+`wingspan analysis probe` measures how much each part of a trained network's
+architecture actually matters: it self-plays a sample of on-distribution
+decisions, then reports board-attention behavior and ablation sensitivity
+(zero / uniform / per-head knockout, scored by policy KL and value shift),
+trunk and choice-encoder layer capacity (effective rank, linear
+predictability, dead units), and which trunk input groups the network reads
+from.
+
+```
+wingspan analysis probe last --games 50 --reference best   # probe the latest checkpoint, compare against best.pt
+```
+
+See `docs/TRAINING.md` "Representation diagnostics" for how to read the
+numbers and `src/wingspan/analysis/INDEX.md` for the package's caveats.
+
 ## Installed commands
 
 After `pip install -e .` all tools are available through a single `wingspan`
@@ -264,6 +282,7 @@ command with subcommands:
 | `wingspan cloud`        | Headless S3-persisted training (container use)          |
 | `wingspan monitor`      | FLOCK WATCH: live roster of cloud runs                  |
 | `wingspan research`     | Offline research studies (setup keep-rate CSV)          |
+| `wingspan analysis`     | Architecture-importance probe over a trained checkpoint |
 
 Run `wingspan --help` for the full list, or `wingspan <command> --help` for
 per-command usage.
