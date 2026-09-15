@@ -54,7 +54,7 @@ def update_setup(
         training_loop._setup_optimizer,
         samples,
         training_loop.config,
-        training_loop.device,
+        training_loop.train_device,
         iteration,
     )
     with training_loop.lock:
@@ -90,7 +90,7 @@ def build_setup_net(
         encoding=training_loop.config.setup_encoding,
         arch=training_loop.config.setup_arch,
         main_arch=training_loop.config.arch,
-    ).to(training_loop.device)
+    ).to(training_loop.train_device)
     optimizer = optim.Adam(
         [param for param in net.parameters() if param.requires_grad],
         lr=training_loop.config.training.setup.lr,
@@ -138,7 +138,9 @@ def maybe_resume_setup(training_loop: "loop.TrainingLoop") -> None:
     try:
         payload = typing.cast(
             "dict[str, typing.Any]",
-            torch.load(path, map_location=training_loop.device, weights_only=False),
+            torch.load(
+                path, map_location=training_loop.train_device, weights_only=False
+            ),
         )
     except Exception:  # noqa: BLE001 — a corrupt setup checkpoint starts fresh
         training_loop.state.push_event(

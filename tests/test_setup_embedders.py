@@ -36,7 +36,7 @@ _MEANPOOL_MAIN = _DISTINCT_MAIN.model_copy(
 
 def _loop_config(tmp_path: pathlib.Path) -> config.TrainConfig:
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             checkpoint_dir=str(tmp_path),
             resume=False,

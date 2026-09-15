@@ -77,15 +77,20 @@ def test_decode_unix_escape_arrows():
 
 
 def test_format_value_scientific_and_plain():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     assert fields.format_value(cfg, fields.spec_for("lr")) == "3e-04"
     assert fields.format_value(cfg, fields.spec_for("value_coef")) == "0.5"
     assert fields.format_value(cfg, fields.spec_for("games_per_iter")) == "256"
-    assert fields.format_value(cfg, fields.spec_for("device")) == "cpu"
+    assert fields.format_value(cfg, fields.spec_for("collect_device")) == "cpu"
+    assert fields.format_value(cfg, fields.spec_for("train_device")) == "cpu"
 
 
 def test_commit_validates_against_model_bounds():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     lr = fields.spec_for("lr")
     updated, error = fields.commit(cfg, lr, "0.001")
     assert error is None and updated.training.lr == 0.001
@@ -102,7 +107,9 @@ def test_commit_validates_against_model_bounds():
 
 
 def test_nudge_steps_and_clamps():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     games = fields.spec_for("games_per_iter")
     assert isinstance(games, fields.IntField)
     up, error = fields.nudge(cfg, games, 1)
@@ -111,7 +118,7 @@ def test_nudge_steps_and_clamps():
     )
     # Nudging lr below its strictly-positive floor is rejected, value unchanged.
     low = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(lr=1e-4),
     )
     stepped, error = fields.nudge(low, fields.spec_for("lr"), -1)
@@ -119,7 +126,9 @@ def test_nudge_steps_and_clamps():
 
 
 def test_num_players_field_commits_and_nudges():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     num_players = fields.spec_for("num_players")
     assert isinstance(num_players, fields.IntField)
     assert fields.format_value(cfg, num_players) == "2"
@@ -137,16 +146,21 @@ def test_num_players_field_commits_and_nudges():
 
 
 def test_nudge_cycles_choice():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
-    device = fields.spec_for("device")
-    forward, _ = fields.nudge(cfg, device, 1)
-    assert forward.misc.device == "cuda"
-    wrapped, _ = fields.nudge(forward, device, 1)
-    assert wrapped.misc.device == "cpu"
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
+    for attr in ("collect_device", "train_device"):
+        spec = fields.spec_for(attr)
+        forward, _ = fields.nudge(cfg, spec, 1)
+        assert fields.read_field(forward, spec) == "cuda"
+        wrapped, _ = fields.nudge(forward, spec, 1)
+        assert fields.read_field(wrapped, spec) == "cpu"
 
 
 def test_is_changed_against_saved():
-    saved = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    saved = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     working = saved.model_copy(
         update={"run": saved.run.model_copy(update={"games_per_iter": 72})}
     )
@@ -158,7 +172,9 @@ def test_is_changed_against_saved():
 
 
 def test_layers_field_format_and_commit():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     trunk = fields.spec_for("trunk_layers")
     assert isinstance(trunk, fields.LayersField)
     assert fields.format_value(cfg, trunk) == "128, 128"
@@ -180,7 +196,7 @@ def test_layers_field_widths_are_independent():
     # Trunk and choice encoder widths are now fully independent; editing one
     # does not touch the other.
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu")
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
     )  # trunk=(128,128), choice=(128,128)
     choice = fields.spec_for("choice_layers")
     updated, error = fields.commit(cfg, choice, "128, 64")
@@ -199,7 +215,7 @@ def test_layers_field_widths_are_independent():
 
 def test_layers_field_nudge_changes_depth():
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu")
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
     )  # trunk defaults to (128, 128)
     trunk = fields.spec_for("trunk_layers")
     deeper, error = fields.nudge(cfg, trunk, 1)
@@ -268,7 +284,7 @@ def _write_checkpoint(
 
 def test_inspect_run_reads_metadata(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(run_name="alpha"),
     )
     _write_checkpoint(tmp_path, cfg)
@@ -290,7 +306,9 @@ def test_inspect_run_empty_dir(tmp_path: pathlib.Path):
 
 
 def test_architecture_compatible_and_status(tmp_path: pathlib.Path):
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     # No readable embedded config -> never resumable (self-describing contract).
     assert not runs.architecture_compatible(None, cfg)
     assert runs.architecture_compatible(cfg, cfg)
@@ -316,7 +334,9 @@ def test_architecture_compatible_and_status(tmp_path: pathlib.Path):
 
 
 def test_archive_run_moves_artifacts_and_leaves_scratch(tmp_path: pathlib.Path):
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     _write_checkpoint(tmp_path, cfg)
     result = runs.archive_run(str(tmp_path), "run_iter0004_T")
     assert result.ok
@@ -345,7 +365,9 @@ def test_archive_run_moves_artifacts_and_leaves_scratch(tmp_path: pathlib.Path):
 
 
 def test_archive_run_unique_label(tmp_path: pathlib.Path):
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     _write_checkpoint(tmp_path, cfg)
     runs.archive_run(str(tmp_path), "dup")
     _write_checkpoint(tmp_path, cfg)
@@ -356,14 +378,18 @@ def test_archive_run_unique_label(tmp_path: pathlib.Path):
 
 
 def test_archive_missing_files_tolerated(tmp_path: pathlib.Path):
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     _write_checkpoint(tmp_path, cfg, extras=False)  # only last.pt present
     result = runs.archive_run(str(tmp_path), "label")
     assert result.ok and result.moved == [artifacts.LAST_CKPT]
 
 
 def test_clear_run_deletes_artifacts(tmp_path: pathlib.Path):
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     _write_checkpoint(tmp_path, cfg)
     removed = runs.clear_run(str(tmp_path))
     assert artifacts.LAST_CKPT in removed
@@ -377,7 +403,7 @@ def test_clear_run_deletes_artifacts(tmp_path: pathlib.Path):
 
 def test_default_archive_label_sanitizes(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(run_name="my run!"),
     )
     _write_checkpoint(tmp_path, cfg, iteration=7)
@@ -387,7 +413,9 @@ def test_default_archive_label_sanitizes(tmp_path: pathlib.Path):
 
 
 def test_list_archives(tmp_path: pathlib.Path):
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     _write_checkpoint(tmp_path, cfg)
     runs.archive_run(str(tmp_path), "first")
     entries = runs.list_archives(str(tmp_path))
@@ -418,7 +446,7 @@ def _render(
 
 def _empty_state() -> state.ConfiguratorState:
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir="checkpoints"),
     )
     summary = runs.RunSummary(checkpoint_dir="checkpoints")
@@ -435,7 +463,9 @@ def test_screen_renders_empty(width: int):
 
 
 def test_screen_renders_populated_and_edit():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     summary = runs.RunSummary(
         checkpoint_dir="checkpoints",
         exists=True,
@@ -470,7 +500,7 @@ def test_bootstrap_hint_fixed_values():
         ("random", "random agent"),
     ]:
         cfg = config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir="checkpoints"),
             opponent=config.OpponentConfig(bootstrap_opponent=value),
         )
@@ -485,7 +515,7 @@ def test_bootstrap_hint_fixed_values():
 def test_dispatch_nudge_bootstrap_cycles_through_options(tmp_path: pathlib.Path):
     """Left/Right on the bootstrap_opponent field cycles none → random → archive."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     _write_checkpoint(tmp_path, cfg)
@@ -538,7 +568,7 @@ def test_bootstrap_hint_shows_archive_metadata():
         first_session_stamp="20240611-142030",
     )
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=checkpoint_dir),
         opponent=config.OpponentConfig(bootstrap_opponent=expected_path),
     )
@@ -571,7 +601,7 @@ def test_bootstrap_hint_archive_entry_no_stamp_uses_date():
         first_session_stamp=None,
     )
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=checkpoint_dir),
         opponent=config.OpponentConfig(bootstrap_opponent=expected_path),
     )
@@ -586,7 +616,7 @@ def test_bootstrap_hint_archive_entry_no_stamp_uses_date():
 def test_bootstrap_hint_custom_path_not_in_archives():
     """A bootstrap_opponent path that does not match any archive shows 'custom'."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir="checkpoints"),
         opponent=config.OpponentConfig(bootstrap_opponent="some/custom/path.pt"),
     )
@@ -603,7 +633,7 @@ def test_screen_renders_era_line_and_defaults_hints():
     # offers [D] save defaults; a defaults-seeded editor names its source.
     pinned = config.with_encoding_version(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir="checkpoints"),
         ),
         version.MODEL_VERSION,
@@ -667,7 +697,7 @@ def _arch_state(
     selected_attr: str = "trunk_layers", **overrides: object
 ) -> state.ConfiguratorState:
     base = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir="checkpoints"),
     )
     if overrides:
@@ -851,7 +881,7 @@ def test_arch_diagram_param_count_matches_model():
     # asymmetric trunk/choice widths (M=16, N=24) so the scorer's M+N input is
     # distinct from 2M and 2N — a regression to a "2H" concat would fail here.
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 trunk_layers=(32, 16),
@@ -877,7 +907,7 @@ def test_arch_diagram_param_count_matches_model():
 def test_arch_diagram_param_count_scales_with_embed_dim():
     small = _param_report_for(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             architecture=config.ArchitectureConfig(
                 main=config.MainNetArchitecture(card_embed_dim=16)
             ),
@@ -885,7 +915,7 @@ def test_arch_diagram_param_count_scales_with_embed_dim():
     )
     large = _param_report_for(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             architecture=config.ArchitectureConfig(
                 main=config.MainNetArchitecture(card_embed_dim=64)
             ),
@@ -899,7 +929,7 @@ def test_arch_diagram_setup_param_count_matches_net():
     # real SetupNet — the diagram's per-op / Σ source for the unconnected box.
     # Frozen embedder copies count in numel, so they must count analytically too.
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             setup=config.SetupNetArchitecture(head_layers=(32, 16))
         ),
@@ -933,7 +963,7 @@ def _key(kind: keys.KeyKind, char: str = "") -> keys.KeyEvent:
 
 def test_initial_state_empty_uses_defaults(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     view = controller.build_initial_state(cfg, cuda_available=False)
@@ -944,13 +974,13 @@ def test_initial_state_empty_uses_defaults(tmp_path: pathlib.Path):
 
 def test_initial_state_seeds_from_compatible_run(tmp_path: pathlib.Path):
     saved = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path), run_name="saved"),
         training=config.TrainingConfig(lr=7e-4),
     )
     _write_checkpoint(tmp_path, saved)
     launched = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     view = controller.build_initial_state(launched, cuda_available=False)
@@ -967,7 +997,7 @@ def test_initial_state_seeds_from_run_with_other_architecture(tmp_path: pathlib.
     # actual run (RESUMABLE, nothing marked changed) rather than reverting to the
     # defaults and reporting a spurious "architecture changed / needs fresh run".
     saved = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(trunk_layers=(256, 256))
@@ -979,7 +1009,7 @@ def test_initial_state_seeds_from_run_with_other_architecture(tmp_path: pathlib.
     )  # not the default
     _write_checkpoint(tmp_path, saved)
     launched = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     view = controller.build_initial_state(launched, cuda_available=False)
@@ -1026,7 +1056,7 @@ def test_dispatch_edit_rejects_invalid():
 
 def test_dispatch_start_empty_launches_fresh(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     view = controller.build_initial_state(cfg, cuda_available=False)
@@ -1036,7 +1066,7 @@ def test_dispatch_start_empty_launches_fresh(tmp_path: pathlib.Path):
 
 def test_dispatch_start_resumable_resumes(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     _write_checkpoint(tmp_path, cfg)
@@ -1047,7 +1077,7 @@ def test_dispatch_start_resumable_resumes(tmp_path: pathlib.Path):
 
 def test_dispatch_new_run_prompts_then_archives(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     _write_checkpoint(tmp_path, cfg)
@@ -1066,7 +1096,7 @@ def test_dispatch_new_run_prompts_then_archives(tmp_path: pathlib.Path):
 
 def test_dispatch_archive_only_keeps_screen(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     _write_checkpoint(tmp_path, cfg)
@@ -1081,7 +1111,7 @@ def test_dispatch_archive_only_keeps_screen(tmp_path: pathlib.Path):
 
 def test_dispatch_confirm_cancel(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     _write_checkpoint(tmp_path, cfg)
@@ -1102,14 +1132,14 @@ def test_dispatch_edit_checkpoint_dir_reinspects(tmp_path: pathlib.Path):
     run_dir = tmp_path / "run"
     empty_dir = tmp_path / "elsewhere"
     saved = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(run_dir)),
         training=config.TrainingConfig(lr=7e-4),
     )
     _write_checkpoint(run_dir, saved)
     view = controller.build_initial_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(run_dir)),
         ),
         cuda_available=False,
@@ -1139,7 +1169,11 @@ def _pinned_config(directory: pathlib.Path, **overrides: object) -> config.Train
     run carries the live ``MODEL_VERSION``; the two-distinct-eras divergence
     machinery is exercised separately by
     ``test_era_divergence_under_a_newer_live_version``."""
-    base: dict[str, object] = {"device": "cpu", "checkpoint_dir": str(directory)}
+    base: dict[str, object] = {
+        "collect_device": "cpu",
+        "train_device": "cpu",
+        "checkpoint_dir": str(directory),
+    }
     base.update(overrides)
     # The flat keys above are routed to their nested sections by the same
     # migration the loaders use for ≤0.4 artifacts.
@@ -1151,7 +1185,7 @@ def _pinned_view(tmp_path: pathlib.Path) -> state.ConfiguratorState:
     _write_checkpoint(tmp_path, _pinned_config(tmp_path))
     return controller.build_initial_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         ),
         cuda_available=False,
@@ -1163,7 +1197,7 @@ def test_align_era_pins_and_unpins(tmp_path: pathlib.Path):
     _write_checkpoint(tmp_path, pinned)
     summary = runs.inspect_run(str(tmp_path))
     live = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
 
@@ -1211,7 +1245,7 @@ def test_era_divergence_under_a_newer_live_version(
     monkeypatch.setattr(version, "MODEL_VERSION", newer_live)
     view = controller.build_initial_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         ),
         cuda_available=False,
@@ -1275,7 +1309,7 @@ def test_overwrite_over_old_era_launches_live(tmp_path: pathlib.Path):
 
 def test_start_empty_launches_live_era(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     view = controller.build_initial_state(cfg, cuda_available=False)
@@ -1290,7 +1324,7 @@ def test_reinspect_to_empty_dir_unpins_era(tmp_path: pathlib.Path):
     _write_checkpoint(run_dir, _pinned_config(run_dir, lr=7e-4))
     view = controller.build_initial_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(run_dir)),
         ),
         cuda_available=False,
@@ -1315,7 +1349,7 @@ def test_reinspect_to_empty_dir_unpins_era(tmp_path: pathlib.Path):
 
 def test_save_defaults_roundtrip_and_exclusions(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             checkpoint_dir=str(tmp_path / "ckpt"),
             run_name="tuned",
@@ -1333,7 +1367,7 @@ def test_save_defaults_roundtrip_and_exclusions(tmp_path: pathlib.Path):
     assert raw["settings"]["training"]["lr"] == 7e-4
 
     current = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             checkpoint_dir=str(tmp_path / "other"),
             run_name="fresh",
@@ -1346,7 +1380,8 @@ def test_save_defaults_roundtrip_and_exclusions(tmp_path: pathlib.Path):
     # Run-identity fields stay the caller's, not the file's (nor factory).
     assert loaded.train_config.run.checkpoint_dir == str(tmp_path / "other")
     assert loaded.train_config.run.run_name == "fresh"
-    assert loaded.train_config.misc.device == "cpu"
+    assert loaded.train_config.misc.collect_device == "cpu"
+    assert loaded.train_config.misc.train_device == "cpu"
     # The era is never persisted: a loaded config is always at the live version.
     assert loaded.train_config.encoding_version == version.MODEL_VERSION
 
@@ -1356,7 +1391,7 @@ def test_save_defaults_roundtrip_keeps_num_players(tmp_path: pathlib.Path):
     not a per-run identity/era field, so it is NOT in EXCLUDED_FIELDS and
     survives the save/load round-trip."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path / "ckpt"), run_name="n3"),
         architecture=config.ArchitectureConfig(num_players=3),
     )
@@ -1364,7 +1399,7 @@ def test_save_defaults_roundtrip_keeps_num_players(tmp_path: pathlib.Path):
     user_defaults.save_defaults(cfg, directory=tmp_path)
 
     current = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             checkpoint_dir=str(tmp_path / "other"), run_name="fresh"
         ),
@@ -1377,7 +1412,7 @@ def test_save_defaults_roundtrip_keeps_num_players(tmp_path: pathlib.Path):
 
 def test_load_defaults_missing_file_is_empty(tmp_path: pathlib.Path):
     current = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     loaded = user_defaults.load_defaults(current, directory=tmp_path)
@@ -1386,7 +1421,7 @@ def test_load_defaults_missing_file_is_empty(tmp_path: pathlib.Path):
 
 def test_corrupt_or_invalid_defaults_fall_back_with_warning(tmp_path: pathlib.Path):
     current = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
     )
     defaults_path = tmp_path / user_defaults.DEFAULTS_FILENAME
@@ -1438,7 +1473,7 @@ def test_initial_state_seeds_user_defaults_on_empty_dir(
 ):
     monkeypatch.chdir(tmp_path)
     tuned = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         training=config.TrainingConfig(lr=7e-4),
     )
@@ -1448,7 +1483,7 @@ def test_initial_state_seeds_user_defaults_on_empty_dir(
     empty_dir = tmp_path / "empty"
     view = controller.build_initial_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(empty_dir)),
         ),
         cuda_available=False,
@@ -1462,13 +1497,13 @@ def test_initial_state_seeds_user_defaults_on_empty_dir(
     _write_checkpoint(
         run_dir,
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             training=config.TrainingConfig(lr=5e-4),
         ),
     )
     seeded_view = controller.build_initial_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(run_dir)),
         ),
         cuda_available=False,
@@ -1485,7 +1520,7 @@ def test_initial_state_warns_on_unreadable_defaults(
     (tmp_path / user_defaults.DEFAULTS_FILENAME).write_text("nope", encoding="utf-8")
     view = controller.build_initial_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(tmp_path / "empty")),
         ),
         cuda_available=False,
@@ -1534,7 +1569,9 @@ def test_reset_prompt_offers_user_and_factory(
 
 
 def test_inspect_run_invalid_config_is_unreadable(tmp_path: pathlib.Path):
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     raw = cfg.model_dump()
     raw["training"]["lr"] = 0.0  # lr>0 — now out of bounds
     payload = {
@@ -1552,7 +1589,9 @@ def test_inspect_run_invalid_config_is_unreadable(tmp_path: pathlib.Path):
 def test_inspect_run_missing_config_is_unreadable(tmp_path: pathlib.Path):
     """A checkpoint with no embedded config at all is not self-describing and
     must never be offered for resume (the post-cutoff refusal contract)."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     payload = {
         "progress": runstate.RunProgress(iteration=3, total_games=12).model_dump(),
     }
@@ -1567,7 +1606,7 @@ def test_loop_starts_fresh_on_missing_saved_config(tmp_path: pathlib.Path):
     """The resume gate refuses a config-less checkpoint (starts fresh with an
     alarm) rather than assuming compatibility."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
@@ -1586,7 +1625,7 @@ def test_loop_starts_fresh_on_missing_saved_config(tmp_path: pathlib.Path):
 
 def test_loop_starts_fresh_on_invalid_saved_config(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
@@ -1611,7 +1650,7 @@ def test_loop_truncates_history_on_fresh_start(tmp_path: pathlib.Path):
     (tmp_path / artifacts.GAMES_LOG).write_text("stale-game\n", encoding="utf-8")
     (tmp_path / "process_20000101-000000.json").write_text("{}", encoding="utf-8")
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             checkpoint_dir=str(tmp_path),
             resume=False,
@@ -1750,7 +1789,9 @@ def test_five_top_level_sections():
 
 def test_optional_activation_field_cycles_through_inherit():
     """An OptionalActivationField cycles: None (inherit) → choices[0] → … → inherit."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     spec = fields.spec_for("card_between_activation")
     assert isinstance(spec, fields.OptionalActivationField)
 
@@ -1771,7 +1812,9 @@ def test_optional_activation_field_cycles_through_inherit():
 
 def test_optional_activation_field_none_choice_stays_not_inherit():
     """Committing 'none' to an OptionalActivationField stores NONE (not Python None)."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     spec = fields.spec_for("card_between_activation")
     assert isinstance(spec, fields.OptionalActivationField)
 
@@ -1785,7 +1828,9 @@ def test_optional_activation_field_none_choice_stays_not_inherit():
 
 def test_optional_float_field_steps_from_fallback():
     """Nudging an OptionalFloatField when None steps from the global fallback."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     spec = fields.spec_for("card_dropout")
     assert isinstance(spec, fields.OptionalFloatField)
 
@@ -1805,7 +1850,9 @@ def test_entropy_coef_final_steps_from_fallback():
     """Nudging entropy_coef_final (an OptionalFloatField, off by default) when
     unset steps from its fallback_attr (entropy_coef) — mirrors
     test_optional_float_field_steps_from_fallback for the anneal field."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     spec = fields.spec_for("entropy_coef_final")
     assert isinstance(spec, fields.OptionalFloatField)
     assert spec.none_label == "off"
@@ -1831,7 +1878,9 @@ def test_entropy_coef_final_steps_from_fallback():
 
 def test_per_block_override_commit_roundtrip():
     """Committing a per-block activation stores it and leaves globals unchanged."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     spec = fields.spec_for("trunk_between_activation")
     updated, error = fields.commit(cfg, spec, "gelu")
     assert error is None
@@ -1854,7 +1903,7 @@ def test_cloning_group_visibility():
     # With 'none' or 'random' bootstrap → not visible.
     for bootstrap in ("none", "random"):
         cfg = config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             opponent=config.OpponentConfig(bootstrap_opponent=bootstrap),
         )
         assert clone_spec.visible_when is not None
@@ -1864,7 +1913,7 @@ def test_cloning_group_visibility():
 
     # With a checkpoint path → visible.
     checkpoint_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         opponent=config.OpponentConfig(bootstrap_opponent="some/archive/run/last.pt"),
     )
     assert clone_spec.visible_when(checkpoint_cfg)
@@ -1874,11 +1923,11 @@ def test_ppo_fields_visibility():
     """PPO-specific fields appear only when policy_loss is PPO."""
     ppo_attrs = ["ppo_clip_eps", "ppo_reuse_epochs"]
     reinforce_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(policy_loss=config.PolicyLoss.REINFORCE),
     )
     ppo_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(policy_loss=config.PolicyLoss.PPO),
     )
     for attr in ppo_attrs:
@@ -1891,13 +1940,13 @@ def test_ppo_fields_visibility():
 def test_board_attention_positions_visibility():
     """board_attention_positions is visible only when use_board_attention is True."""
     off_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(use_board_attention=False)
         ),
     )
     on_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(use_board_attention=True)
         ),
@@ -1913,7 +1962,7 @@ def test_reset_hidden_fields_clears_board_attention_positions_when_toggled_off()
     default once use_board_attention is off, so hidden state never lingers
     when the user re-enables board attention later."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=True, board_attention_positions=True
@@ -1939,13 +1988,13 @@ def test_reset_hidden_fields_clears_board_attention_positions_when_toggled_off()
 def test_board_attention_heads_visibility():
     """board_attention_heads is visible only when use_board_attention is True."""
     off_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(use_board_attention=False)
         ),
     )
     on_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(use_board_attention=True)
         ),
@@ -1961,7 +2010,7 @@ def test_reset_hidden_fields_clears_board_attention_heads_when_toggled_off():
     (1) once use_board_attention is off, so hidden state never lingers when
     the user re-enables board attention later."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=True, board_attention_heads=4
@@ -1987,13 +2036,13 @@ def test_reset_hidden_fields_clears_board_attention_heads_when_toggled_off():
 def test_board_attention_shared_visibility():
     """board_attention_shared is visible only when use_board_attention is True."""
     off_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(use_board_attention=False)
         ),
     )
     on_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(use_board_attention=True)
         ),
@@ -2009,7 +2058,7 @@ def test_reset_hidden_fields_clears_board_attention_shared_when_toggled_off():
     (False) once use_board_attention is off, so hidden state never lingers
     when the user re-enables board attention later."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=True, board_attention_shared=True
@@ -2035,15 +2084,15 @@ def test_reset_hidden_fields_clears_board_attention_shared_when_toggled_off():
 def test_gae_fields_visibility():
     """GAE-specific fields appear only in GAE mode; reward_discount appears in delta+GAE."""
     gae_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(reward_mode=config.RewardMode.GAE),
     )
     terminal_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(reward_mode=config.RewardMode.TERMINAL_MARGIN),
     )
     delta_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(reward_mode=config.RewardMode.DECISION_DELTA),
     )
     gae_lambda = fields.spec_for("gae_lambda")
@@ -2071,7 +2120,7 @@ def test_rehydration_per_block_none_inherits_global():
 
     # New-style config: globals only, no per-block keys.
     old_style = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 trunk_layers=(32, 32),
@@ -2099,7 +2148,7 @@ def test_rehydration_per_block_none_inherits_global():
 
     # A per-block override changes only the resolved value for that block.
     per_block = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 trunk_layers=(32, 32),

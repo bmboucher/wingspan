@@ -135,7 +135,7 @@ def _mode_pill(view: state.ConfiguratorState) -> text.Text:
     color = _MODE_COLOR[view.mode]
     pill = text.Text(no_wrap=True, end="")
     pill.append(f" {_MODE_LABEL[view.mode]} ", style=f"bold {theme.CANVAS} on {color}")
-    pill.append(f"  {view.working.misc.device}", style=theme.TEXT_DIM2)
+    pill.append(f"  {view.working.misc.device_label}", style=theme.TEXT_DIM2)
     return pill
 
 
@@ -417,12 +417,20 @@ def _detail_hint(view: state.ConfiguratorState, spec: fields.FieldSpec) -> str:
         if cfg.run.max_iterations > 0:
             return f"→ resumes at iter {start}, stops at {start + cfg.run.max_iterations - 1}"
         return "→ resumes and runs until you stop it"
-    if (
-        spec.attr == "device"
-        and cfg.misc.device.startswith("cuda")
-        and not view.cuda_available
-    ):
-        return "→ cuda unavailable — will fall back to cpu"
+    if spec.attr in ("collect_device", "train_device"):
+        value = (
+            cfg.misc.collect_device
+            if spec.attr == "collect_device"
+            else cfg.misc.train_device
+        )
+        if value.startswith("cuda") and not view.cuda_available:
+            return "→ cuda unavailable — will fall back to cpu"
+        if (
+            spec.attr == "collect_device"
+            and value != "cpu"
+            and value != cfg.misc.train_device
+        ):
+            return "→ cuda collection requires train device = cuda"
     if (
         spec.attr == "opponent_reset_win_rate"
         and cfg.opponent.opponent_reset_win_rate == 0

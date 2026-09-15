@@ -146,7 +146,9 @@ def _sample_iteration(breakdown: metrics.ScoreBreakdown) -> metrics.IterationMet
 
 def test_dashboard_renders_empty_state():
     empty = runstate.new_run_state(
-        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+        config.RunConfig(
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+        )
     )
     # The colored render must produce a substantial frame without raising; the
     # per-character gradient splits the wordmark across ANSI runs, so content is
@@ -158,7 +160,9 @@ def test_dashboard_renders_empty_state():
 @pytest.mark.parametrize("width", [128, 84])
 def test_dashboard_renders_populated_state(width: int):
     state = runstate.new_run_state(
-        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+        config.RunConfig(
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+        )
     )
     breakdown = metrics.ScoreBreakdown(
         birds=27, eggs=14, cached=9, tucked=6, goals=7, bonus=5
@@ -200,7 +204,9 @@ def test_system_monitor_sample():
 
 def test_dashboard_header_gauges():
     state = runstate.new_run_state(
-        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+        config.RunConfig(
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+        )
     )
     state.system = metrics.SystemStats(
         cpu_percent=58.9, ram_used_gb=27.0, ram_total_gb=68.6, proc_rss_gb=1.3
@@ -238,7 +244,7 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
         # it wants the ordinary "first eval always improves" path. seed=1
         # lands there instead; picked empirically, not tied to any particular
         # game outcome.
-        misc=config.MiscConfig(device="cpu", seed=1),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu", seed=1),
         run=config.RunSettings(
             games_per_iter=2,
             max_iterations=1,
@@ -294,7 +300,7 @@ def test_training_loop_one_iteration(tmp_path: pathlib.Path):
 
 def test_training_loop_resumes_from_checkpoint(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             games_per_iter=2,
             max_iterations=1,
@@ -365,7 +371,7 @@ def test_target_milestone_final_checkpoint_loads(tmp_path: pathlib.Path):
     key, so a finished run's final checkpoint read as pre-versioning 0.0 and
     refused to load under any 1.x code."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             games_per_iter=2,
             max_iterations=1,
@@ -425,7 +431,8 @@ def _bootstrap_config(
     tmp_path: pathlib.Path, **overrides: object
 ) -> config.TrainConfig:
     base: dict[str, object] = {
-        "device": "cpu",
+        "collect_device": "cpu",
+        "train_device": "cpu",
         "games_per_iter": 2,
         "max_iterations": 1,
         "trunk_layers": (32, 32),
@@ -444,7 +451,7 @@ def _bootstrap_config(
 def test_collection_win_rate_ewma():
     state = runstate.new_run_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             opponent=config.OpponentConfig(eval_ewma_alpha=0.3),
         )
     )
@@ -468,7 +475,7 @@ def test_collection_win_rate_ewma():
 def test_collection_margin_ewma():
     state = runstate.new_run_state(
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             opponent=config.OpponentConfig(eval_ewma_alpha=0.3),
         )
     )
@@ -493,7 +500,9 @@ def test_produce_ewma_resets_at_self_play_graduation():
     # IN-GAME PERFORMANCE folds only the current phase's rows, so the EWMA restarts
     # fresh at graduation instead of dragging the vs-random character forward.
     state = runstate.new_run_state(
-        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+        config.RunConfig(
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+        )
     )
     state.history.append(_bootstrap_iteration(0.9, margin=30.0))  # birds=20, margin 30
     self_play = _sample_iteration(metrics.ScoreBreakdown(eggs=12.0)).model_copy(
@@ -517,7 +526,9 @@ def test_produce_ewma_resets_at_self_play_graduation():
 
 
 def test_training_phase_round_trips_through_progress():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     # The empty snapshot defaults to the steady-state regime.
     assert runstate.RunProgress().training_phase is runstate.TrainingPhase.SELF_PLAY
 
@@ -537,7 +548,9 @@ def test_record_game_n3_aggregates_best_other_margin():
     the BEST other seat's total — not a fixed neighbor. Seat 1 (25 pts, not
     seat 2's adjacent-in-turn-order 15) must be the "opponent" the margin is
     computed against."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     state = runstate.new_run_state(cfg)
     family = metrics.FamilyCounts()
     breakdowns = (

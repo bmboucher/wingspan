@@ -25,7 +25,7 @@ import typing
 import torch
 
 from wingspan.cloud import runfile, s3sync, status
-from wingspan.training import artifacts, loop, runstate
+from wingspan.training import artifacts, config, loop, runstate
 
 _LOG = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class HeadlessRunner:
             self._run.run_name,
             self._config.run.games_per_iter,
             self._config.run.target_iterations or "—",
-            self._config.misc.device,
+            self._config.misc.device_label,
         )
 
         self._supervise()
@@ -105,17 +105,17 @@ class HeadlessRunner:
         _LOG.info("pulled %d object(s) from S3 into %s", pulled, self._ckpt_dir)
 
     def _resolve_device(self) -> None:
-        """Downgrade a ``cuda`` request to ``cpu`` when no GPU is present, matching
-        the dashboard's fallback so a misconfigured device never crashes the loop
-        at model construction (training is CPU-only anyway)."""
-        if (
-            self._config.misc.device.startswith("cuda")
-            and not torch.cuda.is_available()
-        ):
-            _LOG.warning("cuda requested but unavailable — falling back to cpu")
-            self._config = self._config.model_copy(
-                update={"misc": self._config.misc.model_copy(update={"device": "cpu"})}
+        """Downgrade any ``cuda`` role to ``cpu`` when no GPU is present (the
+        dashboard's fallback, ``config.resolve_devices``) so a misconfigured
+        run-file never crashes the loop at model construction."""
+        resolved = config.resolve_devices(self._config, torch.cuda.is_available())
+        if resolved is not self._config:
+            _LOG.warning(
+                "cuda requested (%s) but unavailable — falling back to %s",
+                self._config.misc.device_label,
+                resolved.misc.device_label,
             )
+        self._config = resolved
 
     #### Supervision loop ####
 

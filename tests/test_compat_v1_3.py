@@ -494,7 +494,7 @@ def test_v1_3_stamped_checkpoint_round_trips(tmp_path: pathlib.Path) -> None:
     ``encoding_dims_for_era``); ``load_state_dict`` succeeds and inference runs,
     proving the shim does not double-subtract either stripe width."""
     base = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             run_name="v13-roundtrip",
             checkpoint_dir=str(tmp_path),

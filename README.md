@@ -116,7 +116,8 @@ once a run is started or resumed:
 
 ```
 wingspan dashboard                    # open FLIGHT PLAN (always starts in config)
-wingspan dashboard --device cpu       # force CPU (the supported path)
+wingspan dashboard --collect-device cpu --train-device cuda   # CPU pool feeding a GPU learner
+wingspan dashboard --train-device cpu                         # CPU-only
 wingspan dashboard --games-per-iter 256 --eval-every 5 --eval-games 128
 ```
 

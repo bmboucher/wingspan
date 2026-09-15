@@ -32,7 +32,7 @@ _SMALL_CARD_ENCODER_LAYERS = (32,)
 
 def _n3_config() -> config.RunConfig:
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(games_per_iter=2, eval_games=2),
         architecture=config.ArchitectureConfig(
             num_players=3,

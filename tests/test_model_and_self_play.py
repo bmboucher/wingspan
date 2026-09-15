@@ -84,7 +84,9 @@ def test_update_runs_on_self_play_records():
     device = torch.device("cpu")
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     records = [collect.play_game(net, device, rng, seed=seed) for seed in (1001, 1002)]
     stats = learner.update(net, optimizer, records, cfg, device)
     assert stats.n_steps > 0
@@ -106,7 +108,7 @@ def test_update_runs_in_decision_delta_reward_mode():
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(
             reward_mode=config.RewardMode.DECISION_DELTA,
             reward_discount=0.9,

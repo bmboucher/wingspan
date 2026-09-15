@@ -50,7 +50,7 @@ def _cfg(
 ) -> config.RunConfig:
     """A tiny live-era run config rooted at ``tmp_path`` (fast to construct/play)."""
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             run_name="era-test",
             checkpoint_dir=str(tmp_path),
@@ -141,7 +141,9 @@ def _write_live_checkpoint(
 
 
 def test_default_config_is_live_era():
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     assert cfg.encoding_version == version.MODEL_VERSION
     assert cfg.state_dim == encode.state_size(cfg.encoding_spec)
     assert cfg.architecture_key[0] == version.MODEL_VERSION
@@ -150,7 +152,9 @@ def test_default_config_is_live_era():
 def test_unknown_or_future_eras_are_rejected():
     """The era validator refuses any era this code cannot load: a different
     MAJOR, a future MINOR, or a malformed string. The live era is accepted."""
-    live = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    live = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     current = version.parse_version(version.MODEL_VERSION)
     future_minor = f"{current.major}.{current.minor + 1}"
     for bad in ("0.9", "2.0", future_minor, "garbage"):

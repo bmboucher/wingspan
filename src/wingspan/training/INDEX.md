@@ -46,7 +46,13 @@ top-level computed properties so call sites don't churn.
   `opponent_reset_win_rate`, `opponent_max_iterations`, `eval_ewma_alpha`.
 - `engine: EngineConfig` — documented placeholder for future
   encoding-independent game-variant knobs (empty today).
-- `misc: MiscConfig` — `seed`, `device`, `produce_ewma_alpha`, `instrumentation`.
+- `misc: MiscConfig` — `seed`, `collect_device` / `train_device` (REGIME; where
+  self-play collection + the periodic eval run vs. where the learner's net,
+  optimizer, setup net, resume, and update step run — `cpu` collection fans
+  across the `mp_collect` pool, anything else must equal `train_device`),
+  `device_label` (`cpu` when both agree, else `collect→train`),
+  `produce_ewma_alpha`, `instrumentation`. `_migrate_legacy_device` seeds both
+  roles from the pre-split single `device` key (explicit new keys win).
 - `dagger: DaggerConfig` — `expert_checkpoint` (`.pt` path or `"none"`),
   `clone_iters` (pure imitation iters before RL). `dagger.expert_checkpoint` is
   retained for old-artifact loading but ignored at runtime — the active expert is
@@ -71,15 +77,24 @@ top-level computed properties so call sites don't churn.
   passthrough to `initial` when `final` is `None` or `target_iterations` is 0.
   Keyed to the *absolute* iteration counter, so the schedule survives resume
   and advances through DAgger clone iterations unchanged.
-- `validate_launchable(cfg) -> list[str]` — launch-time only checks: checkpoint
-  bootstrap on cuda, setup schedule order, target > max iterations, the anneal
-  check (any `*_final` set requires `target_iterations > 0`), and both
+- `validate_launchable(cfg) -> list[str]` — launch-time only checks: a
+  checkpoint bootstrap opponent requiring `collect_device='cpu'`, a
+  `collect_device`/`train_device` pairing rule (non-cpu collection must equal
+  `train_device` — only cpu collection has its own worker pool), setup
+  schedule order, target > max iterations, the anneal check (any `*_final`
+  set requires `target_iterations > 0`), and both
   `board_attention_positions` and `board_attention_heads != 1` requiring
   `use_board_attention`. A dropout anneal with no initial dropout to sweep —
   globally or on a specific block — is never rejected; it is inert (see
   `loop_anneal.py`). Returns human-readable problems; empty = safe to start.
   Called by the configurator's `[S]tart` /
   `[N]ew` path and the headless launcher.
+- `resolve_devices(cfg, cuda_available) -> RunConfig` — pure helper: downgrades
+  any `cuda` role to `cpu` when CUDA is unavailable (each role independently),
+  so a configurator-, flag-, or run-file-chosen `cuda` on a CPU-only host still
+  runs instead of crashing at model construction. Returns `cfg` itself when
+  nothing changes. Used by the dashboard (`app._resolve_device`) and the cloud
+  runner (`HeadlessRunner._resolve_device`).
 - `RunConfigFile` — the dated on-disk wrapper (`version`, `saved_at`,
   `started_at`, `git_sha`, `resumed`, `resumed_from_iteration`, `config`).
 - Module functions: `run_config_from_artifact(raw, artifact_version)`
@@ -124,7 +139,9 @@ Key members:
 - `run()` — main entry (runs on background thread).
 - `request_stop()`, `stopped` — graceful shutdown signal.
 - `signal_target_response(choice, new_target)` — unblock from a target pause.
-- `self.net`, `self.optimizer`, `self.state (RunState)`, `self.lock (RLock)`.
+- `self.net`, `self.optimizer`, `self.state (RunState)`, `self.lock (RLock)`,
+  `self.collect_device`, `self.train_device` (no `self.device` — every sibling
+  module chooses a role explicitly).
 - `_run_iteration(iteration)` — six phases in order: collect → setup update
   (on-policy, before the main update / embedder re-sync — `loop_setup.update_setup`)
   → update (`learner.update`, then `loop_setup.sync_setup_embedders`) →
@@ -148,7 +165,7 @@ fail-fast on a bad path or a seat count that does not match `num_players`
 
 **`loop_collect.py`** — `run_collection(loop, iteration) -> CollectResult`:
 dispatches to `mp_collect.ProcessCollector` (CPU) or `batched_collect` (CUDA)
-based on `config.device`. Returns accumulated steps and score breakdowns.
+based on `misc.collect_device`. Returns accumulated steps and score breakdowns.
 
 **`loop_setup.py`** — Setup-model lifecycle, free functions over `TrainingLoop`:
 `update_setup(loop, records, iteration)` — one on-policy actor-critic pass
@@ -179,7 +196,9 @@ graceful FRESH restart on architecture mismatch.
 **`loop_target.py`** — `handle_target_if_reached(loop, iteration)`: milestone
 sequencing at the user-configured target iteration — `final_<n>.pt` (written
 via `loop_checkpoint.checkpoint_payload`, so it is the same era-stamped payload
-as `last.pt`) → `final_eval_<n>.json` → dashboard pause or headless end.
+as `last.pt`) → `final_eval_<n>.json` → dashboard pause or headless end. Wraps
+the final self-play eval in `cpu_threads.inference_thread_cap(train_device)` —
+the one remaining in-process per-decision CPU inference path.
 
 **`loop_checkpoint.py`** — `commit_iteration(loop, iter_metrics, stats,
 eval_result, records)`: end-of-iteration commit — opponent graduation /
@@ -211,6 +230,14 @@ block whose resolved dropout was `0.0` at build time — no module exists to
 sweep, so the anneal is silently inert there). The entropy-coef anneal needs no
 such sweep — it threads through `learner.update` / `setup_learner.actor_critic_update`
 as a plain float instead.
+
+**`cpu_threads.py`** — `inference_thread_cap(device) -> contextmanager`: caps
+torch's intra-op thread count at `INFERENCE_INTRAOP_THREADS` (2, the measured
+sweet spot for batch-of-one CPU inference) around a per-decision CPU inference
+block, restoring the prior count after; a no-op for a non-CPU device or when
+the count is already at or below the cap. Replaces the process-wide cap
+`TrainingLoop.__init__` used to apply; the only remaining call site is
+`loop_target.py`'s target-milestone final eval.
 
 ## Collection
 

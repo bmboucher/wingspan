@@ -9,8 +9,8 @@ reset offers it alongside the factory option.
 
 Run-identity and derived-descriptor fields never ride along: the artifact era
 and its dims are properties of a run directory, ``resume`` is a launch-time
-decision, and ``checkpoint_dir`` / ``run_name`` / ``device`` are per-run
-choices rather than reusable hyperparameters. Because the era is excluded,
+decision, and ``checkpoint_dir`` / ``run_name`` / the two device roles are
+per-run choices rather than reusable hyperparameters. Because the era is excluded,
 loading always re-validates at the live ``MODEL_VERSION`` — a file written
 under older code degrades gracefully (renamed fields are ignored, missing
 fields take factory values) and an unreadable one falls back to factory
@@ -39,7 +39,8 @@ EXCLUDED_FIELDS: list[str] = [
     "checkpoint_dir",
     "run_name",
     "resume",
-    "device",
+    "collect_device",
+    "train_device",
 ]
 """Flat field names stripped from the saved settings by :func:`save_defaults`.
 
@@ -93,8 +94,8 @@ def load_defaults(
     current: config.RunConfig, directory: pathlib.Path | None = None
 ) -> LoadedDefaults:
     """Read the defaults file and validate it into a config that keeps
-    ``current``'s run-identity fields (checkpoint dir, run name, device,
-    resume). Never raises: a missing file returns an empty result, an
+    ``current``'s run-identity fields (checkpoint dir, run name, the two
+    device roles, resume). Never raises: a missing file returns an empty result, an
     unreadable or invalid one returns a warning so the caller can fall back to
     factory defaults."""
     path = _defaults_path(directory)
@@ -146,10 +147,13 @@ def _strip_identity_fields(settings: dict[str, typing.Any]) -> None:
         for key in ("checkpoint_dir", "run_name", "resume"):
             run_typed.pop(key, None)
 
-    # Remove the device from the ``misc`` section.
+    # Remove the two device roles from the ``misc`` section, plus the legacy
+    # ``device`` key (files saved before the split).
     misc = settings.get("misc")
     if isinstance(misc, dict):
         misc_typed = typing.cast("dict[str, typing.Any]", misc)
+        misc_typed.pop("collect_device", None)
+        misc_typed.pop("train_device", None)
         misc_typed.pop("device", None)
 
 
@@ -158,7 +162,7 @@ def _inject_identity_fields(
 ) -> None:
     """Write the current run's identity fields into the nested settings dict.
     Called before validating so the loaded config targets the correct directory
-    and uses the correct device."""
+    and uses the correct device roles."""
     if "run" not in settings or not isinstance(settings["run"], dict):
         settings["run"] = {}
     settings["run"]["checkpoint_dir"] = current.run.checkpoint_dir
@@ -167,4 +171,5 @@ def _inject_identity_fields(
 
     if "misc" not in settings or not isinstance(settings["misc"], dict):
         settings["misc"] = {}
-    settings["misc"]["device"] = current.misc.device
+    settings["misc"]["collect_device"] = current.misc.collect_device
+    settings["misc"]["train_device"] = current.misc.train_device

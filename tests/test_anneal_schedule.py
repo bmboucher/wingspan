@@ -77,7 +77,7 @@ def test_anneal_passthrough_when_no_target():
 def _annealing_config() -> config.RunConfig:
     """0.05 -> 0.01 over 100 iterations, on every one of the four schedules."""
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(target_iterations=100),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(dropout=0.05),
@@ -123,7 +123,9 @@ def test_setup_dropout_p_at(iteration: int, expected: float):
 
 def test_accessors_are_constant_when_final_unset():
     """A config with no *_final set holds its initial value at every iteration."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     for iteration in (0, 10, 10_000):
         assert cfg.entropy_coef_at(iteration) == pytest.approx(
             cfg.training.entropy_coef
@@ -180,7 +182,7 @@ def _dropout_anneal_config(
     *, dropout: float, card_dropout: float | None, dropout_final: float
 ) -> config.RunConfig:
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(target_iterations=10),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(dropout=dropout, card_dropout=card_dropout)
@@ -301,14 +303,14 @@ def test_annealed_entropy_coef_at_target_matches_equivalent_constant_loss():
     records = [collect.play_game(net_a, device, rng, seed=seed) for seed in (1, 2)]
 
     cfg_a = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(dropout=0.0)
         ),
         training=config.TrainingConfig(entropy_coef=0.05),
     )
     cfg_b = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(dropout=0.0)
         ),
@@ -364,13 +366,13 @@ def test_annealed_setup_entropy_coef_at_target_matches_equivalent_constant_loss(
     ]
 
     cfg_a = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(
             setup=config.SetupTrainingConfig(entropy_coef=0.05)
         ),
     )
     cfg_b = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(target_iterations=10),
         training=config.TrainingConfig(
             setup=config.SetupTrainingConfig(entropy_coef=0.5, entropy_coef_final=0.05)
@@ -400,7 +402,7 @@ def test_annealed_setup_entropy_coef_at_target_matches_equivalent_constant_loss(
 
 def test_validate_launchable_anneal_without_target_flagged():
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(entropy_coef_final=0.01),
     )
     problems = config.validate_launchable(cfg)
@@ -411,7 +413,7 @@ def test_validate_launchable_dropout_final_without_base_dropout_is_clean():
     """A global dropout of 0.0 with no per-block override means the anneal has
     no Dropout module anywhere to act on — inert, not a launch rejection."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(target_iterations=100),
         training=config.TrainingConfig(dropout_final=0.01),
     )
@@ -422,7 +424,7 @@ def test_validate_launchable_dropout_final_with_per_block_override_is_clean():
     """A per-block override no longer conflicts with the anneal — each block
     tapers from its own resolved initial (loop_anneal.apply_dropout_schedules)."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(target_iterations=100),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(dropout=0.05, card_dropout=0.1)
@@ -434,7 +436,7 @@ def test_validate_launchable_dropout_final_with_per_block_override_is_clean():
 
 def test_validate_launchable_setup_dropout_final_without_base_dropout_is_clean():
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(target_iterations=100),
         training=config.TrainingConfig(
             setup=config.SetupTrainingConfig(dropout_final=0.01)

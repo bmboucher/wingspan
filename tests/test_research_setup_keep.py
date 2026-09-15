@@ -93,7 +93,7 @@ def _write_run_dir(checkpoint_dir: pathlib.Path, *, with_setup: bool) -> None:
     fresh tiny net's weights."""
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             run_name="research-test", checkpoint_dir=str(checkpoint_dir)
         ),

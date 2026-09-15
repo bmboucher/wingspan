@@ -103,11 +103,7 @@ def _resolve_device(cfg: config.RunConfig) -> config.RunConfig:
     """Downgrade a ``cuda`` request to ``cpu`` when CUDA is unavailable, so a
     configurator- or flag-chosen ``cuda`` on a CPU-only host still runs instead
     of crashing the loop at model construction."""
-    if cfg.misc.device.startswith("cuda") and not torch.cuda.is_available():
-        return cfg.model_copy(
-            update={"misc": cfg.misc.model_copy(update={"device": "cpu"})}
-        )
-    return cfg
+    return config.resolve_devices(cfg, torch.cuda.is_available())
 
 
 def _configure_file_logging(cfg: config.RunConfig) -> None:
@@ -249,12 +245,22 @@ def _print_summary(term: console.Console, state: runstate.RunState) -> None:
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    default_device = "cuda" if torch.cuda.is_available() else "cpu"
     parser = argparse.ArgumentParser(
         prog="wingspan dashboard",
         description="Run and live-monitor Wingspan self-play training (TRAINING.md Phase 1).",
     )
-    parser.add_argument("--device", default=default_device, help="cpu or cuda")
+    default_train_device = "cuda" if torch.cuda.is_available() else "cpu"
+    parser.add_argument(
+        "--collect-device",
+        default="cpu",
+        help="where self-play collection runs: cpu (worker pool, fastest) or cuda "
+        "(in-process batched collector; requires --train-device cuda)",
+    )
+    parser.add_argument(
+        "--train-device",
+        default=default_train_device,
+        help="where the learner (net, optimizer, update step) runs: cpu or cuda",
+    )
     parser.add_argument("--games-per-iter", type=int, default=256)
     parser.add_argument(
         "--iterations", type=int, default=0, help="max iterations (0 = until Ctrl+C)"
@@ -362,7 +368,8 @@ def _config_from_namespace(args: argparse.Namespace) -> config.RunConfig:
         ),
         misc=config.MiscConfig(
             seed=args.seed,
-            device=args.device,
+            collect_device=args.collect_device,
+            train_device=args.train_device,
         ),
     )
 

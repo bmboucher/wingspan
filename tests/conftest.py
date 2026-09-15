@@ -11,7 +11,7 @@
   engine/parser tests never need it).
 * Restores the cap after every test: ``torch.set_num_threads`` is
   process-global, and both the mp_collect parity tests (which pin 1 for
-  argmax-tie determinism) and ``TrainingLoop.__init__`` mutate it.
+  argmax-tie determinism) and ``cpu_threads.inference_thread_cap`` mutate it.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ import typing
 
 import pytest
 
-# Mirrors ``wingspan.training.loop._CPU_INTRAOP_THREADS`` — the measured sweet
-# spot for batch-of-one CPU inference (see the comment there).
+# Mirrors ``wingspan.training.cpu_threads.INFERENCE_INTRAOP_THREADS`` — the
+# measured sweet spot for batch-of-one CPU inference (see the module there).
 _TEST_INTRAOP_THREADS = 2
 
 # Test files dominated by multi-second tests (process-pool spawns, training

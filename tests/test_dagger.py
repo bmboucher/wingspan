@@ -41,7 +41,7 @@ _SMALL_CARD_ENCODER_LAYERS = (32,)
 
 def _small_cfg(tmp_path: pathlib.Path) -> config.RunConfig:
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
@@ -101,19 +101,19 @@ def test_dagger_expert_checkpoint_derives_from_bootstrap() -> None:
     authoritative. 'none' and 'random' both map to None.
     """
     cfg_no_bootstrap = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         opponent=config.OpponentConfig(bootstrap_opponent="none"),
     )
     assert cfg_no_bootstrap.dagger_expert_checkpoint is None
 
     cfg_random = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         opponent=config.OpponentConfig(bootstrap_opponent="random"),
     )
     assert cfg_random.dagger_expert_checkpoint is None
 
     cfg_checkpoint = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         opponent=config.OpponentConfig(bootstrap_opponent="some/archive/last.pt"),
     )
     assert cfg_checkpoint.dagger_expert_checkpoint == "some/archive/last.pt"
@@ -126,7 +126,7 @@ def test_dagger_active_at_truth_table() -> None:
     cloning is only active when bootstrap_opponent is a checkpoint path.
     """
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         opponent=config.OpponentConfig(bootstrap_opponent="some/path.pt"),
         dagger=config.DaggerConfig(clone_iters=5),
     )
@@ -144,7 +144,7 @@ def test_clone_plus_bootstrap_validates() -> None:
     moved to validate_launchable so in-progress edits can commit freely.
     """
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         opponent=config.OpponentConfig(bootstrap_opponent="some/checkpoint.pt"),
         dagger=config.DaggerConfig(clone_iters=5),
     )
@@ -160,7 +160,7 @@ def test_clone_iters_with_random_bootstrap_is_inactive() -> None:
     ignored in this case.
     """
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         opponent=config.OpponentConfig(bootstrap_opponent="random"),
         dagger=config.DaggerConfig(clone_iters=5),
     )
@@ -175,7 +175,7 @@ def test_validate_launchable_flags_checkpoint_on_cuda() -> None:
     it surfaces as a launch-time warning so in-progress edits are not blocked.
     """
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cuda"),
+        misc=config.MiscConfig(collect_device="cuda", train_device="cuda"),
         opponent=config.OpponentConfig(bootstrap_opponent="some/path.pt"),
     )
     problems = config.validate_launchable(cfg)
@@ -184,7 +184,9 @@ def test_validate_launchable_flags_checkpoint_on_cuda() -> None:
 
 def test_validate_launchable_clean_config_is_ok() -> None:
     """A well-formed config returns an empty problem list."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     assert config.validate_launchable(cfg) == []
 
 
@@ -330,7 +332,7 @@ def test_validate_dagger_expert_raises_on_missing_file(
 
     class _FakeLoop:
         config = config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(tmp_path)),
             opponent=config.OpponentConfig(
                 bootstrap_opponent=str(tmp_path / "nonexistent.pt")
@@ -347,7 +349,7 @@ def test_validate_dagger_expert_noop_when_none(tmp_path: pathlib.Path) -> None:
 
     class _FakeLoop:
         config = config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             run=config.RunSettings(checkpoint_dir=str(tmp_path)),
             opponent=config.OpponentConfig(bootstrap_opponent="none"),
         )
@@ -365,7 +367,7 @@ def test_validate_dagger_expert_succeeds_on_valid_checkpoint(
     _save_checkpoint(net, cfg, ckpt_path)
 
     expert_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         opponent=config.OpponentConfig(bootstrap_opponent=str(ckpt_path)),
         dagger=config.DaggerConfig(clone_iters=5),
@@ -394,7 +396,7 @@ def test_validate_dagger_expert_raises_on_num_players_mismatch(
     _save_checkpoint(expert_net, expert_cfg, ckpt_path)
 
     run_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         architecture=config.ArchitectureConfig(num_players=3),
         opponent=config.OpponentConfig(bootstrap_opponent=str(ckpt_path)),

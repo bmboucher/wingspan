@@ -27,7 +27,7 @@ from wingspan.training import artifacts, config, metrics, runmeta
 
 def test_write_model_config_round_trips(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(run_name="alpha"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
@@ -56,7 +56,7 @@ def test_write_model_config_overwrites(tmp_path: pathlib.Path):
     runmeta.write_model_config(
         str(tmp_path),
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             architecture=config.ArchitectureConfig(
                 main=config.MainNetArchitecture(card_embed_dim=64)
             ),
@@ -65,7 +65,7 @@ def test_write_model_config_overwrites(tmp_path: pathlib.Path):
     runmeta.write_model_config(
         str(tmp_path),
         config.RunConfig(
-            misc=config.MiscConfig(device="cpu"),
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
             architecture=config.ArchitectureConfig(
                 main=config.MainNetArchitecture(card_embed_dim=96)
             ),
@@ -80,7 +80,7 @@ def test_model_config_reconstitutes_net(tmp_path: pathlib.Path):
     """The saved descriptor rebuilds a net whose weights match the original's
     shapes, so a run's network can be reconstituted from ``model_config.json``."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 trunk_layers=(96, 48),
@@ -111,7 +111,7 @@ def test_model_config_reconstitutes_net(tmp_path: pathlib.Path):
 
 def test_write_session_record_captures_context(tmp_path: pathlib.Path):
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(run_name="beta", games_per_iter=256),
     )
     path = runmeta.write_session_record(
@@ -133,7 +133,9 @@ def test_write_session_record_captures_context(tmp_path: pathlib.Path):
 def test_write_session_record_resumed_flag(tmp_path: pathlib.Path):
     path = runmeta.write_session_record(
         str(tmp_path),
-        config.RunConfig(misc=config.MiscConfig(device="cpu")),
+        config.RunConfig(
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+        ),
         stamp="20260530-200000",
         started_at="2026-05-30T20:00:00",
         git_sha=None,
@@ -144,7 +146,9 @@ def test_write_session_record_resumed_flag(tmp_path: pathlib.Path):
 
 
 def test_write_session_record_unique_on_collision(tmp_path: pathlib.Path):
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     first = runmeta.write_session_record(
         str(tmp_path),
         cfg,

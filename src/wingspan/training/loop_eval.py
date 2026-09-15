@@ -54,11 +54,11 @@ def maybe_evaluate(
     # CPU eval fans across the same worker pool collection uses; CUDA keeps
     # the in-process sequential path (one shared GPU beats a model per
     # process). Both paths run identical per-game logic, so results match.
-    if training_loop.device.type == "cpu":
+    if training_loop.collect_device.type == "cpu":
         result = loop_collect.ensure_collector(training_loop).evaluate_games(
             training_loop.net,
             training_loop._opponent_net,
-            training_loop.device,
+            training_loop.collect_device,
             training_loop.config.eval_pairs,
             eval_seed,
             opponent_generation=training_loop.state.opponent_generation,
@@ -70,7 +70,7 @@ def maybe_evaluate(
         result = evaluate.evaluate_vs_opponent(
             training_loop.net,
             training_loop._opponent_net,
-            training_loop.device,
+            training_loop.collect_device,
             training_loop.config.eval_pairs,
             eval_seed,
             num_players=training_loop.config.num_players,
@@ -206,7 +206,11 @@ def clone_net(training_loop: "loop.TrainingLoop") -> model.PolicyValueNet:
 
     Era-routed like the loop's own net: an era-pinned run's clone must be the
     same compat subclass so its frozen encoders and slice geometry match the
-    weights being copied."""
+    weights being copied. The frozen opponent only ever plays, so it lives on
+    the collection device — pool eval ships CPU copies of its weights, and
+    in-process eval runs it beside the learner's net on the same device
+    (``validate_launchable`` pins the two together whenever collection is not
+    on cpu)."""
     net_cls = model.PolicyValueNet.class_for_version(
         training_loop.config.encoding_version
     )
@@ -216,7 +220,7 @@ def clone_net(training_loop: "loop.TrainingLoop") -> model.PolicyValueNet:
         num_families=len(training_loop.config.family_order),
         arch=training_loop.config.arch,
         spec=training_loop.config.encoding_spec,
-    ).to(training_loop.device)
+    ).to(training_loop.collect_device)
     clone.load_state_dict(training_loop.net.state_dict())
     clone.eval()
     return clone
@@ -258,7 +262,9 @@ def load_opponent(training_loop: "loop.TrainingLoop") -> None:
     try:
         payload = typing.cast(
             "dict[str, typing.Any]",
-            torch.load(path, map_location=training_loop.device, weights_only=False),
+            torch.load(
+                path, map_location=training_loop.collect_device, weights_only=False
+            ),
         )
     except Exception:  # noqa: BLE001 — a missing/corrupt opponent resets to random
         training_loop.state.opponent_generation = 0

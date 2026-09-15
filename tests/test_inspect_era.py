@@ -110,7 +110,7 @@ def test_run_start_html_matches_the_descriptor_rebuild(tmp_path: pathlib.Path):
     ``build_model_summary_html`` on the read-back descriptor produce identical
     documents — the by-construction consistency contract."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(run_name="html-parity"),
     )
     _write_run_config(tmp_path, cfg)
@@ -132,7 +132,7 @@ def test_run_start_inspect_json_matches_the_descriptor_rebuild(
 ):
     """``model_inspect.json`` reproduces exactly from the run's descriptor."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(run_name="json-parity"),
     )
     _write_run_config(tmp_path, cfg)
@@ -171,7 +171,7 @@ def test_inspect_html_reproduces_the_run_start_report(
     ``model_summary.html`` the run wrote at startup — same builder, same
     descriptor — instead of clobbering it with a live-encoder view."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(run_name="html-regen"),
     )
     _write_run_config(tmp_path, cfg)

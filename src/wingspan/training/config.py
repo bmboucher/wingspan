@@ -10,7 +10,7 @@ into six top-level sections:
 * ``training``     — optimizer knobs, reward scheme, setup-net training
 * ``opponent``     — bootstrap phase, self-play graduation, eval smoothing
 * ``engine``       — placeholder for future encoding-independent game variants
-* ``misc``         — seed, device, dashboard smoothing, instrumentation
+* ``misc``         — seed, devices, dashboard smoothing, instrumentation
 
 The ``architecture`` section carries ``encoding_version`` which pins the run to
 its artifact era: the dims are era-routed from it, every artifact the run writes
@@ -511,10 +511,22 @@ class EngineConfig(pydantic.BaseModel):
 
 
 class MiscConfig(pydantic.BaseModel):
-    """Seed, device, dashboard smoothing, and instrumentation."""
+    """Seed, devices, dashboard smoothing, and instrumentation."""
 
     seed: typing.Annotated[int, pydantic.Field(ge=0)] = 0
-    device: str = "cpu"
+    # Where self-play collection and the periodic eval run. ``cpu`` fans games
+    # across the ``mp_collect`` worker pool (the fast path: batch-of-one
+    # inference is slower on a GPU, TRAINING.md §1.4). Anything else runs the
+    # in-process collectors on the learner's own net, so it must equal
+    # ``train_device`` — enforced by ``validate_launchable``.
+    collect_device: str = "cpu"
+    # Where the learner's net, optimizer, setup net, checkpoint resume, and the
+    # update step live. ``cuda`` here with ``collect_device="cpu"`` is the
+    # intended production pairing: the CPU pool feeds a GPU learner. Both
+    # fields are REGIME (config-carried, shape-preserving) and replace the
+    # single ``device`` that drove both roles until 2026-09 —
+    # ``_migrate_legacy_device`` maps it.
+    train_device: str = "cpu"
     # Decay for the PRODUCING band's EWMA (dashboard display only).
     produce_ewma_alpha: typing.Annotated[float, pydantic.Field(gt=0.0, le=1.0)] = 0.2
     # Custom event-callback recorders (see ``wingspan.instrumentation``).
@@ -522,6 +534,35 @@ class MiscConfig(pydantic.BaseModel):
     instrumentation: instrumentation_config.InstrumentationConfig = pydantic.Field(
         default_factory=instrumentation_config.InstrumentationConfig
     )
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_device(cls, data: object) -> object:
+        """Translate the pre-split single ``device`` key into both roles.
+
+        Every checkpoint, ``run_config_<stamp>.json``, cloud run-file, and
+        ``configurator_defaults.json`` written before the split carries
+        ``misc.device``, which meant "collect here *and* train here", so it
+        seeds both fields (explicit new keys win). Same pattern as
+        ``MainNetArchitecture._migrate_legacy_activation_fields``."""
+        if not isinstance(data, dict):
+            return data
+        raw = typing.cast(dict[str, object], data)
+        if "device" not in raw:
+            return raw
+        legacy = str(raw.pop("device"))
+        raw.setdefault("collect_device", legacy)
+        raw.setdefault("train_device", legacy)
+        return raw
+
+    @property
+    def device_label(self) -> str:
+        """``cpu`` when both roles share a device, else ``collect→train`` (e.g.
+        ``cpu→cuda``) — the one spelling used by the configurator's mode pill,
+        the run-started event, and the cloud runner's log line."""
+        if self.collect_device == self.train_device:
+            return self.collect_device
+        return f"{self.collect_device}→{self.train_device}"
 
 
 class DaggerConfig(pydantic.BaseModel):
@@ -897,12 +938,24 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
     """
     problems: list[str] = []
 
-    # A checkpoint-path bootstrap opponent requires device='cpu'.
+    misc = cfg.misc
+    # A checkpoint-path bootstrap opponent needs the mp_collect worker pool,
+    # which only cpu collection uses.
     if cfg.opponent.bootstrap_opponent not in ("none", "random"):
-        if cfg.misc.device != "cpu":
+        if misc.collect_device != "cpu":
             problems.append(
-                "a bootstrap checkpoint requires device='cpu' (mp_collect only)"
+                "a bootstrap checkpoint requires collect_device='cpu' (mp_collect only)"
             )
+
+    # In-process (non-cpu) collection runs the learner's own net, so the two
+    # roles must name the same device; only cpu collection has its own pool
+    # (with its own CPU copies of the weights).
+    if misc.collect_device != "cpu" and misc.collect_device != misc.train_device:
+        problems.append(
+            f"collect_device={misc.collect_device!r} must equal "
+            f"train_device={misc.train_device!r} — only cpu collection runs on a "
+            "device other than the learner's (it has its own worker pool)"
+        )
 
     # target_iterations must not exceed max_iterations when both are nonzero.
     run = cfg.run
@@ -979,6 +1032,28 @@ def validate_launchable(cfg: RunConfig) -> list[str]:
         )
 
     return problems
+
+
+def resolve_devices(cfg: RunConfig, cuda_available: bool) -> RunConfig:
+    """``cfg`` with every ``cuda`` role downgraded to ``cpu`` when CUDA is
+    unavailable, so a configurator-, flag-, or run-file-chosen ``cuda`` on a
+    CPU-only host still runs instead of crashing the loop at model
+    construction. Each role downgrades on its own (``cpu→cuda`` becomes
+    ``cpu``, ``cuda→cuda`` too). Returns ``cfg`` itself when nothing changes."""
+    if cuda_available:
+        return cfg
+    misc = cfg.misc
+    collect = "cpu" if misc.collect_device.startswith("cuda") else misc.collect_device
+    train = "cpu" if misc.train_device.startswith("cuda") else misc.train_device
+    if collect == misc.collect_device and train == misc.train_device:
+        return cfg
+    return cfg.model_copy(
+        update={
+            "misc": misc.model_copy(
+                update={"collect_device": collect, "train_device": train}
+            )
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1245,7 +1320,16 @@ def _reshape_flat_to_nested(raw: dict[str, typing.Any]) -> dict[str, typing.Any]
     }
 
     # --- misc ---
-    misc_keys = {"seed", "device", "produce_ewma_alpha", "instrumentation"}
+    # ``device`` is the legacy pre-split key ``MiscConfig._migrate_legacy_device``
+    # consumes into ``collect_device`` / ``train_device``.
+    misc_keys = {
+        "seed",
+        "device",
+        "collect_device",
+        "train_device",
+        "produce_ewma_alpha",
+        "instrumentation",
+    }
     misc: dict[str, typing.Any] = {key: raw.pop(key) for key in misc_keys if key in raw}
 
     return {

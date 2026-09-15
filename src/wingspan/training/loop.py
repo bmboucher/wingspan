@@ -51,16 +51,6 @@ from wingspan.training import (
     sysmon,
 )
 
-# torch CPU intra-op thread count for the run. Self-play collection — the
-# throughput bottleneck — runs one small forward pass per decision (~130 per
-# game), and on CPU those tiny ops run *slower* when many torch threads
-# contend over them: measured ~5.7 games/sec at torch's default 12 threads vs
-# ~7.5 games/sec at 1-2 threads (+33%). The batched backprop in the update
-# phase would prefer more threads, but it costs <0.2s/iter against ~8s of
-# collection, so a low global count wins overall. Eval (also per-decision
-# inference) benefits identically to collection.
-_CPU_INTRAOP_THREADS = 2
-
 # How often the side thread refreshes the SYSTEM band's host telemetry.
 _SYSMON_INTERVAL_SECONDS = 1.0
 
@@ -79,9 +69,17 @@ class TrainingLoop:
         # [C]ontinue / [E]nd input (the dashboard) or finalizes the milestone and
         # ends the run (the headless cloud runner passes ``False``).
         self._pause_at_target = pause_at_target
-        self.device = torch.device(cfg.misc.device)
-        if self.device.type == "cpu":
-            torch.set_num_threads(_CPU_INTRAOP_THREADS)
+        # Two device roles (config.MiscConfig): the learner's net, optimizer,
+        # setup net, and update step live on ``train_device``; collection and
+        # the periodic eval dispatch on ``collect_device`` (cpu = the worker
+        # pool, which receives CPU copies of the weights; anything else = the
+        # in-process collectors, which validate_launchable pins to the
+        # learner's device). No process-wide torch thread cap here: the pool
+        # workers pin one thread each and the update phase wants every core —
+        # cpu_threads.inference_thread_cap guards the one remaining in-process
+        # per-decision CPU path (the target-milestone eval).
+        self.collect_device = torch.device(cfg.misc.collect_device)
+        self.train_device = torch.device(cfg.misc.train_device)
         loop_checkpoint.seed_everything(cfg.misc.seed)
         # The net class and dims are era-routed: an era-pinned run constructs
         # the matching compat subclass at its frozen widths.
@@ -92,7 +90,7 @@ class TrainingLoop:
             num_families=len(cfg.family_order),
             arch=cfg.arch,
             spec=cfg.encoding_spec,
-        ).to(self.device)
+        ).to(self.train_device)
         self.optimizer: optim.Optimizer = optim.Adam(
             self.net.parameters(), lr=cfg.training.lr
         )
@@ -108,7 +106,8 @@ class TrainingLoop:
         self._monitor_stop = threading.Event()
         self._monitor_thread: threading.Thread | None = None
         # Process-parallel CPU collector, created on first collect and reused
-        # across iterations (None until then, and unused on non-CPU devices).
+        # across iterations (None until then; unused when collection is not
+        # on cpu).
         self._collector: mp_collect.ProcessCollector | None = None
         # Setup model: a separate net trained actor-critic alongside the main net.
         self._setup_net: setup_net.SetupNet | None = None
@@ -182,7 +181,8 @@ class TrainingLoop:
         with self.lock:
             self.state.push_event(
                 runstate.EventKind.INFO,
-                f"run started · {self.config.run.games_per_iter} games/iter · {self.device}",
+                f"run started · {self.config.run.games_per_iter} games/iter · "
+                f"{self.config.misc.device_label}",
             )
         try:
             iteration = self._start_iteration
@@ -320,7 +320,7 @@ class TrainingLoop:
             self.optimizer,
             records,
             self.config,
-            self.device,
+            self.train_device,
             imitation_phase=imitation_phase,
             iteration=iteration,
         )

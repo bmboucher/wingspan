@@ -62,7 +62,9 @@ def maybe_resume(training_loop: "loop.TrainingLoop") -> None:
         # tensors, so the full (non weights-only) unpickler is required.
         payload = typing.cast(
             "dict[str, typing.Any]",
-            torch.load(last, map_location=training_loop.device, weights_only=False),
+            torch.load(
+                last, map_location=training_loop.train_device, weights_only=False
+            ),
         )
     except Exception:  # noqa: BLE001 — a corrupt/unreadable checkpoint starts fresh
         training_loop.state.push_event(

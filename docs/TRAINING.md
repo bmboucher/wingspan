@@ -35,9 +35,15 @@ The measured profile is in §1 and is the foundation for every later decision.
 >   mandatory actor-critic policy head (§6.4, §6.6); and a **`decision_delta` reward
 >   mode** alongside the default `terminal_margin` (§2).
 >
-> **Device.** Both CPU and CUDA are supported (the §1.4/§4 "collect on CPU, update
-> on GPU" framing is no longer a hard split): CPU runs collect through the process
-> pool; CUDA runs the batched collector and the learner update on the GPU.
+> **Device.** Split into two roles (`misc.collect_device` / `misc.train_device`,
+> 2026-09): self-play collection and the periodic eval run on `collect_device`
+> (`cpu` fans games across the `mp_collect` worker pool — the fast path, §1.4/§4);
+> the learner's net, optimizer, setup net, checkpoint resume, and the update step
+> run on `train_device`. The intended production pairing is `collect_device=cpu` /
+> `train_device=cuda` — a CPU pool feeding a GPU learner; `cpu`/`cpu` and
+> `cuda`/`cuda` also work. Any `collect_device` other than `cpu` runs the
+> in-process collectors on the learner's own net, so it must equal `train_device`
+> — enforced by `validate_launchable`.
 >
 > **Still open:** a frozen multi-checkpoint **league + Elo** (§5.2/§7 — only
 > the single advancing ladder exists today); flatten + segment-softmax (§4.2b);
@@ -76,8 +82,9 @@ Priorities, in order. Each links to its section; ✅ = shipped, ☐ = still open
      `PlayBirdDecision` is **removed** — replaced by soft logging thresholds plus
      the play-bird cost split (the wide payment enumeration moved to
      `PayBirdFoodDecision`).
-   - Collection routes by device: **CPU process pool** or **CUDA batched
-     inference** (§4.1) — batch-of-one GPU inference is no longer on the path.
+   - Collection routes by `misc.collect_device`: **CPU process pool** or **CUDA
+     batched inference** (§4.1) — batch-of-one GPU inference is no longer on
+     the path.
 
 2. ✅ **An honest evaluation harness exists** (§7): mirrored paired games against a
    fixed reference opponent, a 95 % CI, mean margin, and an advancing
@@ -567,7 +574,9 @@ gradient update is nearly free. The job of this section is to keep the GPU fed.
 > `batched_collect.collect_games` runs the "batched-inference actor loop"
 > described at the end of this subsection — many games stepped concurrently
 > through one batched forward pass, backed by the private
-> `_BatchInferenceServer`. The collector is chosen by `misc.device`.
+> `_BatchInferenceServer`. The collector is chosen by `misc.collect_device`; the
+> learner's net, optimizer, and update step run on `misc.train_device`
+> independently — a CPU pool can feed a GPU learner.
 
 The standard scalable-RL architecture, scaled to one machine:
 
@@ -1180,11 +1189,12 @@ checkpoint — there is no separate `expert_checkpoint` field in the UI. After
 
 #### Constraints
 
-- **device=cpu required.** The expert runs one forward pass per decision in the
-  `mp_collect` worker process — the same CPU-only per-game net machinery used by
-  the bootstrap opponent. Setting `device=cuda` with a checkpoint bootstrap opponent
-  is caught at launch by `validate_launchable` (a pre-flight warning, not a hard
-  model-level rejection). Collection always uses `mp_collect` on CPU.
+- **collect_device=cpu required.** The expert runs one forward pass per decision
+  in the `mp_collect` worker process — the same CPU-only per-game net machinery
+  used by the bootstrap opponent. Setting `collect_device=cuda` with a checkpoint
+  bootstrap opponent is caught at launch by `validate_launchable` (a pre-flight
+  warning, not a hard model-level rejection); `train_device` is independent and
+  may be `cuda`. Collection always uses `mp_collect` on CPU.
 - **Expert is the bootstrap checkpoint.** `dagger_expert_checkpoint` is derived from
   `bootstrap_opponent_checkpoint`. Cloning against "none" or "random" bootstrap is
   not supported (expert would be None, DAgger is inactive).
@@ -1267,15 +1277,17 @@ encoding layout.
 
 #### CPU-only constraint
 
-A checkpoint-path `opponent.bootstrap_opponent` is only valid when `device="cpu"`
-is set. The `batched_collect` code path (CUDA, GPU learner)
-has no opponent machinery — every vs-random game on the `mp_collect` path spawns
-one opponent agent per game, but the batched collector runs all games in lockstep
-without per-game opponents. Configuring the bootstrap checkpoint on a CUDA run
-raises a `ValueError` at startup so the error is immediate and clear. Setting
-`device="cuda"` is only relevant for the learner's backprop step; **collection
-always uses `mp_collect` (CPU) while the bootstrap phase is active**, so this
-constraint is not a practical limitation.
+A checkpoint-path `opponent.bootstrap_opponent` requires `collect_device="cpu"`.
+The `batched_collect` code path (the in-process, non-cpu collector) has no
+opponent machinery — every vs-random game on the `mp_collect` path spawns one
+opponent agent per game, but the batched collector runs all games in lockstep
+without per-game opponents. Configuring a checkpoint bootstrap opponent with a
+`collect_device` other than `cpu` is caught at launch by `validate_launchable`
+— a pre-flight warning surfaced in the configurator, not a hard model-level
+rejection or a startup exception. `train_device` is independent of this
+constraint: `train_device="cuda"` is recommended (the CPU pool feeding a GPU
+learner is the intended production pairing) while `collect_device="cpu"` keeps
+the bootstrap opponent machinery available.
 
 #### Setup-net limitation
 

@@ -302,11 +302,11 @@ def test_choice_layout_for_matches_param_report_choice_in():
 
 def test_config_syncs_dims_to_use_setup_model_and_is_fresh_on_toggle():
     on = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(use_setup_model=True),
     )
     off = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(use_setup_model=False),
     )
     assert on.state_dim == encode.state_size(_EXCLUDE)
@@ -322,7 +322,7 @@ def test_config_syncs_dims_to_use_setup_model_and_is_fresh_on_toggle():
 
 def test_config_syncs_dims_to_num_players():
     n3 = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(num_players=3),
     )
     assert n3.state_dim == 1659
@@ -333,7 +333,9 @@ def test_config_syncs_dims_to_num_players():
 
 
 def test_num_players_defaults_to_2():
-    default = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    default = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     assert default.architecture.num_players == 2
     assert default.num_players == 2
     assert default.state_dim == encode.state_size(_EXCLUDE)
@@ -342,11 +344,11 @@ def test_num_players_defaults_to_2():
 
 def test_num_players_is_fresh_and_joins_shape_key():
     n2 = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(num_players=2),
     )
     n3 = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(num_players=3),
     )
     assert n2.architecture_key != n3.architecture_key
@@ -370,7 +372,9 @@ def test_rehydration_defaults_num_players_absent_parses_to_2():
     under *current* code, so a pre-Stage-2 run and a fresh default run still
     agree — even though the key's own repr now includes num_players and so
     differs from what it would have printed before this change."""
-    default = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    default = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     data = default.model_dump()
     del data["architecture"]["num_players"]
     assert "num_players" not in data["architecture"]

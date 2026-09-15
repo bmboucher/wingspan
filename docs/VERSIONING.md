@@ -771,6 +771,11 @@ belongs on the net side of the seam instead.
   exists. Required fields stay required. (The `version` field itself works
   this way: absence reads as `version.PRE_VERSIONING_VERSION`, pinned `"0.0"`
   forever while `MODEL_VERSION` advances.)
+- **Renamed or split config fields migrate in a `mode="before"` validator on
+  the owning section model** (`MainNetArchitecture._migrate_legacy_activation_fields`;
+  `MiscConfig._migrate_legacy_device`, which seeds `collect_device`/`train_device`
+  from the pre-split `device`), never by tolerant reads at call sites — the old
+  key is consumed once, at validation, and never written again.
 - **Fixture sets are the only checkpoints in git**: gzip-compressed (`*.pt.gz`)
   and **Git LFS**-tracked via `.gitattributes`, with the config JSONs committed
   plain. The pre-1.0 fixture sets were deleted at the 1.0 MAJOR bump; the first

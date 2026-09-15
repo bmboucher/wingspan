@@ -48,7 +48,7 @@ def collect_games(
 
     ``dagger_active`` signals the DAgger clone phase: each decision is labeled
     with the frozen expert's soft policy distribution.  Only supported on CPU
-    (the DAgger validator enforces ``device='cpu'``).
+    (the DAgger validator enforces ``collect_device='cpu'``).
     """
     vs_random = (
         training_loop.state.training_phase == runstate.TrainingPhase.RANDOM_OPPONENT
@@ -62,11 +62,11 @@ def collect_games(
     # CPU collection is GIL-bound under threads, so it fans across worker
     # processes; CUDA collection keeps the in-process batched-inference path
     # (one shared GPU forward beats one model copy per process).
-    if training_loop.device.type == "cpu":
+    if training_loop.collect_device.type == "cpu":
         return collect_multiprocess(training_loop, seeds, vs_random, dagger_active)
     return batched_collect.collect_games(
         training_loop.net,
-        training_loop.device,
+        training_loop.collect_device,
         seeds,
         on_game_done=lambda rec: record_collected_game(training_loop, rec),
         should_stop=training_loop._stop.is_set,
@@ -85,15 +85,15 @@ def collect_with_setup(
     """Collect games whose setups are chosen by the setup net.
 
     CPU fans across the worker pool (as ordinary collection does); the non-CPU
-    path runs the games sequentially in-process (the batched CUDA collector
-    does not implement the setup path — training is CPU-anyway).
+    path runs the games sequentially in-process (the batched collector has no
+    setup path).
     """
     specs = collect.build_setup_specs(training_loop.config, iteration)
-    if training_loop.device.type == "cpu":
+    if training_loop.collect_device.type == "cpu":
         return ensure_collector(training_loop).collect_games_with_setup(
             training_loop.net,
             training_loop._setup_net,
-            training_loop.device,
+            training_loop.collect_device,
             specs,
             on_game_done=lambda rec: record_collected_game(training_loop, rec),
             should_stop=training_loop._stop.is_set,
@@ -127,7 +127,7 @@ def collect_with_setup_sequential(
         )
         record = collect.play_game_with_setup(
             training_loop.net,
-            training_loop.device,
+            training_loop.collect_device,
             spec,
             generator,
             training_loop._setup_net,
@@ -154,7 +154,7 @@ def collect_multiprocess(
     reused across iterations (closed in ``run``'s teardown)."""
     return ensure_collector(training_loop).collect_games(
         training_loop.net,
-        training_loop.device,
+        training_loop.collect_device,
         seeds,
         on_game_done=lambda rec: record_collected_game(training_loop, rec),
         should_stop=training_loop._stop.is_set,

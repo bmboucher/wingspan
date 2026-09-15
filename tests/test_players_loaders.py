@@ -41,7 +41,7 @@ from wingspan.training import (  # noqa: E402
 def _setup_cfg(checkpoint_dir: pathlib.Path) -> config.RunConfig:
     """A tiny setup-enabled live-era run config (fast to build/seat)."""
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             run_name="loader-test", checkpoint_dir=str(checkpoint_dir)
         ),

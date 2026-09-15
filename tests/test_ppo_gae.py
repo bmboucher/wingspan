@@ -168,7 +168,9 @@ def test_default_config_dispatches_to_single_pass():
     device = torch.device("cpu")
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
 
     records = [collect.play_game(net, device, rng, seed=seed) for seed in (42, 43)]
     stats = learner.update(net, optimizer, records, cfg, device)
@@ -250,7 +252,7 @@ def test_ppo_gae_update_runs_and_changes_weights():
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(
             policy_loss=config.PolicyLoss.PPO,
             reward_mode=config.RewardMode.GAE,
@@ -297,7 +299,7 @@ def test_ppo_only_update_runs():
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(
             policy_loss=config.PolicyLoss.PPO,
             reward_mode=config.RewardMode.TERMINAL_MARGIN,
@@ -322,7 +324,7 @@ def test_gae_only_update_runs():
     rng = random.Random(0)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(
             policy_loss=config.PolicyLoss.REINFORCE,
             reward_mode=config.RewardMode.GAE,

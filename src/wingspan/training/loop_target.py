@@ -12,7 +12,13 @@ from __future__ import annotations
 
 import typing
 
-from wingspan.training import artifacts, evaluate, loop_checkpoint, runstate
+from wingspan.training import (
+    artifacts,
+    cpu_threads,
+    evaluate,
+    loop_checkpoint,
+    runstate,
+)
 
 if typing.TYPE_CHECKING:
     from wingspan.training import loop
@@ -68,18 +74,21 @@ def handle_target_reached(training_loop: "loop.TrainingLoop", iteration: int) ->
         with training_loop.lock:
             training_loop.state.final_eval_progress = (done, total)
 
-    final_stats = evaluate.run_final_self_play_eval(
-        training_loop.net,
-        training_loop.device,
-        n_games=n_eval,
-        seed=training_loop.config.misc.seed + iteration * 1000,
-        at_iteration=iteration + 1,
-        num_players=training_loop.config.num_players,
-        on_progress=_on_progress,
-        split_setup_bonus=training_loop.config.split_setup_bonus_active,
-        split_setup_food=training_loop.config.split_setup_food_active,
-        combine_gain_food=training_loop.config.engine.combine_gain_food,
-    )
+    # Per-decision inference on the learner's own net: cap the thread pool
+    # for it on a CPU learner (see cpu_threads).
+    with cpu_threads.inference_thread_cap(training_loop.train_device):
+        final_stats = evaluate.run_final_self_play_eval(
+            training_loop.net,
+            training_loop.train_device,
+            n_games=n_eval,
+            seed=training_loop.config.misc.seed + iteration * 1000,
+            at_iteration=iteration + 1,
+            num_players=training_loop.config.num_players,
+            on_progress=_on_progress,
+            split_setup_bonus=training_loop.config.split_setup_bonus_active,
+            split_setup_food=training_loop.config.split_setup_food_active,
+            combine_gain_food=training_loop.config.engine.combine_gain_food,
+        )
 
     # Persist the final-eval result beside ``final_<n>.pt`` so it is a
     # durable artifact (the cloud runner uploads it to its own S3 object)

@@ -47,7 +47,8 @@ def test_flat_fields_group_into_their_sections():
 
     assert cfg.training.lr == 7e-4
     assert cfg.run.games_per_iter == 64
-    assert cfg.misc.device == "cpu"
+    assert cfg.misc.collect_device == "cpu"
+    assert cfg.misc.train_device == "cpu"
     assert cfg.misc.seed == 11
     assert cfg.architecture.main.trunk_layers == (32, 32)
     assert cfg.architecture.main.card_embed_dim == 8
@@ -106,7 +107,7 @@ def test_flat_config_adopts_the_payload_stamp():
 def test_nested_config_passes_through_unchanged():
     """A ≥0.5 nested dump validates directly, preserving every section value."""
     original = config.RunConfig(
-        misc=config.MiscConfig(device="cpu", seed=3),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu", seed=3),
         training=config.TrainingConfig(lr=2e-4),
         run=config.RunSettings(games_per_iter=8),
     )
@@ -119,7 +120,9 @@ def test_nested_config_passes_through_unchanged():
 def test_nested_config_without_era_adopts_the_stamp():
     """A nested dump whose architecture omits ``encoding_version`` adopts the
     passed payload stamp (the live era, the only loadable one at 1.0)."""
-    raw = config.RunConfig(misc=config.MiscConfig(device="cpu")).model_dump()
+    raw = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    ).model_dump()
     raw["architecture"].pop("encoding_version")
     adopted = config.run_config_from_artifact(raw, version.MODEL_VERSION)
     assert adopted.encoding_version == version.MODEL_VERSION
@@ -132,7 +135,7 @@ def test_run_config_file_round_trips(tmp_path: pathlib.Path):
     """``write_run_config`` then ``read_run_config`` reconstitutes the config and
     its session context; the file is named with the ``run_config_`` prefix."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         training=config.TrainingConfig(lr=4e-4),
         run=config.RunSettings(checkpoint_dir=str(tmp_path), run_name="round-trip"),
     )
@@ -220,7 +223,7 @@ def test_validate_launchable_clean_config_returns_empty():
 def test_validate_launchable_checkpoint_bootstrap_on_cuda_flagged():
     """A checkpoint bootstrap opponent with device='cuda' is flagged."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cuda"),
+        misc=config.MiscConfig(collect_device="cuda", train_device="cuda"),
         opponent=config.OpponentConfig(bootstrap_opponent="some/path.pt"),
     )
     problems = config.validate_launchable(cfg)
@@ -231,7 +234,7 @@ def test_validate_launchable_random_bootstrap_on_cuda_ok():
     """'random' or 'none' bootstrap on cuda is allowed."""
     for bootstrap in ("random", "none"):
         cfg = config.RunConfig(
-            misc=config.MiscConfig(device="cuda"),
+            misc=config.MiscConfig(collect_device="cuda", train_device="cuda"),
             opponent=config.OpponentConfig(bootstrap_opponent=bootstrap),
         )
         assert config.validate_launchable(cfg) == []
@@ -240,7 +243,7 @@ def test_validate_launchable_random_bootstrap_on_cuda_ok():
 def test_validate_launchable_target_exceeds_max_flagged():
     """target_iterations > max_iterations when both nonzero is flagged."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(target_iterations=500, max_iterations=100),
     )
     problems = config.validate_launchable(cfg)
@@ -255,7 +258,7 @@ def test_validate_launchable_clone_iters_with_checkpoint_validates():
     is valid and validate_launchable returns no problems (device='cpu' satisfied).
     """
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         opponent=config.OpponentConfig(
             bootstrap_opponent="checkpoints/archive/run_iter500/last.pt"
         ),
@@ -276,7 +279,7 @@ def test_validate_launchable_board_attention_positions_without_attention_flagged
     was still on, before reset_hidden_fields gets a chance to clear it.
     """
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=False, board_attention_positions=True
@@ -292,7 +295,7 @@ def test_validate_launchable_board_attention_positions_without_attention_flagged
 def test_validate_launchable_board_attention_positions_with_attention_ok():
     """board_attention_positions=True with use_board_attention=True validates cleanly."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=True, board_attention_positions=True
@@ -309,7 +312,7 @@ def test_validate_launchable_board_attention_heads_without_attention_flagged():
     assemble on every commit, so a hard reject would fire mid-configurator-edit
     before reset_hidden_fields clears the field back to 1)."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=False, board_attention_heads=2
@@ -323,7 +326,7 @@ def test_validate_launchable_board_attention_heads_without_attention_flagged():
 
     # heads=1 (the default) is never flagged even with attention off.
     cfg_default = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(use_board_attention=False)
         ),
@@ -334,7 +337,7 @@ def test_validate_launchable_board_attention_heads_without_attention_flagged():
 def test_validate_launchable_board_attention_heads_with_attention_ok():
     """board_attention_heads=2 with use_board_attention=True validates cleanly."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=True, board_attention_heads=2
@@ -353,7 +356,7 @@ def test_validate_launchable_board_attention_shared_without_attention_flagged():
     this was still on, before reset_hidden_fields gets a chance to clear it).
     """
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=False, board_attention_shared=True
@@ -369,7 +372,7 @@ def test_validate_launchable_board_attention_shared_without_attention_flagged():
 def test_validate_launchable_board_attention_shared_with_attention_ok():
     """board_attention_shared=True with use_board_attention=True validates cleanly."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
                 use_board_attention=True, board_attention_shared=True
@@ -381,7 +384,9 @@ def test_validate_launchable_board_attention_shared_with_attention_ok():
 
 def test_validate_launchable_num_players_2_ok():
     """The default num_players=2 is never flagged."""
-    cfg = config.RunConfig(misc=config.MiscConfig(device="cpu"))
+    cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+    )
     assert config.validate_launchable(cfg) == []
 
 
@@ -391,7 +396,7 @@ def test_validate_launchable_num_players_above_2_no_longer_blocked():
     are seat-count-generic. The compat-era × num_players blocker (a
     different, permanent check) is covered separately below."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         architecture=config.ArchitectureConfig(num_players=3),
     )
     problems = config.validate_launchable(cfg)

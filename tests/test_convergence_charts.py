@@ -106,7 +106,7 @@ def _state(tmp_path: pathlib.Path) -> runstate.RunState:
     """A run state whose checkpoint dir is an empty tmp dir, so the charts read
     no on-disk history and fall back to the in-memory ``state.history``."""
     cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path / "ckpt")),
     )
     return runstate.new_run_state(cfg)
@@ -216,11 +216,15 @@ def test_winrate_v_lo_floor_and_cap():
 
 def test_opponent_change_iterations_round_trip():
     state = runstate.new_run_state(
-        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+        config.RunConfig(
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+        )
     )
     state.opponent_change_iterations.extend([120, 340])
     restored = runstate.new_run_state(
-        config.RunConfig(misc=config.MiscConfig(device="cpu"))
+        config.RunConfig(
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu")
+        )
     )
     restored.restore_progress(state.to_progress())
     assert restored.opponent_change_iterations == [120, 340]

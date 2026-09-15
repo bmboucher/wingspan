@@ -854,7 +854,7 @@ def test_v1_4_stamped_checkpoint_round_trips(tmp_path: pathlib.Path) -> None:
     state stripe and the ``goal_delta_ignoring_eggs`` choice tail) and
     forward-passes a play-bird decision through the frozen encoder."""
     base = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             run_name="v14-roundtrip",
             checkpoint_dir=str(tmp_path),
@@ -914,7 +914,7 @@ def test_v1_4_stamped_setup_checkpoint_round_trips(tmp_path: pathlib.Path) -> No
     value freezes (``goal_affinity`` and the bonus pricing) — the setup-side
     twin of ``test_v1_4_stamped_checkpoint_round_trips``."""
     base_cfg = config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(
             run_name="v14-setup-roundtrip", checkpoint_dir=str(tmp_path)
         ),

@@ -32,7 +32,8 @@ _OLD_FEATURE_DIM = 477  # the pre-shared-embedder layout's width
 
 def _cfg(tmp_path: pathlib.Path, **overrides: object) -> config.TrainConfig:
     base: dict[str, object] = {
-        "device": "cpu",
+        "collect_device": "cpu",
+        "train_device": "cpu",
         "checkpoint_dir": str(tmp_path),
         "use_setup_model": True,
         "trunk_layers": (32, 32),

@@ -539,7 +539,8 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     "eval_ewma_alpha": ("opponent", "eval_ewma_alpha"),
     # misc section
     "seed": ("misc", "seed"),
-    "device": ("misc", "device"),
+    "collect_device": ("misc", "collect_device"),
+    "train_device": ("misc", "train_device"),
     "produce_ewma_alpha": ("misc", "produce_ewma_alpha"),
     # architecture section (top-level toggles)
     "use_setup_model": ("architecture", "use_setup_model"),
@@ -726,13 +727,25 @@ FIELD_SPECS: list[FieldSpec] = [
         "it on resume re-randomizes the game stream (reproducibility resets).",
     ),
     ChoiceField(
-        attr="device",
-        label="device",
+        attr="collect_device",
+        label="collect device",
         group_path=("RUN SETTINGS",),
         choices=["cpu", "cuda"],
         impact=ChangeImpact.REGIME,
-        help="Compute device. Self-play collection is typically fastest on cpu "
-        "(TRAINING.md §1.4); cuda mainly helps the update step.",
+        help="Where self-play collection and the periodic eval run. cpu fans games "
+        "across a worker-process pool (fastest: batch-of-one inference loses on a "
+        "GPU, TRAINING.md §1.4); cuda runs the in-process batched collector and "
+        "requires train device = cuda.",
+    ),
+    ChoiceField(
+        attr="train_device",
+        label="train device",
+        group_path=("RUN SETTINGS",),
+        choices=["cpu", "cuda"],
+        impact=ChangeImpact.REGIME,
+        help="Where the learner (net, optimizer, setup net, update step) lives. "
+        "cuda is where a GPU pays off — the update is the bulk of a CPU run's "
+        "wall-clock. Pair with collect device = cpu.",
     ),
     PathField(
         attr="checkpoint_dir",
@@ -786,7 +799,7 @@ FIELD_SPECS: list[FieldSpec] = [
         "in self-play. 'random' uses the built-in random agent. "
         "A checkpoint path loads that run's weights as the fixed opponent. "
         "←/→ cycles through none / random / archived runs; press enter to type a "
-        "custom path. Only a checkpoint path requires device='cpu'.",
+        "custom path. Only a checkpoint path requires collect_device='cpu'.",
     ),
     FloatField(
         attr="random_phase_win_rate",

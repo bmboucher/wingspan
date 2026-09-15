@@ -30,7 +30,7 @@ _SMALL_CARD_ENCODER_LAYERS = (32,)
 
 def _small_config(tmp_path: pathlib.Path) -> config.TrainConfig:
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         architecture=config.ArchitectureConfig(
             main=config.MainNetArchitecture(
@@ -53,7 +53,7 @@ def _small_config_n3(tmp_path: pathlib.Path) -> config.TrainConfig:
     """The 3-seat twin of ``_small_config`` for the single N-player pool test
     below — every field otherwise matches so the small net stays cheap."""
     return config.RunConfig(
-        misc=config.MiscConfig(device="cpu"),
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
         run=config.RunSettings(checkpoint_dir=str(tmp_path)),
         architecture=config.ArchitectureConfig(
             num_players=3,
