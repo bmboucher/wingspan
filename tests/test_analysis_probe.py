@@ -5,7 +5,8 @@ Covers:
 1. ``ProbeAttention`` FULL mode vs. ``nn.MultiheadAttention`` (numerical fidelity).
 2. ZERO / UNIFORM / HEAD_KNOCKOUT ablation semantics.
 3. ``install`` / ``uninstall`` wiring and the empty-board finite/KL=0 guarantee.
-4. ``measure()`` on a shared-attention net: report well-formedness.
+4. ``measure()`` on a shared-attention net: report well-formedness, including
+   a cpu-built probe set measured on a cuda net.
 5. ``measure()`` with a reference net, with board attention off, and that a
    mid-measurement exception still restores ``net``'s mode and wrappers.
 6. ``summarize_for_loop()``.
@@ -330,6 +331,33 @@ def test_measure_shared_attention_report_is_well_formed() -> None:
     assert len(report.ablations) == 2 + num_heads
     total_share = sum(entry.share for entry in report.param_census)
     assert total_share == pytest.approx(1.0, abs=1e-6)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA torch build")
+def test_measure_cpu_probe_set_on_cuda_net() -> None:
+    """The training loop's case: the probe set is built on cpu (from numpy
+    ``Step`` arrays) while the net lives on cuda. Every statistic must run on
+    the net's device — a bare cpu identity in the ridge fit used to raise
+    "Expected all tensors to be on the same device"."""
+    cfg = _tiny_config(board_attention_shared=True)
+    net = _tiny_net(cfg)
+    probes = probe_set.from_self_play(net, cfg, n_games=1, seed=400, device=_DEVICE)
+    cuda = torch.device("cuda")
+    net.to(cuda)
+
+    report = representation.measure(
+        net, probes, device=cuda, score_norm=cfg.training.score_norm
+    )
+
+    assert report.n_decisions == probes.n_decisions
+    for layer in report.layers:
+        assert 1 <= layer.rank95 <= layer.out_features
+        assert 0.0 <= layer.linear_r2 <= 1.0
+    for ablation in report.ablations:
+        assert ablation.mean_kl >= 0.0
+    assert sum(effect.n for effect in report.family_effects) == report.n_decisions
+    assert report.attention is not None
+    assert report.trunk_input_shares
 
 
 def test_measure_with_reference_net_reports_positive_kl() -> None:

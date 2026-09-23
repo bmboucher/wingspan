@@ -138,9 +138,11 @@ def ridge_r2(
     dims = centered_in.shape[1]
     gram = centered_in.T @ centered_in
     ridge_penalty = lam_rel * gram.trace() / dims
-    weights = _solve(
-        gram + ridge_penalty * torch.eye(dims), centered_in.T @ centered_out
-    )
+    # The identity is built on the Gram matrix's own device: the activations
+    # come from forward hooks and live wherever the net ran (cuda during a
+    # cpu-collect / cuda-train run), while a bare ``torch.eye`` lands on cpu.
+    identity = torch.eye(dims, device=gram.device, dtype=gram.dtype)
+    weights = _solve(gram + ridge_penalty * identity, centered_in.T @ centered_out)
     residual = centered_out - centered_in @ weights
     total_variance = centered_out.pow(2).sum().clamp(min=_VARIANCE_EPS)
     return 1.0 - (residual**2).sum().item() / total_variance.item()
@@ -201,7 +203,9 @@ def _row_capped(
     rows = inputs.shape[0]
     if rows <= _MAX_ROWS:
         return inputs, activations
-    index = torch.randperm(rows, generator=generator)[:_MAX_ROWS]
+    # The cpu generator yields a cpu index; move it to the activations' device
+    # explicitly rather than relying on torch's implicit index transfer.
+    index = torch.randperm(rows, generator=generator)[:_MAX_ROWS].to(inputs.device)
     return inputs[index], activations[index]
 
 

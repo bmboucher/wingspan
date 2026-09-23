@@ -97,7 +97,10 @@ one pool per extra card-set stripe, labelled by the stripe it embeds —
 `hand_playable_me_pool`, `hand_playable_eggs_me_pool`, `known_hand_opp_pool`
 at the live 2-seat layout), else `[]`. Restores `net`'s original train/eval mode
 before returning. `summarize_for_loop(report) -> models.RepresentationMetrics`
-projects a report down to the Stage-2-sized shape.
+projects a report down to the Stage-2-sized shape. Probe-set tensors may live
+on any device — `measure` moves each batch to `device` and runs every
+statistic there, so the training loop's cpu-built probe set measures cleanly
+on a cuda net.
 
 **`head_to_head.py`** — `evaluate_substitution(checkpoint_path, mode,
 n_pairs, seed, device) -> models.HeadToHeadResult`: loads the checkpoint

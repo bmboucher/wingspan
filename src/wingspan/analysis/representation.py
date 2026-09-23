@@ -62,6 +62,12 @@ def measure(
     value-head shift into score points (mirrors the training run's own
     ``TrainingConfig.score_norm``).
 
+    ``probe_set``'s tensors may live on any device: every batch is moved to
+    ``device`` for its forward pass, and the statistics run there too (the
+    only cross-device copies are the batches themselves and the small
+    per-decision selector vectors), so a cpu-built probe set measured on a
+    cuda net — the training loop's cpu-collect / cuda-train case — works.
+
     The wrapper install/mode-restore is wrapped in ``try``/``finally`` so an
     exception anywhere in the probe (a CUDA OOM, a linalg error in the ridge
     fit, a bad ``probe_set``) can never leave ``net`` stuck in eval mode or
@@ -245,14 +251,16 @@ def _policy_delta_stats(
 
 
 def _batch_context(
-    probe_set: probe_set_module.ProbeSet,
+    probe_set: probe_set_module.ProbeSet, device: torch.device
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Concatenate every batch's ``family_idx`` / ``own_bird_count``, in the
     same batch order :func:`_forward_pass` visits (so they align row-for-row
-    with a ``_PolicyDelta``'s tensors)."""
+    with a ``_PolicyDelta``'s tensors), moved to ``device`` so they can select
+    rows of the pass outputs — which live on ``device``, not wherever the
+    probe set was built (cpu, during training)."""
     family_idx_all = torch.cat([batch.family_idx for batch in probe_set.batches])
     own_count_all = torch.cat([batch.own_bird_count for batch in probe_set.batches])
-    return family_idx_all, own_count_all
+    return family_idx_all.to(device), own_count_all.to(device)
 
 
 #### Parameter census ####
@@ -375,7 +383,7 @@ def _run_ablations(
             )
         )
 
-    family_idx_all, own_count_all = _batch_context(probe_set)
+    family_idx_all, own_count_all = _batch_context(probe_set, device)
     families = tuple(
         family.value for family in decisions.active_decision_families(net.include_setup)
     )
