@@ -268,6 +268,21 @@ wingspan analysis probe last --games 50 --reference best   # probe the latest ch
 See `docs/TRAINING.md` "Representation diagnostics" for how to read the
 numbers and `src/wingspan/analysis/INDEX.md` for the package's caveats.
 
+## Review a finished run
+
+`training_summary.html` is a standalone, interactive HTML page charting a
+run's `metrics.jsonl` progression end to end: strength vs. the reference
+opponent, score composition, loss curves, throughput, and — when the run used
+them — the setup-model and architecture-probe readouts. Every chart is a
+`Plotly.js` chart (pan/zoom/hover), unlike the live dashboard's fixed-size
+terminal charts.
+
+The page is written automatically at the target milestone, alongside
+`final_eval_<n>.json`, and can be regenerated on demand for any run directory
+with `wingspan summary [RUN_DIR] [--out FILE]` (`RUN_DIR` defaults to
+`checkpoints`). Because the charts load Plotly from its CDN
+(`cdn.plot.ly`), viewing the page needs internet access.
+
 ## Installed commands
 
 After `pip install -e .` all tools are available through a single `wingspan`
@@ -280,6 +295,7 @@ command with subcommands:
 | `wingspan dashboard`    | FLIGHT PLAN: config screen → live training dashboard    |
 | `wingspan tournament`   | Round-robin tournament between trained AIs              |
 | `wingspan inspect`      | Model introspection report (vectors, architecture, params) |
+| `wingspan summary`      | Training-progression HTML report for a run directory   |
 | `wingspan cloud`        | Headless S3-persisted training (container use)          |
 | `wingspan monitor`      | FLOCK WATCH: live roster of cloud runs                  |
 | `wingspan research`     | Offline research studies (setup keep-rate CSV)          |

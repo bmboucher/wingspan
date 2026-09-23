@@ -205,3 +205,37 @@ Accepts a run directory or `.pt` path; loads the descriptor via
 `training.runmeta.read_model_config` (era-routed, so compat artifacts work);
 prints vector layout, architecture topology, and parameter counts. Writes
 `model_inspect.json` and `model_summary.html` as side effects.
+
+**`training_summary.py`** — the end-of-run training-progression HTML report
+(`training_summary.html`, `training.artifacts.TRAINING_SUMMARY_HTML`).
+Torch-free: reads only `training.metrics` / `training.config` /
+`analysis.models` — no checkpoint weights involved. Two pure stages:
+`build_summary_payload(rows, run_config, final_eval, run_name) ->
+SummaryPayload` turns a run's `metrics.jsonl` history (plus its optional
+`run_config_*.json` and `final_eval_*.json`) into a plain, JSON-serializable
+payload — one `ChartSection` (Strength / Score / Losses / Anneal / Setup
+model / Decisions / Throughput / Representation probe) per family of charts,
+each holding `ChartSpec`s built from `ChartSeries` / `ChartMarker` (vertical,
+e.g. an opponent advance) / `ChartLine` (horizontal, e.g. the 50% win-rate
+line); a section or chart is included only when it has data (e.g. no
+`Anneal` section on a run with no annealed `entropy_coef`/`dropout_p`).
+Reuses `training.convergence`'s EWMA point functions so the report's curves
+match the live dashboard exactly. `_FAMILY_COLORS` is a fixed 13-hue
+categorical palette (one slot per `decisions.ALL_DECISION_FAMILIES` member),
+CVD-validated against the dark `training.theme.CANVAS` surface (dataviz
+skill) via a non-adjacent hue sampling so consecutive families in the stacked
+decision-family-share chart stay visually distinct.
+`build_training_summary_html(payload) -> str` renders the page: the header
+and any `FinalEvalStats` table are rendered server-side; the payload's
+`model_dump_json()` is embedded in a `<script type="application/json">`
+block and a small inline script builds one `Plotly.newPlot` call per chart
+(loaded from the `cdn.plot.ly` CDN — a `<noscript>` tag and an
+`offline-warning` div cover the no-JS / CDN-unreachable cases).
+`write_training_summary(checkpoint_dir, out_path=None) -> pathlib.Path` is
+the one disk-writing entry point both `summary_cli.py` and
+`training.loop_target.handle_target_reached` call.
+
+**`summary_cli.py`** — `main_summary(args)`: the `wingspan summary` CLI
+handler. Takes a run directory (default `checkpoints`) and an optional
+`--out FILE`; calls `training_summary.write_training_summary` and prints the
+path written.

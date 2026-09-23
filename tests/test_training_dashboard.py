@@ -398,6 +398,8 @@ def test_target_milestone_final_checkpoint_loads(tmp_path: pathlib.Path):
     final_path = tmp_path / artifacts.final_ckpt_name(1)
     assert final_path.exists()
     assert (tmp_path / artifacts.final_eval_name(1)).exists()
+    # The training-summary HTML report is regenerated alongside the final eval.
+    assert (tmp_path / artifacts.TRAINING_SUMMARY_HTML).exists()
     payload = torch.load(final_path, map_location="cpu", weights_only=False)
     assert payload["version"] == cfg.encoding_version
 

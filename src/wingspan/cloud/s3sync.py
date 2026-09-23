@@ -36,7 +36,9 @@ if typing.TYPE_CHECKING:
 # The consistent resumable set uploaded together (any that don't exist for a
 # given run are skipped). The big per-game log is handled separately (chunked);
 # the target-milestone ``final_*`` files and dated ``process_*`` records are
-# swept in by glob in :meth:`S3Sync.upload_checkpoint_set`.
+# swept in by glob in :meth:`S3Sync.upload_checkpoint_set`. Includes the
+# end-of-run ``training_summary.html`` report so a finished cloud run's
+# progression page is available from S3 without a separate download step.
 _CHECKPOINT_SET: tuple[str, ...] = (
     artifacts.LAST_CKPT,
     artifacts.BEST_CKPT,
@@ -45,6 +47,7 @@ _CHECKPOINT_SET: tuple[str, ...] = (
     artifacts.METRICS_LOG,
     artifacts.MODEL_CONFIG_JSON,
     artifacts.SETUP_CONFIG_JSON,
+    artifacts.TRAINING_SUMMARY_HTML,
 )
 
 

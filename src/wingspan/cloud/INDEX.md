@@ -31,9 +31,11 @@ Handles graceful shutdown on SIGTERM/SIGINT (a final sync before exit).
 
 **`s3sync.py`** — `S3Sync`: the S3 persistence sidecar. `upload_file(local_path,
 suffix)` uploads one file; `upload_bytes(data, suffix)` uploads raw bytes;
-`upload_checkpoint_set(local_dir)` uploads the full checkpoint set in one call;
-`offload_game_chunk(...)` streams game-log chunks. `download_run(local_dir)`
-syncs the latest checkpoint from S3 to a local directory (used on resume).
+`upload_checkpoint_set(local_dir)` uploads the full checkpoint set (including
+`training_summary.html`, the end-of-run progression report, when present) in
+one call; `offload_game_chunk(...)` streams game-log chunks. `download_run
+(local_dir)` syncs the latest checkpoint from S3 to a local directory (used on
+resume).
 `iter_run_statuses(s3_config)` — module-level function that polls all known run
 prefixes and yields `RunStatus` snapshots (used by the monitor).
 Credentials via the ambient AWS environment (IAM role or `~/.aws/`).

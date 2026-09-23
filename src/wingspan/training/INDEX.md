@@ -112,8 +112,10 @@ filenames. Constants: `LAST_CKPT`, `BEST_CKPT`, `OPPONENT_CKPT`,
 ≥0.5 file), and the legacy `MODEL_CONFIG` / `PROCESS_JSON` / `PROCESS_GLOB`
 (read for ≤0.4 dirs). Target-milestone names via `final_ckpt_name(n)` /
 `final_eval_name(n)`, matched by `FINAL_CKPT_GLOB` / `FINAL_EVAL_GLOB` so the
-archive sweep relocates a run's finals with it. Used everywhere that writes or
-reads from a run directory.
+archive sweep relocates a run's finals with it. `TRAINING_SUMMARY_HTML` —
+the end-of-run training-progression report
+(`reporting.training_summary.write_training_summary`), also regenerable via
+`wingspan summary`. Used everywhere that writes or reads from a run directory.
 
 **`runmeta.py`** — The unified config file, the legacy sidecars (read-only for
 ≤0.4 dirs), and the era-routed descriptor reporting seam:
@@ -213,9 +215,12 @@ cadence gate, the subsample, and the call into the `analysis` package.
 **`loop_target.py`** — `handle_target_if_reached(loop, iteration)`: milestone
 sequencing at the user-configured target iteration — `final_<n>.pt` (written
 via `loop_checkpoint.checkpoint_payload`, so it is the same era-stamped payload
-as `last.pt`) → `final_eval_<n>.json` → dashboard pause or headless end. Wraps
-the final self-play eval in `cpu_threads.inference_thread_cap(train_device)` —
-the one remaining in-process per-decision CPU inference path.
+as `last.pt`) → `final_eval_<n>.json` → `training_summary.html` (regenerated via
+`reporting.training_summary.write_training_summary`, wrapped in its own
+`try`/`except` so a report-generation failure pushes an `ALARM` event instead
+of flipping an otherwise-finished run to `ERROR`) → dashboard pause or headless
+end. Wraps the final self-play eval in `cpu_threads.inference_thread_cap
+(train_device)` — the one remaining in-process per-decision CPU inference path.
 
 **`loop_checkpoint.py`** — `commit_iteration(loop, iter_metrics, stats,
 eval_result, records)`: end-of-iteration commit — opponent graduation /

@@ -35,6 +35,9 @@ PROCESS_GLOB = "process_*.json"  # the dated per-session process records
 # Written for all versions:
 INSPECT_REPORT_JSON = "model_inspect.json"  # encoding + parameter breakdown sidecar
 MODEL_SUMMARY_HTML = "model_summary.html"  # standalone browser-readable model report
+# End-of-run training-progression report (``reporting.training_summary``); also
+# regenerable on demand via ``wingspan summary``.
+TRAINING_SUMMARY_HTML = "training_summary.html"
 
 # Compact monitoring snapshot (``wingspan.cloud.status``): a tiny JSON the cloud
 # runner refreshes frequently and the monitor reads, so a run's progress is

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import typing
 
+from wingspan.reporting import training_summary
 from wingspan.training import (
     artifacts,
     cpu_threads,
@@ -101,6 +102,24 @@ def handle_target_reached(training_loop: "loop.TrainingLoop", iteration: int) ->
         training_loop.state.push_event(
             runstate.EventKind.CHECKPOINT, f"saved {eval_name}"
         )
+
+    # Regenerate the training-progression HTML report now that the run has a
+    # final eval to show. A report-generation failure must not flip an
+    # otherwise-finished run to ERROR, so it is caught and logged as an alarm
+    # event rather than propagated.
+    try:
+        training_summary.write_training_summary(str(training_loop._ckpt_dir))
+    except Exception as error:  # noqa: BLE001 — a report failure must not fail the run
+        with training_loop.lock:
+            training_loop.state.push_event(
+                runstate.EventKind.ALARM, f"training summary failed: {error}"
+            )
+    else:
+        with training_loop.lock:
+            training_loop.state.push_event(
+                runstate.EventKind.CHECKPOINT,
+                f"saved {artifacts.TRAINING_SUMMARY_HTML}",
+            )
 
     # Step 3: pin the eval stats. The dashboard pauses for [C]ontinue / [E]nd
     # input; the headless runner instead records an "end" choice so the run
