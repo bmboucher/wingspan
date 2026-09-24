@@ -111,6 +111,10 @@ class ConfiguratorState(pydantic.BaseModel):
     # Whether the editor was seeded from the user's saved defaults file (the
     # third header variant: a new run, but not on factory settings).
     seeded_from_user_defaults: bool = False
+    # The display name of a ``--config FILE`` the editor was seeded from
+    # verbatim (skipping both the saved-run and user-defaults seeding), or
+    # ``None`` for the normal precedence — the fourth header variant.
+    seeded_from_file: str | None = None
 
     def selected_spec(self) -> fields.FieldSpec:
         """The :class:`fields.FieldSpec` of the focused field."""

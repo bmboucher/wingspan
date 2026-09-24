@@ -29,19 +29,23 @@ Shared protocol (both files):
 
 ## Launch (one arm at a time; each is ~27 h on this box)
 
-The files are FLIGHT PLAN defaults files. The configurator seeds from
-`./configurator_defaults.json` when the checkpoint directory has no saved run,
-so swap the arm's file in, launch, then restore the tracked defaults:
+`A.json` / `B.json` are full `RunConfig` files (see
+`wingspan.training.config_file`), each with its own `checkpoint_dir`,
+`run_name`, `resume=false`, `collect_device=cpu`, `train_device=cuda` already
+set — no swapping a defaults file in and out is needed:
 
 ```
-cp runs/arch_pair/configurator_defaults.A.json configurator_defaults.json
-wingspan dashboard --checkpoint-dir runs/arch_pair/A --run-name arch_pair_A --collect-device cpu --train-device cuda --no-resume
-git checkout -- configurator_defaults.json
+wingspan dashboard --config runs/arch_pair/A.json --start
 ```
 
-Repeat with `B`. Confirm on the config screen that the run reads
-"seeded from user defaults" and that the architecture block matches the
-table above before pressing Start.
+```
+wingspan dashboard --config runs/arch_pair/B.json --start
+```
+
+Dropping `--start` opens the FLIGHT PLAN config screen seeded from the file
+instead of launching immediately, so you can review the architecture block
+against the table above (or tweak a run-identity flag such as
+`--checkpoint-dir`) before pressing Start.
 
 ## Readout when both finish
 

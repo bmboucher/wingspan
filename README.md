@@ -119,7 +119,24 @@ wingspan dashboard                    # open FLIGHT PLAN (always starts in confi
 wingspan dashboard --collect-device cpu --train-device cuda   # CPU pool feeding a GPU learner
 wingspan dashboard --train-device cpu                         # CPU-only
 wingspan dashboard --games-per-iter 256 --eval-every 5 --eval-games 128
+wingspan dashboard --config runs/my_run.json                 # open the config screen seeded from FILE
+wingspan dashboard --config runs/my_run.json --start          # skip the screen and launch immediately
 ```
+
+`--config FILE` supplies the whole run config from a file instead of building
+it from flags — a dated `run_config_<stamp>.json` artifact, a
+`configurator_defaults.json`-style envelope, a cloud run-file's `train:`
+block, or a bare `RunConfig` JSON/YAML dump (see
+`wingspan.training.config_file`). Only the five run-identity flags
+(`--checkpoint-dir`, `--run-name`, `--collect-device`, `--train-device`,
+`--resume`/`--no-resume`) may be combined with `--config` to override the
+file; any other flag is a usage error, since the file already speaks for
+every other field. Without `--start` the config screen still opens, seeded
+from the file, so you can review or tweak it before pressing Start; with
+`--start` the run launches immediately and headlessly — it never archives or
+overwrites an existing run on its own, so an incompatible or resume-disabled
+checkpoint directory is refused with a message pointing you at the config
+screen's archive action instead.
 
 The config screen lets you tune every hyperparameter (learning rate,
 games/iteration, evaluation cadence, target-iteration milestone, network

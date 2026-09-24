@@ -17,6 +17,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import time
+import typing
 
 import rich.console as rich_console
 from rich import live
@@ -54,33 +55,54 @@ def run_configurator(
     initial: config.RunConfig,
     console: rich_console.Console,
     cuda_available: bool,
+    seed_file: str | None = None,
 ) -> config.RunConfig | None:
     """Run the FLIGHT PLAN screen. Returns the config to launch, or ``None`` if
-    the user quit (or the terminal can't host a full-screen TUI)."""
+    the user quit (or the terminal can't host a full-screen TUI). ``seed_file``
+    (e.g. a ``--config FILE`` display name) seeds the editor directly from
+    ``initial`` instead of the saved-run / user-defaults precedence — see
+    :func:`build_initial_state`."""
     if not _interactive(console):
         _warn_not_interactive(console)
         return None
-    view = build_initial_state(initial, cuda_available)
+    view = build_initial_state(initial, cuda_available, seed_file=seed_file)
     return _run_loop(console, view)
 
 
 def build_initial_state(
-    initial: config.RunConfig, cuda_available: bool
+    initial: config.RunConfig,
+    cuda_available: bool,
+    seed_file: str | None = None,
 ) -> state.ConfiguratorState:
-    """Inspect the target directory and seed the editor. When a readable run is
-    already there, start from *its* saved settings (so the user tunes the actual
-    run, not argparse defaults), keeping the directory they pointed at; for a
-    fresh target, prefer the user's saved defaults file over factory defaults."""
+    """Inspect the target directory and seed the editor.
+
+    Normal precedence (``seed_file`` omitted): when a readable run is already
+    there, start from *its* saved settings (so the user tunes the actual run,
+    not argparse defaults), keeping the directory they pointed at; for a fresh
+    target, prefer the user's saved defaults file over factory defaults.
+
+    When ``seed_file`` is given (``wingspan dashboard --config FILE`` opened
+    without ``--start``), ``initial`` already *is* the file's full config, so
+    neither the saved-run nor the user-defaults seeding may override it — only
+    the directory's era alignment and RESUMABLE/INCOMPATIBLE verdict are still
+    computed against it, exactly as for any other working config.
+    """
     summary = runs.inspect_run(initial.run.checkpoint_dir)
-    working, seeded = _seed_from_summary(initial, summary)
-    seeded_from_user_defaults = False
-    defaults_warning: str | None = None
-    if not seeded:
-        loaded = user_defaults.load_defaults(initial)
-        if loaded.train_config is not None:
-            working = loaded.train_config
-            seeded_from_user_defaults = True
-        defaults_warning = loaded.warning
+    if seed_file is not None:
+        working: config.RunConfig = initial
+        seeded = False
+        seeded_from_user_defaults = False
+        defaults_warning: str | None = None
+    else:
+        working, seeded = _seed_from_summary(initial, summary)
+        seeded_from_user_defaults = False
+        defaults_warning = None
+        if not seeded:
+            loaded = user_defaults.load_defaults(initial)
+            if loaded.train_config is not None:
+                working = loaded.train_config
+                seeded_from_user_defaults = True
+            defaults_warning = loaded.warning
     working = runs.align_era(summary, fields.reset_hidden_fields(working))
     view = state.ConfiguratorState(
         working=working,
@@ -90,10 +112,49 @@ def build_initial_state(
         selected_attr=fields.editable_attrs()[0],
         seeded_from_saved=seeded,
         seeded_from_user_defaults=seeded_from_user_defaults,
+        seeded_from_file=seed_file,
     )
     if defaults_warning is not None:
         view.notify(state.MessageKind.WARN, defaults_warning)
     return view
+
+
+class LaunchRefused(ValueError):
+    """Raised by :func:`prepare_headless_launch` when a ``--config --start``
+    launch cannot proceed automatically.
+
+    ``reasons`` lists the human-readable problems (mirrors the interactive
+    screen's inline "cannot launch —" warning / archive-first prompts); headless
+    mode has no one to confirm a destructive action, so it refuses instead of
+    silently archiving or overwriting an existing run."""
+
+    def __init__(self, reasons: typing.Sequence[str]):
+        self.reasons = list(reasons)
+        super().__init__("; ".join(self.reasons))
+
+
+def prepare_headless_launch(cfg: config.RunConfig) -> config.RunConfig:
+    """Resolve a ``wingspan dashboard --config FILE --start`` launch with no
+    screen and no prompts.
+
+    Mirrors the screen's ``[S]tart`` action against ``cfg.run.checkpoint_dir``:
+    an empty directory always launches fresh; a saved run that is both
+    architecture-compatible and asked to resume (``cfg.run.resume``) resumes;
+    every other case — an incompatible saved run, an unreadable checkpoint, or
+    a compatible run with resume off — is refused with a
+    :class:`LaunchRefused` naming the directory to archive, since headless mode
+    must never archive or overwrite on its own initiative.
+    """
+    summary = runs.inspect_run(cfg.run.checkpoint_dir)
+    aligned = runs.align_era(summary, cfg)
+    status = runs.resolve_status(summary, aligned)
+    resume = status is runs.RunStatus.RESUMABLE and aligned.run.resume
+    if status is not runs.RunStatus.EMPTY and not resume:
+        raise LaunchRefused([_headless_refusal_reason(status, aligned)])
+    candidate, problems = _finalize_launch(aligned, resume)
+    if problems:
+        raise LaunchRefused(problems)
+    return candidate
 
 
 def _seed_from_summary(
@@ -474,23 +535,55 @@ def _save_defaults_action(view: state.ConfiguratorState) -> state.Outcome:
 
 
 def _launch(view: state.ConfiguratorState, resume: bool) -> state.Outcome:
-    # A fresh launch must never inherit a stale era from a saved-run seed; the
-    # loop's ``adopt_checkpoint_era`` is the backstop, but the returned config
-    # should already be what the screen claimed would launch.
-    cfg = view.working
-    if not resume and cfg.encoding_version != version.MODEL_VERSION:
-        cfg = config.with_encoding_version(cfg, version.MODEL_VERSION)
-
-    # Validate cross-field constraints before handing off to the training loop.
-    problems = config.validate_launchable(cfg)
+    candidate, problems = _finalize_launch(view.working, resume)
     if problems:
         view.notify(state.MessageKind.WARN, "cannot launch — " + "; ".join(problems))
         return state.Outcome.CONTINUE
+    view.working = candidate
+    return state.Outcome.LAUNCH
 
-    view.working = cfg.model_copy(
+
+def _finalize_launch(
+    cfg: config.RunConfig, resume: bool
+) -> tuple[config.RunConfig, list[str]]:
+    """Apply the era-fix and validate the cross-field launch constraints —
+    shared by the interactive ``[S]tart`` action and
+    :func:`prepare_headless_launch` so both paths enforce identical rules.
+
+    A fresh launch (``resume=False``) must never inherit a stale era from a
+    saved-run seed; the loop's ``adopt_checkpoint_era`` is the backstop, but
+    the config a caller commits to should already be what it claims will
+    launch. Returns the candidate config (``run.resume`` already set) and any
+    launch problems (empty when clean — the caller should not use the
+    candidate otherwise)."""
+    if not resume and cfg.encoding_version != version.MODEL_VERSION:
+        cfg = config.with_encoding_version(cfg, version.MODEL_VERSION)
+    problems = config.validate_launchable(cfg)
+    candidate = cfg.model_copy(
         update={"run": cfg.run.model_copy(update={"resume": resume})}
     )
-    return state.Outcome.LAUNCH
+    return candidate, problems
+
+
+def _headless_refusal_reason(status: runs.RunStatus, cfg: config.RunConfig) -> str:
+    """The archive-first refusal message for every non-launchable directory
+    state a headless ``--config --start`` launch can meet: a compatible run
+    with resume off, an incompatible run, or an unreadable checkpoint."""
+    directory = cfg.run.checkpoint_dir
+    archive_hint = (
+        f"archive it first via `wingspan dashboard --checkpoint-dir {directory}` "
+        "then the config screen's [A] archive action"
+    )
+    if status is runs.RunStatus.RESUMABLE:
+        return (
+            f"a compatible run already exists in {directory}/ but resume is "
+            f"disabled — {archive_hint}"
+        )
+    if status is runs.RunStatus.INCOMPATIBLE:
+        return (
+            f"the run in {directory}/ has an incompatible architecture — {archive_hint}"
+        )
+    return f"the checkpoint in {directory}/ could not be read — {archive_hint}"
 
 
 #### CONFIRM mode ####

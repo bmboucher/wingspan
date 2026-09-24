@@ -1,8 +1,9 @@
 # training.configure — Interactive "FLIGHT PLAN" configurator
 
 Terminal UI for editing `TrainConfig`, browsing runs, and starting or archiving
-training. Launched via `python -m wingspan.training --config`. Built on `rich`
-for rendering and a cross-platform raw-key reader for input; no curses.
+training. Opened by `python -m wingspan.training` (`wingspan dashboard`)
+unless `--config FILE --start` bypasses it for a headless launch. Built on
+`rich` for rendering and a cross-platform raw-key reader for input; no curses.
 
 ## Modules
 
@@ -70,11 +71,14 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   `factory defaults`.
 
 **`state.py`** — Configurator data model:
-- `Mode` StrEnum: `CONFIG`, `RUNS`, `ARCH`, `CONFIRM`, `RUNNING`.
-- `Outcome` StrEnum: `START`, `RESUME`, `QUIT`.
-- `ConfirmPrompt(message, yes_outcome, no_outcome)` — modal prompt descriptor.
-- `ConfiguratorState(config, mode, selected_field, runs, ...)` — the full
-  immutable snapshot the screen renders from; mutations return a new instance.
+- `Mode` StrEnum: `NAVIGATE`, `EDIT`, `CONFIRM`.
+- `Outcome` StrEnum: `CONTINUE`, `QUIT`, `LAUNCH`.
+- `ConfirmPrompt(title, lines, options, default_key)` — modal prompt descriptor.
+- `ConfiguratorState(working, summary, saved, mode, selected_attr, ...)` — the
+  mutable snapshot the screen renders from each frame, including
+  `seeded_from_saved` / `seeded_from_user_defaults` / `seeded_from_file`
+  (mutually-describing header flags for where `working` was seeded from — a
+  resumed run, the saved-defaults file, or a `--config FILE` display name).
 
 **`keys.py`** — Cross-platform raw single-key reader:
 - `KeyKind` StrEnum and `KeyEvent(kind, char)` Pydantic model — typed key event.
@@ -91,19 +95,32 @@ for rendering and a cross-platform raw-key reader for input; no curses.
   All accept the current `ConfiguratorState` and return `rich` renderables.
 
 **`controller.py`** — Main loop and event dispatch:
-- `run_configurator(config) -> (Outcome, TrainConfig)` — starts `rich.Live`,
-  reads keys via `keys.py`, dispatches to `dispatch(state, key) -> ConfiguratorState`,
-  and loops until an outcome is reached.
-- `build_initial_state(config) -> ConfiguratorState` — console-free constructor
-  for testing. Seeds from the saved run when one is readable, else from the
-  user-defaults file, else factory defaults — always era-aligned via
-  `runs.align_era`.
+- `run_configurator(config, console, cuda_available, seed_file=None) -> (Outcome, TrainConfig)`
+  — starts `rich.Live`, reads keys via `keys.py`, dispatches to
+  `dispatch(state, key) -> ConfiguratorState`, and loops until an outcome is
+  reached.
+- `build_initial_state(config, cuda_available, seed_file=None) -> ConfiguratorState`
+  — console-free constructor for testing. Normal precedence (`seed_file`
+  omitted): seeds from the saved run when one is readable, else from the
+  user-defaults file, else factory defaults. With `seed_file` set (a
+  `--config FILE` display name), `config` is used verbatim — neither the
+  saved-run nor the user-defaults seeding may override it — but the directory
+  is still inspected and the RESUMABLE/INCOMPATIBLE verdict still computed
+  against it. Always era-aligned via `runs.align_era`.
 - `dispatch(state, key)` — pure state-transition function; no I/O.
 - NAVIGATE keys: `[S]`tart, `[N]`ew run, `[A]`rchive, `[R]`eset (chooser:
   user defaults / factory defaults), `[D]` save current settings as defaults,
   `[Q]`uit. Every working-config mutation funnels through `_update_working`,
   which re-aligns the era and surfaces a footer notice when it moves; fresh
-  launches are re-keyed at the live `MODEL_VERSION` in `_launch`.
+  launches are re-keyed at the live `MODEL_VERSION` in `_launch`, which shares
+  the era-fix + `validate_launchable` logic (`_finalize_launch`) with the
+  headless entry point below.
+- `LaunchRefused(ValueError)` / `prepare_headless_launch(cfg) -> RunConfig` —
+  the `wingspan dashboard --config FILE --start` entry point: resolves fresh
+  vs. resume vs. refuse against `cfg.run.checkpoint_dir` exactly as `[S]tart`
+  would, without a screen or prompts; refuses (never archives or overwrites)
+  an incompatible run, an unreadable checkpoint, a compatible run with resume
+  off, or a `validate_launchable` failure.
 
 **`arch_diagram.py`** — `ArchitectureDiagram`: a `rich` renderable that draws
 the live architecture as a text-art block diagram, updated in real time as the

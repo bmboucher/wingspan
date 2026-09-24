@@ -147,6 +147,8 @@ def _context_row(view: state.ConfiguratorState) -> table.Table:
         source = f"resumed run @ iter {view.summary.iteration:04d}"
     elif view.seeded_from_saved:
         source = "resumed run"
+    elif view.seeded_from_file is not None:
+        source = f"new run · seeded from {view.seeded_from_file}"
     elif view.seeded_from_user_defaults:
         source = "new run · saved defaults"
     else:

@@ -129,16 +129,28 @@ def _defaults_path(directory: pathlib.Path | None) -> pathlib.Path:
     return (directory or pathlib.Path.cwd()) / DEFAULTS_FILENAME
 
 
-def _strip_identity_fields(settings: dict[str, typing.Any]) -> None:
-    """Remove per-run identity and era fields from a nested ``RunConfig`` dump
-    in place. These are never persisted to the defaults file because they are
-    properties of a specific run directory or a launch-time decision."""
-    # Remove the architecture era + synced dims (re-derived on load from live code).
+def strip_derived_descriptor_fields(settings: dict[str, typing.Any]) -> None:
+    """Remove the era-derived architecture fields (``encoding_version``,
+    ``state_dim``, ``choice_dim``, ``family_order``) from a nested ``RunConfig``
+    dump in place, so re-validating ``settings`` re-derives them at the live
+    ``MODEL_VERSION`` instead of keeping whatever era the settings were captured
+    under. Shared by :func:`_strip_identity_fields` (which additionally strips
+    per-run identity fields for the defaults file) and
+    :mod:`wingspan.training.config_file` (which keeps those identity fields,
+    since a ``--config FILE`` is a full run config, not a reusable-settings
+    envelope)."""
     arch = settings.get("architecture")
     if isinstance(arch, dict):
         arch_typed = typing.cast("dict[str, typing.Any]", arch)
         for key in ("encoding_version", "state_dim", "choice_dim", "family_order"):
             arch_typed.pop(key, None)
+
+
+def _strip_identity_fields(settings: dict[str, typing.Any]) -> None:
+    """Remove per-run identity and era fields from a nested ``RunConfig`` dump
+    in place. These are never persisted to the defaults file because they are
+    properties of a specific run directory or a launch-time decision."""
+    strip_derived_descriptor_fields(settings)
 
     # Remove run-identity fields from the ``run`` section.
     run = settings.get("run")

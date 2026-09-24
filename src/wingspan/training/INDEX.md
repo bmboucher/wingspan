@@ -9,9 +9,29 @@ hyperparameter guidance, and Phase 0–3 roadmap.
 
 **`__main__.py`** — Package entry point; delegates to `app.py`.
 
-**`app.py`** — Argparse + `--config` flag → instantiates `TrainingLoop` on a
-background thread, starts `rich.Live` with the dashboard, and blocks until the
-loop stops or the user hits Ctrl-C.
+**`app.py`** — Argparse → instantiates `TrainingLoop` on a background thread,
+starts `rich.Live` with the dashboard, and blocks until the loop stops or the
+user hits Ctrl-C. `--config FILE` (see `config_file.py`) supplies the whole
+`RunConfig` in place of the flags above; `--start` skips the FLIGHT PLAN
+config screen and launches immediately via
+`configure.controller.prepare_headless_launch`. `_build_parser(live_defaults)`
+builds the argument parser either with its real defaults or with every flag
+defaulting to `argparse.SUPPRESS`; `_explicit_dests(argv)` parses against the
+latter to find the dests the user actually typed, and `_first_disallowed_flag`
+uses that set to enforce that only the five run-identity flags
+(`--checkpoint-dir`, `--run-name`, `--collect-device`, `--train-device`,
+`--resume`) may be combined with `--config`.
+
+**`config_file.py`** — `ConfigFileError`; `load_run_config(path) -> RunConfig`:
+loads `--config FILE` from any of four shapes (a `run_config_<stamp>.json`
+artifact, a `configurator_defaults.json` envelope, a cloud run-file's `train:`
+block, or a bare `RunConfig` dump), detected from the parsed top level's keys,
+and validates the reduced settings at the live `MODEL_VERSION` via
+`configure.user_defaults.strip_derived_descriptor_fields` (so an older-era
+file still loads — the era backstop for an actual resumable directory is
+`configure.runs.align_era` / `loop_resume.adopt_checkpoint_era`, not this
+module). Parses YAML directly rather than importing `wingspan.cloud.runfile`,
+whose package pulls in boto3 through sibling modules; torch-free otherwise.
 
 ## Config and metadata
 
@@ -472,6 +492,7 @@ load. Polled on a side thread by `loop._monitor_loop`.
 histogram, eval inset).
 See [`charts/INDEX.md`](charts/INDEX.md).
 
-**`configure/`** — Interactive "FLIGHT PLAN" configurator
-(`python -m wingspan.training --config`).
+**`configure/`** — Interactive "FLIGHT PLAN" configurator, opened by
+`python -m wingspan.training` (equivalently `wingspan dashboard`) unless
+`--config FILE --start` skips straight to a headless launch.
 See [`configure/INDEX.md`](configure/INDEX.md).

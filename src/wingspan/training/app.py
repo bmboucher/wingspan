@@ -19,6 +19,19 @@ displays an acknowledgment overlay in the events panel; the main loop handles
 ``[C]``ontinue and ``[E]``nd keypresses, optionally setting a new target before
 unblocking the worker thread. On ``[E]``nd the run's checkpoints are archived
 and the interactive FLIGHT PLAN configurator is reopened.
+
+``--config FILE`` supplies the whole run config from a file (a
+``run_config_<stamp>.json`` artifact, a ``configurator_defaults.json`` envelope,
+a cloud run-file's ``train:`` block, or a bare ``RunConfig`` dump — see
+:mod:`wingspan.training.config_file`) instead of argparse defaults. Without
+``--start`` the config screen still opens, seeded from the file for review;
+with ``--start`` the screen is skipped and the run launches immediately via
+:func:`wingspan.training.configure.controller.prepare_headless_launch`, which
+never archives or overwrites an existing run on its own — an incompatible or
+resume-disabled directory is refused instead. Only the five run-identity flags
+(``--checkpoint-dir``, ``--run-name``, ``--collect-device``, ``--train-device``,
+``--resume``/``--no-resume``) may be combined with ``--config``; any other flag
+is a usage error, since the file already speaks for every other field.
 """
 
 from __future__ import annotations
@@ -26,15 +39,25 @@ from __future__ import annotations
 import argparse
 import logging
 import pathlib
+import sys
 import threading
 import time
+import typing
 
 import torch
 from rich import console, live
 
 from wingspan import architecture
-from wingspan.training import artifacts, config, configure, dashboard, loop, runstate
-from wingspan.training.configure import keys
+from wingspan.training import (
+    artifacts,
+    config,
+    config_file,
+    configure,
+    dashboard,
+    loop,
+    runstate,
+)
+from wingspan.training.configure import controller, keys
 from wingspan.training.configure import runs as config_runs
 
 _REFRESH_HZ = 8.0
@@ -44,21 +67,76 @@ _STOP_GRACE_SECONDS = 30.0
 def main(argv: list[str] | None = None) -> int:
     """Entry point for ``wingspan dashboard`` / ``python -m wingspan.training``.
 
-    The FLIGHT PLAN configurator always opens first — tune any hyperparameters,
-    then start or resume a run, which transitions into the live training display.
-    Quitting the configurator without launching exits the process cleanly.
+    Without ``--config``, the FLIGHT PLAN configurator always opens first —
+    tune any hyperparameters, then start or resume a run, which transitions
+    into the live training display. Quitting the configurator without
+    launching exits the process cleanly.
+
+    With ``--config FILE``, the file supplies the whole run config (see the
+    module docstring); ``--start`` skips the screen and launches immediately,
+    refusing rather than archiving when the target directory is not safely
+    launchable. Only the five run-identity flags may be combined with
+    ``--config`` — any other explicit flag is a usage error (exit 2).
 
     When the training loop ends with the user choosing ``[E]nd run`` at a target
     milestone, the run is archived and the configurator is reopened so the user
     can adjust settings and start another run without leaving the application.
     """
     args = _parse_args(argv)
-    cfg = _config_from_namespace(args)
     term = console.Console()
+
+    if args.config is None:
+        if args.start:
+            print("error: --start requires --config", file=sys.stderr)
+            return 2
+        return _configure_and_train(_config_from_namespace(args), term, seed_file=None)
+
+    explicit = _explicit_dests(argv)
+    conflicting_flag = _first_disallowed_flag(explicit)
+    if conflicting_flag is not None:
+        print(
+            f"error: --config cannot be combined with {conflicting_flag}; edit "
+            "the file or use the config screen",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        cfg = config_file.load_run_config(args.config)
+    except config_file.ConfigFileError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    cfg = _apply_identity_overrides(cfg, args, explicit)
+
+    if not args.start:
+        return _configure_and_train(cfg, term, seed_file=args.config.name)
+
+    try:
+        cfg = controller.prepare_headless_launch(cfg)
+    except controller.LaunchRefused as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    _run_training(cfg, term)
+    return 0
+
+
+###### PRIVATE #######
+
+
+def _configure_and_train(
+    cfg: config.RunConfig, term: console.Console, seed_file: str | None
+) -> int:
+    """The FLIGHT PLAN loop: open the configurator (seeded from ``seed_file``
+    only on this first entry — a ``--config FILE`` display name, or ``None``
+    for the normal saved-run / user-defaults precedence), launch into
+    training, and reopen the configurator after an ``[E]nd run`` archive.
+    Quitting the configurator without launching exits the process cleanly."""
     show_config = True
     while True:
         if show_config:
-            result = configure.run_configurator(cfg, term, torch.cuda.is_available())
+            result = configure.run_configurator(
+                cfg, term, torch.cuda.is_available(), seed_file=seed_file
+            )
             if result is None:
                 return 0  # user quit the configurator without launching a run
             cfg = result
@@ -66,9 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         if not return_to_config:
             return 0
         show_config = True  # always show configurator on re-entry after "end run"
-
-
-###### PRIVATE #######
+        seed_file = None  # re-entry after "end run" uses the normal precedence
 
 
 def _run_training(cfg: config.RunConfig, term: console.Console) -> bool:
@@ -244,94 +320,203 @@ def _print_summary(term: console.Console, state: runstate.RunState) -> None:
         term.print(state.error)
 
 
+# The five run-identity flags that may still be combined with --config,
+# overriding the file's corresponding field; every other flag is a usage error
+# alongside --config, since the file already speaks for it.
+_IDENTITY_OVERRIDE_DESTS = frozenset(
+    {"checkpoint_dir", "run_name", "collect_device", "train_device", "resume"}
+)
+# Dests that name the --config machinery itself, never a conflict with it.
+_CONFIG_MACHINERY_DESTS = frozenset({"config", "start"})
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser, _ = _build_parser(live_defaults=True)
+    return parser.parse_args(argv)
+
+
+def _explicit_dests(argv: list[str] | None) -> frozenset[str]:
+    """The argparse dests the user actually typed on the command line, as
+    opposed to argparse's own defaults.
+
+    Parses ``argv`` against a twin parser whose every flag defaults to
+    ``argparse.SUPPRESS`` (built by :func:`_build_parser`), so a flag the user
+    did not pass is simply absent from the resulting namespace — this needs no
+    access to argparse's private ``_actions`` / ``seen_actions`` bookkeeping.
+    """
+    parser, _ = _build_parser(live_defaults=False)
+    namespace = parser.parse_args(argv)
+    return frozenset(vars(namespace))
+
+
+def _first_disallowed_flag(explicit: frozenset[str]) -> str | None:
+    """The first flag (in registration order) explicitly passed alongside
+    ``--config`` that is neither a run-identity override nor ``--config`` /
+    ``--start`` themselves, or ``None`` when the combination is allowed."""
+    _, dest_to_flag = _build_parser(live_defaults=True)
+    for dest, flag in dest_to_flag.items():
+        if dest in _CONFIG_MACHINERY_DESTS or dest in _IDENTITY_OVERRIDE_DESTS:
+            continue
+        if dest in explicit:
+            return flag
+    return None
+
+
+def _apply_identity_overrides(
+    cfg: config.RunConfig, args: argparse.Namespace, explicit: frozenset[str]
+) -> config.RunConfig:
+    """Override ``cfg``'s run-identity fields with whichever of the five
+    identity flags the user explicitly passed alongside ``--config``; every
+    other field comes from the file untouched."""
+    run_updates: dict[str, object] = {
+        field: getattr(args, field)
+        for field in ("checkpoint_dir", "run_name", "resume")
+        if field in explicit
+    }
+    misc_updates: dict[str, object] = {
+        field: getattr(args, field)
+        for field in ("collect_device", "train_device")
+        if field in explicit
+    }
+    if not run_updates and not misc_updates:
+        return cfg
+    updated = cfg
+    if run_updates:
+        updated = updated.model_copy(
+            update={"run": updated.run.model_copy(update=run_updates)}
+        )
+    if misc_updates:
+        updated = updated.model_copy(
+            update={"misc": updated.misc.model_copy(update=misc_updates)}
+        )
+    return updated
+
+
+def _build_parser(
+    *, live_defaults: bool
+) -> tuple[argparse.ArgumentParser, dict[str, str]]:
+    """Construct the ``wingspan dashboard`` argument parser.
+
+    With ``live_defaults`` every flag gets its real default — the parser
+    ``wingspan dashboard`` actually runs with, so a bare invocation behaves
+    exactly as before this module gained ``--config``. Otherwise every flag
+    defaults to ``argparse.SUPPRESS``, so parsing ``argv`` against the result
+    (see :func:`_explicit_dests`) yields a namespace containing only the dests
+    the user actually typed. Returns the parser and the dest→flag-string
+    mapping (used to name the offending flag in a ``--config`` conflict error).
+    """
     parser = argparse.ArgumentParser(
         prog="wingspan dashboard",
         description="Run and live-monitor Wingspan self-play training (TRAINING.md Phase 1).",
     )
     default_train_device = "cuda" if torch.cuda.is_available() else "cpu"
-    parser.add_argument(
+    dest_to_flag: dict[str, str] = {}
+
+    def add(
+        flag: str, *, default: object, dest: str | None = None, **kwargs: typing.Any
+    ) -> None:
+        resolved_dest = dest if dest is not None else flag.lstrip("-").replace("-", "_")
+        dest_to_flag[resolved_dest] = flag
+        parser.add_argument(
+            flag,
+            dest=dest,
+            default=default if live_defaults else argparse.SUPPRESS,
+            **kwargs,
+        )
+
+    add(
         "--collect-device",
         default="cpu",
         help="where self-play collection runs: cpu (worker pool, fastest) or cuda "
         "(in-process batched collector; requires --train-device cuda)",
     )
-    parser.add_argument(
+    add(
         "--train-device",
         default=default_train_device,
         help="where the learner (net, optimizer, update step) runs: cpu or cuda",
     )
-    parser.add_argument("--games-per-iter", type=int, default=256)
-    parser.add_argument(
-        "--iterations", type=int, default=0, help="max iterations (0 = until Ctrl+C)"
-    )
-    parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--entropy-coef", type=float, default=0.01)
-    parser.add_argument("--value-coef", type=float, default=0.5)
-    parser.add_argument(
+    add("--games-per-iter", type=int, default=256)
+    add("--iterations", type=int, default=0, help="max iterations (0 = until Ctrl+C)")
+    add("--lr", type=float, default=3e-4)
+    add("--entropy-coef", type=float, default=0.01)
+    add("--value-coef", type=float, default=0.5)
+    add(
         "--eval-every",
         type=int,
         default=5,
         help="run an eval block every N training iterations (0 disables eval)",
     )
-    parser.add_argument(
+    add(
         "--eval-games",
         type=int,
         default=128,
         help="held-out games per eval block (played as mirrored pairs)",
     )
-    parser.add_argument(
+    add(
         "--trunk-layers",
         default="128,128",
         help="state-trunk hidden widths, comma-separated (e.g. 256,128)",
     )
-    parser.add_argument(
+    add(
         "--choice-layers",
         default="128,128",
         help="per-choice encoder widths (independent of the trunk; ends at N)",
     )
-    parser.add_argument(
+    add(
         "--head-layers",
         default="128",
         help="per-family scorer hidden widths (empty string = direct (M+N)->1)",
     )
-    parser.add_argument(
+    add(
         "--value-layers",
         default="",
         help="value-head hidden widths (empty string = direct M->1)",
     )
-    parser.add_argument(
+    add(
         "--activation",
+        dest="between_activation",
         default=architecture.ActivationName.RELU.value,
         choices=[name.value for name in architecture.ActivationName],
-        dest="between_activation",
         help="between-layers activation function for every MLP block",
     )
-    parser.add_argument(
+    add(
         "--final-activation",
+        dest="final_activation",
         default=architecture.ActivationName.NONE.value,
         choices=[name.value for name in architecture.ActivationName],
-        dest="final_activation",
         help="final-layer activation for every MLP block (default: none = no final act)",
     )
-    parser.add_argument("--dropout", type=float, default=0.0)
-    parser.add_argument(
+    add("--dropout", type=float, default=0.0)
+    add(
         "--layernorm",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="apply LayerNorm in the trunk / choice-encoder body blocks",
     )
-    parser.add_argument("--card-embed-dim", type=int, default=64, dest="card_embed_dim")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--checkpoint-dir", default="checkpoints")
-    parser.add_argument("--run-name", default="dashboard")
-    parser.add_argument(
+    add("--card-embed-dim", dest="card_embed_dim", type=int, default=64)
+    add("--seed", type=int, default=0)
+    add("--checkpoint-dir", default="checkpoints")
+    add("--run-name", default="dashboard")
+    add(
         "--resume",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="resume from last.pt in --checkpoint-dir if present (--no-resume starts fresh)",
     )
-    return parser.parse_args(argv)
+    add(
+        "--config",
+        type=pathlib.Path,
+        default=None,
+        help="load the full run config from FILE (JSON, or YAML for .yaml/.yml) "
+        "instead of the flags above; see wingspan.training.config_file",
+    )
+    add(
+        "--start",
+        action="store_true",
+        default=False,
+        help="with --config, skip the config screen and launch immediately",
+    )
+    return parser, dest_to_flag
 
 
 def _config_from_namespace(args: argparse.Namespace) -> config.RunConfig:
