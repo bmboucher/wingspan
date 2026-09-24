@@ -1,0 +1,194 @@
+{
+  "saved_with_version": "1.5",
+  "saved_at": "2026-09-23T19:52:08",
+  "settings": {
+    "architecture": {
+      "main": {
+        "trunk_layers": [
+          128,
+          64
+        ],
+        "choice_layers": [
+          128,
+          64
+        ],
+        "head_layers": [
+          32,
+          32,
+          16
+        ],
+        "value_layers": [
+          32,
+          32,
+          16
+        ],
+        "head_layers_mode": "uniform",
+        "head_layers_main_action": [
+          128
+        ],
+        "head_layers_draw_bird": [
+          128
+        ],
+        "head_layers_discard_bird": [
+          128
+        ],
+        "head_layers_gain_food": [
+          128
+        ],
+        "head_layers_spend_food": [
+          128
+        ],
+        "head_layers_lay_egg": [
+          128
+        ],
+        "head_layers_pay_egg": [
+          128
+        ],
+        "head_layers_skip_optional": [
+          128
+        ],
+        "head_layers_choose_bonus": [
+          128
+        ],
+        "head_layers_misc_rare": [
+          128
+        ],
+        "head_layers_play_bird": [
+          128
+        ],
+        "head_layers_reset_birdfeeder": [
+          128
+        ],
+        "head_layers_setup": [
+          128
+        ],
+        "between_activation": "relu",
+        "final_activation": "relu",
+        "dropout": 0.0,
+        "layernorm": false,
+        "card_embed_dim": 64,
+        "card_encoder_layers": [],
+        "use_distinct_hand_model": false,
+        "hand_encoder_layers": [
+          128
+        ],
+        "hand_embed_dim": null,
+        "hand_pooling": "concat_max_sum",
+        "tray_set_embedding": false,
+        "use_board_attention": true,
+        "board_attention_positions": true,
+        "board_attention_heads": 1,
+        "board_attention_shared": true,
+        "card_between_activation": "none",
+        "card_final_activation": "none",
+        "card_dropout": null,
+        "card_layernorm": null,
+        "hand_between_activation": null,
+        "hand_final_activation": "relu",
+        "hand_dropout": null,
+        "hand_layernorm": null,
+        "trunk_between_activation": null,
+        "trunk_final_activation": null,
+        "trunk_dropout": 0.05,
+        "trunk_layernorm": true,
+        "choice_between_activation": null,
+        "choice_final_activation": null,
+        "choice_dropout": 0.05,
+        "choice_layernorm": true,
+        "value_between_activation": null,
+        "value_final_activation": "none",
+        "head_between_activation": null,
+        "head_final_activation": "none"
+      },
+      "setup": {
+        "trunk_layers": [
+          64,
+          64,
+          64
+        ],
+        "choice_layers": [
+          64,
+          64
+        ],
+        "head_layers": [
+          64,
+          64
+        ],
+        "value_layers": [
+          64,
+          64
+        ],
+        "between_activation": "relu",
+        "final_activation": "none",
+        "dropout": 0.05
+      },
+      "use_setup_model": true,
+      "split_setup_bonus": true,
+      "split_setup_food": true,
+      "num_players": 2
+    },
+    "run": {
+      "games_per_iter": 1000,
+      "max_iterations": 0,
+      "target_iterations": 300,
+      "target_eval_games": 1000,
+      "eval_every": 5,
+      "eval_games": 500,
+      "probe_every": 5,
+      "probe_decisions": 4096,
+      "history_len": 250
+    },
+    "training": {
+      "lr": 0.0003,
+      "value_coef": 0.5,
+      "entropy_coef": 0.01,
+      "entropy_coef_final": null,
+      "dropout_final": 0.0,
+      "grad_clip": 1.0,
+      "score_norm": 50.0,
+      "reward_mode": "gae",
+      "reward_basis": "margin",
+      "reward_discount": 0.98,
+      "end_game_bonus": 0.0,
+      "setup": {
+        "lr": 0.001,
+        "policy_temperature": 0.5,
+        "policy_greedy": false,
+        "hand_combos": 10,
+        "food_sets": 3,
+        "pg_coef": 1.0,
+        "value_coef": 0.5,
+        "entropy_coef": 0.08,
+        "entropy_coef_final": 0.01,
+        "dropout_final": 0.0
+      },
+      "policy_loss": "ppo",
+      "ppo_clip_eps": 0.2,
+      "ppo_reuse_epochs": 4,
+      "gae_lambda": 0.8,
+      "update_minibatch_steps": 2048
+    },
+    "opponent": {
+      "bootstrap_opponent": "runs/arch_pair/champion_2026.08.11-v1.5_iter1954.pt",
+      "random_phase_win_rate": 1.0,
+      "opponent_reset_win_rate": 0.65,
+      "opponent_max_iterations": 0,
+      "eval_ewma_alpha": 0.7
+    },
+    "engine": {
+      "combine_gain_food": true
+    },
+    "misc": {
+      "seed": 0,
+      "produce_ewma_alpha": 0.7,
+      "instrumentation": {
+        "handlers": {},
+        "events": {}
+      }
+    },
+    "dagger": {
+      "expert_checkpoint": "none",
+      "clone_iters": 25
+    }
+  }
+}
