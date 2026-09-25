@@ -114,6 +114,46 @@ Removing the dead depth and cutting attention to one head cost nothing on
 throughput and B's single head is as uniform as A's eight.
 
 **What it does not settle.** Whether the depth removal itself helps, because A
-never trained as an intact network. A clean rerun needs `clone_iters` 0 (or a
-fixed clone phase that takes multiple epochs of minibatch steps) with the same
-pinned champion; A with LayerNorm added would isolate the depth question.
+never trained as an intact network. A clean rerun needs a clone phase that
+actually moves the policy, with the same pinned champion; A with LayerNorm
+added would isolate the depth question. Both are set up below.
+
+## Rerun with the fixed clone phase (files ready 2026-09-25)
+
+The clone phase now steps once per shuffled minibatch (`clone_epochs` 4 ×
+`clone_minibatch_steps` 2048, roughly 180 optimizer steps per clone iteration
+instead of one; see `docs/TRAINING.md` §6.8). In a 24-game smoke run against
+the same champion the imitation loss fell from 1.12 to 0.62 in six iterations
+where the old path stayed flat at the uniform level 1.16–1.18, and the value
+loss went to ~0.01 instead of ~1.4, so the value-only gradient that collapsed
+A's trunk no longer dominates. The champion's own entropy on student states is
+about 0.21 nats, which is the floor the imitation loss can reach.
+
+Three files, same protocol as A/B (1000 games/iter, 300 iterations, pinned
+champion, `clone_iters` 25, seed 0, cpu collect / cuda train), differing only
+in the main network and the run identity:
+
+| | A2 | A2ln | B2 |
+|---|---|---|---|
+| derived from | A | A + LayerNorm | B |
+| `trunk_layers` | (128, 128, 64, 64) | (128, 128, 64, 64) | (128, 64) |
+| `choice_layers` | (128, 64, 64) | (128, 64, 64) | (128, 64) |
+| `trunk_layernorm` / `choice_layernorm` | off | on | on |
+| `board_attention_heads` | 8 | 8 | 1 |
+| `checkpoint_dir` | `runs/arch_pair/A2` | `runs/arch_pair/A2ln` | `runs/arch_pair/B2` |
+
+A2 vs A2ln isolates LayerNorm at fixed depth; A2ln vs B2 isolates the depth
+removal (and the head count) with LayerNorm held constant. A2 is the control
+that shows whether the un-normalised architecture survives an intact clone
+phase at all; if the budget allows only two arms, run A2ln and B2.
+
+```
+wingspan dashboard --config runs/arch_pair/A2.json --start
+wingspan dashboard --config runs/arch_pair/A2ln.json --start
+wingspan dashboard --config runs/arch_pair/B2.json --start
+```
+
+Readout is the same list as above, with two additions: `imitation_loss` at
+iteration 24 should now sit well below 1.0 for every arm (it was 1.167 for
+both A and B), and the `representation` rows during the clone phase should
+show `rank95_over_width` holding up rather than falling to 1/64.
