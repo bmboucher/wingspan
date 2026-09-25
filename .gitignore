@@ -13,6 +13,9 @@ coverage.xml
 build/
 dist/
 checkpoints/
+# Run output directories (runs/<experiment>/<run>/) are never tracked; the
+# experiment's config files and README at runs/<experiment>/ are.
+runs/*/*/
 *.pt
 *.pth
 # Pinned backwards-compatibility fixtures are the one sanctioned home for

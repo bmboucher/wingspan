@@ -31,11 +31,17 @@ if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
 fi
 
 # ---- Commit any dirty state in main ----
+# Training outputs under runs/ and checkpoints/ are never swept into the
+# snapshot: they are large, run-specific, and belong to the human to commit
+# (or ignore) deliberately.
 
-if ! git diff --quiet || ! git diff --cached --quiet \
-        || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+SNAPSHOT_PATHSPEC=(. ':(exclude)runs' ':(exclude)checkpoints')
+
+if ! git diff --quiet -- "${SNAPSHOT_PATHSPEC[@]}" \
+        || ! git diff --cached --quiet -- "${SNAPSHOT_PATHSPEC[@]}" \
+        || [ -n "$(git ls-files --others --exclude-standard -- "${SNAPSHOT_PATHSPEC[@]}")" ]; then
     echo "==== Committing uncommitted changes in main before branching ===="
-    git add -A
+    git add -A -- "${SNAPSHOT_PATHSPEC[@]}"
     git commit -m "WIP: pre-worktree snapshot for $SLUG"
     echo
 fi
