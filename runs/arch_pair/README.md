@@ -72,7 +72,9 @@ flat (A 1.167 → 1.163, B 1.167 → 1.107), the policy entropy at the first PPO
 iteration was 1.17 nats (the random-init value), and the margin against the
 champion was unchanged (−56 → −55). Cause: `learner.update` routes the
 imitation phase through the single-step path (one optimizer step per
-iteration) while PPO takes ~180 minibatch steps per iteration. The value-MSE
+iteration) while PPO takes one step per reuse epoch (4 per iteration); both
+accumulate gradients across minibatches rather than stepping per
+minibatch, which supervised cloning needs. The value-MSE
 was the only effective gradient, and against a fixed strong opponent its
 target is nearly constant, so both trunks collapsed toward rank 1 during the
 clone phase. B's LayerNorm let it recover; A never did.
