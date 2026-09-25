@@ -13,11 +13,16 @@ Covers:
    in imitation mode (``has_expert.sum()`` is clamped to 1).
 7. ``validate_dagger_expert`` fail-fast on a missing file, a seat-count
    mismatch, and no-op on ``'none'``.
-8. ``BootstrapField`` parse / format round-trip for the DAgger expert field.
+8. Clone-phase optimisation schedule: per-minibatch SGD (``clone_epochs`` x
+   ``clone_minibatch_steps``) actually moves the imitation loss, steps the
+   optimizer the expected number of times, and orders its minibatches
+   deterministically per ``(misc.seed, iteration)``.
+9. ``BootstrapField`` parse / format round-trip for the DAgger expert field.
 """
 
 from __future__ import annotations
 
+import math
 import pathlib
 import random
 import typing
@@ -408,3 +413,167 @@ def test_validate_dagger_expert_raises_on_num_players_mismatch(
 
     with pytest.raises(ValueError, match=r"num_players=2.*num_players=3"):
         loop_resume.validate_dagger_expert(_FakeLoop())  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# 8. Clone-phase optimisation schedule
+
+
+def test_imitation_loss_decreases_on_fixed_batch(tmp_path: pathlib.Path) -> None:
+    """Per-minibatch SGD (``clone_epochs`` shuffled passes, one optimizer step
+    per ``clone_minibatch_steps`` chunk) actually drives the imitation
+    cross-entropy down on a fixed batch of games — the bug this feature fixes
+    is that the RL path's single accumulated step per iteration left the loss
+    flat (docs/TRAINING.md §6.8 "Why cloning steps per minibatch").
+
+    The expert's targets are sharpened to a hard one-hot (on each step's first
+    legal candidate) rather than left as a second freshly-initialized net's raw
+    softmax: cross-entropy is bounded below by the target's own entropy, and two
+    fresh nets are both near-uniform, so the raw-softmax loss already sits at
+    its floor and cannot fall. A one-hot target has zero entropy, giving the
+    optimizer real room to move the loss so the test exercises the stepping
+    mechanics.
+    """
+    cfg = _small_cfg(tmp_path).model_copy(
+        update={"dagger": config.DaggerConfig(clone_epochs=2, clone_minibatch_steps=64)}
+    )
+    device = torch.device("cpu")
+
+    torch.manual_seed(1)  # pyright: ignore[reportUnknownMemberType]
+    student = _small_net(cfg)
+    torch.manual_seed(2)  # pyright: ignore[reportUnknownMemberType]
+    expert = _small_net(cfg)  # different init; only used to shape real self-play games
+
+    rng = random.Random(123)
+    records = [
+        collect.play_game(student, device, rng, seed=seed, expert_net=expert)
+        for seed in (201, 202, 203)
+    ]
+    for record in records:
+        for step in record.steps:
+            if step.expert_probs is not None:
+                hard_target = np.zeros_like(step.expert_probs)
+                hard_target[0] = 1.0
+                step.expert_probs = hard_target
+
+    optimizer = torch.optim.Adam(student.parameters(), lr=2e-2)
+    losses: list[float] = []
+    for iteration in range(5):
+        stats = learner.update(
+            student,
+            optimizer,
+            records,
+            cfg,
+            device,
+            imitation_phase=True,
+            iteration=iteration,
+        )
+        losses.append(stats.imitation_loss)
+        assert stats.policy_loss == 0.0
+        assert stats.entropy == 0.0
+
+    assert losses[0] > 0.0
+    assert losses[-1] < 0.8 * losses[0], f"loss did not drop enough: {losses}"
+
+
+def test_imitation_update_steps_once_per_minibatch(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cloning takes one ``optimizer.step()`` per minibatch per epoch — unlike
+    the RL update, which accumulates gradients and steps once per epoch."""
+    clone_epochs = 2
+    clone_minibatch_steps = 64
+    cfg = _small_cfg(tmp_path).model_copy(
+        update={
+            "dagger": config.DaggerConfig(
+                clone_epochs=clone_epochs, clone_minibatch_steps=clone_minibatch_steps
+            )
+        }
+    )
+    device = torch.device("cpu")
+
+    torch.manual_seed(1)  # pyright: ignore[reportUnknownMemberType]
+    student = _small_net(cfg)
+    torch.manual_seed(2)  # pyright: ignore[reportUnknownMemberType]
+    expert = _small_net(cfg)
+
+    rng = random.Random(321)
+    records = [
+        collect.play_game(student, device, rng, seed=seed, expert_net=expert)
+        for seed in (301, 302, 303)
+    ]
+    n_steps = sum(len(record.steps) for record in records)
+
+    optimizer = torch.optim.Adam(student.parameters(), lr=1e-3)
+    step_calls = 0
+
+    def _counting_step() -> None:
+        nonlocal step_calls
+        step_calls += 1
+        torch.optim.Adam.step(optimizer)  # pyright: ignore[reportUnknownMemberType]
+
+    monkeypatch.setattr(optimizer, "step", _counting_step)
+
+    learner.update(
+        student, optimizer, records, cfg, device, imitation_phase=True, iteration=0
+    )
+
+    expected_steps = clone_epochs * math.ceil(n_steps / clone_minibatch_steps)
+    assert step_calls == expected_steps
+    assert step_calls > 1
+
+
+def test_imitation_update_is_deterministic(tmp_path: pathlib.Path) -> None:
+    """Same seed + same records + same iteration produces byte-identical
+    post-update weights: the minibatch order is seeded by ``(misc.seed,
+    iteration)`` and the small test net runs in eval mode, so no other
+    randomness enters the update.
+
+    ``clone_minibatch_steps`` is kept small relative to the batch so a game's
+    decisions span several minibatches per epoch: with only one minibatch,
+    reshuffling can't change which steps get averaged together, and the
+    follow-up "different iteration diverges" check below would be testing
+    float summation-order noise instead of a real behavioral difference.
+    """
+    cfg = _small_cfg(tmp_path).model_copy(
+        update={"dagger": config.DaggerConfig(clone_epochs=1, clone_minibatch_steps=16)}
+    )
+    device = torch.device("cpu")
+
+    torch.manual_seed(2)  # pyright: ignore[reportUnknownMemberType]
+    expert = _small_net(cfg)
+    torch.manual_seed(9)  # pyright: ignore[reportUnknownMemberType]
+    labeler = _small_net(cfg)
+    rng = random.Random(555)
+    records = [
+        collect.play_game(labeler, device, rng, seed=seed, expert_net=expert)
+        for seed in (401, 402, 403)
+    ]
+
+    def _run_update(iteration: int) -> dict[str, torch.Tensor]:
+        torch.manual_seed(1)  # pyright: ignore[reportUnknownMemberType]
+        student = _small_net(cfg)
+        optimizer = torch.optim.Adam(student.parameters(), lr=1e-3)
+        learner.update(
+            student,
+            optimizer,
+            records,
+            cfg,
+            device,
+            imitation_phase=True,
+            iteration=iteration,
+        )
+        return dict(student.state_dict())
+
+    state_a = _run_update(3)
+    state_b = _run_update(3)
+    for key in state_a:
+        assert torch.equal(
+            state_a[key], state_b[key]
+        ), f"{key} differs across identical runs"
+
+    # A different iteration reshuffles into different minibatches, so the
+    # gradient trajectory (and final weights) should diverge.
+    state_c = _run_update(4)
+    any_diff = any(not torch.equal(state_a[key], state_c[key]) for key in state_a)
+    assert any_diff, "a different iteration should reshuffle and diverge weights"

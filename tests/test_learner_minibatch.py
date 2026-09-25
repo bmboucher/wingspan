@@ -215,8 +215,10 @@ def test_gae_only_minibatch_equivalent_to_full_batch():
 # ---------------------------------------------------------------------------
 
 
-def test_imitation_minibatch_runs_and_changes_weights():
-    """Minibatched imitation update completes and changes network weights."""
+def test_imitation_update_runs_and_changes_weights():
+    """The clone-phase update (one optimizer step per ``clone_minibatch_steps``
+    chunk) completes and changes network weights; ``update_minibatch_steps``
+    is not consulted on that path."""
     net = model.PolicyValueNet()
     device = torch.device("cpu")
     rng = random.Random(5)
@@ -231,7 +233,7 @@ def test_imitation_minibatch_runs_and_changes_weights():
     flat_count = sum(len(rec.steps) for rec in records)
     mb_size = max(1, flat_count // 4)
     cfg = config.RunConfig(
-        training=config.TrainingConfig(update_minibatch_steps=mb_size)
+        dagger=config.DaggerConfig(clone_epochs=1, clone_minibatch_steps=mb_size)
     )
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     params_before = [p.detach().clone() for p in net.parameters()]

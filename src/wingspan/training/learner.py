@@ -1,10 +1,10 @@
-"""The gradient update: length-bucketed actor-critic with optional PPO / GAE.
+"""The gradient update: length-bucketed actor-critic with optional PPO / GAE,
+plus a separate DAgger imitation path.
 
-:func:`update` dispatches between two update paths:
+:func:`update` dispatches between three update paths:
 
 * **Single-pass (default)** — one length-bucketed REINFORCE step with advantage
-  normalization and an optional DAgger imitation loss (``imitation_phase=True``).
-  This is today's path; defaults reproduce it byte-for-byte.
+  normalization. This is today's path; defaults reproduce it byte-for-byte.
 
 * **Reuse path** — activated when ``cfg.training.policy_loss`` is ``PPO`` or
   ``cfg.training.reward_mode`` is ``GAE``. Advantages are computed **once** from
@@ -13,7 +13,17 @@
   PPO uses the clipped surrogate ``−min(ratio·A, clip(ratio,1±ε)·A)``; REINFORCE
   with GAE uses ``−(logp·A)``. Both share the length-bucketed forward pass.
 
-Both paths also have a **gradient-accumulation** variant, activated when
+* **Imitation path** — activated by ``imitation_phase=True`` (the DAgger clone
+  phase, ``docs/TRAINING.md §6.8``). Unlike the two RL paths above, which take
+  at most one gradient step per epoch, cloning shuffles the batch and takes
+  **one optimizer step per minibatch** of ``cfg.dagger.clone_minibatch_steps``
+  flattened steps, repeated for ``cfg.dagger.clone_epochs`` shuffled epochs —
+  supervised cross-entropy needs many small steps, not one giant accumulated
+  one. The loss is ``CE(student, expert) + VALUE_COEF·value_MSE``; there is no
+  policy-gradient or entropy term (the value head is kept to warm the critic
+  for the RL handoff).
+
+The two RL paths also have a **gradient-accumulation** variant, activated when
 ``cfg.training.update_minibatch_steps > 0``.  The batch is split into
 sequential minibatches of that many flattened steps; gradients are accumulated
 across them and the optimizer takes **one step per epoch** — reproducing
@@ -21,20 +31,17 @@ today's gradient up to float summation order while capping peak memory at the
 minibatch size (``docs/TRAINING.md §3.3``).  The default (``0``) leaves the
 existing paths byte-identical.
 
-Common to both paths:
+Common to the RL paths:
 
 * **Length-bucketing (TRAINING.md §4.2a):** steps grouped into option-count
   buckets padded only to each bucket's own width (≈40× memory reduction vs. a
-  single padded tensor).
+  single padded tensor). The imitation path also length-buckets each minibatch.
 
 * **Advantage normalization (TRAINING.md §3.3):** advantages centered and scaled
   to unit std before the policy loss.
 
-The loss is the standard actor-critic sum
-``policy_loss + VALUE_COEF·value_loss − ENTROPY_COEF·entropy`` (TRAINING.md §3.3),
-or, in the DAgger imitation phase, ``imitation_loss + VALUE_COEF·value_loss``
-where ``imitation_loss`` is the mask-weighted cross-entropy to the expert's soft
-targets (the value head is kept to warm the critic for the RL handoff).
+The RL loss is the standard actor-critic sum
+``policy_loss + VALUE_COEF·value_loss − ENTROPY_COEF·entropy`` (TRAINING.md §3.3).
 """
 
 from __future__ import annotations
@@ -86,20 +93,26 @@ def update(
 ) -> UpdateStats:
     """Run one length-bucketed update over ``records``' steps.
 
-    Dispatches to the single-pass REINFORCE path (today's algorithm, including
-    DAgger imitation mode) or the PPO / GAE reuse path based on
-    ``cfg.training.policy_loss`` and ``cfg.training.reward_mode``.  The default
-    config always dispatches to single-pass, preserving existing behaviour.
+    Dispatches to the DAgger imitation path (``imitation_phase=True``), the
+    single-pass REINFORCE path (today's algorithm), or the PPO / GAE reuse
+    path based on ``cfg.training.policy_loss`` and ``cfg.training.reward_mode``.
+    The default config always dispatches to single-pass, preserving existing
+    behaviour.
 
     The entropy coefficient is resolved once from ``cfg.entropy_coef_at(iteration)``
     (constant unless ``cfg.training.entropy_coef_final`` is set) and threaded into
-    every backward pass below, including each minibatch of a gradient-accumulated
-    update — so multi-epoch / multi-minibatch updates all see the same coefficient.
+    every backward pass of the two RL paths below, including each minibatch of a
+    gradient-accumulated update — so multi-epoch / multi-minibatch updates all
+    see the same coefficient. The imitation path has no entropy term and never
+    reads it.
     """
+    if imitation_phase:
+        return _update_imitation(net, optimizer, records, cfg, device, iteration)
+
     ppo = cfg.training.policy_loss is config.PolicyLoss.PPO
     gae = cfg.training.reward_mode is config.RewardMode.GAE
     minibatch_steps = cfg.training.update_minibatch_steps
-    single_pass = imitation_phase or (not ppo and not gae)
+    single_pass = not ppo and not gae
     entropy_coef = cfg.entropy_coef_at(iteration)
     if minibatch_steps > 0:
         if single_pass:
@@ -109,7 +122,6 @@ def update(
                 records,
                 cfg,
                 device,
-                imitation_phase,
                 minibatch_steps,
                 entropy_coef,
             )
@@ -124,9 +136,7 @@ def update(
             entropy_coef=entropy_coef,
         )
     if single_pass:
-        return _update_single_pass(
-            net, optimizer, records, cfg, device, imitation_phase, entropy_coef
-        )
+        return _update_single_pass(net, optimizer, records, cfg, device, entropy_coef)
     return _update_reuse(
         net, optimizer, records, cfg, device, ppo=ppo, entropy_coef=entropy_coef
     )
@@ -167,13 +177,12 @@ def _update_single_pass(
     records: list[collect.GameRecord],
     cfg: config.RunConfig,
     device: torch.device,
-    imitation_phase: bool,
     entropy_coef: float,
 ) -> UpdateStats:
-    """One length-bucketed REINFORCE / DAgger update (single backward pass).
+    """One length-bucketed REINFORCE update (single backward pass).
 
     This is today's ``update()`` body extracted verbatim — the canonical path
-    for the default config (REINFORCE + MC returns) and all DAgger clone iters.
+    for the default config (REINFORCE + MC returns).
     """
     flat_steps, returns = _flatten(records, cfg)
     if not flat_steps:
@@ -181,16 +190,14 @@ def _update_single_pass(
 
     # Forward each bucket separately (padding stays narrow) and keep the
     # graph-carrying tensors so a single backward covers the whole batch.
+    # The imitation_ce / has_expert outputs of _forward_bucket are unused on
+    # this RL path (only the imitation update path reads them).
     chosen_logps: list[torch.Tensor] = []
     values: list[torch.Tensor] = []
     entropies: list[torch.Tensor] = []
     returns_parts: list[torch.Tensor] = []
-    imitation_ces: list[torch.Tensor] = []
-    has_experts: list[torch.Tensor] = []
     for bucket in _bucketize(flat_steps):
-        logp, value, entropy, imitation_ce, has_expert = _forward_bucket(
-            net, device, flat_steps, bucket
-        )
+        logp, value, entropy, _, _ = _forward_bucket(net, device, flat_steps, bucket)
         chosen_logps.append(logp)
         values.append(value)
         entropies.append(entropy)
@@ -199,47 +206,25 @@ def _update_single_pass(
                 [returns[i] for i in bucket], dtype=torch.float32, device=device
             )
         )
-        imitation_ces.append(imitation_ce)
-        has_experts.append(has_expert)
 
     logp_all = torch.cat(chosen_logps)
     value_all = torch.cat(values)
     entropy_all = torch.cat(entropies)
     return_all = torch.cat(returns_parts)
-    imitation_ce_all = torch.cat(imitation_ces)
-    has_expert_all = torch.cat(has_experts)
 
     value_loss = F.mse_loss(value_all, return_all)
 
-    if imitation_phase:
-        # Pure imitation: minimize cross-entropy to expert's soft targets.
-        # Mask-weighted mean over labeled steps only; clamp(min=1) guards the
-        # all-unlabeled edge (family_idx >= expert_net.num_families, i.e.
-        # SETUP steps when the expert was trained without the SETUP head).
-        imitation_loss_t = (imitation_ce_all * has_expert_all).sum() / (
-            has_expert_all.sum().clamp(min=1)
-        )
-        loss = imitation_loss_t + cfg.training.value_coef * value_loss
-        # No policy-gradient or entropy in imitation mode.
-        policy_loss_t = torch.zeros(1, device=device)
-        entropy_t = torch.zeros(1, device=device)
-        adv_mean = torch.zeros(1, device=device)
-        adv_std = torch.zeros(1, device=device)
-    else:
-        # Advantage = return − baseline, normalized across the batch (TRAINING.md §3.3).
-        advantage = return_all - value_all.detach()
-        adv_mean = advantage.mean()
-        adv_std = advantage.std()
-        norm_advantage = (advantage - adv_mean) / (adv_std + _ADV_STD_EPS)
+    # Advantage = return − baseline, normalized across the batch (TRAINING.md §3.3).
+    advantage = return_all - value_all.detach()
+    adv_mean = advantage.mean()
+    adv_std = advantage.std()
+    norm_advantage = (advantage - adv_mean) / (adv_std + _ADV_STD_EPS)
 
-        policy_loss_t = -(logp_all * norm_advantage).mean()
-        entropy_t = entropy_all.mean()
-        loss = (
-            policy_loss_t
-            + cfg.training.value_coef * value_loss
-            - entropy_coef * entropy_t
-        )
-        imitation_loss_t = torch.zeros(1, device=device)
+    policy_loss_t = -(logp_all * norm_advantage).mean()
+    entropy_t = entropy_all.mean()
+    loss = (
+        policy_loss_t + cfg.training.value_coef * value_loss - entropy_coef * entropy_t
+    )
 
     optimizer.zero_grad()
     # torch's stub types Tensor.backward with unknown parameters; the precise
@@ -259,7 +244,6 @@ def _update_single_pass(
         grad_norm=float(grad_norm),
         advantage_mean=float(adv_mean.detach()),
         advantage_std=float(adv_std.detach()),
-        imitation_loss=float(imitation_loss_t.detach()),
         n_steps=len(flat_steps),
     )
 
@@ -601,7 +585,6 @@ def _update_single_pass_minibatched(
     records: list[collect.GameRecord],
     cfg: config.RunConfig,
     device: torch.device,
-    imitation_phase: bool,
     minibatch_steps: int,
     entropy_coef: float,
 ) -> UpdateStats:
@@ -617,47 +600,33 @@ def _update_single_pass_minibatched(
 
     N = len(flat_steps)
 
-    # Pre-compute global advantage normalization before the grad loop.
-    if imitation_phase:
-        # No advantages; count expert-labeled steps for the CE denominator.
-        K_expert_total = float(
-            sum(1.0 for step in flat_steps if step.expert_probs is not None)
-        )
-        adv_mean = adv_std = 0.0
-        # Sentinel tensors — never indexed in imitation mode.
-        norm_adv_flat = torch.empty(0, device=device)
-        returns_t_pre = torch.empty(0, device=device)
-    else:
-        # No-grad prepass: build advantages in BUCKET ORDER, reproducing the
-        # exact same float operations as _update_single_pass so mean/std are
-        # bitwise identical to the full-batch path.  Scatter to flat order so
-        # the grad loop can index by global step index.
-        adv_parts_pre: list[torch.Tensor] = []
-        bucket_global_order: list[int] = []
-        with torch.no_grad():
-            for bucket in _bucketize(flat_steps):
-                _, value_b, _, _, _ = _forward_bucket(net, device, flat_steps, bucket)
-                ret_b = torch.tensor(
-                    [returns[i] for i in bucket], dtype=torch.float32, device=device
-                )
-                adv_parts_pre.append(ret_b - value_b)
-                bucket_global_order.extend(bucket)
-        adv_t = torch.cat(
-            adv_parts_pre
-        )  # bucket order — same as `advantage` in full-batch
-        adv_mean = float(adv_t.mean().item())
-        adv_std = float(adv_t.std().item())
-        norm_adv_bucket = (adv_t - adv_t.mean()) / (adv_t.std() + _ADV_STD_EPS)
-        # Scatter normalized advantages and flat-order returns for the grad loop.
-        norm_adv_flat = torch.empty(N, dtype=torch.float32, device=device)
-        for pos, global_idx in enumerate(bucket_global_order):
-            norm_adv_flat[global_idx] = norm_adv_bucket[pos]
-        returns_t_pre = torch.tensor(returns, dtype=torch.float32, device=device)
-        K_expert_total = 0.0
+    # No-grad prepass: build advantages in BUCKET ORDER, reproducing the exact
+    # same float operations as _update_single_pass so mean/std are bitwise
+    # identical to the full-batch path.  Scatter to flat order so the grad
+    # loop can index by global step index.
+    adv_parts_pre: list[torch.Tensor] = []
+    bucket_global_order: list[int] = []
+    with torch.no_grad():
+        for bucket in _bucketize(flat_steps):
+            _, value_b, _, _, _ = _forward_bucket(net, device, flat_steps, bucket)
+            ret_b = torch.tensor(
+                [returns[i] for i in bucket], dtype=torch.float32, device=device
+            )
+            adv_parts_pre.append(ret_b - value_b)
+            bucket_global_order.extend(bucket)
+    adv_t = torch.cat(adv_parts_pre)  # bucket order — same as `advantage` in full-batch
+    adv_mean = float(adv_t.mean().item())
+    adv_std = float(adv_t.std().item())
+    norm_adv_bucket = (adv_t - adv_t.mean()) / (adv_t.std() + _ADV_STD_EPS)
+    # Scatter normalized advantages and flat-order returns for the grad loop.
+    norm_adv_flat = torch.empty(N, dtype=torch.float32, device=device)
+    for pos, global_idx in enumerate(bucket_global_order):
+        norm_adv_flat[global_idx] = norm_adv_bucket[pos]
+    returns_t_pre = torch.tensor(returns, dtype=torch.float32, device=device)
 
     # Gradient accumulation: forward each minibatch, backward, repeat.
     optimizer.zero_grad()
-    acc_loss = acc_ploss = acc_vloss = acc_ent = acc_imit = 0.0
+    acc_loss = acc_ploss = acc_vloss = acc_ent = 0.0
 
     for mb_indices in _minibatch_chunks(N, minibatch_steps):
         mb_size = len(mb_indices)
@@ -665,71 +634,44 @@ def _update_single_pass_minibatched(
         chosen_logps: list[torch.Tensor] = []
         values_mb: list[torch.Tensor] = []
         entropies: list[torch.Tensor] = []
-        imit_ces: list[torch.Tensor] = []
-        has_experts: list[torch.Tensor] = []
         adv_parts: list[torch.Tensor] = []
         return_parts: list[torch.Tensor] = []
 
         for bucket in _bucketize_indices(flat_steps, mb_indices):
-            logp_b, value_b, entropy_b, imit_ce_b, has_expert_b = _forward_bucket(
+            logp_b, value_b, entropy_b, _, _ = _forward_bucket(
                 net, device, flat_steps, bucket
             )
             chosen_logps.append(logp_b)
             values_mb.append(value_b)
             entropies.append(entropy_b)
-            imit_ces.append(imit_ce_b)
-            has_experts.append(has_expert_b)
-            if not imitation_phase:
-                # Index pre-computed tensors by global step index — avoids
-                # Python-float round-trips and keeps ordering consistent with
-                # the forward tensors above.
-                bucket_t = torch.tensor(bucket, dtype=torch.long, device=device)
-                adv_parts.append(norm_adv_flat[bucket_t])
-                return_parts.append(returns_t_pre[bucket_t])
+            # Index pre-computed tensors by global step index — avoids
+            # Python-float round-trips and keeps ordering consistent with
+            # the forward tensors above.
+            bucket_t = torch.tensor(bucket, dtype=torch.long, device=device)
+            adv_parts.append(norm_adv_flat[bucket_t])
+            return_parts.append(returns_t_pre[bucket_t])
 
         logp_mb = torch.cat(chosen_logps)
         value_mb = torch.cat(values_mb)
         entropy_mb = torch.cat(entropies)
-        imit_ce_mb = torch.cat(imit_ces)
-        has_expert_mb = torch.cat(has_experts)
-
-        if imitation_phase:
-            return_mb = torch.tensor(
-                [returns[i] for i in mb_indices], dtype=torch.float32, device=device
-            )
-            value_loss_mb = F.mse_loss(value_mb, return_mb)
-            # Scale CE sum by 1/K_expert_total (global denominator) so the
-            # accumulated backward sums to the full-batch imitation loss.
-            imit_loss_mb = (imit_ce_mb * has_expert_mb).sum() / max(K_expert_total, 1.0)
-            mb_loss = (
-                imit_loss_mb + (mb_size / N) * cfg.training.value_coef * value_loss_mb
-            )
-            policy_loss_mb = torch.zeros(1, device=device)
-            entropy_t_mb = torch.zeros(1, device=device)
-        else:
-            norm_adv_mb = torch.cat(adv_parts)
-            return_mb = torch.cat(return_parts)
-            value_loss_mb = F.mse_loss(value_mb, return_mb)
-            policy_loss_mb = -(logp_mb * norm_adv_mb).mean()
-            entropy_t_mb = entropy_mb.mean()
-            mb_loss = (mb_size / N) * (
-                policy_loss_mb
-                + cfg.training.value_coef * value_loss_mb
-                - entropy_coef * entropy_t_mb
-            )
+        norm_adv_mb = torch.cat(adv_parts)
+        return_mb = torch.cat(return_parts)
+        value_loss_mb = F.mse_loss(value_mb, return_mb)
+        policy_loss_mb = -(logp_mb * norm_adv_mb).mean()
+        entropy_t_mb = entropy_mb.mean()
+        mb_loss = (mb_size / N) * (
+            policy_loss_mb
+            + cfg.training.value_coef * value_loss_mb
+            - entropy_coef * entropy_t_mb
+        )
 
         mb_loss.backward()  # pyright: ignore[reportUnknownMemberType]
 
         # Accumulate weighted stats for the final report.
         weight = mb_size / N
         acc_vloss += weight * float(value_loss_mb.detach())
-        if imitation_phase:
-            acc_imit += float((imit_ce_mb * has_expert_mb).sum().detach()) / max(
-                K_expert_total, 1.0
-            )
-        else:
-            acc_ploss += weight * float(policy_loss_mb.detach())
-            acc_ent += weight * float(entropy_t_mb.detach())
+        acc_ploss += weight * float(policy_loss_mb.detach())
+        acc_ent += weight * float(entropy_t_mb.detach())
         acc_loss += float(mb_loss.detach())
 
     grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -745,7 +687,6 @@ def _update_single_pass_minibatched(
         grad_norm=float(grad_norm),
         advantage_mean=adv_mean,
         advantage_std=adv_std,
-        imitation_loss=acc_imit,
         n_steps=N,
     )
 
@@ -888,6 +829,161 @@ def _update_reuse_minibatched(
         n_steps=N,
         clip_fraction=last_clip,
         approx_kl=last_kl,
+    )
+
+
+#### Imitation (DAgger clone) update path ####
+
+
+class _MinibatchStepStats(pydantic.BaseModel):
+    """Pre-step losses and grad norm from one imitation-minibatch optimizer step.
+
+    ``imitation_ce_sum`` / ``labelled_steps`` carry the cross-entropy sum and
+    the count of expert-labelled steps so the epoch can report the
+    labelled-step mean rather than an all-steps weighted mean."""
+
+    loss: float
+    imitation_ce_sum: float
+    labelled_steps: int
+    value_loss: float
+    grad_norm: float
+
+
+class _EpochStats(pydantic.BaseModel):
+    """Running totals for one clone epoch: step-weighted mean losses plus the
+    labelled-step cross-entropy mean."""
+
+    loss: float = 0.0
+    imitation_ce_sum: float = 0.0
+    labelled_steps: int = 0
+    value_loss: float = 0.0
+    grad_norm: float = 0.0
+
+    @property
+    def imitation_loss(self) -> float:
+        """Mean cross-entropy over the epoch's expert-labelled steps."""
+        return self.imitation_ce_sum / max(self.labelled_steps, 1)
+
+
+def _update_imitation(
+    net: model.PolicyValueNet,
+    optimizer: optim.Optimizer,
+    records: list[collect.GameRecord],
+    cfg: config.RunConfig,
+    device: torch.device,
+    iteration: int,
+) -> UpdateStats:
+    """DAgger clone-phase update: many small SGD steps over shuffled minibatches.
+
+    Unlike the RL paths above (at most one gradient step per epoch), cloning
+    takes one full ``optimizer.step()`` per minibatch of
+    ``cfg.dagger.clone_minibatch_steps`` steps, repeated for
+    ``cfg.dagger.clone_epochs`` freshly-shuffled epochs — supervised
+    cross-entropy needs many small steps to actually move the loss (see
+    ``docs/TRAINING.md`` §6.8 "Why cloning steps per minibatch").
+    ``cfg.training.update_minibatch_steps`` is not consulted here.
+
+    Reports the last epoch: ``loss`` / ``value_loss`` are the step-weighted
+    means of each minibatch's pre-step loss, ``imitation_loss`` is the mean
+    cross-entropy over the epoch's expert-labelled steps, ``grad_norm`` is the
+    last minibatch's. The minibatch order is deterministic per
+    ``(cfg.misc.seed, iteration)``; dropout, if enabled, still draws from the
+    torch global RNG.
+    """
+    flat_steps, step_returns = _flatten(records, cfg)
+    if not flat_steps:
+        return _empty_stats()
+
+    n_steps = len(flat_steps)
+    returns_t = torch.tensor(step_returns, dtype=torch.float32, device=device)
+    shuffle_rng = np.random.default_rng([cfg.misc.seed, iteration])
+
+    # Each epoch: reshuffle, then one optimizer.step() per minibatch chunk.
+    epoch = _EpochStats()
+    for _ in range(cfg.dagger.clone_epochs):
+        permutation = shuffle_rng.permutation(n_steps).tolist()
+        epoch = _EpochStats()
+        for chunk in _minibatch_chunks(n_steps, cfg.dagger.clone_minibatch_steps):
+            mb_indices = [permutation[position] for position in chunk]
+            step_stats = _imitation_minibatch_step(
+                net, optimizer, flat_steps, returns_t, mb_indices, cfg, device
+            )
+            weight = len(mb_indices) / n_steps
+            epoch.loss += weight * step_stats.loss
+            epoch.value_loss += weight * step_stats.value_loss
+            epoch.imitation_ce_sum += step_stats.imitation_ce_sum
+            epoch.labelled_steps += step_stats.labelled_steps
+            epoch.grad_norm = step_stats.grad_norm
+
+    return UpdateStats(
+        loss=epoch.loss,
+        policy_loss=0.0,
+        value_loss=epoch.value_loss,
+        entropy=0.0,
+        grad_norm=epoch.grad_norm,
+        advantage_mean=0.0,
+        advantage_std=0.0,
+        imitation_loss=epoch.imitation_loss,
+        n_steps=n_steps,
+    )
+
+
+def _imitation_minibatch_step(
+    net: model.PolicyValueNet,
+    optimizer: optim.Optimizer,
+    flat_steps: list[steps.Step],
+    returns_t: torch.Tensor,
+    mb_indices: list[int],
+    cfg: config.RunConfig,
+    device: torch.device,
+) -> _MinibatchStepStats:
+    """Forward one imitation minibatch, backward, and take one optimizer step.
+
+    Loss is ``CE(student, expert) + value_coef * value_MSE`` — no
+    policy-gradient or entropy term (``docs/TRAINING.md §6.8``).
+    """
+    # Forward every option-count bucket in this minibatch and concatenate.
+    value_parts: list[torch.Tensor] = []
+    imitation_ce_parts: list[torch.Tensor] = []
+    has_expert_parts: list[torch.Tensor] = []
+    return_parts: list[torch.Tensor] = []
+    for bucket in _bucketize_indices(flat_steps, mb_indices):
+        _, value_b, _, imitation_ce_b, has_expert_b = _forward_bucket(
+            net, device, flat_steps, bucket
+        )
+        value_parts.append(value_b)
+        imitation_ce_parts.append(imitation_ce_b)
+        has_expert_parts.append(has_expert_b)
+        bucket_t = torch.tensor(bucket, dtype=torch.long, device=device)
+        return_parts.append(returns_t[bucket_t])
+
+    value_mb = torch.cat(value_parts)
+    imitation_ce_mb = torch.cat(imitation_ce_parts)
+    has_expert_mb = torch.cat(has_expert_parts)
+    return_mb = torch.cat(return_parts)
+
+    # Mask-weighted mean CE over labelled steps in this minibatch; clamp
+    # guards an all-unlabelled minibatch (e.g. SETUP steps when the expert
+    # lacks the SETUP head).
+    imitation_ce_sum = (imitation_ce_mb * has_expert_mb).sum()
+    labelled_steps = has_expert_mb.sum()
+    imitation_loss = imitation_ce_sum / labelled_steps.clamp(min=1)
+    value_loss = F.mse_loss(value_mb, return_mb)
+    loss = imitation_loss + cfg.training.value_coef * value_loss
+
+    optimizer.zero_grad()
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]
+    grad_norm = torch.nn.utils.clip_grad_norm_(
+        net.parameters(), max_norm=cfg.training.grad_clip
+    )
+    optimizer.step()
+
+    return _MinibatchStepStats(
+        loss=float(loss.detach()),
+        imitation_ce_sum=float(imitation_ce_sum.detach()),
+        labelled_steps=int(labelled_steps.item()),
+        value_loss=float(value_loss.detach()),
+        grad_norm=float(grad_norm),
     )
 
 

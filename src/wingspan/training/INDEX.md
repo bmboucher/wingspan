@@ -76,11 +76,15 @@ top-level computed properties so call sites don't churn.
   `produce_ewma_alpha`, `instrumentation`. `_migrate_legacy_device` seeds both
   roles from the pre-split single `device` key (explicit new keys win).
 - `dagger: DaggerConfig` — `expert_checkpoint` (`.pt` path or `"none"`),
-  `clone_iters` (pure imitation iters before RL). `dagger.expert_checkpoint` is
-  retained for old-artifact loading but ignored at runtime — the active expert is
-  always derived from `bootstrap_opponent_checkpoint` (Workstream C). Cross-section
-  validation moved to module-level `validate_launchable(cfg) -> list[str]` (launch-
-  time check, not a model_validator) so in-progress edits never get hard-rejected.
+  `clone_iters` (pure imitation iters before RL), `clone_epochs` (shuffled passes
+  over the batch per clone iteration, default 4), `clone_minibatch_steps`
+  (flattened steps per optimizer step while cloning, default 2048 — one step per
+  minibatch, not one accumulated step per epoch like the RL update).
+  `dagger.expert_checkpoint` is retained for old-artifact loading but ignored at
+  runtime — the active expert is always derived from `bootstrap_opponent_checkpoint`
+  (Workstream C). Cross-section validation moved to module-level
+  `validate_launchable(cfg) -> list[str]` (launch-time check, not a
+  model_validator) so in-progress edits never get hard-rejected.
 - Top-level computed properties (delegating into sections): `arch:
   ModelArchitecture`, `setup_arch`, `setup_encoding`, `architecture_key`,
   `setup_architecture_key`, `encoding_spec`, `encoding_version`, `state_dim`,
@@ -340,18 +344,17 @@ one-step TD residual.
 ## Learning
 
 **`learner.py`** — `update(net, optimizer, records, cfg, device,
-imitation_phase=False, iteration=0)`: dispatches to one of two paths based on
-`cfg.training.policy_loss` and `cfg.training.reward_mode`. The entropy
+imitation_phase=False, iteration=0)`: when `imitation_phase=True`, dispatches
+immediately to the imitation path; otherwise dispatches to one of two RL paths
+based on `cfg.training.policy_loss` and `cfg.training.reward_mode`. The entropy
 coefficient is resolved once via `cfg.entropy_coef_at(iteration)` and threaded
-into every backward pass below, including each minibatch of a
+into every backward pass of the RL paths below, including each minibatch of a
 gradient-accumulated update:
 - **Single-pass path** (`_update_single_pass`): today's length-bucketed REINFORCE
   with advantage normalization. Used when `policy_loss=REINFORCE` and
-  `reward_mode ∈ {terminal_margin, decision_delta}`, and always during DAgger
-  (`imitation_phase=True`). DAgger loss is `CE(student, expert) +
-  value_coef * value_MSE`; RL mode is `policy_loss + value_coef * value_MSE −
-  entropy_coef * entropy`. Returns `UpdateStats` with `imitation_loss: float`
-  (0.0 in RL mode), `clip_fraction=0.0`, `approx_kl=0.0`.
+  `reward_mode ∈ {terminal_margin, decision_delta}`. RL loss is `policy_loss +
+  value_coef * value_MSE − entropy_coef * entropy`. Returns `UpdateStats` with
+  `imitation_loss=0.0`, `clip_fraction=0.0`, `approx_kl=0.0`.
 - **Reuse path** (`_update_reuse`): activated when `policy_loss=PPO` or
   `reward_mode=GAE`. Advantages + value targets are computed **once** from the
   captured `Step.behavior_logp` / `Step.value_pred` (via `_flatten_with_advantages`
@@ -359,14 +362,25 @@ gradient-accumulated update:
   passes. PPO uses the clipped surrogate `−min(ratio·A, clip(ratio,1±ε)·A)`;
   REINFORCE+GAE uses `−(logp·A)`. Returns `UpdateStats` with `clip_fraction` and
   `approx_kl` from the final epoch.
-- **Gradient-accumulation minibatched variants** (`_update_single_pass_minibatched`,
+- **Gradient-accumulation minibatched RL variants** (`_update_single_pass_minibatched`,
   `_update_reuse_minibatched`): activated when `cfg.training.update_minibatch_steps > 0`.
   Each path splits the flattened batch into sequential chunks of `update_minibatch_steps`
   steps, accumulates gradients across them, and calls `optimizer.step()` once per epoch
   — reproducing the full-batch gradient up to float summation order while capping peak
-  memory at the minibatch size. The single-pass variant does a no-grad pre-pass
-  (`_prepass_values`) to capture V(s) for global advantage normalization before the
-  grad loop. Helpers: `_minibatch_chunks(total, chunk_size)`, `_bucketize_indices(steps, indices)`.
+  memory at the minibatch size. The single-pass variant does an inline no-grad
+  pre-pass to capture V(s) for global advantage normalization before the grad
+  loop. Helpers: `_minibatch_chunks(total, chunk_size)`, `_bucketize_indices(steps, indices)`.
+- **Imitation path** (`_update_imitation` + `_imitation_minibatch_step`): the
+  DAgger clone-phase update (`imitation_phase=True`). Unlike the RL paths (one
+  gradient step per epoch), it takes one full `optimizer.step()` per minibatch:
+  for each of `cfg.dagger.clone_epochs` epochs it reshuffles
+  (`np.random.default_rng([cfg.misc.seed, iteration])`) and steps once per
+  `cfg.dagger.clone_minibatch_steps`-sized chunk (`_MinibatchStepStats`). Loss
+  is `CE(student, expert) + value_coef * value_MSE` (mask-weighted CE over
+  `has_expert`-labelled steps, clamped to guard an all-unlabelled minibatch) —
+  no policy-gradient or entropy term. Returns `UpdateStats` from the last
+  epoch's step-weighted mean losses and the last minibatch's grad norm, with
+  `policy_loss=0.0`, `entropy=0.0`.
 - `_flatten` pairs each step with its MC return per `cfg.reward_mode`:
   `_terminal_margin_returns` broadcasts the end-of-game margin; for
   `decision_delta`, `_decision_delta_returns` discounts per-decision

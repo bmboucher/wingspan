@@ -618,6 +618,8 @@ _ATTR_PATH: dict[str, tuple[str, ...]] = {
     # dagger section
     "dagger_expert_checkpoint": ("dagger", "expert_checkpoint"),
     "clone_iters": ("dagger", "clone_iters"),
+    "clone_epochs": ("dagger", "clone_epochs"),
+    "clone_minibatch_steps": ("dagger", "clone_minibatch_steps"),
     # engine section
     "combine_gain_food": ("engine", "combine_gain_food"),
 }
@@ -1093,6 +1095,33 @@ FIELD_SPECS: list[FieldSpec] = [
         "imitation labeling stops and training continues as the normal actor-critic "
         "loop against the same checkpoint opponent. Visible only when a checkpoint "
         "bootstrap opponent is set.",
+    ),
+    IntField(
+        attr="clone_epochs",
+        label="clone epochs",
+        group_path=("TRAINING", "CLONING"),
+        step=1,
+        impact=ChangeImpact.REGIME,
+        visible_when=_bootstrap_is_checkpoint,
+        help="Shuffled passes over the collected batch per clone iteration. "
+        "Cloning takes one optimizer step per clone minibatch (below), not one "
+        "accumulated step per epoch like the RL update — this is how many times "
+        "the batch is reshuffled and stepped through.",
+    ),
+    IntField(
+        attr="clone_minibatch_steps",
+        label="clone minibatch",
+        group_path=("TRAINING", "CLONING"),
+        unit="steps",
+        step=256,
+        impact=ChangeImpact.REGIME,
+        visible_when=_bootstrap_is_checkpoint,
+        help="Flattened steps per optimizer step while cloning. Each clone "
+        "epoch's shuffled batch is split into chunks of this size and takes "
+        "one full optimizer.step() per chunk. 'update minibatch' (TRAINING "
+        "group, which accumulates gradients across chunks for one step per "
+        "epoch) is ignored during the clone phase; this field alone sets its "
+        "minibatch size and peak memory.",
     ),
     # -----------------------------------------------------------------------
     # MODEL ARCHITECTURE

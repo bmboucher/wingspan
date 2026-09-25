@@ -1947,6 +1947,33 @@ def test_cloning_group_visibility():
     assert clone_spec.visible_when(checkpoint_cfg)
 
 
+def test_clone_schedule_fields_visibility():
+    """clone_epochs / clone_minibatch_steps follow the same CLONING visibility
+    as clone_iters: hidden for 'none'/'random' bootstrap, visible for a
+    checkpoint path."""
+    schedule_attrs = ["clone_epochs", "clone_minibatch_steps"]
+    for bootstrap in ("none", "random"):
+        cfg = config.RunConfig(
+            misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
+            opponent=config.OpponentConfig(bootstrap_opponent=bootstrap),
+        )
+        for attr in schedule_attrs:
+            spec = fields.spec_for(attr)
+            assert spec.visible_when is not None
+            assert not spec.visible_when(
+                cfg
+            ), f"{attr} should hide for bootstrap={bootstrap!r}"
+
+    checkpoint_cfg = config.RunConfig(
+        misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
+        opponent=config.OpponentConfig(bootstrap_opponent="some/archive/run/last.pt"),
+    )
+    for attr in schedule_attrs:
+        spec = fields.spec_for(attr)
+        assert spec.visible_when is not None
+        assert spec.visible_when(checkpoint_cfg)
+
+
 def test_ppo_fields_visibility():
     """PPO-specific fields appear only when policy_loss is PPO."""
     ppo_attrs = ["ppo_clip_eps", "ppo_reuse_epochs"]

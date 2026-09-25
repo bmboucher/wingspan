@@ -582,7 +582,11 @@ class DaggerConfig(pydantic.BaseModel):
     distribution.  The learner then minimizes cross-entropy to those targets
     instead of running the normal REINFORCE actor-critic update — pure imitation
     for ``clone_iters`` iterations, then the expert is dropped and training
-    reverts to the standard RL loop (TRAINING.md DAgger section).
+    reverts to the standard RL loop (TRAINING.md DAgger section).  Unlike the RL
+    update (one accumulated optimizer step per epoch), the imitation update
+    takes one optimizer step per shuffled minibatch of ``clone_minibatch_steps``
+    steps, repeated for ``clone_epochs`` epochs each clone iteration
+    (``docs/TRAINING.md`` §6.8 "Why cloning steps per minibatch").
 
     This is a REGIME change: all fields are config-carried and training-only,
     add no tensor-shape geometry, and leave ``encode_state``/``encode_choices``/
@@ -597,6 +601,17 @@ class DaggerConfig(pydantic.BaseModel):
     # Number of initial iterations to run in pure-imitation mode before
     # switching to the normal RL loop. 0 = never clone (default).
     clone_iters: typing.Annotated[int, pydantic.Field(ge=0)] = 0
+    # Shuffled passes over the collected batch per clone iteration. Supervised
+    # cloning needs many small SGD steps (not one accumulated step per epoch
+    # like the RL update) to actually move the cross-entropy loss — see
+    # ``docs/TRAINING.md`` §6.8 "Why cloning steps per minibatch".
+    clone_epochs: typing.Annotated[int, pydantic.Field(ge=1)] = 4
+    # Flattened steps per optimizer step while cloning: each epoch's shuffled
+    # batch is split into chunks of this size and takes one optimizer.step()
+    # per chunk. ``training.update_minibatch_steps`` (which accumulates
+    # gradients across chunks for one step per epoch) is ignored while cloning;
+    # this field alone sets the clone phase's minibatch size and peak memory.
+    clone_minibatch_steps: typing.Annotated[int, pydantic.Field(ge=1)] = 2048
 
 
 # ---------------------------------------------------------------------------
