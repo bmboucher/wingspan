@@ -157,3 +157,104 @@ Readout is the same list as above, with two additions: `imitation_loss` at
 iteration 24 should now sit well below 1.0 for every arm (it was 1.167 for
 both A and B), and the `representation` rows during the clone phase should
 show `rank95_over_width` holding up rather than falling to 1/64.
+
+### Rerun results (A2ln finished 2026-09-26, B2 2026-09-29, A2 2026-09-30)
+
+Archived under `runs/arch_pair/{A2,A2ln,B2}/archive/arch_pair_*/`. Same
+protocol as the first pair; only the clone phase changed.
+
+**The clone phase works now.** Imitation loss over the 25 clone iterations:
+
+| iter | A2 | A2ln | B2 |
+|---|---|---|---|
+| 0 | 0.825 | 0.644 | 0.625 |
+| 4 | 0.507 | 0.436 | 0.408 |
+| 12 | 0.404 | 0.394 | 0.378 |
+| 24 | 0.371 | 0.374 | 0.368 |
+
+(first pair: 1.167 → 1.163 / 1.107; champion entropy floor ≈ 0.21; uniform
+≈ 1.17). Value loss during cloning stayed at 0.02–0.07 (was 0.7–1.5), the
+policy entropy at the first PPO iteration was 0.37 nats (was 1.17), and by
+iteration 24 every arm was already at 48–49% collection win rate and ≈ 0
+margin against the champion (was 0% and −55). Twenty-five clone iterations,
+about 1.5 h, reach parity with a champion that took the original run ~1100
+iterations. The clone update takes ~53 s per iteration versus ~9 s before.
+
+A2's un-normalised trunk still dipped during the first clone iterations
+(trunk rank95 70 → 24/5/3/3 at iter 5) but recovered by iter 10 once the
+cross-entropy gradient dominated; nothing collapsed permanently.
+
+**All three arms are the same strength at 300 iterations.**
+
+| readout | A2 | A2ln | B2 |
+|---|---|---|---|
+| parameters | 659,277 | 660,557 | 630,453 |
+| `imitation_loss` @ iter 24 | 0.371 | 0.374 | 0.368 |
+| `collection_win_rate` vs champion, last 25 | 54.3% | 55.2% | 55.1% |
+| `avg_margin` vs champion, last 25 | +1.60 | +1.85 | +1.87 |
+| first trailing-5 ≥ 50% | iter 168 | iter 148 | iter 26 |
+| 25-iter block win rate, iters 25–49 | 44.0% | 44.5% | 47.4% |
+| 25-iter block win rate, iters 150–174 | 48.1% | 48.8% | 50.1% |
+| trunk rank95 (per layer) at iter 295 | 72/128, 36/128, 8/64, 6/64 | 74/128, 56/128, 24/64, 16/64 | 72/128, 29/64 |
+| choice rank95 at iter 295 | 55/128, 4/64, 3/64 | 68/128, 29/64, 23/64 | 67/128, 26/64 |
+| dead fraction, trunk tail / choice tail | 0.00 / 0.00 | 0.08 / 0.00 | 0.02 / 0.00 |
+| attention uniform-KL at iter 295 | 1.2e-2 | 7.2e-3 | 5.3e-3 |
+| collect s / 1000 games (PPO phase) | 161 | 151 | 148 |
+| games/s (PPO phase) | 6.26 | 6.61 | 7.01 |
+| self-play eval score at 300 | 81.3 | 81.7 | 81.4 |
+
+Paired per-iteration differences over iterations 25–299: B2 − A2 win rate
++2.2 points (sd 2.1), A2ln − A2 +0.6, B2 − A2ln +1.6; over iterations
+200–299 the B2 − A2 gap is +1.3 points and A2ln − A2 is +0.2. B2 is slightly
+ahead through the middle of the run and the gap closes by the end. All three
+are still rising slowly at 300 (block means 0.52 → 0.54 → 0.55). Games/s are
+lower than the first pair's 7.5 because the games are longer: 121 decisions
+per game against 93, a consequence of the stronger policies, not of the
+architectures. Within the rerun, B2 collects ~9% faster than A2.
+
+Tournament, greedy play, 200 mirrored games per pair, seed 0 (the first
+pair's B included as a yardstick; A omitted, it lost 95.5% to the champion):
+
+| pair | row win rate (95% CI) | row margin |
+|---|---|---|
+| champion vs A2 | 57.0% ± 6.9 | +2.3 |
+| champion vs A2ln | 51.2% ± 6.9 | +1.6 |
+| champion vs B2 | 54.8% ± 6.9 | +2.1 |
+| A2 vs A2ln | 45.8% ± 6.9 | −0.3 |
+| A2ln vs B2 | 46.2% ± 6.9 | +0.1 |
+| A2 vs B2 | 48.8% ± 6.9 | −0.4 |
+| A2 / A2ln / B2 vs B (first pair) | 75.5% / 77.0% / 76.5% | +10 |
+| champion vs B | 81.8% ± 5.4 | +11.0 |
+
+Elo: A2ln 1560, B2 1551, champion 1537, A2 1537, B 1315. Every pair among
+the three new arms is within its confidence interval of 50%. The champion
+still edges all three under greedy play even though the sampled collection
+win rate is 55%; going first is worth ~8–15 points in these pairs, which is
+most of the champion's margin.
+
+**What this settles.**
+
+- The first pair's result was entirely the clone-phase confound. With a
+  working clone phase the three architectures are indistinguishable at 300
+  iterations, in sampled play, in greedy play and in self-play score.
+- The dead depth can be removed at no cost. B2 matches A2 and A2ln with 4.4%
+  fewer parameters, collects ~9% faster, and uses what it has: trunk and
+  choice tails at 0.45 rank95/width versus A2's 0.09 and 0.05. A2's tails are
+  still near-linear pass-throughs (linear R² 0.99), as the original probe
+  found.
+- LayerNorm is a robustness win, not a strength win at this budget. A2 and
+  A2ln end equal, but A2ln cloned faster at the start (0.64 vs 0.82 at iter
+  0), never dipped during cloning, and keeps every layer at rank ≥ 16/64
+  where A2's deep layers sit at 3–8/64.
+- Cloning from the champion is the cheap part of training. Parity in 25
+  iterations means a new architecture can be brought to the current best
+  policy in ~1.5 h, so architecture comparisons should run from this start
+  rather than from scratch.
+
+**What it does not settle.** Whether any of the shapes would pull ahead with
+a longer run or a different seed: one seed each, all three still rising at
+300, and the champion yardstick stops discriminating once the students pass
+it. A longer run would need a stronger or moving opponent (graduate off the
+pinned champion) to separate them. Recommended default going forward: B2's
+shape ((128, 64) trunk and choice, LayerNorm on, one attention head), on cost
+grounds.
