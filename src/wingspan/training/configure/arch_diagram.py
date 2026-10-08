@@ -283,12 +283,21 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
     """Sub-``_MIN_TWO_COL_WIDTH`` fallback: one labeled width-chain line per block
     (with ``+LN`` / ``+drop`` tags) plus the total — still live, just chromeless."""
     cfg = view.working
-    extras: list[str] = []
-    if cfg.architecture.main.layernorm:
-        extras.append("+LN")
-    if cfg.architecture.main.dropout > 0.0:
-        extras.append(f"+d{_fmt_dropout(cfg.architecture.main.dropout)}")
-    tags = ("  " + " ".join(extras)) if extras else ""
+
+    def _tags(layernorm: bool, dropout: float) -> str:
+        extras: list[str] = []
+        if layernorm:
+            extras.append("+LN")
+        if dropout > 0.0:
+            extras.append(f"+d{_fmt_dropout(dropout)}")
+        return ("  " + " ".join(extras)) if extras else ""
+
+    trunk_tags = _tags(
+        cfg.arch.trunk_layernorm_resolved, cfg.arch.trunk_dropout_resolved
+    )
+    choice_tags = _tags(
+        cfg.arch.choice_layernorm_resolved, cfg.arch.choice_dropout_resolved
+    )
     trunk_in = _trunk_in(cfg)
     choice_in = _choice_in(cfg)
     concat = cfg.arch.trunk_embed_width + cfg.arch.choice_embed_width
@@ -317,10 +326,12 @@ def _compact_rows(view: state.ConfiguratorState) -> tuple[list[text.Text], int]:
             ),
         ),
         _compact_line(
-            "TRUNK", _chain(trunk_in, cfg.architecture.main.trunk_layers), tags
+            "TRUNK", _chain(trunk_in, cfg.architecture.main.trunk_layers), trunk_tags
         ),
         _compact_line(
-            "CHOICE", _chain(choice_in, cfg.architecture.main.choice_layers), tags
+            "CHOICE",
+            _chain(choice_in, cfg.architecture.main.choice_layers),
+            choice_tags,
         ),
         _compact_line(
             "VALUE",
@@ -550,8 +561,8 @@ def _card_encoder_box(view: state.ConfiguratorState, content_w: int) -> list[tex
         _MAIN_OP_FIELDS,
         between_activation=str(cfg.arch.card_between_activation_resolved),
         final_activation=str(cfg.arch.card_final_activation_resolved),
-        dropout=cfg.architecture.main.dropout,
-        layernorm=cfg.architecture.main.layernorm,
+        dropout=cfg.arch.card_dropout_resolved,
+        layernorm=cfg.arch.card_layernorm_resolved,
     )
     return _model_block(
         view,
@@ -637,8 +648,8 @@ def _state_trunk_column(
         _MAIN_OP_FIELDS,
         between_activation=str(cfg.arch.trunk_between_activation_resolved),
         final_activation=str(cfg.arch.trunk_final_activation_resolved),
-        dropout=cfg.architecture.main.dropout,
-        layernorm=cfg.architecture.main.layernorm,
+        dropout=cfg.arch.trunk_dropout_resolved,
+        layernorm=cfg.arch.trunk_layernorm_resolved,
     )
     block = _model_block(
         view,
@@ -671,8 +682,8 @@ def _choice_encoder_column(
         _MAIN_OP_FIELDS,
         between_activation=str(cfg.arch.choice_between_activation_resolved),
         final_activation=str(cfg.arch.choice_final_activation_resolved),
-        dropout=cfg.architecture.main.dropout,
-        layernorm=cfg.architecture.main.layernorm,
+        dropout=cfg.arch.choice_dropout_resolved,
+        layernorm=cfg.arch.choice_layernorm_resolved,
     )
     block = _model_block(
         view,

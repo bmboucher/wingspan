@@ -865,6 +865,70 @@ def test_arch_diagram_layernorm_appears():
     assert "LayerNorm" in _box_diagram(_arch_state("layernorm", layernorm=True))
 
 
+def test_arch_diagram_layernorm_per_block_override():
+    # A per-block override must drive the diagram even when the global flag is
+    # off (e.g. trunk_layernorm=True, layernorm=False) — the diagram must read
+    # the resolved per-block flag, not the raw global one, mirroring how the
+    # model is actually built (regression for a card/trunk/choice diagram bug
+    # where the global flag was used instead of *_layernorm_resolved).
+    assert "LayerNorm" not in _box_diagram(_arch_state())  # all off, baseline
+    assert "LayerNorm" in _box_diagram(
+        _arch_state("trunk_layernorm", trunk_layernorm=True)
+    )
+    assert "LayerNorm" in _box_diagram(
+        _arch_state("choice_layernorm", choice_layernorm=True)
+    )
+    assert "LayerNorm" in _box_diagram(
+        _arch_state("card_layernorm", card_layernorm=True)
+    )
+
+    # The card encoder renders as a standalone full-width block (never paired
+    # side by side with another block), so its LayerNorm row can be localized.
+    out = _box_diagram(_arch_state("card_layernorm", card_layernorm=True))
+    assert "LayerNorm" in out.split("CARD ENCODER", 1)[1].split("STATE TRUNK", 1)[0]
+
+
+def test_arch_diagram_dropout_per_block_override():
+    # Same bug class as layernorm: a per-block dropout override must drive the
+    # diagram even when the global dropout is 0 (the real-world case: global
+    # dropout=0.0, trunk_dropout=choice_dropout=0.05).
+    assert "Dropout" not in _box_diagram(_arch_state())  # all off, baseline
+    assert "Dropout" in _box_diagram(_arch_state("trunk_dropout", trunk_dropout=0.05))
+    assert "Dropout" in _box_diagram(_arch_state("choice_dropout", choice_dropout=0.05))
+    assert "Dropout" in _box_diagram(_arch_state("card_dropout", card_dropout=0.05))
+
+
+def _compact_line(out: str, label: str) -> str:
+    """The single line of narrow-fallback output starting with ``label`` (e.g.
+    ``"TRUNK"``) — isolates one block's row so a tag check can't be confused by
+    another block's."""
+    (line,) = (row for row in out.splitlines() if row.startswith(f"{label:<7}"))
+    return line
+
+
+def test_arch_diagram_compact_tags_per_block_override():
+    # The narrow (<34 col) fallback has the same global-vs-per-block bug for its
+    # "+LN" / "+d.." tags — verify it resolves per block, not the global flag
+    # (real-world case: global off, trunk_layernorm/choice_layernorm on). Width
+    # 30 stays under the two-column floor (34) but is wide enough that a tag
+    # isn't clipped by the console's hard per-line truncation.
+    off = _render_diagram(_arch_state(), width=30, height=20)
+    assert "+LN" not in _compact_line(off, "TRUNK")
+    assert "+LN" not in _compact_line(off, "CHOICE")
+
+    trunk_on = _render_diagram(
+        _arch_state("trunk_layernorm", trunk_layernorm=True), width=30, height=20
+    )
+    assert "+LN" in _compact_line(trunk_on, "TRUNK")
+    assert "+LN" not in _compact_line(trunk_on, "CHOICE")
+
+    choice_on = _render_diagram(
+        _arch_state("choice_dropout", choice_dropout=0.05), width=30, height=20
+    )
+    assert "+d" in _compact_line(choice_on, "CHOICE")
+    assert "+d" not in _compact_line(choice_on, "TRUNK")
+
+
 def test_arch_diagram_activation_label():
     assert "relu" in _box_diagram(_arch_state())
     assert "gelu" in _box_diagram(
