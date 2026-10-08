@@ -261,6 +261,31 @@ def test_svg_per_block_activation_label():
     assert ">gelu<" in html
 
 
+def test_svg_layernorm_per_block_override():
+    # A per-block layernorm override must draw a LayerNorm row even with the
+    # global flag off (the real-world case: global layernorm=False,
+    # trunk_layernorm=choice_layernorm=True) — regression for a gap where the
+    # SVG diagram had no LayerNorm row kind at all, so param-correct runs
+    # silently rendered without it.
+    off = _report_html_for_arch(architecture.ModelArchitecture(), use_setup_model=True)
+    assert ">LayerNorm<" not in off
+
+    trunk_on = _report_html_for_arch(
+        architecture.ModelArchitecture(trunk_layernorm=True), use_setup_model=True
+    )
+    assert ">LayerNorm<" in trunk_on
+
+    choice_on = _report_html_for_arch(
+        architecture.ModelArchitecture(choice_layernorm=True), use_setup_model=True
+    )
+    assert ">LayerNorm<" in choice_on
+
+    card_on = _report_html_for_arch(
+        architecture.ModelArchitecture(card_layernorm=True), use_setup_model=True
+    )
+    assert ">LayerNorm<" in card_on
+
+
 def test_birds_tab_nav_button_present():
     """The Birds tab button is in the nav and the Model tab is active by default."""
     html = _report_html(use_setup_model=True)

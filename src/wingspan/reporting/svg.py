@@ -72,6 +72,7 @@ _SVG_TEXT_DIM = "#64748b"
 _SVG_LINEAR_COLOR = "#3b82f6"
 _SVG_ACT_COLOR = "#22c55e"
 _SVG_DROPOUT_COLOR = "#f59e0b"
+_SVG_LAYERNORM_COLOR = "#3FB4A6"  # matches the configurator terminal diagram's teal
 _SVG_IO_FILL = "#eef2ff"
 _SVG_IO_STROKE = "#c7d2fe"
 _SVG_IO_TEXT = "#4338ca"
@@ -269,16 +270,25 @@ def build_arch_svg(
 
 
 class _OpKind(enum.StrEnum):
-    """The three mini-row styles inside a block."""
+    """The mini-row styles inside a block."""
 
     LINEAR = "linear"
+    LAYERNORM = "layernorm"
     ACT = "act"
     DROPOUT = "dropout"
 
 
+_SVG_ROW_COLOR: dict[_OpKind, str] = {
+    _OpKind.LINEAR: _SVG_LINEAR_COLOR,
+    _OpKind.LAYERNORM: _SVG_LAYERNORM_COLOR,
+    _OpKind.ACT: _SVG_ACT_COLOR,
+    _OpKind.DROPOUT: _SVG_DROPOUT_COLOR,
+}
+
+
 class _OpRow(pydantic.BaseModel):
-    """One mini-row inside a block: a Linear (with its parameter count), an
-    activation, or a dropout layer."""
+    """One mini-row inside a block: a Linear or LayerNorm (each with its
+    parameter count), an activation, or a dropout layer."""
 
     kind: _OpKind
     label: str
@@ -436,6 +446,7 @@ def _card_unit(
             between_activation=arch.card_between_activation_resolved.value,
             final_activation=arch.card_final_activation_resolved.value,
             dropout=arch.card_dropout_resolved,
+            layernorm=arch.card_layernorm_resolved,
         ),
         sigma_text=_count_text(block.total),
         in_label="card features",
@@ -481,6 +492,7 @@ def _hand_unit(
                 between_activation=arch.hand_between_activation_resolved.value,
                 final_activation=arch.hand_final_activation_resolved.value,
                 dropout=arch.hand_dropout_resolved,
+                layernorm=arch.hand_layernorm_resolved,
             ),
             sigma_text=_count_text(total),
             in_label="card set + summary",
@@ -536,6 +548,7 @@ def _trunk_unit(
             between_activation=arch.trunk_between_activation_resolved.value,
             final_activation=arch.trunk_final_activation_resolved.value,
             dropout=arch.trunk_dropout_resolved,
+            layernorm=arch.trunk_layernorm_resolved,
         ),
         sigma_text=_count_text(block.total),
         in_label="state input",
@@ -638,6 +651,7 @@ def _choice_unit(
             between_activation=arch.choice_between_activation_resolved.value,
             final_activation=arch.choice_final_activation_resolved.value,
             dropout=arch.choice_dropout_resolved,
+            layernorm=arch.choice_layernorm_resolved,
         ),
         sigma_text=_count_text(block.total),
         in_label="choice input",
@@ -935,12 +949,16 @@ def _op_rows(
     between_activation: str,
     final_activation: str,
     dropout: float = 0.0,
+    layernorm: bool = False,
 ) -> tuple[_OpRow, ...]:
-    """The mini-rows for a block: one Linear row per layer, with the activation
-    rows the builders interleave. ``between_activation`` applies after every
-    non-final layer; ``final_activation`` applies after the last layer. Either
-    is skipped when its value is ``'none'``. When ``dropout > 0``, an amber
-    Dropout row follows each activation, matching the configurator terminal diagram."""
+    """The mini-rows for a block: one Linear row per layer, with the LayerNorm /
+    activation / Dropout rows the builders interleave. ``between_activation``
+    applies after every non-final layer; ``final_activation`` applies after the
+    last layer. Either is skipped when its value is ``'none'``. When
+    ``layernorm`` is set, a teal LayerNorm row follows every Linear row,
+    independent of activation (matching ``mlp.build_body``). When
+    ``dropout > 0``, an amber Dropout row follows each activation, matching the
+    configurator terminal diagram."""
     rows: list[_OpRow] = []
     for idx, layer in enumerate(layers):
         rows.append(
@@ -950,6 +968,10 @@ def _op_rows(
                 params=layer.linear,
             )
         )
+        if layernorm:
+            rows.append(
+                _OpRow(kind=_OpKind.LAYERNORM, label="LayerNorm", params=layer.norm)
+            )
         is_final = idx == len(layers) - 1
         act_label = final_activation if is_final else between_activation
         if act_label != "none":
@@ -1681,11 +1703,7 @@ def _draw_op_rows(
     parts: list[str] = []
     for idx, row in enumerate(rows):
         ry = rows_y0 + idx * _SVG_ROW_STRIDE
-        color = (
-            _SVG_LINEAR_COLOR
-            if row.kind is _OpKind.LINEAR
-            else _SVG_DROPOUT_COLOR if row.kind is _OpKind.DROPOUT else _SVG_ACT_COLOR
-        )
+        color = _SVG_ROW_COLOR[row.kind]
         parts.append(
             f'<rect x="{row_x}" y="{ry}" width="{row_w}" height="{_SVG_ROW_H}" '
             f'rx="{_SVG_RX_ROW}" fill="{color}" fill-opacity="0.06" '
