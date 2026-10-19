@@ -24,7 +24,7 @@ import typing
 import numpy as np
 import torch
 
-from wingspan import agents, decisions, engine, model, setup_model
+from wingspan import agents, decisions, engine, model
 from wingspan.players import decision_probe, loaders, spec
 from wingspan.training import config, policy
 from wingspan.training import setup_net as setup_net_module
@@ -220,8 +220,8 @@ def _handle_setup_decision[C: decisions.Choice](
         )
         return chosen
     setup_decision = typing.cast(decisions.SetupDecision, decision)
-    scores, probs, vecs = _compute_setup_scores_and_probs(
-        setup_net, setup_decision, eng, device
+    scores, probs, vecs = policy.setup_scores_and_probs(
+        setup_net, setup_decision, eng.state, device
     )
     _log_distribution(eng, decision, probs, greedy, scores=scores)
     n_choices = len(decision.choices)
@@ -345,50 +345,3 @@ def _log_distribution[C: decisions.Choice](
         label = decision.choices[option_idx].display_label()
         eng.log(f"    {label}", player_id=decision.player_id)
         eng.log(f"    {prob_pct:6.3f}%{score_str}", player_id=decision.player_id)
-
-
-#### Setup model scoring ####
-
-
-def _compute_setup_scores_and_probs(
-    net_instance: setup_net_module.SetupNet,
-    decision: decisions.SetupDecision,
-    eng: engine.Engine,
-    device: torch.device,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Score every choice in ``decision`` through the setup net.
-
-    Returns ``(scores, probs, vecs)`` where ``scores`` is the per-choice policy
-    logit vector (actor-critic mode, the only mode used in practice), ``probs``
-    is the softmax distribution, and ``vecs`` is the ``(N, D)`` matrix of raw
-    candidate feature vectors, all aligned to ``decision.choices``. The value
-    head is the state-only critic ``V(s)`` — identical across candidates — so a
-    value-only net cannot rank keeps; that fallback scores them uniformly."""
-    context = setup_model.SetupContext.from_state(eng.state, decision.dealt_bonus)
-
-    # Encode each choice through the net's own encode_candidate seam (not the
-    # free function paired with net_instance.encoding by hand), so a
-    # compat-era net (e.g. SetupNetV1_4) carries its own frozen pricing —
-    # the "encode through the net" rule (docs/VERSIONING.md).
-    vecs = np.stack(
-        [
-            net_instance.encode_candidate(
-                setup_model.SetupCandidate.from_setup_choice(choice), context
-            )
-            for choice in decision.choices
-        ]
-    )
-    feats = torch.tensor(vecs, dtype=torch.float32, device=device)
-
-    # Mirror collect.py: actor-critic nets rank candidates by policy logits. The
-    # value-only fallback reads the state-only V(s), identical for every
-    # candidate of a deal — a uniform (degenerate) ranking, never used in practice.
-    with torch.no_grad():
-        if net_instance.arch.use_policy_head:
-            scores = net_instance.policy_logits(feats).cpu().numpy()
-        else:
-            scores = net_instance(feats).cpu().numpy()
-
-    shifted = scores - scores.max()
-    weights = np.exp(shifted)
-    return scores, weights / weights.sum(), vecs

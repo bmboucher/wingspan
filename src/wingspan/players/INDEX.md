@@ -80,7 +80,8 @@ DecisionProbe | None = None) -> (Agent, TrainConfig|None)`:
 the top-level factory. Maps each `PlayerSpec.kind` to the appropriate agent
 constructor. AI policy agents record a `PolicyAnnotation` on the `DecisionProbe`
 after every genuine decision (after `chosen_idx` is resolved), enabling the HTML
-viewer's decision-box option bars. `_compute_setup_scores_and_probs` encodes each
+viewer's decision-box option bars. The setup scoring (`training.policy.setup_scores_and_probs`,
+moved there from the private `_compute_setup_scores_and_probs` so `greedy_agent` can share it) encodes each
 setup candidate through the `SetupNet` instance's own `encode_candidate` method
 (v1.5) rather than pairing the free `setup_model.encode_setup_candidate` function
 with the net's encoding by hand, so a compat-era subclass (e.g. `SetupNetV1_4`)

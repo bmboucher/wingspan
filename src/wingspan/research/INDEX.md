@@ -63,3 +63,38 @@ critic's V(s).
 `--workers`, `--device`, `--num-players`); the seat count defaults to the run
 config's trained `num_players`. A run without a setup model exits 1 with a
 message on stderr.
+
+**`game_stats.py`** — The model-performance study (RESEARCH.md "Model
+performance stats"). `run_game_stats_study(spec, checkpoint_dir, device,
+out_path) -> GameStatsSummary` loads the run's `best.pt` policy net, its setup
+net, and its regime (`load_game_nets` -> `GameNets`: nets, device, seat count,
+`split_setup_bonus` / `split_setup_food` / `combine_gain_food`), plans shards
+(`plan_shards`), and streams per-seat rows to `games_raw.csv` in shard order —
+in-process for `workers == 1`, otherwise a spawn-context pool whose workers each
+load the nets once (`torch.set_num_threads(1)`). `study_shard` / `play_game` are
+the pure units of work: one greedy self-play game per index, seeded by
+`spec.game_seed(index)` alone, the same `policy.greedy_agent(net, device,
+setup_net=...)` on every seat, captured by `GameStatsCapture`.
+
+**`game_stats_agg.py`** — Aggregates and the HTML preview, from the raw CSV
+(numpy only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir)`
+writes `breakdown_table.csv` / `.md`, `turn_scores.csv`, `action_freq.csv`,
+`game_pairs.csv`, and `preview.html` (Plotly via the pinned CDN URL from
+`reporting.training_summary`). Cohorts: `all` and `won` (sole winners; ties
+excluded). Building blocks: `read_raw_games`, `breakdown_rows`,
+`breakdown_markdown`, `turn_score_rows`, `action_freq_rows`, `game_pair_rows`,
+`preview_html`.
+
+**Game-stats models** (in `models.py`): `GameStatsSpec(games, seed, workers)`
+with `game_seed(index)`; `GameStatsShard` / `GameStatsTask`;
+`GameSeatRecord` (outcome, six-way breakdown, `score_proj` / `score_raw` of 27
+entries, `actions` of 26; `to_csv_row()`) with `game_stats_csv_columns()` (the
+stable header: scalar columns, `score_proj_0..26`, `score_raw_0..26`,
+`action_1..26`); `GameStatsSummary`; the `Cohort` / `ScoreConvention` enums and
+the aggregate row shapes `BreakdownRow`, `TurnScoreRow`, `ActionFreqRow`,
+`GamePairRow`.
+
+**`app.py` (game-stats)** — sub-command `game-stats` (`--games`, `--out` (a
+directory, required), `--checkpoint-dir`, `--seed`, `--workers`, `--device`,
+`--aggregate-only GAMES_RAW_CSV`); a play run always aggregates afterwards and
+prints games/sec.

@@ -1,6 +1,8 @@
 """Public constants shared across the research package: CLI defaults, shard
 sizing for the process pool, and CSV cell conventions."""
 
+from wingspan import state
+
 # The checkpoint directory a study resolves its model from when none is given
 # — the active run's root, matching ``wingspan play``'s default.
 DEFAULT_CHECKPOINT_DIR = "checkpoints"
@@ -22,3 +24,19 @@ GAMES_PER_SHARD = 32
 # Joins multi-valued cells (the dealt hand, a bird's effect kinds) inside one
 # CSV column — a character no card name or effect tag contains.
 NAME_SEPARATOR = "|"
+
+# ``wingspan research game-stats`` defaults and file names.
+DEFAULT_GAMES = 10_000
+GAMES_RAW_FILENAME = "games_raw.csv"
+# Games per unit of pool work (each game is a full greedy self-play game).
+GAME_STATS_GAMES_PER_SHARD = 8
+
+# Action cubes (= main actions = turns) each seat spends over a whole game:
+# 8 + 7 + 6 + 5 across the four rounds (``state.ROUND_CUBES``).
+ROUND_TURNS = tuple(state.ROUND_CUBES)
+TURNS_PER_GAME = sum(ROUND_TURNS)
+
+# Numbered-column prefixes of ``games_raw.csv``.
+SCORE_PROJ_PREFIX = "score_proj_"
+SCORE_RAW_PREFIX = "score_raw_"
+ACTION_PREFIX = "action_"

@@ -49,7 +49,8 @@ from wingspan.training import (
     theme,
 )
 
-_PLOTLY_CDN_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js"
+# The pinned Plotly.js build every self-contained HTML report loads from its CDN.
+PLOTLY_CDN_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js"
 
 _SECONDS_PER_HOUR = 3600.0
 
@@ -237,7 +238,7 @@ def build_training_summary_html(payload: SummaryPayload) -> str:
         .replace("__TEXT_MUTED__", theme.TEXT_MUTED)
         .replace("__BORDER__", theme.BORDER_DEFAULT)
         .replace("__ACCENT__", theme.BORDER_HEADLINE)
-        .replace("__PLOTLY_CDN__", _PLOTLY_CDN_URL)
+        .replace("__PLOTLY_CDN__", PLOTLY_CDN_URL)
         .replace("__HEADER_HTML__", header_html)
         .replace("__NOTICE_HTML__", notice_html)
         .replace("__SECTIONS_HTML__", sections_html)

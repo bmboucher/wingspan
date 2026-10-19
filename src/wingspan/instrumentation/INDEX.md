@@ -71,6 +71,18 @@ is the decision class name and `chosen` is the chosen option's human-readable
 the choice's `display_label` — there are no encoded state/choice vectors here; this
 is a plain, human-readable audit log, not training data.
 
+**`handlers/game_stats.py`** — `GameStatsCapture` (one instance per game; not
+registered by name — built programmatically by `research.game_stats`).
+Subscribes to `turn_start` / `turn_end` / `round_end` / `made_decision` /
+`player_final_scored` / `game_end` via `instrumentation()`. Per seat
+(`SeatCapture`) it records `score_proj` and `score_raw` (27 entries each; index
+0 = baseline at the first `turn_start`, index `t` = after the seat's `t`-th
+turn, with both seats re-snapshotted at each `round_end` boundary turn), the
+26 main actions (`MainActionDecision` on `made_decision`), the final score and
+its six categories, and `won` (sole winner via `scoring.winners`) plus the
+game-level `tie`. Turn numbering is an explicit per-seat counter incremented at
+`turn_start`, cross-checked against the engine's cube bookkeeping at `turn_end`.
+
 **`handlers/game_log_html.py`** — `GameLogHtml` (`GameLogHtmlHandler`): records
 each game as a navigable, self-contained HTML log viewer (the `wingspan play
 --html` flag). Subscribes to `game_start` / `setup_start` / `round_start` /

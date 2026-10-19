@@ -347,7 +347,7 @@ def _player_panel(
             game_log_html.FoodCount(label=food.value, count=player.food[food])
             for food in cards.ALL_FOODS
         ],
-        score=_score_breakdown(player, gs),
+        score=score_breakdown(player, gs),
         bonus_cards=[_bonus_card_info(player, bc) for bc in player.bonus_cards],
     )
 
@@ -383,7 +383,7 @@ def _bird_cell_info(
     )
 
 
-def _score_breakdown(
+def score_breakdown(
     player: state.Player, gs: state.GameState
 ) -> game_log_html.ScoreBreakdown:
     """The seven score columns, matching the game log's score table.

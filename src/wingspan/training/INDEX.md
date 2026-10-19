@@ -314,6 +314,11 @@ an era-pinned net's frozen encoders are honored here too.
 **`policy.py`** — `sampling_agent(net, spec) -> Agent` (stochastic, for
 collection) and `greedy_agent(net, spec) -> Agent` (argmax, for eval). Both
 call `net.encode_state` / `net.encode_choices` — never the raw encoder.
+`greedy_agent(net, device, *, setup_net=None)` resolves the opening
+`SetupDecision` with `greedy_setup_choice` (the setup net's argmax keep) when a
+`setup_net` is given, else uniformly at random. `setup_scores_and_probs(setup_net,
+decision, game_state, device) -> (scores, probs, vecs)` is the canonical setup
+scoring shared with `players.factory`.
 
 **`steps.py`** — `Step(state, choices, chosen_idx, player_id, family_idx,
 margin_before, timestamp, expert_probs=None, behavior_logp=0.0, value_pred=0.0)`

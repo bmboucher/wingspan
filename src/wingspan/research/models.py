@@ -13,6 +13,7 @@ Imports the canonical ``wingspan.setup_model`` shapes (``SetupCandidate``,
 
 from __future__ import annotations
 
+import enum
 import math
 import typing
 
@@ -293,6 +294,227 @@ class SetupKeepSummary(pydantic.BaseModel):
     rows: int
     workers: int
     elapsed_seconds: float
+
+
+#### Game-stats study (``wingspan research game-stats``) ####
+
+
+class GameStatsSpec(pydantic.BaseModel):
+    """What to play: the knobs of one game-stats study.
+
+    Games use consecutive seeds from ``seed`` (each game is seeded by
+    ``game_seed(index)`` alone, so a study extends by continuing the seed range
+    and sharding never changes a game). ``workers > 1`` fans shards across a
+    process pool."""
+
+    games: typing.Annotated[int, pydantic.Field(ge=1)] = constants.DEFAULT_GAMES
+    seed: int = constants.DEFAULT_SEED
+    workers: typing.Annotated[int, pydantic.Field(ge=1)] = constants.DEFAULT_WORKERS
+
+    def game_seed(self, game_index: int) -> int:
+        """The RNG seed of the ``game_index``-th game of the study."""
+        return self.seed + game_index
+
+
+class GameStatsShard(pydantic.BaseModel):
+    """A contiguous run of games — the unit handed to one pool worker at a time."""
+
+    first_game_index: typing.Annotated[int, pydantic.Field(ge=0)]
+    num_games: typing.Annotated[int, pydantic.Field(ge=1)]
+
+    @property
+    def game_indices(self) -> range:
+        """The study-wide indices of the shard's games."""
+        return range(self.first_game_index, self.first_game_index + self.num_games)
+
+
+class GameStatsTask(pydantic.BaseModel):
+    """The picklable unit handed to a game-stats pool worker."""
+
+    spec: GameStatsSpec
+    shard: GameStatsShard
+
+
+class GameSeatRecord(pydantic.BaseModel):
+    """One seat of one game: outcome, six-way final breakdown, and the per-turn
+    score series and main actions — one row of ``games_raw.csv``."""
+
+    game_index: int
+    seed: int
+    seat: int
+    # True only for a sole winner; a shared victory leaves both seats False.
+    won: bool
+    # True when the game ended in a shared victory.
+    tie: bool
+    final_score: int
+    birds: int
+    bonus: int
+    eggs: int
+    tucked: int
+    cached: int
+    goals: int
+    # Projected-convention score after each turn (index 0 = pre-game baseline).
+    score_proj: typing.Annotated[
+        list[int],
+        pydantic.Field(
+            min_length=constants.TURNS_PER_GAME + 1,
+            max_length=constants.TURNS_PER_GAME + 1,
+        ),
+    ]
+    # Raw-convention score after each turn (index 0 = pre-game baseline).
+    score_raw: typing.Annotated[
+        list[int],
+        pydantic.Field(
+            min_length=constants.TURNS_PER_GAME + 1,
+            max_length=constants.TURNS_PER_GAME + 1,
+        ),
+    ]
+    # ``MainAction`` values by cumulative turn; entry ``t - 1`` is turn ``t``.
+    actions: typing.Annotated[
+        list[str],
+        pydantic.Field(
+            min_length=constants.TURNS_PER_GAME, max_length=constants.TURNS_PER_GAME
+        ),
+    ]
+
+    def to_csv_row(self) -> dict[str, object]:
+        """The flat CSV row (the header is :func:`game_stats_csv_columns`): the
+        scalar columns, then the numbered series columns."""
+        row: dict[str, object] = {
+            column: getattr(self, column) for column in GAME_SCALAR_COLUMNS
+        }
+        for turn, value in enumerate(self.score_proj):
+            row[f"{constants.SCORE_PROJ_PREFIX}{turn}"] = value
+        for turn, value in enumerate(self.score_raw):
+            row[f"{constants.SCORE_RAW_PREFIX}{turn}"] = value
+        for turn, action in enumerate(self.actions, start=1):
+            row[f"{constants.ACTION_PREFIX}{turn}"] = action
+        return row
+
+
+# The scalar columns of ``games_raw.csv``, in header order (before the series).
+GAME_SCALAR_COLUMNS: tuple[str, ...] = (
+    "game_index",
+    "seed",
+    "seat",
+    "won",
+    "tie",
+    "final_score",
+    "birds",
+    "bonus",
+    "eggs",
+    "tucked",
+    "cached",
+    "goals",
+)
+
+
+def game_stats_csv_columns() -> list[str]:
+    """The ``games_raw.csv`` header: scalar columns, ``score_proj_0..26``,
+    ``score_raw_0..26``, then ``action_1..26``. A stable contract."""
+    return [
+        *GAME_SCALAR_COLUMNS,
+        *(
+            f"{constants.SCORE_PROJ_PREFIX}{turn}"
+            for turn in range(constants.TURNS_PER_GAME + 1)
+        ),
+        *(
+            f"{constants.SCORE_RAW_PREFIX}{turn}"
+            for turn in range(constants.TURNS_PER_GAME + 1)
+        ),
+        *(
+            f"{constants.ACTION_PREFIX}{turn}"
+            for turn in range(1, constants.TURNS_PER_GAME + 1)
+        ),
+    ]
+
+
+class GameStatsSummary(pydantic.BaseModel):
+    """What a finished game-stats run wrote."""
+
+    out_path: str
+    games: int
+    rows: int
+    workers: int
+    elapsed_seconds: float
+
+
+#### Game-stats aggregate rows (``game_stats_agg``) ####
+
+
+class Cohort(enum.StrEnum):
+    """Which games an aggregate covers: every seat-game, or sole winners only
+    (ties excluded)."""
+
+    ALL = "all"
+    WON = "won"
+
+
+class ScoreConvention(enum.StrEnum):
+    """How a per-turn score treats round goals: ``PROJ`` counts unscored goals
+    at their live standing (no jumps at round ends); ``RAW`` counts a goal only
+    once its round is scored."""
+
+    PROJ = "proj"
+    RAW = "raw"
+
+
+class BreakdownRow(pydantic.BaseModel):
+    """One row of ``breakdown_table.csv``: a score category's mean over all
+    seat-games, over won seat-games, and the difference (won minus all)."""
+
+    category: str
+    mean_all: float
+    mean_won: float
+    difference: float
+
+
+class TurnScoreRow(pydantic.BaseModel):
+    """One row of ``turn_scores.csv``: the score distribution after one
+    cumulative turn (0 = baseline) for one cohort and convention."""
+
+    turn: int
+    cohort: Cohort
+    convention: ScoreConvention
+    n: int
+    mean: float
+    std: float
+    sem: float
+    ci95_lo: float
+    ci95_hi: float
+    p5: float
+    p25: float
+    p50: float
+    p75: float
+    p95: float
+
+
+class ActionFreqRow(pydantic.BaseModel):
+    """One row of ``action_freq.csv``: how often each main action was chosen on
+    one cumulative turn by one cohort (fractions sum to 1)."""
+
+    turn: int
+    cohort: Cohort
+    n: int
+    count_gain_food: int
+    count_lay_eggs: int
+    count_draw_cards: int
+    count_play_bird: int
+    frac_gain_food: float
+    frac_lay_eggs: float
+    frac_draw_cards: float
+    frac_play_bird: float
+
+
+class GamePairRow(pydantic.BaseModel):
+    """One row of ``game_pairs.csv``: a game's paired final scores and result."""
+
+    game_index: int
+    p0_final: int
+    p1_final: int
+    # The sole winner's seat, or -1 for a shared victory.
+    winner: int
+    tie: bool
 
 
 ###### PRIVATE #######

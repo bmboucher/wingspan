@@ -86,6 +86,10 @@ module depends only on the stdlib (`base64`, `csv`, `io`) and references
 primitive display models. `capture_setup_phase(engine, …, dealt_bonus) ->
 PhaseRecord` creates the combined per-player setup phase with bonus options
 pre-populated (`pending=True`).
+`score_breakdown(player, gs) -> ScoreBreakdown` (public, formerly
+`_score_breakdown`) is the seven-column score table with round-goal VP
+*projected* at live standing for unscored rounds; the game-stats capture handler
+reuses it for its projected score series.
 
 All log-item content now sources from the structured event tree (see
 `gamelog/INDEX.md`) rather than text-parsing engine.log.

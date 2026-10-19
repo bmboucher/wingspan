@@ -128,6 +128,14 @@ GIH/GOB/per-slot win rate computable purely from the collected JSONL. The
 - [ ] **Fixed-model stats-collection run.** Drive `mp_collect` (or a simpler single-process driver) with the locked checkpoint and the card-stats instrumentation config enabled. No new code needed beyond the handler — just a run config.
 - [ ] **Aggregation.** GIH / GOB / per-slot win-rate tables with sample sizes and CIs, reading the per-game JSONL output.
 
+### Project: Model performance stats (release/blog) — ✅ runnable as `wingspan research game-stats`
+
+Plays N games of greedy self-play (one trained net on both seats, its setup net resolving the opening keep) and captures the data for the blog post's figures. Capture is the reusable `wingspan.instrumentation.handlers.game_stats.GameStatsCapture` handler (turn start/end, round end, made decision, player-final-scored, game end); no game log is attached. Per game and per seat it records: the score after every turn in two conventions (`score_proj_0..26`, unscored round goals counted at their live standing, so no jump at round ends; `score_raw_0..26`, `scoring.running_score` with round-goal VP folded into each round's boundary turn), the main action chosen on every turn (`action_1..26`), the winner / tie (ties count as a win for neither seat), and the final score with its six-way breakdown.
+
+Output directory (`--out`): `games_raw.csv` (one row per seat-game), then aggregates from `wingspan.research.game_stats_agg` (re-runnable with `--aggregate-only games_raw.csv`): `breakdown_table.csv` and a paste-ready `breakdown_table.md` (six categories + total, all vs. won games), `turn_scores.csv` (per turn x cohort x convention: n, mean, std, sem, 95% CI, percentiles), `action_freq.csv` (per turn x cohort main-action counts and fractions), `game_pairs.csv` (paired final scores for the scattergram), and a self-contained Plotly `preview.html` (table, final-score histogram, mean-score line with CI band, per-turn action fractions grouped by round). Games are seed-pure shards, so `--workers N` output is byte-identical to `--workers 1`.
+
+**Verdict: ✅ runnable** — `wingspan research game-stats --games 10000 --out <dir> --checkpoint-dir <run dir> --workers <N>`.
+
 ### Project: Are there low/high-scoring games? — ✅ runnable now (analysis script only)
 
 `GameOutcome` already stores both seats' full score breakdowns per game in `games.jsonl` (local and offloaded to S3), so no new collection is required.

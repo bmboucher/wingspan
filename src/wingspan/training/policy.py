@@ -24,12 +24,14 @@ harness and the tournament so both measure strength with identical play.
 from __future__ import annotations
 
 import random
+import typing
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wingspan import decisions, engine, model, sampling
+from wingspan import decisions, engine, model, sampling, setup_model, state
+from wingspan.training import setup_net as setup_net_module
 
 
 def sample_action(
@@ -57,16 +59,78 @@ def greedy_action(
     return int(np.argmax(probs))
 
 
-def greedy_agent(net: model.PolicyValueNet, device: torch.device) -> engine.Agent:
+def setup_scores_and_probs(
+    setup_net: setup_net_module.SetupNet,
+    decision: decisions.SetupDecision,
+    game_state: state.GameState,
+    device: torch.device,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Score every choice in ``decision`` through the setup net.
+
+    Returns ``(scores, probs, vecs)`` where ``scores`` is the per-choice policy
+    logit vector (actor-critic mode, the only mode used in practice), ``probs``
+    is the softmax distribution, and ``vecs`` is the ``(N, D)`` matrix of raw
+    candidate feature vectors, all aligned to ``decision.choices``. The value
+    head is the state-only critic ``V(s)`` — identical across candidates — so a
+    value-only net cannot rank keeps; that fallback scores them uniformly."""
+    context = setup_model.SetupContext.from_state(game_state, decision.dealt_bonus)
+
+    # Encode each choice through the net's own encode_candidate seam (not the
+    # free function paired with the net's encoding by hand), so a compat-era net
+    # (e.g. SetupNetV1_4) carries its own frozen pricing — the "encode through
+    # the net" rule (docs/VERSIONING.md).
+    vecs = np.stack(
+        [
+            setup_net.encode_candidate(
+                setup_model.SetupCandidate.from_setup_choice(choice), context
+            )
+            for choice in decision.choices
+        ]
+    )
+    feats = torch.tensor(vecs, dtype=torch.float32, device=device)
+
+    # Mirror collect.py: actor-critic nets rank candidates by policy logits. The
+    # value-only fallback reads the state-only V(s), identical for every
+    # candidate of a deal — a uniform (degenerate) ranking, never used in practice.
+    with torch.no_grad():
+        if setup_net.arch.use_policy_head:
+            scores = setup_net.policy_logits(feats).cpu().numpy()
+        else:
+            scores = setup_net(feats).cpu().numpy()
+
+    shifted = scores - scores.max()
+    weights = np.exp(shifted)
+    return scores, weights / weights.sum(), vecs
+
+
+def greedy_setup_choice(
+    setup_net: setup_net_module.SetupNet,
+    decision: decisions.SetupDecision,
+    game_state: state.GameState,
+    device: torch.device,
+) -> decisions.SetupChoice:
+    """The setup net's argmax keep for ``decision`` — the canonical greedy setup
+    resolution shared by :func:`greedy_agent` and the ``players.factory`` agent."""
+    _, probs, _ = setup_scores_and_probs(setup_net, decision, game_state, device)
+    return decision.choices[int(np.argmax(probs))]
+
+
+def greedy_agent(
+    net: model.PolicyValueNet,
+    device: torch.device,
+    *,
+    setup_net: setup_net_module.SetupNet | None = None,
+) -> engine.Agent:
     """Wrap ``net`` into a non-recording agent that plays the argmax of the
     current policy.
 
     Single-option decisions short-circuit (no inference needed), and a
     setup-excluded net (``include_setup=False``) resolves the combined opening
-    ``SetupDecision`` with a uniform-random legal choice rather than scoring a
-    decision it was never trained to encode. Shared by the eval harness
-    (``evaluate._greedy_agent``) and the tournament so both measure strength with
-    the exact same play.
+    ``SetupDecision`` with ``setup_net``'s argmax keep when one is supplied
+    (:func:`greedy_setup_choice`), otherwise with a uniform-random legal choice
+    rather than scoring a decision it was never trained to encode. Shared by the
+    eval harness (``evaluate._greedy_agent``) and the tournament so both measure
+    strength with the exact same play.
     """
 
     def agent[C: decisions.Choice](
@@ -76,6 +140,12 @@ def greedy_agent(net: model.PolicyValueNet, device: torch.device) -> engine.Agen
         if len(decision.choices) == 1:
             return decision.choices[0]
         if not net.include_setup and decisions.is_setup_decision(decision):
+            if setup_net is not None:
+                setup_decision = typing.cast(decisions.SetupDecision, decision)
+                return typing.cast(
+                    C,
+                    greedy_setup_choice(setup_net, setup_decision, eng.state, device),
+                )
             return decisions.random_choice(decision, eng.state.rng)
         family_idx = decisions.family_index_for(type(decision))
         state_vec = net.encode_state(eng.state, decision)
