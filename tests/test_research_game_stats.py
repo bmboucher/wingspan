@@ -13,6 +13,7 @@ import csv
 import io
 import math
 import pathlib
+import typing
 
 import pytest
 
@@ -21,6 +22,7 @@ torch = pytest.importorskip("torch")
 from wingspan import decisions, model, version  # noqa: E402
 from wingspan.engine import core, scoring  # noqa: E402
 from wingspan.instrumentation.handlers import game_stats  # noqa: E402
+from wingspan.reporting import training_summary  # noqa: E402
 from wingspan.research import app, constants  # noqa: E402
 from wingspan.research import game_stats as study  # noqa: E402
 from wingspan.research import game_stats_agg, models
@@ -421,6 +423,49 @@ def test_game_pairs(fixture_csv: pathlib.Path):
     ]
 
 
+def _pair(
+    index: int, p0: int, p1: int, winner: int, tie: bool = False
+) -> models.GamePairRow:
+    return models.GamePairRow(
+        game_index=index, p0_final=p0, p1_final=p1, winner=winner, tie=tie
+    )
+
+
+def _marker_sizes(traces: list[dict[str, object]]) -> list[int]:
+    return [
+        len(typing.cast(list[int], trace["x"]))
+        for trace in traces
+        if trace.get("type") == "scattergl"
+    ]
+
+
+def test_pair_traces_subsample_keeps_full_counts_and_is_deterministic():
+    pairs = (
+        [_pair(i, 80 + i, 60, 0) for i in range(12)]
+        + [_pair(12 + i, 60, 80 + i, 1) for i in range(12)]
+        + [_pair(24 + i, 70 + i, 70 + i, -1, tie=True) for i in range(6)]
+    )
+    sampled = game_stats_agg.pair_traces(pairs, max_points=10)
+    names = [t["name"] for t in sampled if t.get("type") == "scattergl"]
+    assert names == [
+        "p0 wins (n=12, 40.0%)",
+        "p1 wins (n=12, 40.0%)",
+        "tie (n=6, 20.0%)",
+    ]
+    # Budgets: floor(10 * 12/30) = 4, 4, and floor(10 * 6/30) = 2.
+    assert _marker_sizes(sampled) == [4, 4, 2]
+    assert game_stats_agg.pair_traces(pairs, max_points=10) == sampled
+    full_points = {(p.p0_final, p.p1_final) for p in pairs}
+    for trace in sampled:
+        if trace.get("type") != "scattergl":
+            continue
+        xs = typing.cast(list[int], trace["x"])
+        ys = typing.cast(list[int], trace["y"])
+        assert set(zip(xs, ys)) <= full_points
+    # Without a cap nothing is thinned.
+    assert _marker_sizes(game_stats_agg.pair_traces(pairs)) == [12, 12, 6]
+
+
 def test_preview_contains_scattergram_and_percentile_band(
     fixture_csv: pathlib.Path, tmp_path: pathlib.Path
 ):
@@ -454,6 +499,49 @@ def test_aggregate_writes_every_output(
     html = (out_dir / game_stats_agg.PREVIEW_HTML).read_text(encoding="utf-8")
     assert "cdn.plot.ly/plotly-2.35.2.min.js" in html
     assert "<table>" in html
+    assert not (out_dir / game_stats_agg.BLOG_SNIPPETS_DIR).exists()
+
+
+def test_blog_snippets_written_and_standalone(
+    fixture_csv: pathlib.Path, tmp_path: pathlib.Path
+):
+    out_dir = tmp_path / "out"
+    written = game_stats_agg.aggregate(fixture_csv, out_dir, with_blog_snippets=True)
+    snippets_dir = out_dir / game_stats_agg.BLOG_SNIPPETS_DIR
+    names = {path.name for path in written if path.parent == snippets_dir}
+    assert names == {
+        game_stats_agg.SNIPPET_CDN_FILENAME,
+        "histogram.html",
+        "turn_scores.html",
+        "game_pairs.html",
+        "actions_all.html",
+        "actions_won.html",
+    }
+    cdn = (snippets_dir / game_stats_agg.SNIPPET_CDN_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    assert training_summary.PLOTLY_CDN_URL in cdn
+    turn = (snippets_dir / "turn_scores.html").read_text(encoding="utf-8")
+    assert 'id="wingspan-turn_scores"' in turn
+    assert '"responsive": true' in turn
+    assert turn.count("Plotly.newPlot") == 1
+    assert "<html" not in turn
+    pairs_snippet = (snippets_dir / "game_pairs.html").read_text(encoding="utf-8")
+    assert "p0 wins (n=1, 33.3%)" in pairs_snippet
+
+
+def test_blog_snippets_note_scatter_thinning(
+    fixture_csv: pathlib.Path, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(game_stats_agg, "_BLOG_SCATTER_MAX_POINTS", 2)
+    out_dir = tmp_path / "out"
+    game_stats_agg.aggregate(fixture_csv, out_dir, with_blog_snippets=True)
+    pairs_snippet = (
+        out_dir / game_stats_agg.BLOG_SNIPPETS_DIR / "game_pairs.html"
+    ).read_text(encoding="utf-8")
+    assert "of 3 games" in pairs_snippet
+    # Legend counts still reflect the full data.
+    assert "p0 wins (n=1, 33.3%)" in pairs_snippet
 
 
 ###### CLI ######
@@ -480,6 +568,7 @@ def test_cli_plays_and_aggregates(
     assert "games/s" in capsys.readouterr().out
     assert (out_dir / constants.GAMES_RAW_FILENAME).stat().st_size > 0
     assert (out_dir / game_stats_agg.PREVIEW_HTML).stat().st_size > 0
+    assert not (out_dir / game_stats_agg.BLOG_SNIPPETS_DIR).exists()
 
     # Aggregating the same raw table elsewhere reproduces the aggregates.
     again = tmp_path / "again"
@@ -490,12 +579,15 @@ def test_cli_plays_and_aggregates(
             str(again),
             "--aggregate-only",
             str(out_dir / constants.GAMES_RAW_FILENAME),
+            "--blog-snippets",
         ]
     )
     assert code == 0
     assert (again / game_stats_agg.BREAKDOWN_MD).read_text(encoding="utf-8") == (
         out_dir / game_stats_agg.BREAKDOWN_MD
     ).read_text(encoding="utf-8")
+    snippet = again / game_stats_agg.BLOG_SNIPPETS_DIR / "turn_scores.html"
+    assert snippet.stat().st_size > 0
 
 
 def test_cli_missing_run_exits_one(

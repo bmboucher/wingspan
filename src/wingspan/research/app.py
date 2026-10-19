@@ -7,7 +7,7 @@ Usage::
                                  [--device cpu] [--num-players N]
     wingspan research game-stats [--games N] --out DIR [--checkpoint-dir DIR]
                                  [--seed S] [--workers W] [--device cpu]
-                                 [--aggregate-only games_raw.csv]
+                                 [--aggregate-only games_raw.csv] [--blog-snippets]
 
 One sub-command per study. ``setup-keep`` writes the setup keep-rate experience
 table (:mod:`wingspan.research.setup_keep`): one CSV row per dealt bird of every
@@ -90,7 +90,9 @@ def _run_game_stats(args: argparse.Namespace) -> int:
             raw_path = pathlib.Path(args.aggregate_only)
         else:
             raw_path = _play_game_stats(args, out_dir)
-        written = game_stats_agg.aggregate(raw_path, out_dir)
+        written = game_stats_agg.aggregate(
+            raw_path, out_dir, with_blog_snippets=args.blog_snippets
+        )
     except (FileNotFoundError, ValueError) as error:
         print(f"wingspan research: {error}", file=sys.stderr)
         return 1
@@ -237,5 +239,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=None,
         metavar="GAMES_RAW_CSV",
         help="Skip play: aggregate this games_raw.csv into --out.",
+    )
+    stats.add_argument(
+        "--blog-snippets",
+        dest="blog_snippets",
+        action="store_true",
+        help="Also write blog_snippets/ into --out: one ready-to-paste Plotly "
+        "embed per figure (scattergram subsampled) plus the CDN script tag.",
     )
     return parser.parse_args(argv)

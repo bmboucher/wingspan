@@ -10,6 +10,9 @@ standalone — and writes chart-ready aggregates into an output directory:
 * ``game_pairs.csv`` — each game's paired final scores and winner.
 * ``preview.html`` — a self-contained Plotly page with five sanity-check
   figures (not the blog figures themselves).
+* ``blog_snippets/`` (only with ``--blog-snippets``) — one ready-to-paste
+  Plotly embed per figure plus the pinned CDN ``<script>`` tag; the
+  scattergram is subsampled to keep a blog post light.
 
 Two cohorts: ``all`` (every seat-game) and ``won`` (sole winners; ties are
 excluded). Only numpy is used for the statistics.
@@ -83,6 +86,30 @@ _SCATTER_MARKER_SIZE = 3
 _SCATTER_OPACITY = 0.35
 _TIE_LINE_DASH = "dash"
 _TIE_LINE_WIDTH = 1
+
+# Blog snippets: ready-to-paste Plotly embed blocks written next to the preview.
+BLOG_SNIPPETS_DIR = "blog_snippets"
+SNIPPET_CDN_FILENAME = "plotly_cdn.html"
+_SNIPPET_ID_PREFIX = "wingspan-"
+_SNIPPET_HEIGHT_PX = 420
+_SNIPPET_CONFIG: dict[str, object] = {"responsive": True}
+_SNIPPET_BASE_LAYOUT: dict[str, object] = {
+    "margin": {"t": 40},
+    "legend": {"orientation": "h", "y": -0.2},
+}
+_SNIPPET_REQUIRES_COMMENT = (
+    "Requires the Plotly script tag (blog_snippets/plotly_cdn.html) once per "
+    "page, above the first chart."
+)
+_CDN_SNIPPET = (
+    "<!-- Paste once per post, above the first chart. -->\n"
+    f'<script src="{training_summary.PLOTLY_CDN_URL}" charset="utf-8"></script>\n'
+)
+# Scattergram subsampling for the blog: markers beyond this are thinned
+# deterministically (legend counts always reflect the full data).
+_BLOG_SCATTER_MAX_POINTS = 10_000
+_SCATTER_SAMPLE_SEED = 0
+_GAME_PAIRS_ID = "game_pairs"
 
 
 class RawGames(pydantic.BaseModel):
@@ -249,9 +276,76 @@ def game_pair_rows(raw: RawGames) -> list[models.GamePairRow]:
     return rows
 
 
-def aggregate(raw_csv: pathlib.Path, out_dir: pathlib.Path) -> list[pathlib.Path]:
+def pair_traces(
+    pairs: list[models.GamePairRow], max_points: int | None = None
+) -> list[dict[str, object]]:
+    """Paired final scores as one scattergl trace per outcome group (p0 wins,
+    p1 wins, tie), plus a dashed y=x reference line. ``scattergl`` keeps the
+    page responsive at 100k points. With ``max_points``, each group's markers
+    are deterministically subsampled in proportion to its share when the total
+    exceeds the cap — legend names always carry the full-data counts."""
+    if not pairs:
+        return []
+    finals = [pair.p0_final for pair in pairs] + [pair.p1_final for pair in pairs]
+    low, high = min(finals), max(finals)
+    sample_cap = (
+        max_points if max_points is not None and len(pairs) > max_points else None
+    )
+    rng = np.random.default_rng(_SCATTER_SAMPLE_SEED)
+
+    traces: list[dict[str, object]] = [
+        {
+            "type": "scatter",
+            "mode": "lines",
+            "x": [low, high],
+            "y": [low, high],
+            "line": {
+                "color": _PAIR_COLORS[-1],
+                "dash": _TIE_LINE_DASH,
+                "width": _TIE_LINE_WIDTH,
+            },
+            "hoverinfo": "skip",
+            "showlegend": False,
+        }
+    ]
+    for winner in (0, 1, -1):
+        group = [pair for pair in pairs if pair.winner == winner]
+        if not group:
+            continue
+        share = len(group) / len(pairs)
+        plotted = group
+        if sample_cap is not None:
+            budget = max(1, math.floor(sample_cap * len(group) / len(pairs)))
+            indices = sorted(
+                typing.cast(
+                    list[int],
+                    rng.choice(len(group), size=budget, replace=False).tolist(),
+                )
+            )
+            plotted = [group[i] for i in indices]
+        traces.append(
+            {
+                "type": "scattergl",
+                "mode": "markers",
+                "name": f"{_PAIR_LABELS[winner]} (n={len(group)}, {share:.1%})",
+                "x": [pair.p0_final for pair in plotted],
+                "y": [pair.p1_final for pair in plotted],
+                "marker": {
+                    "color": _PAIR_COLORS[winner],
+                    "size": _SCATTER_MARKER_SIZE,
+                    "opacity": _SCATTER_OPACITY,
+                },
+            }
+        )
+    return traces
+
+
+def aggregate(
+    raw_csv: pathlib.Path, out_dir: pathlib.Path, *, with_blog_snippets: bool = False
+) -> list[pathlib.Path]:
     """Aggregate ``raw_csv`` into ``out_dir`` (created if needed), returning the
-    written files."""
+    written files. With ``with_blog_snippets``, also writes the
+    ``blog_snippets/`` embed blocks."""
     raw = read_raw_games(raw_csv)
     out_dir.mkdir(parents=True, exist_ok=True)
     breakdown = breakdown_rows(raw)
@@ -270,6 +364,13 @@ def aggregate(raw_csv: pathlib.Path, out_dir: pathlib.Path) -> list[pathlib.Path
             preview_html(raw, breakdown, turn_scores, action_freq, pairs),
         ),
     ]
+    if with_blog_snippets:
+        snippets_dir = out_dir / BLOG_SNIPPETS_DIR
+        snippets_dir.mkdir(parents=True, exist_ok=True)
+        for name, content in blog_snippets(
+            raw, turn_scores, action_freq, pairs
+        ).items():
+            written.append(_write_text(snippets_dir / name, content))
     return written
 
 
@@ -284,51 +385,44 @@ def preview_html(
     final-score histogram, the per-turn mean-score line with its p5-p95
     percentile band, the paired-final-scores scattergram, and the per-turn
     action-fraction bars (all, then won)."""
-    figures: list[dict[str, object]] = [
-        {
-            "id": "histogram",
-            "traces": _histogram_traces(raw),
-            "layout": {
-                "barmode": "overlay",
-                "xaxis": {"title": "Final score (VP)"},
-                "yaxis": {"title": "Fraction of cohort's seat-games"},
-            },
-        },
-        {
-            "id": "turn_scores",
-            "traces": _turn_score_traces(turn_scores),
-            "layout": {
-                "xaxis": {"title": "Cumulative turn (0 = start of game)"},
-                "yaxis": {"title": "Score (VP, projected convention)"},
-            },
-        },
-        {
-            "id": "game_pairs",
-            "traces": _pair_traces(pairs),
-            "layout": {
-                "xaxis": {"title": "Seat 0 final score (VP)"},
-                "yaxis": {
-                    "title": "Seat 1 final score (VP)",
-                    "scaleanchor": "x",
-                    "scaleratio": 1,
-                },
-            },
-        },
+    figures = [
+        figure.model_dump() for figure in _figures(raw, turn_scores, action_freq, pairs)
     ]
-    for cohort in models.Cohort:
-        figures.append(
-            {
-                "id": f"actions_{cohort.value}",
-                "traces": _action_traces(action_freq, cohort),
-                "layout": _action_layout(cohort),
-            }
-        )
     return (
         _PAGE_TEMPLATE.replace("__PLOTLY_CDN__", training_summary.PLOTLY_CDN_URL)
         .replace("__TABLE__", _table_html(breakdown))
         .replace("__FIGURES__", json.dumps(figures))
         .replace("__GAMES__", str(len(set(raw.game_index.tolist()))))
     )
+
+
+def blog_snippets(
+    raw: RawGames,
+    turn_scores: list[models.TurnScoreRow],
+    action_freq: list[models.ActionFreqRow],
+    pairs: list[models.GamePairRow],
+) -> dict[str, str]:
+    """The ``blog_snippets/`` files as {filename: contents}: the pinned Plotly
+    CDN ``<script>`` tag plus one self-contained embed block per figure
+    (kramdown passes raw block HTML through, so each pastes straight into a
+    markdown post). The scattergram is thinned to ``_BLOG_SCATTER_MAX_POINTS``
+    markers; its legend keeps the full-data counts."""
+    snippets = {SNIPPET_CDN_FILENAME: _CDN_SNIPPET}
+    for figure in _figures(
+        raw,
+        turn_scores,
+        action_freq,
+        pairs,
+        scatter_max_points=_BLOG_SCATTER_MAX_POINTS,
+    ):
+        extra_comment = None
+        if figure.id == _GAME_PAIRS_ID and len(pairs) > _BLOG_SCATTER_MAX_POINTS:
+            extra_comment = (
+                f"Markers thinned to ~{_BLOG_SCATTER_MAX_POINTS} of {len(pairs)} "
+                "games (deterministic sample); legend counts reflect all games."
+            )
+        snippets[f"{figure.id}.html"] = _snippet_html(figure, extra_comment)
+    return snippets
 
 
 ###### PRIVATE #######
@@ -411,6 +505,85 @@ def _write_text(path: pathlib.Path, text: str) -> pathlib.Path:
 #### Preview figures ####
 
 
+class _PreviewFigure(pydantic.BaseModel):
+    """One Plotly figure: the div id plus its traces and layout."""
+
+    id: str
+    traces: list[dict[str, object]]
+    layout: dict[str, object]
+
+
+def _figures(
+    raw: RawGames,
+    turn_scores: list[models.TurnScoreRow],
+    action_freq: list[models.ActionFreqRow],
+    pairs: list[models.GamePairRow],
+    scatter_max_points: int | None = None,
+) -> list[_PreviewFigure]:
+    """Every chart figure of the preview page, in page order; the scattergram
+    is subsampled when ``scatter_max_points`` is set (blog snippets)."""
+    figures = [
+        _PreviewFigure(
+            id="histogram",
+            traces=_histogram_traces(raw),
+            layout={
+                "barmode": "overlay",
+                "xaxis": {"title": "Final score (VP)"},
+                "yaxis": {"title": "Fraction of cohort's seat-games"},
+            },
+        ),
+        _PreviewFigure(
+            id="turn_scores",
+            traces=_turn_score_traces(turn_scores),
+            layout={
+                "xaxis": {"title": "Cumulative turn (0 = start of game)"},
+                "yaxis": {"title": "Score (VP, projected convention)"},
+            },
+        ),
+        _PreviewFigure(
+            id=_GAME_PAIRS_ID,
+            traces=pair_traces(pairs, max_points=scatter_max_points),
+            layout={
+                "xaxis": {"title": "Seat 0 final score (VP)"},
+                "yaxis": {
+                    "title": "Seat 1 final score (VP)",
+                    "scaleanchor": "x",
+                    "scaleratio": 1,
+                },
+            },
+        ),
+    ]
+    for cohort in models.Cohort:
+        figures.append(
+            _PreviewFigure(
+                id=f"actions_{cohort.value}",
+                traces=_action_traces(action_freq, cohort),
+                layout=_action_layout(cohort),
+            )
+        )
+    return figures
+
+
+def _snippet_html(figure: _PreviewFigure, extra_comment: str | None = None) -> str:
+    """One embed block: usage comment(s), the sized div, and the
+    ``Plotly.newPlot`` call with the base layout and responsive config baked in."""
+    div_id = f"{_SNIPPET_ID_PREFIX}{figure.id}"
+    lines = [f"<!-- {_SNIPPET_REQUIRES_COMMENT} -->"]
+    if extra_comment is not None:
+        lines.append(f"<!-- {extra_comment} -->")
+    layout = {**_SNIPPET_BASE_LAYOUT, **figure.layout}
+    lines.append(
+        f'<div id="{div_id}" style="width:100%;height:{_SNIPPET_HEIGHT_PX}px;"></div>'
+    )
+    lines.append("<script>")
+    lines.append(
+        f'Plotly.newPlot("{div_id}", {json.dumps(figure.traces)}, '
+        f"{json.dumps(layout)}, {json.dumps(_SNIPPET_CONFIG)});"
+    )
+    lines.append("</script>")
+    return "\n".join(lines) + "\n"
+
+
 def _histogram_traces(raw: RawGames) -> list[dict[str, object]]:
     """Final-score histogram as per-VP fractions of each cohort, overlaid."""
     finals = raw.scores[_TOTAL_COLUMN]
@@ -477,52 +650,6 @@ def _turn_score_traces(rows: list[models.TurnScoreRow]) -> list[dict[str, object
                 "x": turns,
                 "y": [row.mean for row in series],
                 "line": {"color": color},
-            }
-        )
-    return traces
-
-
-def _pair_traces(pairs: list[models.GamePairRow]) -> list[dict[str, object]]:
-    """Paired final scores as one scattergl trace per outcome group (p0 wins,
-    p1 wins, tie), plus a dashed y=x reference line. ``scattergl`` keeps the
-    page responsive at 100k points."""
-    if not pairs:
-        return []
-    finals = [pair.p0_final for pair in pairs] + [pair.p1_final for pair in pairs]
-    low, high = min(finals), max(finals)
-
-    traces: list[dict[str, object]] = [
-        {
-            "type": "scatter",
-            "mode": "lines",
-            "x": [low, high],
-            "y": [low, high],
-            "line": {
-                "color": _PAIR_COLORS[-1],
-                "dash": _TIE_LINE_DASH,
-                "width": _TIE_LINE_WIDTH,
-            },
-            "hoverinfo": "skip",
-            "showlegend": False,
-        }
-    ]
-    for winner in (0, 1, -1):
-        group = [pair for pair in pairs if pair.winner == winner]
-        if not group:
-            continue
-        share = len(group) / len(pairs)
-        traces.append(
-            {
-                "type": "scattergl",
-                "mode": "markers",
-                "name": f"{_PAIR_LABELS[winner]} (n={len(group)}, {share:.1%})",
-                "x": [pair.p0_final for pair in group],
-                "y": [pair.p1_final for pair in group],
-                "marker": {
-                    "color": _PAIR_COLORS[winner],
-                    "size": _SCATTER_MARKER_SIZE,
-                    "opacity": _SCATTER_OPACITY,
-                },
             }
         )
     return traces

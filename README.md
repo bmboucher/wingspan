@@ -305,11 +305,14 @@ winner/tie, and the six-way final score breakdown. Alongside the raw table it
 writes chart-ready aggregates (per-turn mean/CI/percentile score curves and
 action frequencies for all vs. won games, the category breakdown as CSV and
 markdown, paired final scores per game) plus a self-contained `preview.html`.
+With `--blog-snippets` it also writes `blog_snippets/` — one ready-to-paste
+Plotly embed block per figure for a markdown blog post (the scattergram
+subsampled to keep the page light), plus the pinned CDN `<script>` tag.
 
 ```
 wingspan research game-stats --out stats/                          # 10k games from checkpoints/last.pt
 wingspan research game-stats --games 100000 --workers 10 --out stats/
-wingspan research game-stats --aggregate-only stats/games_raw.csv --out stats/
+wingspan research game-stats --aggregate-only stats/games_raw.csv --out stats/ --blog-snippets
 ```
 
 ## Probe a model's architecture

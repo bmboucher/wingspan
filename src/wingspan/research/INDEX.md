@@ -86,15 +86,19 @@ overall average rate). `game-stats` passes `sys.stderr`; setup-keep does not use
 it yet.
 
 **`game_stats_agg.py`** — Aggregates and the HTML preview, from the raw CSV
-(numpy only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir)`
+(numpy only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir, with_blog_snippets=False)`
 writes `breakdown_table.csv` / `.md`, `turn_scores.csv`, `action_freq.csv`,
 `game_pairs.csv`, and `preview.html` (five Plotly figures: table, histogram,
 turn-score line with a p5-p95 percentile band — the CI columns stay in
 `turn_scores.csv` — paired-scores scattergram, action bars; via the pinned CDN
 URL from `reporting.training_summary`). Cohorts: `all` and `won` (sole winners; ties
-excluded). Building blocks: `read_raw_games`, `breakdown_rows`,
-`breakdown_markdown`, `turn_score_rows`, `action_freq_rows`, `game_pair_rows`,
-`preview_html`.
+excluded). `with_blog_snippets` (CLI `--blog-snippets`) also writes
+`blog_snippets/` — the pinned CDN script tag plus one ready-to-paste embed block
+per figure (`pair_traces` thins the scattergram to 10k markers
+deterministically; legend counts stay full-data). Building blocks:
+`read_raw_games`, `breakdown_rows`, `breakdown_markdown`, `turn_score_rows`,
+`action_freq_rows`, `game_pair_rows`, `pair_traces`, `preview_html`,
+`blog_snippets`.
 
 **Game-stats models** (in `models.py`): `GameStatsSpec(games, seed, workers)`
 with `game_seed(index)`; `GameStatsShard` / `GameStatsTask`;
