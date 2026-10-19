@@ -31,7 +31,7 @@ dev = [
     "pytest-xdist>=3.5",  # parallel test runs (the gate's default full-suite mode)
     "pyright>=1.1.400",
     "black>=24.0",
-    "isort>=5.13",
+    "isort>=9.0",  # keep main's venv on the same major as fresh worktree venvs: the merge gate formats with main's isort, worktree gates with theirs, and 8-vs-9 disagree (loop_resume ping-pong, 2026-10-19)
     "boto3-stubs[s3]",  # typed S3 client for strict pyright over wingspan.cloud
     "types-PyYAML",  # yaml.safe_load typing for strict pyright
 ]

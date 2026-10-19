@@ -22,7 +22,7 @@ from wingspan.engine import core, scoring  # noqa: E402
 from wingspan.instrumentation.handlers import game_stats  # noqa: E402
 from wingspan.research import app, constants  # noqa: E402
 from wingspan.research import game_stats as study  # noqa: E402
-from wingspan.research import game_stats_agg, models  # noqa: E402
+from wingspan.research import game_stats_agg, models
 from wingspan.training import (  # noqa: E402
     artifacts,
     collect,
@@ -33,9 +33,7 @@ from wingspan.training import (  # noqa: E402
     runstate,
 )
 from wingspan.training import setup_net as setup_net_module  # noqa: E402
-from wingspan.training import (  # noqa: E402
-    setup_runmeta,
-)
+from wingspan.training import setup_runmeta
 
 _DEVICE = torch.device("cpu")
 _TURNS = 26
