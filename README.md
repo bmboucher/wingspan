@@ -297,6 +297,21 @@ cost, flocking/predator, effect kinds), and the rest of the setup (`hand`,
 `bonus_1`/`bonus_2`). The seat count defaults to the run's trained
 `num_players`; the run must have trained a setup model (`setup.pt`).
 
+The second is the **game-stats study**: greedy self-play of one run's model
+against itself (its setup net resolves the opening keep), capturing one CSV row
+per seat per game — the score after every turn (0–26, in both a projected and a
+locked-in round-goal convention), the main action chosen on every turn, the
+winner/tie, and the six-way final score breakdown. Alongside the raw table it
+writes chart-ready aggregates (per-turn mean/CI/percentile score curves and
+action frequencies for all vs. won games, the category breakdown as CSV and
+markdown, paired final scores per game) plus a self-contained `preview.html`.
+
+```
+wingspan research game-stats --out stats/                          # 10k games from checkpoints/best.pt
+wingspan research game-stats --games 100000 --workers 10 --out stats/
+wingspan research game-stats --aggregate-only stats/games_raw.csv --out stats/
+```
+
 ## Probe a model's architecture
 
 `wingspan analysis probe` measures how much each part of a trained network's
@@ -344,7 +359,7 @@ command with subcommands:
 | `wingspan summary`      | Training-progression HTML report for a run directory   |
 | `wingspan cloud`        | Headless S3-persisted training (container use)          |
 | `wingspan monitor`      | FLOCK WATCH: live roster of cloud runs                  |
-| `wingspan research`     | Offline research studies (setup keep-rate CSV)          |
+| `wingspan research`     | Offline research studies (setup keep-rate, game-stats)  |
 | `wingspan analysis`     | Architecture-importance probe over a trained checkpoint |
 
 Run `wingspan --help` for the full list, or `wingspan <command> --help` for
