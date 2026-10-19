@@ -10,6 +10,7 @@ the markdown table), and the ``wingspan research game-stats`` CLI end to end.
 from __future__ import annotations
 
 import csv
+import io
 import math
 import pathlib
 
@@ -248,6 +249,23 @@ def test_workers_match_in_process_byte_for_byte(
     with in_process.open(newline="", encoding="utf-8") as handle:
         header = next(csv.reader(handle))
     assert header == models.game_stats_csv_columns()
+
+
+def test_progress_stream_leaves_csv_unchanged(
+    run_dir: pathlib.Path, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Progress goes to its own stream: the CSV is byte-identical with or
+    without it, and the last progress line reports every game."""
+    monkeypatch.setattr(constants, "GAME_STATS_GAMES_PER_SHARD", 1)
+    spec = models.GameStatsSpec(games=2, seed=5, workers=1)
+    quiet = tmp_path / "quiet.csv"
+    reported = tmp_path / "reported.csv"
+    stream = io.StringIO()
+    study.run_game_stats_study(spec, run_dir, _DEVICE, quiet)
+    study.run_game_stats_study(spec, run_dir, _DEVICE, reported, progress_stream=stream)
+    assert quiet.read_bytes() == reported.read_bytes()
+    last_line = stream.getvalue().splitlines()[-1]
+    assert last_line.startswith("games 2/2 (100.0%)")
 
 
 def test_plan_shards_covers_every_game_once(monkeypatch: pytest.MonkeyPatch):

@@ -110,7 +110,11 @@ def _play_game_stats(args: argparse.Namespace, out_dir: pathlib.Path) -> pathlib
         f"(workers={spec.workers}) -> {raw_path}"
     )
     summary = game_stats.run_game_stats_study(
-        spec, checkpoint_dir, torch.device(args.device), raw_path
+        spec,
+        checkpoint_dir,
+        torch.device(args.device),
+        raw_path,
+        progress_stream=sys.stderr,
     )
     print(
         f"played {summary.games} games ({summary.rows} seat rows) in "

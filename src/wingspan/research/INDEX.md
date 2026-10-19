@@ -66,7 +66,7 @@ message on stderr.
 
 **`game_stats.py`** — The model-performance study (RESEARCH.md "Model
 performance stats"). `run_game_stats_study(spec, checkpoint_dir, device,
-out_path) -> GameStatsSummary` loads the run's `last.pt` policy net, its setup
+out_path, *, progress_stream=None) -> GameStatsSummary` loads the run's `last.pt` policy net, its setup
 net, and its regime (`load_game_nets` -> `GameNets`: nets, device, seat count,
 `split_setup_bonus` / `split_setup_food` / `combine_gain_food`), plans shards
 (`plan_shards`), and streams per-seat rows to `games_raw.csv` in shard order —
@@ -75,6 +75,15 @@ load the nets once (`torch.set_num_threads(1)`). `study_shard` / `play_game` are
 the pure units of work: one greedy self-play game per index, seeded by
 `spec.game_seed(index)` alone, the same `policy.greedy_agent(net, device,
 setup_net=...)` on every seat, captured by `GameStatsCapture`.
+
+**`progress.py`** — Live progress for shard-streamed studies.
+`StudyProgress(total_games, stream, now=time.monotonic)` with `update(games_done)`
+(throttled: `PROGRESS_TTY_INTERVAL_SECONDS` for an in-place `\r` line on a TTY,
+`PROGRESS_LOG_INTERVAL_SECONDS` for appended lines otherwise) and
+`finish(games_done)` (always prints). `format_progress(done, total, elapsed)` is
+the pure status-line builder (count, percent, games/s, elapsed, ETA from the
+overall average rate). `game-stats` passes `sys.stderr`; setup-keep does not use
+it yet.
 
 **`game_stats_agg.py`** — Aggregates and the HTML preview, from the raw CSV
 (numpy only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir)`

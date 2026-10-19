@@ -32,7 +32,7 @@ import torch
 from wingspan import engine, model
 from wingspan.instrumentation.handlers import game_stats
 from wingspan.players import loaders
-from wingspan.research import constants, models
+from wingspan.research import constants, models, progress
 from wingspan.training import artifacts, collect, policy
 from wingspan.training import setup_net as setup_net_module
 
@@ -88,22 +88,39 @@ def run_game_stats_study(
     checkpoint_dir: pathlib.Path,
     device: torch.device,
     out_path: pathlib.Path,
+    *,
+    progress_stream: typing.TextIO | None = None,
 ) -> models.GameStatsSummary:
     """Run the whole study against the run in ``checkpoint_dir`` and write the
     raw per-seat table to ``out_path`` (rows stream to disk shard by shard).
 
-    Raises before the output file is created when the run cannot be loaded."""
+    When ``progress_stream`` is given, a throttled progress line with
+    throughput and ETA is written to it as shards complete; the default is
+    silent. Raises before the output file is created when the run cannot be
+    loaded."""
     started = time.monotonic()
     nets = load_game_nets(checkpoint_dir, device)
     shards = plan_shards(spec)
+    reporter = (
+        None
+        if progress_stream is None
+        else progress.StudyProgress(spec.games, progress_stream)
+    )
     rows = 0
+    games_done = 0
     with out_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=models.game_stats_csv_columns())
         writer.writeheader()
-        for records in _shard_results(spec, shards, nets, checkpoint_dir, device):
+        results = _shard_results(spec, shards, nets, checkpoint_dir, device)
+        for shard, records in zip(shards, results):
             for record in records:
                 writer.writerow(record.to_csv_row())
             rows += len(records)
+            games_done += shard.num_games
+            if reporter is not None:
+                reporter.update(games_done)
+    if reporter is not None:
+        reporter.finish(games_done)
     return models.GameStatsSummary(
         out_path=str(out_path),
         games=spec.games,

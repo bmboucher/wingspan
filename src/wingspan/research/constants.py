@@ -30,6 +30,10 @@ DEFAULT_GAMES = 10_000
 GAMES_RAW_FILENAME = "games_raw.csv"
 # Games per unit of pool work (each game is a full greedy self-play game).
 GAME_STATS_GAMES_PER_SHARD = 8
+# Minimum seconds between progress lines: an in-place rewrite on a terminal,
+# an appended line when stderr is redirected to a log.
+PROGRESS_TTY_INTERVAL_SECONDS = 1.0
+PROGRESS_LOG_INTERVAL_SECONDS = 30.0
 
 # Action cubes (= main actions = turns) each seat spends over a whole game:
 # 8 + 7 + 6 + 5 across the four rounds (``state.ROUND_CUBES``).
