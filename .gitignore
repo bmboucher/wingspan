@@ -16,6 +16,9 @@ checkpoints/
 # Run output directories (runs/<experiment>/<run>/) are never tracked; the
 # experiment's config files and README at runs/<experiment>/ are.
 runs/*/*/
+# Game-stats study outputs written directly at the experiment level.
+runs/stats_test/
+runs/release_stats/
 *.pt
 *.pth
 # The release bundle shipped inside the wheel (src/wingspan/data/release/).
