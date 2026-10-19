@@ -307,7 +307,7 @@ action frequencies for all vs. won games, the category breakdown as CSV and
 markdown, paired final scores per game) plus a self-contained `preview.html`.
 
 ```
-wingspan research game-stats --out stats/                          # 10k games from checkpoints/best.pt
+wingspan research game-stats --out stats/                          # 10k games from checkpoints/last.pt
 wingspan research game-stats --games 100000 --workers 10 --out stats/
 wingspan research game-stats --aggregate-only stats/games_raw.csv --out stats/
 ```

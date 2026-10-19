@@ -58,13 +58,13 @@ _worker_nets: GameNets | None = None
 
 
 def load_game_nets(checkpoint_dir: pathlib.Path, device: torch.device) -> GameNets:
-    """Load the run's ``best.pt`` policy net, its setup net, and its regime.
+    """Load the run's ``last.pt`` policy net, its setup net, and its regime.
 
     Raises ``FileNotFoundError`` when the run has neither a separate setup net
     nor a policy net that embeds setup (the study needs the setup keep resolved
     by the model, not at random)."""
     policy_net, run_config = loaders.load_policy_net(
-        checkpoint_dir / artifacts.BEST_CKPT, device
+        checkpoint_dir / artifacts.LAST_CKPT, device
     )
     setup_net = loaders.load_setup_net(checkpoint_dir, device)
     if setup_net is None and not policy_net.include_setup:

@@ -66,7 +66,7 @@ message on stderr.
 
 **`game_stats.py`** — The model-performance study (RESEARCH.md "Model
 performance stats"). `run_game_stats_study(spec, checkpoint_dir, device,
-out_path) -> GameStatsSummary` loads the run's `best.pt` policy net, its setup
+out_path) -> GameStatsSummary` loads the run's `last.pt` policy net, its setup
 net, and its regime (`load_game_nets` -> `GameNets`: nets, device, seat count,
 `split_setup_bonus` / `split_setup_food` / `combine_gain_food`), plans shards
 (`plan_shards`), and streams per-seat rows to `games_raw.csv` in shard order —

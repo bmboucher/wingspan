@@ -1,8 +1,8 @@
 {
   "era": "1.5",
   "run_name": "2026.10.01-v1.5-b2",
-  "source_file": "best.pt",
-  "iteration": 3570,
-  "git_sha": "81a6fdf",
-  "created": "2026-10-19T15:19:12.430085+00:00"
+  "source_file": "last.pt",
+  "iteration": 3582,
+  "git_sha": "03e8538",
+  "created": "2026-10-19T17:18:51.661506+00:00"
 }

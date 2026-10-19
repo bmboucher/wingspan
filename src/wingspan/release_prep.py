@@ -3,7 +3,7 @@
 Usage::
 
     python -m wingspan.release_prep --checkpoint-dir <run dir> \\
-        [--source best|last] [--out src/wingspan/data/release]
+        [--source last|best] [--out src/wingspan/data/release]
 
 Writes ``last.pt`` (the chosen checkpoint minus optimizer state and metrics),
 ``setup.pt`` (minus its optimizer), the newest ``run_config_*.json`` (copied
@@ -102,6 +102,12 @@ def prepare(
     if setup_src.exists():
         strip_payload(setup_src, out_dir / artifacts.SETUP_CKPT, _SETUP_DROP_KEYS)
     run_config = newest_run_config(checkpoint_dir)
+    # A re-bundle after the run wrote a newer config stamp must not leave the
+    # old descriptor behind: the setup-net loader reads the newest, but the
+    # bundle should ship exactly one.
+    for stale_config in out_dir.glob(artifacts.RUN_CONFIG_GLOB):
+        if stale_config.name != run_config.name:
+            stale_config.unlink()
     shutil.copyfile(run_config, out_dir / run_config.name)
     manifest = build_manifest(payload, checkpoint_dir, source_file)
     (out_dir / release.MANIFEST_FILE).write_text(
@@ -118,7 +124,9 @@ def main(argv: list[str] | None = None) -> int:
         description="Strip a trained run into the bundled release artifact.",
     )
     parser.add_argument("--checkpoint-dir", type=pathlib.Path, required=True)
-    parser.add_argument("--source", choices=sorted(_SOURCES), default="best")
+    # Default to last.pt: best.pt's challenger-gated selection is noisy, so the
+    # published parameters are simply the final state of the run.
+    parser.add_argument("--source", choices=sorted(_SOURCES), default="last")
     parser.add_argument("--out", type=pathlib.Path, default=DEFAULT_OUT)
     args = parser.parse_args(argv)
     manifest = prepare(args.checkpoint_dir, args.source, args.out)

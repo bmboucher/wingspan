@@ -207,7 +207,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--checkpoint-dir",
         dest="checkpoint_dir",
         default=constants.DEFAULT_CHECKPOINT_DIR,
-        help="Run directory whose best.pt and setup.pt play "
+        help="Run directory whose last.pt and setup.pt play "
         f"(default: {constants.DEFAULT_CHECKPOINT_DIR}).",
     )
     stats.add_argument(

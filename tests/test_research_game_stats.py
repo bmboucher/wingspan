@@ -55,7 +55,7 @@ _SCALAR_COLUMNS = [
 
 def _write_run_dir(checkpoint_dir: pathlib.Path, *, with_setup: bool = True) -> None:
     """A minimal run directory the study loads: the unified run config, a
-    ``best.pt`` with a fresh tiny policy net, and (optionally) ``setup.pt``."""
+    ``last.pt`` with a fresh tiny policy net, and (optionally) ``setup.pt``."""
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     cfg = config.RunConfig(
         misc=config.MiscConfig(collect_device="cpu", train_device="cpu"),
@@ -97,7 +97,7 @@ def _write_run_dir(checkpoint_dir: pathlib.Path, *, with_setup: bool = True) -> 
         "git_sha": None,
         "version": version.MODEL_VERSION,
     }
-    loop_checkpoint.atomic_save(main_payload, checkpoint_dir / artifacts.BEST_CKPT)
+    loop_checkpoint.atomic_save(main_payload, checkpoint_dir / artifacts.LAST_CKPT)
     if with_setup:
         descriptor = setup_runmeta.read_setup_config(str(checkpoint_dir))
         setup_payload: dict[str, object] = {

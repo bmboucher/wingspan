@@ -31,7 +31,7 @@ class ReleaseManifest(pydantic.BaseModel):
 
     era: str  # artifact MODEL_VERSION stamped in the bundled checkpoint
     run_name: str
-    source_file: str  # e.g. "best.pt"
+    source_file: str  # e.g. "last.pt"
     iteration: int | None = None
     git_sha: str | None = None
     created: str  # UTC ISO timestamp
