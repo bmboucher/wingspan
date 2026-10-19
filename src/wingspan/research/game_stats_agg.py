@@ -8,7 +8,7 @@ standalone — and writes chart-ready aggregates into an output directory:
 * ``turn_scores.csv`` — per (turn, cohort, convention) score distribution.
 * ``action_freq.csv`` — per (turn, cohort) main-action counts and fractions.
 * ``game_pairs.csv`` — each game's paired final scores and winner.
-* ``preview.html`` — a self-contained Plotly page with four sanity-check
+* ``preview.html`` — a self-contained Plotly page with five sanity-check
   figures (not the blog figures themselves).
 
 Two cohorts: ``all`` (every seat-game) and ``won`` (sole winners; ties are
@@ -76,6 +76,13 @@ _ACTION_COLORS: dict[decisions.MainAction, str] = {
 _ROUND_GAP = 1.0
 _BAND_OPACITY_HEX = "33"
 _BAR_OPACITY = 0.6
+# Scattergram styling: one color per outcome group, plus the diagonal tie line.
+_PAIR_COLORS: dict[int, str] = {0: _COLOR_ALL, 1: _COLOR_WON, -1: "#555555"}
+_PAIR_LABELS: dict[int, str] = {0: "p0 wins", 1: "p1 wins", -1: "tie"}
+_SCATTER_MARKER_SIZE = 3
+_SCATTER_OPACITY = 0.35
+_TIE_LINE_DASH = "dash"
+_TIE_LINE_WIDTH = 1
 
 
 class RawGames(pydantic.BaseModel):
@@ -260,7 +267,7 @@ def aggregate(raw_csv: pathlib.Path, out_dir: pathlib.Path) -> list[pathlib.Path
         _write_rows(out_dir / GAME_PAIRS_CSV, pairs),
         _write_text(
             out_dir / PREVIEW_HTML,
-            preview_html(raw, breakdown, turn_scores, action_freq),
+            preview_html(raw, breakdown, turn_scores, action_freq, pairs),
         ),
     ]
     return written
@@ -271,10 +278,12 @@ def preview_html(
     breakdown: list[models.BreakdownRow],
     turn_scores: list[models.TurnScoreRow],
     action_freq: list[models.ActionFreqRow],
+    pairs: list[models.GamePairRow],
 ) -> str:
     """The single self-contained preview page: the breakdown table, the
-    final-score histogram, the per-turn mean-score line with its confidence
-    band, and the per-turn action-fraction bars (all, then won)."""
+    final-score histogram, the per-turn mean-score line with its p5-p95
+    percentile band, the paired-final-scores scattergram, and the per-turn
+    action-fraction bars (all, then won)."""
     figures: list[dict[str, object]] = [
         {
             "id": "histogram",
@@ -290,7 +299,19 @@ def preview_html(
             "traces": _turn_score_traces(turn_scores),
             "layout": {
                 "xaxis": {"title": "Cumulative turn (0 = start of game)"},
-                "yaxis": {"title": "Mean score (VP, projected convention)"},
+                "yaxis": {"title": "Score (VP, projected convention)"},
+            },
+        },
+        {
+            "id": "game_pairs",
+            "traces": _pair_traces(pairs),
+            "layout": {
+                "xaxis": {"title": "Seat 0 final score (VP)"},
+                "yaxis": {
+                    "title": "Seat 1 final score (VP)",
+                    "scaleanchor": "x",
+                    "scaleratio": 1,
+                },
             },
         },
     ]
@@ -418,7 +439,9 @@ def _histogram_traces(raw: RawGames) -> list[dict[str, object]]:
 
 
 def _turn_score_traces(rows: list[models.TurnScoreRow]) -> list[dict[str, object]]:
-    """Mean line plus shaded 95% band per cohort (projected convention)."""
+    """Mean line plus shaded p5-p95 percentile band per cohort (projected
+    convention); the 95% CI of the mean is in ``turn_scores.csv`` but is far too
+    narrow to see at study scale."""
     traces: list[dict[str, object]] = []
     for cohort, color in (
         (models.Cohort.ALL, _COLOR_ALL),
@@ -436,15 +459,14 @@ def _turn_score_traces(rows: list[models.TurnScoreRow]) -> list[dict[str, object
             {
                 "type": "scatter",
                 "mode": "lines",
-                "name": f"{cohort.value} 95% CI",
+                "name": f"{cohort.value} p5-p95",
                 "x": turns + turns[::-1],
-                "y": [row.ci95_hi for row in series]
-                + [row.ci95_lo for row in series][::-1],
+                "y": [row.p95 for row in series] + [row.p5 for row in series][::-1],
                 "fill": "toself",
                 "fillcolor": color + _BAND_OPACITY_HEX,
                 "line": {"width": 0},
                 "hoverinfo": "skip",
-                "showlegend": False,
+                "showlegend": True,
             }
         )
         traces.append(
@@ -455,6 +477,52 @@ def _turn_score_traces(rows: list[models.TurnScoreRow]) -> list[dict[str, object
                 "x": turns,
                 "y": [row.mean for row in series],
                 "line": {"color": color},
+            }
+        )
+    return traces
+
+
+def _pair_traces(pairs: list[models.GamePairRow]) -> list[dict[str, object]]:
+    """Paired final scores as one scattergl trace per outcome group (p0 wins,
+    p1 wins, tie), plus a dashed y=x reference line. ``scattergl`` keeps the
+    page responsive at 100k points."""
+    if not pairs:
+        return []
+    finals = [pair.p0_final for pair in pairs] + [pair.p1_final for pair in pairs]
+    low, high = min(finals), max(finals)
+
+    traces: list[dict[str, object]] = [
+        {
+            "type": "scatter",
+            "mode": "lines",
+            "x": [low, high],
+            "y": [low, high],
+            "line": {
+                "color": _PAIR_COLORS[-1],
+                "dash": _TIE_LINE_DASH,
+                "width": _TIE_LINE_WIDTH,
+            },
+            "hoverinfo": "skip",
+            "showlegend": False,
+        }
+    ]
+    for winner in (0, 1, -1):
+        group = [pair for pair in pairs if pair.winner == winner]
+        if not group:
+            continue
+        share = len(group) / len(pairs)
+        traces.append(
+            {
+                "type": "scattergl",
+                "mode": "markers",
+                "name": f"{_PAIR_LABELS[winner]} (n={len(group)}, {share:.1%})",
+                "x": [pair.p0_final for pair in group],
+                "y": [pair.p1_final for pair in group],
+                "marker": {
+                    "color": _PAIR_COLORS[winner],
+                    "size": _SCATTER_MARKER_SIZE,
+                    "opacity": _SCATTER_OPACITY,
+                },
             }
         )
     return traces
@@ -543,8 +611,10 @@ artwork.</p>
 __TABLE__
 <h2>Final score distribution</h2>
 <div id="histogram" class="chart"></div>
-<h2>Mean score by turn</h2>
+<h2>Score by turn</h2>
 <div id="turn_scores" class="chart"></div>
+<h2>Paired final scores</h2>
+<div id="game_pairs" class="chart"></div>
 <h2>Main action by turn</h2>
 <div id="actions_all" class="chart"></div>
 <div id="actions_won" class="chart"></div>

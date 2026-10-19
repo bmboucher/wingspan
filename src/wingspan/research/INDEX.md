@@ -88,8 +88,10 @@ it yet.
 **`game_stats_agg.py`** — Aggregates and the HTML preview, from the raw CSV
 (numpy only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir)`
 writes `breakdown_table.csv` / `.md`, `turn_scores.csv`, `action_freq.csv`,
-`game_pairs.csv`, and `preview.html` (Plotly via the pinned CDN URL from
-`reporting.training_summary`). Cohorts: `all` and `won` (sole winners; ties
+`game_pairs.csv`, and `preview.html` (five Plotly figures: table, histogram,
+turn-score line with a p5-p95 percentile band — the CI columns stay in
+`turn_scores.csv` — paired-scores scattergram, action bars; via the pinned CDN
+URL from `reporting.training_summary`). Cohorts: `all` and `won` (sole winners; ties
 excluded). Building blocks: `read_raw_games`, `breakdown_rows`,
 `breakdown_markdown`, `turn_score_rows`, `action_freq_rows`, `game_pair_rows`,
 `preview_html`.

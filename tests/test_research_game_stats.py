@@ -421,6 +421,21 @@ def test_game_pairs(fixture_csv: pathlib.Path):
     ]
 
 
+def test_preview_contains_scattergram_and_percentile_band(
+    fixture_csv: pathlib.Path, tmp_path: pathlib.Path
+):
+    out_dir = tmp_path / "out"
+    game_stats_agg.aggregate(fixture_csv, out_dir)
+    html = (out_dir / game_stats_agg.PREVIEW_HTML).read_text(encoding="utf-8")
+    assert '"id": "game_pairs"' in html
+    assert "scattergl" in html
+    assert "p5-p95" in html
+    assert "p0 wins (n=1, 33.3%)" in html
+    assert "p1 wins (n=1, 33.3%)" in html
+    assert "tie (n=1, 33.3%)" in html
+    assert "ci95" not in html
+
+
 def test_aggregate_writes_every_output(
     fixture_csv: pathlib.Path, tmp_path: pathlib.Path
 ):
