@@ -16,6 +16,21 @@ Update this file in the same commit that bumps `MODEL_VERSION`.
 
 ---
 
+## Package releases vs artifact versions
+
+The PyPI package `wingspan-rl` (version `wingspan.__version__`, currently
+**1.0.0**) bundles a stripped era-1.5 artifact under
+`src/wingspan/data/release/`, in the standard run-dir layout: `last.pt`,
+`setup.pt`, `run_config_*.json`, and a `manifest.json` (era, run name, source
+file, iteration, git SHA, timestamp). The `.pt` payloads are the trained
+checkpoint minus the optimizer state and metrics, produced by
+`python -m wingspan.release_prep`. The bundle goes through the exact same
+`players.loaders` load path and version checks as any run directory; a package
+release does not by itself change `MODEL_VERSION`, and a `MODEL_VERSION` bump
+requires re-bundling (or a compat shim for the bundled era).
+
+---
+
 ## The rehydration guarantee (the whole point)
 
 A run freezes its config to disk when it starts. Loading those files under any

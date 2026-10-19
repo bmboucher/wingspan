@@ -29,7 +29,7 @@ import typing
 import torch
 import yaml
 
-from wingspan import engine, players, state
+from wingspan import engine, players, release, state
 from wingspan.agents import display
 from wingspan.engine import scoring
 from wingspan.gamelog import models as gamelog_models
@@ -92,6 +92,18 @@ def main_play(argv: list[str] | None = None) -> int:
         return 1
 
     if not args.quiet:
+        manifest = release.load_manifest()
+        bundled = (
+            f"era {manifest.era}, run {manifest.run_name}"
+            if manifest is not None
+            else "no manifest"
+        )
+        for seat, spec in enumerate(specs):
+            if spec.bundled_fallback:
+                print(
+                    f"p{seat}: {checkpoint_dir / players.NAMED_SPECS[spec.raw]} not "
+                    f"found — using bundled release model ({bundled})"
+                )
         regime_parts: list[str] = []
         if split_setup_bonus:
             regime_parts.append("bonus: split (CHOOSE_BONUS)")

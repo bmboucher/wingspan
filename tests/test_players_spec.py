@@ -27,11 +27,13 @@ def test_human_and_random_specs_have_no_paths():
         assert player_spec.run_dir is None
 
 
-def test_named_specs_resolve_against_checkpoint_dir():
+def test_named_specs_resolve_against_checkpoint_dir(tmp_path: pathlib.Path):
     """``last`` / ``best`` / ``opponent`` name artifacts under the checkpoint
     directory, which also provides the setup net."""
-    checkpoint_dir = pathlib.Path("some") / "run"
+    checkpoint_dir = tmp_path / "run"
+    checkpoint_dir.mkdir()
     for name, filename in players.NAMED_SPECS.items():
+        (checkpoint_dir / filename).write_bytes(b"dummy")  # present: no fallback
         player_spec = players.parse_player_spec(name, checkpoint_dir)
         assert player_spec.kind is players.PlayerKind.MODEL
         assert player_spec.checkpoint_path == checkpoint_dir / filename

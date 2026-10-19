@@ -35,6 +35,9 @@ src/wingspan/
   architecture.py  # ModelArchitecture + ActivationName (torch-free network topology descriptor)
   version.py       # MODEL_VERSION artifact-compat version + load-time check (torch-free)
   sampling.py      # weighted_index(...) — seed-stable weighted sampling (torch-free)
+  release.py       # bundled-model resolution: release_dir(), has_release(), ReleaseManifest (torch-free)
+  release_prep.py  # maintainer tool: strip a trained run into data/release/ and verify it loads
+  data/release/    # the bundled trained model (last.pt, setup.pt, run_config_*.json, manifest.json)
   data/*.json      # wingsearch card data (bundled)
 ```
 

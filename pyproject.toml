@@ -3,12 +3,17 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wingspan"
-version = "0.1.0"
-description = "Wingspan board-game simulator and RL training pipeline"
+name = "wingspan-rl"
+dynamic = ["version"]
+description = "Wingspan board-game simulator and RL training pipeline, with a bundled trained model"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Games/Entertainment :: Board Games",
+]
 dependencies = [
     "numpy>=1.24",
     "torch>=2.0",
@@ -31,14 +36,21 @@ dev = [
     "types-PyYAML",  # yaml.safe_load typing for strict pyright
 ]
 
+[project.urls]
+Homepage = "https://github.com/bmboucher/wingspan"
+Repository = "https://github.com/bmboucher/wingspan"
+
 [project.scripts]
 wingspan = "wingspan.__main__:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "wingspan.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-wingspan = ["data/*.json"]
+wingspan = ["data/*.json", "data/release/*"]
 
 # --- Tooling -------------------------------------------------------------
 # Quality gate (see CLAUDE.md "Quality gate"): `pyright` must be clean in

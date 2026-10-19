@@ -1,6 +1,7 @@
 """Unified ``wingspan`` CLI dispatcher.
 
 Usage: wingspan <command> [args …]
+       wingspan -V | --version   (package version, artifact era, bundled model)
 
 Commands:
   play        Play games between any mix of human, random, and trained-AI seats.
@@ -40,6 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     args = list(argv) if argv is not None else sys.argv[1:]
     if not args or args[0] in ("-h", "--help"):
         _print_help()
+        return 0
+    if args[0] in ("-V", "--version"):
+        _print_version()
         return 0
     verb, rest = args[0], args[1:]
     match verb:
@@ -94,6 +98,23 @@ def main(argv: list[str] | None = None) -> int:
 ###### PRIVATE #######
 
 
+def _print_version() -> None:
+    """Print the package version, the artifact era, and the bundled model."""
+    import wingspan
+    from wingspan import release, version
+
+    print(f"wingspan-rl {wingspan.__version__} (artifact era {version.MODEL_VERSION})")
+    if release.has_release():
+        manifest = release.load_manifest()
+        if manifest is not None:
+            print(
+                f"bundled model: era {manifest.era}, run {manifest.run_name}, "
+                f"iteration {manifest.iteration}"
+            )
+        else:
+            print("bundled model: present (no manifest)")
+
+
 def _print_help() -> None:
     """Print the top-level usage table."""
     width = max(len(verb) for verb in _VERBS)
@@ -104,6 +125,7 @@ def _print_help() -> None:
         *(f"  {verb:<{width}}  {desc}" for verb, desc in _VERBS.items()),
         "",
         "Run `wingspan <command> --help` for per-command usage.",
+        "Run `wingspan --version` for the package version and bundled model.",
     ]
     print("\n".join(lines))
 

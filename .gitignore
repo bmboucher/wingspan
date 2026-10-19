@@ -18,6 +18,8 @@ checkpoints/
 runs/*/*/
 *.pt
 *.pth
+# The release bundle shipped inside the wheel (src/wingspan/data/release/).
+!src/wingspan/data/release/*.pt
 # Pinned backwards-compatibility fixtures are the one sanctioned home for
 # committed checkpoints — gzip-compressed (*.pt.gz, not matched by *.pt) and
 # LFS-tracked via .gitattributes (see CLAUDE.md "Checkpoint compatibility

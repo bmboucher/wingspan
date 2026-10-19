@@ -16,6 +16,13 @@ both use the same loading and logging conventions.
   (`"last"`, `"best"`, `"opponent"`) resolved against the default checkpoint
   directory. Any other string is treated as a filesystem path (below), not a
   named run.
+  If the named checkpoint does not exist under that directory and a bundled
+  model is present (`release.has_release()`), the spec resolves to the bundled
+  model instead with `PlayerSpec.bundled_fallback = True` (`wingspan play`
+  prints one line per fallen-back seat; `spec.py` itself prints nothing).
+- `"release"` (`RELEASE_SPEC`) → the model bundled with the package
+  (`release.release_dir()/last.pt`, `run_dir` = the release dir). Not in
+  `NAMED_SPECS`: it never resolves against `checkpoint_dir`.
 - `"/path/to/run/"` → run directory carrying its config descriptor
   (`run_config_<stamp>.json` for ≥0.5, legacy `model_config.json` otherwise).
 - `"/path/to/checkpoint.pt"` → bare checkpoint file.

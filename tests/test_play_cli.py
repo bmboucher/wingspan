@@ -202,17 +202,15 @@ def test_jsonl_flag_starts_from_an_empty_file(tmp_path: pathlib.Path):
 def test_missing_checkpoint_fails_cleanly(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ):
-    """A model seat whose checkpoint does not exist fails before any game runs,
-    printing the loader's message to stderr and exiting 1 (the bare
-    ``wingspan play`` path on a machine with no trained model)."""
+    """A model seat given an explicit path that does not exist fails before any
+    game runs, printing the loader's message to stderr and exiting 1. (Named
+    specs like ``last`` instead fall back to the bundled model.)"""
     exit_code = cli.main_play(
         [
             "--p0",
-            "last",
+            str(tmp_path / "nothing-here" / "missing.pt"),
             "--p1",
             "random",
-            "--checkpoint-dir",
-            str(tmp_path / "nothing-here"),
             "--quiet",
         ]
     )

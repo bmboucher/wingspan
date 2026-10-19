@@ -14,7 +14,36 @@ improve on a live dashboard.
 
 ## Setup
 
-Requires **Python 3.12+**. Install the package (editable) into your environment:
+Requires **Python 3.12+**. Install the released package from PyPI:
+
+```
+pip install wingspan-rl
+```
+
+and play a game with the bundled trained model right away:
+
+```
+wingspan play --html game.html
+```
+
+PyTorch is the heavy transitive dependency. For a much smaller install, put the
+CPU-only wheel in first (see the
+[PyTorch install selector](https://pytorch.org/get-started/locally/); e.g.
+`pip install torch --index-url https://download.pytorch.org/whl/cpu`) and then
+`pip install wingspan-rl`.
+
+### Bundled model
+
+The package ships a trained model (artifact era 1.5, trained by self-play,
+**2-player only**). When `--p0` / `--p1` are `last` / `best` / `opponent` and
+no such checkpoint exists in the checkpoint directory, `wingspan play` falls
+back to the bundled model and says so; `--p0 release` selects it explicitly.
+`--p2` / `--p3` (3-4 player tables) require a model you trained yourself.
+`wingspan --version` shows the package version and the bundled model's run.
+
+### Development install
+
+To work on the code, install this checkout (editable) instead:
 
 ```
 pip install -e .
