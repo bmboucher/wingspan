@@ -33,9 +33,12 @@ fi
 # ---- Commit any dirty state in main ----
 # Training outputs under runs/ and checkpoints/ are never swept into the
 # snapshot: they are large, run-specific, and belong to the human to commit
-# (or ignore) deliberately.
+# (or ignore) deliberately. checkpoints/ needs no exclude pathspec — it is
+# entirely gitignored, and `git add` refuses (exit 1) any pathspec item, even
+# an :(exclude) one, that matches only ignored paths. runs/ holds tracked
+# files (experiment configs, READMEs), so its exclude both works and matters.
 
-SNAPSHOT_PATHSPEC=(. ':(exclude)runs' ':(exclude)checkpoints')
+SNAPSHOT_PATHSPEC=(. ':(exclude)runs')
 
 if ! git diff --quiet -- "${SNAPSHOT_PATHSPEC[@]}" \
         || ! git diff --cached --quiet -- "${SNAPSHOT_PATHSPEC[@]}" \
