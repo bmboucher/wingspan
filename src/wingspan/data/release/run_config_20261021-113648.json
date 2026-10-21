@@ -1,10 +1,10 @@
 {
   "version": "1.5",
-  "saved_at": "2026-10-19T12:28:11",
-  "started_at": "2026-10-19T12:28:11",
-  "git_sha": "a6ed9ff",
+  "saved_at": "2026-10-21T11:36:48",
+  "started_at": "2026-10-21T11:36:48",
+  "git_sha": "24a5440",
   "resumed": true,
-  "resumed_from_iteration": 3576,
+  "resumed_from_iteration": 3952,
   "config": {
     "architecture": {
       "main": {
@@ -157,7 +157,7 @@
       "eval_games": 500,
       "probe_every": 10,
       "probe_decisions": 4096,
-      "checkpoint_dir": "checkpoints/archive/2026.10.01-v1.5-b2",
+      "checkpoint_dir": ".\\checkpoints\\archive\\2026.10.01-v1.5-b2\\",
       "run_name": "2026.10.01-v1.5-b2",
       "resume": true,
       "history_len": 250
