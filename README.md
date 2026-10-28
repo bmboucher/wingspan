@@ -315,6 +315,22 @@ wingspan research game-stats --games 100000 --workers 10 --out stats/
 wingspan research game-stats --aggregate-only stats/games_raw.csv --out stats/ --blog-snippets
 ```
 
+The third is the **card-stats study**: the same greedy self-play games, but
+recording each seat's opener and the cards it held through each round, to
+estimate per-card "games in hand" (GIH) win rates and opener keep rates for
+birds and bonus cards. It writes `card_games_raw.csv` plus `bird_stats.csv` and
+`bonus_stats.csv` (with markdown renderings), each rate with a Wilson 95%
+interval. A card counts for a round if the seat held it at any point of it,
+unless it arrived on the seat's final turn of that round. `--release` plays the
+bundled model; `--checkpoint-dir` plays a run directory (the two are mutually
+exclusive).
+
+```
+wingspan research card-stats --release --games 100000 --workers 10 --out card_stats/
+wingspan research card-stats --checkpoint-dir checkpoints --out card_stats/
+wingspan research card-stats --aggregate-only card_stats/card_games_raw.csv --out card_stats/
+```
+
 ## Probe a model's architecture
 
 `wingspan analysis probe` measures how much each part of a trained network's
@@ -362,7 +378,7 @@ command with subcommands:
 | `wingspan summary`      | Training-progression HTML report for a run directory   |
 | `wingspan cloud`        | Headless S3-persisted training (container use)          |
 | `wingspan monitor`      | FLOCK WATCH: live roster of cloud runs                  |
-| `wingspan research`     | Offline research studies (setup keep-rate, game-stats)  |
+| `wingspan research`     | Offline research studies (setup keep-rate, game-stats, card-stats)  |
 | `wingspan analysis`     | Architecture-importance probe over a trained checkpoint |
 
 Run `wingspan --help` for the full list, or `wingspan <command> --help` for

@@ -83,6 +83,19 @@ its six categories, and `won` (sole winner via `scoring.winners`) plus the
 game-level `tie`. Turn numbering is an explicit per-seat counter incremented at
 `turn_start`, cross-checked against the engine's cube bookkeeping at `turn_end`.
 
+**`handlers/card_stats.py`** — `CardStatsCapture` (one instance per game; not
+registered by name — built programmatically by `research.card_stats`).
+Subscribes to `setup_start` / `round_start` / `turn_start` / `bird_placed` /
+`turn_end` / `game_end` via `instrumentation()`. Per seat (`CardSeatCapture`) it
+records the dealt birds and dealt bonus (`setup_start`), the kept birds and the
+original bonus card (read at the round-0 `round_start`, because the
+deferred-bonus regime picks the bonus after `setup_applied`), per-round sets of
+birds in hand and of acquired (non-original) bonus cards, and `won` / `tie` /
+`final_score` at `game_end`. A card counts for a round if held at any point of
+it unless it arrived on the seat's final turn of that round: `turn_start` adds
+the hand; `turn_end` adds the hand plus birds placed that turn only when
+`action_cubes_left > 0` (the cube is spent before the action runs).
+
 **`handlers/game_log_html.py`** — `GameLogHtml` (`GameLogHtmlHandler`): records
 each game as a navigable, self-contained HTML log viewer (the `wingspan play
 --html` flag). Subscribes to `game_start` / `setup_start` / `round_start` /

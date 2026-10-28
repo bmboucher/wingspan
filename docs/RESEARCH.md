@@ -113,20 +113,12 @@ Scoring the options for a hand is already implemented (`enumerate_setup_candidat
 - [ ] **Outcome-impact decision (Q2).** Selection frequency ≠ outcome impact. Either use the predicted-margin / value head as a *proxy* (cheap, available now) or actually **play games to completion** from each setup and measure win rate (expensive — shares the per-card outcome logging of Project 5). Pick one and state it.
 - [ ] **Handle both setup paths.** With `use_setup_model=False`, setups are scored by the main net's SETUP head instead of `SetupNet`; the harness should cover both or standardize on the setup model.
 
-### Project: General card stats (GIH / GOB win rate, per-slot) — ⚠️ engine hooks exist, handler + aggregation needed
+### Project: General card stats (GIH / GOB win rate, per-slot) — ✅ GIH half runnable as `wingspan research card-stats`; GOB still open
 
-The instrumentation framework has closed the "no engine hooks" gap from the
-original assessment. `BIRD_PLACED` delivers bird, habitat, and slot (via
-`played_bird`); `SETUP_APPLIED` delivers the opening keep; `PLAYER_FINAL_SCORED`
-delivers the per-seat score breakdown; and `GAME_END` is where the winner is
-known. A multi-event `CallbackHandler` spanning these four events can accumulate
-per-game card visit data and write a per-game record on `GAME_END`, with
-GIH/GOB/per-slot win rate computable purely from the collected JSONL. The
-`CardVisitRecorder` bundled handler is a direct template.
+**GIH (done).** `wingspan research card-stats` plays the same greedy self-play games as `game-stats` (same nets, same `spec.game_seed`, so equal `--seed` / `--games` give identical games) with the reusable `wingspan.instrumentation.handlers.card_stats.CardStatsCapture` handler, and writes `card_games_raw.csv` (one row per seat-game: dealt / kept birds, dealt / original bonus, the birds and acquired bonus cards held in each round 1-4, outcome) into `--out`. A card counts as "in hand" for a round if the seat held it at any point of that round, unless it arrived on the seat's final turn of the round (no chance to play it); the next round's first turn picks it up. Aggregates (`wingspan.research.card_stats_agg`, re-runnable with `--aggregate-only card_games_raw.csv`): `bird_stats.csv` (every catalog bird: dealt / kept / keep rate, dealt win rate, GIH win rate overall and per round, Wilson 95% intervals) and `bonus_stats.csv` (original bonus: offered / kept / keep rate / win rates; acquired-mid-game GIH overall and per round; combined original-or-acquired GIH), each with a `.md` rendering. The original bonus is excluded from the per-round bonus columns (it is held every round). Ties count as non-wins and stay in every denominator. Run on the bundled model: `wingspan research card-stats --release --games 100000 --workers 10 --out card_stats/` (or `--checkpoint-dir <run dir>`).
 
-- [ ] **Card-stats handler.** Implement a `CallbackHandler` subclassing `BirdPlacedHandler`, `SetupAppliedHandler`, `PlayerFinalScoredHandler`, and `GameEndHandler`, accumulating per-seat bird-play data (with habitat and slot) and opener cards, and writing one JSONL row per game on `game_end` with the winner linked in. Register and wire via `InstrumentationConfig`.
-- [ ] **Fixed-model stats-collection run.** Drive `mp_collect` (or a simpler single-process driver) with the locked checkpoint and the card-stats instrumentation config enabled. No new code needed beyond the handler — just a run config.
-- [ ] **Aggregation.** GIH / GOB / per-slot win-rate tables with sample sizes and CIs, reading the per-game JSONL output.
+- [x] **Card-stats handler**, **fixed-model collection run**, and **GIH aggregation with CIs** — all in `card-stats`.
+- [ ] **GOB (Games On-Board) and per-slot win rates.** Still open: needs a `bird_placed`-driven capture of which bird landed in which habitat slot, then the same aggregation shape. `BIRD_PLACED` already delivers bird, habitat, and slot (via `played_bird`).
 
 ### Project: Model performance stats (release/blog) — ✅ runnable as `wingspan research game-stats`
 

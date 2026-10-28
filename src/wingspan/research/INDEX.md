@@ -109,6 +109,56 @@ stable header: scalar columns, `score_proj_0..26`, `score_raw_0..26`,
 the aggregate row shapes `BreakdownRow`, `TurnScoreRow`, `ActionFreqRow`,
 `GamePairRow`.
 
+**`shard_runner.py`** — The shard runner shared by `game-stats` and
+`card-stats`. `stream_study(spec=, shards=, nets=, load_nets=, study_shard=,
+checkpoint_dir=, device=, out_path=, columns=, to_row=, progress_stream=)`
+streams every shard's records to a CSV in shard order — in-process for
+`workers == 1`, otherwise a spawn-context pool whose workers each call
+`load_nets` once (`torch.set_num_threads(1)`) — with `StudyProgress` on
+`progress_stream`; returns the row count. `load_nets` and `study_shard` must be
+module-level functions (pickled by reference).
+
+**`card_stats.py`** — The general card-stats study (RESEARCH.md "General card
+stats", the GIH half). `run_card_stats_study(spec, checkpoint_dir, device,
+out_path, *, progress_stream=None) -> GameStatsSummary` reuses
+`game_stats.load_game_nets` / `plan_shards` (shard size
+`CARD_STATS_GAMES_PER_SHARD`) and `GameStatsSpec`, so with equal `--seed` /
+`--games` the games are identical to a game-stats run. `study_shard` /
+`play_game` play one greedy self-play game per index captured by
+`CardStatsCapture` and return `CardSeatRecord`s (round card sets sorted by name
+for byte-stable CSVs).
+
+**`card_stats_agg.py`** — Per-card aggregates from `card_games_raw.csv`
+(stdlib only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir)`
+writes `bird_stats.csv` / `.md` and `bonus_stats.csv` / `.md`. Building blocks:
+`read_raw_cards`, `wilson_interval(wins, n)` (95%), `win_stat`, `baseline`
+(overall seat-game win rate; ties are non-wins and stay in denominators),
+`bird_rows`, `bonus_rows` (one row per catalog card, never-seen cards with
+`n = 0` and blank rates), `bird_markdown`, `bonus_markdown`.
+`bird_stats.csv`: `bird_id, bird_name, dealt_n, kept_n, keep_rate,
+dealt_win_rate`, then `gih_{n,wins,win_rate,ci95_lo,ci95_hi}` (bird in hand at
+any point after setup) and the same five per round as `gih_r1_..gih_r4_`.
+`bonus_stats.csv`: `bonus_name, offered_n, kept_n, keep_rate,
+offered_win_rate`, `original_*` (kept at setup), `gih_*` (combined: original OR
+acquired), `acquired_gih_*` (picked up mid-game, any round) and
+`acquired_r1_..acquired_r4_*`. The original bonus is deliberately excluded from
+the per-round columns (it is held every round); those cover acquired cards only.
+
+**Card-stats models** (in `models.py`): `CardSeatRecord` (scalars, dealt / kept
+birds, dealt / original bonus, `birds_by_round`, `acquired_bonus_by_round`;
+`to_csv_row()` / `from_csv_row()`) with `card_stats_csv_columns()` (the stable
+`card_games_raw.csv` header: `game_index, seed, seat, won, tie, final_score,
+dealt_birds, kept_birds, dealt_bonus, original_bonus, birds_r1..4,
+acquired_bonus_r1..4`; card names `|`-joined); `WinTally`, `WinStat`
+(n, wins, win_rate, Wilson `ci95_lo` / `ci95_hi`), `BirdStatsRow`,
+`BonusStatsRow` (each with `csv_columns()`), `CardStatsBaseline`.
+
+**`app.py` (card-stats)** — sub-command `card-stats` (`--games`, `--out`,
+`--checkpoint-dir` | `--release` (mutually exclusive; `--release` plays
+`release.release_dir()` and exits 1 if no bundle is installed), `--seed`,
+`--workers`, `--device`, `--aggregate-only CARD_GAMES_RAW_CSV`); a play run
+always aggregates afterwards and prints the baseline win rate.
+
 **`app.py` (game-stats)** — sub-command `game-stats` (`--games`, `--out` (a
 directory, required), `--checkpoint-dir`, `--seed`, `--workers`, `--device`,
 `--aggregate-only GAMES_RAW_CSV`); a play run always aggregates afterwards and

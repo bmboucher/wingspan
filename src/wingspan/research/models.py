@@ -517,9 +517,294 @@ class GamePairRow(pydantic.BaseModel):
     tie: bool
 
 
+#### Card-stats study (``wingspan research card-stats``) ####
+
+# The scalar columns of ``card_games_raw.csv``, in header order.
+CARD_SCALAR_COLUMNS: tuple[str, ...] = (
+    "game_index",
+    "seed",
+    "seat",
+    "won",
+    "tie",
+    "final_score",
+)
+# The card-list columns that follow the scalars (``birds_r1..4`` and
+# ``acquired_bonus_r1..4`` come after these).
+CARD_LIST_COLUMNS: tuple[str, ...] = (
+    "dealt_birds",
+    "kept_birds",
+    "dealt_bonus",
+    "original_bonus",
+)
+_BOOL_TRUE = "True"
+
+
+def card_stats_csv_columns() -> list[str]:
+    """The ``card_games_raw.csv`` header: scalars, the dealt / kept / bonus
+    cells, ``birds_r1..4``, then ``acquired_bonus_r1..4``. A stable contract."""
+    return [
+        *CARD_SCALAR_COLUMNS,
+        *CARD_LIST_COLUMNS,
+        *_round_columns(constants.BIRDS_ROUND_PREFIX),
+        *_round_columns(constants.ACQUIRED_BONUS_ROUND_PREFIX),
+    ]
+
+
+class CardSeatRecord(pydantic.BaseModel):
+    """One seat of one game as the card-stats study sees it: the opener, the
+    cards held through each round, and the outcome — one row of
+    ``card_games_raw.csv``.
+
+    ``birds_by_round[k]`` holds the birds in the seat's hand at any point of
+    round ``k + 1`` (excluding cards that only arrived on the seat's final turn
+    of that round); ``acquired_bonus_by_round[k]`` is the same for bonus cards
+    picked up mid-game. The original bonus card is held every round, so it is
+    deliberately absent from the per-round lists."""
+
+    game_index: int
+    seed: int
+    seat: int
+    # True only for a sole winner; a shared victory leaves every seat False.
+    won: bool
+    # True when the game ended in a shared victory.
+    tie: bool
+    final_score: int
+    dealt_birds: list[str]
+    # The opener after setup: a subset of ``dealt_birds``.
+    kept_birds: list[str]
+    dealt_bonus: list[str]
+    # The bonus card the seat kept at setup (blank if it somehow holds none).
+    original_bonus: str
+    birds_by_round: typing.Annotated[
+        list[list[str]],
+        pydantic.Field(
+            min_length=constants.NUM_ROUNDS, max_length=constants.NUM_ROUNDS
+        ),
+    ]
+    acquired_bonus_by_round: typing.Annotated[
+        list[list[str]],
+        pydantic.Field(
+            min_length=constants.NUM_ROUNDS, max_length=constants.NUM_ROUNDS
+        ),
+    ]
+
+    def to_csv_row(self) -> dict[str, object]:
+        """The flat CSV row (the header is :func:`card_stats_csv_columns`);
+        multi-valued cells are ``constants.NAME_SEPARATOR``-joined."""
+        row: dict[str, object] = {
+            column: getattr(self, column) for column in CARD_SCALAR_COLUMNS
+        }
+        row["dealt_birds"] = _join_names(self.dealt_birds)
+        row["kept_birds"] = _join_names(self.kept_birds)
+        row["dealt_bonus"] = _join_names(self.dealt_bonus)
+        row["original_bonus"] = self.original_bonus
+        birds_columns = _round_columns(constants.BIRDS_ROUND_PREFIX)
+        bonus_columns = _round_columns(constants.ACQUIRED_BONUS_ROUND_PREFIX)
+        for column, names in zip(birds_columns, self.birds_by_round):
+            row[column] = _join_names(names)
+        for column, names in zip(bonus_columns, self.acquired_bonus_by_round):
+            row[column] = _join_names(names)
+        return row
+
+    @classmethod
+    def from_csv_row(cls, row: typing.Mapping[str, str]) -> "CardSeatRecord":
+        """Parse one ``card_games_raw.csv`` row (the inverse of
+        :meth:`to_csv_row`)."""
+        return cls(
+            game_index=int(row["game_index"]),
+            seed=int(row["seed"]),
+            seat=int(row["seat"]),
+            won=row["won"] == _BOOL_TRUE,
+            tie=row["tie"] == _BOOL_TRUE,
+            final_score=int(row["final_score"]),
+            dealt_birds=_split_names(row["dealt_birds"]),
+            kept_birds=_split_names(row["kept_birds"]),
+            dealt_bonus=_split_names(row["dealt_bonus"]),
+            original_bonus=row["original_bonus"],
+            birds_by_round=[
+                _split_names(row[column])
+                for column in _round_columns(constants.BIRDS_ROUND_PREFIX)
+            ],
+            acquired_bonus_by_round=[
+                _split_names(row[column])
+                for column in _round_columns(constants.ACQUIRED_BONUS_ROUND_PREFIX)
+            ],
+        )
+
+
+#### Card-stats aggregate rows (``card_stats_agg``) ####
+
+
+class WinTally(pydantic.BaseModel):
+    """Running count of seat-games and how many of them were sole wins."""
+
+    n: int = 0
+    wins: int = 0
+
+    def add(self, *, won: bool) -> None:
+        """Count one seat-game."""
+        self.n += 1
+        self.wins += int(won)
+
+
+class WinStat(pydantic.BaseModel):
+    """A win-rate estimate over ``n`` seat-games with its Wilson 95% interval.
+    The rate and interval are ``None`` (blank in the CSV) when ``n == 0``."""
+
+    n: int
+    wins: int
+    win_rate: float | None
+    ci95_lo: float | None
+    ci95_hi: float | None
+
+    def flattened(self, prefix: str) -> dict[str, object]:
+        """The stat's fields keyed ``prefix`` + field name (a CSV fragment)."""
+        return {f"{prefix}{name}": value for name, value in self.model_dump().items()}
+
+    @classmethod
+    def columns(cls, prefix: str) -> list[str]:
+        """The column names :meth:`flattened` produces for ``prefix``."""
+        return [f"{prefix}{name}" for name in cls.model_fields]
+
+
+class BirdStatsRow(pydantic.BaseModel):
+    """One row of ``bird_stats.csv``: how often a bird is kept and how seats
+    holding it fared. ``gih`` ("games in hand") is every seat-game in which the
+    bird was in hand at any point after setup; ``gih_rounds[k]`` is the same
+    restricted to round ``k + 1``. ``dealt_win_rate`` is the win rate over
+    seat-games where the bird was dealt, whether or not it was kept."""
+
+    bird_id: int
+    bird_name: str
+    dealt_n: int
+    kept_n: int
+    keep_rate: float | None
+    dealt_win_rate: float | None
+    gih: WinStat
+    gih_rounds: list[WinStat]
+
+    def to_csv_row(self) -> dict[str, object]:
+        """The flat CSV row (the header is :meth:`csv_columns`)."""
+        row: dict[str, object] = {
+            "bird_id": self.bird_id,
+            "bird_name": self.bird_name,
+            "dealt_n": self.dealt_n,
+            "kept_n": self.kept_n,
+            "keep_rate": self.keep_rate,
+            "dealt_win_rate": self.dealt_win_rate,
+        }
+        row.update(self.gih.flattened("gih_"))
+        for prefix, stat in zip(_round_stat_prefixes("gih_"), self.gih_rounds):
+            row.update(stat.flattened(prefix))
+        return row
+
+    @classmethod
+    def csv_columns(cls) -> list[str]:
+        """The ``bird_stats.csv`` header. A stable contract."""
+        columns = [
+            "bird_id",
+            "bird_name",
+            "dealt_n",
+            "kept_n",
+            "keep_rate",
+            "dealt_win_rate",
+            *WinStat.columns("gih_"),
+        ]
+        for prefix in _round_stat_prefixes("gih_"):
+            columns.extend(WinStat.columns(prefix))
+        return columns
+
+
+class BonusStatsRow(pydantic.BaseModel):
+    """One row of ``bonus_stats.csv``.
+
+    The *original* bonus card is the one kept at setup: ``offered_n`` counts
+    seat-games where it was dealt, ``kept_n`` where it was kept, and ``original``
+    the win rate when it was the kept card. *Acquired* cards are picked up
+    mid-game by powers: ``acquired`` covers any point after setup and
+    ``acquired_rounds[k]`` round ``k + 1`` only. ``combined`` ("gih") is
+    original OR acquired at any point. The original card is excluded from the
+    per-round columns because it is held every round."""
+
+    bonus_name: str
+    offered_n: int
+    kept_n: int
+    keep_rate: float | None
+    offered_win_rate: float | None
+    original: WinStat
+    combined: WinStat
+    acquired: WinStat
+    acquired_rounds: list[WinStat]
+
+    def to_csv_row(self) -> dict[str, object]:
+        """The flat CSV row (the header is :meth:`csv_columns`)."""
+        row: dict[str, object] = {
+            "bonus_name": self.bonus_name,
+            "offered_n": self.offered_n,
+            "kept_n": self.kept_n,
+            "keep_rate": self.keep_rate,
+            "offered_win_rate": self.offered_win_rate,
+        }
+        row.update(self.original.flattened("original_"))
+        row.update(self.combined.flattened("gih_"))
+        row.update(self.acquired.flattened("acquired_gih_"))
+        for prefix, stat in zip(
+            _round_stat_prefixes("acquired_"), self.acquired_rounds
+        ):
+            row.update(stat.flattened(prefix))
+        return row
+
+    @classmethod
+    def csv_columns(cls) -> list[str]:
+        """The ``bonus_stats.csv`` header. A stable contract."""
+        columns = [
+            "bonus_name",
+            "offered_n",
+            "kept_n",
+            "keep_rate",
+            "offered_win_rate",
+            *WinStat.columns("original_"),
+            *WinStat.columns("gih_"),
+            *WinStat.columns("acquired_gih_"),
+        ]
+        for prefix in _round_stat_prefixes("acquired_"):
+            columns.extend(WinStat.columns(prefix))
+        return columns
+
+
+class CardStatsBaseline(pydantic.BaseModel):
+    """The overall seat-game win rate every card's rate is read against. Ties
+    count as non-wins (they stay in the denominator)."""
+
+    seat_games: int
+    wins: int
+    ties: int
+    win_rate: float | None
+
+
 ###### PRIVATE #######
 
 
 def _text_at(items: typing.Sequence[str], index: int) -> str:
     """``items[index]``, or blank past the end (a short tray or goal list)."""
     return items[index] if index < len(items) else ""
+
+
+def _round_columns(prefix: str) -> list[str]:
+    """``prefix`` + ``1..NUM_ROUNDS`` (the per-round columns of one card kind)."""
+    return [f"{prefix}{round_num}" for round_num in range(1, constants.NUM_ROUNDS + 1)]
+
+
+def _round_stat_prefixes(prefix: str) -> list[str]:
+    """``prefix`` + ``r1_`` .. ``r4_``: the per-round stat column prefixes."""
+    return [
+        f"{prefix}r{round_num}_" for round_num in range(1, constants.NUM_ROUNDS + 1)
+    ]
+
+
+def _join_names(names: typing.Iterable[str]) -> str:
+    return constants.NAME_SEPARATOR.join(names)
+
+
+def _split_names(cell: str) -> list[str]:
+    return cell.split(constants.NAME_SEPARATOR) if cell else []

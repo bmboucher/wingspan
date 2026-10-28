@@ -19,12 +19,9 @@ shard order.
 
 from __future__ import annotations
 
-import csv
-import multiprocessing
 import pathlib
 import time
 import typing
-from concurrent import futures
 
 import pydantic
 import torch
@@ -32,7 +29,7 @@ import torch
 from wingspan import engine, model
 from wingspan.instrumentation.handlers import game_stats
 from wingspan.players import loaders
-from wingspan.research import constants, models, progress
+from wingspan.research import constants, models, shard_runner
 from wingspan.training import artifacts, collect, policy
 from wingspan.training import setup_net as setup_net_module
 
@@ -51,10 +48,6 @@ class GameNets(pydantic.BaseModel):
     split_setup_bonus: bool
     split_setup_food: bool
     combine_gain_food: bool
-
-
-# Per-process state of the pool workers, filled once by ``_worker_init``.
-_worker_nets: GameNets | None = None
 
 
 def load_game_nets(checkpoint_dir: pathlib.Path, device: torch.device) -> GameNets:
@@ -100,27 +93,19 @@ def run_game_stats_study(
     loaded."""
     started = time.monotonic()
     nets = load_game_nets(checkpoint_dir, device)
-    shards = plan_shards(spec)
-    reporter = (
-        None
-        if progress_stream is None
-        else progress.StudyProgress(spec.games, progress_stream)
+    rows = shard_runner.stream_study(
+        spec=spec,
+        shards=plan_shards(spec),
+        nets=nets,
+        load_nets=load_game_nets,
+        study_shard=study_shard,
+        checkpoint_dir=checkpoint_dir,
+        device=device,
+        out_path=out_path,
+        columns=models.game_stats_csv_columns(),
+        to_row=models.GameSeatRecord.to_csv_row,
+        progress_stream=progress_stream,
     )
-    rows = 0
-    games_done = 0
-    with out_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=models.game_stats_csv_columns())
-        writer.writeheader()
-        results = _shard_results(spec, shards, nets, checkpoint_dir, device)
-        for shard, records in zip(shards, results):
-            for record in records:
-                writer.writerow(record.to_csv_row())
-            rows += len(records)
-            games_done += shard.num_games
-            if reporter is not None:
-                reporter.update(games_done)
-    if reporter is not None:
-        reporter.finish(games_done)
     return models.GameStatsSummary(
         out_path=str(out_path),
         games=spec.games,
@@ -130,15 +115,21 @@ def run_game_stats_study(
     )
 
 
-def plan_shards(spec: models.GameStatsSpec) -> list[models.GameStatsShard]:
+def plan_shards(
+    spec: models.GameStatsSpec, games_per_shard: int | None = None
+) -> list[models.GameStatsShard]:
     """Split the study's games into consecutive shards of at most
-    ``constants.GAME_STATS_GAMES_PER_SHARD`` games."""
+    ``games_per_shard`` games (default ``constants.GAME_STATS_GAMES_PER_SHARD``)."""
+    size = (
+        constants.GAME_STATS_GAMES_PER_SHARD
+        if games_per_shard is None
+        else games_per_shard
+    )
     return [
         models.GameStatsShard(
-            first_game_index=first,
-            num_games=min(constants.GAME_STATS_GAMES_PER_SHARD, spec.games - first),
+            first_game_index=first, num_games=min(size, spec.games - first)
         )
-        for first in range(0, spec.games, constants.GAME_STATS_GAMES_PER_SHARD)
+        for first in range(0, spec.games, size)
     ]
 
 
@@ -190,46 +181,3 @@ def play_game(
         )
         for seat in capture.seats
     ]
-
-
-###### PRIVATE #######
-
-#### Work distribution ####
-
-
-def _shard_results(
-    spec: models.GameStatsSpec,
-    shards: typing.Sequence[models.GameStatsShard],
-    nets: GameNets,
-    checkpoint_dir: pathlib.Path,
-    device: torch.device,
-) -> typing.Iterator[list[models.GameSeatRecord]]:
-    """Yield each shard's records in shard order — played in-process through
-    ``nets`` for a single worker, otherwise by a spawn-context process pool whose
-    workers each load their own copy of the nets from ``checkpoint_dir`` once."""
-    if spec.workers == 1:
-        for shard in shards:
-            yield study_shard(spec, shard, nets)
-        return
-
-    tasks = [models.GameStatsTask(spec=spec, shard=shard) for shard in shards]
-    with futures.ProcessPoolExecutor(
-        max_workers=spec.workers,
-        mp_context=multiprocessing.get_context("spawn"),
-        initializer=_worker_init,
-        initargs=(str(checkpoint_dir), str(device)),
-    ) as pool:
-        yield from pool.map(_worker_study, tasks)
-
-
-def _worker_init(checkpoint_dir: str, device: str) -> None:
-    """Load this worker's nets once, pinned to a single torch thread so the
-    workers parallelize across cores rather than fighting over them."""
-    global _worker_nets
-    torch.set_num_threads(1)
-    _worker_nets = load_game_nets(pathlib.Path(checkpoint_dir), torch.device(device))
-
-
-def _worker_study(task: models.GameStatsTask) -> list[models.GameSeatRecord]:
-    assert _worker_nets is not None, "pool worker used before _worker_init"
-    return study_shard(task.spec, task.shard, _worker_nets)

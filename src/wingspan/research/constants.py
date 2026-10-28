@@ -44,3 +44,19 @@ TURNS_PER_GAME = sum(ROUND_TURNS)
 SCORE_PROJ_PREFIX = "score_proj_"
 SCORE_RAW_PREFIX = "score_raw_"
 ACTION_PREFIX = "action_"
+
+# ``wingspan research card-stats`` file names and shard sizing.
+CARD_GAMES_RAW_FILENAME = "card_games_raw.csv"
+BIRD_STATS_FILENAME = "bird_stats.csv"
+BONUS_STATS_FILENAME = "bonus_stats.csv"
+BIRD_STATS_MARKDOWN_FILENAME = "bird_stats.md"
+BONUS_STATS_MARKDOWN_FILENAME = "bonus_stats.md"
+# Games per unit of pool work (each game is a full greedy self-play game).
+CARD_STATS_GAMES_PER_SHARD = 8
+# Number of rounds a game has (one per entry of ``state.ROUND_CUBES``).
+NUM_ROUNDS = len(ROUND_TURNS)
+# Two-sided 95% normal quantile for the Wilson interval of a win rate.
+Z_95 = 1.96
+# Numbered-column prefixes of ``card_games_raw.csv`` (suffix ``1..NUM_ROUNDS``).
+BIRDS_ROUND_PREFIX = "birds_r"
+ACQUIRED_BONUS_ROUND_PREFIX = "acquired_bonus_r"
