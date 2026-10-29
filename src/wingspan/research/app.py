@@ -12,6 +12,7 @@ Usage::
                                  [--checkpoint-dir DIR | --release]
                                  [--seed S] [--workers W] [--device cpu]
                                  [--aggregate-only card_games_raw.csv]
+    wingspan research cards-html --out DIR
 
 One sub-command per study. ``setup-keep`` writes the setup keep-rate experience
 table (:mod:`wingspan.research.setup_keep`): one CSV row per dealt bird of every
@@ -22,7 +23,8 @@ chart-ready aggregates and an HTML preview into ``--out``
 ``card-stats`` plays the same games and writes ``card_games_raw.csv`` plus
 per-card ``bird_stats.csv`` / ``bonus_stats.csv`` "games in hand" win rates
 (:mod:`wingspan.research.card_stats`, :mod:`wingspan.research.card_stats_agg`);
-``--release`` plays the bundled release model.
+``--release`` plays the bundled release model. ``cards-html`` writes one
+fixed-size HTML card per bird and bonus card (:mod:`wingspan.research.card_html`).
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ import torch
 
 from wingspan import release
 from wingspan.research import (
+    card_html,
     card_stats,
     card_stats_agg,
     constants,
@@ -48,6 +51,7 @@ from wingspan.training import runmeta
 _SETUP_KEEP = "setup-keep"
 _GAME_STATS = "game-stats"
 _CARD_STATS = "card-stats"
+_CARDS_HTML = "cards-html"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -59,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_game_stats(args)
     if args.study == _CARD_STATS:
         return _run_card_stats(args)
+    if args.study == _CARDS_HTML:
+        return _run_cards_html(args)
     raise AssertionError(f"unreachable: argparse admitted study {args.study!r}")
 
 
@@ -144,6 +150,13 @@ def _play_game_stats(args: argparse.Namespace, out_dir: pathlib.Path) -> pathlib
         f"({summary.games / summary.elapsed_seconds:.2f} games/s)"
     )
     return raw_path
+
+
+def _run_cards_html(args: argparse.Namespace) -> int:
+    """Write the per-card HTML files into ``--out`` and print the count."""
+    written = card_html.write_cards(pathlib.Path(args.out))
+    print(f"wrote {len(written)} card files under {args.out}")
+    return 0
 
 
 def _run_card_stats(args: argparse.Namespace) -> int:
@@ -335,6 +348,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "and bonus cards.",
     )
     _add_card_stats_arguments(card)
+    cards_html = studies.add_parser(
+        _CARDS_HTML,
+        help="Write a compact fixed-size HTML card for every bird and bonus card.",
+    )
+    cards_html.add_argument(
+        "--out",
+        required=True,
+        help="Output directory (bird/<bird_id>.html and bonus/<slug>.html).",
+    )
     return parser.parse_args(argv)
 
 

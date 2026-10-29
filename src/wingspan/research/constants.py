@@ -60,3 +60,9 @@ Z_95 = 1.96
 # Numbered-column prefixes of ``card_games_raw.csv`` (suffix ``1..NUM_ROUNDS``).
 BIRDS_ROUND_PREFIX = "birds_r"
 ACQUIRED_BONUS_ROUND_PREFIX = "acquired_bonus_r"
+
+# ``wingspan research cards-html``: card size and output sub-directories.
+CARD_WIDTH_PX = 240
+CARD_HEIGHT_PX = 340
+CARD_HTML_BIRD_DIR = "bird"
+CARD_HTML_BONUS_DIR = "bonus"

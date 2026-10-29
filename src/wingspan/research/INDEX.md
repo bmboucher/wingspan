@@ -144,6 +144,17 @@ acquired), `acquired_gih_*` (picked up mid-game, any round) and
 `acquired_r1_..acquired_r4_*`. The original bonus is deliberately excluded from
 the per-round columns (it is held every round); those cover acquired cards only.
 
+**`card_html.py`** — Compact fixed-size HTML cards for blog popovers.
+`write_cards(out_dir) -> list[Path]` writes one self-contained file (inline CSS,
+`CARD_WIDTH_PX` x `CARD_HEIGHT_PX`, light/dark aware) per core bird
+(`bird/<bird_id>.html`, the same id as `bird_stats.csv`) and bonus card
+(`bonus/<slug>.html`, `bonus_slug(name)`). `bird_card_html(bird)` /
+`bonus_card_html(bonus)` build one document: name / points header, habitat
+cells, food-cost chips (AND, OR with `/`, wild), nest / egg limit / wingspan
+row, and the power box tinted by color with `[tag]` icons rendered as labels
+(bonus cards: condition plus the printed tier / per-bird payout). Own layout;
+no art or flavor text. CLI: `wingspan research cards-html --out DIR`.
+
 **Card-stats models** (in `models.py`): `CardSeatRecord` (scalars, dealt / kept
 birds, dealt / original bonus, `birds_by_round`, `acquired_bonus_by_round`;
 `to_csv_row()` / `from_csv_row()`) with `card_stats_csv_columns()` (the stable
