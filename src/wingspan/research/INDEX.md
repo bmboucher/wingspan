@@ -137,7 +137,10 @@ writes `bird_stats.csv` / `.md` and `bonus_stats.csv` / `.md`. Building blocks:
 `n = 0` and blank rates), `bird_markdown`, `bonus_markdown`.
 `bird_stats.csv`: `bird_id, bird_name, dealt_n, kept_n, keep_rate,
 dealt_win_rate`, then `gih_{n,wins,win_rate,ci95_lo,ci95_hi}` (bird in hand at
-any point after setup) and the same five per round as `gih_r1_..gih_r4_`.
+any point after setup) and the same five per round as `gih_r1_..gih_r4_`, then
+`played_{n,wins,win_rate,ci95_lo,ci95_hi}` (bird placed on the board at any
+point: "games played"), `played_in_hand_n` and `play_rate`
+(`played_in_hand_n / gih_n`: share of GIH seat-games where it was also played).
 `bonus_stats.csv`: `bonus_name, offered_n, kept_n, keep_rate,
 offered_win_rate`, `original_*` (kept at setup), `gih_*` (combined: original OR
 acquired), `acquired_gih_*` (picked up mid-game, any round) and
@@ -159,7 +162,7 @@ no art or flavor text. CLI: `wingspan research cards-html --out DIR`.
 birds, dealt / original bonus, `birds_by_round`, `acquired_bonus_by_round`;
 `to_csv_row()` / `from_csv_row()`) with `card_stats_csv_columns()` (the stable
 `card_games_raw.csv` header: `game_index, seed, seat, won, tie, final_score,
-dealt_birds, kept_birds, dealt_bonus, original_bonus, birds_r1..4,
+dealt_birds, kept_birds, dealt_bonus, original_bonus, played_birds, birds_r1..4,
 acquired_bonus_r1..4`; card names `|`-joined); `WinTally`, `WinStat`
 (n, wins, win_rate, Wilson `ci95_lo` / `ci95_hi`), `BirdStatsRow`,
 `BonusStatsRow` (each with `csv_columns()`), `CardStatsBaseline`.

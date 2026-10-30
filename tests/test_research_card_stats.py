@@ -171,6 +171,7 @@ def test_capture_applies_the_final_turn_exclusion():
     assert seat.round_acquired_bonus[1] == {bonuses[4].name, bonuses[5].name}
     assert bonuses[0].name not in seat.round_acquired_bonus[0]
     assert seat.round_birds[2] == set()
+    assert seat.played_birds == {birds[0].name}
 
 
 def test_capture_on_a_real_game(run_dir: pathlib.Path):
@@ -184,6 +185,7 @@ def test_capture_on_a_real_game(run_dir: pathlib.Path):
         assert set(record.kept_birds) <= set(record.dealt_birds)
         assert record.original_bonus in record.dealt_bonus
         assert len(record.birds_by_round) == _ROUNDS
+        assert len(set(record.played_birds)) == len(record.played_birds)
         assert record.original_bonus not in {
             name for names in record.acquired_bonus_by_round for name in names
         }
@@ -197,6 +199,7 @@ def test_csv_columns_contract():
     expected = (
         ["game_index", "seed", "seat", "won", "tie", "final_score"]
         + ["dealt_birds", "kept_birds", "dealt_bonus", "original_bonus"]
+        + ["played_birds"]
         + [f"birds_r{k}" for k in range(1, 5)]
         + [f"acquired_bonus_r{k}" for k in range(1, 5)]
     )
@@ -205,7 +208,14 @@ def test_csv_columns_contract():
 
 def test_seat_record_round_trips_through_csv_cells():
     record = _record(
-        0, True, False, ["A", "B"], ["A"], "X", [["A"], [], ["A", "B"], []]
+        0,
+        True,
+        False,
+        ["A", "B"],
+        ["A"],
+        "X",
+        [["A"], [], ["A", "B"], []],
+        played=["A"],
     )
     assert (
         models.CardSeatRecord.from_csv_row(
@@ -222,6 +232,8 @@ def test_bird_and_bonus_stat_columns_contract():
         bird
         + [f"gih_{stat}" for stat in gih]
         + [f"gih_r{k}_{stat}" for k in range(1, 5) for stat in gih]
+        + [f"played_{stat}" for stat in gih]
+        + ["played_in_hand_n", "play_rate"]
     )
     bonus = ["bonus_name", "offered_n", "kept_n", "keep_rate", "offered_win_rate"]
     assert models.BonusStatsRow.csv_columns() == (
@@ -245,6 +257,7 @@ def _record(
     original: str,
     birds_by_round: list[list[str]],
     acquired_by_round: list[list[str]] | None = None,
+    played: list[str] | None = None,
 ) -> models.CardSeatRecord:
     return models.CardSeatRecord(
         game_index=row // 2,
@@ -257,6 +270,7 @@ def _record(
         kept_birds=kept,
         dealt_bonus=[_BONUS_X, _BONUS_Y],
         original_bonus=original,
+        played_birds=played or [],
         birds_by_round=birds_by_round,
         acquired_bonus_by_round=acquired_by_round or [[], [], [], []],
     )
@@ -284,13 +298,23 @@ def _fixture_records() -> list[models.CardSeatRecord]:
             _BONUS_X,
             [[a], [a], [a, c], []],
             [[], [_BONUS_Y], [_BONUS_Y], []],
+            [a, c],
         ),
-        # Loss.
+        # Loss; holds a but never plays it.
         _record(1, False, False, [a], [a], _BONUS_X, [[a], [], [], []]),
         # Tie: never wins, stays in every denominator; keeps nothing.
         _record(2, False, True, [b], [], _BONUS_Y, [[], [], [], []]),
-        # Win.
-        _record(3, True, False, [a, c], [a, c], _BONUS_X, [[a, c], [a, c], [a], [a]]),
+        # Win; plays a only.
+        _record(
+            3,
+            True,
+            False,
+            [a, c],
+            [a, c],
+            _BONUS_X,
+            [[a, c], [a, c], [a], [a]],
+            played=[a],
+        ),
     ]
 
 
@@ -349,6 +373,11 @@ def test_bird_rows_match_hand_computation(fixture_csv: pathlib.Path):
         (1, 1),
     ]
 
+    # Held in 3 seat-games, played in 2 (both wins).
+    assert (bird_a.played.n, bird_a.played.wins) == (2, 2)
+    assert bird_a.played_in_hand_n == 2
+    assert bird_a.play_rate == pytest.approx(2 / 3)
+
     # Dealt twice (a win and a tie), never kept, never held after setup.
     bird_b = _bird(rows, _BIRD_B)
     assert (bird_b.dealt_n, bird_b.kept_n) == (2, 0)
@@ -356,11 +385,15 @@ def test_bird_rows_match_hand_computation(fixture_csv: pathlib.Path):
     assert bird_b.dealt_win_rate == pytest.approx(0.5)
     assert bird_b.gih.n == 0
     assert bird_b.gih.win_rate is None
+    assert bird_b.played.n == 0
+    assert bird_b.play_rate is None
 
     # Held in a won game in round 3 and a won game in rounds 1, 2.
     bird_c = _bird(rows, _BIRD_C)
     assert (bird_c.gih.n, bird_c.gih.wins) == (2, 2)
     assert [stat.n for stat in bird_c.gih_rounds] == [1, 1, 1, 0]
+    assert (bird_c.played.n, bird_c.played.wins) == (1, 1)
+    assert bird_c.play_rate == pytest.approx(0.5)
 
     unseen = _bird(rows, _BIRD_UNSEEN)
     assert unseen.dealt_n == 0

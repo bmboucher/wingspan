@@ -11,6 +11,7 @@ game — build a fresh one per game — and records, for every seat:
 * per round (1-4), the set of birds "in hand during the round" and the set of
   *acquired* bonus cards (held bonus cards other than the original) "held during
   the round".
+* the birds played to the board at any point of the game (``bird_placed``).
 * the outcome: sole winner / shared victory (``scoring.winners``) and the final
   score.
 
@@ -69,6 +70,8 @@ class CardSeatCapture(pydantic.BaseModel):
     )
     # Birds placed on the board during the turn in progress.
     placed_this_turn: set[str] = pydantic.Field(default_factory=set[str])
+    # Birds placed on the board at any point of the game.
+    played_birds: set[str] = pydantic.Field(default_factory=set[str])
     final_score: int = 0
     # True only for a sole winner; a shared victory leaves every seat False.
     won: bool = False
@@ -151,7 +154,9 @@ class CardStatsCapture(
         habitat: cards.Habitat,
         played_bird: state.PlayedBird,
     ) -> None:
-        self._seats[player.id].placed_this_turn.add(bird.name)
+        seat = self._seats[player.id]
+        seat.placed_this_turn.add(bird.name)
+        seat.played_birds.add(bird.name)
 
     def turn_end(self, *, engine: core.Engine, player: state.Player) -> None:
         # The cube is spent before the action runs, so cubes left here means

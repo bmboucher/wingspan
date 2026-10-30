@@ -107,6 +107,7 @@ def play_game(
             kept_birds=seat.kept_birds,
             dealt_bonus=seat.dealt_bonus,
             original_bonus=seat.original_bonus,
+            played_birds=sorted(seat.played_birds),
             birds_by_round=[sorted(names) for names in seat.round_birds],
             acquired_bonus_by_round=[
                 sorted(names) for names in seat.round_acquired_bonus

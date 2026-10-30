@@ -535,6 +535,7 @@ CARD_LIST_COLUMNS: tuple[str, ...] = (
     "kept_birds",
     "dealt_bonus",
     "original_bonus",
+    "played_birds",
 )
 _BOOL_TRUE = "True"
 
@@ -575,6 +576,8 @@ class CardSeatRecord(pydantic.BaseModel):
     dealt_bonus: list[str]
     # The bonus card the seat kept at setup (blank if it somehow holds none).
     original_bonus: str
+    # Birds placed on the board at any point of the game.
+    played_birds: list[str]
     birds_by_round: typing.Annotated[
         list[list[str]],
         pydantic.Field(
@@ -598,6 +601,7 @@ class CardSeatRecord(pydantic.BaseModel):
         row["kept_birds"] = _join_names(self.kept_birds)
         row["dealt_bonus"] = _join_names(self.dealt_bonus)
         row["original_bonus"] = self.original_bonus
+        row["played_birds"] = _join_names(self.played_birds)
         birds_columns = _round_columns(constants.BIRDS_ROUND_PREFIX)
         bonus_columns = _round_columns(constants.ACQUIRED_BONUS_ROUND_PREFIX)
         for column, names in zip(birds_columns, self.birds_by_round):
@@ -621,6 +625,7 @@ class CardSeatRecord(pydantic.BaseModel):
             kept_birds=_split_names(row["kept_birds"]),
             dealt_bonus=_split_names(row["dealt_bonus"]),
             original_bonus=row["original_bonus"],
+            played_birds=_split_names(row["played_birds"]),
             birds_by_round=[
                 _split_names(row[column])
                 for column in _round_columns(constants.BIRDS_ROUND_PREFIX)
@@ -672,7 +677,13 @@ class BirdStatsRow(pydantic.BaseModel):
     holding it fared. ``gih`` ("games in hand") is every seat-game in which the
     bird was in hand at any point after setup; ``gih_rounds[k]`` is the same
     restricted to round ``k + 1``. ``dealt_win_rate`` is the win rate over
-    seat-games where the bird was dealt, whether or not it was kept."""
+    seat-games where the bird was dealt, whether or not it was kept.
+
+    ``played`` ("games played") is every seat-game in which the bird was placed
+    on the board at any point. ``play_rate`` is the share of GIH seat-games in
+    which the bird was also played (``played_in_hand_n / gih.n``); a bird played
+    without ever counting as GIH (it arrived and was played on a round's final
+    turn) is in ``played`` but not in the play rate."""
 
     bird_id: int
     bird_name: str
@@ -682,6 +693,9 @@ class BirdStatsRow(pydantic.BaseModel):
     dealt_win_rate: float | None
     gih: WinStat
     gih_rounds: list[WinStat]
+    played: WinStat
+    played_in_hand_n: int
+    play_rate: float | None
 
     def to_csv_row(self) -> dict[str, object]:
         """The flat CSV row (the header is :meth:`csv_columns`)."""
@@ -696,6 +710,9 @@ class BirdStatsRow(pydantic.BaseModel):
         row.update(self.gih.flattened("gih_"))
         for prefix, stat in zip(_round_stat_prefixes("gih_"), self.gih_rounds):
             row.update(stat.flattened(prefix))
+        row.update(self.played.flattened("played_"))
+        row["played_in_hand_n"] = self.played_in_hand_n
+        row["play_rate"] = self.play_rate
         return row
 
     @classmethod
@@ -712,6 +729,8 @@ class BirdStatsRow(pydantic.BaseModel):
         ]
         for prefix in _round_stat_prefixes("gih_"):
             columns.extend(WinStat.columns(prefix))
+        columns.extend(WinStat.columns("played_"))
+        columns.extend(["played_in_hand_n", "play_rate"])
         return columns
 
 

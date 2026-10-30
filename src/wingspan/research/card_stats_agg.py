@@ -5,7 +5,9 @@ standalone — and writes, into an output directory:
 
 * ``bird_stats.csv`` / ``bird_stats.md`` — one row per catalog bird: how often it
   is dealt and kept, and its "games in hand" (GIH) win rate overall and per
-  round, each with a Wilson 95% interval.
+  round, each with a Wilson 95% interval; its "games played" win rate (bird
+  placed on the board at any point); and its play rate (share of GIH
+  seat-games in which it was also played).
 * ``bonus_stats.csv`` / ``bonus_stats.md`` — one row per catalog bonus card: its
   offered / kept / original-card win rates, its acquired-mid-game win rates
   (overall and per round), and the combined original-or-acquired GIH rate.
@@ -91,13 +93,20 @@ def bird_rows(
     dealt = _new_tallies()
     gih = _new_tallies()
     rounds = [_new_tallies() for _ in range(constants.NUM_ROUNDS)]
+    played = _new_tallies()
     kept: collections.Counter[str] = collections.Counter()
+    played_in_hand: collections.Counter[str] = collections.Counter()
     for record in records:
         for name in set(record.dealt_birds):
             dealt[name].add(won=record.won)
         kept.update(set(record.kept_birds))
-        for name in set[str]().union(*record.birds_by_round):
+        in_hand = set[str]().union(*record.birds_by_round)
+        for name in in_hand:
             gih[name].add(won=record.won)
+        played_names = set(record.played_birds)
+        for name in played_names:
+            played[name].add(won=record.won)
+        played_in_hand.update(in_hand & played_names)
         for round_tallies, names in zip(rounds, record.birds_by_round):
             for name in set(names):
                 round_tallies[name].add(won=record.won)
@@ -112,6 +121,9 @@ def bird_rows(
             dealt_win_rate=_rate(dealt[bird.name].wins, dealt[bird.name].n),
             gih=win_stat(gih[bird.name]),
             gih_rounds=[win_stat(tallies[bird.name]) for tallies in rounds],
+            played=win_stat(played[bird.name]),
+            played_in_hand_n=played_in_hand[bird.name],
+            play_rate=_rate(played_in_hand[bird.name], gih[bird.name].n),
         )
         for bird in cards.birds_ordered()
     ]
@@ -169,14 +181,17 @@ def bird_markdown(
     lines = [
         _baseline_line(base),
         "",
-        "|Bird|Dealt|Keep rate|Dealt win rate|GIH n|GIH win rate|GIH 95% CI|",
-        "|---|---|---|---|---|---|---|",
+        "|Bird|Dealt|Keep rate|Dealt win rate|GIH n|GIH win rate|GIH 95% CI"
+        "|Play rate|Played n|Played win rate|Played 95% CI|",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             f"|{row.bird_name}|{row.dealt_n}|{_percent(row.keep_rate)}"
             f"|{_percent(row.dealt_win_rate)}|{row.gih.n}"
-            f"|{_percent(row.gih.win_rate)}|{_interval(row.gih)}|"
+            f"|{_percent(row.gih.win_rate)}|{_interval(row.gih)}"
+            f"|{_percent(row.play_rate)}|{row.played.n}"
+            f"|{_percent(row.played.win_rate)}|{_interval(row.played)}|"
         )
     return "\n".join(lines) + "\n"
 
