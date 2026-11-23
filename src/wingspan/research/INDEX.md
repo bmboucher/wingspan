@@ -134,15 +134,20 @@ bias"). `run_forced_card_study(spec, forced, checkpoint_dir, device, out_path,
 runner (`study_shard` is bound to `forced` with `functools.partial`, so the pool
 pickles it) and writes `forced_card_raw.csv`. Pure rule `bias_probs(probs,
 conformant, force_card_factor)` (conformant x `1 + x`, others x `1 - x`,
-renormalise; zero/non-finite total falls back to uniform over the conformant
-options; `ValueError` outside `[0, 1]`). Matching helpers return the conformant
-mask or `None`: `conformant_mask` dispatches to `main_action_mask` (the seat can
-legally play the forced bird now; conformant = `PLAY_BIRD`, via
-`actions.playable_bird_plays`) and `play_bird_mask` (any `PlayBirdChoice` with
+renormalise; `x` in `[-1, 1]` (`constants.MIN_/MAX_FORCE_CARD_FACTOR`), negative
+avoids the card; zero/non-finite total falls back to uniform over the conformant
+options for `x > 0`, and for `x < 0` to uniform over the non-conformant options
+(input unchanged when all are conformant); `ValueError` outside the range).
+Matching helpers return the conformant
+mask or `None`: `conformant_mask(eng, decision, forced_card_id, factor)`
+dispatches to `main_action_mask` (conformant = `PLAY_BIRD`, via
+`actions.playable_bird_plays`; for `x >= 0` it matches when the forced bird is
+playable, for `x < 0` only when it is the sole playable bird, else the main
+action is unbiased) and `play_bird_mask` (any `PlayBirdChoice` with
 `bird.id == forced_card_id`, any habitat, so power-granted extra plays too).
 `sampling_agent(net, device, rng, *, setup_net, forced)` samples every decision
 (the setup keep via `policy.setup_scores_and_probs`) and biases only when the
-factor is positive. `play_game` seeds each seat's `random.Random` from the game
+factor is nonzero. `play_game` seeds each seat's `random.Random` from the game
 seed and seat, and the biased seat is `biased_seat(game_index, num_players)` =
 `game_index % num_players`; games use `spec.game_seed(index)` at every factor, so
 factors are paired. `resolve_forced_card_id(requested)` looks Cedar Waxwing up by
@@ -154,7 +159,7 @@ Wilson 95% intervals via `card_stats_agg`). `aggregate(runs, out_dir)` writes
 `forced_card_summary.csv` / `.md` for a list of `FactorRun(factor, forced_card_id,
 raw_path)`; `summary_row`, `summary_markdown`, `read_raw`. Ties are non-wins kept
 in denominators. **Forced-card models** (in `models.py`): `ForcedCardSpec(
-force_card_factor in [0, 1], forced_card_id)`; `ForcedCardSeatRecord(game_index,
+force_card_factor in [-1, 1], forced_card_id)`; `ForcedCardSeatRecord(game_index,
 seed, seat, biased, won, tie, final_score, forced_card_in_hand,
 forced_card_played)` (`in_hand` = kept opener, any round's hand per the
 card-stats capture, or placed; `played` = placed); `ForcedCardSummaryRow`

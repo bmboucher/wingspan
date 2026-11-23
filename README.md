@@ -333,10 +333,14 @@ wingspan research card-stats --aggregate-only card_stats/card_games_raw.csv --ou
 ```
 
 The fourth is the **forced-card study**: sampled self-play in which one seat's
-policy is biased toward playing a chosen bird (default Cedar Waxwing). For each
-`--force-card-factor` `x` in `[0, 1]`, the probability of every option that plays
-the bird is multiplied by `1 + x` and every other option's by `1 - x`, then
-renormalised, at the main-action and play-a-bird decisions. The biased seat
+policy is biased toward (or away from) playing a chosen bird (default Cedar
+Waxwing). For each `--force-card-factor` `x` in `[-1, 1]`, the probability of
+every option that plays the bird is multiplied by `1 + x` and every other
+option's by `1 - x`, then renormalised, at the main-action and play-a-bird
+decisions; negative `x` avoids the bird (`-1` never plays it when an alternative
+exists). For `x < 0` the main action is biased only when the forced bird is the
+sole playable bird. Pass a list starting with a negative using `=`
+(`--force-card-factor=-1,-0.5,0,0.5,1`). The biased seat
 alternates by game, and the same game seeds are used at every factor. It writes
 one `factor_<x>/forced_card_raw.csv` per factor plus a combined
 `forced_card_summary.csv` (biased-seat win rate, play rate, and win rate when the

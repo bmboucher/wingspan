@@ -98,11 +98,12 @@ def aggregate(
     runs: typing.Sequence[FactorRun], out_dir: pathlib.Path
 ) -> list[pathlib.Path]:
     """Write the combined summary CSV and markdown for ``runs`` into ``out_dir``
-    (created if needed), returning the written files."""
+    (created if needed), returning the written files. Rows are ordered by factor
+    ascending, negatives first."""
     out_dir.mkdir(parents=True, exist_ok=True)
     rows = [
         summary_row(run.force_card_factor, run.forced_card_id, read_raw(run.raw_path))
-        for run in runs
+        for run in sorted(runs, key=lambda run: run.force_card_factor)
     ]
     csv_path = out_dir / constants.FORCED_CARD_SUMMARY_FILENAME
     with csv_path.open("w", newline="", encoding="utf-8") as handle:

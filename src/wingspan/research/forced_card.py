@@ -1,16 +1,22 @@
 """The forced-card bias study (``docs/RESEARCH.md``, "Forced-card bias").
 
 Measures whether pushing the model to play one specific bird (default Cedar
-Waxwing) lowers its win rate, as the push scales from ``x = 0`` to ``x = 1``.
-Each game is sampled self-play (every decision, the setup keep included, is drawn
-from the softmax, never the argmax) between a *biased* seat and unbiased
+Waxwing) lowers its win rate, as the push scales from ``x = 0`` to ``x = 1``, and
+what steering it away from the bird does (``x`` down to ``-1``). Each game is
+sampled self-play (every decision, the setup keep included, is drawn from the
+softmax, never the argmax) between a *biased* seat and unbiased
 opponents running the same nets. At a decision that matches the profile the biased
 seat's probabilities are reweighted: every conformant option's probability is
 multiplied by ``1 + x`` and every non-conformant option's by ``1 - x``, then
-renormalised. The profile is two decisions:
+renormalised; ``x`` lies in ``[-1, 1]`` and a negative ``x`` avoids the bird
+(``x = -1`` never picks it while an alternative exists). The profile is two
+decisions:
 
-* ``MainActionDecision`` when the seat can legally play the forced bird now; the
-  conformant option is ``PLAY_BIRD``.
+* ``MainActionDecision``; the conformant option is ``PLAY_BIRD``. For ``x >= 0``
+  it matches when the seat can legally play the forced bird now. For ``x < 0`` it
+  matches only when the forced bird is the *sole* playable bird, so avoiding the
+  card does not also suppress the seat's other bird plays; with other birds
+  playable the main action is left unbiased.
 * ``PlayBirdDecision`` when any option plays the forced bird (this covers
   power-granted extra plays); the conformant options are those plays, in any
   habitat.
@@ -109,47 +115,67 @@ def bias_probs(
     probs: np.ndarray, conformant: np.ndarray, force_card_factor: float
 ) -> np.ndarray:
     """Reweight ``probs``: conformant options by ``1 + x``, the rest by ``1 - x``,
-    renormalised to sum to 1.
+    renormalised to sum to 1. ``x = 0`` is the identity.
 
     ``conformant`` is a boolean mask aligned to ``probs``. When the reweighted
-    total is zero or non-finite (``x = 1`` with no conformant mass) the result is
-    uniform over the conformant options; with no conformant option at all the
-    input is returned unchanged. Raises ``ValueError`` for ``x`` outside
-    ``[0, 1]``."""
-    if not 0.0 <= force_card_factor <= 1.0:
-        raise ValueError(f"force_card_factor {force_card_factor} is outside [0, 1]")
+    total is zero or non-finite the result falls back to: for ``x > 0`` (no
+    conformant mass at ``x = 1``) uniform over the conformant options; for
+    ``x < 0`` uniform over the non-conformant options, or the input unchanged when
+    every option is conformant (avoiding is impossible). With no conformant option
+    at all the input is returned unchanged. Raises ``ValueError`` for ``x``
+    outside ``[-1, 1]``."""
+    if not (
+        constants.MIN_FORCE_CARD_FACTOR
+        <= force_card_factor
+        <= constants.MAX_FORCE_CARD_FACTOR
+    ):
+        raise ValueError(
+            f"force_card_factor {force_card_factor} is outside "
+            f"[{constants.MIN_FORCE_CARD_FACTOR:g}, {constants.MAX_FORCE_CARD_FACTOR:g}]"
+        )
     if not conformant.any():
         return probs
     weights = np.where(conformant, 1.0 + force_card_factor, 1.0 - force_card_factor)
     reweighted = probs.astype(np.float64) * weights
     total = float(reweighted.sum())
     if not np.isfinite(total) or total <= 0.0:
-        return conformant / float(conformant.sum())
+        return _degenerate_fallback(probs, conformant, force_card_factor)
     return reweighted / total
 
 
 def conformant_mask[C: decisions.Choice](
-    eng: engine.Engine, decision: decisions.Decision[C], forced_card_id: int
+    eng: engine.Engine,
+    decision: decisions.Decision[C],
+    forced_card_id: int,
+    force_card_factor: float,
 ) -> np.ndarray | None:
     """The boolean mask of ``decision``'s options that play the forced bird, or
     ``None`` when the decision is outside the bias profile (another decision
-    class, a main action where the forced bird is not playable, or a play menu
-    without it)."""
+    class, a main action the sign of ``force_card_factor`` does not match, or a
+    play menu without the bird)."""
     if isinstance(decision, decisions.MainActionDecision):
-        return main_action_mask(eng, decision, forced_card_id)
+        return main_action_mask(eng, decision, forced_card_id, force_card_factor)
     if isinstance(decision, decisions.PlayBirdDecision):
         return play_bird_mask(decision, forced_card_id)
     return None
 
 
 def main_action_mask(
-    eng: engine.Engine, decision: decisions.MainActionDecision, forced_card_id: int
+    eng: engine.Engine,
+    decision: decisions.MainActionDecision,
+    forced_card_id: int,
+    force_card_factor: float,
 ) -> np.ndarray | None:
     """``PLAY_BIRD`` is the conformant option when the deciding player's legal
-    plays include the forced bird; ``None`` otherwise."""
+    plays include the forced bird (``force_card_factor >= 0``) or consist only of
+    it (``force_card_factor < 0``, so avoiding the card leaves other bird plays
+    unbiased); ``None`` otherwise."""
     player = eng.state.players[decision.player_id]
     plays = actions.playable_bird_plays(player, None)
-    if not any(bird.id == forced_card_id for bird, _ in plays):
+    forced_plays = [bird for bird, _ in plays if bird.id == forced_card_id]
+    if not forced_plays:
+        return None
+    if force_card_factor < 0.0 and len(forced_plays) != len(plays):
         return None
     mask = np.array(
         [choice.action == decisions.MainAction.PLAY_BIRD for choice in decision.choices]
@@ -175,13 +201,13 @@ def sampling_agent(
     forced: models.ForcedCardSpec | None = None,
 ) -> engine.Agent:
     """An agent that samples every decision from the softmax with ``rng`` — the
-    setup keep included — and, when ``forced`` carries a positive factor, applies
+    setup keep included — and, when ``forced`` carries a nonzero factor, applies
     the forced-card bias at matching decisions.
 
     Single-option decisions short-circuit. A setup-excluded net resolves the
     opening with ``setup_net``'s softmax (uniform-random without one)."""
     policy_net = net
-    bias = forced if forced is not None and forced.force_card_factor > 0.0 else None
+    bias = forced if forced is not None and forced.force_card_factor != 0.0 else None
 
     def agent[C: decisions.Choice](
         eng: engine.Engine, decision: decisions.Decision[C]
@@ -206,7 +232,9 @@ def sampling_agent(
             policy_net, device, state_vec, choice_feats, family_idx
         )
         if bias is not None:
-            mask = conformant_mask(eng, decision, bias.forced_card_id)
+            mask = conformant_mask(
+                eng, decision, bias.forced_card_id, bias.force_card_factor
+            )
             if mask is not None:
                 probs = bias_probs(probs, mask, bias.force_card_factor)
         return decision.choices[
@@ -287,6 +315,21 @@ def play_game(
 
 
 ###### PRIVATE #######
+
+
+def _degenerate_fallback(
+    probs: np.ndarray, conformant: np.ndarray, force_card_factor: float
+) -> np.ndarray:
+    """Distribution when the reweighted total vanished: uniform over the
+    conformant options for a positive factor; for a negative one, uniform over
+    the non-conformant options, or ``probs`` unchanged when there are none."""
+    if force_card_factor >= 0.0:
+        pushed = conformant.astype(np.float64)
+        return pushed / float(pushed.sum())
+    avoided = (~conformant).astype(np.float64)
+    if not avoided.any():
+        return probs
+    return avoided / float(avoided.sum())
 
 
 def _held_after_setup(seat: card_stats.CardSeatCapture, name: str) -> bool:

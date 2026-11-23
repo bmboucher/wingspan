@@ -71,10 +71,16 @@ ACQUIRED_BONUS_ROUND_PREFIX = "acquired_bonus_r"
 # sweep run when none is given, file names, and the per-seat RNG seed format.
 DEFAULT_FORCED_CARD_NAME = "Cedar Waxwing"
 DEFAULT_FORCE_CARD_FACTORS = (0.0, 0.25, 0.5, 0.75, 1.0)
+# Inclusive range of the bias factor ``x``: negative values avoid the forced
+# card (``-1`` never picks it when an alternative exists), positive values push
+# toward it (``1`` always does).
+MIN_FORCE_CARD_FACTOR = -1.0
+MAX_FORCE_CARD_FACTOR = 1.0
 FORCED_CARD_RAW_FILENAME = "forced_card_raw.csv"
 FORCED_CARD_SUMMARY_FILENAME = "forced_card_summary.csv"
 FORCED_CARD_SUMMARY_MARKDOWN_FILENAME = "forced_card_summary.md"
-# Per-factor sub-directory name; the factor is rendered with this many decimals.
+# Per-factor sub-directory name; the factor is rendered with this many decimals
+# (negatives keep their sign, e.g. ``factor_-0.500``).
 FORCED_CARD_DIR_TEMPLATE = "factor_{factor:.3f}"
 # Each seat's sampling RNG is seeded by this string formatted with the game
 # seed and the seat, so a game replays identically at every factor.

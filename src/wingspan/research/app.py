@@ -250,7 +250,7 @@ def _play_forced_card_factor(
 ) -> forced_card_agg.FactorRun:
     """Play the games of one factor into its sub-directory of ``--out``."""
     factor_dir = pathlib.Path(args.out) / constants.FORCED_CARD_DIR_TEMPLATE.format(
-        factor=factor
+        factor=factor + 0.0
     )
     factor_dir.mkdir(parents=True, exist_ok=True)
     raw_path = factor_dir / constants.FORCED_CARD_RAW_FILENAME
@@ -280,14 +280,22 @@ def _play_forced_card_factor(
 
 def _parse_factors(text: str) -> list[float]:
     """Parse a comma-separated ``--force-card-factor`` list; each factor must lie
-    in ``[0, 1]``."""
+    in ``[-1, 1]``. A list starting with a negative must use the ``=`` form
+    (``--force-card-factor=-1,0,1``) so argparse does not read it as an option."""
     try:
         factors = [float(part) for part in text.split(",")]
     except ValueError as error:
         raise argparse.ArgumentTypeError(f"not a list of numbers: {text!r}") from error
     for factor in factors:
-        if not 0.0 <= factor <= 1.0:
-            raise argparse.ArgumentTypeError(f"factor {factor} is outside [0, 1]")
+        if (
+            not constants.MIN_FORCE_CARD_FACTOR
+            <= factor
+            <= constants.MAX_FORCE_CARD_FACTOR
+        ):
+            raise argparse.ArgumentTypeError(
+                f"factor {factor} is outside "
+                f"[{constants.MIN_FORCE_CARD_FACTOR:g}, {constants.MAX_FORCE_CARD_FACTOR:g}]"
+            )
     return factors
 
 
@@ -524,7 +532,9 @@ def _add_forced_card_arguments(forced: argparse.ArgumentParser) -> None:
         dest="force_card_factor",
         type=_parse_factors,
         default=list(constants.DEFAULT_FORCE_CARD_FACTORS),
-        help=f"Comma-separated bias factors in [0, 1], one run each (default: {default_factors}).",
+        help="Comma-separated bias factors in [-1, 1], one run each; negative "
+        "values avoid the card (use --force-card-factor=-1,0,1 when the list "
+        f"starts with a negative) (default: {default_factors}).",
     )
     forced.add_argument(
         "--forced-card-id",

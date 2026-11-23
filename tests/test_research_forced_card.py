@@ -149,8 +149,46 @@ def test_bias_without_conformant_option_is_unchanged():
     assert biased == pytest.approx(probs)
 
 
-@pytest.mark.parametrize("factor", [-0.1, 1.1])
-def test_bias_rejects_factor_outside_unit_interval(factor: float):
+def test_bias_x_minus_one_zeroes_conformant_and_keeps_non_conformant_ratios():
+    probs = np.array([0.1, 0.2, 0.3, 0.4])
+    mask = np.array([True, False, True, False])
+    biased = forced_card.bias_probs(probs, mask, -1.0)
+    assert biased[mask] == pytest.approx([0.0, 0.0])
+    assert biased[1] / biased[3] == pytest.approx(0.2 / 0.4)
+    assert biased.sum() == pytest.approx(1.0)
+
+
+def test_bias_negative_intermediate_value_is_exact():
+    biased = forced_card.bias_probs(np.array([0.5, 0.5]), np.array([True, False]), -0.5)
+    assert biased == pytest.approx([0.25, 0.75])
+
+
+@pytest.mark.parametrize("factor", [-1.0, -0.5, -0.1, 0.0, 0.1, 0.5, 0.9, 1.0])
+def test_bias_sums_to_one_across_the_full_range(factor: float):
+    probs = np.array([0.15, 0.25, 0.6])
+    biased = forced_card.bias_probs(probs, np.array([False, True, True]), factor)
+    assert biased.sum() == pytest.approx(1.0)
+
+
+def test_bias_negative_underflow_falls_back_to_uniform_over_non_conformant():
+    probs = np.array([0.0, 0.5, 0.5])
+    mask = np.array([False, True, True])
+    biased = forced_card.bias_probs(probs, mask, -1.0)
+    assert biased == pytest.approx([1.0, 0.0, 0.0])
+    probs = np.array([1.0, 0.0, 0.0, 0.0])
+    mask = np.array([True, False, False, False])
+    biased = forced_card.bias_probs(probs, mask, -1.0)
+    assert biased == pytest.approx([0.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0])
+
+
+def test_bias_all_conformant_at_minus_one_returns_input_unchanged():
+    probs = np.array([0.3, 0.7])
+    biased = forced_card.bias_probs(probs, np.array([True, True]), -1.0)
+    assert biased == pytest.approx(probs)
+
+
+@pytest.mark.parametrize("factor", [-1.1, 1.1])
+def test_bias_rejects_factor_outside_the_range(factor: float):
     with pytest.raises(ValueError):
         forced_card.bias_probs(np.array([1.0]), np.array([True]), factor)
 
@@ -159,7 +197,9 @@ def test_forced_card_spec_validates_the_factor():
     with pytest.raises(pydantic.ValidationError):
         models.ForcedCardSpec(force_card_factor=1.5, forced_card_id=1)
     with pytest.raises(pydantic.ValidationError):
-        models.ForcedCardSpec(force_card_factor=-0.5, forced_card_id=1)
+        models.ForcedCardSpec(force_card_factor=-1.5, forced_card_id=1)
+    spec = models.ForcedCardSpec(force_card_factor=-1.0, forced_card_id=1)
+    assert spec.force_card_factor == -1.0
 
 
 ###### Forced card resolution ######
@@ -237,22 +277,44 @@ def test_main_action_matches_only_when_the_forced_bird_is_playable():
     decision = _main_action_decision(with_play=True)
 
     playable = _engine_holding([forced, other], fed=True)
-    mask = forced_card.conformant_mask(playable, decision, forced.id)
+    mask = forced_card.conformant_mask(playable, decision, forced.id, 0.5)
     assert mask is not None
     assert mask.tolist() == [False, False, False, True]
 
     unaffordable = _engine_holding([forced, other], fed=False)
-    assert forced_card.conformant_mask(unaffordable, decision, forced.id) is None
+    assert forced_card.conformant_mask(unaffordable, decision, forced.id, 0.5) is None
 
     not_held = _engine_holding([other], fed=True)
-    assert forced_card.conformant_mask(not_held, decision, forced.id) is None
+    assert forced_card.conformant_mask(not_held, decision, forced.id, 0.5) is None
+
+
+def test_main_action_negative_factor_matches_only_a_sole_playable_forced_bird():
+    forced, other = _cheap_birds()[:2]
+    decision = _main_action_decision(with_play=True)
+
+    sole = _engine_holding([forced], fed=True)
+    for factor in (-1.0, -0.3):
+        mask = forced_card.conformant_mask(sole, decision, forced.id, factor)
+        assert mask is not None
+        assert mask.tolist() == [False, False, False, True]
+
+    both = _engine_holding([forced, other], fed=True)
+    assert forced_card.conformant_mask(both, decision, forced.id, -0.3) is None
+    # Non-negative factors match in both situations.
+    for factor in (0.0, 0.3):
+        for eng in (sole, both):
+            matched = forced_card.conformant_mask(eng, decision, forced.id, factor)
+            assert matched is not None
+
+    not_held = _engine_holding([other], fed=True)
+    assert forced_card.conformant_mask(not_held, decision, forced.id, -0.3) is None
 
 
 def test_main_action_without_a_play_option_is_untouched():
     forced = _cheap_birds()[0]
     eng = _engine_holding([forced], fed=True)
     decision = _main_action_decision(with_play=False)
-    assert forced_card.conformant_mask(eng, decision, forced.id) is None
+    assert forced_card.conformant_mask(eng, decision, forced.id, 0.5) is None
 
 
 def test_play_bird_matches_every_habitat_of_the_forced_bird():
@@ -262,16 +324,17 @@ def test_play_bird_matches_every_habitat_of_the_forced_bird():
     plays = [(other, other.habitats[0])] + [
         (forced, habitat) for habitat in forced.habitats
     ]
-    mask = forced_card.conformant_mask(eng, _play_menu(plays), forced.id)
-    assert mask is not None
-    assert mask.tolist() == [False] + [True] * len(forced.habitats)
+    for factor in (0.5, -0.5):
+        mask = forced_card.conformant_mask(eng, _play_menu(plays), forced.id, factor)
+        assert mask is not None
+        assert mask.tolist() == [False] + [True] * len(forced.habitats)
 
 
 def test_play_bird_without_the_forced_bird_is_untouched():
     forced, other = _cheap_birds()[:2]
     eng = _engine_holding([], fed=True)
     menu = _play_menu([(other, other.habitats[0])])
-    assert forced_card.conformant_mask(eng, menu, forced.id) is None
+    assert forced_card.conformant_mask(eng, menu, forced.id, 0.5) is None
 
 
 def test_other_decisions_are_untouched():
@@ -282,7 +345,7 @@ def test_other_decisions_are_untouched():
         prompt="skip",
         choices=[decisions.SkipChoice(label="skip")],
     )
-    assert forced_card.conformant_mask(eng, skip, forced.id) is None
+    assert forced_card.conformant_mask(eng, skip, forced.id, 0.5) is None
 
 
 ###### Sampling agent ######
@@ -325,6 +388,14 @@ def test_agent_at_factor_one_always_plays_the_forced_bird(
 ):
     drawn = _draw_actions(run_dir, 1.0, monkeypatch)
     assert set(drawn) == {decisions.MainAction.PLAY_BIRD}
+
+
+def test_agent_at_factor_minus_one_never_plays_the_sole_forced_bird(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    drawn = _draw_actions(run_dir, -1.0, monkeypatch)
+    assert decisions.MainAction.PLAY_BIRD not in drawn
+    assert len(set(drawn)) > 1
 
 
 def test_agent_at_factor_zero_samples_every_action(
@@ -458,7 +529,7 @@ def test_raw_record_round_trips_through_csv_cells():
 def test_aggregate_writes_the_combined_summary(tmp_path: pathlib.Path):
     forced_id = forced_card.resolve_forced_card_id(None)
     runs: list[forced_card_agg.FactorRun] = []
-    for factor in (0.0, 1.0):
+    for factor in (1.0, -0.5, 0.0):
         raw = tmp_path / f"raw_{factor}.csv"
         with raw.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(
@@ -479,8 +550,8 @@ def test_aggregate_writes_the_combined_summary(tmp_path: pathlib.Path):
         reader = csv.DictReader(handle)
         assert reader.fieldnames == models.ForcedCardSummaryRow.csv_columns()
         rows = list(reader)
-    assert [row["force_card_factor"] for row in rows] == ["0.0", "1.0"]
-    assert rows[0]["biased_win_rate"] == "0.5"
+    assert [row["force_card_factor"] for row in rows] == ["-0.5", "0.0", "1.0"]
+    assert rows[1]["biased_win_rate"] == "0.5"
     markdown = tmp_path / "out" / constants.FORCED_CARD_SUMMARY_MARKDOWN_FILENAME
     assert markdown.read_text(encoding="utf-8").startswith("Forced card: Cedar Waxwing")
 
@@ -517,11 +588,40 @@ def test_cli_plays_every_factor_and_writes_the_summary(
     assert (out_dir / constants.FORCED_CARD_SUMMARY_FILENAME).stat().st_size > 0
 
 
-def test_cli_rejects_a_factor_outside_the_unit_interval(tmp_path: pathlib.Path):
+def test_cli_plays_negative_factors_in_the_equals_form(
+    run_dir: pathlib.Path, tmp_path: pathlib.Path
+):
+    out_dir = tmp_path / "study"
+    code = app.main(
+        [
+            "forced-card",
+            "--games",
+            "2",
+            "--seed",
+            "9",
+            "--force-card-factor=-1,-0.5,0",
+            "--out",
+            str(out_dir),
+            "--checkpoint-dir",
+            str(run_dir),
+        ]
+    )
+    assert code == 0
+    for factor in ("-1.000", "-0.500", "0.000"):
+        assert (
+            out_dir / f"factor_{factor}" / constants.FORCED_CARD_RAW_FILENAME
+        ).is_file()
+    with (out_dir / constants.FORCED_CARD_SUMMARY_FILENAME).open(
+        newline="", encoding="utf-8"
+    ) as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["force_card_factor"] for row in rows] == ["-1.0", "-0.5", "0.0"]
+
+
+@pytest.mark.parametrize("text", ["0,1.5", "-1.5,0"])
+def test_cli_rejects_a_factor_outside_the_range(tmp_path: pathlib.Path, text: str):
     with pytest.raises(SystemExit) as raised:
-        app.main(
-            ["forced-card", "--out", str(tmp_path), "--force-card-factor", "0,1.5"]
-        )
+        app.main(["forced-card", "--out", str(tmp_path), f"--force-card-factor={text}"])
     assert raised.value.code == 2
 
 

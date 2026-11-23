@@ -870,10 +870,16 @@ class CardStatsBaseline(pydantic.BaseModel):
 
 
 class ForcedCardSpec(pydantic.BaseModel):
-    """The bias applied to one study run: the factor ``x`` in ``[0, 1]`` and the
-    ``cards.Bird.id`` of the bird the biased seat is pushed toward playing."""
+    """The bias applied to one study run: the factor ``x`` in ``[-1, 1]`` (positive
+    pushes toward playing the bird, negative away from it) and the
+    ``cards.Bird.id`` of the bird the biased seat is pushed toward or away from."""
 
-    force_card_factor: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)]
+    force_card_factor: typing.Annotated[
+        float,
+        pydantic.Field(
+            ge=constants.MIN_FORCE_CARD_FACTOR, le=constants.MAX_FORCE_CARD_FACTOR
+        ),
+    ]
     forced_card_id: int
 
 
