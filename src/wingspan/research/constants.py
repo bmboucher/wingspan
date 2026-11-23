@@ -67,6 +67,19 @@ Z_95 = 1.96
 BIRDS_ROUND_PREFIX = "birds_r"
 ACQUIRED_BONUS_ROUND_PREFIX = "acquired_bonus_r"
 
+# ``wingspan research forced-card``: the bird forced by default, the factor
+# sweep run when none is given, file names, and the per-seat RNG seed format.
+DEFAULT_FORCED_CARD_NAME = "Cedar Waxwing"
+DEFAULT_FORCE_CARD_FACTORS = (0.0, 0.25, 0.5, 0.75, 1.0)
+FORCED_CARD_RAW_FILENAME = "forced_card_raw.csv"
+FORCED_CARD_SUMMARY_FILENAME = "forced_card_summary.csv"
+FORCED_CARD_SUMMARY_MARKDOWN_FILENAME = "forced_card_summary.md"
+# Per-factor sub-directory name; the factor is rendered with this many decimals.
+FORCED_CARD_DIR_TEMPLATE = "factor_{factor:.3f}"
+# Each seat's sampling RNG is seeded by this string formatted with the game
+# seed and the seat, so a game replays identically at every factor.
+FORCED_CARD_RNG_SEED_TEMPLATE = "forced-card:{seed}:{seat}"
+
 # ``wingspan research cards-html``: card size and output sub-directories.
 CARD_WIDTH_PX = 240
 CARD_HEIGHT_PX = 340

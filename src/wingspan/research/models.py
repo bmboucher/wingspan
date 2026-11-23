@@ -866,6 +866,115 @@ class CardStatsBaseline(pydantic.BaseModel):
     win_rate: float | None
 
 
+#### Forced-card study (``wingspan research forced-card``) ####
+
+
+class ForcedCardSpec(pydantic.BaseModel):
+    """The bias applied to one study run: the factor ``x`` in ``[0, 1]`` and the
+    ``cards.Bird.id`` of the bird the biased seat is pushed toward playing."""
+
+    force_card_factor: typing.Annotated[float, pydantic.Field(ge=0.0, le=1.0)]
+    forced_card_id: int
+
+
+class ForcedCardSeatRecord(pydantic.BaseModel):
+    """One seat of one forced-card game — one row of ``forced_card_raw.csv``.
+
+    ``biased`` marks the seat whose policy was reweighted. ``forced_card_in_hand``
+    is True when the forced bird was held at any point after setup (the kept
+    opener, any round's hand as the card-stats capture defines it, or placed on
+    the board); ``forced_card_played`` is True when it was placed on the board."""
+
+    game_index: int
+    seed: int
+    seat: int
+    biased: bool
+    # True only for a sole winner; a shared victory leaves every seat False.
+    won: bool
+    tie: bool
+    final_score: int
+    forced_card_in_hand: bool
+    forced_card_played: bool
+
+    def to_csv_row(self) -> dict[str, object]:
+        """The flat CSV row (the header is :meth:`csv_columns`)."""
+        return self.model_dump()
+
+    @classmethod
+    def csv_columns(cls) -> list[str]:
+        """The ``forced_card_raw.csv`` header. A stable contract."""
+        return list(cls.model_fields)
+
+    @classmethod
+    def from_csv_row(cls, row: typing.Mapping[str, str]) -> "ForcedCardSeatRecord":
+        """Parse one ``forced_card_raw.csv`` row (the inverse of
+        :meth:`to_csv_row`)."""
+        return cls(
+            game_index=int(row["game_index"]),
+            seed=int(row["seed"]),
+            seat=int(row["seat"]),
+            biased=row["biased"] == _BOOL_TRUE,
+            won=row["won"] == _BOOL_TRUE,
+            tie=row["tie"] == _BOOL_TRUE,
+            final_score=int(row["final_score"]),
+            forced_card_in_hand=row["forced_card_in_hand"] == _BOOL_TRUE,
+            forced_card_played=row["forced_card_played"] == _BOOL_TRUE,
+        )
+
+
+class ForcedCardSummaryRow(pydantic.BaseModel):
+    """One row of ``forced_card_summary.csv``: a factor's biased-seat results.
+
+    ``biased`` is the biased seat's win rate over every game; ``opponent`` the
+    unbiased seats'. ``played`` and ``held_unplayed`` split the biased seat's
+    games that held the forced bird by whether it was placed. ``play_rate`` is
+    ``played / in_hand_games`` with its own Wilson interval. Ties are non-wins
+    kept in every denominator, as in card-stats."""
+
+    force_card_factor: float
+    forced_card_id: int
+    biased: WinStat
+    opponent: WinStat
+    in_hand_games: int
+    play_rate: float | None
+    play_rate_ci95_lo: float | None
+    play_rate_ci95_hi: float | None
+    played: WinStat
+    held_unplayed: WinStat
+
+    def to_csv_row(self) -> dict[str, object]:
+        """The flat CSV row (the header is :meth:`csv_columns`)."""
+        row: dict[str, object] = {
+            "force_card_factor": self.force_card_factor,
+            "forced_card_id": self.forced_card_id,
+        }
+        row.update(self.biased.flattened("biased_"))
+        row.update(self.opponent.flattened("opponent_"))
+        row["in_hand_games"] = self.in_hand_games
+        row["play_rate"] = self.play_rate
+        row["play_rate_ci95_lo"] = self.play_rate_ci95_lo
+        row["play_rate_ci95_hi"] = self.play_rate_ci95_hi
+        row.update(self.played.flattened("played_"))
+        row.update(self.held_unplayed.flattened("held_unplayed_"))
+        return row
+
+    @classmethod
+    def csv_columns(cls) -> list[str]:
+        """The ``forced_card_summary.csv`` header. A stable contract."""
+        return [
+            "force_card_factor",
+            "forced_card_id",
+            *WinStat.columns("biased_"),
+            *WinStat.columns("opponent_"),
+            "in_hand_games",
+            "play_rate",
+            "play_rate_ci95_lo",
+            "play_rate_ci95_hi",
+            *WinStat.columns("played_"),
+            *WinStat.columns("held_unplayed_"),
+        ]
+
+
 ###### PRIVATE #######
 
 

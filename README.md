@@ -332,6 +332,21 @@ wingspan research card-stats --checkpoint-dir checkpoints --out card_stats/
 wingspan research card-stats --aggregate-only card_stats/card_games_raw.csv --out card_stats/
 ```
 
+The fourth is the **forced-card study**: sampled self-play in which one seat's
+policy is biased toward playing a chosen bird (default Cedar Waxwing). For each
+`--force-card-factor` `x` in `[0, 1]`, the probability of every option that plays
+the bird is multiplied by `1 + x` and every other option's by `1 - x`, then
+renormalised, at the main-action and play-a-bird decisions. The biased seat
+alternates by game, and the same game seeds are used at every factor. It writes
+one `factor_<x>/forced_card_raw.csv` per factor plus a combined
+`forced_card_summary.csv` (biased-seat win rate, play rate, and win rate when the
+bird was played versus held unplayed, with Wilson 95% intervals).
+
+```
+wingspan research forced-card --release --games 10000 --workers 10 --out forced_card/
+wingspan research forced-card --force-card-factor 0,0.5,1 --forced-card-id 42 --checkpoint-dir checkpoints --out forced_card/
+```
+
 ## Probe a model's architecture
 
 `wingspan analysis probe` measures how much each part of a trained network's
@@ -379,7 +394,7 @@ command with subcommands:
 | `wingspan summary`      | Training-progression HTML report for a run directory   |
 | `wingspan cloud`        | Headless S3-persisted training (container use)          |
 | `wingspan monitor`      | FLOCK WATCH: live roster of cloud runs                  |
-| `wingspan research`     | Offline research studies (setup keep-rate, game-stats, card-stats)  |
+| `wingspan research`     | Offline research studies (setup keep-rate, game-stats, card-stats, forced-card)  |
 | `wingspan analysis`     | Architecture-importance probe over a trained checkpoint |
 
 Run `wingspan --help` for the full list, or `wingspan <command> --help` for

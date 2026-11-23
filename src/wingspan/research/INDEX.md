@@ -128,6 +128,39 @@ out_path, *, progress_stream=None) -> GameStatsSummary` reuses
 `CardStatsCapture` and return `CardSeatRecord`s (round card sets sorted by name
 for byte-stable CSVs).
 
+**`forced_card.py`** — The forced-card bias study (RESEARCH.md "Forced-card
+bias"). `run_forced_card_study(spec, forced, checkpoint_dir, device, out_path,
+*, progress_stream=None)` plays one factor through the shared `stream_study`
+runner (`study_shard` is bound to `forced` with `functools.partial`, so the pool
+pickles it) and writes `forced_card_raw.csv`. Pure rule `bias_probs(probs,
+conformant, force_card_factor)` (conformant x `1 + x`, others x `1 - x`,
+renormalise; zero/non-finite total falls back to uniform over the conformant
+options; `ValueError` outside `[0, 1]`). Matching helpers return the conformant
+mask or `None`: `conformant_mask` dispatches to `main_action_mask` (the seat can
+legally play the forced bird now; conformant = `PLAY_BIRD`, via
+`actions.playable_bird_plays`) and `play_bird_mask` (any `PlayBirdChoice` with
+`bird.id == forced_card_id`, any habitat, so power-granted extra plays too).
+`sampling_agent(net, device, rng, *, setup_net, forced)` samples every decision
+(the setup keep via `policy.setup_scores_and_probs`) and biases only when the
+factor is positive. `play_game` seeds each seat's `random.Random` from the game
+seed and seat, and the biased seat is `biased_seat(game_index, num_players)` =
+`game_index % num_players`; games use `spec.game_seed(index)` at every factor, so
+factors are paired. `resolve_forced_card_id(requested)` looks Cedar Waxwing up by
+name (`constants.DEFAULT_FORCED_CARD_NAME`) or validates an explicit id;
+`bird_name(id)`.
+
+**`forced_card_agg.py`** — Per-factor summary from the raw tables (stdlib only,
+Wilson 95% intervals via `card_stats_agg`). `aggregate(runs, out_dir)` writes
+`forced_card_summary.csv` / `.md` for a list of `FactorRun(factor, forced_card_id,
+raw_path)`; `summary_row`, `summary_markdown`, `read_raw`. Ties are non-wins kept
+in denominators. **Forced-card models** (in `models.py`): `ForcedCardSpec(
+force_card_factor in [0, 1], forced_card_id)`; `ForcedCardSeatRecord(game_index,
+seed, seat, biased, won, tie, final_score, forced_card_in_hand,
+forced_card_played)` (`in_hand` = kept opener, any round's hand per the
+card-stats capture, or placed; `played` = placed); `ForcedCardSummaryRow`
+(`biased_*`, `opponent_*`, `in_hand_games`, `play_rate` + CI, `played_*`,
+`held_unplayed_*`). Raw files live in `<out>/factor_<x.xxx>/forced_card_raw.csv`.
+
 **`card_stats_agg.py`** — Per-card aggregates from `card_games_raw.csv`
 (stdlib only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir)`
 writes `bird_stats.csv` / `.md`, `bonus_stats.csv` / `.md` and

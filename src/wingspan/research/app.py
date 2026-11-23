@@ -12,6 +12,11 @@ Usage::
                                  [--checkpoint-dir DIR | --release]
                                  [--seed S] [--workers W] [--device cpu]
                                  [--aggregate-only card_games_raw.csv]
+    wingspan research forced-card [--games N] --out DIR
+                                  [--force-card-factor 0,0.25,0.5,0.75,1]
+                                  [--forced-card-id ID]
+                                  [--checkpoint-dir DIR | --release]
+                                  [--seed S] [--workers W] [--device cpu]
     wingspan research cards-html --out DIR
 
 One sub-command per study. ``setup-keep`` writes the setup keep-rate experience
@@ -23,7 +28,12 @@ chart-ready aggregates and an HTML preview into ``--out``
 ``card-stats`` plays the same games and writes ``card_games_raw.csv`` plus
 per-card ``bird_stats.csv`` / ``bonus_stats.csv`` "games in hand" win rates
 (:mod:`wingspan.research.card_stats`, :mod:`wingspan.research.card_stats_agg`);
-``--release`` plays the bundled release model. ``cards-html`` writes one
+``--release`` plays the bundled release model. ``forced-card`` plays sampled
+games in which one seat's policy is biased toward playing a chosen bird (default
+Cedar Waxwing) at each ``--force-card-factor`` and writes per-factor raw tables
+plus a combined ``forced_card_summary.csv``
+(:mod:`wingspan.research.forced_card`, :mod:`wingspan.research.forced_card_agg`).
+``cards-html`` writes one
 fixed-size HTML card per bird and bonus card (:mod:`wingspan.research.card_html`).
 """
 
@@ -41,6 +51,8 @@ from wingspan.research import (
     card_stats,
     card_stats_agg,
     constants,
+    forced_card,
+    forced_card_agg,
     game_stats,
     game_stats_agg,
     models,
@@ -51,6 +63,7 @@ from wingspan.training import runmeta
 _SETUP_KEEP = "setup-keep"
 _GAME_STATS = "game-stats"
 _CARD_STATS = "card-stats"
+_FORCED_CARD = "forced-card"
 _CARDS_HTML = "cards-html"
 
 
@@ -63,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_game_stats(args)
     if args.study == _CARD_STATS:
         return _run_card_stats(args)
+    if args.study == _FORCED_CARD:
+        return _run_forced_card(args)
     if args.study == _CARDS_HTML:
         return _run_cards_html(args)
     raise AssertionError(f"unreachable: argparse admitted study {args.study!r}")
@@ -207,6 +222,75 @@ def _play_card_stats(args: argparse.Namespace, out_dir: pathlib.Path) -> pathlib
     return raw_path
 
 
+def _run_forced_card(args: argparse.Namespace) -> int:
+    """Play every factor of the forced-card study, then write the combined
+    summary into ``--out`` and print where everything landed."""
+    out_dir = pathlib.Path(args.out)
+    try:
+        checkpoint_dir = _card_stats_run_dir(args)
+        forced_card_id = forced_card.resolve_forced_card_id(args.forced_card_id)
+        runs = [
+            _play_forced_card_factor(args, checkpoint_dir, factor, forced_card_id)
+            for factor in args.force_card_factor
+        ]
+        written = forced_card_agg.aggregate(runs, out_dir)
+    except (FileNotFoundError, ValueError) as error:
+        print(f"wingspan research: {error}", file=sys.stderr)
+        return 1
+    for path in written:
+        print(f"wrote {path}")
+    return 0
+
+
+def _play_forced_card_factor(
+    args: argparse.Namespace,
+    checkpoint_dir: pathlib.Path,
+    factor: float,
+    forced_card_id: int,
+) -> forced_card_agg.FactorRun:
+    """Play the games of one factor into its sub-directory of ``--out``."""
+    factor_dir = pathlib.Path(args.out) / constants.FORCED_CARD_DIR_TEMPLATE.format(
+        factor=factor
+    )
+    factor_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = factor_dir / constants.FORCED_CARD_RAW_FILENAME
+    spec = models.GameStatsSpec(games=args.games, seed=args.seed, workers=args.workers)
+    forced = models.ForcedCardSpec(
+        force_card_factor=factor, forced_card_id=forced_card_id
+    )
+    print(
+        f"forced-card: {spec.games} games forcing "
+        f"{forced_card.bird_name(forced_card_id)} at factor {factor:g} from "
+        f"{checkpoint_dir} (workers={spec.workers}) -> {raw_path}"
+    )
+    summary = forced_card.run_forced_card_study(
+        spec,
+        forced,
+        checkpoint_dir,
+        torch.device(args.device),
+        raw_path,
+        progress_stream=sys.stderr,
+    )
+    print(
+        f"played {summary.games} games ({summary.rows} seat rows) in "
+        f"{summary.elapsed_seconds:.1f}s"
+    )
+    return forced_card_agg.FactorRun(factor, forced_card_id, raw_path)
+
+
+def _parse_factors(text: str) -> list[float]:
+    """Parse a comma-separated ``--force-card-factor`` list; each factor must lie
+    in ``[0, 1]``."""
+    try:
+        factors = [float(part) for part in text.split(",")]
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"not a list of numbers: {text!r}") from error
+    for factor in factors:
+        if not 0.0 <= factor <= 1.0:
+            raise argparse.ArgumentTypeError(f"factor {factor} is outside [0, 1]")
+    return factors
+
+
 def _card_stats_run_dir(args: argparse.Namespace) -> pathlib.Path:
     """The run directory to play: the bundled release model for ``--release``
     (``FileNotFoundError`` when the package was built without one), otherwise
@@ -348,6 +432,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "and bonus cards.",
     )
     _add_card_stats_arguments(card)
+    forced = studies.add_parser(
+        _FORCED_CARD,
+        help="Forced-card bias: sampled games where one seat is pushed toward "
+        "playing a chosen bird, swept over bias factors, with per-factor win "
+        "and play rates.",
+    )
+    _add_forced_card_arguments(forced)
     cards_html = studies.add_parser(
         _CARDS_HTML,
         help="Write a compact fixed-size HTML card for every bird and bonus card.",
@@ -410,4 +501,66 @@ def _add_card_stats_arguments(card: argparse.ArgumentParser) -> None:
         default=None,
         metavar="CARD_GAMES_RAW_CSV",
         help="Skip play: aggregate this card_games_raw.csv into --out.",
+    )
+
+
+def _add_forced_card_arguments(forced: argparse.ArgumentParser) -> None:
+    """Register the ``forced-card`` sub-command's arguments."""
+    forced.add_argument(
+        "--games",
+        type=int,
+        default=constants.DEFAULT_GAMES,
+        help=f"Games to play per factor (default: {constants.DEFAULT_GAMES}).",
+    )
+    forced.add_argument(
+        "--out",
+        required=True,
+        help="Output directory (one factor_<x>/ sub-directory per factor holding "
+        "forced_card_raw.csv, plus forced_card_summary.csv and .md).",
+    )
+    default_factors = ",".join(f"{f:g}" for f in constants.DEFAULT_FORCE_CARD_FACTORS)
+    forced.add_argument(
+        "--force-card-factor",
+        dest="force_card_factor",
+        type=_parse_factors,
+        default=list(constants.DEFAULT_FORCE_CARD_FACTORS),
+        help=f"Comma-separated bias factors in [0, 1], one run each (default: {default_factors}).",
+    )
+    forced.add_argument(
+        "--forced-card-id",
+        dest="forced_card_id",
+        type=int,
+        default=None,
+        help="Bird id (cards.Bird.id) to force "
+        f"(default: {constants.DEFAULT_FORCED_CARD_NAME}).",
+    )
+    run_source = forced.add_mutually_exclusive_group()
+    run_source.add_argument(
+        "--checkpoint-dir",
+        dest="checkpoint_dir",
+        default=constants.DEFAULT_CHECKPOINT_DIR,
+        help="Run directory whose last.pt and setup.pt play "
+        f"(default: {constants.DEFAULT_CHECKPOINT_DIR}).",
+    )
+    run_source.add_argument(
+        "--release",
+        action="store_true",
+        help="Play the bundled release model instead of a checkpoint directory.",
+    )
+    forced.add_argument(
+        "--seed",
+        type=int,
+        default=constants.DEFAULT_SEED,
+        help="Seed of the first game; games use consecutive seeds, the same at "
+        f"every factor (default: {constants.DEFAULT_SEED}).",
+    )
+    forced.add_argument(
+        "--workers",
+        type=int,
+        default=constants.DEFAULT_WORKERS,
+        help="Worker processes; 1 runs in-process "
+        f"(default: {constants.DEFAULT_WORKERS}).",
+    )
+    forced.add_argument(
+        "--device", default="cpu", help="Torch device for inference (default: cpu)."
     )
