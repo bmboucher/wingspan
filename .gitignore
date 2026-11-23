@@ -33,3 +33,5 @@ runs/release_stats/
 
 *.log
 *.lock
+# Raw per-game research tables (100+ MB; regenerate with `wingspan research`)
+runs/*/card_games_raw.csv
