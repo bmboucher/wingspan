@@ -14,6 +14,8 @@ game — build a fresh one per game — and records, for every seat:
 * the birds played to the board at any point of the game (``bird_placed``).
 * the outcome: sole winner / shared victory (``scoring.winners``) and the final
   score.
+* at ``game_end``, every bonus card the seat holds (original and acquired alike),
+  with its final qualifying count and the VP it paid (:class:`FinalBonus`).
 
 **"Held during the round".** A card counts for round ``r`` if the seat held it at
 any point of the round, *unless it arrived on the seat's final turn of that
@@ -51,6 +53,15 @@ if typing.TYPE_CHECKING:
 _OPENING_ROUND = 0
 
 
+class FinalBonus(pydantic.BaseModel):
+    """One bonus card held at game end: its final qualifying count and the VP it
+    paid."""
+
+    name: str
+    count: int
+    points: int
+
+
 class CardSeatCapture(pydantic.BaseModel):
     """Everything :class:`CardStatsCapture` records about one seat of one game."""
 
@@ -73,6 +84,8 @@ class CardSeatCapture(pydantic.BaseModel):
     # Birds placed on the board at any point of the game.
     played_birds: set[str] = pydantic.Field(default_factory=set[str])
     final_score: int = 0
+    # Every bonus card held at game end (original and acquired), in held order.
+    final_bonus: list[FinalBonus] = pydantic.Field(default_factory=list[FinalBonus])
     # True only for a sole winner; a shared victory leaves every seat False.
     won: bool = False
 
@@ -174,6 +187,14 @@ class CardStatsCapture(
                 raise AssertionError(f"seat {player.id} has no final score at game end")
             seat.final_score = player.final_score
             seat.won = not self._tie and player.id in winner_ids
+            seat.final_bonus = [
+                FinalBonus(
+                    name=bc.name,
+                    count=scoring.bonus_qualifying_count(player, bc),
+                    points=scoring.bonus_score(player, bc),
+                )
+                for bc in player.bonus_cards
+            ]
 
     ###### PRIVATE #######
 

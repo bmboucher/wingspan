@@ -130,11 +130,12 @@ for byte-stable CSVs).
 
 **`card_stats_agg.py`** — Per-card aggregates from `card_games_raw.csv`
 (stdlib only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir)`
-writes `bird_stats.csv` / `.md` and `bonus_stats.csv` / `.md`. Building blocks:
+writes `bird_stats.csv` / `.md`, `bonus_stats.csv` / `.md` and
+`bonus_hist.csv`. Building blocks:
 `read_raw_cards`, `wilson_interval(wins, n)` (95%), `win_stat`, `baseline`
 (overall seat-game win rate; ties are non-wins and stay in denominators),
 `bird_rows`, `bonus_rows` (one row per catalog card, never-seen cards with
-`n = 0` and blank rates), `bird_markdown`, `bonus_markdown`.
+`n = 0` and blank rates), `bonus_hist_rows`, `bird_markdown`, `bonus_markdown`.
 `bird_stats.csv`: `bird_id, bird_name, dealt_n, kept_n, keep_rate,
 dealt_win_rate`, then `gih_{n,wins,win_rate,ci95_lo,ci95_hi}` (bird in hand at
 any point after setup) and the same five per round as `gih_r1_..gih_r4_`, then
@@ -146,6 +147,11 @@ offered_win_rate`, `original_*` (kept at setup), `gih_*` (combined: original OR
 acquired), `acquired_gih_*` (picked up mid-game, any round) and
 `acquired_r1_..acquired_r4_*`. The original bonus is deliberately excluded from
 the per-round columns (it is held every round); those cover acquired cards only.
+`bonus_stats.csv` ends with `final_n` (seat-games holding the card at game end,
+original or acquired), `mean_count`, `mean_points` (blank when `final_n = 0`).
+`bonus_hist.csv`: `bonus_name, metric, value, n, share` (`metric` is a
+`HistMetric`, `count` or `points`; `share = n / final_n`), observed values only,
+ordered by catalog card, metric, then value.
 
 **`card_html.py`** — Compact fixed-size HTML cards for blog popovers.
 `write_cards(out_dir) -> list[Path]` writes one self-contained file (inline CSS,
@@ -163,9 +169,11 @@ birds, dealt / original bonus, `birds_by_round`, `acquired_bonus_by_round`;
 `to_csv_row()` / `from_csv_row()`) with `card_stats_csv_columns()` (the stable
 `card_games_raw.csv` header: `game_index, seed, seat, won, tie, final_score,
 dealt_birds, kept_birds, dealt_bonus, original_bonus, played_birds, birds_r1..4,
-acquired_bonus_r1..4`; card names `|`-joined); `WinTally`, `WinStat`
-(n, wins, win_rate, Wilson `ci95_lo` / `ci95_hi`), `BirdStatsRow`,
-`BonusStatsRow` (each with `csv_columns()`), `CardStatsBaseline`.
+acquired_bonus_r1..4, final_bonus`; card names `|`-joined; `final_bonus` entries
+are `Name:count:points` sorted by name, parsed back into `FinalBonusEntry`);
+`WinTally`, `WinStat` (n, wins, win_rate, Wilson `ci95_lo` / `ci95_hi`),
+`BirdStatsRow`, `BonusStatsRow`, `BonusHistRow` (each with `csv_columns()`),
+`HistMetric`, `CardStatsBaseline`.
 
 **`app.py` (card-stats)** — sub-command `card-stats` (`--games`, `--out`,
 `--checkpoint-dir` | `--release` (mutually exclusive; `--release` plays

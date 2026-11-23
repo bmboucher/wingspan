@@ -10,7 +10,12 @@ standalone — and writes, into an output directory:
   seat-games in which it was also played).
 * ``bonus_stats.csv`` / ``bonus_stats.md`` — one row per catalog bonus card: its
   offered / kept / original-card win rates, its acquired-mid-game win rates
-  (overall and per round), and the combined original-or-acquired GIH rate.
+  (overall and per round), the combined original-or-acquired GIH rate, and the
+  final-state columns (``final_n``, ``mean_count``, ``mean_points``) over every
+  seat-game that held the card at game end.
+* ``bonus_hist.csv`` — long-format histograms (``bonus_name, metric, value, n,
+  share``) of each bonus card's final qualifying count and final VP, observed
+  values only.
 
 Every seat-game is one observation; a tie counts as a non-win and stays in the
 denominator. Cards never seen get ``n = 0`` rows with blank rates. Only the
@@ -139,7 +144,14 @@ def bonus_rows(
     acquired = _new_tallies()
     combined = _new_tallies()
     acquired_rounds = [_new_tallies() for _ in range(constants.NUM_ROUNDS)]
+    final_n: collections.Counter[str] = collections.Counter()
+    count_sum: collections.Counter[str] = collections.Counter()
+    points_sum: collections.Counter[str] = collections.Counter()
     for record in records:
+        for entry in record.final_bonus:
+            final_n[entry.name] += 1
+            count_sum[entry.name] += entry.count
+            points_sum[entry.name] += entry.points
         for name in set(record.dealt_bonus):
             offered[name].add(won=record.won)
         if record.original_bonus:
@@ -168,8 +180,40 @@ def bonus_rows(
             acquired_rounds=[
                 win_stat(tallies[bonus.name]) for tallies in acquired_rounds
             ],
+            final_n=final_n[bonus.name],
+            mean_count=_rate(count_sum[bonus.name], final_n[bonus.name]),
+            mean_points=_rate(points_sum[bonus.name], final_n[bonus.name]),
         )
         for bonus in cards.bonus_cards_ordered()
+    ]
+
+
+def bonus_hist_rows(
+    records: typing.Sequence[models.CardSeatRecord],
+) -> list[models.BonusHistRow]:
+    """Histograms of each bonus card's final count and final VP over the seat-games
+    that held it at game end. Only observed values are emitted, ordered by card
+    (catalog order), then metric (count, points), then value ascending."""
+    counts: dict[tuple[str, models.HistMetric], collections.Counter[int]] = (
+        collections.defaultdict(collections.Counter)
+    )
+    holders: collections.Counter[str] = collections.Counter()
+    for record in records:
+        for entry in record.final_bonus:
+            holders[entry.name] += 1
+            counts[(entry.name, models.HistMetric.COUNT)][entry.count] += 1
+            counts[(entry.name, models.HistMetric.POINTS)][entry.points] += 1
+    return [
+        models.BonusHistRow(
+            bonus_name=bonus.name,
+            metric=metric,
+            value=value,
+            n=n,
+            share=n / holders[bonus.name],
+        )
+        for bonus in cards.bonus_cards_ordered()
+        for metric in models.HistMetric
+        for value, n in sorted(counts[(bonus.name, metric)].items())
     ]
 
 
@@ -205,15 +249,17 @@ def bonus_markdown(
         _baseline_line(base),
         "",
         "|Bonus card|Offered|Keep rate|Offered win rate|Original win rate"
-        "|Acquired n|Acquired win rate|GIH n|GIH win rate|GIH 95% CI|",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "|Acquired n|Acquired win rate|GIH n|GIH win rate|GIH 95% CI"
+        "|Final n|Mean count|Mean points|",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             f"|{row.bonus_name}|{row.offered_n}|{_percent(row.keep_rate)}"
             f"|{_percent(row.offered_win_rate)}|{_percent(row.original.win_rate)}"
             f"|{row.acquired.n}|{_percent(row.acquired.win_rate)}|{row.combined.n}"
-            f"|{_percent(row.combined.win_rate)}|{_interval(row.combined)}|"
+            f"|{_percent(row.combined.win_rate)}|{_interval(row.combined)}"
+            f"|{row.final_n}|{_decimal(row.mean_count)}|{_decimal(row.mean_points)}|"
         )
     return "\n".join(lines) + "\n"
 
@@ -244,6 +290,11 @@ def aggregate(raw_csv: pathlib.Path, out_dir: pathlib.Path) -> list[pathlib.Path
         _write_text(
             out_dir / constants.BONUS_STATS_MARKDOWN_FILENAME,
             bonus_markdown(bonuses, base),
+        ),
+        _write_rows(
+            out_dir / constants.BONUS_HIST_FILENAME,
+            bonus_hist_rows(records),
+            models.BonusHistRow.csv_columns(),
         ),
     ]
 
@@ -296,6 +347,10 @@ def _baseline_line(base: models.CardStatsBaseline) -> str:
 
 def _percent(rate: float | None) -> str:
     return _BLANK_CELL if rate is None else f"{_PERCENT * rate:.1f}%"
+
+
+def _decimal(value: float | None) -> str:
+    return _BLANK_CELL if value is None else f"{value:.2f}"
 
 
 def _interval(stat: models.WinStat) -> str:

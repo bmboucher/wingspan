@@ -91,7 +91,9 @@ records the dealt birds and dealt bonus (`setup_start`), the kept birds and the
 original bonus card (read at the round-0 `round_start`, because the
 deferred-bonus regime picks the bonus after `setup_applied`), per-round sets of
 birds in hand and of acquired (non-original) bonus cards, and `won` / `tie` /
-`final_score` at `game_end`. A card counts for a round if held at any point of
+`final_score` at `game_end`, where it also records `final_bonus` (`FinalBonus`:
+name, final qualifying count, VP paid) for every bonus card held, original and
+acquired alike. A card counts for a round if held at any point of
 it unless it arrived on the seat's final turn of that round: `turn_start` adds
 the hand; `turn_end` adds the hand plus birds placed that turn only when
 `action_cubes_left > 0` (the cube is spent before the action runs).

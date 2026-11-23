@@ -51,6 +51,12 @@ BIRD_STATS_FILENAME = "bird_stats.csv"
 BONUS_STATS_FILENAME = "bonus_stats.csv"
 BIRD_STATS_MARKDOWN_FILENAME = "bird_stats.md"
 BONUS_STATS_MARKDOWN_FILENAME = "bonus_stats.md"
+BONUS_HIST_FILENAME = "bonus_hist.csv"
+# The ``card_games_raw.csv`` column holding every bonus card held at game end.
+FINAL_BONUS_COLUMN = "final_bonus"
+# Splits one ``final_bonus`` entry into ``name:count:points`` (no bonus card
+# name contains it); entries are joined by ``NAME_SEPARATOR``.
+FINAL_BONUS_ENTRY_SEPARATOR = ":"
 # Games per unit of pool work (each game is a full greedy self-play game).
 CARD_STATS_GAMES_PER_SHARD = 8
 # Number of rounds a game has (one per entry of ``state.ROUND_CUBES``).

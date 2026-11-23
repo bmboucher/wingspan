@@ -320,7 +320,8 @@ recording each seat's opener and the cards it held through each round, to
 estimate per-card "games in hand" (GIH) win rates and opener keep rates for
 birds and bonus cards. It writes `card_games_raw.csv` plus `bird_stats.csv` and
 `bonus_stats.csv` (with markdown renderings), each rate with a Wilson 95%
-interval. A card counts for a round if the seat held it at any point of it,
+interval. It also records each bonus card's final qualifying count and VP paid
+at game end (mean columns in `bonus_stats.csv`, histograms in `bonus_hist.csv`). A card counts for a round if the seat held it at any point of it,
 unless it arrived on the seat's final turn of that round. `--release` plays the
 bundled model; `--checkpoint-dir` plays a run directory (the two are mutually
 exclusive).

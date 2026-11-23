@@ -17,6 +17,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from wingspan import cards, model, release, state, version  # noqa: E402
+from wingspan.engine import scoring  # noqa: E402
 from wingspan.instrumentation.handlers import card_stats as card_capture  # noqa: E402
 from wingspan.research import app  # noqa: E402
 from wingspan.research import card_stats as study  # noqa: E402
@@ -192,6 +193,33 @@ def test_capture_on_a_real_game(run_dir: pathlib.Path):
     assert sum(record.won for record in records) <= 1
 
 
+def test_final_bonus_on_a_real_game(run_dir: pathlib.Path):
+    """Every held bonus card is recorded at game end with a count and the VP it
+    paid; the points sum to the bonus VP final scoring counted."""
+    nets = game_stats.load_game_nets(run_dir, _DEVICE)
+    spec = models.GameStatsSpec(games=1, seed=3)
+    records = study.play_game(spec, 0, nets)
+    stats_records = game_stats.play_game(spec, 0, nets)
+    catalog = {bonus.name: bonus for bonus in cards.bonus_cards_ordered()}
+    for record, stats_record in zip(records, stats_records):
+        names = [entry.name for entry in record.final_bonus]
+        assert len(set(names)) == len(names)
+        assert record.original_bonus in names
+        acquired = {name for held in record.acquired_bonus_by_round for name in held}
+        assert acquired <= set(names)
+        for entry in record.final_bonus:
+            assert entry.points == scoring.bonus_score_for_count(
+                catalog[entry.name], entry.count
+            )
+        assert sum(entry.points for entry in record.final_bonus) == stats_record.bonus
+
+
+def test_bonus_names_do_not_contain_cell_separators():
+    for bonus in cards.bonus_cards_ordered():
+        assert constants.NAME_SEPARATOR not in bonus.name
+        assert constants.FINAL_BONUS_ENTRY_SEPARATOR not in bonus.name
+
+
 ###### Column contract ######
 
 
@@ -202,6 +230,7 @@ def test_csv_columns_contract():
         + ["played_birds"]
         + [f"birds_r{k}" for k in range(1, 5)]
         + [f"acquired_bonus_r{k}" for k in range(1, 5)]
+        + ["final_bonus"]
     )
     assert models.card_stats_csv_columns() == expected
 
@@ -216,13 +245,27 @@ def test_seat_record_round_trips_through_csv_cells():
         "X",
         [["A"], [], ["A", "B"], []],
         played=["A"],
+        final_bonus=[(_BONUS_X, 4, 3), (_BONUS_Y, 0, 0)],
     )
-    assert (
-        models.CardSeatRecord.from_csv_row(
-            {key: str(value) for key, value in record.to_csv_row().items()}
-        )
-        == record
-    )
+    row = {key: str(value) for key, value in record.to_csv_row().items()}
+    assert row["final_bonus"] == f"{_BONUS_X}:4:3|{_BONUS_Y}:0:0"
+    assert models.CardSeatRecord.from_csv_row(row) == record
+    empty = _record(1, False, False, [], [], "", [[], [], [], []])
+    empty_row = {key: str(value) for key, value in empty.to_csv_row().items()}
+    assert empty_row["final_bonus"] == ""
+    assert models.CardSeatRecord.from_csv_row(empty_row) == empty
+
+
+def test_from_csv_row_requires_the_final_bonus_column():
+    row = {
+        key: str(value)
+        for key, value in _record(0, True, False, [], [], "", [[], [], [], []])
+        .to_csv_row()
+        .items()
+    }
+    del row["final_bonus"]
+    with pytest.raises(KeyError):
+        models.CardSeatRecord.from_csv_row(row)
 
 
 def test_bird_and_bonus_stat_columns_contract():
@@ -242,7 +285,15 @@ def test_bird_and_bonus_stat_columns_contract():
         + [f"gih_{stat}" for stat in gih]
         + [f"acquired_gih_{stat}" for stat in gih]
         + [f"acquired_r{k}_{stat}" for k in range(1, 5) for stat in gih]
+        + ["final_n", "mean_count", "mean_points"]
     )
+    assert models.BonusHistRow.csv_columns() == [
+        "bonus_name",
+        "metric",
+        "value",
+        "n",
+        "share",
+    ]
 
 
 ###### Aggregation (hand-built fixture) ######
@@ -258,6 +309,7 @@ def _record(
     birds_by_round: list[list[str]],
     acquired_by_round: list[list[str]] | None = None,
     played: list[str] | None = None,
+    final_bonus: list[tuple[str, int, int]] | None = None,
 ) -> models.CardSeatRecord:
     return models.CardSeatRecord(
         game_index=row // 2,
@@ -273,6 +325,10 @@ def _record(
         played_birds=played or [],
         birds_by_round=birds_by_round,
         acquired_bonus_by_round=acquired_by_round or [[], [], [], []],
+        final_bonus=[
+            models.FinalBonusEntry(name=name, count=count, points=points)
+            for name, count, points in final_bonus or []
+        ],
     )
 
 
@@ -299,11 +355,30 @@ def _fixture_records() -> list[models.CardSeatRecord]:
             [[a], [a], [a, c], []],
             [[], [_BONUS_Y], [_BONUS_Y], []],
             [a, c],
+            final_bonus=[(_BONUS_X, 3, 1), (_BONUS_Y, 2, 2)],
         ),
         # Loss; holds a but never plays it.
-        _record(1, False, False, [a], [a], _BONUS_X, [[a], [], [], []]),
+        _record(
+            1,
+            False,
+            False,
+            [a],
+            [a],
+            _BONUS_X,
+            [[a], [], [], []],
+            final_bonus=[(_BONUS_X, 3, 1)],
+        ),
         # Tie: never wins, stays in every denominator; keeps nothing.
-        _record(2, False, True, [b], [], _BONUS_Y, [[], [], [], []]),
+        _record(
+            2,
+            False,
+            True,
+            [b],
+            [],
+            _BONUS_Y,
+            [[], [], [], []],
+            final_bonus=[(_BONUS_Y, 0, 0)],
+        ),
         # Win; plays a only.
         _record(
             3,
@@ -314,6 +389,7 @@ def _fixture_records() -> list[models.CardSeatRecord]:
             _BONUS_X,
             [[a, c], [a, c], [a], [a]],
             played=[a],
+            final_bonus=[(_BONUS_X, 5, 3)],
         ),
     ]
 
@@ -429,6 +505,40 @@ def test_bonus_rows_match_hand_computation(fixture_csv: pathlib.Path):
     assert unseen.offered_n == 0
     assert unseen.offered_win_rate is None
     assert unseen.combined.n == 0
+    assert unseen.final_n == 0
+    assert unseen.mean_count is None
+    assert unseen.mean_points is None
+
+
+def test_bonus_final_stats_match_hand_computation(fixture_csv: pathlib.Path):
+    rows = card_stats_agg.bonus_rows(card_stats_agg.read_raw_cards(fixture_csv))
+    bonus_x = _bonus(rows, _BONUS_X)
+    # Counts 3, 3, 5 and points 1, 1, 3 over three seat-games.
+    assert bonus_x.final_n == 3
+    assert bonus_x.mean_count == pytest.approx(11 / 3)
+    assert bonus_x.mean_points == pytest.approx(5 / 3)
+    bonus_y = _bonus(rows, _BONUS_Y)
+    # Counts 2, 0 and points 2, 0 over two seat-games.
+    assert bonus_y.final_n == 2
+    assert bonus_y.mean_count == pytest.approx(1.0)
+    assert bonus_y.mean_points == pytest.approx(1.0)
+
+
+def test_bonus_hist_rows_match_hand_computation(fixture_csv: pathlib.Path):
+    rows = card_stats_agg.bonus_hist_rows(card_stats_agg.read_raw_cards(fixture_csv))
+    count, points = models.HistMetric.COUNT, models.HistMetric.POINTS
+    assert [(r.bonus_name, r.metric, r.value, r.n) for r in rows] == [
+        (_BONUS_X, count, 3, 2),
+        (_BONUS_X, count, 5, 1),
+        (_BONUS_X, points, 1, 2),
+        (_BONUS_X, points, 3, 1),
+        (_BONUS_Y, count, 0, 1),
+        (_BONUS_Y, count, 2, 1),
+        (_BONUS_Y, points, 0, 1),
+        (_BONUS_Y, points, 2, 1),
+    ]
+    assert [r.share for r in rows[:4]] == pytest.approx([2 / 3, 1 / 3, 2 / 3, 1 / 3])
+    assert [r.share for r in rows[4:]] == pytest.approx([0.5] * 4)
 
 
 def test_aggregate_writes_csvs_with_blank_rates(
@@ -441,7 +551,14 @@ def test_aggregate_writes_csvs_with_blank_rates(
         constants.BONUS_STATS_FILENAME,
         constants.BIRD_STATS_MARKDOWN_FILENAME,
         constants.BONUS_STATS_MARKDOWN_FILENAME,
+        constants.BONUS_HIST_FILENAME,
     }
+    with (out_dir / constants.BONUS_HIST_FILENAME).open(
+        newline="", encoding="utf-8"
+    ) as handle:
+        hist_reader = csv.DictReader(handle)
+        assert hist_reader.fieldnames == models.BonusHistRow.csv_columns()
+        assert len(list(hist_reader)) == 8
     with (out_dir / constants.BIRD_STATS_FILENAME).open(
         newline="", encoding="utf-8"
     ) as handle:

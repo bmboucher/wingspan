@@ -548,7 +548,17 @@ def card_stats_csv_columns() -> list[str]:
         *CARD_LIST_COLUMNS,
         *_round_columns(constants.BIRDS_ROUND_PREFIX),
         *_round_columns(constants.ACQUIRED_BONUS_ROUND_PREFIX),
+        constants.FINAL_BONUS_COLUMN,
     ]
+
+
+class FinalBonusEntry(pydantic.BaseModel):
+    """One bonus card a seat held at game end: its final qualifying count and the
+    VP it paid."""
+
+    name: str
+    count: int
+    points: int
 
 
 class CardSeatRecord(pydantic.BaseModel):
@@ -560,7 +570,11 @@ class CardSeatRecord(pydantic.BaseModel):
     round ``k + 1`` (excluding cards that only arrived on the seat's final turn
     of that round); ``acquired_bonus_by_round[k]`` is the same for bonus cards
     picked up mid-game. The original bonus card is held every round, so it is
-    deliberately absent from the per-round lists."""
+    deliberately absent from the per-round lists.
+
+    ``final_bonus`` lists every bonus card held at game end, original and
+    acquired alike, each with its final count and VP (the CSV cell is sorted by
+    name)."""
 
     game_index: int
     seed: int
@@ -590,6 +604,7 @@ class CardSeatRecord(pydantic.BaseModel):
             min_length=constants.NUM_ROUNDS, max_length=constants.NUM_ROUNDS
         ),
     ]
+    final_bonus: list[FinalBonusEntry]
 
     def to_csv_row(self) -> dict[str, object]:
         """The flat CSV row (the header is :func:`card_stats_csv_columns`);
@@ -608,6 +623,12 @@ class CardSeatRecord(pydantic.BaseModel):
             row[column] = _join_names(names)
         for column, names in zip(bonus_columns, self.acquired_bonus_by_round):
             row[column] = _join_names(names)
+        row[constants.FINAL_BONUS_COLUMN] = constants.NAME_SEPARATOR.join(
+            constants.FINAL_BONUS_ENTRY_SEPARATOR.join(
+                (entry.name, str(entry.count), str(entry.points))
+            )
+            for entry in sorted(self.final_bonus, key=lambda entry: entry.name)
+        )
         return row
 
     @classmethod
@@ -633,6 +654,10 @@ class CardSeatRecord(pydantic.BaseModel):
             acquired_bonus_by_round=[
                 _split_names(row[column])
                 for column in _round_columns(constants.ACQUIRED_BONUS_ROUND_PREFIX)
+            ],
+            final_bonus=[
+                _parse_final_bonus(cell)
+                for cell in _split_names(row[constants.FINAL_BONUS_COLUMN])
             ],
         )
 
@@ -743,7 +768,12 @@ class BonusStatsRow(pydantic.BaseModel):
     mid-game by powers: ``acquired`` covers any point after setup and
     ``acquired_rounds[k]`` round ``k + 1`` only. ``combined`` ("gih") is
     original OR acquired at any point. The original card is excluded from the
-    per-round columns because it is held every round."""
+    per-round columns because it is held every round.
+
+    ``final_n`` is the seat-games in which the card was held at game end
+    (original or acquired); ``mean_count`` and ``mean_points`` are the mean final
+    qualifying count and VP paid over those seat-games (``None`` when
+    ``final_n == 0``)."""
 
     bonus_name: str
     offered_n: int
@@ -754,6 +784,9 @@ class BonusStatsRow(pydantic.BaseModel):
     combined: WinStat
     acquired: WinStat
     acquired_rounds: list[WinStat]
+    final_n: int
+    mean_count: float | None
+    mean_points: float | None
 
     def to_csv_row(self) -> dict[str, object]:
         """The flat CSV row (the header is :meth:`csv_columns`)."""
@@ -771,6 +804,9 @@ class BonusStatsRow(pydantic.BaseModel):
             _round_stat_prefixes("acquired_"), self.acquired_rounds
         ):
             row.update(stat.flattened(prefix))
+        row["final_n"] = self.final_n
+        row["mean_count"] = self.mean_count
+        row["mean_points"] = self.mean_points
         return row
 
     @classmethod
@@ -788,7 +824,36 @@ class BonusStatsRow(pydantic.BaseModel):
         ]
         for prefix in _round_stat_prefixes("acquired_"):
             columns.extend(WinStat.columns(prefix))
+        columns.extend(["final_n", "mean_count", "mean_points"])
         return columns
+
+
+class HistMetric(enum.StrEnum):
+    """Which per-card final quantity a ``bonus_hist.csv`` row bins."""
+
+    COUNT = "count"
+    POINTS = "points"
+
+
+class BonusHistRow(pydantic.BaseModel):
+    """One row of ``bonus_hist.csv``: how many seat-games ended holding the bonus
+    card with its final ``metric`` equal to ``value`` (``share`` = ``n`` over the
+    card's ``final_n``). Only observed values are emitted."""
+
+    bonus_name: str
+    metric: HistMetric
+    value: int
+    n: int
+    share: float
+
+    def to_csv_row(self) -> dict[str, object]:
+        """The flat CSV row (the header is :meth:`csv_columns`)."""
+        return self.model_dump(mode="json")
+
+    @classmethod
+    def csv_columns(cls) -> list[str]:
+        """The ``bonus_hist.csv`` header. A stable contract."""
+        return list(cls.model_fields)
 
 
 class CardStatsBaseline(pydantic.BaseModel):
@@ -827,3 +892,9 @@ def _join_names(names: typing.Iterable[str]) -> str:
 
 def _split_names(cell: str) -> list[str]:
     return cell.split(constants.NAME_SEPARATOR) if cell else []
+
+
+def _parse_final_bonus(cell: str) -> FinalBonusEntry:
+    """Parse one ``name:count:points`` entry of the ``final_bonus`` cell."""
+    name, count, points = cell.split(constants.FINAL_BONUS_ENTRY_SEPARATOR)
+    return FinalBonusEntry(name=name, count=int(count), points=int(points))

@@ -112,6 +112,12 @@ def play_game(
             acquired_bonus_by_round=[
                 sorted(names) for names in seat.round_acquired_bonus
             ],
+            final_bonus=[
+                models.FinalBonusEntry(
+                    name=entry.name, count=entry.count, points=entry.points
+                )
+                for entry in sorted(seat.final_bonus, key=lambda entry: entry.name)
+            ],
         )
         for seat in capture.seats
     ]
