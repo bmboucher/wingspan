@@ -244,12 +244,15 @@ class SetupNet(nn.Module):
         pricing (split-mode ``bonus_card_affinity`` or folded-mode
         ``kept_bonus_value``) — the setup-side halves of what were four
         provisionally-numbered eras (1.5-1.8), collapsed into one class (see
-        ``compat.v1_4``'s module docstring). Artifacts at or before era 1.3
+        ``compat.v1_4``'s module docstring). Era 1.5 routes to
+        :class:`wingspan.compat.v1_5.SetupNetV1_5` (the era-1.5 forecast
+        effect-mapper freeze of the card table; ``SetupNetV1_4`` inherits it).
+        Artifacts at or before era 1.3
         also differ in *shape* (the setup net's two-tower restructure landed
         in v1.3) and would fail at ``load_state_dict`` regardless of which
         class builds them; routing them through the v1.4 shim first is
         harmless — ``players.loaders.load_setup_net`` already turns that
-        failure into a clear "retrain the setup model" error. v1.5+
+        failure into a clear "retrain the setup model" error. v1.6+
         same-MAJOR artifacts use the live ``SetupNet``. Used by every
         construction seam that must honor a setup artifact's era
         (``docs/VERSIONING.md``'s "encode through the net" rule)."""
@@ -260,6 +263,10 @@ class SetupNet(nn.Module):
             from wingspan.compat import v1_4 as compat_v1_4
 
             return compat_v1_4.SetupNetV1_4
+        if parsed.major == 1 and parsed.minor == 5:
+            from wingspan.compat import v1_5 as compat_v1_5
+
+            return compat_v1_5.SetupNetV1_5
         return SetupNet
 
     def encode_candidate(

@@ -15,7 +15,7 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine import ledger
+from wingspan.engine import ledger, tuck_gate
 from wingspan.gamelog import models as gamelog_models
 
 if typing.TYPE_CHECKING:
@@ -310,7 +310,7 @@ def _react_tuck_from_hand(
                     f"(reacting to bird played in [{trigger_habitat}]) (or skip)"
                 ),
                 choices=[
-                    decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                    tuck_gate.tuck_activate_choice(other_player, pb, eff),
                     decisions.SkipChoice(label="skip"),
                 ],
             ),

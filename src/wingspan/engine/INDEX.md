@@ -205,14 +205,36 @@ opposite direction — what would stop being playable: `newly_unplayable_after_e
 **locally** inside encoder functions to keep `encode` engine-free at import
 time.
 
+**`tuck_gate.py`** — The one builder of every tuck-from-hand gate's yes row:
+`tuck_activate_choice(player, pb, eff) -> decisions.TuckActivateChoice`, an
+optimistically filled `ExchangeLedger` (`paid_card_count = 1`,
+`gained_tuck_count = 1`, plus the per-`EffectKind` payoff: cards drawn, eggs
+laid, typed/untyped food gained). The nominal ledger comes from
+`forecast.effect_exchange_ledger` (so the gate row and the main-action forecast
+cannot disagree on a tuck); the builder adds only the board-room egg caps and
+the typed food. Used by all six tuck gates in `powers/grants.py` and Horned
+Lark's pink reaction in `reactors.py`; depends only on `cards` / `decisions` /
+`state` / `forecast`, so both can import it without a cycle.
+See `docs/DECISIONS.md` §2.8.
+
 **`forecast.py`** — Optimistic exchange forecasts for `MainActionDecision` rows,
 over `(state.Player, state.GameState)` — no `Engine`:
-`effect_exchange_ledger(effect, *, include_eot_discard) -> decisions.ExchangeLedger`
+`effect_exchange_ledger(effect, *, include_eot_discard, legacy_v1_5_mappers) -> decisions.ExchangeLedger`
 (the effect->ledger branch table, ported out of
 `encode.state_encode._accumulate_effect_exchange`, which now delegates to it;
 `include_eot_discard` is the era seam for `DRAW_CARDS_THEN_DISCARD_EOT`'s
-end-of-turn discard side) and
-`habitat_action_exchange_forecast(player, game_state, action) -> decisions.ExchangeLedger`
+end-of-turn discard side, `legacy_v1_5_mappers` the v1.6 era seam that selects
+the explicit pre-v1.6 mapping (`_map_legacy_v1_5`) of the fourteen kinds whose
+mapping was fixed — tuck-from-hand now gains the tuck, `TUCK_FROM_DECK_PAID`
+pays food, `LAY_EGG_ALL_NEST` is self-only, `FEWEST_WETLAND_DRAWS_CARD` draws a
+card, `PREDATOR_HUNT` is mapped (one optimistic tuck), `PINK_PLAY_BIRD_TUCK`
+pays the card, `EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER` uses `amount`, `FEWEST_FOREST_GAINS_DIE`
+prices 1 die (Hermit Thrush parses amount 0), `FEWEST_WETLAND_DRAWS_CARD` also
+credits the tied opponent, `PINK_LAY_EGG_ON_NEST` prices its 1 egg,
+`DRAW_N_PLUS_ONE_DRAFT` prices 2 cards self / 1 opponent (2-player value);
+`GAIN_ALL_FOOD_FEEDER` stays at its parsed 0 (variable gain, deliberate omission);
+`tuck_gate.tuck_activate_choice` builds from this table) and
+`habitat_action_exchange_forecast(player, game_state, action, *, legacy_v1_5_mappers=False) -> decisions.ExchangeLedger`
 (GAIN_FOOD/LAY_EGGS/DRAW_CARDS only; greedy per-action forecast — base track
 gain, then the row's one-shot trade-arrow conversion, then every brown row
 power right-to-left — under running `_Budgets` for food/eggs/hand/egg room).

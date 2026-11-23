@@ -201,8 +201,9 @@ def _h_fewest_forest_gains_die(
         cards.Habitat.FOREST,
         lambda n_opp: decisions.PayCostChoice(
             label="activate",
-            gained_food_count=eff.amount,
-            opp_gained_food_count=n_opp * eff.amount,
+            # eff.amount is 0 for Hermit Thrush; each tied player takes 1 die.
+            gained_food_count=1,
+            opp_gained_food_count=n_opp,
         ),
     )
     if result is None:

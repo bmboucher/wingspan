@@ -115,8 +115,8 @@ def humanize_choice(
     if isinstance(choice, decisions.PlayedBirdChoice):
         return choice.played_bird.bird.name
     if isinstance(choice, decisions.TuckActivateChoice):
-        plural = "cards" if choice.cards_to_tuck != 1 else "card"
-        return f"Tuck {choice.cards_to_tuck} {plural}"
+        plural = "cards" if choice.gained_tuck_count != 1 else "card"
+        return f"Tuck {choice.gained_tuck_count} {plural}"
     if isinstance(choice, decisions.ResetBirdfeederChoice):
         return "Reset birdfeeder"
     if isinstance(choice, decisions.SetupChoice):
@@ -206,8 +206,8 @@ def humanize_outcome(
     if isinstance(choice, decisions.ResetBirdfeederChoice):
         return "Resets birdfeeder"
     if isinstance(choice, decisions.TuckActivateChoice):
-        plural = "cards" if choice.cards_to_tuck != 1 else "card"
-        return f"Tucks {choice.cards_to_tuck} {plural}"
+        plural = "cards" if choice.gained_tuck_count != 1 else "card"
+        return f"Tucks {choice.gained_tuck_count} {plural}"
     if isinstance(choice, decisions.PayCostChoice):
         return f"Accepts: {choice.label}"
     if isinstance(choice, decisions.FoodPaymentChoice):

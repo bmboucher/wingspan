@@ -4,12 +4,6 @@
 forwards each to ``apply_effect``, which looks the effect kind up in the
 handler registry. Pink (between-turn) effects and ``UNIMPLEMENTED`` are no-ops
 here; the handlers themselves live in the sibling submodules.
-
-The preferred veto entry point for power handlers is
-``offer_exchange_or_auto_accept``, which skips the agent entirely when the
-exchange ledger is strictly free (zero payment, zero opponent gain, positive
-own gain).  Exchanges with real tradeoffs — any payment, or any opponent gain
-— are routed through ``offer_activation_veto`` as before.
 """
 
 from __future__ import annotations
@@ -91,32 +85,6 @@ def offer_activation_veto(
     return not isinstance(ch, decisions.SkipChoice)
 
 
-def offer_exchange_or_auto_accept(
-    engine: "core.Engine",
-    agent: "core.Agent",
-    player: state.Player,
-    prompt: str,
-    accept_choice: decisions.PayCostChoice,
-) -> bool:
-    """Gate an optional exchange, auto-accepting when the ledger is strictly free.
-
-    A strictly-free exchange has zero payment (no food, card, or egg cost) and
-    zero opponent gain — the player gains something for nothing.  Presenting
-    these to the model wastes a decision point and adds noise to the SKIP_OPTIONAL
-    head.  When ``is_strictly_free`` returns ``True`` the exchange is applied
-    automatically and a log line records the auto-accept.
-
-    When the exchange has real tradeoffs (any payment, or any opponent benefit)
-    the call falls through to ``offer_activation_veto`` so the agent decides.
-
-    Returns ``True`` if the exchange was accepted (auto or by the agent),
-    ``False`` if the agent skipped it."""
-    if is_strictly_free(accept_choice):
-        engine.log(f"  [{player.name}] auto-accept: {accept_choice.label} (no cost)")
-        return True
-    return offer_activation_veto(engine, agent, player, prompt, accept_choice)
-
-
 def count_opposing_pink_predator_feeders(
     engine: "core.Engine",
     player: state.Player,
@@ -141,61 +109,14 @@ def count_opposing_pink_predator_feeders(
     )
 
 
-# ---------------------------------------------------------------------------
-# Predicates
-
-
-def is_strictly_free(choice: decisions.PayCostChoice) -> bool:
-    """Return ``True`` when an exchange ledger has zero cost, zero opponent gain,
-    and at least one positive own gain.
-
-    Zero-cost means: no named food payment, no unspecified food payment, no card
-    payment, and no egg payment.  Zero opponent gain means: all four
-    ``opp_gained_*`` fields are zero.  Positive own gain means: at least one of
-    the six gain fields is non-zero.
-
-    Exchanges that pass this test are unambiguously beneficial to the deciding
-    player with no downside — auto-accepting them is always correct and avoids
-    consuming a SKIP_OPTIONAL decision point."""
-
-    # Check the paying side — any payment means it is NOT strictly free.
-    has_payment = (
-        choice.paid_food is not None
-        or choice.paid_food_count > 0
-        or choice.paid_card_count > 0
-        or choice.paid_egg_count > 0
-    )
-    if has_payment:
-        return False
-
-    # Check the opponent side — any opponent gain means it is NOT strictly free.
-    has_opp_gain = (
-        choice.opp_gained_food_count > 0
-        or choice.opp_gained_egg_count > 0
-        or choice.opp_gained_card_count > 0
-        or choice.opp_gained_tuck_count > 0
-    )
-    if has_opp_gain:
-        return False
-
-    # Confirm the player actually gains something.
-    has_own_gain = (
-        choice.gained_food_count > 0
-        or choice.gained_egg_count > 0
-        or choice.gained_card_count > 0
-        or choice.gained_tuck_count > 0
-        or choice.gained_play_count > 0
-        or choice.gained_cache_count > 0
-    )
-    return has_own_gain
-
-
 def lay_one_egg_on_nest(
     engine: "core.Engine",
     target_player: state.Player,
     nest: cards.NestType,
     label: str,
     exclude: state.PlayedBird | None = None,
+    *,
+    already_consented: bool = False,
 ) -> state.PlayedBird | None:
     """Ask ``target_player`` to place 1 egg on a matching-nest bird with room.
 
@@ -206,8 +127,12 @@ def lay_one_egg_on_nest(
     mandatory base egg in the same power activation).
 
     Outside the ``birds_no_eggs`` goal the lay is forced; when that goal is
-    active an ``AcceptExchangeDecision`` gate is offered first so the
-    SKIP_OPTIONAL head can decline."""
+    active this helper is the single owner of the ``AcceptExchangeDecision``
+    gate (the lay's only consent point), so the SKIP_OPTIONAL head can
+    decline.  Callers must not gate the same egg themselves.  Pass
+    ``already_consented=True`` only when the player's consent to this exact
+    egg was already given by an earlier gate (e.g. the activation veto of an
+    all-players power), which suppresses the gate here."""
     eligible: list[decisions.BoardTargetChoice | decisions.SkipChoice] = [
         decisions.BoardTargetChoice(
             label=f"{pb.bird.name}@{habitat.value}[{slot}]({pb.eggs}/{pb.bird.egg_limit})",
@@ -230,7 +155,7 @@ def lay_one_egg_on_nest(
     anti_egg_goal = (
         engine.state.round_goals[engine.state.round_idx].category == "birds_no_eggs"
     )
-    if anti_egg_goal:
+    if anti_egg_goal and not already_consented:
         accepted = offer_activation_veto(
             engine,
             engine.agent_for(target_player),

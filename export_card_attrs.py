@@ -90,7 +90,10 @@ def _bird_row(bird: cards.Bird) -> dict[str, object]:
 
     # Power exchange: accumulate unnormalized by scaling the normalized vector back.
     exchange_raw: np.ndarray = (
-        state_encode._bird_power_exchange_vector(bird) * layout._EXCHANGE_SCALE
+        state_encode._bird_power_exchange_vector(
+            bird, include_eot_discard=True, legacy_v1_5_mappers=False
+        )
+        * layout._EXCHANGE_SCALE
     )
 
     values: list[object] = (

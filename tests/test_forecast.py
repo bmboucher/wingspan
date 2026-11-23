@@ -225,52 +225,46 @@ def test_effect_exchange_ledger_parity_spot_checks():
     def effect(kind: cards.EffectKind, amount: int = 0) -> cards.Effect:
         return cards.Effect(kind=kind, amount=amount)
 
-    plain_gain = forecast.effect_exchange_ledger(
-        effect(cards.EffectKind.GAIN_FOOD_SUPPLY, 1), include_eot_discard=False
-    )
+    def ledger_of(
+        eff: cards.Effect, *, include_eot_discard: bool = False
+    ) -> decisions.ExchangeLedger:
+        return forecast.effect_exchange_ledger(
+            eff, include_eot_discard=include_eot_discard, legacy_v1_5_mappers=False
+        )
+
+    plain_gain = ledger_of(effect(cards.EffectKind.GAIN_FOOD_SUPPLY, 1))
     assert plain_gain.gained_food_count == 1
 
-    tuck_then_draw = forecast.effect_exchange_ledger(
-        effect(cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW, 1), include_eot_discard=False
-    )
+    tuck_then_draw = ledger_of(effect(cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW, 1))
     assert tuck_then_draw.paid_card_count == 1
     assert tuck_then_draw.gained_card_count == 1
+    assert tuck_then_draw.gained_tuck_count == 1
 
-    tuck_from_deck_paid = forecast.effect_exchange_ledger(
-        effect(cards.EffectKind.TUCK_FROM_DECK_PAID, 2), include_eot_discard=False
-    )
-    assert tuck_from_deck_paid.paid_egg_count == 1
+    tuck_from_deck_paid = ledger_of(effect(cards.EffectKind.TUCK_FROM_DECK_PAID, 2))
+    assert tuck_from_deck_paid.paid_food_count == 1
+    assert tuck_from_deck_paid.paid_egg_count == 0
     assert tuck_from_deck_paid.gained_tuck_count == 2
 
-    discard_egg_for_cards = forecast.effect_exchange_ledger(
-        effect(cards.EffectKind.DISCARD_EGG_FOR_CARDS, 2), include_eot_discard=False
-    )
+    discard_egg_for_cards = ledger_of(effect(cards.EffectKind.DISCARD_EGG_FOR_CARDS, 2))
     assert discard_egg_for_cards.paid_egg_count == 1
     assert discard_egg_for_cards.gained_card_count == 2
 
-    wild_trade = forecast.effect_exchange_ledger(
-        effect(cards.EffectKind.TRADE_WILD_FOOD), include_eot_discard=False
-    )
+    wild_trade = ledger_of(effect(cards.EffectKind.TRADE_WILD_FOOD))
     assert wild_trade.paid_food_count == 1
     assert wild_trade.gained_food_count == 1
 
-    extra_play = forecast.effect_exchange_ledger(
-        effect(cards.EffectKind.PLAY_ADDITIONAL_BIRD), include_eot_discard=False
-    )
+    extra_play = ledger_of(effect(cards.EffectKind.PLAY_ADDITIONAL_BIRD))
     assert extra_play.gained_play_count == 1
 
-    shared_eggs = forecast.effect_exchange_ledger(
-        effect(cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST, 1),
-        include_eot_discard=False,
-    )
+    shared_eggs = ledger_of(effect(cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST, 1))
     assert shared_eggs.gained_egg_count == 1
     assert shared_eggs.opp_gained_egg_count == 1
 
     eot_effect = effect(cards.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT, 2)
-    without_eot = forecast.effect_exchange_ledger(eot_effect, include_eot_discard=False)
+    without_eot = ledger_of(eot_effect)
     assert without_eot.gained_card_count == 2
     assert without_eot.paid_card_count == 0
-    with_eot = forecast.effect_exchange_ledger(eot_effect, include_eot_discard=True)
+    with_eot = ledger_of(eot_effect, include_eot_discard=True)
     assert with_eot.gained_card_count == 2
     assert with_eot.paid_card_count == 1
 

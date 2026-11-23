@@ -280,7 +280,7 @@ def test_choice_features_skip_flag_for_skip_choice():
         player_id=0,
         prompt="x",
         choices=[
-            decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+            decisions.TuckActivateChoice(label="tuck 1 card", gained_tuck_count=1),
             decisions.SkipChoice(label="skip"),
         ],
     )

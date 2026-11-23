@@ -137,12 +137,14 @@ table (padding row + one row per bird, via `_bird_attr_vector`) both nets
 embed board/tray/hand/choice cards through; `card_summary_matrix()` is its
 10-dim per-card summary sibling. `_bird_attr_vector`'s `power_ex` block (v1.5:
 Stage 1) delegates to `engine.forecast.effect_exchange_ledger` rather than
-mapping effects locally, passing `include_eot_discard=True` so the live table
+mapping effects locally, passing `include_eot_discard=True` (so the live table
 includes the `DRAW_CARDS_THEN_DISCARD_EOT` discard side the original mapper
-omitted. `refill_card_features_power_exchange_pre_eot(matrix)` is the compat
-seam `wingspan.compat.v1_4` uses to overwrite a built `card_feature_matrix()`'s
-power_ex columns back to the pre-amend (`include_eot_discard=False`) values,
-for both nets' frozen card tables.
+omitted) and `legacy_v1_5_mappers=False` (the v1.6 mapper fixes).
+`refill_card_features_power_exchange(matrix, *, include_eot_discard,
+legacy_v1_5_mappers)` is the compat seam `wingspan.compat.v1_5` (era 1.5:
+`(True, True)`) and `wingspan.compat.v1_4` (eras <= 1.4: `(False, True)`) use to
+overwrite a built `card_feature_matrix()`'s power_ex columns with an older
+era's mapping, for both nets' frozen card tables.
 
 **`choice_encode.py`** — `encode_choices(gs, decision, spec, *, has_becomes_playable=True, food_playable_ignores_eggs=True) -> np.ndarray`
 (shape `[n_choices, choice_dim]`). One row per offered choice; each row is the
@@ -201,8 +203,20 @@ which prices `bonus_delta` / `goal_delta` / `goal_delta_ignoring_eggs` as a
 per-component independent max over `actions.playable_bird_plays`
 (`_fill_bonus_delta_best_case_for_plays` / `_fill_goal_delta_best_case_for_plays`),
 leaving `exchange` at zero. `_write_exchange(feat, ledger: decisions.ExchangeLedger)`
-is the shared writer behind both this forecast path and `_featurize_pay_cost`'s
-committed `PayCostChoice` terms (a `PayCostChoice` IS an `ExchangeLedger`).
+is the shared writer behind both this forecast path and the accept-row
+featurizer `_featurize_ledger_row` — the single function behind both
+`_featurize_pay_cost` (`PayCostChoice`) and `_featurize_tuck_activate`
+(`TuckActivateChoice`), both of which ARE `ExchangeLedger`s (v1.6). It writes
+the exchange stripe, `pay_food` / `gain_food` (the latter from
+`ledger.gained_food`), a `bonus_delta` combined from the hand-card flow and the
+egg best case (`_fill_ledger_bonus_delta`), `goal_delta`, and
+`becomes_playable` / `becomes_unplayable` (exact food when `gained_food` is set).
+`refill_exchange_rows_v1_5(rows, decision, game_state)` is the compat seam
+`wingspan.compat.v1_5` uses to regenerate those rows at the era-1.5 pricing.
+`refill_main_action_exchange_legacy_v1_5(feat, player, game_state, action)` is
+the era-1.5 seam for a habitat-row `MainActionChoice`'s `exchange` stripe: it
+rewrites it from the forecast run with `legacy_v1_5_mappers=True` (the pre-v1.6
+effect mapper; PLAY_BIRD rows untouched).
 `refill_main_action_forecast_zeros(feat, action)` is the compat seam
 `wingspan.compat.v1_4` uses to zero a `MainActionChoice` row's v1.5-amended
 forecast cells (the whole `exchange` stripe; `bonus_delta` except DRAW_CARDS;

@@ -399,12 +399,12 @@ brown) — identical text:
   1. Each *opponent* in turn order who has a matching bird with room — normally
      forced (free egg); under the birds-without-eggs round goal each opponent first
      gets their own `skip_optional` accept/decline via their own agent.
-  2. The active player places their mandatory base egg (`lay_egg` over matching
-     birds; skipped if they have none).
+  2. The active player places their base egg (`lay_egg` over matching
+     birds; skipped if they have none). No second gate: the activation veto
+     already consented.
   3. The active player may place the "1 additional" egg: forced commit to the
-     `lay_egg` pick (the extra was counted in the accept-row ledger, so it's
-     committed on accept), but the anti-egg-goal gate is repeated here too when
-     that goal is active. The menu *excludes* the bird that received the base egg,
+     `lay_egg` pick (the extra was counted in the accept-row ledger), but under
+     the anti-egg goal it gets its own single accept/skip gate. The menu *excludes* the bird that received the base egg,
      so the same bird cannot get both eggs; if that leaves no eligible bird the
      extra is silently skipped.
 
@@ -565,7 +565,13 @@ All hand-tucking powers share the same two-step shape: first a `skip_optional` g
 ("tuck 1 card behind this bird?" — the engine never forces you to give up a card in
 hand), then, on accept, a mandatory `discard_bird` pick of *which* hand card to tuck.
 The tucked card is worth a point on the bird at game end. With an empty hand the
-power is skipped without asking.
+power is skipped without asking. The gate's accept row (`TuckActivateChoice`) is
+built by `engine.tuck_gate.tuck_activate_choice` and carries the full optimistic
+exchange ledger — the card paid, the tuck, and the payoff (cards drawn, eggs laid,
+food gained, with the food type when fixed); see `docs/DECISIONS.md` §2.8. The
+nominal ledger is the one `engine.forecast.effect_exchange_ledger` maps for these
+kinds (the tuck itself is `gained_tuck_count = 1`), so the gate row, the
+main-action forecast and the card-attribute `power_ex` block agree.
 
 ### 20a. Tuck → gain choice of two supply foods (1 bird)
 

@@ -36,9 +36,23 @@ _ACTION_HABITATS: dict[decisions.MainAction, cards.Habitat] = {
     decisions.MainAction.DRAW_CARDS: cards.Habitat.WETLAND,
 }
 
+# Face values the engine's handlers use where the parsed ``Effect.amount`` is 0
+# (or is a per-bird figure rather than a total), shared with the accept-row
+# ledgers they build.
+_CARDS_PER_TUCK = 1  # every tuck-from-hand gate pays and tucks exactly one card
+_FOOD_CHOICE_GAIN = 1  # Pygmy Nuthatch-style "gain 1 food of choice" (amount 0)
+_FEWEST_WETLAND_DRAW = 1  # Bittern / Loon: each tied player draws 1 card (amount 0)
+_PINK_LAY_EGGS = 1  # pink "lay on nest" reactors lay exactly 1 egg (amount 0)
+_DRAFT_SELF_NET_CARDS = 2  # American Oystercatcher: active player nets 2 cards
+_DRAFT_OPP_NET_CARDS = (
+    1  # ... each opponent nets 1 (2-player value; no seat count here)
+)
+_FEWEST_FOREST_DIE = 1  # Hermit Thrush: each tied player gains 1 die (amount 0)
+_PREDATOR_HUNT_TUCKS = 1  # a successful hunt tucks exactly one card (amount 0)
+
 
 def effect_exchange_ledger(
-    effect: cards.Effect, *, include_eot_discard: bool
+    effect: cards.Effect, *, include_eot_discard: bool, legacy_v1_5_mappers: bool
 ) -> decisions.ExchangeLedger:
     """Map one bird-power ``effect`` onto an :class:`decisions.ExchangeLedger`.
 
@@ -48,22 +62,35 @@ def effect_exchange_ledger(
     reactive kinds use the self-gain fields (the reacting player's
     perspective). Conditional or partial-probability effects
     (``PREDATOR_HUNT``, ``FEWEST_*``, ``ROLL_NOT_IN_FEEDER_*``) are mapped by
-    their nominal exchange — the model learns to discount uncertain outcomes
-    via training, not by zeroing the signal here. Unknown/``UNIMPLEMENTED``
-    kinds contribute nothing (the correct default).
+    their nominal exchange (a hunt is assumed to succeed) — the model learns to
+    discount uncertain outcomes via training, not by zeroing the signal here.
+    Unknown/``UNIMPLEMENTED`` kinds contribute nothing (the correct default).
+    The tuck-from-hand gate kinds agree with the gate's own yes-row ledger
+    (``engine.tuck_gate.tuck_activate_choice`` builds from this function), so
+    the main-action forecast and the SKIP_OPTIONAL accept row price one tuck
+    identically.
 
-    ``include_eot_discard`` is the era seam for the mapper's one known gap:
-    ``DRAW_CARDS_THEN_DISCARD_EOT`` draws now but discards *later*, at end of
-    turn, after every other row power resolves — a real cost the original
-    state-encoder mapper omitted. ``True`` adds that ``paid_card_count += 1``
-    side (used by the live optimistic forecast,
-    :func:`habitat_action_exchange_forecast`, and by ``state_encode`` from the
-    v1.5 era onward); ``False`` reproduces the old byte-for-byte behavior
-    (used by frozen era-<=1.4 artifacts — see ``wingspan.compat.v1_4``)."""
+    ``include_eot_discard`` is the era seam for ``DRAW_CARDS_THEN_DISCARD_EOT``,
+    which draws now but discards *later*, at end of turn, after every other row
+    power resolves — a real cost the original state-encoder mapper omitted.
+    ``True`` adds that ``paid_card_count += 1`` side (used by the live
+    optimistic forecast, :func:`habitat_action_exchange_forecast`, and by
+    ``state_encode`` from the v1.5 era onward); ``False`` reproduces the old
+    byte-for-byte behavior (used by frozen era-<=1.4 artifacts — see
+    ``wingspan.compat.v1_4``).
+
+    ``legacy_v1_5_mappers`` is the era seam for the v1.6 mapper fixes: ``True``
+    reproduces the era-<=1.5 mapping byte-for-byte for the eleven affected
+    kinds (see :func:`_map_legacy_v1_5`; used by frozen era-<=1.5 artifacts —
+    see ``wingspan.compat.v1_5``), ``False`` is the live mapping."""
     ledger: dict[str, int] = {}
     amount = effect.amount
     kind = effect.kind
-    handled = _map_gain_and_cache(ledger, kind, amount)
+    handled = legacy_v1_5_mappers and _map_legacy_v1_5(ledger, kind, amount)
+    if not handled:
+        handled = _map_tuck_from_hand(ledger, kind, amount)
+    if not handled:
+        handled = _map_gain_and_cache(ledger, kind, amount)
     if not handled:
         handled = _map_egg_and_draw(
             ledger, kind, amount, include_eot_discard=include_eot_discard
@@ -74,7 +101,11 @@ def effect_exchange_ledger(
 
 
 def habitat_action_exchange_forecast(
-    player: state.Player, game_state: state.GameState, action: decisions.MainAction
+    player: state.Player,
+    game_state: state.GameState,
+    action: decisions.MainAction,
+    *,
+    legacy_v1_5_mappers: bool = False,
 ) -> decisions.ExchangeLedger:
     """Optimistic exchange forecast for committing to ``action``'s habitat row.
 
@@ -89,6 +120,11 @@ def habitat_action_exchange_forecast(
        if the row lands on a trade space and the engine's exact gates are met.
     3. :func:`_apply_row_powers` — every already-in-play brown bird's power,
        right-to-left (the engine's real column-activation order).
+
+    ``legacy_v1_5_mappers`` selects the era-<=1.5 effect mapping for phase 3
+    (see :func:`effect_exchange_ledger`); it also steers which powers pass the
+    feasibility budgets, since the old mapping charged e.g. ``TUCK_FROM_DECK_PAID``
+    an egg instead of the food. Only the frozen era-1.5 shim passes ``True``.
     """
     if action not in _ACTION_HABITATS:
         raise ValueError(f"no habitat-action exchange forecast for {action}")
@@ -107,7 +143,9 @@ def habitat_action_exchange_forecast(
     )
     _apply_base_gain(ledger, budgets, player, game_state, action)
     _apply_conversion(ledger, budgets, player, game_state, action, habitat)
-    _apply_row_powers(ledger, budgets, player, habitat)
+    _apply_row_powers(
+        ledger, budgets, player, habitat, legacy_v1_5_mappers=legacy_v1_5_mappers
+    )
     return _build_ledger(ledger)
 
 
@@ -241,6 +279,8 @@ def _apply_row_powers(
     budgets: _Budgets,
     player: state.Player,
     habitat: cards.Habitat,
+    *,
+    legacy_v1_5_mappers: bool,
 ) -> None:
     """Every brown bird already in ``habitat``'s row, right-to-left (the
     engine's real column-activation order), each effect gated by the budgets
@@ -249,11 +289,17 @@ def _apply_row_powers(
         if played_bird.bird.color != cards.PowerColor.BROWN:
             continue
         for effect in played_bird.bird.power.effects:
-            _apply_one_row_power_effect(ledger, budgets, effect)
+            _apply_one_row_power_effect(
+                ledger, budgets, effect, legacy_v1_5_mappers=legacy_v1_5_mappers
+            )
 
 
 def _apply_one_row_power_effect(
-    ledger: dict[str, int], budgets: _Budgets, effect: cards.Effect
+    ledger: dict[str, int],
+    budgets: _Budgets,
+    effect: cards.Effect,
+    *,
+    legacy_v1_5_mappers: bool,
 ) -> None:
     """Apply one brown-power effect's optimistic delta to ``ledger`` and
     ``budgets``, or skip it entirely if any cost side exceeds its budget.
@@ -264,7 +310,9 @@ def _apply_one_row_power_effect(
     resolves at end of turn, after every remaining row power has already drawn
     against the same hand (the ``paid_card_count`` this kind contributes *is*
     the EOT side), so the power fires even from an empty hand."""
-    delta = effect_exchange_ledger(effect, include_eot_discard=True)
+    delta = effect_exchange_ledger(
+        effect, include_eot_discard=True, legacy_v1_5_mappers=legacy_v1_5_mappers
+    )
     is_eot_discard = effect.kind == cards.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT
     cards_needed_now = 0 if is_eot_discard else delta.paid_card_count
     if (
@@ -302,12 +350,95 @@ def _apply_one_row_power_effect(
 #### Effect -> ledger-field branch table (ported from state_encode) ####
 
 
+def _map_legacy_v1_5(vec: dict[str, int], kind: cards.EffectKind, amount: int) -> bool:
+    """The era-<=1.5 mapping of the kinds the v1.6 mapper fixes changed
+    (the eighth, ``FEWEST_FOREST_GAINS_DIE``, was ``amount`` food = 0 for Hermit
+    Thrush),
+    reproduced explicitly (never by calling the live mappers) so frozen
+    artifacts compute exactly what they were trained on. Returns whether
+    ``kind`` is one of those kinds; every other kind maps identically in both
+    eras and falls through to the live groups.
+
+    The old mapping: the tuck-from-hand kinds paid a card but never bumped
+    ``gained_tuck_count``; ``TUCK_FROM_DECK_PAID`` paid an *egg*;
+    ``LAY_EGG_ALL_NEST`` also credited the opponent; ``FEWEST_WETLAND_DRAWS_CARD``
+    gained *food*; ``PREDATOR_HUNT`` was unmapped; ``PINK_PLAY_BIRD_TUCK`` paid
+    no card; ``EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER`` used a literal 1."""
+    if kind in (
+        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE,
+    ):
+        _bump(vec, "paid_card_count", 1)
+        _bump(vec, "gained_food_count", amount)
+    elif kind in (
+        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ON_THIS,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ANY,
+    ):
+        _bump(vec, "paid_card_count", 1)
+        _bump(vec, "gained_egg_count", amount)
+    elif kind == cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW:
+        _bump(vec, "paid_card_count", 1)
+        _bump(vec, "gained_card_count", amount)
+    elif kind == cards.EffectKind.TUCK_FROM_HAND:
+        _bump(vec, "paid_card_count", 1)
+    elif kind == cards.EffectKind.TUCK_FROM_DECK_PAID:
+        _bump(vec, "paid_egg_count", 1)
+        _bump(vec, "gained_tuck_count", amount)
+    elif kind == cards.EffectKind.LAY_EGG_ALL_NEST:
+        _bump(vec, "gained_egg_count", amount)
+        _bump(vec, "opp_gained_egg_count", amount)
+    elif kind == cards.EffectKind.FEWEST_WETLAND_DRAWS_CARD:
+        _bump(vec, "gained_food_count", amount)
+    elif kind == cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT:
+        _bump(vec, "gained_card_count", amount)  # parsed amount 0: nothing
+    elif kind == cards.EffectKind.PINK_LAY_EGG_ON_NEST:
+        _bump(vec, "gained_egg_count", amount)  # parsed amount 0: nothing
+    elif kind == cards.EffectKind.PREDATOR_HUNT:
+        pass  # unmapped: contributes nothing
+    elif kind == cards.EffectKind.FEWEST_FOREST_GAINS_DIE:
+        _bump(vec, "gained_food_count", amount)  # parsed amount 0: nothing
+    elif kind == cards.EffectKind.PINK_PLAY_BIRD_TUCK:
+        _bump(vec, "gained_tuck_count", amount)
+    elif kind == cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER:
+        _bump(vec, "gained_food_count", 1)
+        _bump(vec, "opp_gained_food_count", 1)
+    else:
+        return False
+    return True
+
+
+def _map_tuck_from_hand(
+    vec: dict[str, int], kind: cards.EffectKind, amount: int
+) -> bool:
+    """The tuck-from-hand gate kinds. Every one pays one card and gains the
+    tuck itself (+1 VP and a tucked card); the compound kinds add their payoff
+    at its nominal face value. Mirrors the gate's yes-row ledger
+    (``engine.tuck_gate.tuck_activate_choice`` builds from this function and
+    only adds the board-room caps and the typed food). Returns whether
+    ``kind`` was handled by this group."""
+    if kind == cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY:
+        _bump(vec, "gained_food_count", amount)
+    elif kind == cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE:
+        _bump(vec, "gained_food_count", _FOOD_CHOICE_GAIN)
+    elif kind in (
+        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ON_THIS,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ANY,
+    ):
+        _bump(vec, "gained_egg_count", amount)
+    elif kind == cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW:
+        _bump(vec, "gained_card_count", amount)
+    elif kind != cards.EffectKind.TUCK_FROM_HAND:
+        return False
+    _bump(vec, "paid_card_count", _CARDS_PER_TUCK)
+    _bump(vec, "gained_tuck_count", _CARDS_PER_TUCK)
+    return True
+
+
 def _map_gain_and_cache(
     vec: dict[str, int], kind: cards.EffectKind, amount: int
 ) -> bool:
-    """Food gains (from supply, feeder, die, or compound tuck-then-gain) and
-    cache gains (food cached on the bird itself). Returns whether ``kind`` was
-    handled by this group."""
+    """Food gains (from supply, feeder, or die) and cache gains (food cached on
+    the bird itself). Returns whether ``kind`` was handled by this group."""
     # Food gains
     if kind in (
         cards.EffectKind.GAIN_FOOD_SUPPLY,
@@ -315,16 +446,12 @@ def _map_gain_and_cache(
         cards.EffectKind.GAIN_FOOD_FROM_FEEDER_CHOICE,
         cards.EffectKind.GAIN_DIE_ANY,
         cards.EffectKind.GAIN_ALL_FOOD_FEEDER,
-        cards.EffectKind.FEWEST_FOREST_GAINS_DIE,
-        cards.EffectKind.FEWEST_WETLAND_DRAWS_CARD,
     ):
         _bump(vec, "gained_food_count", amount)
-    elif kind in (
-        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY,
-        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE,
-    ):
-        _bump(vec, "paid_card_count", 1)
-        _bump(vec, "gained_food_count", amount)
+    elif kind == cards.EffectKind.FEWEST_FOREST_GAINS_DIE:
+        # Hermit Thrush: parsed amount is 0, the handler gives each tied player 1 die.
+        _bump(vec, "gained_food_count", _FEWEST_FOREST_DIE)
+        _bump(vec, "opp_gained_food_count", _FEWEST_FOREST_DIE)
 
     # Cache gains (food cached on the bird itself)
     elif kind in (
@@ -346,43 +473,45 @@ def _map_egg_and_draw(
     *,
     include_eot_discard: bool,
 ) -> bool:
-    """Egg gains, card draws (and their tuck-from-hand-then-X compounds), and
-    tucks/discards that cost a card or an egg. Returns whether ``kind`` was
-    handled by this group."""
+    """Egg gains, card draws, cards tucked from the deck, and exchanges that
+    cost an egg. (The tuck-from-hand kinds live in :func:`_map_tuck_from_hand`.)
+    Returns whether ``kind`` was handled by this group."""
     # Egg gains
     if kind in (cards.EffectKind.LAY_EGG_ON_THIS, cards.EffectKind.LAY_EGG_ANY):
-        _bump(vec, "gained_egg_count", amount)
-    elif kind in (
-        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ON_THIS,
-        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ANY,
-    ):
-        _bump(vec, "paid_card_count", 1)
         _bump(vec, "gained_egg_count", amount)
 
     # Card draws
     elif kind in (
         cards.EffectKind.DRAW_CARDS,
         cards.EffectKind.DRAW_FROM_TRAY_ALL,
-        cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT,
         cards.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT,
     ):
         _bump(vec, "gained_card_count", amount)
         if kind == cards.EffectKind.DRAW_CARDS_THEN_DISCARD_EOT and include_eot_discard:
             _bump(vec, "paid_card_count", 1)
-    elif kind == cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW:
-        _bump(vec, "paid_card_count", 1)
-        _bump(vec, "gained_card_count", amount)
+    elif kind == cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT:
+        # American Oystercatcher (parsed amount 0): the active player nets 2
+        # cards and each opponent 1. The mapper has no player count, so the
+        # opponent side is the 2-player value (the handler's accept row uses
+        # n_players - 1).
+        _bump(vec, "gained_card_count", _DRAFT_SELF_NET_CARDS)
+        _bump(vec, "opp_gained_card_count", _DRAFT_OPP_NET_CARDS)
+    elif kind == cards.EffectKind.FEWEST_WETLAND_DRAWS_CARD:
+        _bump(vec, "gained_card_count", _FEWEST_WETLAND_DRAW)
+        _bump(vec, "opp_gained_card_count", _FEWEST_WETLAND_DRAW)
 
-    # Cards tucked (from deck onto a bird) / discarded (tuck from hand as a cost)
+    # Cards tucked from the deck onto a bird; the paid variant discards food
     elif kind in (
         cards.EffectKind.TUCK_FROM_DECK,
         cards.EffectKind.TUCK_FROM_DECK_PAID,
     ):
         if kind == cards.EffectKind.TUCK_FROM_DECK_PAID:
-            _bump(vec, "paid_egg_count", 1)
+            _bump(vec, "paid_food_count", 1)
         _bump(vec, "gained_tuck_count", amount)
-    elif kind == cards.EffectKind.TUCK_FROM_HAND:
-        _bump(vec, "paid_card_count", 1)
+    elif kind == cards.EffectKind.PREDATOR_HUNT:
+        # Optimistic: assume the hunt succeeds (tucks one card), matching the
+        # accept-row ledger in engine.powers.predator_repeat.
+        _bump(vec, "gained_tuck_count", _PREDATOR_HUNT_TUCKS)
 
     # Egg-cost exchanges
     elif kind == cards.EffectKind.DISCARD_EGG_FOR_CARDS:
@@ -420,25 +549,29 @@ def _map_conversion_and_shared(
         _bump(vec, "gained_food_count", amount)
         _bump(vec, "opp_gained_food_count", amount)
     elif kind == cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER:
-        _bump(vec, "gained_food_count", 1)
-        _bump(vec, "opp_gained_food_count", 1)
+        _bump(vec, "gained_food_count", amount)
+        _bump(vec, "opp_gained_food_count", amount)
     elif kind == cards.EffectKind.ALL_PLAYERS_DRAW:
         _bump(vec, "gained_card_count", amount)
         _bump(vec, "opp_gained_card_count", amount)
-    elif kind in (
-        cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST,
-        cards.EffectKind.LAY_EGG_ALL_NEST,
-    ):
+    elif kind == cards.EffectKind.ALL_PLAYERS_LAY_EGG_ON_NEST:
         _bump(vec, "gained_egg_count", amount)
         _bump(vec, "opp_gained_egg_count", amount)
+    elif kind == cards.EffectKind.LAY_EGG_ALL_NEST:
+        # Self only: eggs on each of the player's own matching-nest birds.
+        _bump(vec, "gained_egg_count", amount)
 
     # Pink reactive effects (reacting player's gain)
     elif kind == cards.EffectKind.PINK_PLAY_BIRD_GAIN:
         _bump(vec, "gained_food_count", amount)
     elif kind == cards.EffectKind.PINK_PLAY_BIRD_TUCK:
+        # Horned Lark: tuck from the *hand* (reactors._react_tuck_from_hand),
+        # so each tuck also pays a card.
+        _bump(vec, "paid_card_count", amount)
         _bump(vec, "gained_tuck_count", amount)
     elif kind == cards.EffectKind.PINK_LAY_EGG_ON_NEST:
-        _bump(vec, "gained_egg_count", amount)
+        # Parsed amount is 0; the reactor lays exactly 1 egg.
+        _bump(vec, "gained_egg_count", _PINK_LAY_EGGS)
     else:
         return False
     return True

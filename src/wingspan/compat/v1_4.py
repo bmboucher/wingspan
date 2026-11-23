@@ -81,10 +81,10 @@ import numpy as np
 import torch
 
 from wingspan import architecture, decisions, encode, setup_model, state
+from wingspan.compat import v1_5
 from wingspan.encode import choice_encode, state_encode, stripes
 from wingspan.model import core
 from wingspan.setup_model import encode as setup_encode
-from wingspan.training import setup_net
 
 # Layout names of the v1.5 stripes this shim strips (offsets/widths: the
 # encode.STATE_KNOWN_HAND_OPP_* / encode.CHOICE_GOAL_DELTA_IGNORING_EGGS_*
@@ -95,7 +95,7 @@ _V1_5_STATE_STRIPE_NAMES = ("known_hand_opp",)
 _V1_5_CHOICE_STRIPE_NAME = "goal_delta_ignoring_eggs"
 
 
-class PolicyValueNetV1_4(core.PolicyValueNet):
+class PolicyValueNetV1_4(v1_5.PolicyValueNetV1_5):
     """``PolicyValueNet`` with pre-1.5 geometry and value freezes — the merge
     of what were four provisionally-numbered eras (1.5-1.8) that landed on
     main but never trained a run past 1.4 (the fold-in rule; see
@@ -118,8 +118,9 @@ class PolicyValueNetV1_4(core.PolicyValueNet):
       scalars that predate the amend and are regenerated identically live).
     * **Card table** — the frozen ``card_features`` buffer's power_ex
       columns regenerated at the pre-v1.5-amend (EOT-discard-omitted)
-      values via ``state_encode.refill_card_features_power_exchange_pre_eot``,
-      right after ``_build_card_encoder`` builds the live (amended) table.
+      values (and the pre-v1.6 effect mapper) via
+      ``state_encode.refill_card_features_power_exchange``, right after
+      ``_build_card_encoder`` builds the live (amended) table.
 
     Both geometry seams derive their width absolutely from ``self.spec``
     (``_true_state_dim`` / ``_true_choice_dim``) rather than composing via
@@ -130,6 +131,11 @@ class PolicyValueNetV1_4(core.PolicyValueNet):
     convert these methods to the same composing form
     (``super()._true_state_dim() - ...``), so a further narrowing stacks
     instead of silently overwriting this one.
+
+    Inherits :class:`wingspan.compat.v1_5.PolicyValueNetV1_5` (the era-1.5
+    SKIP_OPTIONAL accept-row pricing — a pre-1.5 net also predates v1.6's
+    full-ledger accept rows); its ``encode_choices`` refill runs at live
+    width inside the ``super()`` call below, before this class's phases.
 
     Routes for era 1.4
     (:meth:`wingspan.model.core.PolicyValueNet.class_for_version`);
@@ -343,12 +349,10 @@ class PolicyValueNetV1_4(core.PolicyValueNet):
         every card row at the current live mapper (see the module
         docstring's change 6)."""
         super()._build_card_encoder(arch)
-        matrix = self.card_features.numpy().copy()
-        state_encode.refill_card_features_power_exchange_pre_eot(matrix)
-        self.card_features = torch.tensor(matrix, dtype=torch.float32)
+        self.card_features = _pre_eot_card_table(self.card_features)
 
 
-class SetupNetV1_4(setup_net.SetupNet):
+class SetupNetV1_4(v1_5.SetupNetV1_5):
     """``SetupNet`` with both pre-1.5 setup value freezes: the bonus pricing
     stripe (split-mode ``bonus_card_affinity`` pair, or folded-mode
     ``kept_bonus_value`` 4-vector) at the pre-1.7 static (egg-blind) counts,
@@ -376,7 +380,12 @@ class SetupNetV1_4(setup_net.SetupNet):
     net differs in *shape* (the v1.3 two-tower restructure) and would fail
     at ``load_state_dict`` regardless of which class builds them, and
     ``players.loaders.load_setup_net`` already turns that into a clear
-    "retrain the setup model" error."""
+    "retrain the setup model" error.
+
+    Inherits :class:`wingspan.compat.v1_5.SetupNetV1_5` (the era-1.5 effect
+    mapper freeze of the same card table); this class's own
+    ``_build_card_encoder`` runs that refill first (via ``super()``) and then
+    overwrites it with the pre-v1.5-amend values."""
 
     def encode_candidate(
         self,
@@ -400,6 +409,18 @@ class SetupNetV1_4(setup_net.SetupNet):
         (EOT-discard-omitted) values — the setup-net twin of
         :meth:`PolicyValueNetV1_4._build_card_encoder`."""
         super()._build_card_encoder(main_arch)
-        matrix = self.card_features.numpy().copy()
-        state_encode.refill_card_features_power_exchange_pre_eot(matrix)
-        self.card_features = torch.tensor(matrix, dtype=torch.float32)
+        self.card_features = _pre_eot_card_table(self.card_features)
+
+
+def _pre_eot_card_table(live_card_features: torch.Tensor) -> torch.Tensor:
+    """The era-<=1.4 ``card_features`` table: ``live_card_features`` with the
+    power_ex columns regenerated at the original mapper (the EOT discard side
+    omitted, and — since the v1.6 mapper fixes — the pre-v1.6 effect mapping
+    too). Runs after the era-1.5 shim's own refill (the ``super()`` call in
+    each ``_build_card_encoder``) and overwrites it; one helper so the main net
+    and the setup net cannot drift."""
+    matrix = live_card_features.numpy().copy()
+    state_encode.refill_card_features_power_exchange(
+        matrix, include_eot_discard=False, legacy_v1_5_mappers=True
+    )
+    return torch.tensor(matrix, dtype=torch.float32)

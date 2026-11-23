@@ -15,7 +15,7 @@ import typing
 import pytest
 import torch
 
-from wingspan import engine, model, players, release, release_prep, version
+from wingspan import engine, model, players, release, release_prep
 from wingspan.training import artifacts, collect, config, policy, runstate
 
 _DEVICE = torch.device("cpu")
@@ -195,7 +195,9 @@ def test_bundled_release_plays_a_game() -> None:
     assert manifest is not None
     payload = torch.load(directory / artifacts.LAST_CKPT, weights_only=False)
     assert manifest.era == payload["version"]
-    assert manifest.era == version.MODEL_VERSION
+    # The bundle is a superseded era once MODEL_VERSION moves on: it loads
+    # through that era's compat shim (re-bundling is the alternative).
+    assert type(net) is model.PolicyValueNet.class_for_version(manifest.era)
 
     num_players = cfg.num_players
     greedy = policy.greedy_agent(net, _DEVICE)

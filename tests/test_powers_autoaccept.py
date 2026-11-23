@@ -1,15 +1,8 @@
-"""Tests for the strictly-free exchange auto-accept infrastructure.
+"""Tests for the Burrowing-Owl-style veto (``ROLL_NOT_IN_FEEDER_CACHE``).
 
-Two concerns are exercised here:
-
-1.  ``offer_exchange_or_auto_accept`` in ``dispatch.py`` auto-accepts when the
-    ``PayCostChoice`` ledger is strictly free (zero payment, zero opponent gain,
-    positive own gain), logging the auto-accept without consulting the agent.
-
-2.  The Burrowing-Owl-style veto (``ROLL_NOT_IN_FEEDER_CACHE``) still reaches the
-    agent when an opponent has a ``PINK_PREDATOR_FEEDER`` bird, and the accept
-    choice label now names the opponent food benefit so the model understands the
-    tradeoff.
+The veto still reaches the agent when an opponent has a ``PINK_PREDATOR_FEEDER``
+bird, and the accept choice label names the opponent food benefit so the model
+understands the tradeoff.
 """
 
 from __future__ import annotations
@@ -19,7 +12,6 @@ import typing
 
 from wingspan import cards, decisions, engine, state
 from wingspan.engine import powers
-from wingspan.engine.powers import dispatch
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -28,16 +20,6 @@ from wingspan.engine.powers import dispatch
 def _new_game(seed: int = 0) -> state.GameState:
     birds, bonuses, goals = cards.load_all()
     return state.new_game(random.Random(seed), birds, bonuses, goals)
-
-
-def _no_agent[C: decisions.Choice](
-    _eng: engine.Engine,
-    decision: decisions.Decision[C],
-) -> C:
-    """Raises on any consultation — used when the agent must not be queried."""
-    raise AssertionError(
-        f"agent should not be consulted (got {type(decision).__name__})"
-    )
 
 
 def _make_feeder_bird() -> cards.Bird:
@@ -53,150 +35,6 @@ def _make_feeder_bird() -> cards.Bird:
             "raw_power_text": text,
         }
     )
-
-
-# ---------------------------------------------------------------------------
-# Tests for _is_strictly_free
-
-
-def test_is_strictly_free_free_gain():
-    """A choice with only gained_food_count set is strictly free."""
-    choice = decisions.PayCostChoice(label="gain 1 food", gained_food_count=1)
-    assert dispatch.is_strictly_free(choice) is True
-
-
-def test_is_strictly_free_free_cache():
-    """A choice with only gained_cache_count set is strictly free."""
-    choice = decisions.PayCostChoice(label="cache food", gained_cache_count=1)
-    assert dispatch.is_strictly_free(choice) is True
-
-
-def test_is_strictly_free_free_egg():
-    """A choice with only gained_egg_count is strictly free."""
-    choice = decisions.PayCostChoice(label="lay egg", gained_egg_count=1)
-    assert dispatch.is_strictly_free(choice) is True
-
-
-def test_is_not_strictly_free_has_payment_food():
-    """Paying a named food makes the exchange NOT strictly free."""
-    choice = decisions.PayCostChoice(
-        label="discard seed for cache",
-        paid_food=cards.Food.SEED,
-        gained_cache_count=1,
-    )
-    assert dispatch.is_strictly_free(choice) is False
-
-
-def test_is_not_strictly_free_has_opp_gain():
-    """An opponent gaining food makes the exchange NOT strictly free."""
-    choice = decisions.PayCostChoice(
-        label="roll dice (opp gains)",
-        gained_cache_count=1,
-        opp_gained_food_count=1,
-    )
-    assert dispatch.is_strictly_free(choice) is False
-
-
-def test_is_not_strictly_free_no_own_gain():
-    """Zero gains on all fields means the exchange is NOT strictly free."""
-    choice = decisions.PayCostChoice(label="nothing")
-    assert dispatch.is_strictly_free(choice) is False
-
-
-# ---------------------------------------------------------------------------
-# Tests for offer_exchange_or_auto_accept
-
-
-def test_offer_exchange_or_auto_accept_strictly_free_never_consults_agent():
-    """When the ledger is strictly free, auto-accept does not call the agent."""
-    gs = _new_game()
-    eng = engine.Engine(gs, agents=[_no_agent, _no_agent])
-    player = gs.players[0]
-
-    free_choice = decisions.PayCostChoice(label="gain 1 food", gained_food_count=1)
-    accepted = dispatch.offer_exchange_or_auto_accept(
-        eng, _no_agent, player, "prompt", free_choice
-    )
-
-    assert accepted is True
-
-
-def test_offer_exchange_or_auto_accept_strictly_free_logs_auto_accept():
-    """Auto-accepted exchanges appear in the log as 'auto-accept: ...'."""
-    gs = _new_game()
-    eng = engine.Engine(gs, agents=[_no_agent, _no_agent])
-    player = gs.players[0]
-
-    free_choice = decisions.PayCostChoice(label="gain 1 food", gained_food_count=1)
-    dispatch.offer_exchange_or_auto_accept(
-        eng, _no_agent, player, "prompt", free_choice
-    )
-
-    auto_accept_lines = [line for line in gs.log if "auto-accept:" in line]
-    assert auto_accept_lines, "no auto-accept log line found"
-    assert "gain 1 food" in auto_accept_lines[0]
-    assert "no cost" in auto_accept_lines[0]
-
-
-def test_offer_exchange_or_auto_accept_with_opp_gain_consults_agent():
-    """When the ledger has opponent gain, the agent IS consulted via the veto gate."""
-    gs = _new_game()
-    player = gs.players[0]
-
-    decisions_seen: list[type] = []
-
-    def recording_agent[C: decisions.Choice](
-        _eng: engine.Engine,
-        decision: decisions.Decision[C],
-    ) -> C:
-        decisions_seen.append(type(decision))
-        # Accept the gate — return the first non-skip choice.
-        for choice in decision.choices:
-            if not isinstance(choice, decisions.SkipChoice):
-                return choice
-        return decision.choices[0]
-
-    eng = engine.Engine(gs, agents=[recording_agent, recording_agent])
-
-    non_free_choice = decisions.PayCostChoice(
-        label="roll dice (opponent gains)",
-        gained_cache_count=1,
-        opp_gained_food_count=1,
-    )
-    accepted = dispatch.offer_exchange_or_auto_accept(
-        eng, recording_agent, player, "prompt", non_free_choice
-    )
-
-    assert accepted is True
-    assert decisions.AcceptExchangeDecision in decisions_seen
-
-
-def test_offer_exchange_or_auto_accept_with_opp_gain_skip():
-    """When the ledger has opponent gain and the agent skips, returns False."""
-    gs = _new_game()
-    player = gs.players[0]
-
-    def skip_agent[C: decisions.Choice](
-        _eng: engine.Engine,
-        decision: decisions.Decision[C],
-    ) -> C:
-        for choice in decision.choices:
-            if isinstance(choice, decisions.SkipChoice):
-                return choice
-        return decision.choices[0]
-
-    eng = engine.Engine(gs, agents=[skip_agent, skip_agent])
-
-    non_free_choice = decisions.PayCostChoice(
-        label="roll dice (opponent gains)",
-        gained_cache_count=1,
-        opp_gained_food_count=1,
-    )
-    accepted = dispatch.offer_exchange_or_auto_accept(
-        eng, skip_agent, player, "prompt", non_free_choice
-    )
-
-    assert accepted is False
 
 
 # ---------------------------------------------------------------------------

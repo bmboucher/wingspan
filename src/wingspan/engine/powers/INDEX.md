@@ -22,18 +22,15 @@ for the full implementation reference and per-bird coverage map.
   via `registry.handler_for`, logging unimplemented powers.
 - `apply_effect(engine, agent, kind: EffectKind, **kwargs)` — lower-level call
   when the effect kind and params are known directly (used by multi-step powers).
-- `lay_one_egg_on_nest(engine, agent, player_id)` — shared helper called by
-  several handlers that involve laying a single egg.
+- `lay_one_egg_on_nest(engine, target_player, nest, label, exclude=None, *,
+  already_consented=False)` — shared helper for the all-players-lay-on-nest
+  power. Sole owner of the `birds_no_eggs` accept/skip gate for these lays
+  (callers must not gate); `already_consented=True` suppresses it when an
+  earlier gate (the activation veto) already covered the egg.
 - `offer_activation_veto(engine, agent, player, prompt, accept_choice)` — presents
   an `AcceptExchangeDecision` gate; returns `True` if accepted, `False` if skipped.
-- `offer_exchange_or_auto_accept(engine, agent, player, prompt, accept_choice)` —
-  preferred veto entry point: auto-accepts when the ledger is strictly free (zero
-  payment, zero opponent gain, positive own gain) and logs the auto-accept; falls
-  through to `offer_activation_veto` otherwise.
 - `count_opposing_pink_predator_feeders(engine, player)` — counts unfired
   `PINK_PREDATOR_FEEDER` birds on opponents; used for the predator-veto ledger.
-- `is_strictly_free(choice)` — predicate: `True` when a `PayCostChoice` has
-  zero payment, zero opponent gain, and at least one positive own gain.
 
 **`grants.py`** — Handlers for direct food/card/egg grants: `GAIN_FOOD_SUPPLY`,
 `GAIN_FOOD_BIRDFEEDER`, `GAIN_FOOD_TRAY`, `DRAW_CARDS`, `LAY_EGG_ON_THIS`,

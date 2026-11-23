@@ -34,7 +34,9 @@ state stripe; `v1_3` in turn inherits `v1_4`, so every pre-1.4 era also strips t
 v1.5 `known_hand_opp` state stripe and `goal_delta_ignoring_eggs` choice tail
 stripe, and freezes the pre-1.5 `goal_delta` / `goal_affinity` pricing, the
 pre-1.7 bonus potentials and spend-food routing, the `MainActionChoice`
-consequence forecast, and the pre-EOT `power_ex` card table). A
+consequence forecast, and the pre-EOT `power_ex` card table; `v1_4` in turn
+inherits `v1_5`, so every pre-1.5 era also freezes the pre-1.6 SKIP_OPTIONAL
+accept-row pricing). A
 **behavior-only** value change (stripe *values* changed, widths untouched)
 follows the same module shape but
 overrides only the encoder that regenerates the old values; there is no
@@ -80,6 +82,25 @@ outright when `spec.num_players != 2` — every superseded era predates N-player
 support by construction, so no shim ever needs to reproduce an N>=3 shape
 (`docs/VERSIONING.md`'s `num_players` entry).
 
+**`v1_5.py`** — pre-1.6 behavior-only compat shim (both nets; no geometry, no
+dims-router branch). `PolicyValueNetV1_5` overrides `encode_choices` and
+`_build_card_encoder`. `encode_choices`: live encoding, then
+`choice_encode.refill_exchange_rows_v1_5` zeroes every `PayCostChoice` /
+`TuckActivateChoice` row and re-featurizes it at the era-1.5 pricing (tuck rows:
+special-kind bit + the tuck slot only; pay rows: no typed `gained_food`,
+any-feeder-die `becomes_playable`, hand-flow-only `bonus_delta`), and
+`choice_encode.refill_main_action_exchange_legacy_v1_5` rewrites every
+habitat-row `MainActionChoice`'s `exchange` stripe from the forecast run with
+`legacy_v1_5_mappers=True`. `_build_card_encoder` freezes the card table's
+power_ex columns at the era-1.5 effect mapper
+(`state_encode.refill_card_features_power_exchange(..., include_eot_discard=True,
+legacy_v1_5_mappers=True)`); the state vector never reads the mapper, so
+`encode_state` is not overridden. `SetupNetV1_5` is the setup-side twin (card-table
+freeze only). Both are routed for era 1.5 by `class_for_version`;
+`v1_4.PolicyValueNetV1_4` / `v1_4.SetupNetV1_4` **inherit** them (and v1_3 / v1_0
+through the former); v1_4's own pre-EOT refill then overwrites the table with
+`(include_eot_discard=False, legacy_v1_5_mappers=True)`.
+
 **`v1_4.py`** — pre-1.5 geometry + behavior compat shim, both nets (the merged
 shim: what were four provisionally-numbered eras, 1.5-1.8, collapsed into one
 class before any of them ever trained a run, plus a later in-place amendment
@@ -124,11 +145,12 @@ fold-in note):
   - **Card-table freeze.** Overrides `_build_card_encoder`: builds the live
     card encoder via `super()`, then overwrites the frozen `card_features`
     buffer's power_ex columns with the pre-v1.5-amend (EOT-discard-omitted)
-    values (`state_encode.refill_card_features_power_exchange_pre_eot`) —
+    values (`state_encode.refill_card_features_power_exchange`, with
+    `include_eot_discard=False, legacy_v1_5_mappers=True`) —
     outside the per-row `encode_choices` chain, since the buffer is built
     once at construction and shared by every row.
-- `SetupNetV1_4` — `wingspan.training.setup_net.SetupNet` subclass, the first
-  `SetupNet` compat shim. Overrides `encode_candidate`: calls the live
+- `SetupNetV1_4` — `v1_5.SetupNetV1_5` subclass (a `wingspan.training.setup_net.SetupNet`
+  compat shim, the first). Overrides `encode_candidate`: calls the live
   encoder via `super()`, then `setup_model.encode.refill_bonus_pricing_static`
   and `setup_model.encode.refill_goal_affinity_static` overwrite the bonus
   pricing and `goal_affinity` stripes with their pre-1.5 static (egg-blind)

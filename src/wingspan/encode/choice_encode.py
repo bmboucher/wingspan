@@ -113,29 +113,12 @@ def encode_choices(
         )
     # Build the hand-playability baselines once per decision; used by the
     # becomes_playable fillers so each row tests only not-yet-playable birds.
-    # Skip the playability computation when has_becomes_playable is False (compat
-    # shim path) to avoid the engine import and the classification cost entirely.
-    if has_becomes_playable:
-        from wingspan.engine import playability as _playability
-
-        player = state.players[decision.player_id]
-        playable_now, playable_if_eggs = _playability.classify_hand_playability(player)
-        food_affordable = (
-            playable_now + playable_if_eggs
-            if food_playable_ignores_eggs
-            else playable_now
-        )
-        baselines = _HandPlayabilityBaselines(
-            playable_now=playable_now,
-            food_affordable=food_affordable,
-            food_ignores_eggs=food_playable_ignores_eggs,
-        )
-    else:
-        baselines = _HandPlayabilityBaselines(
-            playable_now=[],
-            food_affordable=[],
-            food_ignores_eggs=food_playable_ignores_eggs,
-        )
+    baselines = _hand_playability_baselines(
+        decision,
+        state,
+        has_becomes_playable=has_becomes_playable,
+        food_playable_ignores_eggs=food_playable_ignores_eggs,
+    )
 
     # Row width depends on whether the becomes_playable stripe is included.
     # Pre-0.6 eras (has_becomes_playable=False) lack both becomes_playable and
@@ -250,6 +233,37 @@ def refill_main_action_forecast_zeros(
         ] = 0.0
 
 
+def refill_main_action_exchange_legacy_v1_5(
+    feat: np.ndarray,
+    player: state.Player,
+    game_state: state.GameState,
+    action: decisions.MainAction,
+) -> None:
+    """Compat seam for era 1.5 (``wingspan.compat.v1_5``): rewrite the
+    ``exchange`` stripe of one already-encoded ``MainActionChoice`` row with
+    the forecast built from the era-<=1.5 effect mapper
+    (``legacy_v1_5_mappers=True``).
+
+    v1.6 fixed eleven ``engine.forecast`` effect-mapper bugs, so the live
+    forecast prices brown-power rows (tuck-from-hand, Sandhill Crane-style
+    paid tucks, ...) differently. The mapper also steers which powers pass the
+    forecast's feasibility budgets, so the whole forecast is recomputed rather
+    than patched. PLAY_BIRD rows carry no exchange forecast and are left
+    alone; the other stripes the main-action pricing fills never read the
+    mapper. ``_write_exchange`` overwrites every slot, so no zeroing is
+    needed."""
+    from wingspan.engine import forecast  # local: keeps encode engine-free at import
+
+    if action == decisions.MainAction.PLAY_BIRD:
+        return
+    _write_exchange(
+        feat,
+        forecast.habitat_action_exchange_forecast(
+            player, game_state, action, legacy_v1_5_mappers=True
+        ),
+    )
+
+
 def refill_spend_food_gain_routing(feat: np.ndarray, food: cards.Food) -> None:
     """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): re-route one
     already-encoded spend-decision ``FoodChoice`` row back to the
@@ -259,7 +273,85 @@ def refill_spend_food_gain_routing(feat: np.ndarray, food: cards.Food) -> None:
     _fill_gain_food(feat, food, from_choice_die=False)
 
 
+def refill_exchange_rows_v1_5(
+    rows: np.ndarray,
+    decision: layout._AnyDecision,
+    game_state: state.GameState,
+) -> None:
+    """Compat seam for era 1.5 (``wingspan.compat.v1_5``): regenerate every
+    accept-row (``PayCostChoice`` / ``TuckActivateChoice``) of one already
+    -encoded decision at the pricing era 1.5 was trained against.
+
+    v1.6 made the SKIP_OPTIONAL accept rows carry the full exchange ledger:
+    a ``TuckActivateChoice`` is now an ``ExchangeLedger`` featurized exactly
+    like a ``PayCostChoice`` (era 1.5 wrote only the ``cards_to_tuck`` slot,
+    now ``gained_tuck_count``), a typed ``gained_food`` rides the GAIN_FOOD
+    stripe and drives the exact-food ``becomes_playable`` (era 1.5 priced every
+    food gain as an any-feeder-die gain), and an egg gain also prices the
+    egg-counting bonus cards into ``bonus_delta`` (era 1.5 wrote only the
+    hand-card flow). Each affected row is zeroed and re-featurized the era-1.5
+    way. Zeroing is exact: both era-1.5 featurizers wrote only into a blank
+    row. Ledger *values* the v1.6 engine fills differently (the Cedar Waxwing
+    style tuck payoffs, the cache-vs-keep ``paid_food_count``) need no
+    reproduction: era-1.5 featurization ignored or never read them."""
+    baselines: _HandPlayabilityBaselines | None = None
+    for row, choice in zip(rows, decision.choices):
+        if isinstance(choice, decisions.TuckActivateChoice):
+            row[:] = 0.0
+            row[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
+            row[layout._OFF_EXCHANGE + layout._EXCHANGE_CARDS_TO_TUCK] = (
+                choice.gained_tuck_count / layout._EXCHANGE_SCALE
+            )
+        elif isinstance(choice, decisions.PayCostChoice):
+            if baselines is None:
+                baselines = _hand_playability_baselines(
+                    decision,
+                    game_state,
+                    has_becomes_playable=True,
+                    food_playable_ignores_eggs=True,
+                )
+            row[:] = 0.0
+            _featurize_ledger_row(
+                row, decision, choice, game_state, baselines, legacy_v1_5=True
+            )
+
+
 ###### PRIVATE #######
+
+#### Playability baselines ####
+
+
+def _hand_playability_baselines(
+    decision: layout._AnyDecision,
+    game_state: state.GameState,
+    *,
+    has_becomes_playable: bool,
+    food_playable_ignores_eggs: bool,
+) -> _HandPlayabilityBaselines:
+    """The per-decision playability baselines threaded to the featurizers.
+
+    Skips the playability computation when ``has_becomes_playable`` is False
+    (compat-shim path) to avoid the engine import and the classification cost
+    entirely."""
+    if not has_becomes_playable:
+        return _HandPlayabilityBaselines(
+            playable_now=[],
+            food_affordable=[],
+            food_ignores_eggs=food_playable_ignores_eggs,
+        )
+    from wingspan.engine import playability as _playability
+
+    player = game_state.players[decision.player_id]
+    playable_now, playable_if_eggs = _playability.classify_hand_playability(player)
+    food_affordable = (
+        playable_now + playable_if_eggs if food_playable_ignores_eggs else playable_now
+    )
+    return _HandPlayabilityBaselines(
+        playable_now=playable_now,
+        food_affordable=food_affordable,
+        food_ignores_eggs=food_playable_ignores_eggs,
+    )
+
 
 #### Per-choice featurization ####
 
@@ -330,13 +422,11 @@ def _featurize_tuck_activate(
     baselines: _HandPlayabilityBaselines,
     has_becomes_playable: bool = True,
 ) -> None:
-    # The "yes, tuck" commit token — analogous to PayCostChoice but simpler:
-    # KIND_SPECIAL marks it as a non-bird commit; the EXCHANGE stripe's
-    # cards_to_tuck slot carries how many cards the player is committing to
-    # tuck so the SKIP_OPTIONAL head can weigh the tuck's value.
-    feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
-    feat[layout._OFF_EXCHANGE + layout._EXCHANGE_CARDS_TO_TUCK] = (
-        choice.cards_to_tuck / layout._EXCHANGE_SCALE
+    # The "yes, tuck" commit token. A TuckActivateChoice IS an ExchangeLedger
+    # (the card paid, the tuck, and the power's optimistic payoff), so it
+    # featurizes exactly like a PayCostChoice with the same ledger.
+    _featurize_ledger_row(
+        feat, decision, choice, state, baselines, has_becomes_playable
     )
 
 
@@ -349,27 +439,54 @@ def _featurize_pay_cost(
     has_becomes_playable: bool = True,
 ) -> None:
     # The 'accept the offered exchange' branch is distinct from skip — the network
-    # can learn to prefer or avoid it independently. KIND_SPECIAL marks it a commit
-    # token; the trade's resource ledger lives in the EXCHANGE stripe (a symmetric
-    # pay->gain block, self then opponent-gain) so the skip-optional head weighs
-    # what is gained against what is paid. The food *type* paid, if any, also rides
-    # the PAY_FOOD stripe; in the EXCHANGE stripe food is a magnitude.
+    # can learn to prefer or avoid it independently (see _featurize_ledger_row).
+    _featurize_ledger_row(
+        feat, decision, choice, state, baselines, has_becomes_playable
+    )
+
+
+def _featurize_ledger_row(
+    feat: np.ndarray,
+    decision: layout._AnyDecision,
+    choice: decisions.ExchangeLedger,
+    state: state.GameState,
+    baselines: _HandPlayabilityBaselines,
+    has_becomes_playable: bool = True,
+    *,
+    legacy_v1_5: bool = False,
+) -> None:
+    """Featurize one SKIP_OPTIONAL accept row — a ``PayCostChoice`` or a
+    ``TuckActivateChoice``, both ``ExchangeLedger``s — into ``feat``.
+
+    KIND_SPECIAL marks it a commit token; the trade's resource ledger lives in
+    the EXCHANGE stripe (a symmetric pay->gain block, self then opponent-gain)
+    so the head weighs what is gained against what is paid. The food *type*
+    paid, if any, also rides the PAY_FOOD stripe and the food type *gained*
+    (``choice.gained_food``) the GAIN_FOOD stripe; in the EXCHANGE stripe food
+    is a magnitude. Consequence pricing for the committed terms: the net
+    hand-card flow and the egg-counting bonus best case together fill
+    ``bonus_delta`` (combined, never overwritten); committed egg terms price an
+    optimistic round-goal bound — the target picks are follow-up decisions, so
+    the accept row advertises the best the player could realize (exact deltas
+    land on those rows); gained food / eggs light ``becomes_playable`` (the
+    exact food type when known, else any feeder die) and paid food / eggs light
+    ``becomes_unplayable``.
+
+    ``legacy_v1_5`` reproduces the era-1.5 pay-cost pricing for the compat shim
+    (:func:`refill_exchange_rows_v1_5`): no typed-food handling (every food gain
+    is priced as an any-feeder-die gain) and ``bonus_delta`` from the
+    hand-card flow only."""
     feat[layout._OFF_KIND + layout._KIND_SPECIAL] = 1.0
     if choice.paid_food is not None:
         _add_pay_food(feat, choice.paid_food)
-    # A PayCostChoice IS an ExchangeLedger (it inherits the shared pay->gain
-    # fields), so the committed terms write through the same stripe filler the
+    gained_food = None if legacy_v1_5 else choice.gained_food
+    if gained_food is not None and choice.gained_food_count > 0:
+        _fill_gain_food(feat, gained_food, from_choice_die=False)
+    # The shared pay->gain fields write through the same stripe filler the
     # optimistic per-action forecasts use.
     _write_exchange(feat, choice)
-    # Consequence pricing for the committed terms. Net hand-card flow prices
-    # the hand-counting bonus card (a draw grows the end-game hand, a discard
-    # shrinks it); committed egg terms price an optimistic round-goal bound —
-    # the target picks are follow-up decisions, so the accept row advertises
-    # the best the player could realize (exact deltas land on those rows).
     player = state.players[decision.player_id]
-    delta_cards = choice.gained_card_count - choice.paid_card_count
-    if delta_cards != 0:
-        _fill_bonus_delta_for_hand(feat, player, delta_cards)
+    _fill_ledger_bonus_delta(feat, player, choice, include_eggs=not legacy_v1_5)
     if choice.gained_egg_count > 0:
         _fill_goal_delta_best_case(
             feat, decision.player_id, choice.gained_egg_count, state
@@ -387,13 +504,21 @@ def _featurize_pay_cost(
         all_newly: list[cards.Bird] = []
         seen_ids: set[int] = set()
         if choice.gained_food_count > 0:
-            feeder_newly = _playability.newly_playable_after_feeder_food(
-                player,
-                state.birdfeeder,
-                already_playable=baselines.food_affordable,
-                ignore_eggs=baselines.food_ignores_eggs,
-            )
-            for bird in feeder_newly:
+            if gained_food is not None:
+                food_newly = _playability.newly_playable_after_foods(
+                    player,
+                    _playability._food_pool_of(gained_food, choice.gained_food_count),
+                    already_playable=baselines.food_affordable,
+                    ignore_eggs=baselines.food_ignores_eggs,
+                )
+            else:
+                food_newly = _playability.newly_playable_after_feeder_food(
+                    player,
+                    state.birdfeeder,
+                    already_playable=baselines.food_affordable,
+                    ignore_eggs=baselines.food_ignores_eggs,
+                )
+            for bird in food_newly:
                 if id(bird) not in seen_ids:
                     all_newly.append(bird)
                     seen_ids.add(id(bird))
@@ -1274,6 +1399,17 @@ def _fill_bonus_delta_best_case_for_eggs(
     dynamic egg-counting bonus cards (Oologist, Breeding Manager) if
     directed there entirely — mirrors ``_fill_bonus_delta_for_hand`` in
     shape, substituting the egg best-case delta primitive."""
+    _write_bonus_delta(feat, *_bonus_delta_best_case_for_eggs(player, n_eggs))
+
+
+def _bonus_delta_best_case_for_eggs(
+    player: state.Player, n_eggs: int
+) -> tuple[int, float, float]:
+    """``(qual, stepped, linear)`` bonus-card swing of the best case for
+    ``n_eggs`` fresh eggs — the value behind
+    :func:`_fill_bonus_delta_best_case_for_eggs`, returned instead of written
+    so a caller can combine it with another source before the single
+    ``bonus_delta`` write (see :func:`_fill_ledger_bonus_delta`)."""
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     qual = 0
@@ -1292,7 +1428,7 @@ def _fill_bonus_delta_best_case_for_eggs(
         )
         stepped += stepped_delta
         linear += linear_delta
-    _write_bonus_delta(feat, qual, stepped, linear)
+    return qual, stepped, linear
 
 
 def _fill_play_bird_best_case(
@@ -1445,6 +1581,15 @@ def _fill_bonus_delta_for_hand(
     """Fill the bonus_delta stripe for the hand growing or shrinking by
     ``delta_cards`` — what a committed draw / discard means for the held
     hand-counting bonus card."""
+    _write_bonus_delta(feat, *_bonus_delta_for_hand(player, delta_cards))
+
+
+def _bonus_delta_for_hand(
+    player: state.Player, delta_cards: int
+) -> tuple[int, float, float]:
+    """``(qual, stepped, linear)`` bonus-card swing of the hand changing size
+    by ``delta_cards`` — the value behind :func:`_fill_bonus_delta_for_hand`,
+    returned so it can be combined before the single ``bonus_delta`` write."""
     from wingspan.engine import scoring  # local: keeps encode engine-free at import
 
     qual = 0
@@ -1461,6 +1606,41 @@ def _fill_bonus_delta_for_hand(
         )
         stepped += stepped_delta
         linear += linear_delta
+    return qual, stepped, linear
+
+
+def _fill_ledger_bonus_delta(
+    feat: np.ndarray,
+    player: state.Player,
+    ledger: decisions.ExchangeLedger,
+    *,
+    include_eggs: bool = True,
+) -> None:
+    """Fill the bonus_delta stripe for an accept row: the net hand-card flow
+    (cards drawn minus cards discarded or tucked) priced against the
+    hand-counting bonus card, *plus* — when the ledger lays eggs — the egg
+    best case priced against the dynamic egg-counting cards. The two sources
+    touch different bonus cards, so their ``(qual, stepped, linear)`` swings
+    sum into one write rather than the later fill overwriting the earlier.
+    ``include_eggs=False`` is the era-1.5 hand-flow-only pricing."""
+    qual = 0
+    stepped = 0.0
+    linear = 0.0
+    delta_cards = ledger.gained_card_count - ledger.paid_card_count
+    if delta_cards != 0:
+        hand_qual, hand_stepped, hand_linear = _bonus_delta_for_hand(
+            player, delta_cards
+        )
+        qual += hand_qual
+        stepped += hand_stepped
+        linear += hand_linear
+    if include_eggs and ledger.gained_egg_count > 0:
+        egg_qual, egg_stepped, egg_linear = _bonus_delta_best_case_for_eggs(
+            player, ledger.gained_egg_count
+        )
+        qual += egg_qual
+        stepped += egg_stepped
+        linear += egg_linear
     _write_bonus_delta(feat, qual, stepped, linear)
 
 

@@ -191,8 +191,10 @@ class PolicyValueNet(nn.Module):
         habitat-agnostic play-bird ``goal_delta`` pricing plus the pre-1.7
         egg-blind bonus-potential and spend-food-routing pricing (what were four
         provisionally-numbered eras, 1.5-1.8, collapsed into this one class — see
-        ``compat.v1_4``'s module docstring). v1.5+ same-MAJOR artifacts use the
-        live ``PolicyValueNet``.
+        ``compat.v1_4``'s module docstring). Era 1.5 routes to
+        :class:`wingspan.compat.v1_5.PolicyValueNetV1_5` (behavior-only: the
+        pre-1.6 SKIP_OPTIONAL accept-row pricing; ``v1_4`` inherits it). v1.6+
+        same-MAJOR artifacts use the live ``PolicyValueNet``.
         ``check_artifact_compatible`` already refuses any different-MAJOR artifact.
         Used by every construction seam that must honor an artifact's era."""
         parsed = version.parse_version(artifact_version)
@@ -209,6 +211,10 @@ class PolicyValueNet(nn.Module):
             from wingspan.compat import v1_4 as compat_v1_4
 
             return compat_v1_4.PolicyValueNetV1_4
+        if parsed.major == 1 and parsed.minor == 5:
+            from wingspan.compat import v1_5 as compat_v1_5
+
+            return compat_v1_5.PolicyValueNetV1_5
         return PolicyValueNet
 
     @classmethod

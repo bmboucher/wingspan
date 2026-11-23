@@ -2,7 +2,7 @@
 
 Every persisted artifact (the dated `run_config_<stamp>.json` run descriptor and
 every `.pt` payload) is stamped with a `MAJOR.MINOR` **artifact version**
-(`wingspan.version.MODEL_VERSION`, currently **`1.5`**). This is distinct from
+(`wingspan.version.MODEL_VERSION`, currently **`1.6`**). This is distinct from
 the package release version (`wingspan.__version__`) — one tracks the codebase,
 the other the on-disk artifact format.
 
@@ -50,16 +50,163 @@ path. The one unavoidable exception is the engine (see below).
 
 ## Changelog
 
-### v1.5 — known-hand state stripe, egg-aware goal/bonus pricing, spend-food routing, main-action pricing (current)
+### v1.6 — full-ledger SKIP_OPTIONAL accept rows (current)
+
+A **behavior-only** MINOR FRESH bump (no dims change): every choice row the
+SKIP_OPTIONAL head sees now carries as much of the `decisions.ExchangeLedger` as
+possible, filled optimistically (assume "may" / "might" outcomes succeed). v1.5
+is **released** — trained runs exist and the bundled `src/wingspan/data/release`
+artifact is era 1.5 — so it can no longer be amended in place (the rule the v1.5
+entry below used while it was never-trained); this change takes its own era and
+a compat shim.
+
+- **`TuckActivateChoice` becomes an `ExchangeLedger`** (it replaces its own
+  `cards_to_tuck` field; `gained_tuck_count` is the same `EXCHANGE.cards_to_tuck`
+  slot) and featurizes through the same ledger featurizer as `PayCostChoice`
+  (`choice_encode._featurize_ledger_row`): exchange stripe, hand-shrink
+  `bonus_delta`, `goal_delta` / `becomes_playable` for egg or food payoffs.
+  `engine.tuck_gate.tuck_activate_choice` builds the yes row at all seven gate
+  sites (six in `engine.powers.grants`, Horned Lark in `engine.reactors`):
+  `paid_card_count = 1`, `gained_tuck_count = 1`, plus per kind —
+  `THEN_DRAW`: `gained_card_count = eff.amount`; `THEN_LAY_ON_THIS`:
+  `gained_egg_count = 1` if the bird has egg room else 0; `THEN_LAY_ANY`:
+  `min(eff.amount, board egg room)`; `THEN_GAIN_FOOD_SUPPLY`:
+  `gained_food_count = eff.amount`, `gained_food = eff.food`;
+  `THEN_GAIN_FOOD_CHOICE`: `gained_food_count = 1`, `gained_food = None`; plain
+  tuck and Horned Lark: just the paid card and the tuck. The skip row stays bare.
+- **`ExchangeLedger.gained_food: cards.Food | None`** (the type gained when the
+  exchange fixes it) lights the `gain_food` stripe and prices `becomes_playable`
+  at that exact food (`playability.newly_playable_after_foods`) instead of the
+  any-feeder-die assumption; `None` keeps the old pricing. Set at the tuck
+  food-supply gate and at `ALL_PLAYERS_GAIN_FOOD`.
+- **Combined `bonus_delta`.** An accept row that lays eggs prices the
+  egg-counting bonus cards via the same best case the MAIN_ACTION `LAY_EGGS` row
+  uses, *summed* with the hand-card flow (`_fill_ledger_bonus_delta`) instead of
+  the later fill overwriting the earlier.
+- **Ledger value fixes** (no encoded change for any core-set card, so no
+  reproduction in the shim): all-players-lay-on-nest `gained_egg_count` =
+  `min(1 + extra_for_self, own_eligible)` (was a literal 2; every such card has
+  `amount = 1`); cache-vs-keep sets only `paid_food` (was both `paid_food` and
+  `paid_food_count`, which the exchange writer already collapsed to 1) and
+  `gained_cache_count = gained`; roll-not-in-feeder `gained_cache_count =
+  eff.amount` (was a literal 1; every card has `amount = 1`).
+- **Forecast effect-mapper fixes (era-seamed, amended into v1.6).** Eleven bugs
+  in `engine.forecast.effect_exchange_ledger` — the single table mapping a bird
+  power onto exchange-ledger fields — were fixed in this era (no v1.6 run
+  existed, so v1.6 was amended in place rather than bumped to 1.7): (1) the
+  tuck-from-hand kinds (`THEN_GAIN_FOOD_SUPPLY` / `_CHOICE`, `THEN_LAY_ON_THIS`
+  / `_LAY_ANY`, `THEN_DRAW`, plain `TUCK_FROM_HAND`) now gain the tuck
+  (`gained_tuck_count = 1`; they bumped only `paid_card_count` + the payoff),
+  and `THEN_GAIN_FOOD_CHOICE` prices its 1 food (parsed amount is 0);
+  (2) `TUCK_FROM_DECK_PAID` pays the *food* (`paid_food_count = 1`), not an egg;
+  (3) `LAY_EGG_ALL_NEST` is self-only (the opponent bump is gone);
+  (4) `FEWEST_WETLAND_DRAWS_CARD` gains a *card*, `gained_card_count = 1` (it was
+  mapped to food times a parsed amount of 0, i.e. nothing); (5) `PREDATOR_HUNT`
+  is mapped, optimistically one tuck (a successful hunt), matching its accept
+  row; (6) `PINK_PLAY_BIRD_TUCK` (Horned Lark) also pays the card it tucks from
+  hand; (7) `EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER` uses the effect amount, not a
+  literal 1; (8) `FEWEST_FOREST_GAINS_DIE` (Hermit Thrush, parsed amount 0)
+  priced 0 food and now prices 1 die for self and tied opponent (the handler's
+  tied-case accept row also used `eff.amount` = 0 and now says 1; engine-only);
+  (9) `FEWEST_WETLAND_DRAWS_CARD` also credits the tied opponent
+  (`opp_gained_card_count = 1`, as its accept row does); (10)
+  `PINK_LAY_EGG_ON_NEST` (5 cards, parsed amount 0) priced 0 eggs and now 1, as
+  the reactor and its accept row; (11) `DRAW_N_PLUS_ONE_DRAFT` (American
+  Oystercatcher, parsed amount 0) priced 0 cards and now prices 2 cards self and
+  1 opponent, the handler's accept row at 2 players (the mapper has no seat
+  count; the handler uses `n_players - 1`). **Known, deliberate omission:**
+  `GAIN_ALL_FOOD_FEEDER` (Bald Eagle, Northern Flicker; parsed amount 0) still
+  maps to 0 food, because the real gain (every die of one food in the feeder) is
+  variable and has no sensible constant.
+  `engine.tuck_gate.tuck_activate_choice` now builds from the same
+  mapping (adding only the board-room egg caps and the typed food), so the gate
+  yes row and the forecast cannot disagree on a tuck. The fix reaches two
+  net-side inputs: the card-attribute `power_ex` block of the frozen
+  `card_features` buffer (both nets) and the `exchange` stripe of every
+  habitat-row `MainActionChoice` (where the mapper also steers the forecast's
+  feasibility budgets). Note `LAY_EGG_ALL_NEST` and the other white powers never
+  fire from a main-action row, so only the card table sees them.
+- **Engine-only follow-ups (accepted drift, no shim; they remain engine-only).** Under `birds_no_eggs`
+  the all-players-lay-on-nest power no longer asks the same player twice for
+  the same egg (`lay_one_egg_on_nest` owns the gate; the active player's base
+  egg is covered by the activation veto; the tuck-then-lay-on-this egg gate
+  is kept — it is not a duplicate, since tucking does not decide the optional
+  egg), and
+  the unused strictly-free
+  auto-accept helpers were deleted. These change which decisions the shared
+  engine presents, not how any net encodes a choice, so they need no
+  `MODEL_VERSION` bump and no compat shim (the engine is shared by both seats).
+- **Not done (S3).** `opp_gained_egg_count` is not priced into `goal_delta`: that
+  stripe is one own-delta slot per goal, so an opposing best case would blend
+  opposite-signed effects and needs a separate stripe (a FRESH shape change).
+
+**Shim.** `compat.v1_5.PolicyValueNetV1_5` overrides `encode_choices` and
+`_build_card_encoder`. `encode_choices`: live encoding, then
+`choice_encode.refill_exchange_rows_v1_5` zeroes every `PayCostChoice` /
+`TuckActivateChoice` row and re-featurizes it the era-1.5 way (tuck rows:
+special-kind bit + the tuck slot only; pay rows: the same featurizer with
+`legacy_v1_5=True` — no typed food, any-feeder-die `becomes_playable`,
+hand-flow-only `bonus_delta`), and
+`choice_encode.refill_main_action_exchange_legacy_v1_5` rewrites every
+habitat-row `MainActionChoice`'s `exchange` stripe from
+`habitat_action_exchange_forecast(..., legacy_v1_5_mappers=True)` (recomputed,
+not patched: the mapper steers the forecast's budgets).
+`_build_card_encoder` overwrites the frozen `card_features` power_ex columns via
+`state_encode.refill_card_features_power_exchange(include_eot_discard=True,
+legacy_v1_5_mappers=True)`. **The era seam** follows the `include_eot_discard`
+precedent: `effect_exchange_ledger` takes a required keyword
+`legacy_v1_5_mappers`; `True` routes the fourteen affected kinds through an
+explicit `_map_legacy_v1_5` table that reproduces the old values (never by
+calling the live mappers); everything threads through
+`state_encode._bird_power_exchange_vector` / `_accumulate_effect_exchange` and
+`habitat_action_exchange_forecast`, with the flag decided in exactly two places
+(the live attr fill: `False`; the net class's refill: `True`). The state vector
+itself never reads the mapper (the per-card power ledger rides the card table),
+so `encode_state` needs no override. `compat.v1_5.SetupNetV1_5` is the setup-side
+twin (card-table freeze only; the setup net reads no forecast otherwise);
+`SetupNet.class_for_version` routes era 1.5 to it. No geometry changes: no
+dims-router branch and no `_true_*_dim` / embed-offset overrides.
+`PolicyValueNet.class_for_version` routes era 1.5 to the main shim, and
+`compat.v1_4.PolicyValueNetV1_4` / `SetupNetV1_4` now **inherit** them (so v1_3
+and v1_0 do too); the refills run at live width inside the `super()` call,
+before the older shims' strips, so the chain composes with no offset math, and
+v1_4's own pre-EOT card-table refill runs after and overwrites with
+`(include_eot_discard=False, legacy_v1_5_mappers=True)` (its MAIN_ACTION exchange
+zeroing likewise runs after the inherited rewrite). Every era-pinned construction
+seam (`players.loaders`, `training.loop`, `loop_eval`, `loop_setup`,
+`mp_collect`) already goes through `class_for_version`, so none needed a per-site
+edit.
+
+**Fixtures.** `tests/data/golden_n2.json` was recaptured. The accept-row bytes
+legitimately changed (drift in the `ActivateTuckDecision` records and the
+`AcceptExchangeDecision` records with typed food or egg gains); the later
+mapper-fix recapture changed 93 of the 260 `MainActionDecision` choice hashes
+(the rows whose brown-power forecast moved) and no state hash and no other
+decision class — the card table is not part of the state vector.
+`tests/data/state_dict_shape_n2.json` is unchanged (no shape change).
+`tests/test_compat_v1_5.py` proves era-1.5 accept rows, card-table power_ex rows
+(both nets) and MAIN_ACTION exchange rows byte-identical to the old behavior
+(expected values written out by hand), checks the v1_4 chain inherits it, and
+round-trips an era-1.5 net through `players.loaders.load_policy_net`;
+`tests/test_forecast_mappers.py` pins the new and legacy mapping per real card
+and the gate-row/forecast agreement.
+A committed LFS checkpoint fixture remains deferred, as for every prior era.
+
+**User action: none.** The bundled era-1.5 release and any 1.5 run keep
+computing identically via the shim; a run started on 1.6 gets the full ledgers.
+
+### v1.5 — known-hand state stripe, egg-aware goal/bonus pricing, spend-food routing, main-action pricing (released)
 
 A MINOR FRESH bump that lands six changes together. The first four ((a)-(d))
 were renumbered from four provisionally-numbered eras (1.5, 1.6, 1.7, 1.8)
 that landed on main in sequence but never trained a run past 1.4 — collapsed
 into one era before any of them trained (see **Renumbering** below). The
 last two ((e), (f)) are a later in-place amendment of this same
-never-trained era, landed under the identical rule: v1.5 still protects no
-checkpoint, so a further behavior-only change amends it directly rather than
-opening a v1.6.
+never-trained era, landed under the identical rule: v1.5 had protected no
+checkpoint, so a further behavior-only change amended it directly rather than
+opening a v1.6. **That window is closed**: v1.5 has since trained runs and
+shipped as the bundled release, so any further change to it is a v1.6+ change
+with a shim (see the v1.6 entry above).
 
 **(a) State — `known_hand_opp` per-opponent identity multi-hot.** A
 per-opponent `known_hand_opp` 180-wide identity multi-hot: the *publicly
@@ -189,7 +336,8 @@ the original mapper omitted — via the shared
 `engine.forecast.effect_exchange_ledger`'s `include_eot_discard` seam (`True`
 live, `False` for the frozen era). Pre-1.5 artifacts freeze the frozen
 `card_features` buffer at the pre-EOT (discard-side-omitted) values via
-`state_encode.refill_card_features_power_exchange_pre_eot`, applied right
+`state_encode.refill_card_features_power_exchange` (renamed from
+`..._pre_eot` in v1.6, which added the `legacy_v1_5_mappers` flag), applied right
 after `_build_card_encoder` builds the live (amended) table. Shape is
 unchanged (`power_ex` keeps its 13 dims).
 
@@ -235,8 +383,8 @@ modules):
 - `PolicyValueNetV1_4` and `SetupNetV1_4` both also override
   `_build_card_encoder`: build the live card encoder via `super()`, then
   overwrite the frozen `card_features` buffer's power_ex columns with the
-  pre-EOT values (`state_encode.refill_card_features_power_exchange_pre_eot`)
-  — a card-table freeze outside the per-row `encode_choices` /
+  pre-EOT values (`state_encode.refill_card_features_power_exchange`, with
+  `include_eot_discard=False`) — a card-table freeze outside the per-row `encode_choices` /
   `encode_candidate` chain, since each net builds and freezes its own copy
   of the one shared `card_feature_matrix()` table once at construction.
 - `SetupNetV1_4` otherwise overrides only `encode_candidate`: live encoding,
@@ -604,7 +752,7 @@ which loads through the shims).
 ## Compat shims — the one sanctioned mechanism
 
 The `wingspan.compat` package holds one module per superseded same-MAJOR era
-(`v1_0`, `v1_3`, `v1_4`) plus the dims-router seam
+(`v1_0`, `v1_3`, `v1_4`, `v1_5`) plus the dims-router seam
 (`compat.encoding_dims_for_era`); each future MINOR bump adds one more
 (`v1_<N>.py`). Shape: `if artifact older than the change: regenerate the
 encoding without the new field` — or, for a behavior-only value change

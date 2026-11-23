@@ -255,13 +255,13 @@ def test_humanize_choice_player_id():
 
 def test_humanize_choice_tuck_activate_plural():
     gs = _empty_gs()
-    choice = decisions.TuckActivateChoice(label="tuck2", cards_to_tuck=2)
+    choice = decisions.TuckActivateChoice(label="tuck2", gained_tuck_count=2)
     assert humanize.humanize_choice(choice, gs) == "Tuck 2 cards"
 
 
 def test_humanize_choice_tuck_activate_singular():
     gs = _empty_gs()
-    choice = decisions.TuckActivateChoice(label="tuck1", cards_to_tuck=1)
+    choice = decisions.TuckActivateChoice(label="tuck1", gained_tuck_count=1)
     assert humanize.humanize_choice(choice, gs) == "Tuck 1 card"
 
 
@@ -466,7 +466,7 @@ def test_humanize_outcome_reset_birdfeeder():
 
 def test_humanize_outcome_tuck_activate():
     gs = _empty_gs()
-    choice = decisions.TuckActivateChoice(label="tuck", cards_to_tuck=1)
+    choice = decisions.TuckActivateChoice(label="tuck", gained_tuck_count=1)
     decision = decisions.ActivateTuckDecision(player_id=0, prompt="", choices=[choice])
     assert humanize.humanize_outcome(decision, choice, gs) == "Tucks 1 card"
 

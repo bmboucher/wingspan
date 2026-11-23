@@ -33,8 +33,20 @@ import re
 
 import pydantic
 
-MODEL_VERSION = "1.5"
+MODEL_VERSION = "1.6"
 """The current artifact-compatibility version (the only place it is defined).
+
+1.6 is a MINOR FRESH bump (behavior-only: no dims change) that makes every
+SKIP_OPTIONAL accept row carry the full exchange ledger, filled
+optimistically. ``TuckActivateChoice`` becomes an ``ExchangeLedger`` (card
+paid, the tuck, plus the power's payoff — cards drawn, eggs laid, food
+gained) and featurizes exactly like a ``PayCostChoice`` with the same ledger;
+a typed ``ExchangeLedger.gained_food`` rides the GAIN_FOOD stripe and drives
+the exact-food ``becomes_playable``; accept rows that lay eggs price the
+egg-counting bonus cards into ``bonus_delta`` combined with the hand-card
+flow. Era-1.5 artifacts (the bundled release among them) route to
+``wingspan.compat.v1_5``, which regenerates the old accept-row values;
+``compat.v1_4`` inherits it. See ``docs/VERSIONING.md``.
 
 1.5 is a MINOR FRESH bump that lands four changes together — renumbered
 from four provisionally-numbered eras (1.5, 1.6, 1.7, 1.8) that landed on

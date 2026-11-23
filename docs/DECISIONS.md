@@ -163,7 +163,18 @@ gates the real conversion), then every already-in-play brown bird's power,
 right-to-left — each phase spending against running coarse feasibility
 budgets (food, eggs, hand size, spare egg room) carried over from the phases
 before it; conditional and partial-probability effects price at nominal face
-value. **Draw Cards** additionally carries the `bonus_delta` of growing the
+value (a predator hunt is assumed to succeed: one tuck). Each effect maps onto
+ledger fields through `engine.forecast.effect_exchange_ledger`, the one table
+the card-attribute `power_ex` block and the tuck gates' accept rows also read;
+v1.6 fixed eleven of its mappings (the fewest-forest die power now prices its 1
+die, the fewest-wetland draw also credits the tied opponent, pink lay-on-nest
+prices its 1 egg, the Oystercatcher draft prices 2 cards self / 1 opponent;
+tuck-from-hand now gains the tuck, the paid
+deck tuck pays food rather than an egg, `LAY_EGG_ALL_NEST` is self-only, the
+fewest-wetland power draws a card, `PREDATOR_HUNT` is mapped, Horned Lark pays
+its card, and the each-player die power uses its amount), with the old mapping
+frozen for era <= 1.5 behind `legacy_v1_5_mappers` (`docs/VERSIONING.md`).
+**Draw Cards** additionally carries the `bonus_delta` of growing the
 hand by the wetland track count (what the hand-counting bonus card pays on).
 **Lay Eggs** additionally carries its existing `goal_delta` *bound* — per
 unscored goal, the capacity-capped best case the grassland track's eggs could
@@ -430,12 +441,19 @@ rides identically on every candidate row.
   for eligible non-active players); if P0 skips, the power does nothing for
   anyone; (2) non-active players, in turn order: if `birds_no_eggs` goal is
   active they each get their own `AcceptExchangeDecision` (otherwise auto-yes);
-  eligible accepting players then answer `LayEggDecision`; (3) P0's mandatory
-  `LayEggDecision` for their base egg; (4) P0's optional additional egg(s) from
-  the power's second sentence, one `LayEggDecision` with skip each;
-- the lay halves of tuck-then-lay powers: lay-on-this-bird (a single target
-  plus skip — usually auto-resolved away once one side is forced... it is a
-  genuine 2-option fork: target or skip) and lay-on-any (mandatory);
+  eligible accepting players then answer `LayEggDecision`; (3) P0's
+  `LayEggDecision` for their base egg (no second gate: the activation veto
+  already consented); (4) P0's additional egg(s) from the power's second
+  sentence, each gated by one `AcceptExchangeDecision` under `birds_no_eggs`
+  and otherwise forced. **One prompt per player per egg:** the gate lives only
+  in `dispatch.lay_one_egg_on_nest` (the `already_consented` flag suppresses it
+  for the base egg), so no caller repeats it;
+- the lay halves of tuck-then-lay powers: lay-on-this-bird (a single target;
+  auto-resolved by `Engine.ask`) and lay-on-any (mandatory). Lay-on-this keeps
+  its own `AcceptExchangeDecision` under `birds_no_eggs`: it is **not** a
+  duplicate of the tuck gate (the card says "you may also lay", so a player can
+  tuck and still decline the egg); the tuck gate's ledger optimistically
+  assumes the egg;
 - the pink lay reaction: "when another player takes Lay Eggs, lay an egg on a
   [nest] bird" — optional, with skip, answered between turns by the reacting
   player.
@@ -506,9 +524,10 @@ follow-up decisions resolve only if the player commits.
   the matching family;
 - the discard-1-[food]-to-tuck-N-cards-from-deck powers (Sandhill Crane et
   al.), whose terms are fixed by the card (`AcceptExchangeDecision`);
-- Green Heron's wild-food trade (discard 1 food → gain 1 food from supply):
-  step-1 commit; *which* food to discard (SPEND_FOOD) and *which* to gain
-  (GAIN_FOOD) are follow-up mandatory steps;
+- (Green Heron's wild-food trade — discard 1 food, gain 1 food from supply —
+  is **not** a SKIP_OPTIONAL gate: the trade is forced, with no activation
+  ask; only its *which food to discard* (SPEND_FOOD) and *which to gain*
+  (GAIN_FOOD) steps are decisions. See `engine/powers/tray_trade.py`.)
 - each power-granted **extra bird play** (`AcceptExchangeDecision`): accept
   (opens the `PLAY_BIRD` menu; House Wren's grant restricts it to one habitat)
   or forfeit the credit;
@@ -550,15 +569,41 @@ which terms are costs and which are benefits; it learns the sign from context.
 The terms distinguish quantitatively different trades (e.g. "1 egg for 1 wild"
 vs. "1 egg for 2 wild" — both exist). The ledger is also translated into
 consequences on the same row: a net hand-card flow (cards drawn minus cards
-discarded) fills the `bonus_delta` stripe for the hand-counting bonus card,
-and a committed egg gain / egg payment fills the `goal_delta` stripe with the
-capacity-capped optimistic bound (the exact delta lands on the follow-up
-`LAY_EGG` / `PAY_EGG` target row). When the paid food is a named type it also
-rides the `pay_food` stripe. For `ActivateTuckDecision` the accept row is a
-`TuckActivateChoice` special-kind token with the `cards_to_tuck` count in the
-`EXCHANGE.cards_to_tuck` field — so the head reads how many cards the player
-is committing to tuck. In both cases the skip row is a `SkipChoice`
-special-kind token with `is_skip`.
+discarded or tucked) fills the `bonus_delta` stripe for the hand-counting
+bonus card — **combined** (summed, not overwritten) with the egg best case
+(`_fill_bonus_delta_best_case_for_eggs`, the same primitive the MAIN_ACTION
+`LAY_EGGS` row uses) when the ledger lays eggs, so egg-counting bonus cards
+price in; a committed egg gain / egg payment fills the `goal_delta` stripe
+with the capacity-capped optimistic bound (the exact delta lands on the
+follow-up `LAY_EGG` / `PAY_EGG` target row); and gained food / eggs light
+`becomes_playable`. When the paid food is a named type it also rides the
+`pay_food` stripe; when the *gained* food is a named type
+(`ExchangeLedger.gained_food`, e.g. Cedar Waxwing's fruit, an
+all-players-gain-[food] power) it rides the `gain_food` stripe and
+`becomes_playable` is priced at that exact food instead of the any-feeder-die
+assumption (`gained_food = None` — a feeder die, a wild, or a later choice —
+keeps the any-die pricing). Opponent-side terms (`opp_gained_egg_count` etc.)
+ride the exchange stripe only: the `goal_delta` stripe is a single own-delta
+slot per goal, so folding an opposing best case into it would blend
+opposite-signed effects (not done; would need a separate opponent-delta stripe).
+
+For `ActivateTuckDecision` the accept row is a `TuckActivateChoice` — also an
+`ExchangeLedger`, featurized by the *same* function as `PayCostChoice` (v1.6),
+so it carries the full ledger, filled optimistically per effect kind by
+`engine.tuck_gate.tuck_activate_choice` at all seven gate sites (built from the
+same `forecast.effect_exchange_ledger` mapping the main-action forecast uses,
+so the two agree by construction): every kind
+has `paid_card_count = 1` and `gained_tuck_count = 1` (the tuck is +1 VP and a
+tucked card; `gained_tuck_count` is the `EXCHANGE.cards_to_tuck` slot), plus
+the payoff — `THEN_DRAW`: `gained_card_count = eff.amount`;
+`THEN_LAY_ON_THIS`: `gained_egg_count = 1` if the bird has egg room, else 0;
+`THEN_LAY_ANY`: `gained_egg_count = min(eff.amount, total board egg room)`;
+`THEN_GAIN_FOOD_SUPPLY`: `gained_food_count = eff.amount`, `gained_food =
+eff.food` (Cedar Waxwing: fruit); `THEN_GAIN_FOOD_CHOICE`: `gained_food_count
+= 1`, `gained_food = None`; the plain tuck and Horned Lark's pink tuck carry
+only the paid card and the tuck. Before v1.6 the tuck yes row carried only the
+tuck count. In both cases the skip row is a bare `SkipChoice` special-kind
+token with `is_skip` (the head learns "skip" as the zero-consequence option).
 
 **Variation within the family.** Structurally minimal — two rows every time.
 All variation is in the ledger values. The extra-play accept is the degenerate
@@ -568,18 +613,28 @@ also populate `opp_gained_egg_count`. The conditional call sites (only when
 `birds_no_eggs` goal is active) appear rarely, but when they do the full
 ledger context is available to the head.
 
-**Strictly-free exchange rule.** `offer_exchange_or_auto_accept` in
-`engine/powers/dispatch.py` skips the agent entirely when the accept row's
-`PayCostChoice` ledger is strictly free: zero payment (no `paid_food`,
-`paid_food_count`, `paid_card_count`, or `paid_egg_count`) and zero opponent
-gain (all `opp_gained_*` fields zero) and at least one positive own gain.
-These exchanges are auto-applied and logged with
-`auto-accept: <label> (no cost)`. Only exchanges with real tradeoffs — any
-payment or any opponent gain — reach the model via `offer_activation_veto`.
-Note: the `birds_no_eggs` anti-goal gates (egg-laying when the round goal
-rewards empty birds) use `offer_activation_veto` directly; although the ledger
-shows only a gain, the round-goal opportunity cost is implicit and the veto is
-meaningful.
+**No auto-accept of free exchanges.** Every power handler gates through
+`offer_activation_veto` or a direct `AcceptExchangeDecision` ask, so every
+accept row listed above reaches the model, free or not (including the
+`birds_no_eggs` anti-goal gates, where a gain-only ledger still hides a
+round-goal opportunity cost). An unused strictly-free auto-accept helper
+(`offer_exchange_or_auto_accept` / `is_strictly_free`) was deleted in v1.6.
+
+**One gate per consent.** A player is asked at most once whether an egg is
+laid: the first accept/skip decides it. Under `birds_no_eggs`,
+`dispatch.lay_one_egg_on_nest` owns the gate for the all-players-lay powers
+(non-active players and the active player's extra egg); the active player's
+base egg passes `already_consented=True` because the activation veto already
+covered it. Single-choice auto-resolution in `Engine.ask` does not make this
+moot: a gate has two rows (accept + skip), so it is never auto-resolved.
+
+**Opponent egg gain convention.** `opp_gained_egg_count` is the *total* across
+opponents (like `opp_gained_food_count = n_opponents * amount`), counting each
+opponent that has an eligible matching-nest bird with room. Only the
+all-players-lay-on-nest activation veto sets it. `LAY_EGG_ALL_NEST` (Bobolink
+etc., "each of your birds") is self-only, so it sets `opp_gained_egg_count = 0`;
+pink lay-egg reactors are answered by the reacting player for their own egg
+(own gain, `gained_egg_count = 1`), with no active-player gate to annotate.
 
 **Veto label transparency.** When a veto IS offered with an opponent benefit,
 the accept choice label must name the benefit so the SKIP_OPTIONAL head can

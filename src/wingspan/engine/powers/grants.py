@@ -12,7 +12,7 @@ from __future__ import annotations
 import typing
 
 from wingspan import cards, decisions, state
-from wingspan.engine import ledger, reactors
+from wingspan.engine import ledger, reactors, tuck_gate
 from wingspan.engine.powers import dispatch, registry
 from wingspan.gamelog import models as gamelog_models
 
@@ -272,7 +272,7 @@ def _h_roll_not_in_feeder_cache(
             f"[{player.name}] activate {bird.name}? (opponents may gain food on success)",
             decisions.PayCostChoice(
                 label=f"roll dice (opponent may gain food x{n_feeders})",
-                gained_cache_count=1,
+                gained_cache_count=eff.amount,
                 opp_gained_food_count=n_feeders,
             ),
         )
@@ -326,7 +326,7 @@ def _h_tuck_from_hand(
                 player_id=player.id,
                 prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
                 choices=[
-                    decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                    tuck_gate.tuck_activate_choice(player, pb, eff),
                     decisions.SkipChoice(label="skip"),
                 ],
             ),
@@ -371,7 +371,7 @@ def _h_tuck_from_hand_then_draw(
             player_id=player.id,
             prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
             choices=[
-                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                tuck_gate.tuck_activate_choice(player, pb, eff),
                 decisions.SkipChoice(label="skip"),
             ],
         ),
@@ -404,7 +404,12 @@ def _h_tuck_from_hand_then_lay_on_this(
     trigger: str,
 ) -> None:
     """Tuck 1 from hand (optional); if accepted, lay 1 egg on this bird (forced,
-    or gated by ``birds_no_eggs``) (gap #19)."""
+    or gated by ``birds_no_eggs``) (gap #19).
+
+    The egg gate under ``birds_no_eggs`` is NOT a duplicate of the tuck gate:
+    the tuck answer does not decide the egg (the card says "you may also lay"),
+    so a player may tuck and still decline the egg. The tuck gate's optimistic
+    ledger assumes the egg (``gained_egg_count = 1``)."""
     bird = pb.bird
     if not player.hand:
         engine.log_skipped_decision(player.id, "no choices")
@@ -415,7 +420,7 @@ def _h_tuck_from_hand_then_lay_on_this(
             player_id=player.id,
             prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
             choices=[
-                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                tuck_gate.tuck_activate_choice(player, pb, eff),
                 decisions.SkipChoice(label="skip"),
             ],
         ),
@@ -502,7 +507,7 @@ def _h_tuck_from_hand_then_lay_any(
             player_id=player.id,
             prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
             choices=[
-                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                tuck_gate.tuck_activate_choice(player, pb, eff),
                 decisions.SkipChoice(label="skip"),
             ],
         ),
@@ -545,7 +550,7 @@ def _h_tuck_from_hand_then_gain_food_supply(
             player_id=player.id,
             prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
             choices=[
-                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                tuck_gate.tuck_activate_choice(player, pb, eff),
                 decisions.SkipChoice(label="skip"),
             ],
         ),
@@ -620,6 +625,7 @@ def _h_all_players_gain_food(
             decisions.PayCostChoice(
                 label="activate",
                 gained_food_count=eff.amount,
+                gained_food=eff.food,
                 opp_gained_food_count=n_opponents * eff.amount,
             ),
         )
@@ -753,7 +759,7 @@ def _h_tuck_from_hand_then_gain_food_choice(
             player_id=player.id,
             prompt=f"[{player.name}] tuck 1 card behind {bird.name}? (or skip)",
             choices=[
-                decisions.TuckActivateChoice(label="tuck 1 card", cards_to_tuck=1),
+                tuck_gate.tuck_activate_choice(player, pb, eff),
                 decisions.SkipChoice(label="skip"),
             ],
         ),
@@ -834,8 +840,7 @@ def _h_gain_food_feeder_may_cache(
                 decisions.PayCostChoice(
                     label=f"cache {eff.food.value} on {bird.name}",
                     paid_food=eff.food,
-                    paid_food_count=1,
-                    gained_cache_count=1,
+                    gained_cache_count=gained,
                 ),
                 decisions.SkipChoice(label="keep in supply"),
             ],

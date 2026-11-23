@@ -95,6 +95,39 @@ def _eot_bird_rows() -> set[int]:
     }
 
 
+_V1_6_MAPPER_FIXED_KINDS = frozenset(
+    {
+        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_SUPPLY,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_GAIN_FOOD_CHOICE,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ON_THIS,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_LAY_ANY,
+        cards.EffectKind.TUCK_FROM_HAND_THEN_DRAW,
+        cards.EffectKind.TUCK_FROM_HAND,
+        cards.EffectKind.TUCK_FROM_DECK_PAID,
+        cards.EffectKind.LAY_EGG_ALL_NEST,
+        cards.EffectKind.FEWEST_WETLAND_DRAWS_CARD,
+        cards.EffectKind.FEWEST_FOREST_GAINS_DIE,
+        cards.EffectKind.PINK_LAY_EGG_ON_NEST,
+        cards.EffectKind.DRAW_N_PLUS_ONE_DRAFT,
+        cards.EffectKind.PREDATOR_HUNT,
+        cards.EffectKind.PINK_PLAY_BIRD_TUCK,
+        cards.EffectKind.EACH_PLAYER_GAINS_DIE_CHOOSE_ORDER,
+    }
+)
+
+
+def _mapper_fixed_rows() -> set[int]:
+    """Card-table row indices of every catalog bird whose power carries a kind
+    whose ``engine.forecast`` mapping the v1.6 mapper fixes changed — the rows
+    on which the live table legitimately differs from every era-<=1.5 table
+    (``tests/test_compat_v1_5.py`` pins their frozen values)."""
+    return {
+        cards.bird_index(bird) + 1
+        for bird in _BIRDS
+        if any(effect.kind in _V1_6_MAPPER_FIXED_KINDS for effect in bird.power.effects)
+    }
+
+
 def _small_arch() -> architecture.ModelArchitecture:
     return architecture.ModelArchitecture(
         trunk_layers=(8, 8),
@@ -1086,10 +1119,14 @@ class TestCardTablePowerExchangeFreeze:
                 live_block[row, outside_discard], shim_block[row, outside_discard]
             )
 
-        non_eot_rows = [
-            row for row in range(live_block.shape[0]) if row not in eot_rows
+        # Every other row is identical, except the birds whose power the v1.6
+        # mapper fixes changed (also frozen, but at a different value).
+        unchanged_rows = [
+            row
+            for row in range(live_block.shape[0])
+            if row not in eot_rows and row not in _mapper_fixed_rows()
         ]
-        assert np.array_equal(live_block[non_eot_rows], shim_block[non_eot_rows])
+        assert np.array_equal(live_block[unchanged_rows], shim_block[unchanged_rows])
 
     def test_setup_net_card_table_freezes_pre_eot_power_exchange(self) -> None:
         """``SetupNetV1_4`` joins the same card-table freeze — it builds its
@@ -1108,7 +1145,9 @@ class TestCardTablePowerExchangeFreeze:
         for row in eot_rows:
             assert live_block[row, discard_col] > shim_block[row, discard_col]
 
-        non_eot_rows = [
-            row for row in range(live_block.shape[0]) if row not in eot_rows
+        unchanged_rows = [
+            row
+            for row in range(live_block.shape[0])
+            if row not in eot_rows and row not in _mapper_fixed_rows()
         ]
-        assert np.array_equal(live_block[non_eot_rows], shim_block[non_eot_rows])
+        assert np.array_equal(live_block[unchanged_rows], shim_block[unchanged_rows])

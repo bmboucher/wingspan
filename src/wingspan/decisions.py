@@ -103,6 +103,10 @@ class ExchangeLedger(pydantic.BaseModel):
     paid_card_count: int = 0  # cards discarded from hand as payment
     paid_egg_count: int = 0  # eggs removed as payment
     gained_food_count: int = 0  # food gained from the supply
+    # The food type gained, when the exchange fixes it (None = unspecified / the
+    # player's later choice / a feeder die). Not an exchange-stripe slot: the
+    # type rides the gain_food stripe, the count rides ``gained_food_count``.
+    gained_food: cards.Food | None = None
     gained_egg_count: int = 0  # eggs laid
     gained_card_count: int = 0  # cards drawn into hand
     gained_tuck_count: int = 0  # cards tucked behind the bird (VP + tuck count)
@@ -150,17 +154,19 @@ class PayCostChoice(ExchangeLedger, Choice):
     the specific cost."""
 
 
-class TuckActivateChoice(Choice):
-    """Commit to tucking ``cards_to_tuck`` card(s) from hand.
+class TuckActivateChoice(ExchangeLedger, Choice):
+    """Commit to tucking card(s) from hand, plus whatever the power pays out.
 
     The "yes" half of an ``ActivateTuckDecision`` gate — precedes the card
     selection (``BirdPowerTuckFromHandDecision``) so the skip/activate judgment
-    is scored separately from the "which card?" judgment. ``cards_to_tuck``
-    carries how many cards the player is committing to tuck (almost always 1)
-    so the skip-optional head can weigh the tuck's value without inspecting the
-    follow-up decision."""
-
-    cards_to_tuck: int = 1
+    is scored separately from the "which card?" judgment. Like
+    ``PayCostChoice`` it IS an ``ExchangeLedger``: ``paid_card_count`` is the
+    card leaving the hand, ``gained_tuck_count`` the tuck itself (the VP and
+    tucked-card count), and the power's optimistic payoff (cards drawn, eggs
+    laid, food gained) fills the matching ``gained_*`` fields, so the
+    skip-optional head can weigh the whole trade without inspecting the
+    follow-up decisions. Built per effect kind by
+    ``wingspan.engine.tuck_gate.tuck_activate_choice``."""
 
 
 class ResetBirdfeederChoice(Choice):

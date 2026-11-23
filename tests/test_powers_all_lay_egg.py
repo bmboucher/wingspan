@@ -553,18 +553,15 @@ def test_extra_egg_is_optional_under_birds_no_eggs_goal() -> None:
         eng, agent, gs.players[0], pb_power, power_bird.habitats[0], eff, "play"
     )
 
-    # There must be an AcceptExchangeDecision for the extra egg (with a skip row).
-    extra_egg_accepts = [
-        d
-        for d in accept_decisions
-        if any(
-            isinstance(c, decisions.SkipChoice) and c.label == "skip" for c in d.choices
-        )
-        and any(
-            isinstance(c, decisions.PayCostChoice) and c.label == "lay extra egg"
-            for c in d.choices
-        )
-    ]
-    assert (
-        len(extra_egg_accepts) >= 1
-    ), "under birds_no_eggs goal an extra-egg AcceptExchangeDecision must appear"
+    # Activation veto (covers the base egg) plus exactly one gate for the extra
+    # egg: the helper owns the gate, so the base egg is not asked twice.
+    assert len(accept_decisions) == 2, (
+        "under birds_no_eggs goal the active player is asked once for the "
+        "activation and once for the extra egg"
+    )
+    extra_gate = accept_decisions[1]
+    assert any(isinstance(c, decisions.SkipChoice) for c in extra_gate.choices)
+    assert any(
+        isinstance(c, decisions.PayCostChoice) and c.label == "lay 1 egg"
+        for c in extra_gate.choices
+    )

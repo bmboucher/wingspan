@@ -389,12 +389,14 @@ def _bird_attr_vector(bird: cards.Bird) -> np.ndarray:
             vec[layout._OFF_ATTR_BONUS_CATS + idx] = 1.0
 
     # Power exchange: what the bird's ability does in resource terms. Live
-    # (v1.5+) includes the DRAW_CARDS_THEN_DISCARD_EOT discard side; era<=1.4
-    # nets keep the old (discard-side-omitted) block via the compat seam
-    # refill_card_features_power_exchange_pre_eot.
+    # (v1.6+) includes the DRAW_CARDS_THEN_DISCARD_EOT discard side and the
+    # v1.6 mapper fixes; older eras keep their old block via the compat seam
+    # refill_card_features_power_exchange.
     vec[
         layout._OFF_ATTR_POWER_EX : layout._OFF_ATTR_POWER_EX + layout._EXCHANGE_DIM
-    ] = _bird_power_exchange_vector(bird, include_eot_discard=True)
+    ] = _bird_power_exchange_vector(
+        bird, include_eot_discard=True, legacy_v1_5_mappers=False
+    )
 
     # OR-cost flag: 1.0 when the bird's food cost is an OR choice (pay 1
     # accepted food OR 2 non-accepted), 0.0 for standard AND costs.
@@ -460,12 +462,17 @@ def card_feature_matrix() -> np.ndarray:
     return matrix
 
 
-def refill_card_features_power_exchange_pre_eot(matrix: np.ndarray) -> None:
-    """Compat seam for eras <= 1.4 (``wingspan.compat.v1_4``): overwrite every
-    card row's power_ex columns in ``matrix`` (as built by
-    :func:`card_feature_matrix`) with the pre-v1.5-amend values — the
-    ``DRAW_CARDS_THEN_DISCARD_EOT`` discard side omitted, matching the
-    original mapper's byte-for-byte behavior.
+def refill_card_features_power_exchange(
+    matrix: np.ndarray, *, include_eot_discard: bool, legacy_v1_5_mappers: bool
+) -> None:
+    """Compat seam for eras <= 1.5 (``wingspan.compat.v1_5`` /
+    ``wingspan.compat.v1_4``): overwrite every card row's power_ex columns in
+    ``matrix`` (as built by :func:`card_feature_matrix`) with an older era's
+    mapping of the same powers. Era 1.5 passes ``(True, True)`` (the EOT
+    discard side included, the pre-v1.6 mapper); eras <= 1.4 pass
+    ``(False, True)`` (also the discard side omitted — the original mapper's
+    byte-for-byte behavior). See
+    :func:`wingspan.engine.forecast.effect_exchange_ledger` for the flags.
 
     ``matrix`` is mutated in place, in the same row order
     :func:`card_feature_matrix` builds it (row 0 the padding row, left
@@ -478,7 +485,9 @@ def refill_card_features_power_exchange_pre_eot(matrix: np.ndarray) -> None:
     for bird in cards.load_all()[0]:
         idx = cards.bird_index(bird)
         matrix[idx + 1, start:end] = _bird_power_exchange_vector(
-            bird, include_eot_discard=False
+            bird,
+            include_eot_discard=include_eot_discard,
+            legacy_v1_5_mappers=legacy_v1_5_mappers,
         )
 
 
@@ -672,7 +681,7 @@ def _is_caching_bird(bird: cards.Bird) -> bool:
 
 
 def _bird_power_exchange_vector(
-    bird: cards.Bird, *, include_eot_discard: bool
+    bird: cards.Bird, *, include_eot_discard: bool, legacy_v1_5_mappers: bool
 ) -> np.ndarray:
     """Build the 13-dim power-exchange vector for ``bird``.
 
@@ -680,21 +689,28 @@ def _bird_power_exchange_vector(
     as the choice-row exchange stripe, then normalizes by ``_EXCHANGE_SCALE``.
     UNIMPLEMENTED and unknown effects contribute zero (correct default).
 
-    ``include_eot_discard`` is threaded straight through to
-    :func:`_accumulate_effect_exchange`: ``True`` for the live per-card attr
-    fill (v1.5+, see ``_bird_attr_vector``); ``False`` for the era-<=1.4
-    compat seam (:func:`refill_card_features_power_exchange_pre_eot`), which
-    reproduces the original mapper's byte-for-byte behavior."""
+    Both flags are threaded straight through to
+    :func:`_accumulate_effect_exchange`: ``(True, False)`` for the live
+    per-card attr fill (see ``_bird_attr_vector``); the older-era combinations
+    come only from the compat seam
+    (:func:`refill_card_features_power_exchange`)."""
     vec = np.zeros(layout._EXCHANGE_DIM, dtype=np.float32)
     for effect in bird.power.effects:
         _accumulate_effect_exchange(
-            vec, effect, include_eot_discard=include_eot_discard
+            vec,
+            effect,
+            include_eot_discard=include_eot_discard,
+            legacy_v1_5_mappers=legacy_v1_5_mappers,
         )
     return vec / layout._EXCHANGE_SCALE
 
 
 def _accumulate_effect_exchange(
-    vec: np.ndarray, effect: cards.Effect, *, include_eot_discard: bool
+    vec: np.ndarray,
+    effect: cards.Effect,
+    *,
+    include_eot_discard: bool,
+    legacy_v1_5_mappers: bool,
 ) -> None:
     """Add one effect's resource exchange to ``vec`` (unnormalized).
 
@@ -714,11 +730,15 @@ def _accumulate_effect_exchange(
     end-of-turn discard side (a real cost the original mapper omitted) is
     included in the mapped ledger — live card-attribute encoding passes
     ``True`` (v1.5+); the era-<=1.4 compat seam passes ``False`` to reproduce
-    the original byte-for-byte behavior (see ``wingspan.compat.v1_4``)."""
+    the original byte-for-byte behavior (see ``wingspan.compat.v1_4``).
+    ``legacy_v1_5_mappers`` selects the pre-v1.6 mapping of the eleven fixed
+    kinds (``True`` for every era <= 1.5; see ``wingspan.compat.v1_5``)."""
     from wingspan.engine import forecast
 
     ledger = forecast.effect_exchange_ledger(
-        effect, include_eot_discard=include_eot_discard
+        effect,
+        include_eot_discard=include_eot_discard,
+        legacy_v1_5_mappers=legacy_v1_5_mappers,
     )
     for field, slot in layout._EXCHANGE_SLOT_FOR_LEDGER_FIELD.items():
         count = typing.cast(int, getattr(ledger, field))
