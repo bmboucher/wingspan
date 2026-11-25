@@ -869,10 +869,21 @@ class CardStatsBaseline(pydantic.BaseModel):
 #### Forced-card study (``wingspan research forced-card``) ####
 
 
+class BiasedSeats(enum.StrEnum):
+    """Which seats of a forced-card game use the biased policy: one seat per game
+    (alternating by game parity) with unbiased opponents, or every seat."""
+
+    ALTERNATE = "alternate"
+    ALL = "all"
+
+
 class ForcedCardSpec(pydantic.BaseModel):
     """The bias applied to one study run: the factor ``x`` in ``[-1, 1]`` (positive
-    pushes toward playing the bird, negative away from it) and the
-    ``cards.Bird.id`` of the bird the biased seat is pushed toward or away from."""
+    pushes toward playing the bird, negative away from it), the
+    ``cards.Bird.id`` of the bird the biased seat is pushed toward or away from,
+    which seats are biased, and ``forced_card_found_in``: the bird is placed
+    uniformly among the first this-many cards dealt (tray, then deck top) before
+    play starts (``0`` leaves the deal untouched)."""
 
     force_card_factor: typing.Annotated[
         float,
@@ -881,6 +892,10 @@ class ForcedCardSpec(pydantic.BaseModel):
         ),
     ]
     forced_card_id: int
+    forced_card_found_in: typing.Annotated[int, pydantic.Field(ge=0)] = (
+        constants.DEFAULT_FORCED_CARD_FOUND_IN
+    )
+    biased_seats: BiasedSeats = BiasedSeats.ALTERNATE
 
 
 class ForcedCardSeatRecord(pydantic.BaseModel):
@@ -931,8 +946,8 @@ class ForcedCardSeatRecord(pydantic.BaseModel):
 class ForcedCardSummaryRow(pydantic.BaseModel):
     """One row of ``forced_card_summary.csv``: a factor's biased-seat results.
 
-    ``biased`` is the biased seat's win rate over every game; ``opponent`` the
-    unbiased seats'. ``played`` and ``held_unplayed`` split the biased seat's
+    ``biased`` is the biased seats' win rate over every biased seat-game;
+    ``opponent`` the unbiased seats' (blank when every seat is biased). ``played`` and ``held_unplayed`` split the biased seat's
     games that held the forced bird by whether it was placed. ``play_rate`` is
     ``played / in_hand_games`` with its own Wilson interval. Ties are non-wins
     kept in every denominator, as in card-stats."""
@@ -982,8 +997,9 @@ class ForcedCardSummaryRow(pydantic.BaseModel):
 
 
 class ForcedCardGameOutcome(pydantic.BaseModel):
-    """The biased seat's result in one complete forced-card game, folded from the
-    game's seat rows: ``margin`` is its final score minus the best opponent's."""
+    """One biased seat's result in one complete forced-card game, folded from the
+    game's seat rows: ``margin`` is its final score minus the best other seat's.
+    ``biased_seat`` is the seat; a game yields one outcome per biased seat."""
 
     game_index: int
     seed: int
@@ -995,11 +1011,13 @@ class ForcedCardGameOutcome(pydantic.BaseModel):
 
 
 class PairedSubset(enum.StrEnum):
-    """Which games a paired comparison covers: every paired game, or only those
-    where the baseline run's biased seat held the forced bird."""
+    """Which pairs a paired comparison covers: every pair, only those where the
+    baseline run's seat held the forced bird, or those where the seat held it in
+    either run."""
 
     ALL = "all"
     BASELINE_HELD = "baseline_held"
+    ANY_HELD = "any_held"
 
 
 class PairedDelta(pydantic.BaseModel):
@@ -1024,12 +1042,12 @@ class PairedDelta(pydantic.BaseModel):
 
 class ForcedCardPairedRow(pydantic.BaseModel):
     """One row of ``forced_card_paired.csv``: a factor against the baseline factor
-    on identical deals (one pair per ``game_index``), for one subset of games.
+    on identical deals (one pair per biased ``(game_index, seat)``), for one subset.
 
     ``win`` is the paired difference in the biased seat's win indicator (ties are
     non-wins); ``x_win_baseline_loss`` / ``x_loss_baseline_win`` are the
     discordant pair counts. ``margin`` is the paired difference in score margin
-    (biased final score minus the best opponent's). ``play`` is the paired
+    (the seat's final score minus the best other seat's). ``play`` is the paired
     difference in the forced bird's played indicator."""
 
     force_card_factor: float

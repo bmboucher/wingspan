@@ -156,7 +156,7 @@ def test_pairs_use_the_intersection_of_complete_games():
     factor_run, baseline_run = _runs(baseline, factor)
     rows = _by_subset(forced_card_paired.paired_rows(factor_run, baseline_run))
     assert rows[models.PairedSubset.ALL].n_pairs == 3
-    assert set(forced_card_paired.game_outcomes(factor)) == {0, 1, 2}
+    assert set(forced_card_paired.game_outcomes(factor)) == {(0, 0), (1, 1), (2, 0)}
 
 
 def test_mismatched_seed_or_biased_seat_raises():
@@ -231,10 +231,12 @@ def test_cli_rebuilds_summary_and_paired_files(tmp_path: pathlib.Path):
     assert [(row["force_card_factor"], row["subset"]) for row in paired] == [
         ("-0.5", "all"),
         ("-0.5", "baseline_held"),
+        ("-0.5", "any_held"),
         ("0.5", "all"),
         ("0.5", "baseline_held"),
+        ("0.5", "any_held"),
     ]
-    assert float(paired[2]["margin_delta_mean"]) == pytest.approx(2.25)
+    assert float(paired[3]["margin_delta_mean"]) == pytest.approx(2.25)
     markdown = (tmp_path / constants.FORCED_CARD_PAIRED_MARKDOWN_FILENAME).read_text(
         encoding="utf-8"
     )
@@ -270,3 +272,112 @@ def test_cli_without_any_raw_files_exits_nonzero(
 ):
     assert app.main(["forced-card-summary", "--out", str(tmp_path)]) == 1
     assert "no factor_*/forced_card_raw.csv" in capsys.readouterr().err
+
+
+###### Every seat biased ######
+
+
+def _all_biased_game(
+    game_index: int,
+    *,
+    scores: tuple[int, int],
+    in_hand: tuple[bool, bool] = (False, False),
+    seed: int | None = None,
+) -> list[models.ForcedCardSeatRecord]:
+    """The two seat rows of a game in which both seats are biased; the higher
+    score wins."""
+    game_seed = _BASE_SEED + game_index if seed is None else seed
+    return [
+        models.ForcedCardSeatRecord(
+            game_index=game_index,
+            seed=game_seed,
+            seat=seat,
+            biased=True,
+            won=scores[seat] > scores[1 - seat],
+            tie=False,
+            final_score=scores[seat],
+            forced_card_in_hand=in_hand[seat],
+            forced_card_played=in_hand[seat],
+        )
+        for seat in range(_NUM_PLAYERS)
+    ]
+
+
+def _all_baseline() -> list[models.ForcedCardSeatRecord]:
+    return [
+        *_all_biased_game(0, scores=(60, 50), in_hand=(True, False)),
+        *_all_biased_game(1, scores=(50, 55)),
+    ]
+
+
+def _all_factor() -> list[models.ForcedCardSeatRecord]:
+    return [
+        *_all_biased_game(0, scores=(58, 52), in_hand=(False, True)),
+        *_all_biased_game(1, scores=(52, 50)),
+    ]
+
+
+def test_all_mode_outcomes_are_one_per_seat_with_margin_over_the_other_seat():
+    outcomes = forced_card_paired.game_outcomes(_all_baseline())
+    assert set(outcomes) == {(0, 0), (0, 1), (1, 0), (1, 1)}
+    assert [outcomes[key].margin for key in sorted(outcomes)] == [10, -10, -5, 5]
+    assert outcomes[(0, 0)].in_hand and not outcomes[(0, 1)].in_hand
+
+
+def test_all_mode_pairs_by_game_and_seat_with_held_subsets():
+    rows = _by_subset(
+        forced_card_paired.paired_rows(*_runs(_all_baseline(), _all_factor()))
+    )
+    everything = rows[models.PairedSubset.ALL]
+    # Margin differences (factor - baseline): -4, +4, +7, -7.
+    assert everything.n_pairs == 4
+    assert everything.margin.mean == pytest.approx(0.0)
+    assert (everything.x_win_baseline_loss, everything.x_loss_baseline_win) == (1, 1)
+    # Only (game 0, seat 0) held the bird in the baseline.
+    baseline_held = rows[models.PairedSubset.BASELINE_HELD]
+    assert baseline_held.n_pairs == 1
+    assert baseline_held.margin.mean == pytest.approx(-4.0)
+    # (0, 0) held it in the baseline and (0, 1) only in the factor run.
+    any_held = rows[models.PairedSubset.ANY_HELD]
+    assert any_held.n_pairs == 2
+    assert any_held.margin.mean == pytest.approx(0.0)
+    assert any_held.play.mean == pytest.approx(0.0)
+
+
+def test_any_held_subset_in_the_single_biased_seat_layout():
+    rows = _by_subset(forced_card_paired.paired_rows(*_runs(*_pair_args())))
+    # Games 0 and 1 held the bird in both runs; the others in neither.
+    assert rows[models.PairedSubset.ANY_HELD].n_pairs == 2
+
+
+def test_all_mode_game_without_every_seat_row_is_dropped_and_seats_must_match():
+    partial = [*_all_baseline(), *_all_biased_game(2, scores=(50, 50))[:1]]
+    assert set(forced_card_paired.game_outcomes(partial)) == {
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+    }
+    factor_run, baseline_run = _runs(_baseline_records(), _all_factor())
+    with pytest.raises(ValueError, match="is not paired"):
+        forced_card_paired.paired_rows(factor_run, baseline_run)
+    factor_run, baseline_run = _runs(
+        _all_baseline(),
+        [*_all_factor()[:2], *_all_biased_game(1, scores=(1, 2), seed=7)],
+    )
+    with pytest.raises(ValueError, match="game 1 is not paired"):
+        forced_card_paired.paired_rows(factor_run, baseline_run)
+
+
+def test_cli_paired_markdown_lists_the_any_held_subset(tmp_path: pathlib.Path):
+    _write_factor_dir(tmp_path, 0.5, _all_factor())
+    _write_factor_dir(tmp_path, 0.0, _all_baseline())
+    assert app.main(["forced-card-summary", "--out", str(tmp_path)]) == 0
+    markdown = (tmp_path / constants.FORCED_CARD_PAIRED_MARKDOWN_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    assert "Subset: any_held" in markdown
+    summary = (tmp_path / constants.FORCED_CARD_SUMMARY_MARKDOWN_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    assert "n.a." in summary

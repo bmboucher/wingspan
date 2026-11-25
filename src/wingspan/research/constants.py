@@ -93,6 +93,13 @@ NORMAL_95_Z = 1.96
 # Each seat's sampling RNG is seeded by this string formatted with the game
 # seed and the seat, so a game replays identically at every factor.
 FORCED_CARD_RNG_SEED_TEMPLATE = "forced-card:{seed}:{seat}"
+# The forced bird's early placement (``forced_card_found_in``) draws its position
+# from an RNG seeded by this string formatted with the game seed alone, so every
+# factor and seat sees the identical deck order.
+FORCED_CARD_PLACEMENT_RNG_SEED_TEMPLATE = "forced-card-placement:{seed}"
+# Default ``forced_card_found_in``: the forced bird is dealt uniformly among the
+# first this-many cards (the face-up tray, then the deck from the top); 0 = off.
+DEFAULT_FORCED_CARD_FOUND_IN = 30
 
 # ``wingspan research cards-html``: card size and output sub-directories.
 CARD_WIDTH_PX = 240

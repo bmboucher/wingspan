@@ -19,7 +19,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from wingspan import cards, decisions, engine, model, version  # noqa: E402
+from wingspan import cards, decisions, engine, model, state, version  # noqa: E402
 from wingspan.research import (  # noqa: E402
     app,
     constants,
@@ -408,10 +408,18 @@ def test_agent_at_factor_zero_samples_every_action(
 ###### Games: seat alternation and seed pairing ######
 
 
-def _forced(factor: float, bird_id: int | None = None) -> models.ForcedCardSpec:
+def _forced(
+    factor: float,
+    bird_id: int | None = None,
+    *,
+    found_in: int = 0,
+    biased_seats: models.BiasedSeats = models.BiasedSeats.ALTERNATE,
+) -> models.ForcedCardSpec:
     return models.ForcedCardSpec(
         force_card_factor=factor,
         forced_card_id=forced_card.resolve_forced_card_id(bird_id),
+        forced_card_found_in=found_in,
+        biased_seats=biased_seats,
     )
 
 
@@ -646,3 +654,227 @@ def test_cli_unknown_bird_id_exits_one(
     )
     assert code == 1
     assert "not a bird in the card database" in capsys.readouterr().err
+
+
+###### Forced-card placement (forced_card_found_in) ######
+
+_PLACEMENT_SEED = 3
+_UNIFORMITY_SEEDS = 300
+_UNIFORMITY_WINDOW = 4
+# Expected count per position is 75; five standard deviations is about +-37.
+_UNIFORMITY_MIN, _UNIFORMITY_MAX = 40, 110
+
+
+class _FixedPosition(random.Random):
+    """A ``random.Random`` whose ``randrange`` always returns ``position``."""
+
+    def __init__(self, position: int):
+        super().__init__(0)
+        self.position = position
+
+    def randrange(self, start: int, stop: int | None = None, step: int = 1) -> int:
+        return self.position
+
+
+def _fresh_game(seed: int = _PLACEMENT_SEED) -> state.GameState:
+    return collect.new_engine(seed, 2).state
+
+
+def _opening_ids(game: state.GameState) -> list[int]:
+    """Bird ids in dealing order: tray slots, then the deck from its top."""
+    return [bird.id for bird in [*game.tray, *reversed(game.bird_deck)] if bird]
+
+
+def _placement_rng(seed: int) -> random.Random:
+    return random.Random(
+        constants.FORCED_CARD_PLACEMENT_RNG_SEED_TEMPLATE.format(seed=seed)
+    )
+
+
+def test_placement_puts_the_forced_bird_at_the_drawn_position():
+    window = 8
+    forced_id = _opening_ids(_fresh_game())[20]
+    for position in range(window):
+        game = _fresh_game()
+        before = _opening_ids(game)
+        forced_card.place_forced_card(game, forced_id, window, _FixedPosition(position))
+        after = _opening_ids(game)
+        assert after[position] == forced_id
+        assert sorted(after) == sorted(before)
+        # Only the two swapped positions change.
+        changed = [
+            index for index in range(len(after)) if after[index] != before[index]
+        ]
+        assert changed == [position, 20]
+
+
+def test_placement_from_the_tray_swaps_within_the_window():
+    game = _fresh_game()
+    before = _opening_ids(game)
+    forced_card.place_forced_card(game, before[1], 6, _FixedPosition(4))
+    after = _opening_ids(game)
+    assert after[4] == before[1] and after[1] == before[4]
+
+
+def test_placement_is_uniform_over_the_window_and_always_inside_it():
+    forced_id = forced_card.resolve_forced_card_id(None)
+    counts = [0] * _UNIFORMITY_WINDOW
+    for seed in range(_UNIFORMITY_SEEDS):
+        game = _fresh_game(seed)
+        forced_card.place_forced_card(
+            game, forced_id, _UNIFORMITY_WINDOW, _placement_rng(seed)
+        )
+        counts[_opening_ids(game).index(forced_id)] += 1
+    assert sum(counts) == _UNIFORMITY_SEEDS
+    assert all(_UNIFORMITY_MIN <= count <= _UNIFORMITY_MAX for count in counts), counts
+
+
+def test_placement_depends_only_on_the_seed():
+    forced_id = forced_card.resolve_forced_card_id(None)
+    first, second = _fresh_game(), _fresh_game()
+    forced_card.place_forced_card(first, forced_id, 30, _placement_rng(_PLACEMENT_SEED))
+    forced_card.place_forced_card(
+        second, forced_id, 30, _placement_rng(_PLACEMENT_SEED)
+    )
+    assert _opening_ids(first) == _opening_ids(second)
+    # The template takes the seed alone, so the factor and seat cannot enter it.
+    assert "{seat}" not in constants.FORCED_CARD_PLACEMENT_RNG_SEED_TEMPLATE
+    assert "{factor}" not in constants.FORCED_CARD_PLACEMENT_RNG_SEED_TEMPLATE
+
+
+def test_found_in_zero_is_a_no_op_that_leaves_the_rng_untouched():
+    game = _fresh_game()
+    before = _opening_ids(game)
+    rng = random.Random(1)
+    state_before = rng.getstate()
+    forced_card.place_forced_card(game, before[40], 0, rng)
+    assert _opening_ids(game) == before
+    assert rng.getstate() == state_before
+
+
+def test_placement_validates_its_inputs():
+    game = _fresh_game()
+    ids = _opening_ids(game)
+    rng = random.Random(1)
+    with pytest.raises(ValueError, match="negative"):
+        forced_card.place_forced_card(game, ids[0], -1, rng)
+    with pytest.raises(ValueError, match="exceeds"):
+        forced_card.place_forced_card(game, ids[0], len(ids) + 1, rng)
+    forced_card.place_forced_card(game, ids[0], len(ids), rng)  # whole deck is fine
+
+    absent = _fresh_game()
+    missing_id = absent.bird_deck.pop(0).id
+    with pytest.raises(ValueError, match="appears 0 times"):
+        forced_card.place_forced_card(absent, missing_id, 5, rng)
+
+    duplicated = _fresh_game()
+    tray_bird = duplicated.tray[0]
+    assert tray_bird is not None
+    duplicated.bird_deck.append(tray_bird)
+    with pytest.raises(ValueError, match="appears 2 times"):
+        forced_card.place_forced_card(duplicated, tray_bird.id, 5, rng)
+
+    undealt = _fresh_game()
+    undealt.tray[0] = None
+    with pytest.raises(ValueError, match="fully dealt"):
+        forced_card.place_forced_card(undealt, ids[5], 5, rng)
+
+
+def test_spec_constrains_found_in_and_defaults_to_thirty():
+    spec = models.ForcedCardSpec(force_card_factor=0.5, forced_card_id=1)
+    assert spec.forced_card_found_in == constants.DEFAULT_FORCED_CARD_FOUND_IN == 30
+    assert spec.biased_seats is models.BiasedSeats.ALTERNATE
+    with pytest.raises(pydantic.ValidationError):
+        models.ForcedCardSpec(
+            force_card_factor=0.5, forced_card_id=1, forced_card_found_in=-1
+        )
+
+
+###### Biasing every seat ######
+
+
+def test_seat_is_biased_by_mode():
+    alternate, everyone = models.BiasedSeats.ALTERNATE, models.BiasedSeats.ALL
+    assert [forced_card.seat_is_biased(seat, 1, 3, alternate) for seat in range(3)] == [
+        False,
+        True,
+        False,
+    ]
+    assert all(forced_card.seat_is_biased(seat, 1, 3, everyone) for seat in range(3))
+
+
+def test_all_mode_marks_every_seat_biased_and_alternate_marks_one(
+    run_dir: pathlib.Path,
+):
+    nets = game_stats.load_game_nets(run_dir, _DEVICE)
+    spec = models.GameStatsSpec(games=1, seed=21)
+    everyone = forced_card.play_game(
+        spec, 0, nets, _forced(0.5, found_in=5, biased_seats=models.BiasedSeats.ALL)
+    )
+    assert [record.biased for record in everyone] == [True, True]
+    alternate = forced_card.play_game(spec, 0, nets, _forced(0.5, found_in=5))
+    assert [record.biased for record in alternate] == [True, False]
+
+
+def test_cli_biased_seats_all_and_found_in_play_a_tiny_study(
+    run_dir: pathlib.Path, tmp_path: pathlib.Path
+):
+    out_dir = tmp_path / "study"
+    code = app.main(
+        [
+            "forced-card",
+            "--games",
+            "2",
+            "--seed",
+            "9",
+            "--force-card-factor",
+            "0.5",
+            "--forced-card-found-in",
+            "5",
+            "--biased-seats",
+            "all",
+            "--out",
+            str(out_dir),
+            "--checkpoint-dir",
+            str(run_dir),
+        ]
+    )
+    assert code == 0
+    raw = out_dir / "factor_0.500" / constants.FORCED_CARD_RAW_FILENAME
+    with raw.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 4
+    assert {row["biased"] for row in rows} == {"True"}
+    markdown = (out_dir / constants.FORCED_CARD_SUMMARY_MARKDOWN_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    assert "n.a." in markdown
+
+
+def test_cli_rejects_a_negative_found_in(run_dir: pathlib.Path, tmp_path: pathlib.Path):
+    code = app.main(
+        [
+            "forced-card",
+            "--games",
+            "1",
+            "--forced-card-found-in=-1",
+            "--out",
+            str(tmp_path / "out"),
+            "--checkpoint-dir",
+            str(run_dir),
+        ]
+    )
+    assert code == 1
+
+
+def test_summary_without_unbiased_seats_has_a_blank_opponent():
+    records = [
+        _seat_record(0, biased=True, won=True, in_hand=True, played=True),
+        _seat_record(1, biased=True, won=False, in_hand=False, played=False),
+    ]
+    row = forced_card_agg.summary_row(0.5, 7, records)
+    assert (row.biased.n, row.biased.wins) == (2, 1)
+    assert row.biased.win_rate == pytest.approx(0.5)
+    assert (row.opponent.n, row.opponent.win_rate) == (0, None)
+    markdown = forced_card_agg.summary_markdown([row], "Cedar Waxwing")
+    assert "|n.a.|" in markdown

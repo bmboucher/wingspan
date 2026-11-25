@@ -2,7 +2,8 @@
 
 Reads each factor's raw per-seat table (``forced_card_raw.csv``) and writes the
 combined ``forced_card_summary.csv`` / ``.md``: one row per factor with the biased
-seat's overall win rate, the unbiased seats' win rate, the forced bird's play rate
+seats' overall win rate (averaged over every biased seat-game), the unbiased seats'
+win rate (blank, "n.a." in markdown, when every seat is biased), the forced bird's play rate
 (plays over games in hand), and the biased seat's win rate in games that played
 the bird versus held it without playing. Every rate carries a Wilson 95%
 interval; ties are non-wins kept in the denominator, as in card-stats.
@@ -19,6 +20,7 @@ from wingspan.research import card_stats_agg, constants, forced_card, models
 # Percent formatting for the markdown rendering.
 _PERCENT = 100.0
 _BLANK_CELL = ""
+_NOT_AVAILABLE_CELL = "n.a."
 
 
 class FactorRun(typing.NamedTuple):
@@ -81,7 +83,7 @@ def summary_markdown(
 ) -> str:
     """A compact markdown table of the headline columns, headed by the forced bird."""
     lines = [
-        f"Forced card: {forced_card_name}. Win rates are the biased seat's "
+        f"Forced card: {forced_card_name}. Win rates are the biased seats' "
         "(ties are non-wins, kept in the denominator).",
         "",
         "|Factor|Games|Win rate|Win 95% CI|Opponent win rate|In hand|Play rate"
@@ -93,7 +95,7 @@ def summary_markdown(
             f"|{row.force_card_factor:g}|{row.biased.n}"
             f"|{_percent(row.biased.win_rate)}"
             f"|{_interval(row.biased.ci95_lo, row.biased.ci95_hi)}"
-            f"|{_percent(row.opponent.win_rate)}|{row.in_hand_games}"
+            f"|{_opponent_percent(row.opponent)}|{row.in_hand_games}"
             f"|{_percent(row.play_rate)}"
             f"|{_interval(row.play_rate_ci95_lo, row.play_rate_ci95_hi)}"
             f"|{_percent(row.played.win_rate)}"
@@ -186,6 +188,11 @@ def _tally(records: typing.Iterable[models.ForcedCardSeatRecord]) -> models.WinT
 
 def _percent(rate: float | None) -> str:
     return _BLANK_CELL if rate is None else f"{_PERCENT * rate:.1f}%"
+
+
+def _opponent_percent(opponent: models.WinStat) -> str:
+    """The unbiased seats' win rate, or "n.a." when the study had none."""
+    return _NOT_AVAILABLE_CELL if opponent.n == 0 else _percent(opponent.win_rate)
 
 
 def _interval(low: float | None, high: float | None) -> str:

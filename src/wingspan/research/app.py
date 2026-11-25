@@ -15,6 +15,8 @@ Usage::
     wingspan research forced-card [--games N] --out DIR
                                   [--force-card-factor 0,0.25,0.5,0.75,1]
                                   [--forced-card-id ID]
+                                  [--forced-card-found-in N]
+                                  [--biased-seats {alternate,all}]
                                   [--checkpoint-dir DIR | --release]
                                   [--seed S] [--workers W] [--device cpu]
     wingspan research forced-card-summary --out DIR [--baseline-factor 0]
@@ -287,7 +289,10 @@ def _play_forced_card_factor(
     raw_path = factor_dir / constants.FORCED_CARD_RAW_FILENAME
     spec = models.GameStatsSpec(games=args.games, seed=args.seed, workers=args.workers)
     forced = models.ForcedCardSpec(
-        force_card_factor=factor, forced_card_id=forced_card_id
+        force_card_factor=factor,
+        forced_card_id=forced_card_id,
+        forced_card_found_in=args.forced_card_found_in,
+        biased_seats=args.biased_seats,
     )
     print(
         f"forced-card: {spec.games} games forcing "
@@ -606,6 +611,25 @@ def _add_forced_card_arguments(forced: argparse.ArgumentParser) -> None:
         default=None,
         help="Bird id (cards.Bird.id) to force "
         f"(default: {constants.DEFAULT_FORCED_CARD_NAME}).",
+    )
+    forced.add_argument(
+        "--forced-card-found-in",
+        dest="forced_card_found_in",
+        type=int,
+        default=constants.DEFAULT_FORCED_CARD_FOUND_IN,
+        help="Place the forced bird uniformly among the first N cards dealt (the "
+        "tray, then the deck from the top) before play; 0 leaves the deal "
+        f"untouched (default: {constants.DEFAULT_FORCED_CARD_FOUND_IN}).",
+    )
+    forced.add_argument(
+        "--biased-seats",
+        dest="biased_seats",
+        type=models.BiasedSeats,
+        choices=list(models.BiasedSeats),
+        default=models.BiasedSeats.ALTERNATE,
+        help="'alternate' biases one seat per game (alternating by game parity) "
+        "against unbiased opponents; 'all' biases every seat "
+        f"(default: {models.BiasedSeats.ALTERNATE.value}).",
     )
     run_source = forced.add_mutually_exclusive_group()
     run_source.add_argument(

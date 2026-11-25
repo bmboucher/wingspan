@@ -1,20 +1,23 @@
 """Paired comparison of forced-card factors against a baseline factor.
 
-Every factor of the study plays the same per-game seeds and the same biased seat
-(``game_index % num_players``), so a factor's game ``g`` and the baseline's game
-``g`` start from identical deals. Differencing the biased seat's outcomes per game
+Every factor of the study plays the same per-game seeds and the same biased
+seat(s) (one seat, ``game_index % num_players``, or every seat), so a factor's game
+``g`` and the baseline's game ``g`` start from identical deals. Each biased seat of
+a game is one unit, keyed by ``(game_index, seat)``; differencing its outcomes
 removes the deal variance that dominates the marginal win rates. For each
-non-baseline factor and each of two subsets ("all" games, and games where the
-baseline's biased seat held the forced bird) this reports the paired mean
-difference (factor minus baseline) with a 95% normal-approximation interval for:
-the win indicator (ties are non-wins), the score margin (biased seat's final
-score minus the best opponent's; the most powerful of the three), and the
-forced bird's played indicator.
+non-baseline factor and each of three subsets ("all" pairs, pairs where the
+baseline's seat held the forced bird, and pairs where the seat held it in either
+run) this reports the paired mean difference (factor minus baseline) with a 95%
+normal-approximation interval for: the win indicator (ties are non-wins), the
+score margin (the seat's final score minus the best other seat's; the most
+powerful of the three), and the forced bird's played indicator. When every seat
+is biased the pairs within one game are not independent, so the intervals are
+optimistic.
 
 Only games complete in both runs are paired, so runs still in flight (or partial
 files) compare on their intersection. A game is complete when it has a row for
-every seat the file's games use. The "baseline held" subset conditions on a
-post-setup trajectory event, so it is a descriptive slice, not a randomised one.
+every seat the file's games use. The held subsets condition on a post-setup
+trajectory event, so they are descriptive slices, not randomised ones.
 """
 
 from __future__ import annotations
@@ -31,8 +34,19 @@ from wingspan.research import constants, forced_card, forced_card_agg, models
 _PERCENT = 100.0
 _BLANK_CELL = ""
 _MIN_PAIRS_FOR_INTERVAL = 2
+# Markdown caveat appended to the heading of the subsets that condition on a hand.
+_SUBSET_NOTES = {
+    models.PairedSubset.BASELINE_HELD: (
+        " (baseline's seat held the forced bird; a post-setup trajectory slice)"
+    ),
+    models.PairedSubset.ANY_HELD: (
+        " (the seat held the forced bird in either run; a post-setup trajectory "
+        "slice)"
+    ),
+}
 
 type _Pair = tuple[models.ForcedCardGameOutcome, models.ForcedCardGameOutcome]
+type _Outcomes = dict[tuple[int, int], models.ForcedCardGameOutcome]
 
 
 def compare_to_baseline(
@@ -65,36 +79,41 @@ def compare_to_baseline(
 def paired_rows(
     factor: forced_card_agg.FactorRecords, baseline: forced_card_agg.FactorRecords
 ) -> list[models.ForcedCardPairedRow]:
-    """The "all" and "baseline held" rows of ``factor`` against ``baseline``.
-    Raises ``ValueError`` when a game's biased seat or seed differs between runs."""
+    """The "all", "baseline held", and "any held" rows of ``factor`` against
+    ``baseline``. Raises ``ValueError`` when a game's biased seats or a seat's seed
+    differ between runs."""
     pairs = _pair_games(game_outcomes(factor.records), game_outcomes(baseline.records))
-    held = [pair for pair in pairs if pair[1].in_hand]
+    baseline_held = [pair for pair in pairs if pair[1].in_hand]
+    any_held = [pair for pair in pairs if pair[0].in_hand or pair[1].in_hand]
     return [
         _row(factor.force_card_factor, baseline.force_card_factor, subset, subset_pairs)
         for subset, subset_pairs in (
             (models.PairedSubset.ALL, pairs),
-            (models.PairedSubset.BASELINE_HELD, held),
+            (models.PairedSubset.BASELINE_HELD, baseline_held),
+            (models.PairedSubset.ANY_HELD, any_held),
         )
     ]
 
 
 def game_outcomes(
     records: typing.Sequence[models.ForcedCardSeatRecord],
-) -> dict[int, models.ForcedCardGameOutcome]:
-    """Fold seat rows into the biased seat's outcome per complete game, keyed by
-    ``game_index``. Incomplete games (fewer rows than the file's seat count) are
-    dropped; a complete game without exactly one biased row raises ``ValueError``."""
+) -> _Outcomes:
+    """Fold seat rows into one outcome per biased seat of each complete game,
+    keyed by ``(game_index, seat)``. Incomplete games (fewer rows than the file's
+    seat count) are dropped; a complete game without a biased row raises
+    ``ValueError``."""
     by_game: dict[int, list[models.ForcedCardSeatRecord]] = collections.defaultdict(
         list
     )
     for record in records:
         by_game[record.game_index].append(record)
     seats_per_game = max((len(rows) for rows in by_game.values()), default=0)
-    return {
-        game_index: _outcome(game_index, rows)
-        for game_index, rows in by_game.items()
-        if len(rows) == seats_per_game
-    }
+    outcomes: _Outcomes = {}
+    for game_index, rows in by_game.items():
+        if len(rows) == seats_per_game:
+            for outcome in _outcomes(game_index, rows):
+                outcomes[(game_index, outcome.biased_seat)] = outcome
+    return outcomes
 
 
 def paired_markdown(
@@ -104,20 +123,14 @@ def paired_markdown(
     column leads because it is the most sensitive comparison."""
     lines = [
         f"Forced card: {forced_card_name}. Each row is factor minus baseline on "
-        "identical deals (biased seat, paired by game; ties are non-wins). Margin "
-        "is the biased seat's score minus the best opponent's; intervals are 95% "
-        "normal approximations of the per-game differences.",
+        "identical deals (each biased seat, paired by game and seat; ties are "
+        "non-wins). Margin is the seat's score minus the best other seat's; "
+        "intervals are 95% normal approximations of the per-pair differences.",
     ]
     for subset in models.PairedSubset:
         lines += [
             "",
-            f"Subset: {subset.value}"
-            + (
-                " (baseline's biased seat held the forced bird; a post-setup "
-                "trajectory slice)"
-                if subset is models.PairedSubset.BASELINE_HELD
-                else ""
-            ),
+            f"Subset: {subset.value}" + _SUBSET_NOTES.get(subset, ""),
             "",
             "|Factor|Baseline|Pairs|Margin delta|Margin 95% CI|Win delta|Win 95% CI"
             "|x wins / base loses|x loses / base wins|Play delta|Play 95% CI|",
@@ -132,42 +145,66 @@ def paired_markdown(
 #### Pairing ####
 
 
-def _outcome(
+def _outcomes(
     game_index: int, rows: typing.Sequence[models.ForcedCardSeatRecord]
-) -> models.ForcedCardGameOutcome:
+) -> list[models.ForcedCardGameOutcome]:
+    """One outcome per biased row of the game; the margin is that seat's score
+    minus the best other seat's."""
     biased = [row for row in rows if row.biased]
-    if len(biased) != 1:
-        raise ValueError(
-            f"game {game_index} has {len(biased)} biased seat rows, expected 1"
+    if not biased:
+        raise ValueError(f"game {game_index} has no biased seat rows")
+    return [
+        models.ForcedCardGameOutcome(
+            game_index=game_index,
+            seed=row.seed,
+            biased_seat=row.seat,
+            won=row.won,
+            margin=row.final_score - _best_other_score(row, rows),
+            in_hand=row.forced_card_in_hand,
+            played=row.forced_card_played,
         )
-    opponent_scores = [row.final_score for row in rows if not row.biased]
-    return models.ForcedCardGameOutcome(
-        game_index=game_index,
-        seed=biased[0].seed,
-        biased_seat=biased[0].seat,
-        won=biased[0].won,
-        margin=biased[0].final_score - max(opponent_scores, default=0),
-        in_hand=biased[0].forced_card_in_hand,
-        played=biased[0].forced_card_played,
-    )
+        for row in biased
+    ]
 
 
-def _pair_games(
-    factor: dict[int, models.ForcedCardGameOutcome],
-    baseline: dict[int, models.ForcedCardGameOutcome],
-) -> list[_Pair]:
-    """``(factor, baseline)`` outcomes of the games complete in both, by index."""
+def _best_other_score(
+    seat_row: models.ForcedCardSeatRecord,
+    rows: typing.Sequence[models.ForcedCardSeatRecord],
+) -> int:
+    return max((row.final_score for row in rows if row is not seat_row), default=0)
+
+
+def _pair_games(factor: _Outcomes, baseline: _Outcomes) -> list[_Pair]:
+    """``(factor, baseline)`` outcomes of the games complete in both, one pair per
+    biased ``(game_index, seat)``. A game whose biased seats or a seat's seed
+    differ between the runs raises ``ValueError``."""
+    factor_seats = _seats_by_game(factor)
+    baseline_seats = _seats_by_game(baseline)
     pairs: list[_Pair] = []
-    for game_index in sorted(factor.keys() & baseline.keys()):
-        mine, theirs = factor[game_index], baseline[game_index]
-        if (mine.biased_seat, mine.seed) != (theirs.biased_seat, theirs.seed):
+    for game_index in sorted(factor_seats.keys() & baseline_seats.keys()):
+        if factor_seats[game_index] != baseline_seats[game_index]:
             raise ValueError(
-                f"game {game_index} is not paired: biased seat/seed "
-                f"{mine.biased_seat}/{mine.seed} vs baseline "
-                f"{theirs.biased_seat}/{theirs.seed}"
+                f"game {game_index} is not paired: biased seats "
+                f"{sorted(factor_seats[game_index])} vs baseline "
+                f"{sorted(baseline_seats[game_index])}"
             )
-        pairs.append((mine, theirs))
+        for seat in sorted(factor_seats[game_index]):
+            mine, theirs = factor[(game_index, seat)], baseline[(game_index, seat)]
+            if mine.seed != theirs.seed:
+                raise ValueError(
+                    f"game {game_index} is not paired: seed {mine.seed} vs "
+                    f"baseline {theirs.seed}"
+                )
+            pairs.append((mine, theirs))
     return pairs
+
+
+def _seats_by_game(outcomes: _Outcomes) -> dict[int, set[int]]:
+    """The biased seats of each game in ``outcomes``."""
+    seats: dict[int, set[int]] = collections.defaultdict(set)
+    for game_index, seat in outcomes:
+        seats[game_index].add(seat)
+    return seats
 
 
 #### Statistics ####

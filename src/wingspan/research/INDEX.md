@@ -148,8 +148,15 @@ action is unbiased) and `play_bird_mask` (any `PlayBirdChoice` with
 `sampling_agent(net, device, rng, *, setup_net, forced)` samples every decision
 (the setup keep via `policy.setup_scores_and_probs`) and biases only when the
 factor is nonzero. `play_game` seeds each seat's `random.Random` from the game
-seed and seat, and the biased seat is `biased_seat(game_index, num_players)` =
-`game_index % num_players`; games use `spec.game_seed(index)` at every factor, so
+seed and seat; `seat_is_biased(seat, game_index, num_players, biased_seats)`
+marks the biased seat (`biased_seat(game_index, num_players)` =
+`game_index % num_players`, or every seat for `BiasedSeats.ALL`). Right after
+`collect.new_engine`, `place_forced_card(game, forced_card_id, found_in, rng)`
+swaps the forced bird to a uniform position among the first `found_in` cards
+(tray slots, then deck from its top = end of `bird_deck`; 0 = no-op; `ValueError`
+for a negative or oversized window, an undealt tray, or the bird not exactly once);
+its RNG is seeded by `constants.FORCED_CARD_PLACEMENT_RNG_SEED_TEMPLATE` (game seed
+only). Games use `spec.game_seed(index)` at every factor, so
 factors are paired. `resolve_forced_card_id(requested)` looks Cedar Waxwing up by
 name (`constants.DEFAULT_FORCED_CARD_NAME`) or validates an explicit id;
 `bird_name(id)`.
@@ -158,8 +165,10 @@ name (`constants.DEFAULT_FORCED_CARD_NAME`) or validates an explicit id;
 Wilson 95% intervals via `card_stats_agg`). `aggregate(runs, out_dir)` writes
 `forced_card_summary.csv` / `.md` for a list of `FactorRun(factor, forced_card_id,
 raw_path)`; `summary_row`, `summary_markdown`, `read_raw`. Ties are non-wins kept
-in denominators. **Forced-card models** (in `models.py`): `ForcedCardSpec(
-force_card_factor in [-1, 1], forced_card_id)`; `ForcedCardSeatRecord(game_index,
+in denominators; with every seat biased the opponent column is blank (`n.a.` in
+the markdown). **Forced-card models** (in `models.py`): `ForcedCardSpec(
+force_card_factor in [-1, 1], forced_card_id, forced_card_found_in >= 0 (default
+`constants.DEFAULT_FORCED_CARD_FOUND_IN` = 30), biased_seats: BiasedSeats)`; `ForcedCardSeatRecord(game_index,
 seed, seat, biased, won, tie, final_score, forced_card_in_hand,
 forced_card_played)` (`in_hand` = kept opener, any round's hand per the
 card-stats capture, or placed; `played` = placed); `ForcedCardSummaryRow`
@@ -174,10 +183,11 @@ directory-name format), `discover_runs(out_dir, forced_card_id)` (scan
 RESEARCH.md "Paired comparison"). `compare_to_baseline(factors, baseline_factor,
 out_dir)` writes `forced_card_paired.csv` / `.md` (raises `FileNotFoundError`
 without the baseline); `paired_rows(factor, baseline)` gives the "all" and
-"baseline_held" `ForcedCardPairedRow`s; `game_outcomes(records)` folds complete
-games into `ForcedCardGameOutcome`s (biased seat's win, margin over the best
-opponent, in-hand, played). Pairs on `game_index` over the intersection of complete
-games, raises `ValueError` if biased seat or seed differ. Deltas are
+"baseline_held" and "any_held" `ForcedCardPairedRow`s; `game_outcomes(records)`
+folds complete games into one `ForcedCardGameOutcome` per biased seat, keyed by
+`(game_index, seat)` (the seat's win, margin over the best other seat, in-hand,
+played). Pairs on that key over the intersection of complete games, raises
+`ValueError` if a game's biased seats or a seat's seed differ. Deltas are
 `PairedDelta(n, mean, ci95_lo, ci95_hi)` with a z interval (`constants.NORMAL_95_Z`).
 Models in `models.py`: `ForcedCardGameOutcome`, `PairedSubset`, `PairedDelta`,
 `ForcedCardPairedRow`. CLI: `wingspan research forced-card-summary` in `app.py`.

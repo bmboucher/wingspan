@@ -21,9 +21,16 @@ decisions:
   power-granted extra plays); the conformant options are those plays, in any
   habitat.
 
-Later decisions (habitat, eggs, food payment) are not biased. The biased seat
-alternates by game parity (``game_index % num_players``) and games use the same
-seeds ``spec.game_seed(index)`` at every factor, so factors are paired.
+Later decisions (habitat, eggs, food payment) are not biased. By default the
+biased seat alternates by game parity (``game_index % num_players``); with
+``BiasedSeats.ALL`` every seat is biased. Games use the same seeds
+``spec.game_seed(index)`` at every factor, so factors are paired.
+
+To raise how often the forced bird is dealt early, :func:`place_forced_card`
+swaps it into a uniformly random position among the first ``forced_card_found_in``
+cards (the tray, then the deck from the top) before play starts. The position is
+drawn from an RNG seeded by the game seed alone, so every factor and seat sees the
+same deck.
 
 Net loading, sharding, and the process pool are shared with the other studies
 (:mod:`wingspan.research.game_stats`, :mod:`wingspan.research.shard_runner`).
@@ -42,7 +49,7 @@ import typing
 import numpy as np
 import torch
 
-from wingspan import cards, decisions, engine, model
+from wingspan import cards, decisions, engine, model, state
 from wingspan.engine import actions
 from wingspan.instrumentation.handlers import card_stats
 from wingspan.research import constants, game_stats, models, shard_runner
@@ -249,6 +256,52 @@ def biased_seat(game_index: int, num_players: int) -> int:
     return game_index % num_players
 
 
+def seat_is_biased(
+    seat: int, game_index: int, num_players: int, biased_seats: models.BiasedSeats
+) -> bool:
+    """Whether ``seat`` uses the biased policy in game ``game_index``."""
+    if biased_seats is models.BiasedSeats.ALL:
+        return True
+    return seat == biased_seat(game_index, num_players)
+
+
+def place_forced_card(
+    game: state.GameState, forced_card_id: int, found_in: int, rng: random.Random
+) -> None:
+    """Swap the forced bird to a uniform position among the first ``found_in``
+    cards of ``game``: the tray slots in order, then the deck from its top (the
+    end of ``bird_deck``). The bird is uniform over that window and the rest of
+    the order stays uniformly random, which equals biasing each draw to
+    ``1 / (found_in - drawn)``. ``found_in == 0`` is a no-op.
+
+    Raises ``ValueError`` when ``found_in`` is negative or exceeds the cards
+    available, the tray is not fully dealt, or the bird is not exactly once in
+    tray plus deck."""
+    if found_in < 0:
+        raise ValueError(f"forced_card_found_in {found_in} is negative")
+    if found_in == 0:
+        return
+    tray_birds = [bird for bird in game.tray if bird is not None]
+    if len(tray_birds) != state.TRAY_SIZE:
+        raise ValueError("the tray must be fully dealt to place the forced card")
+    order = [*tray_birds, *reversed(game.bird_deck)]
+    if found_in > len(order):
+        raise ValueError(
+            f"forced_card_found_in {found_in} exceeds the {len(order)} cards "
+            "in the tray and deck"
+        )
+    holders = [index for index, bird in enumerate(order) if bird.id == forced_card_id]
+    if len(holders) != 1:
+        raise ValueError(
+            f"forced card {forced_card_id} appears {len(holders)} times in the "
+            "tray and deck, expected 1"
+        )
+    target = rng.randrange(found_in)
+    order[holders[0]], order[target] = order[target], order[holders[0]]
+    game.tray[:] = order[: state.TRAY_SIZE]
+    game.bird_deck[:] = reversed(order[state.TRAY_SIZE :])
+
+
 def study_shard(
     spec: models.GameStatsSpec,
     shard: models.GameStatsShard,
@@ -270,11 +323,21 @@ def play_game(
     nets: game_stats.GameNets,
     forced: models.ForcedCardSpec,
 ) -> list[models.ForcedCardSeatRecord]:
-    """Play one seeded sampled game — the biased seat against unbiased copies of
-    the same agent — and return one record per seat."""
+    """Play one seeded sampled game — the biased seat(s) against unbiased copies
+    of the same agent — and return one record per seat. The forced bird is first
+    placed among the opening cards per ``forced.forced_card_found_in``."""
     seed = spec.game_seed(game_index)
     eng = collect.new_engine(seed, nets.num_players)
-    biased = biased_seat(game_index, nets.num_players)
+    placement_rng = random.Random(
+        constants.FORCED_CARD_PLACEMENT_RNG_SEED_TEMPLATE.format(seed=seed)
+    )
+    place_forced_card(
+        eng.state, forced.forced_card_id, forced.forced_card_found_in, placement_rng
+    )
+    biased = [
+        seat_is_biased(seat, game_index, nets.num_players, forced.biased_seats)
+        for seat in range(nets.num_players)
+    ]
     agents = [
         sampling_agent(
             nets.policy_net,
@@ -283,7 +346,7 @@ def play_game(
                 constants.FORCED_CARD_RNG_SEED_TEMPLATE.format(seed=seed, seat=seat)
             ),
             setup_net=nets.setup_net,
-            forced=forced if seat == biased else None,
+            forced=forced if biased[seat] else None,
         )
         for seat in range(nets.num_players)
     ]
@@ -303,7 +366,7 @@ def play_game(
             game_index=game_index,
             seed=seed,
             seat=seat.seat,
-            biased=seat.seat == biased,
+            biased=biased[seat.seat],
             won=seat.won,
             tie=capture.tie,
             final_score=seat.final_score,

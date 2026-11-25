@@ -340,8 +340,12 @@ option's by `1 - x`, then renormalised, at the main-action and play-a-bird
 decisions; negative `x` avoids the bird (`-1` never plays it when an alternative
 exists). For `x < 0` the main action is biased only when the forced bird is the
 sole playable bird. Pass a list starting with a negative using `=`
-(`--force-card-factor=-1,-0.5,0,0.5,1`). The biased seat
-alternates by game, and the same game seeds are used at every factor. It writes
+(`--force-card-factor=-1,-0.5,0,0.5,1`). By default the biased seat
+alternates by game (`--biased-seats alternate`); `--biased-seats all` biases every
+seat. The same game seeds are used at every factor. `--forced-card-found-in N`
+(default 30, 0 = off) places the forced bird uniformly among the first `N` cards
+dealt (the tray, then the deck from the top) before play, so it shows up early
+more often. It writes
 one `factor_<x>/forced_card_raw.csv` per factor plus a combined
 `forced_card_summary.csv` (biased-seat win rate, play rate, and win rate when the
 bird was played versus held unplayed, with Wilson 95% intervals).
@@ -351,12 +355,14 @@ deals. The recommended workflow is one `forced-card` run per factor into a share
 `--out` (a negative factor needs the `=` form), then `forced-card-summary`, which
 rebuilds `forced_card_summary.csv` from every `factor_*/` found and writes
 `forced_card_paired.csv` / `.md`: each factor minus the baseline (default 0) in
-win rate, score margin, and play rate, with 95% intervals.
+win rate, score margin, and play rate, with 95% intervals (over all pairs, pairs
+where the baseline held the bird, and pairs where either run held it).
 
 ```
 wingspan research forced-card --release --games 10000 --workers 10 --out forced_card/
 wingspan research forced-card --force-card-factor 0,0.5,1 --forced-card-id 42 --checkpoint-dir checkpoints --out forced_card/
 wingspan research forced-card --force-card-factor=-0.5 --games 10000 --out forced_card/
+wingspan research forced-card --biased-seats all --forced-card-found-in 20 --out forced_card/
 wingspan research forced-card-summary --out forced_card/ --baseline-factor 0
 ```
 
