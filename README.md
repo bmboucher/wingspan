@@ -346,9 +346,18 @@ one `factor_<x>/forced_card_raw.csv` per factor plus a combined
 `forced_card_summary.csv` (biased-seat win rate, play rate, and win rate when the
 bird was played versus held unplayed, with Wilson 95% intervals).
 
+Because every factor replays the same games, factors can be compared on identical
+deals. The recommended workflow is one `forced-card` run per factor into a shared
+`--out` (a negative factor needs the `=` form), then `forced-card-summary`, which
+rebuilds `forced_card_summary.csv` from every `factor_*/` found and writes
+`forced_card_paired.csv` / `.md`: each factor minus the baseline (default 0) in
+win rate, score margin, and play rate, with 95% intervals.
+
 ```
 wingspan research forced-card --release --games 10000 --workers 10 --out forced_card/
 wingspan research forced-card --force-card-factor 0,0.5,1 --forced-card-id 42 --checkpoint-dir checkpoints --out forced_card/
+wingspan research forced-card --force-card-factor=-0.5 --games 10000 --out forced_card/
+wingspan research forced-card-summary --out forced_card/ --baseline-factor 0
 ```
 
 ## Probe a model's architecture
@@ -398,7 +407,7 @@ command with subcommands:
 | `wingspan summary`      | Training-progression HTML report for a run directory   |
 | `wingspan cloud`        | Headless S3-persisted training (container use)          |
 | `wingspan monitor`      | FLOCK WATCH: live roster of cloud runs                  |
-| `wingspan research`     | Offline research studies (setup keep-rate, game-stats, card-stats, forced-card)  |
+| `wingspan research`     | Offline research studies (setup keep-rate, game-stats, card-stats, forced-card, forced-card-summary)  |
 | `wingspan analysis`     | Architecture-importance probe over a trained checkpoint |
 
 Run `wingspan --help` for the full list, or `wingspan <command> --help` for

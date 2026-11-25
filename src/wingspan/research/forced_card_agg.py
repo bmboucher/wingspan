@@ -29,6 +29,14 @@ class FactorRun(typing.NamedTuple):
     raw_path: pathlib.Path
 
 
+class FactorRecords(typing.NamedTuple):
+    """One factor's parsed seat-game records."""
+
+    force_card_factor: float
+    forced_card_id: int
+    records: list[models.ForcedCardSeatRecord]
+
+
 def read_raw(path: pathlib.Path) -> list[models.ForcedCardSeatRecord]:
     """Parse ``forced_card_raw.csv`` into one record per seat-game."""
     with path.open(newline="", encoding="utf-8") as handle:
@@ -100,10 +108,26 @@ def aggregate(
     """Write the combined summary CSV and markdown for ``runs`` into ``out_dir``
     (created if needed), returning the written files. Rows are ordered by factor
     ascending, negatives first."""
+    return aggregate_records(
+        [
+            FactorRecords(
+                run.force_card_factor, run.forced_card_id, read_raw(run.raw_path)
+            )
+            for run in runs
+        ],
+        out_dir,
+    )
+
+
+def aggregate_records(
+    factors: typing.Sequence[FactorRecords], out_dir: pathlib.Path
+) -> list[pathlib.Path]:
+    """Like :func:`aggregate` over already-parsed records."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    ordered = sorted(factors, key=lambda factor: factor.force_card_factor)
     rows = [
-        summary_row(run.force_card_factor, run.forced_card_id, read_raw(run.raw_path))
-        for run in sorted(runs, key=lambda run: run.force_card_factor)
+        summary_row(factor.force_card_factor, factor.forced_card_id, factor.records)
+        for factor in ordered
     ]
     csv_path = out_dir / constants.FORCED_CARD_SUMMARY_FILENAME
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
@@ -114,11 +138,40 @@ def aggregate(
         for row in rows:
             writer.writerow(row.to_csv_row())
     markdown_path = out_dir / constants.FORCED_CARD_SUMMARY_MARKDOWN_FILENAME
-    forced_name = _forced_name(runs)
+    forced_name = forced_card.bird_name(ordered[0].forced_card_id) if ordered else ""
     markdown_path.write_text(
         summary_markdown(rows, forced_name), encoding="utf-8", newline="\n"
     )
     return [csv_path, markdown_path]
+
+
+def factor_dir_name(factor: float) -> str:
+    """The per-factor directory name (``factor_-0.500``); ``-0.0`` is written as
+    ``0.000``. The one place the format lives, shared with :func:`parse_factor_dir`."""
+    return constants.FORCED_CARD_DIR_TEMPLATE.format(factor=factor + 0.0)
+
+
+def parse_factor_dir(name: str) -> float | None:
+    """The factor a directory name encodes, or ``None`` when it is not a factor
+    directory (the inverse of :func:`factor_dir_name`)."""
+    if not name.startswith(constants.FORCED_CARD_DIR_PREFIX):
+        return None
+    try:
+        return float(name.removeprefix(constants.FORCED_CARD_DIR_PREFIX))
+    except ValueError:
+        return None
+
+
+def discover_runs(out_dir: pathlib.Path, forced_card_id: int) -> list[FactorRecords]:
+    """Parse every ``<out_dir>/factor_*/forced_card_raw.csv`` found, ascending by
+    factor. Directories without a raw file or with an unparsable name are skipped."""
+    found: list[FactorRecords] = []
+    for factor_dir in out_dir.glob(f"{constants.FORCED_CARD_DIR_PREFIX}*"):
+        factor = parse_factor_dir(factor_dir.name)
+        raw_path = factor_dir / constants.FORCED_CARD_RAW_FILENAME
+        if factor is not None and raw_path.is_file():
+            found.append(FactorRecords(factor, forced_card_id, read_raw(raw_path)))
+    return sorted(found, key=lambda factor: factor.force_card_factor)
 
 
 ###### PRIVATE #######
@@ -129,10 +182,6 @@ def _tally(records: typing.Iterable[models.ForcedCardSeatRecord]) -> models.WinT
     for record in records:
         tally.add(won=record.won)
     return tally
-
-
-def _forced_name(runs: typing.Sequence[FactorRun]) -> str:
-    return forced_card.bird_name(runs[0].forced_card_id) if runs else ""
 
 
 def _percent(rate: float | None) -> str:

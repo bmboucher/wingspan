@@ -165,6 +165,22 @@ forced_card_played)` (`in_hand` = kept opener, any round's hand per the
 card-stats capture, or placed; `played` = placed); `ForcedCardSummaryRow`
 (`biased_*`, `opponent_*`, `in_hand_games`, `play_rate` + CI, `played_*`,
 `held_unplayed_*`). Raw files live in `<out>/factor_<x.xxx>/forced_card_raw.csv`.
+Also here: `aggregate_records(list[FactorRecords], out_dir)` (summary over parsed
+records), `factor_dir_name(factor)` / `parse_factor_dir(name)` (the shared
+directory-name format), `discover_runs(out_dir, forced_card_id)` (scan
+`factor_*/forced_card_raw.csv`).
+
+**`forced_card_paired.py`** — Paired factor-vs-baseline comparison (stdlib only;
+RESEARCH.md "Paired comparison"). `compare_to_baseline(factors, baseline_factor,
+out_dir)` writes `forced_card_paired.csv` / `.md` (raises `FileNotFoundError`
+without the baseline); `paired_rows(factor, baseline)` gives the "all" and
+"baseline_held" `ForcedCardPairedRow`s; `game_outcomes(records)` folds complete
+games into `ForcedCardGameOutcome`s (biased seat's win, margin over the best
+opponent, in-hand, played). Pairs on `game_index` over the intersection of complete
+games, raises `ValueError` if biased seat or seed differ. Deltas are
+`PairedDelta(n, mean, ci95_lo, ci95_hi)` with a z interval (`constants.NORMAL_95_Z`).
+Models in `models.py`: `ForcedCardGameOutcome`, `PairedSubset`, `PairedDelta`,
+`ForcedCardPairedRow`. CLI: `wingspan research forced-card-summary` in `app.py`.
 
 **`card_stats_agg.py`** — Per-card aggregates from `card_games_raw.csv`
 (stdlib only; re-runnable via `--aggregate-only`). `aggregate(raw_csv, out_dir)`

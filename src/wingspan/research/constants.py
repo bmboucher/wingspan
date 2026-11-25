@@ -82,6 +82,14 @@ FORCED_CARD_SUMMARY_MARKDOWN_FILENAME = "forced_card_summary.md"
 # Per-factor sub-directory name; the factor is rendered with this many decimals
 # (negatives keep their sign, e.g. ``factor_-0.500``).
 FORCED_CARD_DIR_TEMPLATE = "factor_{factor:.3f}"
+# Prefix of the per-factor directory name (the factor is parsed after it).
+FORCED_CARD_DIR_PREFIX = "factor_"
+# Paired-comparison outputs of ``forced-card-summary`` and its default baseline.
+FORCED_CARD_PAIRED_FILENAME = "forced_card_paired.csv"
+FORCED_CARD_PAIRED_MARKDOWN_FILENAME = "forced_card_paired.md"
+DEFAULT_BASELINE_FACTOR = 0.0
+# Two-sided 95% critical value of the standard normal, for paired-mean intervals.
+NORMAL_95_Z = 1.96
 # Each seat's sampling RNG is seeded by this string formatted with the game
 # seed and the seat, so a game replays identically at every factor.
 FORCED_CARD_RNG_SEED_TEMPLATE = "forced-card:{seed}:{seat}"

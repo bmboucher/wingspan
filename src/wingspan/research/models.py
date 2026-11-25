@@ -981,6 +981,98 @@ class ForcedCardSummaryRow(pydantic.BaseModel):
         ]
 
 
+class ForcedCardGameOutcome(pydantic.BaseModel):
+    """The biased seat's result in one complete forced-card game, folded from the
+    game's seat rows: ``margin`` is its final score minus the best opponent's."""
+
+    game_index: int
+    seed: int
+    biased_seat: int
+    won: bool
+    margin: int
+    in_hand: bool
+    played: bool
+
+
+class PairedSubset(enum.StrEnum):
+    """Which games a paired comparison covers: every paired game, or only those
+    where the baseline run's biased seat held the forced bird."""
+
+    ALL = "all"
+    BASELINE_HELD = "baseline_held"
+
+
+class PairedDelta(pydantic.BaseModel):
+    """The mean of per-game differences (factor minus baseline) over ``n`` paired
+    games with a 95% normal-approximation interval. ``mean`` is ``None`` when
+    ``n == 0`` and the interval is ``None`` when ``n < 2``."""
+
+    n: int
+    mean: float | None
+    ci95_lo: float | None
+    ci95_hi: float | None
+
+    def flattened(self, prefix: str) -> dict[str, object]:
+        """The delta's fields keyed ``prefix`` + field name (a CSV fragment)."""
+        return {f"{prefix}{name}": value for name, value in self.model_dump().items()}
+
+    @classmethod
+    def columns(cls, prefix: str) -> list[str]:
+        """The column names :meth:`flattened` produces for ``prefix``."""
+        return [f"{prefix}{name}" for name in cls.model_fields]
+
+
+class ForcedCardPairedRow(pydantic.BaseModel):
+    """One row of ``forced_card_paired.csv``: a factor against the baseline factor
+    on identical deals (one pair per ``game_index``), for one subset of games.
+
+    ``win`` is the paired difference in the biased seat's win indicator (ties are
+    non-wins); ``x_win_baseline_loss`` / ``x_loss_baseline_win`` are the
+    discordant pair counts. ``margin`` is the paired difference in score margin
+    (biased final score minus the best opponent's). ``play`` is the paired
+    difference in the forced bird's played indicator."""
+
+    force_card_factor: float
+    baseline_factor: float
+    subset: PairedSubset
+    n_pairs: int
+    win: PairedDelta
+    x_win_baseline_loss: int
+    x_loss_baseline_win: int
+    margin: PairedDelta
+    play: PairedDelta
+
+    def to_csv_row(self) -> dict[str, object]:
+        """The flat CSV row (the header is :meth:`csv_columns`)."""
+        row: dict[str, object] = {
+            "force_card_factor": self.force_card_factor,
+            "baseline_factor": self.baseline_factor,
+            "subset": self.subset.value,
+            "n_pairs": self.n_pairs,
+        }
+        row.update(self.win.flattened("win_delta_"))
+        row["x_win_baseline_loss"] = self.x_win_baseline_loss
+        row["x_loss_baseline_win"] = self.x_loss_baseline_win
+        row.update(self.margin.flattened("margin_delta_"))
+        row.update(self.play.flattened("play_delta_"))
+        return row
+
+    @classmethod
+    def csv_columns(cls) -> list[str]:
+        """The ``forced_card_paired.csv`` header. A stable contract."""
+        return [
+            "force_card_factor",
+            "baseline_factor",
+            "subset",
+            "n_pairs",
+            *PairedDelta.columns("win_delta_"),
+            "x_win_baseline_loss",
+            "x_loss_baseline_win",
+            *PairedDelta.columns("margin_delta_"),
+            *PairedDelta.columns("play_delta_"),
+        ]
+
+
 ###### PRIVATE #######
 
 

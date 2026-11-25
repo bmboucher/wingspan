@@ -17,6 +17,8 @@ Usage::
                                   [--forced-card-id ID]
                                   [--checkpoint-dir DIR | --release]
                                   [--seed S] [--workers W] [--device cpu]
+    wingspan research forced-card-summary --out DIR [--baseline-factor 0]
+                                          [--forced-card-id ID]
     wingspan research cards-html --out DIR
 
 One sub-command per study. ``setup-keep`` writes the setup keep-rate experience
@@ -33,7 +35,11 @@ games in which one seat's policy is biased toward playing a chosen bird (default
 Cedar Waxwing) at each ``--force-card-factor`` and writes per-factor raw tables
 plus a combined ``forced_card_summary.csv``
 (:mod:`wingspan.research.forced_card`, :mod:`wingspan.research.forced_card_agg`).
-``cards-html`` writes one
+``forced-card-summary`` rebuilds the combined summary over every
+``factor_*/forced_card_raw.csv`` found (so factors can be played by separate
+``forced-card`` runs into one ``--out``) and writes ``forced_card_paired.csv`` /
+``.md``: each factor against ``--baseline-factor`` on identical deals
+(:mod:`wingspan.research.forced_card_paired`). ``cards-html`` writes one
 fixed-size HTML card per bird and bonus card (:mod:`wingspan.research.card_html`).
 """
 
@@ -53,6 +59,7 @@ from wingspan.research import (
     constants,
     forced_card,
     forced_card_agg,
+    forced_card_paired,
     game_stats,
     game_stats_agg,
     models,
@@ -64,6 +71,7 @@ _SETUP_KEEP = "setup-keep"
 _GAME_STATS = "game-stats"
 _CARD_STATS = "card-stats"
 _FORCED_CARD = "forced-card"
+_FORCED_CARD_SUMMARY = "forced-card-summary"
 _CARDS_HTML = "cards-html"
 
 
@@ -78,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_card_stats(args)
     if args.study == _FORCED_CARD:
         return _run_forced_card(args)
+    if args.study == _FORCED_CARD_SUMMARY:
+        return _run_forced_card_summary(args)
     if args.study == _CARDS_HTML:
         return _run_cards_html(args)
     raise AssertionError(f"unreachable: argparse admitted study {args.study!r}")
@@ -242,6 +252,29 @@ def _run_forced_card(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_forced_card_summary(args: argparse.Namespace) -> int:
+    """Rebuild the marginal summary and the paired comparison from whatever
+    ``factor_*/forced_card_raw.csv`` files exist under ``--out``."""
+    out_dir = pathlib.Path(args.out)
+    try:
+        forced_card_id = forced_card.resolve_forced_card_id(args.forced_card_id)
+        factors = forced_card_agg.discover_runs(out_dir, forced_card_id)
+        if not factors:
+            raise FileNotFoundError(
+                f"no factor_*/{constants.FORCED_CARD_RAW_FILENAME} under {out_dir}"
+            )
+        written = forced_card_paired.compare_to_baseline(
+            factors, args.baseline_factor, out_dir
+        )
+        written = forced_card_agg.aggregate_records(factors, out_dir) + written
+    except (FileNotFoundError, ValueError) as error:
+        print(f"wingspan research: {error}", file=sys.stderr)
+        return 1
+    for path in written:
+        print(f"wrote {path}")
+    return 0
+
+
 def _play_forced_card_factor(
     args: argparse.Namespace,
     checkpoint_dir: pathlib.Path,
@@ -249,9 +282,7 @@ def _play_forced_card_factor(
     forced_card_id: int,
 ) -> forced_card_agg.FactorRun:
     """Play the games of one factor into its sub-directory of ``--out``."""
-    factor_dir = pathlib.Path(args.out) / constants.FORCED_CARD_DIR_TEMPLATE.format(
-        factor=factor + 0.0
-    )
+    factor_dir = pathlib.Path(args.out) / forced_card_agg.factor_dir_name(factor)
     factor_dir.mkdir(parents=True, exist_ok=True)
     raw_path = factor_dir / constants.FORCED_CARD_RAW_FILENAME
     spec = models.GameStatsSpec(games=args.games, seed=args.seed, workers=args.workers)
@@ -447,6 +478,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "and play rates.",
     )
     _add_forced_card_arguments(forced)
+    summary = studies.add_parser(
+        _FORCED_CARD_SUMMARY,
+        help="Rebuild the forced-card summary and the paired comparison against "
+        "a baseline factor from the factor_*/forced_card_raw.csv files in --out.",
+    )
+    _add_forced_card_summary_arguments(summary)
     cards_html = studies.add_parser(
         _CARDS_HTML,
         help="Write a compact fixed-size HTML card for every bird and bonus card.",
@@ -509,6 +546,32 @@ def _add_card_stats_arguments(card: argparse.ArgumentParser) -> None:
         default=None,
         metavar="CARD_GAMES_RAW_CSV",
         help="Skip play: aggregate this card_games_raw.csv into --out.",
+    )
+
+
+def _add_forced_card_summary_arguments(summary: argparse.ArgumentParser) -> None:
+    """Register the ``forced-card-summary`` sub-command's arguments."""
+    summary.add_argument(
+        "--out",
+        required=True,
+        help="Directory holding the factor_<x>/forced_card_raw.csv files; the "
+        "summary and paired files are written here.",
+    )
+    summary.add_argument(
+        "--baseline-factor",
+        dest="baseline_factor",
+        type=float,
+        default=constants.DEFAULT_BASELINE_FACTOR,
+        help="Factor every other factor is paired against; its raw file must "
+        f"exist (default: {constants.DEFAULT_BASELINE_FACTOR:g}).",
+    )
+    summary.add_argument(
+        "--forced-card-id",
+        dest="forced_card_id",
+        type=int,
+        default=None,
+        help="Bird id the study forced, for the report heading "
+        f"(default: {constants.DEFAULT_FORCED_CARD_NAME}).",
     )
 
 
