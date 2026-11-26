@@ -9,7 +9,7 @@ opponents running the same nets. At a decision that matches the profile the bias
 seat's probabilities are reweighted: every conformant option's probability is
 multiplied by ``1 + x`` and every non-conformant option's by ``1 - x``, then
 renormalised; ``x`` lies in ``[-1, 1]`` and a negative ``x`` avoids the bird
-(``x = -1`` never picks it while an alternative exists). The profile is two
+(``x = -1`` never picks it while an alternative exists). The base profile is two
 decisions:
 
 * ``MainActionDecision``; the conformant option is ``PLAY_BIRD``. For ``x >= 0``
@@ -21,9 +21,22 @@ decisions:
   power-granted extra plays); the conformant options are those plays, in any
   habitat.
 
-Later decisions (habitat, eggs, food payment) are not biased. By default the
-biased seat alternates by game parity (``game_index % num_players``); with
-``BiasedSeats.ALL`` every seat is biased. Games use the same seeds
+For ``x > 0`` only, two more rules widen the push toward the bird (they are
+inactive at ``x <= 0``, so the negative-factor behaviour is unchanged):
+
+* Opening keep (``SetupDecision``): the conformant options are the keeps whose
+  kept cards include the forced bird. With the bird not dealt, or every keep
+  holding it, the probabilities are effectively unchanged.
+* Unlock decisions: at any other decision (gain food, lay eggs, draw cards,
+  payments, a main action when the forced bird is not playable, ...) an option is
+  conformant when its choice-feature row sets the forced bird's bit in the
+  ``becomes_playable`` stripe, i.e. the action makes the bird playable where it
+  was not. The stripe offset comes from the net's era-frozen
+  ``raw_choice_stripe_layout`` (nets without the stripe skip this rule).
+
+Decisions that are neither of those nor flag the bird unlock are not biased. By
+default the biased seat alternates by game parity (``game_index % num_players``);
+with ``BiasedSeats.ALL`` every seat is biased. Games use the same seeds
 ``spec.game_seed(index)`` at every factor, so factors are paired.
 
 To raise how often the forced bird is dealt early, :func:`place_forced_card`
@@ -155,16 +168,72 @@ def conformant_mask[C: decisions.Choice](
     decision: decisions.Decision[C],
     forced_card_id: int,
     force_card_factor: float,
+    *,
+    choice_feats: np.ndarray | None = None,
+    becomes_playable_offset: int | None = None,
 ) -> np.ndarray | None:
-    """The boolean mask of ``decision``'s options that play the forced bird, or
-    ``None`` when the decision is outside the bias profile (another decision
-    class, a main action the sign of ``force_card_factor`` does not match, or a
-    play menu without the bird)."""
-    if isinstance(decision, decisions.MainActionDecision):
-        return main_action_mask(eng, decision, forced_card_id, force_card_factor)
+    """The boolean mask of ``decision``'s options that push toward the forced
+    bird, or ``None`` when the decision is outside the bias profile.
+
+    Opening keeps (``SetupDecision``) match the keeps holding the bird, and
+    unlock decisions (see :func:`unlock_mask`, which needs ``choice_feats`` and
+    ``becomes_playable_offset``) match the options that make it playable, both
+    only for ``force_card_factor > 0``. A main action that does not match the
+    play rule (the bird is not playable) falls through to the unlock rule; a play
+    menu never does."""
+    if isinstance(decision, decisions.SetupDecision):
+        if force_card_factor <= 0.0:
+            return None
+        return setup_keep_mask(decision, forced_card_id)
     if isinstance(decision, decisions.PlayBirdDecision):
         return play_bird_mask(decision, forced_card_id)
-    return None
+    if isinstance(decision, decisions.MainActionDecision):
+        play_mask = main_action_mask(eng, decision, forced_card_id, force_card_factor)
+        if play_mask is not None:
+            return play_mask
+    if force_card_factor <= 0.0:
+        return None
+    return unlock_mask(choice_feats, becomes_playable_offset, forced_card_id)
+
+
+def setup_keep_mask(
+    decision: decisions.SetupDecision, forced_card_id: int
+) -> np.ndarray | None:
+    """Every keep whose kept cards include the forced bird; ``None`` when no keep
+    does (the bird was not dealt)."""
+    mask = np.array(
+        [
+            any(bird.id == forced_card_id for bird in choice.kept_cards)
+            for choice in decision.choices
+        ]
+    )
+    return mask if mask.any() else None
+
+
+def unlock_mask(
+    choice_feats: np.ndarray | None,
+    becomes_playable_offset: int | None,
+    forced_card_id: int,
+) -> np.ndarray | None:
+    """The rows of ``choice_feats`` whose ``becomes_playable`` stripe sets the
+    forced bird's bit; ``None`` when the net has no such stripe, the features are
+    absent, or no row sets the bit."""
+    if choice_feats is None or becomes_playable_offset is None:
+        return None
+    column = becomes_playable_offset + cards.bird_index(_forced_bird(forced_card_id))
+    mask = choice_feats[:, column] > 0.0
+    return mask if mask.any() else None
+
+
+def becomes_playable_offset(net: model.PolicyValueNet) -> int | None:
+    """Column of the ``becomes_playable`` stripe in a row of ``net``'s
+    ``encode_choices`` output, from the net's own era-frozen layout (the live
+    layout constants do not apply to compat nets); ``None`` when the era has no
+    such stripe."""
+    layout = net.raw_choice_stripe_layout()
+    if not any(stripe.name == _BECOMES_PLAYABLE_STRIPE for stripe in layout.stripes):
+        return None
+    return layout.offset_of(_BECOMES_PLAYABLE_STRIPE)
 
 
 def main_action_mask(
@@ -209,12 +278,14 @@ def sampling_agent(
 ) -> engine.Agent:
     """An agent that samples every decision from the softmax with ``rng`` — the
     setup keep included — and, when ``forced`` carries a nonzero factor, applies
-    the forced-card bias at matching decisions.
+    the forced-card bias at matching decisions (including, for a positive factor,
+    the opening keep and unlock decisions).
 
     Single-option decisions short-circuit. A setup-excluded net resolves the
     opening with ``setup_net``'s softmax (uniform-random without one)."""
     policy_net = net
     bias = forced if forced is not None and forced.force_card_factor != 0.0 else None
+    unlock_offset = becomes_playable_offset(net) if bias is not None else None
 
     def agent[C: decisions.Choice](
         eng: engine.Engine, decision: decisions.Decision[C]
@@ -228,6 +299,14 @@ def sampling_agent(
             _, setup_probs, _ = policy.setup_scores_and_probs(
                 setup_net, setup_decision, eng.state, device
             )
+            if bias is not None:
+                setup_mask = conformant_mask(
+                    eng, decision, bias.forced_card_id, bias.force_card_factor
+                )
+                if setup_mask is not None:
+                    setup_probs = bias_probs(
+                        setup_probs, setup_mask, bias.force_card_factor
+                    )
             keep = policy.sample_index_from_probs(
                 setup_probs, len(decision.choices), rng
             )
@@ -240,7 +319,12 @@ def sampling_agent(
         )
         if bias is not None:
             mask = conformant_mask(
-                eng, decision, bias.forced_card_id, bias.force_card_factor
+                eng,
+                decision,
+                bias.forced_card_id,
+                bias.force_card_factor,
+                choice_feats=choice_feats,
+                becomes_playable_offset=unlock_offset,
             )
             if mask is not None:
                 probs = bias_probs(probs, mask, bias.force_card_factor)
@@ -379,6 +463,15 @@ def play_game(
 
 ###### PRIVATE #######
 
+_BECOMES_PLAYABLE_STRIPE = "becomes_playable"
+
+
+@functools.cache
+def _forced_bird(forced_card_id: int) -> cards.Bird:
+    """The catalog bird with id ``forced_card_id``."""
+    (bird,) = [bird for bird in cards.birds_ordered() if bird.id == forced_card_id]
+    return bird
+
 
 def _degenerate_fallback(
     probs: np.ndarray, conformant: np.ndarray, force_card_factor: float
@@ -397,7 +490,8 @@ def _degenerate_fallback(
 
 def _held_after_setup(seat: card_stats.CardSeatCapture, name: str) -> bool:
     """Whether the bird was in the seat's hand at any point after setup: kept as
-    the opener, in any round's hand, or placed on the board."""
+    the opener (a bird dealt but discarded in the keep does not count), in any round's hand, or placed on the board.
+    """
     return (
         name in seat.kept_birds
         or name in seat.played_birds

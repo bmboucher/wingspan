@@ -145,6 +145,14 @@ dispatches to `main_action_mask` (conformant = `PLAY_BIRD`, via
 playable, for `x < 0` only when it is the sole playable bird, else the main
 action is unbiased) and `play_bird_mask` (any `PlayBirdChoice` with
 `bird.id == forced_card_id`, any habitat, so power-granted extra plays too).
+For `x > 0` only, `conformant_mask` also takes `choice_feats` and
+`becomes_playable_offset` keywords: a `SetupDecision` matches the keeps whose
+`kept_cards` hold the forced bird (`setup_keep_mask`), and any other decision
+(a main action without a playable forced bird included) matches the rows whose
+`becomes_playable` stripe bit for the bird is set (`unlock_mask`). The offset
+comes from `becomes_playable_offset(net)`, which reads the net's era-frozen
+`raw_choice_stripe_layout()` (`None` when the era lacks the stripe, making the
+rule a no-op). Both rules are inactive for `x <= 0`.
 `sampling_agent(net, device, rng, *, setup_net, forced)` samples every decision
 (the setup keep via `policy.setup_scores_and_probs`) and biases only when the
 factor is nonzero. `play_game` seeds each seat's `random.Random` from the game

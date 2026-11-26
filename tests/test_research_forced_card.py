@@ -405,6 +405,227 @@ def test_agent_at_factor_zero_samples_every_action(
     assert len(set(drawn)) > 1
 
 
+###### Opening keep and unlock rules ######
+
+
+def _setup_decision(
+    dealt: list[cards.Bird],
+) -> decisions.SetupDecision:
+    """One keep choice per dealt bird (keep just that bird) plus a keep-nothing
+    choice, so exactly the choice for the forced bird conforms."""
+    keeps: list[tuple[cards.Bird, ...]] = [(bird,) for bird in dealt] + [()]
+    return decisions.SetupDecision(
+        player_id=_SEAT,
+        prompt="setup",
+        dealt_cards=dealt,
+        dealt_bonus=[],
+        choices=[
+            decisions.SetupChoice(kept_cards=kept, kept_foods=(), bonus_card=None)
+            for kept in keeps
+        ],
+    )
+
+
+def _uniform_setup(
+    _setup_net: object,
+    decision: decisions.SetupDecision,
+    _game_state: object,
+    _device: object,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    count = len(decision.choices)
+    probs = np.array([1.0 / count] * count, dtype=np.float64)
+    return probs, probs, probs
+
+
+def _draw_setup_keeps(
+    run_dir: pathlib.Path,
+    factor: float,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    dealt: list[cards.Bird],
+    forced_bird: cards.Bird,
+) -> list[tuple[int, ...]]:
+    monkeypatch.setattr(policy, "setup_scores_and_probs", _uniform_setup)
+    nets = game_stats.load_game_nets(run_dir, _DEVICE)
+    eng = _engine_holding([], fed=True)
+    agent = forced_card.sampling_agent(
+        nets.policy_net,
+        _DEVICE,
+        random.Random(0),
+        setup_net=nets.setup_net,
+        forced=models.ForcedCardSpec(
+            force_card_factor=factor, forced_card_id=forced_bird.id
+        ),
+    )
+    decision = _setup_decision(dealt)
+    drawn = [agent(eng, decision) for _ in range(40)]
+    return [tuple(bird.id for bird in choice.kept_cards) for choice in drawn]
+
+
+def test_setup_keep_at_factor_one_always_keeps_the_forced_bird(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    forced, other, third = _cheap_birds()[:3]
+    drawn = _draw_setup_keeps(
+        run_dir, 1.0, monkeypatch, dealt=[forced, other, third], forced_bird=forced
+    )
+    assert set(drawn) == {(forced.id,)}
+
+
+def test_setup_keep_factor_zero_and_negative_are_unbiased(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    forced, other, third = _cheap_birds()[:3]
+    for factor in (0.0, -1.0, -0.5):
+        drawn = _draw_setup_keeps(
+            run_dir,
+            factor,
+            monkeypatch,
+            dealt=[forced, other, third],
+            forced_bird=forced,
+        )
+        assert len(set(drawn)) > 2
+
+
+def test_setup_keep_without_the_forced_bird_dealt_is_unchanged(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    forced, other, third = _cheap_birds()[:3]
+    drawn = _draw_setup_keeps(
+        run_dir, 1.0, monkeypatch, dealt=[other, third], forced_bird=forced
+    )
+    assert len(set(drawn)) > 1
+
+
+def test_setup_keep_mask_is_none_for_non_positive_factors():
+    forced, other = _cheap_birds()[:2]
+    eng = _engine_holding([], fed=True)
+    decision = _setup_decision([forced, other])
+    mask = forced_card.conformant_mask(eng, decision, forced.id, 0.5)
+    assert mask is not None
+    assert mask.tolist() == [True, False, False]
+    for factor in (0.0, -0.5):
+        assert forced_card.conformant_mask(eng, decision, forced.id, factor) is None
+
+
+_STRIPE_ROW_DIM = 400
+
+
+def _flagged_encoder(
+    forced_bird: cards.Bird, flagged_rows: tuple[int, ...], offset: int
+):
+    """An ``encode_choices`` stub: ``_STRIPE_ROW_DIM`` columns, the forced bird's
+    ``becomes_playable`` bit set on ``flagged_rows``."""
+
+    def encode(
+        decision: decisions.Decision[decisions.Choice], _game_state: object
+    ) -> np.ndarray:
+        feats = np.zeros((len(decision.choices), _STRIPE_ROW_DIM), dtype=np.float32)
+        for row in flagged_rows:
+            feats[row, offset + cards.bird_index(forced_bird)] = 1.0
+        return feats
+
+    return encode
+
+
+def _draw_unlock_actions(
+    run_dir: pathlib.Path,
+    factor: float,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    flagged_rows: tuple[int, ...],
+    stripe: bool = True,
+) -> list[decisions.MainAction]:
+    """Draw main actions with the forced bird held but unaffordable (so the
+    play rule does not match and the unlock rule decides)."""
+    monkeypatch.setattr(policy, "policy_probs", _uniform_probs)
+    nets = game_stats.load_game_nets(run_dir, _DEVICE)
+    net = nets.policy_net
+    forced_bird = _cheap_birds()[0]
+    offset = net.raw_choice_stripe_layout().offset_of("becomes_playable")
+    monkeypatch.setattr(
+        net, "encode_choices", _flagged_encoder(forced_bird, flagged_rows, offset)
+    )
+    if not stripe:
+        stripeless = net.raw_choice_stripe_layout().without_stripes(
+            ("becomes_playable", "becomes_unplayable")
+        )
+        monkeypatch.setattr(net, "raw_choice_stripe_layout", lambda: stripeless)
+    eng = _engine_holding([forced_bird], fed=False)
+    agent = forced_card.sampling_agent(
+        net,
+        _DEVICE,
+        random.Random(0),
+        setup_net=nets.setup_net,
+        forced=models.ForcedCardSpec(
+            force_card_factor=factor, forced_card_id=forced_bird.id
+        ),
+    )
+    decision = _main_action_decision(with_play=True)
+    return [agent(eng, decision).action for _ in range(40)]
+
+
+def test_unlock_rule_at_factor_one_only_samples_flagged_rows(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    drawn = _draw_unlock_actions(run_dir, 1.0, monkeypatch, flagged_rows=(0, 2))
+    assert set(drawn) == {
+        decisions.MainAction.GAIN_FOOD,
+        decisions.MainAction.DRAW_CARDS,
+    }
+
+
+def test_unlock_rule_is_inactive_at_zero_and_negative_factors(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    for factor in (0.0, -0.5, -1.0):
+        drawn = _draw_unlock_actions(run_dir, factor, monkeypatch, flagged_rows=(0,))
+        assert len(set(drawn)) > 2
+
+
+def test_unlock_rule_without_flagged_rows_is_unchanged(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    drawn = _draw_unlock_actions(run_dir, 1.0, monkeypatch, flagged_rows=())
+    assert len(set(drawn)) > 2
+
+
+def test_unlock_rule_is_a_no_op_for_an_era_without_the_stripe(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    drawn = _draw_unlock_actions(
+        run_dir, 1.0, monkeypatch, flagged_rows=(0,), stripe=False
+    )
+    assert len(set(drawn)) > 2
+
+
+def test_main_action_with_a_playable_forced_bird_keeps_the_play_rule(
+    run_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    forced_bird = _cheap_birds()[0]
+    eng = _engine_holding([forced_bird], fed=True)
+    decision = _main_action_decision(with_play=True)
+    feats = np.zeros((4, _STRIPE_ROW_DIM))
+    feats[0, 5 + cards.bird_index(forced_bird)] = 1.0
+    mask = forced_card.conformant_mask(
+        eng,
+        decision,
+        forced_bird.id,
+        1.0,
+        choice_feats=feats,
+        becomes_playable_offset=5,
+    )
+    assert mask is not None
+    assert mask.tolist() == [False, False, False, True]
+
+
+def test_becomes_playable_offset_matches_the_live_layout(run_dir: pathlib.Path):
+    nets = game_stats.load_game_nets(run_dir, _DEVICE)
+    assert forced_card.becomes_playable_offset(
+        nets.policy_net
+    ) == nets.policy_net.raw_choice_stripe_layout().offset_of("becomes_playable")
+
+
 ###### Games: seat alternation and seed pairing ######
 
 

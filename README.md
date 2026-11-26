@@ -339,7 +339,9 @@ every option that plays the bird is multiplied by `1 + x` and every other
 option's by `1 - x`, then renormalised, at the main-action and play-a-bird
 decisions; negative `x` avoids the bird (`-1` never plays it when an alternative
 exists). For `x < 0` the main action is biased only when the forced bird is the
-sole playable bird. Pass a list starting with a negative using `=`
+sole playable bird. For `x > 0` the push also covers the opening keep (keeps that
+include the bird) and any decision whose option makes the bird playable (the
+`becomes_playable` flag); these rules are off for `x <= 0`. Pass a list starting with a negative using `=`
 (`--force-card-factor=-1,-0.5,0,0.5,1`). By default the biased seat
 alternates by game (`--biased-seats alternate`); `--biased-seats all` biases every
 seat. The same game seeds are used at every factor. `--forced-card-found-in N`
