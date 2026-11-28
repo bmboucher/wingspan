@@ -214,6 +214,70 @@ def test_final_bonus_on_a_real_game(run_dir: pathlib.Path):
         assert sum(entry.points for entry in record.final_bonus) == stats_record.bonus
 
 
+def test_capture_final_birds_attributes_eggs_food_tucked_and_bonus():
+    """Each board bird's final value is its printed points plus the eggs, cached
+    food and tucked cards on it plus the final VP of the bonus cards its own
+    power drew; a bonus card from setup (or another bird) adds nothing."""
+    eng = collect.new_engine(1, 2)
+    player = eng.state.players[_SEAT]
+    birds = cards.birds_ordered()
+    bonuses = cards.bonus_cards_ordered()
+    capture = card_capture.CardStatsCapture()
+    for seat_player in eng.state.players:
+        capture.setup_start(engine=eng, player=seat_player, dealt_bonus=[])
+        seat_player.final_score = 40 + seat_player.id
+
+    drawer = state.PlayedBird(bird=birds[0], eggs=2, tucked_cards=3)
+    drawer.cached_food[cards.Food.SEED] = 1
+    drawer.cached_food[cards.Food.FISH] = 2
+    plain = state.PlayedBird(bird=birds[1])
+    player.board[cards.Habitat.FOREST] = [drawer, plain]
+    player.bonus_cards = [bonuses[0], bonuses[1]]
+    # bonuses[0] was drawn by birds[0]'s power; bonuses[1] is the setup pick.
+    capture.bonus_acquired(engine=eng, player=player, bonus=bonuses[0], source=birds[0])
+    capture.game_end(engine=eng)
+
+    by_name = {entry.name: entry for entry in capture.seats[_SEAT].final_birds}
+    assert set(by_name) == {birds[0].name, birds[1].name}
+    drawn = by_name[birds[0].name]
+    assert (drawn.points, drawn.eggs, drawn.food, drawn.tucked) == (
+        birds[0].points,
+        2,
+        3,
+        3,
+    )
+    assert drawn.bonus == scoring.bonus_score(player, bonuses[0])
+    assert by_name[birds[1].name] == card_capture.FinalBird(
+        name=birds[1].name,
+        points=birds[1].points,
+        eggs=0,
+        food=0,
+        tucked=0,
+        bonus=0,
+    )
+    assert capture.seats[1 - _SEAT].final_birds == []
+
+
+def test_final_birds_on_a_real_game(run_dir: pathlib.Path):
+    """Attributable VP never exceeds what final scoring paid: the non-bonus
+    components fit inside the final score and the per-bird bonus VP inside the
+    seat's bonus VP; every bird on the board is listed once."""
+    nets = game_stats.load_game_nets(run_dir, _DEVICE)
+    records = study.play_game(models.GameStatsSpec(games=1, seed=3), 0, nets)
+    for record in records:
+        names = [entry.name for entry in record.final_birds]
+        assert len(set(names)) == len(names)
+        assert set(record.played_birds) == set(names)
+        board_value = sum(
+            entry.points + entry.eggs + entry.food + entry.tucked
+            for entry in record.final_birds
+        )
+        assert board_value <= record.final_score
+        assert sum(entry.bonus for entry in record.final_birds) <= sum(
+            entry.points for entry in record.final_bonus
+        )
+
+
 def test_bonus_names_do_not_contain_cell_separators():
     for bonus in cards.bonus_cards_ordered():
         assert constants.NAME_SEPARATOR not in bonus.name
@@ -230,7 +294,7 @@ def test_csv_columns_contract():
         + ["played_birds"]
         + [f"birds_r{k}" for k in range(1, 5)]
         + [f"acquired_bonus_r{k}" for k in range(1, 5)]
-        + ["final_bonus"]
+        + ["final_bonus", "final_birds"]
     )
     assert models.card_stats_csv_columns() == expected
 
@@ -246,24 +310,32 @@ def test_seat_record_round_trips_through_csv_cells():
         [["A"], [], ["A", "B"], []],
         played=["A"],
         final_bonus=[(_BONUS_X, 4, 3), (_BONUS_Y, 0, 0)],
+        final_birds=[("B", 3, 2, 1, 0, 6), ("A", 1, 0, 0, 4, 0)],
     )
     row = {key: str(value) for key, value in record.to_csv_row().items()}
     assert row["final_bonus"] == f"{_BONUS_X}:4:3|{_BONUS_Y}:0:0"
-    assert models.CardSeatRecord.from_csv_row(row) == record
+    # The cell is sorted by bird name.
+    assert row["final_birds"] == "A:1:0:0:4:0|B:3:2:1:0:6"
+    parsed = models.CardSeatRecord.from_csv_row(row)
+    assert parsed == record.model_copy(
+        update={"final_birds": sorted(record.final_birds, key=lambda e: e.name)}
+    )
     empty = _record(1, False, False, [], [], "", [[], [], [], []])
     empty_row = {key: str(value) for key, value in empty.to_csv_row().items()}
     assert empty_row["final_bonus"] == ""
+    assert empty_row["final_birds"] == ""
     assert models.CardSeatRecord.from_csv_row(empty_row) == empty
 
 
-def test_from_csv_row_requires_the_final_bonus_column():
+@pytest.mark.parametrize("column", ["final_bonus", "final_birds"])
+def test_from_csv_row_requires_the_final_columns(column: str):
     row = {
         key: str(value)
         for key, value in _record(0, True, False, [], [], "", [[], [], [], []])
         .to_csv_row()
         .items()
     }
-    del row["final_bonus"]
+    del row[column]
     with pytest.raises(KeyError):
         models.CardSeatRecord.from_csv_row(row)
 
@@ -277,6 +349,8 @@ def test_bird_and_bonus_stat_columns_contract():
         + [f"gih_r{k}_{stat}" for k in range(1, 5) for stat in gih]
         + [f"played_{stat}" for stat in gih]
         + ["played_in_hand_n", "play_rate"]
+        + ["final_n", "final_won_n", "mean_final_value", "mean_final_value_won"]
+        + ["mean_eggs", "mean_food", "mean_tucked", "mean_bonus"]
     )
     bonus = ["bonus_name", "offered_n", "kept_n", "keep_rate", "offered_win_rate"]
     assert models.BonusStatsRow.csv_columns() == (
@@ -310,6 +384,7 @@ def _record(
     acquired_by_round: list[list[str]] | None = None,
     played: list[str] | None = None,
     final_bonus: list[tuple[str, int, int]] | None = None,
+    final_birds: list[tuple[str, int, int, int, int, int]] | None = None,
 ) -> models.CardSeatRecord:
     return models.CardSeatRecord(
         game_index=row // 2,
@@ -328,6 +403,17 @@ def _record(
         final_bonus=[
             models.FinalBonusEntry(name=name, count=count, points=points)
             for name, count, points in final_bonus or []
+        ],
+        final_birds=[
+            models.FinalBirdEntry(
+                name=name,
+                points=points,
+                eggs=eggs,
+                food=food,
+                tucked=tucked,
+                bonus=bonus,
+            )
+            for name, points, eggs, food, tucked, bonus in final_birds or []
         ],
     )
 
@@ -356,6 +442,7 @@ def _fixture_records() -> list[models.CardSeatRecord]:
             [[], [_BONUS_Y], [_BONUS_Y], []],
             [a, c],
             final_bonus=[(_BONUS_X, 3, 1), (_BONUS_Y, 2, 2)],
+            final_birds=[(a, 2, 3, 1, 0, 2), (c, 4, 0, 0, 1, 0)],
         ),
         # Loss; holds a but never plays it.
         _record(
@@ -367,6 +454,7 @@ def _fixture_records() -> list[models.CardSeatRecord]:
             _BONUS_X,
             [[a], [], [], []],
             final_bonus=[(_BONUS_X, 3, 1)],
+            final_birds=[(a, 2, 1, 0, 0, 0)],
         ),
         # Tie: never wins, stays in every denominator; keeps nothing.
         _record(
@@ -390,6 +478,7 @@ def _fixture_records() -> list[models.CardSeatRecord]:
             [[a, c], [a, c], [a], [a]],
             played=[a],
             final_bonus=[(_BONUS_X, 5, 3)],
+            final_birds=[(a, 2, 5, 0, 2, 0)],
         ),
     ]
 
@@ -477,6 +566,54 @@ def test_bird_rows_match_hand_computation(fixture_csv: pathlib.Path):
     assert unseen.dealt_win_rate is None
     assert unseen.gih.n == 0
     assert unseen.gih.ci95_lo is None
+
+
+def test_bird_final_value_means_split_all_games_and_sole_wins(
+    fixture_csv: pathlib.Path,
+):
+    rows = card_stats_agg.bird_rows(card_stats_agg.read_raw_cards(fixture_csv))
+
+    # a finishes on the board in three seat-games: totals 2+3+1+0+2 = 8 (win),
+    # 2+1 = 3 (loss), 2+5+0+2 = 9 (win).
+    bird_a = _bird(rows, _BIRD_A)
+    assert (bird_a.final_n, bird_a.final_won_n) == (3, 2)
+    assert bird_a.mean_final_value == pytest.approx((8 + 3 + 9) / 3)
+    assert bird_a.mean_final_value_won == pytest.approx((8 + 9) / 2)
+    assert bird_a.mean_eggs == pytest.approx((3 + 1 + 5) / 3)
+    assert bird_a.mean_food == pytest.approx(1 / 3)
+    assert bird_a.mean_tucked == pytest.approx(2 / 3)
+    assert bird_a.mean_bonus == pytest.approx(2 / 3)
+
+    # c finishes in one won game: 4 + 0 + 0 + 1 + 0 = 5.
+    bird_c = _bird(rows, _BIRD_C)
+    assert (bird_c.final_n, bird_c.final_won_n) == (1, 1)
+    assert bird_c.mean_final_value == pytest.approx(5)
+    assert bird_c.mean_final_value_won == pytest.approx(5)
+
+    # Never on a board at game end: blank means, not zero.
+    bird_b = _bird(rows, _BIRD_B)
+    assert bird_b.final_n == 0
+    assert bird_b.mean_final_value is None
+    assert bird_b.mean_final_value_won is None
+
+
+def test_bird_final_value_is_blank_when_never_won():
+    records = [
+        _record(
+            0,
+            False,
+            True,
+            [_BIRD_A],
+            [_BIRD_A],
+            "",
+            [[], [], [], []],
+            final_birds=[(_BIRD_A, 2, 1, 0, 0, 0)],
+        )
+    ]
+    bird_a = _bird(card_stats_agg.bird_rows(records), _BIRD_A)
+    assert (bird_a.final_n, bird_a.final_won_n) == (1, 0)
+    assert bird_a.mean_final_value == pytest.approx(3)
+    assert bird_a.mean_final_value_won is None
 
 
 def test_bonus_rows_match_hand_computation(fixture_csv: pathlib.Path):

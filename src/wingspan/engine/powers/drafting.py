@@ -263,6 +263,9 @@ def _h_draw_bonus_keep(
         kept = ch.bonus_card
         drawn.remove(kept)
         player.bonus_cards.append(kept)
+        engine.instrumentation.bonus_acquired(
+            engine=engine, player=player, bonus=kept, source=bird
+        )
         engine.log(f"  {bird.name}: kept bonus '{kept.name}'")
     for leftover in drawn:
         st.bonus_discard.append(leftover)

@@ -118,6 +118,17 @@ def play_game(
                 )
                 for entry in sorted(seat.final_bonus, key=lambda entry: entry.name)
             ],
+            final_birds=[
+                models.FinalBirdEntry(
+                    name=bird.name,
+                    points=bird.points,
+                    eggs=bird.eggs,
+                    food=bird.food,
+                    tucked=bird.tucked,
+                    bonus=bird.bonus,
+                )
+                for bird in sorted(seat.final_birds, key=lambda bird: bird.name)
+            ],
         )
         for seat in capture.seats
     ]

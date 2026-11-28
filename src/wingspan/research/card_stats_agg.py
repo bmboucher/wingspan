@@ -6,8 +6,12 @@ standalone — and writes, into an output directory:
 * ``bird_stats.csv`` / ``bird_stats.md`` — one row per catalog bird: how often it
   is dealt and kept, and its "games in hand" (GIH) win rate overall and per
   round, each with a Wilson 95% interval; its "games played" win rate (bird
-  placed on the board at any point); and its play rate (share of GIH
-  seat-games in which it was also played).
+  placed on the board at any point); its play rate (share of GIH
+  seat-games in which it was also played); and its final value — the mean VP
+  attributable to it at game end (printed points + eggs + cached food + tucked
+  cards + VP of the bonus cards its power drew) over all seat-games it finished
+  on the board and over sole-win ones only, with the egg / food / tucked / bonus
+  components of the all-games mean.
 * ``bonus_stats.csv`` / ``bonus_stats.md`` — one row per catalog bonus card: its
   offered / kept / original-card win rates, its acquired-mid-game win rates
   (overall and per round), the combined original-or-acquired GIH rate, and the
@@ -101,7 +105,12 @@ def bird_rows(
     played = _new_tallies()
     kept: collections.Counter[str] = collections.Counter()
     played_in_hand: collections.Counter[str] = collections.Counter()
+    finals: collections.defaultdict[str, models.FinalValueTally] = (
+        collections.defaultdict(models.FinalValueTally)
+    )
     for record in records:
+        for entry in record.final_birds:
+            finals[entry.name].add(entry, won=record.won)
         for name in set(record.dealt_birds):
             dealt[name].add(won=record.won)
         kept.update(set(record.kept_birds))
@@ -129,6 +138,16 @@ def bird_rows(
             played=win_stat(played[bird.name]),
             played_in_hand_n=played_in_hand[bird.name],
             play_rate=_rate(played_in_hand[bird.name], gih[bird.name].n),
+            final_n=finals[bird.name].n,
+            final_won_n=finals[bird.name].won_n,
+            mean_final_value=_rate(finals[bird.name].total, finals[bird.name].n),
+            mean_final_value_won=_rate(
+                finals[bird.name].won_total, finals[bird.name].won_n
+            ),
+            mean_eggs=_rate(finals[bird.name].eggs, finals[bird.name].n),
+            mean_food=_rate(finals[bird.name].food, finals[bird.name].n),
+            mean_tucked=_rate(finals[bird.name].tucked, finals[bird.name].n),
+            mean_bonus=_rate(finals[bird.name].bonus, finals[bird.name].n),
         )
         for bird in cards.birds_ordered()
     ]
@@ -226,8 +245,9 @@ def bird_markdown(
         _baseline_line(base),
         "",
         "|Bird|Dealt|Keep rate|Dealt win rate|GIH n|GIH win rate|GIH 95% CI"
-        "|Play rate|Played n|Played win rate|Played 95% CI|",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "|Play rate|Played n|Played win rate|Played 95% CI"
+        "|Final n|Mean final VP|Mean final VP (won)|",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
@@ -235,7 +255,9 @@ def bird_markdown(
             f"|{_percent(row.dealt_win_rate)}|{row.gih.n}"
             f"|{_percent(row.gih.win_rate)}|{_interval(row.gih)}"
             f"|{_percent(row.play_rate)}|{row.played.n}"
-            f"|{_percent(row.played.win_rate)}|{_interval(row.played)}|"
+            f"|{_percent(row.played.win_rate)}|{_interval(row.played)}"
+            f"|{row.final_n}|{_decimal(row.mean_final_value)}"
+            f"|{_decimal(row.mean_final_value_won)}|"
         )
     return "\n".join(lines) + "\n"
 

@@ -42,7 +42,7 @@ and reverse lookups for (de)serialization.
   `GAME_END`, `ROUND_START`, `ROUND_END`, `TURN_START`, `TURN_END`,
   `MAKING_DECISION`, `MADE_DECISION`, `BIRD_PLACED`, `FOOD_GAINED`,
   `EGGS_LAID`, `CARDS_DRAWN`, `ROUND_GOAL_SCORED`, `PLAYER_FINAL_SCORED`,
-  `SETUP_APPLIED`, `SETUP_START`).
+  `SETUP_APPLIED`, `SETUP_START`, `BONUS_ACQUIRED`).
 - `CallbackHandler` — abstract base; subclasses implement the methods matching
   the events they subscribe to and declare their `EventName` set in `HANDLES`.
 - Concrete handler protocol classes: `GameStartHandler`, `GameEndHandler`,
@@ -50,7 +50,10 @@ and reverse lookups for (de)serialization.
   `MakingDecisionHandler`, `MadeDecisionHandler`, `BirdPlacedHandler`,
   `FoodGainedHandler`, `EggsLaidHandler`, `CardsDrawnHandler`,
   `RoundGoalScoredHandler`, `PlayerFinalScoredHandler`, `SetupAppliedHandler`,
-  `SetupStartHandler`.
+  `SetupStartHandler`, `BonusAcquiredHandler`. `bonus_acquired(engine, player,
+  bonus, source)` fires from the `DRAW_BONUS` / `DRAW_BONUS_KEEP` power
+  handlers for each bonus card a bird's power gives the player (setup picks do
+  not fire it).
 
 ## handlers/ subpackage
 
@@ -86,14 +89,17 @@ game-level `tie`. Turn numbering is an explicit per-seat counter incremented at
 **`handlers/card_stats.py`** — `CardStatsCapture` (one instance per game; not
 registered by name — built programmatically by `research.card_stats`).
 Subscribes to `setup_start` / `round_start` / `turn_start` / `bird_placed` /
-`turn_end` / `game_end` via `instrumentation()`. Per seat (`CardSeatCapture`) it
+`turn_end` / `bonus_acquired` / `game_end` via `instrumentation()`. Per seat (`CardSeatCapture`) it
 records the dealt birds and dealt bonus (`setup_start`), the kept birds and the
 original bonus card (read at the round-0 `round_start`, because the
 deferred-bonus regime picks the bonus after `setup_applied`), per-round sets of
 birds in hand and of acquired (non-original) bonus cards, and `won` / `tie` /
 `final_score` at `game_end`, where it also records `final_bonus` (`FinalBonus`:
 name, final qualifying count, VP paid) for every bonus card held, original and
-acquired alike. A card counts for a round if held at any point of
+acquired alike, and `final_birds` (`FinalBird`: name, printed points, eggs,
+cached food, tucked cards, and `bonus` = final VP of the bonus cards that bird's
+own power drew, tracked via `bonus_acquired`) for every bird on the board. A
+card counts for a round if held at any point of
 it unless it arrived on the seat's final turn of that round: `turn_start` adds
 the hand; `turn_end` adds the hand plus birds placed that turn only when
 `action_cubes_left > 0` (the cube is spent before the action runs).

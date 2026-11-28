@@ -16,6 +16,11 @@ game — build a fresh one per game — and records, for every seat:
   score.
 * at ``game_end``, every bonus card the seat holds (original and acquired alike),
   with its final qualifying count and the VP it paid (:class:`FinalBonus`).
+* at ``game_end``, the final point value attributable to every bird on the
+  board (:class:`FinalBird`): its printed points, the eggs, cached food and
+  tucked cards on it, and the full final VP of every bonus card its own power
+  drew (``bonus_acquired``). Setup bonus cards and food in the supply belong to
+  no bird.
 
 **"Held during the round".** A card counts for round ``r`` if the seat held it at
 any point of the round, *unless it arrived on the seat's final turn of that
@@ -62,6 +67,19 @@ class FinalBonus(pydantic.BaseModel):
     points: int
 
 
+class FinalBird(pydantic.BaseModel):
+    """The final VP attributable to one bird on the board at game end, by
+    component. ``bonus`` is the summed final VP of the bonus cards this bird's
+    power drew."""
+
+    name: str
+    points: int
+    eggs: int
+    food: int
+    tucked: int
+    bonus: int
+
+
 class CardSeatCapture(pydantic.BaseModel):
     """Everything :class:`CardStatsCapture` records about one seat of one game."""
 
@@ -86,6 +104,12 @@ class CardSeatCapture(pydantic.BaseModel):
     final_score: int = 0
     # Every bonus card held at game end (original and acquired), in held order.
     final_bonus: list[FinalBonus] = pydantic.Field(default_factory=list[FinalBonus])
+    # Names of the bonus cards each bird's power gave the seat, by bird name.
+    bonus_from_bird: dict[str, list[str]] = pydantic.Field(
+        default_factory=dict[str, list[str]]
+    )
+    # Every bird on the board at game end with its attributable VP.
+    final_birds: list[FinalBird] = pydantic.Field(default_factory=list[FinalBird])
     # True only for a sole winner; a shared victory leaves every seat False.
     won: bool = False
 
@@ -96,6 +120,7 @@ class CardStatsCapture(
     events.TurnStartHandler,
     events.BirdPlacedHandler,
     events.TurnEndHandler,
+    events.BonusAcquiredHandler,
     events.GameEndHandler,
 ):
     """Capture one game's openers, per-round card holdings, and outcome.
@@ -127,6 +152,7 @@ class CardStatsCapture(
                 events.EventName.TURN_START: [self],
                 events.EventName.BIRD_PLACED: [self],
                 events.EventName.TURN_END: [self],
+                events.EventName.BONUS_ACQUIRED: [self],
                 events.EventName.GAME_END: [self],
             }
         )
@@ -178,6 +204,18 @@ class CardStatsCapture(
         if player.action_cubes_left > 0:
             self._record_held(engine, player, include_placed=True)
 
+    def bonus_acquired(
+        self,
+        *,
+        engine: core.Engine,
+        player: state.Player,
+        bonus: cards.BonusCard,
+        source: cards.Bird,
+    ) -> None:
+        self._seats[player.id].bonus_from_bird.setdefault(source.name, []).append(
+            bonus.name
+        )
+
     def game_end(self, *, engine: core.Engine) -> None:
         winner_ids = scoring.winners(engine.state.players)
         self._tie = len(winner_ids) > 1
@@ -194,6 +232,22 @@ class CardStatsCapture(
                     points=scoring.bonus_score(player, bc),
                 )
                 for bc in player.bonus_cards
+            ]
+            bonus_points = {final.name: final.points for final in seat.final_bonus}
+            seat.final_birds = [
+                FinalBird(
+                    name=pb.bird.name,
+                    points=pb.bird.points,
+                    eggs=pb.eggs,
+                    food=pb.cached_food.total(),
+                    tucked=pb.tucked_cards,
+                    bonus=sum(
+                        bonus_points[name]
+                        for name in seat.bonus_from_bird.get(pb.bird.name, [])
+                    ),
+                )
+                for row in player.board.values()
+                for pb in row
             ]
 
     ###### PRIVATE #######

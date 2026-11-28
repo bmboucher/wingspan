@@ -705,6 +705,10 @@ def _h_draw_bonus(
         if (card := st.draw_bonus(revealed_to=player.id)) is not None:
             drawn.append(card)
     player.bonus_cards.extend(drawn)
+    for card in drawn:
+        engine.instrumentation.bonus_acquired(
+            engine=engine, player=player, bonus=card, source=bird
+        )
     engine.log(f"  {bird.name}: drew {len(drawn)} bonus card(s)")
 
 

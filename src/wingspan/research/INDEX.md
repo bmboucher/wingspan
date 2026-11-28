@@ -213,7 +213,13 @@ dealt_win_rate`, then `gih_{n,wins,win_rate,ci95_lo,ci95_hi}` (bird in hand at
 any point after setup) and the same five per round as `gih_r1_..gih_r4_`, then
 `played_{n,wins,win_rate,ci95_lo,ci95_hi}` (bird placed on the board at any
 point: "games played"), `played_in_hand_n` and `play_rate`
-(`played_in_hand_n / gih_n`: share of GIH seat-games where it was also played).
+(`played_in_hand_n / gih_n`: share of GIH seat-games where it was also played),
+then the final-value columns `final_n` (seat-games the bird was on the board at
+game end), `final_won_n` (sole wins among them), `mean_final_value` (printed
+points + eggs + cached food + tucked + VP of bonus cards its power drew, all
+games), `mean_final_value_won` (sole wins only) and the `mean_eggs`, `mean_food`,
+`mean_tucked`, `mean_bonus` components of the all-games mean (blank when no
+observations; accumulated in `FinalValueTally`).
 `bonus_stats.csv`: `bonus_name, offered_n, kept_n, keep_rate,
 offered_win_rate`, `original_*` (kept at setup), `gih_*` (combined: original OR
 acquired), `acquired_gih_*` (picked up mid-game, any round) and
@@ -241,8 +247,11 @@ birds, dealt / original bonus, `birds_by_round`, `acquired_bonus_by_round`;
 `to_csv_row()` / `from_csv_row()`) with `card_stats_csv_columns()` (the stable
 `card_games_raw.csv` header: `game_index, seed, seat, won, tie, final_score,
 dealt_birds, kept_birds, dealt_bonus, original_bonus, played_birds, birds_r1..4,
-acquired_bonus_r1..4, final_bonus`; card names `|`-joined; `final_bonus` entries
-are `Name:count:points` sorted by name, parsed back into `FinalBonusEntry`);
+acquired_bonus_r1..4, final_bonus, final_birds`; card names `|`-joined;
+`final_bonus` entries are `Name:count:points` sorted by name, parsed back into
+`FinalBonusEntry`; `final_birds` entries are `Name:points:eggs:food:tucked:bonus`
+sorted by name, parsed back into `FinalBirdEntry`, whose `total` is the bird's
+attributable final VP);
 `WinTally`, `WinStat` (n, wins, win_rate, Wilson `ci95_lo` / `ci95_hi`),
 `BirdStatsRow`, `BonusStatsRow`, `BonusHistRow` (each with `csv_columns()`),
 `HistMetric`, `CardStatsBaseline`.

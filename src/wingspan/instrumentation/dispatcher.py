@@ -221,6 +221,19 @@ class Instrumentation:
                 engine=engine, player=player, dealt_bonus=dealt_bonus
             )
 
+    def bonus_acquired(
+        self,
+        *,
+        engine: core.Engine,
+        player: state.Player,
+        bonus: cards.BonusCard,
+        source: cards.Bird,
+    ) -> None:
+        for handler in self._for(events.EventName.BONUS_ACQUIRED):
+            typing.cast(events.BonusAcquiredHandler, handler).bonus_acquired(
+                engine=engine, player=player, bonus=bonus, source=source
+            )
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------

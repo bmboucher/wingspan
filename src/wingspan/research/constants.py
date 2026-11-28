@@ -57,6 +57,10 @@ FINAL_BONUS_COLUMN = "final_bonus"
 # Splits one ``final_bonus`` entry into ``name:count:points`` (no bonus card
 # name contains it); entries are joined by ``NAME_SEPARATOR``.
 FINAL_BONUS_ENTRY_SEPARATOR = ":"
+# The ``card_games_raw.csv`` column holding every bird on the board at game end
+# as ``name:points:eggs:food:tucked:bonus`` (entries joined by
+# ``NAME_SEPARATOR``, fields by ``FINAL_BONUS_ENTRY_SEPARATOR``).
+FINAL_BIRDS_COLUMN = "final_birds"
 # Games per unit of pool work (each game is a full greedy self-play game).
 CARD_STATS_GAMES_PER_SHARD = 8
 # Number of rounds a game has (one per entry of ``state.ROUND_CUBES``).

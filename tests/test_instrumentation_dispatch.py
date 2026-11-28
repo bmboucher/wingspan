@@ -37,6 +37,7 @@ class _RecordingHandler(
     events.PlayerFinalScoredHandler,
     events.SetupAppliedHandler,
     events.SetupStartHandler,
+    events.BonusAcquiredHandler,
 ):
     """Appends each event it sees to a shared ``seen`` list (one instance is
     assigned to every event, so the list demonstrates cross-event state)."""
@@ -147,6 +148,16 @@ class _RecordingHandler(
         dealt_bonus: list[cards.BonusCard],
     ) -> None:
         self._seen.append("setup_start")
+
+    def bonus_acquired(
+        self,
+        *,
+        engine: core.Engine,
+        player: state.Player,
+        bonus: cards.BonusCard,
+        source: cards.Bird,
+    ) -> None:
+        self._seen.append("bonus_acquired")
 
 
 def _play_recorded(seed: int) -> _RecordingHandler:

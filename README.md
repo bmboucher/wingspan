@@ -321,7 +321,10 @@ estimate per-card "games in hand" (GIH) win rates and opener keep rates for
 birds and bonus cards. It writes `card_games_raw.csv` plus `bird_stats.csv` and
 `bonus_stats.csv` (with markdown renderings), each rate with a Wilson 95%
 interval. It also records each bonus card's final qualifying count and VP paid
-at game end (mean columns in `bonus_stats.csv`, histograms in `bonus_hist.csv`). A card counts for a round if the seat held it at any point of it,
+at game end (mean columns in `bonus_stats.csv`, histograms in `bonus_hist.csv`), and each
+bird's final value — printed points plus the eggs, cached food and tucked cards on
+it plus the VP of any bonus cards its power drew — averaged over all games and over
+won games only (`mean_final_value`, `mean_final_value_won` in `bird_stats.csv`). A card counts for a round if the seat held it at any point of it,
 unless it arrived on the seat's final turn of that round. `--release` plays the
 bundled model; `--checkpoint-dir` plays a run directory (the two are mutually
 exclusive).

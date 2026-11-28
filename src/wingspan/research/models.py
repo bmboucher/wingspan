@@ -549,7 +549,26 @@ def card_stats_csv_columns() -> list[str]:
         *_round_columns(constants.BIRDS_ROUND_PREFIX),
         *_round_columns(constants.ACQUIRED_BONUS_ROUND_PREFIX),
         constants.FINAL_BONUS_COLUMN,
+        constants.FINAL_BIRDS_COLUMN,
     ]
+
+
+class FinalBirdEntry(pydantic.BaseModel):
+    """The final VP attributable to one bird on a seat's board at game end:
+    printed points, eggs, cached food and tucked cards on it, and the final VP
+    of the bonus cards its power drew."""
+
+    name: str
+    points: int
+    eggs: int
+    food: int
+    tucked: int
+    bonus: int
+
+    @property
+    def total(self) -> int:
+        """The bird's whole attributable final value."""
+        return self.points + self.eggs + self.food + self.tucked + self.bonus
 
 
 class FinalBonusEntry(pydantic.BaseModel):
@@ -574,7 +593,10 @@ class CardSeatRecord(pydantic.BaseModel):
 
     ``final_bonus`` lists every bonus card held at game end, original and
     acquired alike, each with its final count and VP (the CSV cell is sorted by
-    name)."""
+    name).
+
+    ``final_birds`` lists every bird on the board at game end with its
+    attributable final VP (the CSV cell is sorted by name)."""
 
     game_index: int
     seed: int
@@ -605,6 +627,7 @@ class CardSeatRecord(pydantic.BaseModel):
         ),
     ]
     final_bonus: list[FinalBonusEntry]
+    final_birds: list[FinalBirdEntry]
 
     def to_csv_row(self) -> dict[str, object]:
         """The flat CSV row (the header is :func:`card_stats_csv_columns`);
@@ -628,6 +651,19 @@ class CardSeatRecord(pydantic.BaseModel):
                 (entry.name, str(entry.count), str(entry.points))
             )
             for entry in sorted(self.final_bonus, key=lambda entry: entry.name)
+        )
+        row[constants.FINAL_BIRDS_COLUMN] = constants.NAME_SEPARATOR.join(
+            constants.FINAL_BONUS_ENTRY_SEPARATOR.join(
+                (
+                    entry.name,
+                    str(entry.points),
+                    str(entry.eggs),
+                    str(entry.food),
+                    str(entry.tucked),
+                    str(entry.bonus),
+                )
+            )
+            for entry in sorted(self.final_birds, key=lambda entry: entry.name)
         )
         return row
 
@@ -659,6 +695,10 @@ class CardSeatRecord(pydantic.BaseModel):
                 _parse_final_bonus(cell)
                 for cell in _split_names(row[constants.FINAL_BONUS_COLUMN])
             ],
+            final_birds=[
+                _parse_final_bird(cell)
+                for cell in _split_names(row[constants.FINAL_BIRDS_COLUMN])
+            ],
         )
 
 
@@ -675,6 +715,32 @@ class WinTally(pydantic.BaseModel):
         """Count one seat-game."""
         self.n += 1
         self.wins += int(won)
+
+
+class FinalValueTally(pydantic.BaseModel):
+    """Running sums of one bird's attributable final VP over the seat-games it
+    finished on the board, with the sole-win subset tracked separately."""
+
+    n: int = 0
+    won_n: int = 0
+    total: int = 0
+    won_total: int = 0
+    eggs: int = 0
+    food: int = 0
+    tucked: int = 0
+    bonus: int = 0
+
+    def add(self, entry: FinalBirdEntry, *, won: bool) -> None:
+        """Count one seat-game's final entry for the bird."""
+        self.n += 1
+        self.total += entry.total
+        self.eggs += entry.eggs
+        self.food += entry.food
+        self.tucked += entry.tucked
+        self.bonus += entry.bonus
+        if won:
+            self.won_n += 1
+            self.won_total += entry.total
 
 
 class WinStat(pydantic.BaseModel):
@@ -697,6 +763,20 @@ class WinStat(pydantic.BaseModel):
         return [f"{prefix}{name}" for name in cls.model_fields]
 
 
+# The final-value columns that close ``bird_stats.csv`` (attribute names of
+# ``BirdStatsRow``, in header order).
+_BIRD_FINAL_COLUMNS: tuple[str, ...] = (
+    "final_n",
+    "final_won_n",
+    "mean_final_value",
+    "mean_final_value_won",
+    "mean_eggs",
+    "mean_food",
+    "mean_tucked",
+    "mean_bonus",
+)
+
+
 class BirdStatsRow(pydantic.BaseModel):
     """One row of ``bird_stats.csv``: how often a bird is kept and how seats
     holding it fared. ``gih`` ("games in hand") is every seat-game in which the
@@ -708,7 +788,16 @@ class BirdStatsRow(pydantic.BaseModel):
     on the board at any point. ``play_rate`` is the share of GIH seat-games in
     which the bird was also played (``played_in_hand_n / gih.n``); a bird played
     without ever counting as GIH (it arrived and was played on a round's final
-    turn) is in ``played`` but not in the play rate."""
+    turn) is in ``played`` but not in the play rate.
+
+    ``final_n`` is the seat-games in which the bird was on the board at game end
+    and ``final_won_n`` those among them that were sole wins (a tie is a
+    non-win; the tie-break is score, then unused supply food).
+    ``mean_final_value`` / ``mean_final_value_won`` are the mean attributable
+    final VP (printed points + eggs + cached food + tucked cards + VP of the
+    bonus cards the bird's power drew) over all such seat-games / over the won
+    ones; ``mean_eggs`` / ``mean_food`` / ``mean_tucked`` / ``mean_bonus`` break
+    the all-games mean down. All are ``None`` when there are no observations."""
 
     bird_id: int
     bird_name: str
@@ -721,6 +810,14 @@ class BirdStatsRow(pydantic.BaseModel):
     played: WinStat
     played_in_hand_n: int
     play_rate: float | None
+    final_n: int
+    final_won_n: int
+    mean_final_value: float | None
+    mean_final_value_won: float | None
+    mean_eggs: float | None
+    mean_food: float | None
+    mean_tucked: float | None
+    mean_bonus: float | None
 
     def to_csv_row(self) -> dict[str, object]:
         """The flat CSV row (the header is :meth:`csv_columns`)."""
@@ -738,6 +835,8 @@ class BirdStatsRow(pydantic.BaseModel):
         row.update(self.played.flattened("played_"))
         row["played_in_hand_n"] = self.played_in_hand_n
         row["play_rate"] = self.play_rate
+        for column in _BIRD_FINAL_COLUMNS:
+            row[column] = getattr(self, column)
         return row
 
     @classmethod
@@ -756,6 +855,7 @@ class BirdStatsRow(pydantic.BaseModel):
             columns.extend(WinStat.columns(prefix))
         columns.extend(WinStat.columns("played_"))
         columns.extend(["played_in_hand_n", "play_rate"])
+        columns.extend(_BIRD_FINAL_COLUMNS)
         return columns
 
 
@@ -1123,3 +1223,19 @@ def _parse_final_bonus(cell: str) -> FinalBonusEntry:
     """Parse one ``name:count:points`` entry of the ``final_bonus`` cell."""
     name, count, points = cell.split(constants.FINAL_BONUS_ENTRY_SEPARATOR)
     return FinalBonusEntry(name=name, count=int(count), points=int(points))
+
+
+def _parse_final_bird(cell: str) -> FinalBirdEntry:
+    """Parse one ``name:points:eggs:food:tucked:bonus`` entry of the
+    ``final_birds`` cell."""
+    name, points, eggs, food, tucked, bonus = cell.split(
+        constants.FINAL_BONUS_ENTRY_SEPARATOR
+    )
+    return FinalBirdEntry(
+        name=name,
+        points=int(points),
+        eggs=int(eggs),
+        food=int(food),
+        tucked=int(tucked),
+        bonus=int(bonus),
+    )
